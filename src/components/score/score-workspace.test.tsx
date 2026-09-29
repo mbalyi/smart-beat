@@ -268,6 +268,7 @@ describe("ScoreWorkspace", () => {
 
   it("switches instrument sounds and remembers the choice", async () => {
     const { user, player } = await setup();
+    player.becomeReady();
     await openMixer(user);
 
     await user.click(screen.getByRole("combobox", { name: "Instrument sounds" }));
@@ -282,7 +283,7 @@ describe("ScoreWorkspace", () => {
     const { user, player } = await setup();
     expect(player.options.soundFontUrl).toBe("/soundfont/FluidR3Mono_GM.sf3");
 
-    player.emit("onSoundFontError", new Error("404"));
+    player.emit("onSoundFontError", new Error("404"), { previousKept: false });
 
     expect(await screen.findByText("High quality sounds are not available")).toBeInTheDocument();
     expect(player.setSoundFont).toHaveBeenCalledWith("/soundfont/sonivox.sf3");
@@ -293,10 +294,40 @@ describe("ScoreWorkspace", () => {
     );
   });
 
+  it("keeps playing the standard sounds when the others fail to download", async () => {
+    const { user, player } = await setup();
+    player.becomeReady();
+    await openMixer(user);
+    await user.click(screen.getByRole("combobox", { name: "Instrument sounds" }));
+    await user.click(await screen.findByRole("option", { name: /High quality/ }));
+    player.setSoundFont.mockClear();
+
+    player.emit("onSoundFontError", new Error("404"), { previousKept: true });
+
+    expect(await screen.findByText("High quality sounds are not available")).toBeInTheDocument();
+    expect(player.setSoundFont).not.toHaveBeenCalled(); // no reload, no pause
+    expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toHaveTextContent(
+      "Standard",
+    );
+  });
+
+  it("disables switching sounds while they load, and explains pan during playback", async () => {
+    const { user, player } = await setup();
+    await openMixer(user);
+    expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toBeDisabled();
+    expect(screen.queryByText(/Pan changes are applied when you pause/)).not.toBeInTheDocument();
+
+    player.becomeReady();
+    player.emit("onPlayingChange", true);
+
+    expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toBeEnabled();
+    expect(screen.getByText(/Pan changes are applied when you pause/)).toBeInTheDocument();
+  });
+
   it("reports when no sounds can be loaded", async () => {
     const { player } = await setup();
 
-    player.emit("onSoundFontError", new Error("offline"));
+    player.emit("onSoundFontError", new Error("offline"), { previousKept: false });
 
     expect(await screen.findByText("Instrument sounds could not be loaded")).toBeInTheDocument();
     expect(player.setSoundFont).not.toHaveBeenCalled();

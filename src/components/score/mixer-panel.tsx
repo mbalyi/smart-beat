@@ -28,6 +28,16 @@ import { cn } from "@/lib/utils";
 /** Pan changes regenerate the MIDI, so they're applied when the user lets go. */
 export type MixerChange = (action: MixerAction, options?: { commit: boolean }) => void;
 
+/**
+ * Pressed Mute (red) and Solo (yellow) use mixing-desk colours, fixed in both
+ * themes, so they stand out from the muted strip background. Radix sets both
+ * `data-state=on` and `aria-pressed`, so both are overridden.
+ */
+const MUTE_PRESSED =
+  "data-[state=on]:border-red-700 data-[state=on]:bg-red-700 aria-pressed:bg-red-700 data-[state=on]:text-white data-[state=on]:hover:bg-red-800 data-[state=on]:hover:text-white";
+const SOLO_PRESSED =
+  "data-[state=on]:border-amber-400 data-[state=on]:bg-amber-400 aria-pressed:bg-amber-400 data-[state=on]:text-black data-[state=on]:hover:bg-amber-300 data-[state=on]:hover:text-black";
+
 function TrackIcon({ track }: { track: TrackSummary }) {
   const Icon = track.isPercussion ? DrumIcon : track.hasTablature ? GuitarIcon : PianoIcon;
   return <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />;
@@ -61,6 +71,7 @@ function TrackStrip({
             onPressedChange={(value) => onChange({ type: "mute", track: index, value })}
             aria-label={`Mute ${track.name}`}
             title="Mute"
+            className={MUTE_PRESSED}
           >
             M
           </Toggle>
@@ -71,6 +82,7 @@ function TrackStrip({
             onPressedChange={(value) => onChange({ type: "solo", track: index, value })}
             aria-label={`Solo ${track.name}`}
             title="Solo"
+            className={SOLO_PRESSED}
           >
             S
           </Toggle>
@@ -115,6 +127,8 @@ export function MixerPanel({
   onSoundFontChange,
   saved,
   returnFocusTo,
+  soundsReady = true,
+  playing = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -128,6 +142,10 @@ export function MixerPanel({
   saved: boolean;
   /** Focused when the panel closes (the button that opened it). */
   returnFocusTo?: RefObject<HTMLElement | null>;
+  /** False while instrument sounds load: switching again is disabled. */
+  soundsReady?: boolean;
+  /** Pan is applied at the next pause during playback (see ScorePlayer.setMix). */
+  playing?: boolean;
 }) {
   const soundLabelId = useId();
 
@@ -175,6 +193,7 @@ export function MixerPanel({
             </span>
             <Select
               value={soundFont}
+              disabled={!soundsReady}
               onValueChange={(value) => isSoundFontId(value) && onSoundFontChange(value)}
             >
               <SelectTrigger aria-labelledby={soundLabelId} className="w-full">
@@ -195,6 +214,11 @@ export function MixerPanel({
             <h2 id={`${soundLabelId}-tracks`} className="text-sm font-medium">
               Tracks
             </h2>
+            {playing && (
+              <p className="text-xs text-muted-foreground">
+                Pan changes are applied when you pause, so the music never stutters.
+              </p>
+            )}
             <ul className="flex flex-col gap-2">
               {tracks.map((track) => {
                 const trackMix = mix.tracks[track.index];

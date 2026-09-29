@@ -80,19 +80,24 @@ export function ScoreWorkspace({ song, onOpen }: { song: ScoreDocument; onOpen: 
   const changeSoundFont = (id: SoundFontId) => {
     setSoundFont(id);
     storeSoundFontPreference(id);
-    playerRef.current?.setSoundFont(getSoundFont(id).url);
+    void playerRef.current?.setSoundFont(getSoundFont(id).url);
   };
 
-  const onSoundFontError = useEffectEvent((error: Error) => {
-    if (soundFont === DEFAULT_SOUNDFONT) {
-      toast.error("Instrument sounds could not be loaded", { description: errorText(error) });
-      return;
-    }
-    toast.error(`${getSoundFont(soundFont).label} sounds are not available`, {
-      description: "Using the standard sounds instead.",
-    });
-    changeSoundFont(DEFAULT_SOUNDFONT);
-  });
+  const onSoundFontError = useEffectEvent(
+    (error: Error, { previousKept }: { previousKept: boolean }) => {
+      if (soundFont === DEFAULT_SOUNDFONT) {
+        toast.error("Instrument sounds could not be loaded", { description: errorText(error) });
+        return;
+      }
+      toast.error(`${getSoundFont(soundFont).label} sounds are not available`, {
+        description: "Using the standard sounds instead.",
+      });
+      setSoundFont(DEFAULT_SOUNDFONT);
+      storeSoundFontPreference(DEFAULT_SOUNDFONT);
+      // The standard sounds may still be loaded: then don't interrupt playback.
+      if (!previousKept) void playerRef.current?.setSoundFont(getSoundFont(DEFAULT_SOUNDFONT).url);
+    },
+  );
 
   // The initial state, read once when the player is created. Later changes go
   // straight to the player from the handlers below.
@@ -204,6 +209,8 @@ export function ScoreWorkspace({ song, onOpen }: { song: ScoreDocument; onOpen: 
         onSoundFontChange={changeSoundFont}
         saved={saved}
         returnFocusTo={mixerButtonRef}
+        soundsReady={ready}
+        playing={playing}
       />
     </div>
   );

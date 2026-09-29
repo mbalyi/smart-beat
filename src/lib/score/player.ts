@@ -8,6 +8,7 @@ import {
   LayoutMode,
   LogLevel,
   PlayerMode,
+  PlayerOutputMode,
   ScrollMode,
   Settings,
   StaveProfile,
@@ -37,7 +38,11 @@ export interface ScorePlayerCallbacks {
   onPositionChange?: (position: PlaybackPosition) => void;
   /** Index of the bar being played (or clicked). */
   onBarChange?: (barIndex: number) => void;
-  onSoundFontError?: (error: Error) => void;
+  /**
+   * Instrument sounds failed to load. `previousKept`: the sounds in use before
+   * the switch still play (the download failed), so nothing needs reloading.
+   */
+  onSoundFontError?: (error: Error, details: { previousKept: boolean }) => void;
   onError?: (error: Error) => void;
 }
 
@@ -63,6 +68,16 @@ const LAYOUT_MODES: Record<Layout, LayoutMode> = {
 const rhythmMode = (view: TrackView) =>
   view.rhythm ? TabRhythmMode.ShowWithBars : TabRhythmMode.Hidden;
 
+async function downloadSoundFont(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`The instrument sounds could not be downloaded (${response.status}).`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+const asError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
+
 function createSettings(options: ScorePlayerOptions): Settings {
   const base = import.meta.env.BASE_URL;
   const settings = new Settings();
@@ -72,7 +87,13 @@ function createSettings(options: ScorePlayerOptions): Settings {
   settings.display.staveProfile = StaveProfile.Default; // per-staff flags decide
   settings.notation.rhythmMode = rhythmMode(options.view);
   settings.player.playerMode = PlayerMode.EnabledSynthesizer;
-  settings.player.soundFont = options.soundFontUrl;
+  // Synthesize in a worker and play through an AudioWorklet, off the main
+  // thread, with alphaTab's default 500 ms buffer, so rendering, scrolling or
+  // UI updates can't make the audio stutter.
+  settings.player.outputMode = PlayerOutputMode.WebAudioAudioWorklets;
+  settings.player.bufferTimeInMilliseconds = 500;
+  // Loaded by ScorePlayer.setSoundFont (see there), not by alphaTab.
+  settings.player.soundFont = null;
   settings.player.scrollElement = options.scrollElement;
   settings.player.scrollMode = ScrollMode.Continuous;
   settings.player.enableCursor = true;
@@ -90,10 +111,19 @@ export class ScorePlayer {
   private trackIndex: number;
   private mix: MixerSettings;
   private ready = false;
+  private playing = false;
+  private destroyed = false;
   private lastPosition: PlaybackPosition | null = null;
   private lastBar = -1;
-  /** Position to return to once a new SoundFont is ready. */
-  private resumeTick: number | null = null;
+  /** Where (and whether) to continue once a new SoundFont is loaded. */
+  private resume: { tick: number; play: boolean } | null = null;
+  /** Increases with every SoundFont request, so only the latest one is loaded. */
+  private soundFontRequest = 0;
+  /** Pan changed during playback: applied at the next pause, never mid-song. */
+  private panPending = false;
+  /** A SoundFont is loaded in the synthesizer (none right after a reset). */
+  private hasSounds = false;
+  private readonly synthReady: Promise<void>;
   private readonly soundFontErrors = new WeakSet<Error>();
 
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks = {}) {
@@ -107,15 +137,25 @@ export class ScorePlayer {
     this.applyView(options.view);
 
     this.api = new AlphaTabApi(options.element, createSettings(options));
+    // alphaTab ignores SoundFonts sent before its synthesizer is ready.
+    this.synthReady = new Promise((resolve) => this.api.player?.ready.on(() => resolve()));
     this.subscribe();
     this.api.renderScore(this.score, [this.trackIndex]);
+    void this.setSoundFont(options.soundFontUrl);
   }
 
   private subscribe() {
     const { api, callbacks } = this;
     api.renderStarted.on(() => callbacks.onRenderingChange?.(true));
     api.renderFinished.on(() => callbacks.onRenderingChange?.(false));
-    api.playerStateChanged.on((e) => callbacks.onPlayingChange?.(e.state === PlayerState.Playing));
+    api.playerStateChanged.on((e) => {
+      this.playing = e.state === PlayerState.Playing;
+      callbacks.onPlayingChange?.(this.playing);
+      if (!this.playing && this.panPending) {
+        this.panPending = false;
+        this.reloadMidi();
+      }
+    });
     // Also fires when a MIDI file is loaded (with the song length). Don't use
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
     // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
@@ -138,16 +178,17 @@ export class ScorePlayer {
     // becomes ready. This handler is registered after alphaTab's own, so the
     // mixer is applied last. It also runs again after every MIDI or SoundFont reload.
     player.readyForPlayback.on(() => {
+      this.hasSounds = true;
       this.applyMix(null, this.mix);
-      if (this.resumeTick !== null) {
-        api.tickPosition = this.resumeTick;
-        this.resumeTick = null;
-      }
+      const resume = this.resume;
+      this.resume = null;
+      if (resume) api.tickPosition = resume.tick;
       this.setReady(true);
+      if (resume?.play) api.play();
     });
     player.soundFontLoadFailed.on((error) => {
       this.soundFontErrors.add(error);
-      callbacks.onSoundFontError?.(error);
+      callbacks.onSoundFontError?.(error, { previousKept: false });
     });
   }
 
@@ -158,6 +199,8 @@ export class ScorePlayer {
   }
 
   private reportPosition(currentMs: number, endMs: number, bpm: number) {
+    // While new sounds load alphaTab reports position 0; the real one comes back after.
+    if (this.resume) return;
     const next = { currentMs, endMs, bpm: Math.round(bpm) };
     const last = this.lastPosition;
     // Position events arrive many times a second; the UI shows whole seconds.
@@ -244,20 +287,49 @@ export class ScorePlayer {
     this.api.render();
   }
 
+  /**
+   * Volume, mute, solo and master apply instantly. Pan is baked into the MIDI,
+   * and regenerating it cuts off ringing notes, so during playback it is
+   * applied at the next pause or stop instead.
+   */
   setMix(mix: MixerSettings) {
     const previous = this.mix;
     this.mix = mix;
     if (this.ready) this.applyMix(previous, mix);
-    if (this.applyPans(mix)) this.reloadMidi();
+    if (!this.applyPans(mix)) return;
+    if (this.playing) this.panPending = true;
+    else this.reloadMidi();
   }
 
-  /** Loading a SoundFont reloads the song, so the position is restored afterwards. */
-  setSoundFont(url: string) {
-    this.api.pause();
-    this.resumeTick = this.api.tickPosition;
+  /**
+   * Switches instrument sounds. The current sounds keep playing while the new
+   * ones download; then playback pauses briefly while the synthesizer loads
+   * them, and continues from the same position. If the user switches again
+   * before a download finishes, only the latest choice is loaded.
+   */
+  async setSoundFont(url: string): Promise<void> {
+    const request = ++this.soundFontRequest;
+    const isCurrent = () => request === this.soundFontRequest && !this.destroyed;
+    let bytes: Uint8Array;
+    try {
+      bytes = await downloadSoundFont(url);
+      await this.synthReady;
+    } catch (error) {
+      if (isCurrent()) {
+        this.callbacks.onSoundFontError?.(asError(error), { previousKept: this.hasSounds });
+      }
+      return;
+    }
+    if (!isCurrent()) return;
+
+    const { api } = this;
+    // While a previous switch is still loading, keep the position from before it.
+    if (this.ready) this.resume = { tick: api.tickPosition, play: this.playing };
+    api.pause();
     this.setReady(false);
-    this.api.resetSoundFonts();
-    this.api.loadSoundFont(url, false);
+    this.hasSounds = false;
+    api.resetSoundFonts();
+    api.loadSoundFont(bytes, false);
   }
 
   playPause() {
@@ -265,6 +337,7 @@ export class ScorePlayer {
   }
 
   stop() {
+    if (this.resume) this.resume = { tick: 0, play: false };
     this.api.stop();
   }
 
@@ -272,11 +345,14 @@ export class ScorePlayer {
   seekToBar(barIndex: number) {
     const masterBar = this.score.masterBars[barIndex];
     if (!masterBar) return;
-    this.api.tickPosition = this.api.tickCache?.getMasterBarStart(masterBar) ?? masterBar.start;
+    const tick = this.api.tickCache?.getMasterBarStart(masterBar) ?? masterBar.start;
+    this.api.tickPosition = tick;
+    if (this.resume) this.resume.tick = tick; // seeking while new sounds load
     this.reportBar(barIndex);
   }
 
   destroy() {
+    this.destroyed = true;
     this.api.destroy();
   }
 }

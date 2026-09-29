@@ -26,6 +26,8 @@ export class FakeAlphaTabApi {
   playedBeatChanged = new Emitter<{ voice: { bar: { index: number } } }>();
   beatMouseDown = new Emitter<{ voice: { bar: { index: number } } }>();
   player = {
+    /** The synthesizer (worker) started: SoundFonts can be loaded. */
+    ready: new Emitter(),
     readyForPlayback: new Emitter(),
     soundFontLoadFailed: new Emitter<Error>(),
   };

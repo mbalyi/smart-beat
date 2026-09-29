@@ -22,6 +22,8 @@ test.describe("accessibility", () => {
       const mixer = app.getByRole("dialog", { name: "Mixer" });
       await expect(mixer).toBeVisible();
       // Contrast is only meaningful once the panel has finished fading in.
+      // Pressed Mute (the piano, from the file) and Solo must stay readable too.
+      await mixer.getByRole("button", { name: "Solo Guitar" }).click();
       await mixer.evaluate((el) =>
         Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
       );

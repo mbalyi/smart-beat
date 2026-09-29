@@ -1,4 +1,4 @@
-import { LayoutMode, synth, TabRhythmMode } from "@coderline/alphatab";
+import { LayoutMode, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
 
 import { mixFromScore } from "@/lib/score/mixer";
 import {
@@ -19,7 +19,46 @@ vi.mock(import("@coderline/alphatab"), async (importOriginal) => ({
 
 type Callback<K extends keyof ScorePlayerCallbacks> = NonNullable<ScorePlayerCallbacks[K]>;
 
-function setup(overrides: Partial<ScorePlayerOptions> = {}) {
+const SONIVOX = "/soundfont/sonivox.sf3";
+const FLUID = "/soundfont/FluidR3Mono_GM.sf3";
+/** Distinct bytes per SoundFont, so tests can tell which one was loaded. */
+const BYTES: Record<string, Uint8Array> = {
+  [SONIVOX]: new Uint8Array([1]),
+  [FLUID]: new Uint8Array([2]),
+};
+
+/** `fetch` whose downloads finish when the test says so. */
+function stubDownloads() {
+  const pending = new Map<string, { resolve: (r: Response) => void; reject: (e: Error) => void }>();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      (url: string) =>
+        new Promise<Response>((resolve, reject) => pending.set(url, { resolve, reject })),
+    ),
+  );
+  const settle = async (
+    url: string,
+    how: (p: NonNullable<ReturnType<typeof pending.get>>) => void,
+  ) => {
+    const download = pending.get(url);
+    if (!download) throw new Error(`${url} was not requested`);
+    pending.delete(url);
+    how(download);
+    await flush();
+  };
+  return {
+    finish: (url: string) => settle(url, (d) => d.resolve(new Response(BYTES[url]!.slice()))),
+    fail: (url: string, status = 404) =>
+      settle(url, (d) => d.resolve(new Response(null, { status }))),
+    error: (url: string) => settle(url, (d) => d.reject(new TypeError("offline"))),
+  };
+}
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+async function setup(overrides: Partial<ScorePlayerOptions> = {}) {
+  const downloads = stubDownloads();
   const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
   const callbacks = {
     onRenderingChange: vi.fn<Callback<"onRenderingChange">>(),
@@ -40,23 +79,40 @@ function setup(overrides: Partial<ScorePlayerOptions> = {}) {
       view: { notation: "score-tab", rhythm: false },
       layout: "page",
       mix,
-      soundFontUrl: "/soundfont/sonivox.sf3",
+      soundFontUrl: SONIVOX,
       ...overrides,
     },
     callbacks,
   );
   const api = FakeAlphaTabApi.last;
+  /** alphaTab finished loading the SoundFont and the song. */
   const becomeReady = () => api.player.readyForPlayback.trigger();
-  return { player, api, score, mix, callbacks, becomeReady };
+  const setPlaying = (playing: boolean) => {
+    api.playerState = playing ? PlayerState.Playing : PlayerState.Paused;
+    api.playerStateChanged.trigger({ state: api.playerState, stopped: false });
+  };
+  return { player, api, score, mix, callbacks, downloads, becomeReady, setPlaying };
+}
+
+/** A player whose default sounds are loaded and which can play. */
+async function readySetup(overrides: Partial<ScorePlayerOptions> = {}) {
+  const context = await setup(overrides);
+  context.api.player.ready.trigger();
+  await context.downloads.finish(SONIVOX);
+  context.becomeReady();
+  vi.clearAllMocks();
+  return context;
 }
 
 describe("ScorePlayer", () => {
-  it("configures alphaTab for rendering and playback", () => {
-    const { api, score } = setup({ layout: "horizontal", reducedMotion: true });
+  it("configures alphaTab for glitch-free rendering and playback", async () => {
+    const { api, score } = await setup({ layout: "horizontal", reducedMotion: true });
     const { settings } = api;
 
     expect(settings.display.layoutMode).toBe(LayoutMode.Horizontal);
-    expect(settings.player.soundFont).toBe("/soundfont/sonivox.sf3");
+    expect(settings.player.outputMode).toBe(PlayerOutputMode.WebAudioAudioWorklets);
+    expect(settings.player.bufferTimeInMilliseconds).toBe(500);
+    expect(settings.player.soundFont).toBeNull(); // loaded by the adapter
     expect(settings.core.fontDirectory).toBe("/font/");
     expect(settings.player.enableCursor).toBe(true);
     expect(settings.player.enableUserInteraction).toBe(true);
@@ -64,17 +120,28 @@ describe("ScorePlayer", () => {
     expect(api.renderScore).toHaveBeenCalledWith(score, [0]);
   });
 
-  it("writes pan into the model before the MIDI is generated", () => {
-    const { score } = setup();
+  it("loads the SoundFont once the synthesizer is ready", async () => {
+    const { api, downloads } = await setup();
+
+    await downloads.finish(SONIVOX);
+    expect(api.loadSoundFont).not.toHaveBeenCalled();
+
+    api.player.ready.trigger();
+    await flush();
+    expect(api.loadSoundFont).toHaveBeenCalledExactlyOnceWith(BYTES[SONIVOX], false);
+  });
+
+  it("writes pan into the model before the MIDI is generated", async () => {
+    const { score } = await setup();
     expect(score.tracks[1]!.playbackInfo.balance).toBe(4); // pan -0.5
   });
 
-  it("reports rendering, playing, tempo and bar changes", () => {
-    const { api, callbacks } = setup();
+  it("reports rendering, playing, tempo and bar changes", async () => {
+    const { api, callbacks, setPlaying } = await setup();
 
     api.renderStarted.trigger(false);
     api.renderFinished.trigger({});
-    api.playerStateChanged.trigger({ state: PlayerState.Playing, stopped: false });
+    setPlaying(true);
     api.playerPositionChanged.trigger({
       currentTime: 0,
       endTime: 12_000,
@@ -93,8 +160,8 @@ describe("ScorePlayer", () => {
     expect(callbacks.onBarChange).toHaveBeenCalledWith(2);
   });
 
-  it("reports the position at most once per second, and every tempo change", () => {
-    const { api, callbacks } = setup();
+  it("reports the position at most once per second, and every tempo change", async () => {
+    const { api, callbacks } = await setup();
     const position = (currentTime: number, modifiedTempo = 60) =>
       api.playerPositionChanged.trigger({
         currentTime,
@@ -115,23 +182,23 @@ describe("ScorePlayer", () => {
     ]);
   });
 
-  it("reports the bar clicked in the score, even while paused", () => {
-    const { api, callbacks } = setup();
+  it("reports the bar clicked in the score, even while paused", async () => {
+    const { api, callbacks } = await setup();
 
     api.beatMouseDown.trigger({ voice: { bar: { index: 3 } } });
 
     expect(callbacks.onBarChange).toHaveBeenCalledWith(3);
   });
 
-  it("ignores repeated beats in the same bar", () => {
-    const { api, callbacks } = setup();
+  it("ignores repeated beats in the same bar", async () => {
+    const { api, callbacks } = await setup();
     api.playedBeatChanged.trigger({ voice: { bar: { index: 1 } } });
     api.playedBeatChanged.trigger({ voice: { bar: { index: 1 } } });
     expect(callbacks.onBarChange).toHaveBeenCalledTimes(1);
   });
 
-  it("applies the whole mix whenever playback becomes ready", () => {
-    const { api, score, mix, callbacks, becomeReady } = setup();
+  it("applies the whole mix whenever playback becomes ready", async () => {
+    const { api, score, mix, callbacks, becomeReady } = await setup();
 
     becomeReady();
 
@@ -142,10 +209,8 @@ describe("ScorePlayer", () => {
     expect(api.changeTrackSolo).toHaveBeenCalledTimes(4);
   });
 
-  it("only sends mixer changes that differ", () => {
-    const { player, api, score, mix, becomeReady } = setup();
-    becomeReady();
-    vi.clearAllMocks();
+  it("only sends mixer changes that differ", async () => {
+    const { player, api, score, mix } = await readySetup();
 
     player.setMix({
       ...mix,
@@ -160,8 +225,20 @@ describe("ScorePlayer", () => {
     expect(api.loadMidiForScore).not.toHaveBeenCalled();
   });
 
-  it("keeps mixer changes made before playback is ready for later", () => {
-    const { player, api, score, mix, becomeReady } = setup();
+  it("applies volume, mute and solo instantly during playback, without reloading", async () => {
+    const { player, api, mix, setPlaying } = await readySetup();
+    setPlaying(true);
+
+    player.setMix({ ...mix, tracks: mix.tracks.map((t) => ({ ...t, mute: true, volume: 0.5 })) });
+
+    expect(api.changeTrackMute).toHaveBeenCalledTimes(3); // the piano was already muted
+    expect(api.changeTrackVolume).toHaveBeenCalledTimes(4);
+    expect(api.loadMidiForScore).not.toHaveBeenCalled();
+    expect(api.pause).not.toHaveBeenCalled();
+  });
+
+  it("keeps mixer changes made before playback is ready for later", async () => {
+    const { player, api, score, mix, becomeReady } = await setup();
 
     player.setMix({ ...mix, tracks: mix.tracks.map((t) => ({ ...t, mute: true })) });
     expect(api.changeTrackMute).not.toHaveBeenCalled();
@@ -170,10 +247,8 @@ describe("ScorePlayer", () => {
     expect(api.changeTrackMute).toHaveBeenCalledWith([score.tracks[0]], true);
   });
 
-  it("regenerates the MIDI for pan changes and resumes where it was", () => {
-    const { player, api, score, mix, becomeReady } = setup();
-    becomeReady();
-    api.playerState = PlayerState.Playing;
+  it("applies pan right away while paused", async () => {
+    const { player, api, score, mix } = await readySetup();
     api.tickPosition = 1920;
     api.loadMidiForScore.mockImplementation(() => {
       api.tickPosition = 0; // alphaTab rewinds when a MIDI file is loaded
@@ -184,20 +259,30 @@ describe("ScorePlayer", () => {
     expect(score.tracks[0]!.playbackInfo.balance).toBe(16);
     expect(api.loadMidiForScore).toHaveBeenCalledOnce();
     expect(api.tickPosition).toBe(1920);
-    expect(api.play).toHaveBeenCalledOnce();
-  });
-
-  it("does not start playback after a pan change while paused", () => {
-    const { player, api, mix } = setup();
-
-    player.setMix({ ...mix, tracks: mix.tracks.map((t) => ({ ...t, pan: -1 })) });
-
-    expect(api.loadMidiForScore).toHaveBeenCalledOnce();
     expect(api.play).not.toHaveBeenCalled();
   });
 
-  it("switches tracks with that track's notation", () => {
-    const { player, api, score } = setup();
+  it("never interrupts playback for pan: applies it at the next pause", async () => {
+    const { player, api, mix, setPlaying } = await readySetup();
+    setPlaying(true);
+    api.tickPosition = 5760;
+
+    player.setMix({ ...mix, tracks: mix.tracks.map((t, i) => (i === 1 ? { ...t, pan: 1 } : t)) });
+    player.setMix({ ...mix, tracks: mix.tracks.map((t, i) => (i === 1 ? { ...t, pan: 0.5 } : t)) });
+    expect(api.loadMidiForScore).not.toHaveBeenCalled();
+
+    setPlaying(false);
+    expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+    expect(api.tickPosition).toBe(5760);
+    expect(api.play).not.toHaveBeenCalled();
+
+    setPlaying(true);
+    setPlaying(false);
+    expect(api.loadMidiForScore).toHaveBeenCalledOnce(); // nothing left to apply
+  });
+
+  it("switches tracks with that track's notation", async () => {
+    const { player, api, score } = await setup();
 
     player.showTrack(1, { notation: "tab", rhythm: true });
 
@@ -210,21 +295,26 @@ describe("ScorePlayer", () => {
     expect(api.renderTracks).toHaveBeenCalledOnce();
   });
 
-  it("re-renders for notation and layout changes", () => {
-    const { player, api, score } = setup();
+  it("re-renders for notation and layout changes without touching playback", async () => {
+    const { player, api, score, setPlaying } = await readySetup();
+    setPlaying(true);
 
     player.setView({ notation: "score", rhythm: false });
     expect(score.tracks[0]!.staves[0]!.showTablature).toBe(false);
     expect(api.settings.notation.rhythmMode).toBe(TabRhythmMode.Hidden);
 
     player.setLayout("horizontal");
+    player.showTrack(2, { notation: "score", rhythm: false });
+
     expect(api.settings.display.layoutMode).toBe(LayoutMode.Horizontal);
-    expect(api.updateSettings).toHaveBeenCalledTimes(2);
     expect(api.render).toHaveBeenCalledTimes(2);
+    expect(api.loadMidiForScore).not.toHaveBeenCalled();
+    expect(api.pause).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
   });
 
-  it("only plays once playback is ready", () => {
-    const { player, api, becomeReady } = setup();
+  it("only plays once playback is ready", async () => {
+    const { player, api, becomeReady } = await setup();
 
     player.playPause();
     expect(api.playPause).not.toHaveBeenCalled();
@@ -236,8 +326,8 @@ describe("ScorePlayer", () => {
     expect(api.stop).toHaveBeenCalledOnce();
   });
 
-  it("seeks to the start of a bar", () => {
-    const { player, api, score, callbacks } = setup();
+  it("seeks to the start of a bar", async () => {
+    const { player, api, score, callbacks } = await setup();
 
     player.seekToBar(2);
 
@@ -249,46 +339,200 @@ describe("ScorePlayer", () => {
     expect(callbacks.onBarChange).toHaveBeenCalledOnce();
   });
 
-  it("switches SoundFonts and returns to the same position when ready", () => {
-    const { player, api, callbacks, becomeReady } = setup();
-    becomeReady();
-    api.tickPosition = 7680;
+  describe("switching SoundFonts", () => {
+    it("keeps playing while the new sounds download", async () => {
+      const { player, api, setPlaying } = await readySetup();
+      setPlaying(true);
 
-    player.setSoundFont("/soundfont/FluidR3Mono_GM.sf3");
+      void player.setSoundFont(FLUID);
+      await flush();
 
-    expect(api.pause).toHaveBeenCalled();
-    expect(api.resetSoundFonts).toHaveBeenCalled();
-    expect(api.loadSoundFont).toHaveBeenCalledWith("/soundfont/FluidR3Mono_GM.sf3", false);
-    expect(callbacks.onReadyChange.mock.calls).toEqual([[true], [false]]);
+      expect(api.pause).not.toHaveBeenCalled();
+      expect(api.resetSoundFonts).not.toHaveBeenCalled();
+    });
 
-    api.tickPosition = 0; // alphaTab reloads the song with the new sounds
-    becomeReady();
-    expect(api.tickPosition).toBe(7680);
-    expect(callbacks.onReadyChange.mock.calls).toEqual([[true], [false], [true]]);
+    it("continues playing from the same position once they are loaded", async () => {
+      const { player, api, callbacks, downloads, becomeReady, setPlaying } = await readySetup();
+      setPlaying(true);
+      api.tickPosition = 7680;
 
-    api.tickPosition = 960;
-    becomeReady(); // later reloads (e.g. pan changes) keep their own position
-    expect(api.tickPosition).toBe(960);
-  });
+      void player.setSoundFont(FLUID);
+      await downloads.finish(FLUID);
 
-  it("reports SoundFont failures separately from other errors", async () => {
-    const { api, callbacks } = setup();
-    const soundFontError = new Error("404");
-    const renderError = new Error("render");
+      expect(api.pause).toHaveBeenCalledOnce();
+      expect(api.resetSoundFonts).toHaveBeenCalledOnce();
+      expect(api.loadSoundFont).toHaveBeenCalledExactlyOnceWith(BYTES[FLUID], false);
+      expect(callbacks.onReadyChange).toHaveBeenLastCalledWith(false);
 
-    // alphaTab forwards SoundFont failures to `error` first.
-    api.error.trigger(soundFontError);
-    api.player.soundFontLoadFailed.trigger(soundFontError);
-    api.error.trigger(renderError);
-    await Promise.resolve();
+      setPlaying(false);
+      api.tickPosition = 0; // alphaTab reloads the song with the new sounds
+      becomeReady();
 
-    expect(callbacks.onSoundFontError).toHaveBeenCalledExactlyOnceWith(soundFontError);
-    expect(callbacks.onError).toHaveBeenCalledExactlyOnceWith(renderError);
-  });
+      expect(api.tickPosition).toBe(7680);
+      expect(callbacks.onReadyChange).toHaveBeenLastCalledWith(true);
+      expect(api.play).toHaveBeenCalledOnce();
 
-  it("releases alphaTab when destroyed", () => {
-    const { player, api } = setup();
-    player.destroy();
-    expect(api.destroy).toHaveBeenCalled();
+      api.tickPosition = 960;
+      becomeReady(); // later reloads (e.g. pan) keep their own position and state
+      expect(api.tickPosition).toBe(960);
+      expect(api.play).toHaveBeenCalledOnce();
+    });
+
+    it("keeps showing the position while the new sounds load", async () => {
+      const { player, api, callbacks, downloads, becomeReady } = await readySetup();
+      const position = (currentTime: number) =>
+        api.playerPositionChanged.trigger({
+          currentTime,
+          endTime: 12_000,
+          originalTempo: 60,
+          modifiedTempo: 60,
+        });
+      position(5_000);
+      api.tickPosition = 4800;
+
+      void player.setSoundFont(FLUID);
+      await downloads.finish(FLUID);
+      position(0); // alphaTab rewinds while it reloads
+      becomeReady();
+      position(5_000); // after the position is restored
+
+      expect(callbacks.onPositionChange.mock.calls.map(([p]) => p.currentMs)).toEqual([5_000]);
+    });
+
+    it("stays paused after switching while paused", async () => {
+      const { player, api, downloads, becomeReady } = await readySetup();
+      api.tickPosition = 3840;
+
+      void player.setSoundFont(FLUID);
+      await downloads.finish(FLUID);
+      api.tickPosition = 0;
+      becomeReady();
+
+      expect(api.tickPosition).toBe(3840);
+      expect(api.play).not.toHaveBeenCalled();
+    });
+
+    it("loads only the latest choice when switching quickly", async () => {
+      const { player, api, downloads, becomeReady, setPlaying } = await readySetup();
+      setPlaying(true);
+      api.tickPosition = 4800;
+
+      void player.setSoundFont(FLUID);
+      void player.setSoundFont(SONIVOX);
+      await downloads.finish(SONIVOX);
+      await downloads.finish(FLUID); // finishes last, but was replaced
+
+      expect(api.loadSoundFont).toHaveBeenCalledExactlyOnceWith(BYTES[SONIVOX], false);
+      setPlaying(false);
+      api.tickPosition = 0;
+      becomeReady();
+      expect(api.tickPosition).toBe(4800);
+      expect(api.play).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the original position if switched again while loading", async () => {
+      const { player, api, downloads, becomeReady, setPlaying } = await readySetup();
+      setPlaying(true);
+      api.tickPosition = 4800;
+
+      void player.setSoundFont(FLUID);
+      await downloads.finish(FLUID);
+      setPlaying(false);
+      api.tickPosition = 0; // reported while loading
+      void player.setSoundFont(SONIVOX);
+      await downloads.finish(SONIVOX);
+      becomeReady();
+
+      expect(api.tickPosition).toBe(4800);
+      expect(api.play).toHaveBeenCalledOnce();
+    });
+
+    it("follows seeking and stopping while the sounds load", async () => {
+      const { player, api, downloads, becomeReady, setPlaying } = await readySetup();
+      setPlaying(true);
+      api.tickPosition = 960;
+
+      void player.setSoundFont(FLUID);
+      await downloads.finish(FLUID);
+      player.seekToBar(1);
+      becomeReady();
+      expect(api.tickPosition).toBe(3840);
+
+      void player.setSoundFont(SONIVOX);
+      await downloads.finish(SONIVOX);
+      player.stop();
+      api.play.mockClear();
+      becomeReady();
+      expect(api.tickPosition).toBe(0);
+      expect(api.play).not.toHaveBeenCalled();
+    });
+
+    it("reports a failed download and keeps the current sounds", async () => {
+      const { player, api, callbacks, downloads } = await readySetup();
+
+      void player.setSoundFont(FLUID);
+      await downloads.fail(FLUID);
+
+      expect(callbacks.onSoundFontError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("404") }),
+        { previousKept: true },
+      );
+      expect(api.resetSoundFonts).not.toHaveBeenCalled();
+      expect(callbacks.onReadyChange).not.toHaveBeenCalled();
+
+      void player.setSoundFont(FLUID);
+      await downloads.error(FLUID);
+      expect(callbacks.onSoundFontError).toHaveBeenLastCalledWith(new TypeError("offline"), {
+        previousKept: true,
+      });
+    });
+
+    it("reports when no sounds are loaded at all", async () => {
+      const { callbacks, downloads } = await setup();
+
+      await downloads.fail(SONIVOX);
+
+      expect(callbacks.onSoundFontError).toHaveBeenCalledWith(expect.any(Error), {
+        previousKept: false,
+      });
+    });
+
+    it("ignores failures of a replaced download", async () => {
+      const { player, callbacks, downloads } = await readySetup();
+
+      void player.setSoundFont(FLUID);
+      void player.setSoundFont(SONIVOX);
+      await downloads.fail(FLUID);
+
+      expect(callbacks.onSoundFontError).not.toHaveBeenCalled();
+    });
+
+    it("does nothing once the player is destroyed", async () => {
+      const { player, api, downloads } = await readySetup();
+
+      void player.setSoundFont(FLUID);
+      player.destroy();
+      await downloads.finish(FLUID);
+
+      expect(api.destroy).toHaveBeenCalled();
+      expect(api.loadSoundFont).not.toHaveBeenCalled();
+    });
+
+    it("reports SoundFonts the synthesizer can't read separately from other errors", async () => {
+      const { api, callbacks } = await setup();
+      const soundFontError = new Error("bad SoundFont");
+      const renderError = new Error("render");
+
+      // alphaTab forwards SoundFont failures to `error` first.
+      api.error.trigger(soundFontError);
+      api.player.soundFontLoadFailed.trigger(soundFontError);
+      api.error.trigger(renderError);
+      await Promise.resolve();
+
+      expect(callbacks.onSoundFontError).toHaveBeenCalledExactlyOnceWith(soundFontError, {
+        previousKept: false,
+      });
+      expect(callbacks.onError).toHaveBeenCalledExactlyOnceWith(renderError);
+    });
   });
 });

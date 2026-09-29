@@ -232,23 +232,82 @@ test.describe("mixer (#6)", () => {
     );
   });
 
-  test("keeps playing while tracks are muted, soloed and panned", async ({ app }) => {
+  test("mixing never interrupts playback; pan waits for the next pause", async ({ app }) => {
     await openSong(app);
     await app.getByRole("button", { name: "Mixer" }).click();
     await app.getByRole("button", { name: "Play" }).click();
     await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+    await expect(app.getByText(/Pan changes are applied when you pause/)).toBeVisible();
 
     await app.getByRole("button", { name: "Mute Guitar" }).click();
+    await app.getByRole("button", { name: "Solo Drums" }).click();
+    await app.getByRole("slider", { name: "Volume, Bass" }).focus();
+    await app.keyboard.press("PageDown");
     await app.getByRole("slider", { name: "Pan, Drums" }).focus();
-    await app.keyboard.press("ArrowRight"); // regenerates the MIDI
+    await app.keyboard.press("ArrowRight");
     const afterPan = await playedSeconds(app);
 
     await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
     await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThan(afterPan);
     expect(afterPan).toBeGreaterThanOrEqual(1); // didn't jump back to the start
+
+    await app.getByRole("button", { name: "Pause" }).click();
+    await expect(app.getByText(/Pan changes are applied when you pause/)).toBeHidden();
+    await expect(app.getByRole("slider", { name: "Pan, Drums" })).toHaveAttribute(
+      "aria-valuetext",
+      "13% right",
+    );
+    expect(await playedSeconds(app)).toBeGreaterThanOrEqual(afterPan); // applied in place
   });
 
-  test("switches to the high-quality sounds", async ({ app }) => {
+  test("playback keeps real time while the score and mixer are used", async ({ app }) => {
+    await openSong(app);
+    // Sample the position every 200 ms: it must never go backwards or stall.
+    await app.evaluate(() => {
+      const samples: { at: number; text: string }[] = [];
+      (window as unknown as { __samples: typeof samples }).__samples = samples;
+      setInterval(() => {
+        const text = document.querySelector("[role=timer]")?.textContent ?? "";
+        samples.push({ at: performance.now(), text: text.split("/")[0]!.trim() });
+      }, 200);
+    });
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+
+    // Work with the score and mixer while it plays.
+    await app.getByRole("combobox", { name: "Track" }).click();
+    await app.getByRole("option", { name: "Bass" }).click();
+    await app.getByRole("radio", { name: "Continuous" }).click();
+    await app.getByRole("radio", { name: "Score", exact: true }).click();
+    await app.getByRole("button", { name: "Mixer" }).click();
+    await app.getByRole("button", { name: "Mute Piano" }).click();
+    await app.getByRole("slider", { name: "Master volume" }).focus();
+    await app.keyboard.press("ArrowLeft");
+    await app.waitForTimeout(3_000);
+
+    const samples = await app.evaluate(
+      () => (window as unknown as { __samples: { at: number; text: string }[] }).__samples,
+    );
+    const seconds = samples.map(({ at, text }) => {
+      const [m, s] = text.split(":").map(Number);
+      return { at, played: m! * 60 + s! };
+    });
+    const playing = seconds.filter((s) => s.played >= 1);
+    const first = playing[0]!;
+    const last = playing.at(-1)!;
+    // Never goes backwards.
+    for (let i = 1; i < playing.length; i++) {
+      expect(playing[i]!.played).toBeGreaterThanOrEqual(playing[i - 1]!.played);
+    }
+    // Keeps pace with the clock (the display has 1 s steps, hence ±1.5 s).
+    const wallSeconds = (last.at - first.at) / 1000;
+    expect(Math.abs(last.played - first.played - wallSeconds)).toBeLessThanOrEqual(1.5);
+    expect(wallSeconds).toBeGreaterThan(3);
+  });
+
+  test("switches to the high-quality sounds and keeps playing from the same point", async ({
+    app,
+  }) => {
     // Stand in for the 15 MB FluidR3 download with the bundled font.
     const sounds = await readFile(SONIVOX);
     await app.route("**/soundfont/FluidR3Mono_GM.sf3", (route) =>
@@ -256,17 +315,47 @@ test.describe("mixer (#6)", () => {
     );
     await openSong(app);
     await app.getByRole("button", { name: "Mixer" }).click();
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+    const before = await playedSeconds(app);
 
     await app.getByRole("combobox", { name: "Instrument sounds" }).click();
     await app.getByRole("option", { name: /High quality/ }).click();
 
-    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+    // Continues on its own, from where it was (not from the start).
+    await expect(app.getByRole("button", { name: "Pause" })).toBeEnabled({ timeout: 30_000 });
+    await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThan(before);
+    await app.getByRole("button", { name: "Pause" }).click();
+
     await app.reload(); // the choice is remembered
     await openSong(app);
     await app.getByRole("button", { name: "Mixer" }).click();
     await expect(app.getByRole("combobox", { name: "Instrument sounds" })).toHaveText(
       /High quality/,
     );
+  });
+
+  test("survives switching sounds quickly back and forth while playing", async ({ app }) => {
+    const sounds = await readFile(SONIVOX);
+    await app.route("**/soundfont/FluidR3Mono_GM.sf3", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 800)); // a slow download
+      await route.fulfill({ contentType: "application/octet-stream", body: sounds });
+    });
+    await openSong(app);
+    await app.getByRole("button", { name: "Mixer" }).click();
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+    const before = await playedSeconds(app);
+    const sound = app.getByRole("combobox", { name: "Instrument sounds" });
+
+    await sound.click();
+    await app.getByRole("option", { name: /High quality/ }).click();
+    await sound.click();
+    await app.getByRole("option", { name: /Standard/ }).click();
+
+    await expect(sound).toHaveText(/Standard/);
+    await expect(app.getByRole("button", { name: "Pause" })).toBeEnabled({ timeout: 30_000 });
+    await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThan(before);
   });
 
   test("falls back to the standard sounds when the others are missing", async ({ app }) => {
@@ -282,6 +371,58 @@ test.describe("mixer (#6)", () => {
     });
     await expect(app.getByRole("combobox", { name: "Instrument sounds" })).toHaveText(/Standard/);
     await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+  });
+
+  test.describe("in a window where the panel covers the score", () => {
+    test.use({ viewport: { width: 1000, height: 720 } });
+
+    test("the playback cursor stays under the mixer panel", async ({ app }) => {
+      await openSong(app);
+      await app.getByRole("button", { name: "Mixer" }).click();
+      const mixer = app.getByRole("dialog", { name: "Mixer" });
+      await mixer.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+      const bar = app.getByRole("spinbutton", { name: "Bar" });
+      await bar.fill("4");
+      await bar.press("Enter");
+
+      const cursor = (await score(app).locator(".at-cursor-bar").boundingBox())!;
+      const panel = (await mixer.boundingBox())!;
+      expect(cursor.x + cursor.width).toBeGreaterThan(panel.x + 10); // they overlap
+      const point = [panel.x + 10, cursor.y + cursor.height / 2];
+
+      const panelOnTop = await app.evaluate(([x, y]) => {
+        // The cursor ignores the pointer; make it hit-testable so elementFromPoint
+        // reports what is painted on top.
+        for (const el of document.querySelectorAll<HTMLElement>(".at-cursors, .at-cursors *")) {
+          el.style.pointerEvents = "auto";
+        }
+        return document.elementFromPoint(x!, y!)?.closest("[role=dialog]") !== null;
+      }, point);
+      expect(panelOnTop).toBe(true);
+    });
+  });
+
+  test("shows pressed Mute and Solo buttons in distinct colours", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("button", { name: "Mixer" }).click();
+    // Read once the colour transition has finished.
+    const background = (name: string) =>
+      app.getByRole("button", { name }).evaluate(async (el) => {
+        await Promise.all(el.getAnimations().map((a) => a.finished));
+        return getComputedStyle(el).backgroundColor;
+      });
+
+    await app.getByRole("button", { name: "Solo Bass" }).click();
+    await app.mouse.move(0, 0); // not the hover shade
+
+    // Tailwind's red-700 and amber-400 (browsers report oklch or rgb).
+    await expect.poll(() => background("Mute Piano")).toMatch(/oklch\(0\.50|rgb\(1[89]\d, 0, /);
+    await expect
+      .poll(() => background("Solo Bass"))
+      .toMatch(/oklch\(0\.82|rgb\(2[45]\d, 1[6-9]\d, /);
+    const idle = await background("Mute Guitar");
+    expect(idle).not.toBe(await background("Mute Piano"));
+    expect(idle).not.toBe(await background("Solo Bass"));
   });
 
   test("reports that the mix is only kept for the session in a browser", async ({ page }) => {
