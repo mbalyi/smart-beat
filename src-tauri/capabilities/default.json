@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main window. App commands (app_info, menu_shortcuts) are allowed for local content by default.",
+  "description": "Permissions for the main window. App commands (app_info, menu_shortcuts, read_score_file, load_mixer_settings, save_mixer_settings) are allowed for local content by default. The UI may open the native Open dialog and set the window title (song name).",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-set-theme"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-theme",
+    "core:window:allow-set-title",
+    "dialog:allow-open"
+  ]
 }
