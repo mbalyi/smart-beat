@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      tauri:
+        patterns: ["@tauri-apps/*"]
+      radix-and-shadcn:
+        patterns: ["radix-ui", "shadcn", "cn", "lucide-react", "sonner"]
+      test-tooling:
+        patterns:
+          [
+            "vitest",
+            "@vitest/*",
+            "@testing-library/*",
+            "@playwright/test",
+            "@axe-core/*",
+            "axe-core",
+            "jsdom",
+          ]
+      lint-tooling:
+        patterns: ["eslint", "eslint-*", "@eslint/*", "typescript-eslint", "prettier", "prettier-*"]
+
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    groups:
+      tauri:
+        patterns: ["tauri", "tauri-*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
