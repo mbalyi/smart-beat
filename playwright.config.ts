@@ -24,7 +24,17 @@ export default defineConfig({
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    {
+      name: "webkit",
+      use: {
+        ...devices["Desktop Safari"],
+        // "Desktop Safari" renders at 2x. Headless WebKit on Linux (CI) then
+        // produces ~1 animation frame per second, so every click waits seconds
+        // for the element to be "stable" and tests time out. Layout and
+        // behaviour are the same at 1x, and no screenshots are compared.
+        deviceScaleFactor: 1,
+      },
+    },
   ],
   webServer: {
     // Run Vite directly: `pnpm dev` does not forward the shutdown signal.

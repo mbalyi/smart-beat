@@ -113,8 +113,25 @@ export function tabKey(browserName: string): string {
   return browserName === "webkit" && process.platform === "darwin" ? "Alt+Tab" : "Tab";
 }
 
+/**
+ * Waits for running transitions and animations to finish (e.g. colours after a
+ * theme switch or a panel fading in). Endless ones, like spinners, are skipped.
+ */
+export async function waitForAnimations(page: Page) {
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime ?? Infinity))
+        .map((a) => a.finished.catch(() => {})),
+    ),
+  );
+}
+
 /** Runs axe-core against WCAG 2.2 A/AA rules and fails on any violation. */
 export async function expectNoA11yViolations(page: Page) {
+  // Colour contrast is only meaningful once colours have settled.
+  await waitForAnimations(page);
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
     .analyze();
