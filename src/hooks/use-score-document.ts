@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
 import { baseName, fileKey } from "@/lib/score/format";
 import { initialMix } from "@/lib/score/mixer";
-import { parseScore, type Score, type ScoreSummary } from "@/lib/score/score";
+import type { Score, ScoreSummary } from "@/lib/score/score";
 import {
   isTauri,
   loadMixerSettings,
@@ -57,6 +57,8 @@ export function useScoreDocument() {
     const toastId = toast.loading(`Opening “${name}”…`);
     try {
       const bytes = await read();
+      // alphaTab is large: load it with the first song, not with the app.
+      const { parseScore } = await import("@/lib/score/score");
       const { score, summary } = parseScore(bytes);
       const key = await fileKey(bytes);
       const saved = await savedMix(key);

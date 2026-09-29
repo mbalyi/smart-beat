@@ -4,6 +4,7 @@
  */
 import { AlphaTabError, importer, Settings, type model } from "@coderline/alphatab";
 
+import { ScoreLoadError } from "@/lib/score/errors";
 import type { TrackMix } from "@/lib/tauri";
 
 export type Score = model.Score;
@@ -38,14 +39,6 @@ export interface ScoreSummary {
 export interface LoadedScore {
   score: Score;
   summary: ScoreSummary;
-}
-
-/** Why a file could not be turned into a score. */
-export class ScoreLoadError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "ScoreLoadError";
-  }
 }
 
 /** Guitar Pro stores volume and balance as 0–16 (balance 8 = centre). */

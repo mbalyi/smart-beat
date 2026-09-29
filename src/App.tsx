@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { DropOverlay } from "@/components/drop-overlay";
-import { ScoreWorkspace } from "@/components/score/score-workspace";
 import { SkipLink } from "@/components/skip-link";
 import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
@@ -19,6 +18,11 @@ import { isTauri, pickScoreFile, SCORE_EXTENSIONS, setWindowTitle } from "@/lib/
 import { cn } from "@/lib/utils";
 
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
+
+// alphaTab (renderer and synthesizer) is large: load it with the first song.
+const ScoreWorkspace = lazy(() =>
+  import("@/components/score/score-workspace").then((m) => ({ default: m.ScoreWorkspace })),
+);
 
 export function App() {
   const [dialog, setDialog] = useState<AppDialog | null>(null);
@@ -94,7 +98,15 @@ export function App() {
           className={cn("flex-1 outline-none", song && "flex min-h-0 flex-col")}
         >
           {song ? (
-            <ScoreWorkspace key={song.id} song={song} onOpen={() => void showOpenDialog()} />
+            <Suspense
+              fallback={
+                <p role="status" className="p-6 text-muted-foreground">
+                  Loading the score viewer…
+                </p>
+              }
+            >
+              <ScoreWorkspace key={song.id} song={song} onOpen={() => void showOpenDialog()} />
+            </Suspense>
           ) : (
             <Welcome
               onOpenFile={() => void showOpenDialog()}

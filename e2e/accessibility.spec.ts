@@ -19,7 +19,12 @@ test.describe("accessibility", () => {
       await expectNoA11yViolations(app);
 
       await app.getByRole("button", { name: "Mixer" }).click();
-      await expect(app.getByRole("dialog", { name: "Mixer" })).toBeVisible();
+      const mixer = app.getByRole("dialog", { name: "Mixer" });
+      await expect(mixer).toBeVisible();
+      // Contrast is only meaningful once the panel has finished fading in.
+      await mixer.evaluate((el) =>
+        Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+      );
       await expectNoA11yViolations(app);
     });
   }

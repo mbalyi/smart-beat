@@ -1,8 +1,16 @@
+// Kept free of alphaTab imports: alphaTab is loaded only once a song is opened.
 import { errorText } from "@/lib/errors";
-import { ScoreLoadError } from "@/lib/score/score";
 import { isCommandError, SCORE_EXTENSIONS } from "@/lib/tauri";
 
 const EXTENSION_LIST = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(", ");
+
+/** Why a file could not be turned into a score (thrown by `parseScore`). */
+export class ScoreLoadError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ScoreLoadError";
+  }
+}
 
 /** Explains why a song could not be opened, in words a musician understands. */
 export function describeOpenError(error: unknown): string {

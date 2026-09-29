@@ -1,14 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import {
-  applyTrackView,
-  gpFromPan,
-  panFromGp,
-  parseScore,
-  ScoreLoadError,
-  volumeFromGp,
-} from "@/lib/score/score";
+import { applyTrackView, gpFromPan, panFromGp, parseScore, volumeFromGp } from "@/lib/score/score";
+import { ScoreLoadError } from "@/lib/score/errors";
 
 const fixture = (name: string) =>
   new Uint8Array(readFileSync(path.join(import.meta.dirname, "../../../e2e/fixtures", name)));

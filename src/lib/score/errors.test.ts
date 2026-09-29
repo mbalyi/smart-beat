@@ -1,5 +1,4 @@
-import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
-import { ScoreLoadError } from "@/lib/score/score";
+import { describeOpenError, hasScoreExtension, ScoreLoadError } from "@/lib/score/errors";
 
 describe("describeOpenError", () => {
   it.each([
