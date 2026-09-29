@@ -140,3 +140,22 @@
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * alphaTab playback cursor, selection and highlighted notes. alphaTab leaves
+ * these unstyled. The score paper is always light, so the colours are fixed.
+ */
+.score-paper .at-cursor-bar {
+  background: oklch(0.92 0.16 95 / 0.25);
+}
+.score-paper .at-cursor-beat {
+  width: 3px;
+  background: oklch(0.55 0.22 262 / 0.85);
+}
+.score-paper .at-selection div {
+  background: oklch(0.55 0.22 262 / 0.12);
+}
+.score-paper .at-highlight * {
+  fill: oklch(0.5 0.22 262);
+  stroke: oklch(0.5 0.22 262);
+}
