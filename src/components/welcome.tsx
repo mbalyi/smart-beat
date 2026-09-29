@@ -30,7 +30,7 @@ export function Welcome({
             AI that turns a hummed melody into a full accompaniment.
           </p>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <Button size="lg" onClick={onOpenFile}>
             <FolderOpenIcon data-icon="inline-start" />
             Open a file…
@@ -40,11 +40,15 @@ export function Welcome({
             Keyboard shortcuts
           </Button>
         </div>
+        <p className="text-sm text-muted-foreground">
+          Opens Guitar Pro 3–8 files (.gp3, .gp4, .gp5, .gpx, .gp). You can also drop a file
+          anywhere in this window.
+        </p>
       </section>
 
       <section aria-labelledby="roadmap-title" className="flex flex-col gap-4">
         <h2 id="roadmap-title" className="font-heading text-xl font-semibold">
-          Coming up
+          Features
         </h2>
         <ul className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ title, description, Icon, badge }) => (

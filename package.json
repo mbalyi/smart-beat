@@ -27,11 +27,14 @@
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "licenses:check": "node scripts/check-licenses.mjs && cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources",
     "licenses:generate": "node scripts/generate-licenses.mjs",
+    "soundfonts:fetch": "node scripts/fetch-soundfonts.mjs",
     "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:fmt && pnpm rust:lint && pnpm rust:test"
   },
   "dependencies": {
+    "@coderline/alphatab": "1.8.4",
     "@fontsource-variable/geist": "^5.3.0",
     "@tauri-apps/api": "^2.12.0",
+    "@tauri-apps/plugin-dialog": "~2.7.3",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "lucide-react": "^1.48.0",
@@ -43,6 +46,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@coderline/alphatab-vite": "1.8.4",
     "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",

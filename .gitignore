@@ -9,6 +9,11 @@ src-tauri/gen/schemas/
 # Generated at build time (see scripts/generate-licenses.mjs)
 public/third-party-licenses.txt
 
+# Copied by the alphaTab Vite plugin (music font, Sonivox SoundFont) and
+# downloaded by scripts/fetch-soundfonts.mjs (FluidR3 SoundFont)
+public/font/
+public/soundfont/
+
 # Test output
 coverage/
 playwright-report/

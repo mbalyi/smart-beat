@@ -36,7 +36,13 @@ export const REVIEWED_PACKAGES = new Map([]);
  * Build-time packages whose output is embedded in the shipped bundle even
  * though they are devDependencies (generated CSS).
  */
-export const EMBEDDED_BUILD_PACKAGES = ["tailwindcss", "shadcn", "tw-animate-css"];
+export const EMBEDDED_BUILD_PACKAGES = [
+  "tailwindcss",
+  "shadcn",
+  "tw-animate-css",
+  // Injects worker/worklet bootstrap code into the bundle.
+  "@coderline/alphatab-vite",
+];
 
 /**
  * Evaluates an SPDX expression such as `(MIT OR Apache-2.0)` or

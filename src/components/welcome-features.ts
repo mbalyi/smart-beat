@@ -1,13 +1,13 @@
 import { FileMusicIcon, MicIcon, PencilLineIcon } from "lucide-react";
 
-/** Roadmap highlights shown on the welcome screen. */
+/** Feature highlights (available and upcoming) shown on the welcome screen. */
 export const FEATURES = [
   {
     title: "Open and play Guitar Pro files",
     description:
-      "View GP3–GP7 songs as tab and standard notation, with SoundFont playback and a cursor that follows along.",
+      "View GP3–GP7 songs as tab and standard notation, play them with a cursor that follows along, and balance tracks in the mixer.",
     Icon: FileMusicIcon,
-    badge: "Coming soon",
+    badge: "Available",
   },
   {
     title: "Edit tabs and scores",

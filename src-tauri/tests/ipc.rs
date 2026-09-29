@@ -1,12 +1,14 @@
 //! Integration tests: the real `setup()` wiring on Tauri's mock runtime.
 
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use smart_beat_lib::menu::{self, MAIN_WINDOW, MENU_EVENT, MenuAction};
+use smart_beat_lib::mixer::MixerStore;
 use smart_beat_lib::zoom::ZoomState;
-use tauri::ipc::{CallbackFn, InvokeBody};
+use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
 use tauri::menu::{MenuEvent, MenuId};
 use tauri::test::{
     INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder, mock_context, noop_assets,
@@ -14,8 +16,17 @@ use tauri::test::{
 use tauri::webview::InvokeRequest;
 use tauri::{App, Listener, Manager, WebviewWindow, WebviewWindowBuilder};
 
+const FILE_KEY: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
 fn app() -> App<MockRuntime> {
     smart_beat_lib::setup(mock_builder())
+        .build(mock_context(noop_assets()))
+        .expect("failed to build app")
+}
+
+/// An app whose mixer settings live in `dir` instead of the app data folder.
+fn app_with_mixer_dir(dir: &Path) -> App<MockRuntime> {
+    smart_beat_lib::setup(mock_builder().manage(MixerStore::new(dir)))
         .build(mock_context(noop_assets()))
         .expect("failed to build app")
 }
@@ -27,6 +38,14 @@ fn main_window(app: &App<MockRuntime>) -> WebviewWindow<MockRuntime> {
 }
 
 fn invoke(window: &WebviewWindow<MockRuntime>, cmd: &str) -> Result<Value, Value> {
+    invoke_with(window, cmd, json!({})).map(|body| body.deserialize::<Value>().unwrap())
+}
+
+fn invoke_with(
+    window: &WebviewWindow<MockRuntime>,
+    cmd: &str,
+    args: Value,
+) -> Result<InvokeResponseBody, Value> {
     let url = if cfg!(windows) {
         "http://tauri.localhost"
     } else {
@@ -39,12 +58,20 @@ fn invoke(window: &WebviewWindow<MockRuntime>, cmd: &str) -> Result<Value, Value
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: url.parse().unwrap(),
-            body: InvokeBody::default(),
+            body: InvokeBody::Json(args),
             headers: Default::default(),
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
-    .map(|body| body.deserialize::<Value>().unwrap())
+}
+
+/// Header of a Guitar Pro 5 file: length byte + version text, padded to 31 bytes.
+fn gp5_bytes() -> Vec<u8> {
+    let version = b"FICHIER GUITAR PRO v5.00";
+    let mut bytes = vec![version.len() as u8];
+    bytes.extend_from_slice(version);
+    bytes.resize(31, 0);
+    bytes
 }
 
 #[test]
@@ -161,5 +188,131 @@ fn menu_events_are_routed_by_item_id() {
     assert_eq!(
         rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         "\"about\""
+    );
+}
+
+#[test]
+fn read_score_file_returns_the_file_as_raw_bytes() {
+    let app = app();
+    let window = main_window(&app);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("song.gp5");
+    std::fs::write(&path, gp5_bytes()).unwrap();
+
+    let body = invoke_with(&window, "read_score_file", json!({ "path": path }))
+        .expect("read_score_file failed");
+
+    // Raw bytes reach the webview as an ArrayBuffer, not a JSON number array.
+    let InvokeResponseBody::Raw(bytes) = body else {
+        panic!("expected a raw response, got {body:?}");
+    };
+    assert_eq!(bytes, gp5_bytes());
+}
+
+#[test]
+fn read_score_file_reports_structured_errors() {
+    let app = app();
+    let window = main_window(&app);
+    let dir = tempfile::tempdir().unwrap();
+    let text = dir.path().join("notes.txt");
+    std::fs::write(&text, "hello").unwrap();
+    let fake = dir.path().join("fake.gp5");
+    std::fs::write(&fake, "hello").unwrap();
+
+    let error_kind = |path: &Path| {
+        invoke_with(&window, "read_score_file", json!({ "path": path })).unwrap_err()["kind"]
+            .clone()
+    };
+
+    assert_eq!(error_kind(&dir.path().join("missing.gp")), "not-found");
+    assert_eq!(error_kind(&text), "unsupported-type");
+    assert_eq!(error_kind(&fake), "not-a-score");
+}
+
+#[test]
+fn mixer_settings_round_trip_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_mixer_dir(dir.path());
+    let window = main_window(&app);
+    let settings = json!({
+        "version": 1,
+        "master": 0.5,
+        "tracks": [{ "volume": 0.25, "pan": -1.0, "mute": true, "solo": false }],
+    });
+
+    let load = || {
+        invoke_with(
+            &window,
+            "load_mixer_settings",
+            json!({ "fileKey": FILE_KEY }),
+        )
+        .expect("load_mixer_settings failed")
+        .deserialize::<Value>()
+        .unwrap()
+    };
+
+    assert_eq!(load(), Value::Null);
+    invoke_with(
+        &window,
+        "save_mixer_settings",
+        json!({ "fileKey": FILE_KEY, "settings": settings }),
+    )
+    .expect("save_mixer_settings failed");
+    assert_eq!(load(), settings);
+    assert!(dir.path().join(format!("{FILE_KEY}.json")).is_file());
+}
+
+#[test]
+fn mixer_commands_validate_their_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_mixer_dir(dir.path());
+    let window = main_window(&app);
+
+    let error = invoke_with(
+        &window,
+        "load_mixer_settings",
+        json!({ "fileKey": "../../etc/passwd" }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "invalid-key");
+
+    let error = invoke_with(
+        &window,
+        "save_mixer_settings",
+        json!({
+            "fileKey": FILE_KEY,
+            "settings": { "version": 1, "master": 3.0, "tracks": [] },
+        }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "invalid-settings");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+/// Delivers the Ready event (which runs the setup hook) and returns where the
+/// app stores mixer settings. The mock runtime cannot exit, so `run_return` is
+/// not an option; `run_iteration` is deprecated only because calling it in a
+/// loop busy-waits, and a single call does not.
+#[allow(deprecated)]
+fn mixer_dir_after_setup(mut app: App<MockRuntime>) -> std::path::PathBuf {
+    app.run_iteration(|_, _| {});
+    app.state::<MixerStore>().dir().to_path_buf()
+}
+
+#[test]
+fn mixer_settings_are_stored_in_the_app_data_folder_by_default() {
+    let app = app();
+    let expected = app.path().app_data_dir().unwrap().join("mixer");
+
+    assert_eq!(mixer_dir_after_setup(app), expected);
+}
+
+#[test]
+fn a_mixer_store_managed_by_the_caller_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+
+    assert_eq!(
+        mixer_dir_after_setup(app_with_mixer_dir(dir.path())),
+        dir.path()
     );
 }

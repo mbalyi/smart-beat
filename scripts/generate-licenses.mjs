@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Writes public/third-party-licenses.txt: the license notices of every
-// open-source component shipped in the app (Rust crates + npm packages).
+// open-source component shipped in the app (Rust crates, npm packages, and
+// the SoundFonts and music font bundled as assets).
 // Runs before every `tauri build` (see src-tauri/tauri.conf.json) and is shown
 // in Help → Open-Source Licenses, which satisfies the notice obligations of
 // MIT / BSD / Apache-2.0 / MPL-2.0 for binary distribution.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -78,6 +79,55 @@ function npmNotices() {
     .join("\n\n");
 }
 
+const ALPHATAB_DIST = path.join(ROOT, "node_modules", "@coderline", "alphatab", "dist");
+
+/**
+ * Assets shipped as files rather than code. Their license files live in
+ * subfolders, so the package-level scan above does not see them.
+ */
+const ASSETS = [
+  {
+    name: "Sonivox EAS SoundFont (default instrument sounds, via alphaTab)",
+    license: "Apache-2.0 (full text in the Rust crates section)",
+    files: [
+      path.join(ALPHATAB_DIST, "soundfont", "LICENSE"),
+      path.join(ALPHATAB_DIST, "soundfont", "README.md"),
+    ],
+  },
+  {
+    name: "FluidR3Mono GM SoundFont (optional instrument sounds)",
+    license: "MIT",
+    homepage: "https://github.com/musescore/MuseScore/tree/v2.1.0/share/sound",
+    // Downloaded by scripts/fetch-soundfonts.mjs, which runs first.
+    files: [path.join(ROOT, "public", "soundfont", "FluidR3Mono_License.md")],
+  },
+  {
+    name: "Bravura music font (via alphaTab)",
+    license: "OFL-1.1",
+    homepage: "https://github.com/steinbergmedia/bravura",
+    files: [path.join(ALPHATAB_DIST, "font", "Bravura-OFL.txt")],
+  },
+];
+
+function assetNotices() {
+  return ASSETS.map((asset) => {
+    const missing = asset.files.filter((file) => !existsSync(file));
+    if (missing.length > 0) {
+      throw new Error(
+        `Missing license file(s) for ${asset.name}: ${missing.map((f) => path.relative(ROOT, f)).join(", ")}. Run pnpm install and pnpm soundfonts:fetch.`,
+      );
+    }
+    return [
+      RULE,
+      asset.name,
+      `License: ${asset.license}`,
+      ...(asset.homepage ? [`Homepage: ${asset.homepage}`] : []),
+      THIN_RULE,
+      asset.files.map((file) => readFileSync(file, "utf8").trim()).join(`\n\n${THIN_RULE}\n\n`),
+    ].join("\n");
+  }).join("\n\n");
+}
+
 const document = [
   "Smart Beat — third-party software notices",
   "",
@@ -95,6 +145,11 @@ const document = [
   "JAVASCRIPT PACKAGES (user interface)",
   "",
   npmNotices(),
+  "",
+  "",
+  "SOUNDFONTS AND FONTS (bundled assets)",
+  "",
+  assetNotices(),
   "",
 ].join("\n");
 

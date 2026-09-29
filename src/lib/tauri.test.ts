@@ -2,13 +2,37 @@ import {
   describePlatform,
   getAppInfo,
   getMenuShortcuts,
+  isCommandError,
   isTauri,
+  loadMixerSettings,
+  MIXER_SETTINGS_VERSION,
   NotInDesktopAppError,
+  onFileDrag,
   onMenuAction,
+  pickScoreFile,
+  readScoreFile,
+  saveMixerSettings,
   setNativeTheme,
+  setWindowTitle,
+  type FileDragEvent,
   type MenuAction,
+  type MixerSettings,
 } from "@/lib/tauri";
-import { APP_INFO, emitMenuAction, mockTauri, SHORTCUTS } from "@/test/tauri";
+import {
+  APP_INFO,
+  backend,
+  emitFileDrag,
+  emitMenuAction,
+  mockTauri,
+  SHORTCUTS,
+} from "@/test/tauri";
+
+const KEY = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+const MIX: MixerSettings = {
+  version: MIXER_SETTINGS_VERSION,
+  master: 0.5,
+  tracks: [{ volume: 1, pan: 0, mute: false, solo: true }],
+};
 
 describe("outside the desktop app", () => {
   it("reports that Tauri is unavailable", () => {
@@ -26,6 +50,19 @@ describe("outside the desktop app", () => {
     const unlisten = await onMenuAction(() => {});
     expect(() => unlisten()).not.toThrow();
     await expect(setNativeTheme("dark")).resolves.toBeUndefined();
+  });
+
+  it("has no native file access, dialogs or drops", async () => {
+    await expect(pickScoreFile()).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(readScoreFile("/a.gp5")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(loadMixerSettings(KEY)).rejects.toBeInstanceOf(NotInDesktopAppError);
+    const unlisten = await onFileDrag(() => {});
+    expect(() => unlisten()).not.toThrow();
+  });
+
+  it("sets the page title instead of the window title", async () => {
+    await setWindowTitle("Song — Smart Beat");
+    expect(document.title).toBe("Song — Smart Beat");
   });
 });
 
@@ -66,6 +103,109 @@ describe("inside the desktop app", () => {
       expect.objectContaining({ value: "dark" }),
       expect.objectContaining({ value: null }),
     ]);
+  });
+});
+
+describe("score files", () => {
+  it("offers Guitar Pro files in the Open dialog", async () => {
+    const calls = mockTauri();
+    backend.dialogResult = "/songs/a.gp5";
+
+    await expect(pickScoreFile()).resolves.toBe("/songs/a.gp5");
+
+    expect(calls).toContainEqual({
+      cmd: "plugin:dialog|open",
+      args: {
+        options: expect.objectContaining({
+          multiple: false,
+          directory: false,
+          filters: [{ name: "Guitar Pro files", extensions: ["gp3", "gp4", "gp5", "gpx", "gp"] }],
+        }),
+      },
+    });
+  });
+
+  it("returns null when the dialog is cancelled", async () => {
+    mockTauri();
+    await expect(pickScoreFile()).resolves.toBeNull();
+  });
+
+  it("reads a file as bytes", async () => {
+    mockTauri();
+    backend.files.set("/songs/a.gp5", new Uint8Array([1, 2, 3]));
+
+    await expect(readScoreFile("/songs/a.gp5")).resolves.toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("rejects with the Rust error", async () => {
+    mockTauri();
+
+    const error: unknown = await readScoreFile("/songs/missing.gp").catch((e: unknown) => e);
+
+    expect(isCommandError(error)).toBe(true);
+    expect(error).toMatchObject({ kind: "not-found" });
+  });
+
+  it("reports files dragged onto the window", async () => {
+    mockTauri();
+    const events: FileDragEvent[] = [];
+    const unlisten = await onFileDrag((event) => events.push(event));
+
+    await emitFileDrag({ type: "enter", paths: ["/a.gp5"] });
+    await emitFileDrag({ type: "leave" });
+    await emitFileDrag({ type: "drop", paths: ["/a.gp5", "/b.txt"] });
+    unlisten();
+    await emitFileDrag({ type: "drop", paths: ["/c.gp5"] });
+
+    expect(events).toEqual([
+      { type: "enter" },
+      { type: "leave" },
+      { type: "drop", paths: ["/a.gp5", "/b.txt"] },
+    ]);
+  });
+});
+
+describe("mixer settings", () => {
+  it("saves and loads a song's mix", async () => {
+    const calls = mockTauri();
+
+    await expect(loadMixerSettings(KEY)).resolves.toBeNull();
+    await saveMixerSettings(KEY, MIX);
+    await expect(loadMixerSettings(KEY)).resolves.toEqual(MIX);
+
+    expect(calls.map((c) => c.cmd)).toEqual([
+      "load_mixer_settings",
+      "save_mixer_settings",
+      "load_mixer_settings",
+    ]);
+    expect(calls[1]!.args).toEqual({ fileKey: KEY, settings: MIX });
+  });
+});
+
+describe("setWindowTitle", () => {
+  it("sets the native window title", async () => {
+    const calls = mockTauri();
+
+    await setWindowTitle("Song — Smart Beat");
+
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        cmd: "plugin:window|set_title",
+        args: expect.objectContaining({ value: "Song — Smart Beat" }),
+      }),
+    );
+  });
+});
+
+describe("isCommandError", () => {
+  it.each([
+    [{ kind: "io", message: "x" }, true],
+    [new Error("x"), false],
+    [null, false],
+    ["x", false],
+    [{ kind: 1, message: "x" }, false],
+  ])("%o → %s", (value, expected) => {
+    expect(isCommandError(value)).toBe(expected);
   });
 });
 

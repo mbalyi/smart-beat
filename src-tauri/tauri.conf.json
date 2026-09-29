@@ -4,9 +4,9 @@
   "version": "../package.json",
   "identifier": "com.mbalyi.smartbeat",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm soundfonts:fetch && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm licenses:generate && pnpm build",
+    "beforeBuildCommand": "pnpm soundfonts:fetch && pnpm licenses:generate && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {

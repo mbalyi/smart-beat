@@ -1,9 +1,16 @@
-//! IPC commands callable from the webview with `invoke()`.
+//! IPC commands callable from the webview with `invoke()`. Thin wrappers: the
+//! logic lives in the domain modules.
+
+use std::path::PathBuf;
 
 use serde::Serialize;
-use tauri::{AppHandle, PackageInfo, Runtime};
+use tauri::ipc::Response;
+use tauri::{AppHandle, PackageInfo, Runtime, State};
 
+use crate::error::CommandError;
 use crate::menu::{self, Shortcut};
+use crate::mixer::{FileKey, MixerSettings, MixerStore};
+use crate::score_file;
 
 /// Build and platform details shown in the About dialog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -39,6 +46,31 @@ pub fn app_info<R: Runtime>(app: AppHandle<R>) -> AppInfo {
 #[tauri::command]
 pub fn menu_shortcuts() -> Vec<Shortcut> {
     menu::shortcuts(std::env::consts::OS)
+}
+
+/// Reads a Guitar Pro file picked or dropped by the user. The bytes are sent
+/// as a raw `ArrayBuffer` rather than a JSON array of numbers.
+#[tauri::command(async)]
+pub fn read_score_file(path: PathBuf) -> Result<Response, CommandError> {
+    score_file::read(&path).map(Response::new)
+}
+
+/// Saved mixer settings for a song (`fileKey`: SHA-256 of its content), if any.
+#[tauri::command(async)]
+pub fn load_mixer_settings(
+    store: State<'_, MixerStore>,
+    file_key: String,
+) -> Result<Option<MixerSettings>, CommandError> {
+    store.load(&FileKey::parse(&file_key)?)
+}
+
+#[tauri::command(async)]
+pub fn save_mixer_settings(
+    store: State<'_, MixerStore>,
+    file_key: String,
+    settings: MixerSettings,
+) -> Result<(), CommandError> {
+    store.save(&FileKey::parse(&file_key)?, &settings)
 }
 
 #[cfg(test)]
