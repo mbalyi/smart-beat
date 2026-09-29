@@ -101,7 +101,11 @@ export function PracticeControls({
   const setRange = (next: LoopRange) => onRangeChange(normalizeRange(next, barCount));
 
   return (
-    <div role="group" aria-label="Practice" className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div
+      role="group"
+      aria-label="Practice"
+      className="flex items-center gap-x-3 gap-y-2 *:shrink-0 sm:flex-wrap"
+    >
       <div className="flex items-center gap-1.5">
         <Toggle
           variant="outline"
@@ -330,6 +334,7 @@ export function SpeedTrainerDialog({
   barCount,
   initialRange,
   onStart,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -337,10 +342,11 @@ export function SpeedTrainerDialog({
   /** The bars to suggest (the loop, the selection or the current bar). */
   initialRange: LoopRange;
   onStart: (trainer: SpeedTrainer, range: LoopRange) => void;
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
         <SpeedTrainerForm
           barCount={barCount}
           initialRange={initialRange}

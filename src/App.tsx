@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
@@ -31,14 +31,21 @@ export function App() {
   const { toggleTheme } = useTheme();
   const { song, openPath, openFile, newSong } = useScoreDocument();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  /** The open song has changes that would be lost by opening another one. */
-  const [edited, setEdited] = useState(false);
+  /**
+   * The open song has changes that would be lost by opening another one. A
+   * ref, updated as soon as the music changes, so a menu command right after
+   * an edit sees it.
+   */
+  const edited = useRef(false);
+  const setEdited = useCallback((value: boolean) => {
+    edited.current = value;
+  }, []);
   /** What to do once the user agrees to discard their changes. */
   const [pending, setPending] = useState<(() => void) | null>(null);
 
   /** Runs `action` (which replaces the song), asking first if it was edited. */
   const replaceSong = (action: () => void) => {
-    if (song && edited) setPending(() => action);
+    if (song && edited.current) setPending(() => action);
     else action();
   };
 
@@ -161,7 +168,7 @@ export function App() {
         onDiscard={() => {
           const action = pending;
           setPending(null);
-          setEdited(false);
+          edited.current = false;
           action?.();
         }}
       />

@@ -89,7 +89,7 @@ export function EditToolbar({
       onMouseDown={keepFocus}
       className="flex flex-col gap-2 border-b bg-sky-50/60 px-4 py-2 sm:px-6 dark:bg-sky-950/20"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="-my-1 flex items-center gap-x-3 gap-y-2 overflow-x-auto py-1 *:shrink-0 sm:flex-wrap">
         <ToggleGroup
           type="single"
           variant="outline"

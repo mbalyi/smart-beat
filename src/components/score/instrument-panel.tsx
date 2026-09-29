@@ -358,7 +358,7 @@ export function InstrumentPanel({
   return (
     <section
       aria-label={name}
-      className="max-h-[40svh] shrink-0 overflow-auto border-t bg-background px-4 py-2 sm:px-6"
+      className="max-h-[35svh] shrink-0 overflow-auto border-t bg-background px-4 py-2 sm:px-6"
       // Scrollable: keyboard users must be able to reach it even when it has no buttons.
       tabIndex={editing ? undefined : 0}
     >

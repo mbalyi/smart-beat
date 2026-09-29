@@ -119,7 +119,7 @@ function DrumKitTable({ kit }: { kit: DrumMapping[] }) {
     >
       <table className="w-full text-left text-sm">
         <caption className="sr-only">Where each drum sound is written on the staff</caption>
-        <thead className="sticky top-0 bg-muted text-xs text-muted-foreground">
+        <thead className="sticky top-0 bg-muted text-xs text-foreground">
           <tr>
             <th scope="col" className="px-2 py-1 font-medium">
               Sound

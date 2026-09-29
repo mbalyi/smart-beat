@@ -805,6 +805,18 @@ describe("ScorePlayer", () => {
       expect(callbacks.onRenderingChange).toHaveBeenCalledWith(true);
     });
 
+    it("doesn't start playing again when the music changes right after a pause", async () => {
+      const { player, api, mix, becomeReady, setPlaying } = await readySetup();
+      setPlaying(true);
+
+      player.playPause(); // alphaTab reports the pause a moment later
+      player.refresh({ trackIndex: 0, view: { notation: "score-tab", rhythm: false }, mix });
+      becomeReady();
+
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+      expect(api.play).not.toHaveBeenCalled();
+    });
+
     it("ignores a refresh for a track that no longer exists", async () => {
       const { player, api, mix } = await readySetup();
       player.refresh({ trackIndex: 9, view: { notation: "tab", rhythm: false }, mix });

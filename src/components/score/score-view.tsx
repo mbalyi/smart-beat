@@ -79,7 +79,8 @@ export function ScoreView({
   return (
     // `isolate`: alphaTab puts its cursor at z-index 1000; keep that inside the
     // score so it can't cover the mixer panel or other overlays.
-    <div className="relative isolate min-h-0 flex-1">
+    // Some of the score stays visible even in the smallest window (the area around it scrolls).
+    <div className="relative isolate min-h-32 flex-1">
       <div
         ref={viewportRef}
         role="region"

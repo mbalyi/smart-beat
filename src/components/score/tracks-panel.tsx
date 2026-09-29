@@ -84,7 +84,7 @@ export function TracksPanel({
                 key={`${i}-${track.name}`}
                 className={cn(
                   "flex flex-col gap-2 rounded-lg border p-3",
-                  i === shown && "border-primary/60 bg-primary/5",
+                  i === shown && "border-2 border-primary",
                 )}
               >
                 <div className="flex min-w-0 items-start gap-2">

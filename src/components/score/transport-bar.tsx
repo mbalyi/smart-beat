@@ -79,58 +79,57 @@ export function TransportBar({
   onPlayPause: () => void;
   onStop: () => void;
   onSeekBar: (barIndex: number) => void;
-  /** Practice tools (loop, speed...), shown on a second row. */
+  /** Practice tools (loop, speed...), after the transport controls. */
   practice?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-2 border-t bg-background px-4 py-2 sm:px-6">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-1">
-          <Button
-            size="icon-lg"
-            onClick={onPlayPause}
-            disabled={!ready}
-            aria-label={playing ? "Pause" : "Play"}
-            title={playing ? "Pause (Space)" : "Play (Space)"}
-          >
-            {playing ? <PauseIcon /> : <PlayIcon />}
-          </Button>
-          <Button
-            size="icon-lg"
-            variant="outline"
-            onClick={onStop}
-            disabled={!ready}
-            aria-label="Stop"
-            title="Stop"
-          >
-            <SquareIcon />
-          </Button>
-        </div>
-
-        <span
-          role="timer"
-          aria-label={`Position: ${describeTime(position.currentMs)} of ${describeTime(position.endMs)}`}
-          className="text-sm tabular-nums"
+    // One row that scrolls sideways in narrow windows, wrapping from `sm` up.
+    <div className="flex shrink-0 items-center gap-x-4 gap-y-2 overflow-x-auto border-t bg-background px-4 py-2 *:shrink-0 sm:flex-wrap sm:px-6">
+      <div className="flex items-center gap-1">
+        <Button
+          size="icon-lg"
+          onClick={onPlayPause}
+          disabled={!ready}
+          aria-label={playing ? "Pause" : "Play"}
+          title={playing ? "Pause (Space)" : "Play (Space)"}
         >
-          {formatTime(position.currentMs)} / {formatTime(position.endMs)}
-        </span>
-
-        <BarField bar={bar} barCount={barCount} onSeek={onSeekBar} />
-
-        {position.bpm > 0 && (
-          <span className="text-sm text-muted-foreground tabular-nums">{position.bpm} BPM</span>
-        )}
-
-        {!ready && (
-          <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-            <LoaderCircleIcon
-              className="size-4 animate-spin motion-reduce:animate-none"
-              aria-hidden="true"
-            />
-            Loading instrument sounds…
-          </p>
-        )}
+          {playing ? <PauseIcon /> : <PlayIcon />}
+        </Button>
+        <Button
+          size="icon-lg"
+          variant="outline"
+          onClick={onStop}
+          disabled={!ready}
+          aria-label="Stop"
+          title="Stop"
+        >
+          <SquareIcon />
+        </Button>
       </div>
+
+      <span
+        role="timer"
+        aria-label={`Position: ${describeTime(position.currentMs)} of ${describeTime(position.endMs)}`}
+        className="text-sm tabular-nums"
+      >
+        {formatTime(position.currentMs)} / {formatTime(position.endMs)}
+      </span>
+
+      <BarField bar={bar} barCount={barCount} onSeek={onSeekBar} />
+
+      {position.bpm > 0 && (
+        <span className="text-sm text-muted-foreground tabular-nums">{position.bpm} BPM</span>
+      )}
+
+      {!ready && (
+        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircleIcon
+            className="size-4 animate-spin motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+          Loading instrument sounds…
+        </p>
+      )}
       {practice}
     </div>
   );

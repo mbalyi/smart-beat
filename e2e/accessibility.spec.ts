@@ -1,4 +1,13 @@
-import { emitMenuAction, expect, expectNoA11yViolations, openSong, tabKey, test } from "./fixtures";
+import {
+  emitMenuAction,
+  expect,
+  expectNoA11yViolations,
+  newSong,
+  openSong,
+  scoreRegion,
+  tabKey,
+  test,
+} from "./fixtures";
 
 test.describe("accessibility", () => {
   for (const colorScheme of ["light", "dark"] as const) {
@@ -29,6 +38,38 @@ test.describe("accessibility", () => {
       );
       await expectNoA11yViolations(app);
     });
+
+    test(`editing, practice and track screens have no WCAG violations in ${colorScheme} mode`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await newSong(app);
+      await app.keyboard.press("3");
+      await emitMenuAction(app, "toggle-fretboard");
+      await app.getByRole("button", { name: "Loop" }).click();
+      await expect(app.getByRole("region", { name: "Fretboard" })).toBeVisible();
+      await expectNoA11yViolations(app);
+
+      await app.getByRole("button", { name: "Tracks" }).click();
+      await expect(app.getByRole("dialog", { name: "Tracks" })).toBeVisible();
+      await expectNoA11yViolations(app);
+      await app.keyboard.press("Escape");
+
+      await emitMenuAction(app, "add-track");
+      const dialog = app.getByRole("dialog", { name: "Add track" });
+      await dialog.getByRole("combobox", { name: "Instrument" }).click();
+      await app.getByRole("option", { name: "Drums" }).click();
+      await expect(dialog.getByRole("table")).toBeVisible();
+      await expectNoA11yViolations(app);
+      await dialog.getByRole("button", { name: "Add track" }).click();
+
+      await expect(app.getByRole("region", { name: "Drum pads" })).toBeVisible();
+      await expectNoA11yViolations(app);
+
+      await emitMenuAction(app, "speed-trainer");
+      await expect(app.getByRole("dialog", { name: "Speed Trainer" })).toBeVisible();
+      await expectNoA11yViolations(app);
+    });
   }
 
   test("the song screen can be used with the keyboard", async ({ app, browserName }) => {
@@ -53,7 +94,7 @@ test.describe("accessibility", () => {
     await expect(mixerButton).toBeFocused();
 
     // The score region is focusable so it can be scrolled with the keyboard.
-    await app.getByRole("radio", { name: "Page" }).focus(); // last toolbar control
+    await app.getByRole("button", { name: "Fretboard" }).focus(); // last toolbar control
     await app.keyboard.press(tab);
     await expect(app.getByRole("region", { name: /^Score:/ })).toBeFocused();
   });
@@ -89,6 +130,7 @@ test.describe("accessibility", () => {
       "Theme",
       "Help",
       "Open a file…",
+      "New song",
       "Keyboard shortcuts",
     ];
     const focused: string[] = [];
@@ -104,6 +146,29 @@ test.describe("accessibility", () => {
       );
     }
     expect(focused).toEqual(expected);
+  });
+
+  test("the editor and the fretboard can be used with the keyboard alone", async ({
+    app,
+    browserName,
+  }) => {
+    await openSong(app);
+    const edit = app.getByRole("button", { name: "Edit" });
+    await edit.focus();
+    await app.keyboard.press("Enter");
+    await expect(scoreRegion(app)).toBeFocused();
+    await expect(scoreRegion(app)).toHaveAttribute("aria-roledescription", "score editor");
+    await app.keyboard.press("9");
+    await expect(app.getByRole("status").filter({ hasText: "Fret 9" })).toHaveCount(1);
+
+    // Toolbar buttons are reachable with Tab, and the fretboard is one tab stop.
+    await emitMenuAction(app, "toggle-fretboard");
+    const fretboard = app.getByRole("group", { name: /^Fretboard/ });
+    await fretboard.getByRole("button").and(app.locator("[tabindex='0']")).focus();
+    await app.keyboard.press("ArrowRight");
+    await expect(fretboard.locator(":focus")).toHaveCount(1);
+    await app.keyboard.press(tabKey(browserName));
+    await expect(fretboard.locator(":focus")).toHaveCount(0);
   });
 
   test("dialogs trap focus and return it on close", async ({ app }) => {

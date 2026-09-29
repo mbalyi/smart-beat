@@ -298,8 +298,12 @@ describe("ScoreWorkspace: tracks", () => {
       "Piano",
       "Banjo",
     ]);
-    // The new track is shown, and ready to edit.
+    // The new track is shown with its tab, and the score has the keyboard again.
     expect(screen.getByRole("region", { name: "Score: Banjo" })).toBeInTheDocument();
+    expect(FakeScorePlayer.last.refresh).toHaveBeenLastCalledWith(
+      expect.objectContaining({ trackIndex: 4, view: { notation: "score-tab", rhythm: false } }),
+    );
+    await waitFor(() => expect(screen.getByRole("region", { name: "Score: Banjo" })).toHaveFocus());
     await user.click(screen.getByRole("button", { name: "Mixer" }));
     expect(await screen.findByRole("slider", { name: "Volume, Banjo" })).toHaveAttribute(
       "aria-valuetext",

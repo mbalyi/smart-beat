@@ -62,9 +62,7 @@ test.describe("note entry and editing (#9)", () => {
     await app.getByRole("button", { name: "Undo Add note" }).click();
     await expectTab(app, ["1"]);
 
-    await expect
-      .poll(() => app.evaluate(() => window.__menuState?.redo))
-      .toBe("Add note");
+    await expect.poll(() => app.evaluate(() => window.__menuState?.redo)).toBe("Add note");
     await emitMenuAction(app, "redo");
     await expectTab(app, ["1", "2"]);
     await expect(scoreRegion(app)).toBeFocused();
@@ -129,10 +127,7 @@ test.describe("note entry and editing (#9)", () => {
     const before = await tabNumbers(app);
 
     // Bar 3's second note ("2" on the A string of the guitar).
-    const note = scoreRegion(app)
-      .locator(".at-surface svg text")
-      .filter({ hasText: /^2$/ })
-      .nth(1);
+    const note = scoreRegion(app).locator(".at-surface svg text").filter({ hasText: /^2$/ }).nth(1);
     const box = await note.evaluate((el: SVGTextElement) => {
       const svg = el.ownerSVGElement!.getBoundingClientRect();
       const text = el.getBBox();

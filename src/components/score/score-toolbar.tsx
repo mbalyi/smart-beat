@@ -32,6 +32,13 @@ const LAYOUTS: { value: Layout; label: string }[] = [
   { value: "horizontal", label: "Continuous" },
 ];
 
+/**
+ * Pressed Edit stands out in blue, the colour of the edit cursor. Radix sets
+ * both `data-state=on` and `aria-pressed`, so both are overridden.
+ */
+const EDIT_PRESSED =
+  "data-[state=on]:border-sky-700 data-[state=on]:bg-sky-700 aria-pressed:bg-sky-700 data-[state=on]:text-white data-[state=on]:hover:bg-sky-800 data-[state=on]:hover:text-white";
+
 const isNotation = (value: string): value is NotationView =>
   NOTATIONS.some((n) => n.value === value);
 const isLayout = (value: string): value is Layout => LAYOUTS.some((l) => l.value === value);
@@ -119,7 +126,7 @@ export function ScoreToolbar({
               pressed={editing}
               onPressedChange={onToggleEditing}
               title="Edit mode: write notes with the keyboard and mouse"
-              className="data-[state=on]:border-sky-600 data-[state=on]:bg-sky-600 data-[state=on]:text-white"
+              className={EDIT_PRESSED}
             >
               <PencilIcon data-icon="inline-start" />
               Edit
@@ -144,7 +151,8 @@ export function ScoreToolbar({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      {/* One row that scrolls sideways in narrow windows, wrapping from `sm` up. */}
+      <div className="-my-1 flex items-center gap-x-4 gap-y-2 overflow-x-auto py-1 *:shrink-0 sm:flex-wrap">
         <div className="flex min-w-0 items-center gap-2">
           <span id={trackLabelId} className="text-sm font-medium">
             Track

@@ -161,8 +161,13 @@ export function ScoreWorkspace({
   const trackObject = score.tracks[trackIndex]!;
   const track = summary.tracks[trackIndex]!;
   const [views, setViews] = useState<ReadonlyMap<Track, TrackView>>(() => new Map());
-  const viewOf = (t: Track, index: number) =>
-    views.get(t) ?? summary.tracks[index]?.defaultView ?? { notation: "score", rhythm: false };
+  /**
+   * The view chosen for a track, or the one saved with it. Read from the
+   * score itself: during an edit the render's summary may lack new tracks.
+   */
+  const viewOf = (t: Track, index: number): TrackView =>
+    views.get(t) ??
+    summarizeScore(score).tracks[index]?.defaultView ?? { notation: "score", rhythm: false };
   const view = viewOf(trackObject, trackIndex);
 
   const [layout, setLayout] = useState<Layout>("page");
@@ -344,6 +349,8 @@ export function ScoreWorkspace({
       mix: mixRef.current,
     });
     dispatchPractice({ type: "bar-count", count: score.masterBars.length });
+    // Right away (not in an effect): a New or Open right after an edit must ask first.
+    onEditedChange?.(editor.edited);
   });
 
   const onCursorChange = useEffectEvent(() => updateOverlay());
@@ -357,11 +364,16 @@ export function ScoreWorkspace({
     [editor],
   );
 
-  useEffect(() => onEditedChange?.(editor.edited), [editor.edited, onEditedChange]);
-
   useEditorKeys(viewportRef, editor, { enabled: editing, menuHandlesUndo: isTauri() });
 
   const focusScore = () => viewportRef.current?.focus({ preventScroll: true });
+
+  /** After a dialog opened from the menu or panel: continue in the score. */
+  const returnFocusToScore = (event: Event) => {
+    if (!viewportRef.current) return;
+    event.preventDefault();
+    focusScore();
+  };
 
   const toggleEditing = () => setEditing((on) => !on);
 
@@ -618,46 +630,49 @@ export function ScoreWorkspace({
         instrumentLabel={instrumentViewName(track.kind)}
         onToggleInstrumentView={toggleInstrumentView}
       />
-      {editing && (
-        <EditToolbar
-          beat={editor.beatInfo}
-          voice={editor.cursor.voice}
-          stringed={track.kind === "stringed"}
-          status={editor.describeCursor()}
-          message={editor.message}
-          undoLabel={editor.undoLabel}
-          redoLabel={editor.redoLabel}
-          actions={editActions}
-          statusId={statusId}
-        />
-      )}
-      <ScoreView
-        viewportRef={viewportRef}
-        surfaceRef={surfaceRef}
-        label={`Score: ${track.name}`}
-        layout={layout}
-        rendering={rendering}
-        editing={editing}
-        overlay={overlay}
-        describedBy={editing ? statusId : undefined}
-      />
-      {instrumentView && (
-        <InstrumentPanel
-          kind={track.kind}
-          tuning={track.tuning}
-          capo={track.capo}
-          active={shownNotes}
+      {/* Scrolls as a whole when the window is too short for all of it. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {editing && (
+          <EditToolbar
+            beat={editor.beatInfo}
+            voice={editor.cursor.voice}
+            stringed={track.kind === "stringed"}
+            status={editor.describeCursor()}
+            message={editor.message}
+            undoLabel={editor.undoLabel}
+            redoLabel={editor.redoLabel}
+            actions={editActions}
+            statusId={statusId}
+          />
+        )}
+        <ScoreView
+          viewportRef={viewportRef}
+          surfaceRef={surfaceRef}
+          label={`Score: ${track.name}`}
+          layout={layout}
+          rendering={rendering}
           editing={editing}
-          cursorString={track.kind === "stringed" ? editor.cursor.string : null}
-          drumSounds={shownNotes.map((n) => n.pitch)}
-          onFret={(string, fret) => {
-            editor.setString(string);
-            editor.setFret(fret - track.capo);
-          }}
-          onPitch={(pitch) => editor.enterPitch(pitch)}
-          onDrum={(sound) => editor.enterDrum(sound)}
+          overlay={overlay}
+          describedBy={editing ? statusId : undefined}
         />
-      )}
+        {instrumentView && (
+          <InstrumentPanel
+            kind={track.kind}
+            tuning={track.tuning}
+            capo={track.capo}
+            active={shownNotes}
+            editing={editing}
+            cursorString={track.kind === "stringed" ? editor.cursor.string : null}
+            drumSounds={shownNotes.map((n) => n.pitch)}
+            onFret={(string, fret) => {
+              editor.setString(string);
+              editor.setFret(fret - track.capo);
+            }}
+            onPitch={(pitch) => editor.enterPitch(pitch)}
+            onDrum={(sound) => editor.enterDrum(sound)}
+          />
+        )}
+      </div>
       <TransportBar
         ready={ready}
         playing={playing}
@@ -719,12 +734,14 @@ export function ScoreWorkspace({
         }
         drumKit={drumKitOf(editedTrack)}
         onSubmit={submitTrack}
+        onCloseAutoFocus={returnFocusToScore}
       />
       <SpeedTrainerDialog
         open={trainerOpen}
         onOpenChange={setTrainerOpen}
         barCount={score.masterBars.length}
         initialRange={suggestedRange()}
+        onCloseAutoFocus={returnFocusToScore}
         onStart={(trainer, trainerRange) => {
           dispatchPractice({ type: "start-trainer", trainer, range: trainerRange });
           if (!playing && ready) playPause();

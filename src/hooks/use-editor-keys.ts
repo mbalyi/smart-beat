@@ -140,24 +140,35 @@ export function useEditorKeys(
   }, [enabled, target]);
 }
 
-/** The editor's keys, for the Keyboard Shortcuts dialog. `mod` is ⌘ or Ctrl. */
-export const EDITOR_SHORTCUTS: { keys: string[]; label: string }[] = [
-  { keys: ["←", "→"], label: "Previous / next beat (adds beats and bars at the end)" },
-  { keys: ["↑", "↓"], label: "Higher / lower string (tab), or note of a chord" },
-  { keys: ["mod", "←/→"], label: "Previous / next bar" },
-  { keys: ["⇧", "arrows"], label: "Select beats" },
-  { keys: ["0–9"], label: "Type a fret (two quick digits: 10–29)" },
-  { keys: ["A–G"], label: "Type a pitch (nearest octave)" },
-  { keys: ["⌥", "↑/↓"], label: "Note a semitone up / down" },
-  { keys: ["+", "−"], label: "Shorter / longer note value" },
-  { keys: ["."], label: "Dotted note" },
-  { keys: ["R"], label: "Make a rest" },
-  { keys: ["T"], label: "Tie to the previous note" },
-  { keys: ["V"], label: "Switch between voice 1 and 2" },
-  { keys: ["I"], label: "Insert a beat" },
-  { keys: ["Delete"], label: "Delete the note (or clear the selection)" },
-  { keys: ["⇧", "Delete"], label: "Delete the beat" },
-  { keys: ["mod", "C / X / V"], label: "Copy / cut / paste" },
-  { keys: ["mod", "A"], label: "Select the whole track" },
-  { keys: ["Space"], label: "Play / pause" },
+/**
+ * The editor's keys, for the Keyboard Shortcuts dialog. `mod` is ⌘ or Ctrl;
+ * `spoken` is what screen readers hear instead of the key caps.
+ */
+export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }[] = [
+  {
+    keys: ["←", "→"],
+    spoken: "Left or Right arrow",
+    label: "Previous / next beat (adds beats and bars at the end)",
+  },
+  {
+    keys: ["↑", "↓"],
+    spoken: "Up or Down arrow",
+    label: "Higher / lower string (tab), or note of a chord",
+  },
+  { keys: ["mod", "←/→"], spoken: "mod+Left or Right arrow", label: "Previous / next bar" },
+  { keys: ["⇧", "arrows"], spoken: "Shift+arrows", label: "Select beats" },
+  { keys: ["0–9"], spoken: "0 to 9", label: "Type a fret (two quick digits: 10–29)" },
+  { keys: ["A–G"], spoken: "A to G", label: "Type a pitch (nearest octave)" },
+  { keys: ["⌥", "↑/↓"], spoken: "Option+Up or Down arrow", label: "Note a semitone up / down" },
+  { keys: ["+", "−"], spoken: "Plus or Minus", label: "Shorter / longer note value" },
+  { keys: ["."], spoken: "Period", label: "Dotted note" },
+  { keys: ["R"], spoken: "R", label: "Make a rest" },
+  { keys: ["T"], spoken: "T", label: "Tie to the previous note" },
+  { keys: ["V"], spoken: "V", label: "Switch between voice 1 and 2" },
+  { keys: ["I"], spoken: "I", label: "Insert a beat" },
+  { keys: ["Delete"], spoken: "Delete", label: "Delete the note (or clear the selection)" },
+  { keys: ["⇧", "Delete"], spoken: "Shift+Delete", label: "Delete the beat" },
+  { keys: ["mod", "C / X / V"], spoken: "mod+C, X or V", label: "Copy / cut / paste" },
+  { keys: ["mod", "A"], spoken: "mod+A", label: "Select the whole track" },
+  { keys: ["Space"], spoken: "Space", label: "Play / pause" },
 ];

@@ -369,8 +369,10 @@ export class ScorePlayer {
     const { api } = this;
     // alphaTab rewinds to 0 while it loads the new MIDI: return to this
     // position (and hide the rewind) once it is ready again. A pending
-    // SoundFont switch already knows where to continue.
-    this.resume ??= { tick: api.tickPosition, play: api.playerState === PlayerState.Playing };
+    // SoundFont switch already knows where to continue. Whether to play is our
+    // own flag: alphaTab reports a pause late, so right after one (an edit
+    // straight after pausing) it would still say "playing".
+    this.resume ??= { tick: api.tickPosition, play: this.playing };
     api.loadMidiForScore();
     api.tickPosition = this.resume.tick;
   }
