@@ -481,6 +481,35 @@ describe("ScorePlayer", () => {
       expect(api.play).toHaveBeenCalledOnce();
     });
 
+    it("keeps playing when switched again right after resuming", async () => {
+      const { player, api, downloads, becomeReady, setPlaying } = await readySetup();
+      setPlaying(true);
+      api.tickPosition = 4800;
+
+      void player.setSoundFont(FLUID);
+      await downloads.finish(FLUID);
+      setPlaying(false); // the pause for loading
+      becomeReady(); // resumes: play() is sent, alphaTab's "playing" event is still on its way
+      expect(api.play).toHaveBeenCalledOnce();
+
+      void player.setSoundFont(SONIVOX);
+      await downloads.finish(SONIVOX);
+      becomeReady();
+
+      expect(api.play).toHaveBeenCalledTimes(2); // continues after the second switch too
+    });
+
+    it("counts a just-pressed Play when switching sounds", async () => {
+      const { player, api, downloads, becomeReady } = await readySetup();
+
+      player.playPause(); // "playing" event from alphaTab not here yet
+      void player.setSoundFont(FLUID);
+      await downloads.finish(FLUID);
+      becomeReady();
+
+      expect(api.play).toHaveBeenCalledOnce();
+    });
+
     it("keeps the original position if switched again while loading", async () => {
       const { player, api, downloads, becomeReady, setPlaying } = await readySetup();
       setPlaying(true);

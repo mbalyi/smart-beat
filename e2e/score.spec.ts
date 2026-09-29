@@ -347,8 +347,12 @@ test.describe("mixer (#6)", () => {
 
   test("survives switching sounds quickly back and forth while playing", async ({ app }) => {
     const sounds = await readFile(SONIVOX);
+    // Hold the high-quality download until the test releases it, so the user
+    // changes their mind while it is still downloading.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
     await app.route("**/soundfont/FluidR3Mono_GM.sf3", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 800)); // a slow download
+      await held;
       await route.fulfill({ contentType: "application/octet-stream", body: sounds });
     });
     await openSong(app);
@@ -366,6 +370,15 @@ test.describe("mixer (#6)", () => {
     await expect(sound).toHaveText(/Standard/);
     await expect(app.getByRole("button", { name: "Pause" })).toBeEnabled({ timeout: 30_000 });
     await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThan(before);
+
+    // The replaced download finishing late changes nothing and doesn't pause.
+    const afterSwitch = await playedSeconds(app);
+    release();
+    await expect
+      .poll(() => playedSeconds(app), { timeout: 10_000 })
+      .toBeGreaterThan(afterSwitch + 1);
+    await expect(sound).toHaveText(/Standard/);
+    await expect(app.getByRole("button", { name: "Pause" })).toBeEnabled();
   });
 
   test("falls back to the standard sounds when the others are missing", async ({ app }) => {

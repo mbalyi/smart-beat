@@ -120,6 +120,11 @@ export class ScorePlayer {
   private trackIndex: number;
   private mix: MixerSettings;
   private ready = false;
+  /**
+   * Whether playback is (or is about to be) running. Set as soon as we ask
+   * alphaTab to play or pause, because its state event arrives later; a
+   * SoundFont switch right after Play must still know to continue.
+   */
   private playing = false;
   private destroyed = false;
   private lastPosition: PlaybackPosition | null = null;
@@ -193,7 +198,10 @@ export class ScorePlayer {
       this.resume = null;
       if (resume) api.tickPosition = resume.tick;
       this.setReady(true);
-      if (resume?.play) api.play();
+      if (resume?.play) {
+        this.playing = true;
+        api.play();
+      }
     });
     player.soundFontLoadFailed.on((error) => {
       this.soundFontErrors.add(error);
@@ -336,6 +344,7 @@ export class ScorePlayer {
     const { api } = this;
     // While a previous switch is still loading, keep the position from before it.
     if (this.ready) this.resume = { tick: api.tickPosition, play: this.playing };
+    this.playing = false;
     api.pause();
     this.setReady(false);
     this.hasSounds = false;
@@ -344,11 +353,14 @@ export class ScorePlayer {
   }
 
   playPause() {
-    if (this.ready) this.api.playPause();
+    if (!this.ready) return;
+    this.playing = !this.playing;
+    this.api.playPause();
   }
 
   stop() {
     if (this.resume) this.resume = { tick: 0, play: false };
+    this.playing = false;
     this.api.stop();
   }
 
