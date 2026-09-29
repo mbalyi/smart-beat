@@ -1,0 +1,112 @@
+# License review
+
+Issue: [#3](https://github.com/mbalyi/smart-beat/issues/3). Decision record: [ADR 0001](adr/0001-project-license.md).
+
+> This is an engineering review, not legal advice. Have a lawyer review the EULA and this checklist before the first public release.
+
+## Summary
+
+- **Smart Beat's license:** proprietary freeware, all rights reserved ([`LICENSE`](../LICENSE), draft [`EULA.md`](../EULA.md)). The app is free without AI; a paid AI tier may follow.
+- **What we can reuse:**
+  - permissive libraries (MIT, Apache-2.0, BSD and similar) and fonts under OFL-1.1;
+  - MPL-2.0 libraries, in particular **alphaTab**, our planned score renderer and player;
+  - LGPL libraries only as separate, replaceable components (e.g. PyGuitarPro inside the Python AI service).
+- **What we can't reuse:** code from GPL/AGPL projects (**MuseScore**), or code copied or ported from LGPL projects (**TuxGuitar**, **PyGuitarPro**) into our own code. Model weights with non-commercial licenses (**MusicGen**) are also out.
+- **Enforcement:** CI checks the policy for every dependency (`cargo deny`, `scripts/check-licenses.mjs`). The build generates all third-party notices into the app (Help → Open-Source Licenses).
+
+## License classes
+
+| Class                          | Licenses                                                                               | Can Smart Beat use it?                                 | Obligations when we ship binaries                                                                                                                                                                                                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Permissive                     | MIT, ISC, BSD-2/3-Clause, Apache-2.0, Zlib, 0BSD, Unlicense, CC0, BSL-1.0, Unicode-3.0 | ✅ Yes, freely                                         | Include copyright and license notice. Apache-2.0: also keep `NOTICE` files and state changes to modified files.                                                                                                                                                                               |
+| Font                           | OFL-1.1                                                                                | ✅ Yes, embedded in the app                            | Include the license. Don't sell the font by itself. Rename it if modified.                                                                                                                                                                                                                    |
+| Weak copyleft (file-level)     | MPL-2.0                                                                                | ✅ Yes                                                 | Include the license. **Publish the source of any MPL file we modify** (our own files stay closed).                                                                                                                                                                                            |
+| Weak copyleft (library-level)  | LGPL-2.1, LGPL-3.0                                                                     | ⚠️ Only as a separate, replaceable library, unmodified | Ship the license and offer the library's source. The user must be able to swap the library (dynamic linking or a separate process). Our EULA must not forbid reverse engineering for that purpose (EULA §3 covers it). **Never** statically link into Rust, bundle into JS, or copy its code. |
+| Strong copyleft                | GPL-2.0/3.0                                                                            | ❌ No                                                  | Would require releasing Smart Beat's source code under GPL.                                                                                                                                                                                                                                   |
+| Network copyleft               | AGPL-3.0, SSPL                                                                         | ❌ No                                                  | Would apply even to a hosted AI service.                                                                                                                                                                                                                                                      |
+| Non-commercial / research-only | CC-BY-NC-*, "research only" model licenses                                             | ❌ No (paid tier)                                      | Can't be used in a commercial product. Avoid even in the free app to keep one code path.                                                                                                                                                                                                      |
+| Custom model licenses          | Llama Community License, Qwen License                                                  | ⚠️ Case by case                                        | Usually allow commercial use with conditions (attribution, usage policy, user caps).                                                                                                                                                                                                          |
+
+## Components
+
+Licenses were checked against each project's upstream repository or model card on 2026-09-29.
+
+### Score, file formats and audio
+
+| Component                                              | License                                                                    | How we'd use it                                                                                 | Verdict                    | Obligations and notes                                                                                                                                                    |
+| ------------------------------------------------------ | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [alphaTab](https://github.com/CoderLine/alphaTab)      | MPL-2.0 (sub-packages have their own `LICENSE` files)                      | npm dependency: rendering, playback (alphaSynth), GP3–7 import                                  | ✅ Use                     | Ship the notice. If we patch alphaTab, publish the patched files (e.g. a public fork). Prefer contributing upstream.                                                     |
+| [PyGuitarPro](https://github.com/Perlence/PyGuitarPro) | LGPL-3.0                                                                   | Unmodified `pip` dependency of the Python AI service to read and write GP3–5 on the server side | ⚠️ Use only as a library   | Don't vendor, modify or port it. Ship the license and link to its source. Keep it replaceable (a normal pip install).                                                    |
+| [TuxGuitar](https://github.com/helge17/tuxguitar)      | LGPL-2.1 (declared in README and the bundled help, no root `LICENSE` file) | Behavioral reference only                                                                       | ❌ Don't copy or port code | A GP5 writer ported from TuxGuitar would be a derivative work. Write it clean-room instead (see below).                                                                  |
+| [MuseScore 4](https://github.com/musescore/MuseScore)  | GPL-3.0 (fonts: GPL with font exception)                                   | UX and engraving inspiration only                                                               | ❌ No code or assets       | Even small snippets would make Smart Beat GPL. Its SoundFont and fonts are licensed separately. Check each one if ever needed.                                           |
+| [FluidSynth](https://github.com/FluidSynth/fluidsynth) | LGPL-2.1+                                                                  | Possible native synth                                                                           | ⚠️ Avoid for now           | Rust would link it statically, which is a problem. Use alphaTab's alphaSynth (MPL-2.0) instead, or load FluidSynth as a separate dynamic library with relinking allowed. |
+| SoundFonts (SF2/SF3)                                   | Per font                                                                   | Playback samples                                                                                | ⚠️ Per font                | Pick fonts that allow redistribution in commercial software (e.g. FluidR3_GM, MIT). Check each font's license file before bundling.                                      |
+
+### AI libraries (Python sidecar, issue #19)
+
+| Component                                                                                                               | License           | Use                                       | Verdict                                                                                   |
+| ----------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [music21](https://github.com/cuthbertLab/music21)                                                                       | BSD-3-Clause      | Key detection, quantization, music theory | ✅                                                                                        |
+| [Basic Pitch](https://github.com/spotify/basic-pitch) (code and model)                                                  | Apache-2.0        | Humming → notes                           | ✅ Keep `NOTICE`                                                                          |
+| [torchcrepe](https://github.com/maxrmorrison/torchcrepe)                                                                | MIT               | Pitch tracking                            | ✅                                                                                        |
+| [Anticipatory Music Transformer](https://github.com/jthickstun/anticipation)                                            | Apache-2.0 (code) | Accompaniment generation                  | ✅ Code. Check each checkpoint's license on its model card before use                     |
+| [AccoMontage2](https://github.com/billyblu2000/AccoMontage2) / [AccoMontage](https://github.com/zhaojw1998/AccoMontage) | MIT               | Chord and accompaniment arrangement       | ✅ AccoMontage 3 has no public repository or license: ❌ until clarified with the authors |
+| [Magenta](https://github.com/magenta/magenta)                                                                           | Apache-2.0        | Coconet, Music Transformer                | ✅ (upstream is archived: use for research, not as a dependency)                          |
+| [ONNX Runtime](https://github.com/microsoft/onnxruntime)                                                                | MIT               | In-app inference                          | ✅                                                                                        |
+| [FastAPI](https://github.com/fastapi/fastapi)                                                                           | MIT               | Sidecar HTTP API                          | ✅                                                                                        |
+| [Ollama](https://github.com/ollama/ollama) / [llama.cpp](https://github.com/ggml-org/llama.cpp)                         | MIT               | Local LLM runtime                         | ✅                                                                                        |
+
+### AI models (weights)
+
+Weights are licensed separately from the code that runs them. The paid tier may only use weights that allow commercial use.
+
+| Model                                      | Weights license                                                                                         | Free app | Paid tier | Notes                                                                                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------- | -------- | --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Basic Pitch                                | Apache-2.0                                                                                              | ✅       | ✅        |                                                                                                                             |
+| Anticipatory Music Transformer checkpoints | Apache-2.0                                                                                              | ✅       | ✅        | Trained on the Lakh MIDI dataset (CC-BY-4.0). Credit the dataset in the notices                                             |
+| ChatMusician                               | Model card says MIT, but it is fine-tuned from LLaMA 2-7B, so the **Llama 2 Community License** applies | ⚠️       | ⚠️        | Commercial use is allowed under 700M monthly users, subject to the Acceptable Use Policy                                    |
+| NotaGen                                    | MIT                                                                                                     | ✅       | ✅        | Classical-style ABC generation                                                                                              |
+| MuPT                                       | Apache-2.0                                                                                              | ✅       | ✅        |                                                                                                                             |
+| CLaMP 3                                    | MIT                                                                                                     | ✅       | ✅        | Music retrieval                                                                                                             |
+| MusicGen (audiocraft)                      | **CC-BY-NC-4.0** (code: MIT)                                                                            | ❌       | ❌        | Non-commercial. It also generates audio, not notation                                                                       |
+| YuE                                        | Apache-2.0                                                                                              | ✅       | ✅        | Audio generation (not notation), so low priority                                                                            |
+| Qwen3 (LLM for the chat assistant)         | Apache-2.0 (model cards; the GitHub repo has no license file)                                           | ✅       | ✅        | Some older Qwen2.5 sizes use the custom Qwen License. Check the exact checkpoint                                            |
+| Llama 3.x                                  | Llama 3.1/3.x Community License                                                                         | ⚠️       | ⚠️        | Commercial use is allowed with "Built with Llama" attribution, the Acceptable Use Policy, and a limit of 700M monthly users |
+
+### This repository's stack
+
+| Component                                                                        | License                                                                                                 | Verdict                                           |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Tauri, tauri-build and the Rust dependency tree                                  | MIT OR Apache-2.0 (plus MIT, BSD, ISC, Zlib, Unicode-3.0, MPL-2.0 for a few crates such as `cssparser`) | ✅ Checked by `cargo deny`                        |
+| React, Radix UI, shadcn/ui, `cn`, Tailwind CSS, sonner, class-variance-authority | MIT                                                                                                     | ✅                                                |
+| lucide-react                                                                     | ISC                                                                                                     | ✅                                                |
+| Geist font (`@fontsource-variable/geist`)                                        | OFL-1.1                                                                                                 | ✅ Embedded, notice included                      |
+| Dev-only tools (Vite, Vitest, ESLint, Playwright, TypeScript, ...)               | MIT, Apache-2.0, BSD                                                                                    | ✅ Not shipped. Not subject to the runtime policy |
+
+## Must NOT copy code from
+
+| Project                                                            | License             | Why                                                                                   |
+| ------------------------------------------------------------------ | ------------------- | ------------------------------------------------------------------------------------- |
+| MuseScore (all versions)                                           | GPL-3.0 / GPL-2.0   | Copying anything would put Smart Beat under the GPL                                   |
+| TuxGuitar                                                          | LGPL-2.1            | Ported code (e.g. its GP5 writer) would be LGPL-covered code inside our closed binary |
+| PyGuitarPro                                                        | LGPL-3.0            | Same as TuxGuitar. OK only as an unmodified library in the Python sidecar             |
+| FluidSynth                                                         | LGPL-2.1            | Same. Never copy it or link it statically                                             |
+| Any GPL, AGPL or SSPL project                                      |                     | Strong or network copyleft                                                            |
+| Code without a license                                             | All rights reserved | "Public on GitHub" does not mean usable. Ask the author for permission in writing     |
+| Guitar Pro (Arobas Music) binaries, samples (RSE) or documentation | Proprietary         | Copyrighted. Only the community-documented `.gp*` file format may be used             |
+
+### Clean-room rule for GP5 writing
+
+1. Specify the format only from public, non-code documentation: community format descriptions, and our own observations of files written by Guitar Pro or TuxGuitar.
+2. The person implementing the writer must not read TuxGuitar or PyGuitarPro source code for that feature.
+3. Test by round-tripping: files we write must open in Guitar Pro, TuxGuitar and alphaTab. Running their binaries as black boxes is fine.
+
+## Obligations checklist for each release
+
+- [ ] `pnpm licenses:check` passes. CI enforces this on every PR.
+- [ ] The installer contains `third-party-licenses.txt` (generated by `pnpm licenses:generate` before `tauri build`), and it is reachable in Help → Open-Source Licenses.
+- [ ] Any modified MPL-2.0 files (e.g. alphaTab patches) are published, and the notices say where.
+- [ ] LGPL components (AI service) are listed with a link to their source and can be replaced by the user.
+- [ ] No model weights are included in the desktop installers. Models are downloaded on demand, and their license is shown (and accepted where required) first.
+- [ ] If a Llama-based model is offered: "Built with Llama" attribution, and the Acceptable Use Policy is linked in the AI terms.
+- [ ] The EULA has been reviewed by a lawyer, including the governing-law and contact sections.
