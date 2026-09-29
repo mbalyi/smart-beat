@@ -68,12 +68,21 @@ const LAYOUT_MODES: Record<Layout, LayoutMode> = {
 const rhythmMode = (view: TrackView) =>
   view.rhythm ? TabRhythmMode.ShowWithBars : TabRhythmMode.Hidden;
 
+/** SF2 and SF3 files are RIFF containers of type `sfbk`. */
+export function isSoundFont(bytes: Uint8Array): boolean {
+  const text = (start: number, end: number) => String.fromCharCode(...bytes.subarray(start, end));
+  return bytes.length >= 12 && text(0, 4) === "RIFF" && text(8, 12) === "sfbk";
+}
+
 async function downloadSoundFont(url: string): Promise<Uint8Array> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`The instrument sounds could not be downloaded (${response.status}).`);
   }
-  return new Uint8Array(await response.arrayBuffer());
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  // A missing file can come back as the app's index.html from a dev server.
+  if (!isSoundFont(bytes)) throw new Error(`${url} is not a SoundFont.`);
+  return bytes;
 }
 
 const asError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));

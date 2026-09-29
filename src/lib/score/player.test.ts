@@ -2,6 +2,7 @@ import { LayoutMode, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/a
 
 import { mixFromScore } from "@/lib/score/mixer";
 import {
+  isSoundFont,
   ScorePlayer,
   type ScorePlayerCallbacks,
   type ScorePlayerOptions,
@@ -21,10 +22,22 @@ type Callback<K extends keyof ScorePlayerCallbacks> = NonNullable<ScorePlayerCal
 
 const SONIVOX = "/soundfont/sonivox.sf3";
 const FLUID = "/soundfont/FluidR3Mono_GM.sf3";
+/** A minimal SoundFont header: RIFF, size, `sfbk`, then a marker byte. */
+const soundFont = (marker: number) =>
+  new Uint8Array([
+    ...new TextEncoder().encode("RIFF"),
+    0,
+    0,
+    0,
+    0,
+    ...new TextEncoder().encode("sfbk"),
+    marker,
+  ]);
+
 /** Distinct bytes per SoundFont, so tests can tell which one was loaded. */
 const BYTES: Record<string, Uint8Array> = {
-  [SONIVOX]: new Uint8Array([1]),
-  [FLUID]: new Uint8Array([2]),
+  [SONIVOX]: soundFont(1),
+  [FLUID]: soundFont(2),
 };
 
 /** `fetch` whose downloads finish when the test says so. */
@@ -51,6 +64,9 @@ function stubDownloads() {
     finish: (url: string) => settle(url, (d) => d.resolve(new Response(BYTES[url]!.slice()))),
     fail: (url: string, status = 404) =>
       settle(url, (d) => d.resolve(new Response(null, { status }))),
+    /** A server that answers with a web page (e.g. a dev server's fallback). */
+    html: (url: string) =>
+      settle(url, (d) => d.resolve(new Response("<!DOCTYPE html><html></html>"))),
     error: (url: string) => settle(url, (d) => d.reject(new TypeError("offline"))),
   };
 }
@@ -103,6 +119,15 @@ async function readySetup(overrides: Partial<ScorePlayerOptions> = {}) {
   vi.clearAllMocks();
   return context;
 }
+
+describe("isSoundFont", () => {
+  it("recognises SF2/SF3 files by their RIFF header", () => {
+    expect(isSoundFont(soundFont(0))).toBe(true);
+    expect(isSoundFont(new TextEncoder().encode("<!DOCTYPE html><html>"))).toBe(false);
+    expect(isSoundFont(new TextEncoder().encode("RIFF0000WAVEfmt "))).toBe(false); // audio, not sounds
+    expect(isSoundFont(new Uint8Array([82, 73]))).toBe(false);
+  });
+});
 
 describe("ScorePlayer", () => {
   it("configures alphaTab for glitch-free rendering and playback", async () => {
@@ -495,6 +520,19 @@ describe("ScorePlayer", () => {
       expect(callbacks.onSoundFontError).toHaveBeenCalledWith(expect.any(Error), {
         previousKept: false,
       });
+    });
+
+    it("refuses a download that is not a SoundFont", async () => {
+      const { player, api, callbacks, downloads } = await readySetup();
+
+      void player.setSoundFont(FLUID);
+      await downloads.html(FLUID);
+
+      expect(callbacks.onSoundFontError).toHaveBeenCalledWith(
+        new Error(`${FLUID} is not a SoundFont.`),
+        { previousKept: true },
+      );
+      expect(api.loadSoundFont).not.toHaveBeenCalled();
     });
 
     it("ignores failures of a replaced download", async () => {

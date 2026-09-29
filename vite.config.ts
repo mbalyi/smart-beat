@@ -1,21 +1,44 @@
+import { cpSync } from "node:fs";
 import path from "node:path";
 import { alphaTab } from "@coderline/alphatab-vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 // Set by `tauri dev` when targeting a physical device on the local network.
 const host = process.env.TAURI_DEV_HOST;
+
+const ALPHATAB_DIST = path.resolve(import.meta.dirname, "node_modules/@coderline/alphatab/dist");
+
+/**
+ * Copies alphaTab's music font and Sonivox SoundFont to public/ (served at
+ * /font/ and /soundfont/, gitignored). alphaTab's own plugin copies them at
+ * `buildStart`, after the dev server has indexed public/, so on a fresh
+ * checkout (CI) the dev server answered those URLs with index.html. The
+ * `config` hook runs before that.
+ */
+function alphaTabAssets(): Plugin {
+  return {
+    name: "smart-beat:alphatab-assets",
+    config() {
+      for (const dir of ["font", "soundfont"]) {
+        cpSync(path.join(ALPHATAB_DIST, dir), path.resolve(import.meta.dirname, "public", dir), {
+          recursive: true,
+        });
+      }
+    },
+  };
+}
 
 // https://v2.tauri.app/start/frontend/vite/
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    // Bundles alphaTab's worker and audio worklet, and copies its music font and
-    // Sonivox SoundFont to public/ (served at /font/ and /soundfont/). Unit tests
-    // mock alphaTab, so Vitest skips it.
-    !process.env.VITEST && alphaTab(),
+    // Unit tests mock alphaTab, so Vitest skips these.
+    !process.env.VITEST && alphaTabAssets(),
+    // Bundles alphaTab's worker and audio worklet (assets: see above).
+    !process.env.VITEST && alphaTab({ assetOutputDir: false }),
   ],
   resolve: {
     alias: {

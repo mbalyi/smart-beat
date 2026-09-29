@@ -385,9 +385,17 @@ test.describe("mixer (#6)", () => {
       await bar.fill("4");
       await bar.press("Enter");
 
-      const cursor = (await score(app).locator(".at-cursor-bar").boundingBox())!;
       const panel = (await mixer.boundingBox())!;
-      expect(cursor.x + cursor.width).toBeGreaterThan(panel.x + 10); // they overlap
+      const cursorBar = score(app).locator(".at-cursor-bar");
+      // alphaTab moves the cursor asynchronously: wait until it reaches bar 4,
+      // which runs under the panel at this window size.
+      await expect
+        .poll(async () => {
+          const box = await cursorBar.boundingBox();
+          return box ? box.x + box.width : 0;
+        })
+        .toBeGreaterThan(panel.x + 10);
+      const cursor = (await cursorBar.boundingBox())!;
       const point = [panel.x + 10, cursor.y + cursor.height / 2];
 
       const panelOnTop = await app.evaluate(([x, y]) => {
