@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { LoaderCircleIcon, PauseIcon, PlayIcon, SquareIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,7 @@ export function TransportBar({
   onPlayPause,
   onStop,
   onSeekBar,
+  practice,
 }: {
   ready: boolean;
   playing: boolean;
@@ -78,54 +79,59 @@ export function TransportBar({
   onPlayPause: () => void;
   onStop: () => void;
   onSeekBar: (barIndex: number) => void;
+  /** Practice tools (loop, speed...), shown on a second row. */
+  practice?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t bg-background px-4 py-2 sm:px-6">
-      <div className="flex items-center gap-1">
-        <Button
-          size="icon-lg"
-          onClick={onPlayPause}
-          disabled={!ready}
-          aria-label={playing ? "Pause" : "Play"}
-          title={playing ? "Pause (Space)" : "Play (Space)"}
+    <div className="flex flex-col gap-2 border-t bg-background px-4 py-2 sm:px-6">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon-lg"
+            onClick={onPlayPause}
+            disabled={!ready}
+            aria-label={playing ? "Pause" : "Play"}
+            title={playing ? "Pause (Space)" : "Play (Space)"}
+          >
+            {playing ? <PauseIcon /> : <PlayIcon />}
+          </Button>
+          <Button
+            size="icon-lg"
+            variant="outline"
+            onClick={onStop}
+            disabled={!ready}
+            aria-label="Stop"
+            title="Stop"
+          >
+            <SquareIcon />
+          </Button>
+        </div>
+
+        <span
+          role="timer"
+          aria-label={`Position: ${describeTime(position.currentMs)} of ${describeTime(position.endMs)}`}
+          className="text-sm tabular-nums"
         >
-          {playing ? <PauseIcon /> : <PlayIcon />}
-        </Button>
-        <Button
-          size="icon-lg"
-          variant="outline"
-          onClick={onStop}
-          disabled={!ready}
-          aria-label="Stop"
-          title="Stop"
-        >
-          <SquareIcon />
-        </Button>
+          {formatTime(position.currentMs)} / {formatTime(position.endMs)}
+        </span>
+
+        <BarField bar={bar} barCount={barCount} onSeek={onSeekBar} />
+
+        {position.bpm > 0 && (
+          <span className="text-sm text-muted-foreground tabular-nums">{position.bpm} BPM</span>
+        )}
+
+        {!ready && (
+          <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircleIcon
+              className="size-4 animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            Loading instrument sounds…
+          </p>
+        )}
       </div>
-
-      <span
-        role="timer"
-        aria-label={`Position: ${describeTime(position.currentMs)} of ${describeTime(position.endMs)}`}
-        className="text-sm tabular-nums"
-      >
-        {formatTime(position.currentMs)} / {formatTime(position.endMs)}
-      </span>
-
-      <BarField bar={bar} barCount={barCount} onSeek={onSeekBar} />
-
-      {position.bpm > 0 && (
-        <span className="text-sm text-muted-foreground tabular-nums">{position.bpm} BPM</span>
-      )}
-
-      {!ready && (
-        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LoaderCircleIcon
-            className="size-4 animate-spin motion-reduce:animate-none"
-            aria-hidden="true"
-          />
-          Loading instrument sounds…
-        </p>
-      )}
+      {practice}
     </div>
   );
 }

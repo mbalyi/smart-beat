@@ -1,8 +1,54 @@
-import type { Ref } from "react";
+import { useEffect, useRef, type Ref } from "react";
 import { LoaderCircleIcon } from "lucide-react";
 
-import type { Layout } from "@/lib/score/player";
+import type { Layout, Rect } from "@/lib/score/player";
 import { cn } from "@/lib/utils";
+
+/** Where the edit cursor, the note under it and the selection are drawn. */
+export interface EditOverlay {
+  cursor: Rect | null;
+  notes: Rect[];
+  selection: Rect[];
+}
+
+const box = ({ x, y, w, h }: Rect) => ({ left: x, top: y, width: w, height: h });
+
+/**
+ * Draws the edit cursor over the notation (alphaTab draws the playback
+ * cursor itself). Scrolls it into view when it moves.
+ */
+function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
+  const cursorRef = useRef<HTMLDivElement>(null);
+  const { cursor } = overlay;
+
+  useEffect(() => {
+    cursorRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [cursor?.x, cursor?.y]);
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10" aria-hidden="true">
+      {overlay.selection.map((rect, i) => (
+        <div key={i} className="absolute bg-sky-500/20" style={box(rect)} />
+      ))}
+      {cursor && (
+        <div
+          ref={cursorRef}
+          data-testid="edit-cursor"
+          className="absolute rounded-sm border-2 border-sky-600 bg-sky-500/10"
+          style={box(cursor)}
+        />
+      )}
+      {overlay.notes.map((rect, i) => (
+        <div
+          key={i}
+          data-testid="edit-cursor-note"
+          className="absolute rounded-sm bg-sky-600/35 ring-2 ring-sky-700"
+          style={box({ x: rect.x - 2, y: rect.y - 2, w: rect.w + 4, h: rect.h + 4 })}
+        />
+      ))}
+    </div>
+  );
+}
 
 /**
  * Scrollable "paper" that alphaTab draws the notation into. The paper stays
@@ -14,6 +60,9 @@ export function ScoreView({
   label,
   layout,
   rendering,
+  editing = false,
+  overlay = null,
+  describedBy,
 }: {
   viewportRef: Ref<HTMLDivElement>;
   surfaceRef: Ref<HTMLDivElement>;
@@ -21,6 +70,11 @@ export function ScoreView({
   label: string;
   layout: Layout;
   rendering: boolean;
+  /** Edit mode: the region takes the editor's keys. */
+  editing?: boolean;
+  overlay?: EditOverlay | null;
+  /** Id of the element describing the editor's keys and state. */
+  describedBy?: string;
 }) {
   return (
     // `isolate`: alphaTab puts its cursor at z-index 1000; keep that inside the
@@ -30,10 +84,16 @@ export function ScoreView({
         ref={viewportRef}
         role="region"
         aria-label={label}
+        aria-roledescription={editing ? "score editor" : undefined}
+        aria-describedby={describedBy}
         aria-busy={rendering}
         tabIndex={0}
         data-layout={layout}
-        className="absolute inset-0 overflow-auto bg-muted/40 p-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset sm:p-4"
+        data-editing={editing || undefined}
+        className={cn(
+          "absolute inset-0 overflow-auto bg-muted/40 p-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset sm:p-4",
+          editing && "focus-visible:ring-sky-600/60",
+        )}
       >
         <div
           className={cn(
@@ -43,7 +103,10 @@ export function ScoreView({
             layout === "page" ? "mx-auto" : "w-max min-w-full",
           )}
         >
-          <div ref={surfaceRef} />
+          <div className="relative">
+            <div ref={surfaceRef} />
+            {editing && overlay && <EditOverlayLayer overlay={overlay} />}
+          </div>
         </div>
       </div>
       {rendering && (

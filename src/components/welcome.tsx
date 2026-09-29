@@ -1,4 +1,4 @@
-import { FolderOpenIcon, KeyboardIcon } from "lucide-react";
+import { FilePlusIcon, FolderOpenIcon, KeyboardIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,11 @@ import { FEATURES } from "@/components/welcome-features";
 
 export function Welcome({
   onOpenFile,
+  onNewSong,
   onShowShortcuts,
 }: {
   onOpenFile: () => void;
+  onNewSong: () => void;
   onShowShortcuts: () => void;
 }) {
   return (
@@ -34,6 +36,10 @@ export function Welcome({
           <Button size="lg" onClick={onOpenFile}>
             <FolderOpenIcon data-icon="inline-start" />
             Open a file…
+          </Button>
+          <Button size="lg" variant="outline" onClick={onNewSong}>
+            <FilePlusIcon data-icon="inline-start" />
+            New song
           </Button>
           <Button size="lg" variant="outline" onClick={onShowShortcuts}>
             <KeyboardIcon data-icon="inline-start" />

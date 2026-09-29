@@ -30,6 +30,16 @@ export class FakeScorePlayer {
   stop = vi.fn();
   seekToBar = vi.fn();
   destroy = vi.fn();
+  refresh = vi.fn();
+  setEditing = vi.fn();
+  setLoop = vi.fn();
+  setSpeed = vi.fn();
+  setMetronome = vi.fn();
+  setCountIn = vi.fn();
+  seekToBeat = vi.fn();
+  /** Where beats and notes are "drawn": one fixed box each. */
+  beatRects = vi.fn(() => [{ x: 10, y: 20, w: 30, h: 100 }]);
+  noteRects = vi.fn(() => [{ x: 15, y: 60, w: 8, h: 10 }]);
 
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks) {
     this.options = options;

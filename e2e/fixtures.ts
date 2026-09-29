@@ -4,7 +4,37 @@ import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { test as base, expect, type Page } from "@playwright/test";
 
-type MenuAction = "open" | "toggle-theme" | "shortcuts" | "licenses" | "about";
+type MenuAction =
+  | "new-song"
+  | "open"
+  | "undo"
+  | "redo"
+  | "toggle-edit-mode"
+  | "toggle-theme"
+  | "toggle-fretboard"
+  | "add-track"
+  | "duplicate-track"
+  | "remove-track"
+  | "track-settings"
+  | "toggle-loop"
+  | "speed-trainer"
+  | "toggle-metronome"
+  | "toggle-count-in"
+  | "shortcuts"
+  | "licenses"
+  | "about";
+
+interface MenuState {
+  songOpen: boolean;
+  undo: string | null;
+  redo: string | null;
+  canRemoveTrack: boolean;
+  editMode: boolean;
+  fretboard: boolean;
+  loop: boolean;
+  metronome: boolean;
+  countIn: boolean;
+}
 
 interface MixerSettings {
   version: number;
@@ -19,6 +49,7 @@ declare global {
     __dialogResult: string | null;
     __mixes: Map<string, MixerSettings>;
     __ipcCalls: { cmd: string; args: unknown }[];
+    __menuState: MenuState | null;
   }
 }
 
@@ -95,6 +126,50 @@ export async function openSong(page: Page, filePath = PRACTICE_SONG) {
   await page.evaluate((p) => (window.__dialogResult = p), filePath);
   await emitMenuAction(page, "open");
   await waitForScore(page);
+}
+
+/** The score region (the editor in edit mode). */
+export const scoreRegion = (page: Page) => page.getByRole("region", { name: /^Score:/ });
+
+/** Starts a new song with File › New: it opens in edit mode with the score focused. */
+export async function newSong(page: Page) {
+  await emitMenuAction(page, "new-song");
+  await waitForScore(page);
+  await expect(page.getByRole("toolbar", { name: "Edit" })).toBeVisible();
+  await expect(scoreRegion(page)).toBeFocused();
+}
+
+/** Fret numbers drawn on the tab staves, in reading order. */
+export async function tabNumbers(page: Page): Promise<string[]> {
+  return scoreRegion(page)
+    .locator(".at-surface svg text")
+    .evaluateAll((texts) =>
+      texts
+        // Bar numbers are drawn in red.
+        .filter((t) => t.getAttribute("fill") !== "#C80000")
+        .map((t) => t.textContent?.trim() ?? "")
+        .filter((text) => /^\d+$/.test(text)),
+    );
+}
+
+/** All text drawn in the score (titles, tuning, capo...). */
+export async function scoreText(page: Page): Promise<string> {
+  return scoreRegion(page)
+    .locator(".at-surface svg text")
+    .evaluateAll((texts) => texts.map((t) => t.textContent ?? "").join(" "));
+}
+
+/** The editor's status line ("Bar 1, beat 2 of 4, string 1 (E), fret 5, Quarter"). */
+export async function editorStatus(page: Page): Promise<string> {
+  return scoreRegion(page).evaluate(
+    (region) =>
+      document.getElementById(region.getAttribute("aria-describedby") ?? "")?.textContent ?? "",
+  );
+}
+
+/** Waits until alphaTab has redrawn after an edit and the tab shows `numbers`. */
+export async function expectTab(page: Page, numbers: string[]) {
+  await expect.poll(() => tabNumbers(page), { timeout: 10_000 }).toEqual(numbers);
 }
 
 /** The 0:00 / 0:12 display, as seconds played. */

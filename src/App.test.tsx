@@ -232,6 +232,67 @@ describe("App", () => {
     expect(await screen.findByText("Couldn't show the Open dialog")).toBeInTheDocument();
   });
 
+  it("File → New starts an empty song in edit mode", async () => {
+    const { calls } = await renderApp();
+
+    await menu("new-song");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
+    expect(await screen.findByRole("toolbar", { name: "Edit" })).toBeInTheDocument();
+    expect(FakeScorePlayer.last.options.score.masterBars).toHaveLength(4);
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        cmd: "plugin:window|set_title",
+        args: expect.objectContaining({ value: "Untitled — Smart Beat" }),
+      }),
+    );
+    // A new song has no file, so its mix isn't saved.
+    expect(calls.some((c) => c.cmd === "load_mixer_settings")).toBe(false);
+    await waitFor(() => expect(backend.menuState?.songOpen).toBe(true));
+  });
+
+  it("starts a new song from the welcome screen", async () => {
+    const { user } = renderWithProviders(<App />);
+    await user.click(screen.getByRole("button", { name: "New song" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
+  });
+
+  it("asks before replacing a song with changes, and keeps it if asked to", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("new-song");
+    await screen.findByRole("toolbar", { name: "Edit" });
+    const score = screen.getByRole("region", { name: /^Score:/ });
+    await waitFor(() => expect(score).toHaveFocus());
+    await user.keyboard("5");
+    expect(await screen.findByText("Edited")).toBeInTheDocument();
+
+    await menu("open");
+    const confirm = await screen.findByRole("alertdialog", {
+      name: "Discard your changes to “Untitled”?",
+    });
+    expect(confirm).toHaveTextContent("Smart Beat can't save songs yet");
+    await expectNoA11yViolations();
+    await user.click(within(confirm).getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
+
+    await act(() => emitFileDrag({ type: "drop", paths: [SONG] }));
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Discard changes",
+      }),
+    );
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+    ).toBeInTheDocument();
+
+    // The opened song has no changes: no question.
+    await menu("new-song");
+    expect(await screen.findByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
   it("ignores actions the Rust core handles natively", async () => {
     await renderApp();
 

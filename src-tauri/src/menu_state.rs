@@ -1,0 +1,305 @@
+//! Keeps the native menu in step with the UI: "Undo Add Note" and "Redo"
+//! labels, check marks for Edit Mode, Loop, Metronome..., and which items are
+//! available (nothing song-related while no song is open).
+//!
+//! The UI sends a [`MenuState`] whenever one of these changes; Rust works out
+//! each item's text, enabled and checked state ([`item_states`]) and applies
+//! them to the menu bar ([`apply`]).
+
+use std::sync::Mutex;
+
+use serde::{Deserialize, Serialize};
+use tauri::menu::MenuItemKind;
+use tauri::{AppHandle, Runtime};
+
+use crate::error::{CommandError, ErrorKind};
+use crate::menu::MenuAction;
+
+/// Longest undo/redo label the UI may send ("Undo " + label).
+pub const MAX_LABEL_CHARS: usize = 60;
+
+/// The UI state the menu reflects. Mirrored by `MenuState` in `src/lib/tauri.ts`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuState {
+    /// A song is open.
+    pub song_open: bool,
+    /// What Undo would undo (e.g. "Add Note"), or `None` when there is nothing.
+    pub undo: Option<String>,
+    /// What Redo would redo, or `None`.
+    pub redo: Option<String>,
+    /// The song has more than one track (so one can be removed).
+    pub can_remove_track: bool,
+    pub edit_mode: bool,
+    pub fretboard: bool,
+    #[serde(rename = "loop")]
+    pub looping: bool,
+    pub metronome: bool,
+    pub count_in: bool,
+}
+
+impl MenuState {
+    /// Labels must be short, single-line text.
+    pub fn validate(&self) -> Result<(), CommandError> {
+        for label in [&self.undo, &self.redo].into_iter().flatten() {
+            let chars = label.chars().count();
+            if chars == 0 || chars > MAX_LABEL_CHARS || label.chars().any(char::is_control) {
+                return Err(CommandError::new(
+                    ErrorKind::InvalidMenuState,
+                    format!(
+                        "Undo and redo labels must be 1–{MAX_LABEL_CHARS} characters of plain text."
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// How one menu item should look.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemState {
+    pub action: MenuAction,
+    pub text: String,
+    pub enabled: bool,
+    /// `Some` for check items.
+    pub checked: Option<bool>,
+}
+
+/// "Undo Add Note", or plain "Undo" when there is nothing to undo.
+pub fn history_text(action: MenuAction, label: Option<&str>) -> String {
+    match label {
+        Some(label) => format!("{} {label}", action.label()),
+        None => action.label().to_string(),
+    }
+}
+
+/// Text, enabled and checked state of every item that depends on the UI.
+pub fn item_states(state: &MenuState) -> Vec<ItemState> {
+    MenuAction::ALL
+        .into_iter()
+        .filter(|action| action.needs_song())
+        .map(|action| {
+            let song = state.song_open;
+            let (text, enabled) = match action {
+                MenuAction::Undo => (
+                    history_text(action, state.undo.as_deref()),
+                    song && state.undo.is_some(),
+                ),
+                MenuAction::Redo => (
+                    history_text(action, state.redo.as_deref()),
+                    song && state.redo.is_some(),
+                ),
+                MenuAction::RemoveTrack => (action.label().into(), song && state.can_remove_track),
+                _ => (action.label().into(), song),
+            };
+            let on = match action {
+                MenuAction::ToggleEditMode => state.edit_mode,
+                MenuAction::ToggleFretboard => state.fretboard,
+                MenuAction::ToggleLoop => state.looping,
+                MenuAction::ToggleMetronome => state.metronome,
+                _ => state.count_in,
+            };
+            let checked = action.is_toggle().then_some(song && on);
+            ItemState {
+                action,
+                text,
+                enabled,
+                checked,
+            }
+        })
+        .collect()
+}
+
+/// The last state the UI sent. Stored as Tauri state.
+#[derive(Debug, Default)]
+pub struct MenuStateStore(Mutex<MenuState>);
+
+impl MenuStateStore {
+    pub fn get(&self) -> MenuState {
+        self.0.lock().expect("menu state lock poisoned").clone()
+    }
+
+    pub fn set(&self, state: MenuState) {
+        *self.0.lock().expect("menu state lock poisoned") = state;
+    }
+}
+
+/// Finds an item anywhere in the menu (`Menu::get` only looks at the top level).
+fn find_in<R: Runtime>(items: Vec<MenuItemKind<R>>, id: &str) -> Option<MenuItemKind<R>> {
+    for item in items {
+        if item.id() == id {
+            return Some(item);
+        }
+        if let Some(found) = item
+            .as_submenu()
+            .and_then(|submenu| find_in(submenu.items().ok()?, id))
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn find_item<R: Runtime>(app: &AppHandle<R>, id: &str) -> Option<MenuItemKind<R>> {
+    find_in(app.menu()?.items().ok()?, id)
+}
+
+/// Applies `state` to the menu bar. Does nothing without one (e.g. in tests).
+pub fn apply<R: Runtime>(app: &AppHandle<R>, state: &MenuState) -> tauri::Result<()> {
+    for item in item_states(state) {
+        match find_item(app, item.action.id()) {
+            Some(MenuItemKind::MenuItem(menu_item)) => {
+                menu_item.set_text(&item.text)?;
+                menu_item.set_enabled(item.enabled)?;
+            }
+            Some(MenuItemKind::Check(check)) => {
+                check.set_text(&item.text)?;
+                check.set_enabled(item.enabled)?;
+                check.set_checked(item.checked.unwrap_or(false))?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_for(items: &[ItemState], action: MenuAction) -> &ItemState {
+        items.iter().find(|i| i.action == action).unwrap()
+    }
+
+    fn open_song() -> MenuState {
+        MenuState {
+            song_open: true,
+            ..MenuState::default()
+        }
+    }
+
+    #[test]
+    fn deserializes_the_ui_payload() {
+        let state: MenuState = serde_json::from_value(serde_json::json!({
+            "songOpen": true,
+            "undo": "Add Note",
+            "redo": null,
+            "canRemoveTrack": true,
+            "editMode": true,
+            "fretboard": false,
+            "loop": true,
+            "metronome": false,
+            "countIn": true,
+        }))
+        .unwrap();
+        assert!(state.looping && state.count_in && state.edit_mode);
+        assert_eq!(state.undo.as_deref(), Some("Add Note"));
+    }
+
+    #[test]
+    fn without_a_song_everything_song_related_is_off() {
+        let items = item_states(&MenuState {
+            undo: Some("Add Note".into()),
+            looping: true,
+            ..MenuState::default()
+        });
+        assert!(items.iter().all(|i| !i.enabled));
+        assert!(items.iter().all(|i| i.checked != Some(true)));
+    }
+
+    #[test]
+    fn names_what_undo_and_redo_will_do() {
+        let items = item_states(&MenuState {
+            undo: Some("Add Note".into()),
+            ..open_song()
+        });
+        let undo = state_for(&items, MenuAction::Undo);
+        assert_eq!(undo.text, "Undo Add Note");
+        assert!(undo.enabled);
+        let redo = state_for(&items, MenuAction::Redo);
+        assert_eq!(redo.text, "Redo");
+        assert!(!redo.enabled);
+        assert_eq!(undo.checked, None);
+    }
+
+    #[test]
+    fn checks_the_settings_that_are_on() {
+        let items = item_states(&MenuState {
+            edit_mode: true,
+            metronome: true,
+            ..open_song()
+        });
+        assert_eq!(
+            state_for(&items, MenuAction::ToggleEditMode).checked,
+            Some(true)
+        );
+        assert_eq!(
+            state_for(&items, MenuAction::ToggleMetronome).checked,
+            Some(true)
+        );
+        assert_eq!(
+            state_for(&items, MenuAction::ToggleLoop).checked,
+            Some(false)
+        );
+        assert_eq!(
+            state_for(&items, MenuAction::ToggleCountIn).checked,
+            Some(false)
+        );
+        assert_eq!(
+            state_for(&items, MenuAction::ToggleFretboard).checked,
+            Some(false)
+        );
+        assert!(state_for(&items, MenuAction::AddTrack).enabled);
+    }
+
+    #[test]
+    fn only_removes_a_track_when_another_one_is_left() {
+        let items = item_states(&open_song());
+        assert!(!state_for(&items, MenuAction::RemoveTrack).enabled);
+        let items = item_states(&MenuState {
+            can_remove_track: true,
+            ..open_song()
+        });
+        assert!(state_for(&items, MenuAction::RemoveTrack).enabled);
+    }
+
+    #[test]
+    fn covers_exactly_the_song_items() {
+        let items = item_states(&open_song());
+        let expected: Vec<_> = MenuAction::ALL
+            .into_iter()
+            .filter(|a| a.needs_song())
+            .collect();
+        assert_eq!(items.iter().map(|i| i.action).collect::<Vec<_>>(), expected);
+    }
+
+    #[test]
+    fn validates_labels() {
+        assert!(open_song().validate().is_ok());
+        let long = "x".repeat(MAX_LABEL_CHARS + 1);
+        for bad in ["", "Add\nNote", long.as_str()] {
+            let state = MenuState {
+                undo: Some(bad.into()),
+                ..open_song()
+            };
+            assert_eq!(
+                state.validate().unwrap_err().kind,
+                ErrorKind::InvalidMenuState
+            );
+        }
+        let ok = MenuState {
+            redo: Some("Paste «4 beats» — über".into()),
+            ..open_song()
+        };
+        assert!(ok.validate().is_ok());
+    }
+
+    #[test]
+    fn stores_the_last_state() {
+        let store = MenuStateStore::default();
+        assert_eq!(store.get(), MenuState::default());
+        store.set(open_song());
+        assert!(store.get().song_open);
+    }
+}

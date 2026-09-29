@@ -7,11 +7,12 @@ import { renderWithProviders } from "@/test/render";
 
 function renderWelcome() {
   const onOpenFile = vi.fn();
+  const onNewSong = vi.fn();
   const onShowShortcuts = vi.fn();
   const utils = renderWithProviders(
-    <Welcome onOpenFile={onOpenFile} onShowShortcuts={onShowShortcuts} />,
+    <Welcome onOpenFile={onOpenFile} onNewSong={onNewSong} onShowShortcuts={onShowShortcuts} />,
   );
-  return { ...utils, onOpenFile, onShowShortcuts };
+  return { ...utils, onOpenFile, onNewSong, onShowShortcuts };
 }
 
 describe("Welcome", () => {
@@ -35,12 +36,14 @@ describe("Welcome", () => {
   });
 
   it("wires up the primary actions", async () => {
-    const { user, onOpenFile, onShowShortcuts } = renderWelcome();
+    const { user, onOpenFile, onNewSong, onShowShortcuts } = renderWelcome();
 
     await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    await user.click(screen.getByRole("button", { name: "New song" }));
     await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
 
     expect(onOpenFile).toHaveBeenCalledOnce();
+    expect(onNewSong).toHaveBeenCalledOnce();
     expect(onShowShortcuts).toHaveBeenCalledOnce();
   });
 

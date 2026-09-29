@@ -1,0 +1,133 @@
+import { model } from "@coderline/alphatab";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useRef } from "react";
+
+import { EDITOR_SHORTCUTS, useEditorKeys } from "@/hooks/use-editor-keys";
+import { ScoreEditor } from "@/lib/score/editor";
+import { createSong } from "@/lib/score/tracks";
+
+const { Duration } = model;
+
+function Harness({
+  editor,
+  enabled = true,
+  menuHandlesUndo = false,
+}: {
+  editor: ScoreEditor;
+  enabled?: boolean;
+  menuHandlesUndo?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEditorKeys(ref, editor, { enabled, menuHandlesUndo });
+  // A focusable stand-in for the score region.
+  return <div ref={ref} tabIndex={0} role="region" aria-label="Score" />;
+}
+
+function setup(options: { enabled?: boolean; menuHandlesUndo?: boolean; platform?: string } = {}) {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue(options.platform ?? "MacIntel");
+  const editor = new ScoreEditor(createSong());
+  render(<Harness editor={editor} {...options} />);
+  screen.getByRole("region").focus();
+  const user = userEvent.setup();
+  const frets = () =>
+    editor.score.tracks[0]!.staves[0]!.bars[editor.cursor.bar]!.voices[0]!.beats.map(
+      (b) => b.notes.map((n) => `${n.string}:${n.fret}`).join(" ") || "r",
+    );
+  return { editor, user, frets };
+}
+
+describe("useEditorKeys", () => {
+  it("types frets and moves between beats and strings", async () => {
+    const { user, frets, editor } = setup();
+
+    await user.keyboard("5{ArrowRight}{ArrowDown}7");
+    expect(frets()).toEqual(["6:5", "5:7"]);
+
+    await user.keyboard("{ArrowUp}{ArrowUp}");
+    expect(editor.cursor.string).toBe(6);
+    await user.keyboard("{Alt>}{ArrowUp}{/Alt}"); // nothing on this string of beat 2: no change
+    await user.keyboard("{ArrowLeft}{Alt>}{ArrowUp}{/Alt}");
+    expect(frets()).toEqual(["6:6", "5:7"]);
+  });
+
+  it("types pitches by letter, rests, ties, dots, durations, voices and beats", async () => {
+    const { user, editor, frets } = setup();
+
+    await user.keyboard("e");
+    expect(frets()).toEqual(["6:0"]);
+    await user.keyboard("+");
+    expect(editor.beatInfo.duration).toBe(Duration.Eighth);
+    await user.keyboard("-.");
+    expect(editor.beatInfo).toMatchObject({ duration: Duration.Quarter, dots: 1 });
+    await user.keyboard("{ArrowRight}t");
+    expect(editor.beatInfo.notes[0]?.tied).toBe(true);
+    await user.keyboard("r");
+    expect(frets()).toEqual(["6:0", "r"]);
+    await user.keyboard("i");
+    expect(frets()).toEqual(["6:0", "r", "r"]);
+    await user.keyboard("{Shift>}{Delete}{/Shift}");
+    expect(frets()).toEqual(["6:0", "r"]);
+    await user.keyboard("v");
+    expect(editor.cursor.voice).toBe(1);
+  });
+
+  it("deletes notes, selects with Shift and clears the selection with Escape", async () => {
+    const { user, editor, frets } = setup();
+    await user.keyboard("3{ArrowRight}4{ArrowLeft}{Backspace}");
+    expect(frets()).toEqual(["r", "6:4"]);
+
+    await user.keyboard("{Shift>}{ArrowRight}{/Shift}");
+    expect(editor.selection).not.toBeNull();
+    await user.keyboard("{Escape}");
+    expect(editor.selection).toBeNull();
+
+    await user.keyboard("{Meta>}{ArrowRight}{/Meta}");
+    expect(editor.cursor.bar).toBe(1);
+    await user.keyboard("{Meta>}{ArrowLeft}{/Meta}");
+    expect(editor.cursor.bar).toBe(0);
+  });
+
+  it("copies, cuts, pastes and selects all with ⌘ on macOS", async () => {
+    const { user, editor, frets } = setup();
+    await user.keyboard("3{Meta>}c{/Meta}{ArrowRight}{Meta>}v{/Meta}");
+    expect(frets()).toEqual(["6:3", "6:3"]);
+    await user.keyboard("{Meta>}x{/Meta}");
+    expect(frets()).toEqual(["6:3", "r"]);
+    await user.keyboard("{Meta>}a{/Meta}");
+    expect(editor.selection).not.toBeNull();
+  });
+
+  it("undoes with the keyboard in a browser, and leaves it to the menu in the app", async () => {
+    const browser = setup();
+    await browser.user.keyboard("3{Meta>}z{/Meta}");
+    expect(browser.frets()).toEqual(["r"]);
+    await browser.user.keyboard("{Meta>}{Shift>}z{/Shift}{/Meta}");
+    expect(browser.frets()).toEqual(["6:3"]);
+  });
+
+  it("uses Ctrl (and Ctrl+Y) on Windows and Linux", async () => {
+    const { user, frets } = setup({ platform: "Win32" });
+    await user.keyboard("3{Control>}z{/Control}");
+    expect(frets()).toEqual(["r"]);
+    await user.keyboard("{Control>}y{/Control}");
+    expect(frets()).toEqual(["6:3"]);
+  });
+
+  it("leaves Undo to the native menu in the desktop app", async () => {
+    const { user, frets } = setup({ menuHandlesUndo: true });
+    await user.keyboard("3{Meta>}z{/Meta}");
+    expect(frets()).toEqual(["6:3"]);
+  });
+
+  it("does nothing outside edit mode", async () => {
+    const { user, frets } = setup({ enabled: false });
+    await user.keyboard("3");
+    expect(frets()).toEqual(["r"]);
+  });
+
+  it("documents the keys", () => {
+    expect(EDITOR_SHORTCUTS.length).toBeGreaterThan(10);
+    expect(EDITOR_SHORTCUTS.every((s) => s.keys.length > 0 && s.label)).toBe(true);
+  });
+});

@@ -19,6 +19,8 @@ pub enum ErrorKind {
     InvalidKey,
     /// Mixer settings with out-of-range values.
     InvalidSettings,
+    /// A menu state the UI sent that can't be shown (e.g. an overlong label).
+    InvalidMenuState,
     /// Any other I/O failure.
     Io,
 }

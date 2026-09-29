@@ -3,7 +3,7 @@ import { toast } from "sonner";
 
 import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
 import { baseName, fileKey } from "@/lib/score/format";
-import { initialMix } from "@/lib/score/mixer";
+import { initialMix, mixFromScore } from "@/lib/score/mixer";
 import type { Score, ScoreSummary } from "@/lib/score/score";
 import {
   isTauri,
@@ -19,13 +19,18 @@ export interface ScoreDocument {
   id: number;
   /** File name, e.g. `song.gp5`. */
   name: string;
-  /** SHA-256 of the file content: the key for per-song settings. */
-  fileKey: string;
+  /** SHA-256 of the file content: the key for per-song settings. Null for new songs. */
+  fileKey: string | null;
   score: Score;
   summary: ScoreSummary;
   /** Mix to start with: the user's saved mix, or the one from the file. */
   mix: MixerSettings;
+  /** Created with File › New rather than opened. */
+  isNew?: boolean;
 }
+
+/** Name of a song created with File › New. */
+export const NEW_SONG_NAME = "Untitled";
 
 interface Source {
   name: string;
@@ -100,5 +105,30 @@ export function useScoreDocument() {
     [open],
   );
 
-  return { song, openPath, openFile };
+  /** Starts a new, empty song (File › New). */
+  const newSong = useCallback(async () => {
+    const id = ++latest.current;
+    try {
+      const [{ createSong }, { summarizeScore }] = await Promise.all([
+        import("@/lib/score/tracks"),
+        import("@/lib/score/score"),
+      ]);
+      const score = createSong();
+      const summary = summarizeScore(score);
+      if (id !== latest.current) return;
+      setSong({
+        id,
+        name: NEW_SONG_NAME,
+        fileKey: null,
+        score,
+        summary,
+        mix: mixFromScore(summary),
+        isNew: true,
+      });
+    } catch (error) {
+      toast.error("Couldn't create a new song", { description: String(error) });
+    }
+  }, []);
+
+  return { song, openPath, openFile, newSong };
 }

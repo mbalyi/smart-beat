@@ -1,0 +1,163 @@
+import { useEffect, useEffectEvent, type RefObject } from "react";
+
+import type { ScoreEditor } from "@/lib/score/editor";
+
+/** ⌘ on macOS, Ctrl elsewhere. */
+const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+export interface EditorKeyOptions {
+  enabled: boolean;
+  /**
+   * In the desktop app, Undo and Redo come from the native Edit menu (its
+   * accelerators reach the menu, not the page), so the keys are left alone to
+   * avoid undoing twice.
+   */
+  menuHandlesUndo: boolean;
+}
+
+/**
+ * Keyboard entry in the score (while it has focus), modelled on Guitar Pro:
+ * arrows move, digits type frets, A–G type pitches, + and − change the note
+ * value, and so on. See `EDITOR_SHORTCUTS` for the list shown to users.
+ */
+export function useEditorKeys(
+  target: RefObject<HTMLElement | null>,
+  editor: ScoreEditor,
+  { enabled, menuHandlesUndo }: EditorKeyOptions,
+): void {
+  const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.isComposing) return;
+    const mod = isMac() ? event.metaKey : event.ctrlKey;
+    const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
+    const key = event.key;
+    const handled = (): true => {
+      event.preventDefault();
+      return true;
+    };
+
+    if (mod && !event.altKey) {
+      const lower = key.toLowerCase();
+      if (lower === "c") return handled() && editor.copy();
+      if (lower === "x") return handled() && editor.cut();
+      if (lower === "v") return handled() && editor.paste();
+      if (lower === "a") return handled() && editor.selectAll();
+      if (!menuHandlesUndo && lower === "z") {
+        handled();
+        return event.shiftKey ? editor.redo() : editor.undo();
+      }
+      if (!menuHandlesUndo && lower === "y" && !isMac()) return handled() && editor.redo();
+      if (key === "ArrowLeft") return handled() && editor.moveBar(-1, event.shiftKey);
+      if (key === "ArrowRight") return handled() && editor.moveBar(1, event.shiftKey);
+      return;
+    }
+
+    switch (key) {
+      case "ArrowLeft":
+      case "ArrowRight":
+        if (event.altKey) return;
+        handled();
+        editor.moveBeat(key === "ArrowLeft" ? -1 : 1, event.shiftKey);
+        return;
+      case "ArrowUp":
+      case "ArrowDown":
+        handled();
+        if (event.altKey) editor.transpose(key === "ArrowUp" ? 1 : -1);
+        else editor.moveString(key === "ArrowUp" ? 1 : -1);
+        return;
+      case "Backspace":
+      case "Delete":
+        handled();
+        if (event.shiftKey) editor.deleteBeats();
+        else editor.deleteAtCursor();
+        return;
+      case "Insert":
+        handled();
+        editor.insertBeat();
+        return;
+      case "Escape":
+        if (editor.selection) {
+          handled();
+          editor.clearSelection();
+        }
+        return;
+    }
+
+    if (!plain) return;
+    if (/^[0-9]$/.test(key)) {
+      handled();
+      editor.typeDigit(Number(key));
+      return;
+    }
+    const lower = key.toLowerCase();
+    if (/^[a-g]$/.test(lower) && !event.shiftKey) {
+      handled();
+      editor.enterLetter(lower);
+      return;
+    }
+    switch (key) {
+      case "+":
+      case "=":
+        handled();
+        editor.stepDuration(1);
+        return;
+      case "-":
+        handled();
+        editor.stepDuration(-1);
+        return;
+      case ".":
+        handled();
+        editor.toggleDots(1);
+        return;
+      case "r":
+      case "R":
+        handled();
+        editor.clearNotes();
+        return;
+      case "i":
+      case "I":
+        handled();
+        editor.insertBeat();
+        return;
+      case "t":
+      case "T":
+        handled();
+        editor.toggleTie();
+        return;
+      case "v":
+      case "V":
+        handled();
+        editor.switchVoice(editor.cursor.voice === 0 ? 1 : 0);
+        return;
+    }
+  });
+
+  useEffect(() => {
+    const element = target.current;
+    if (!enabled || !element) return;
+    const listener = (event: KeyboardEvent) => onKeyDown(event);
+    element.addEventListener("keydown", listener);
+    return () => element.removeEventListener("keydown", listener);
+  }, [enabled, target]);
+}
+
+/** The editor's keys, for the Keyboard Shortcuts dialog. `mod` is ⌘ or Ctrl. */
+export const EDITOR_SHORTCUTS: { keys: string[]; label: string }[] = [
+  { keys: ["←", "→"], label: "Previous / next beat (adds beats and bars at the end)" },
+  { keys: ["↑", "↓"], label: "Higher / lower string (tab), or note of a chord" },
+  { keys: ["mod", "←/→"], label: "Previous / next bar" },
+  { keys: ["⇧", "arrows"], label: "Select beats" },
+  { keys: ["0–9"], label: "Type a fret (two quick digits: 10–29)" },
+  { keys: ["A–G"], label: "Type a pitch (nearest octave)" },
+  { keys: ["⌥", "↑/↓"], label: "Note a semitone up / down" },
+  { keys: ["+", "−"], label: "Shorter / longer note value" },
+  { keys: ["."], label: "Dotted note" },
+  { keys: ["R"], label: "Make a rest" },
+  { keys: ["T"], label: "Tie to the previous note" },
+  { keys: ["V"], label: "Switch between voice 1 and 2" },
+  { keys: ["I"], label: "Insert a beat" },
+  { keys: ["Delete"], label: "Delete the note (or clear the selection)" },
+  { keys: ["⇧", "Delete"], label: "Delete the beat" },
+  { keys: ["mod", "C / X / V"], label: "Copy / cut / paste" },
+  { keys: ["mod", "A"], label: "Select the whole track" },
+  { keys: ["Space"], label: "Play / pause" },
+];
