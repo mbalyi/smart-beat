@@ -6,7 +6,8 @@
 // MIT / BSD / Apache-2.0 / MPL-2.0 for binary distribution.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { EMBEDDED_BUILD_PACKAGES } from "./license-policy.mjs";
@@ -22,8 +23,12 @@ const RULE = "=".repeat(80);
 const THIN_RULE = "-".repeat(80);
 
 function rustNotices() {
+  // Write to a file instead of capturing stdout: cargo-about refuses to print
+  // to redirected output under PowerShell (Windows CI) to avoid encoding issues.
+  const dir = mkdtempSync(path.join(tmpdir(), "smart-beat-licenses-"));
+  const output = path.join(dir, "rust-notices.txt");
   try {
-    return execFileSync(
+    execFileSync(
       "cargo",
       [
         "about",
@@ -32,23 +37,20 @@ function rustNotices() {
         "src-tauri/Cargo.toml",
         "--config",
         "about.toml",
+        "--output-file",
+        output,
         "about.hbs",
       ],
-      {
-        cwd: ROOT,
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-        stdio: ["ignore", "pipe", "inherit"],
-      },
-    ).trim();
+      { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"] },
+    );
+    return readFileSync(output, "utf8").trim();
   } catch (error) {
-    if (error.code === "ENOENT" || /no such (sub)?command/i.test(String(error.stderr))) {
-      throw new Error(
-        "cargo-about is required: cargo install cargo-about --locked --features cli",
-        { cause: error },
-      );
-    }
-    throw error;
+    throw new Error(
+      "cargo about failed. Is cargo-about installed? cargo install cargo-about --locked --features cli",
+      { cause: error },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
