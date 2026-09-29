@@ -1,0 +1,14 @@
+dist
+coverage
+playwright-report
+test-results
+pnpm-lock.yaml
+src-tauri/target
+src-tauri/gen
+src-tauri/icons
+public/third-party-licenses.txt
+high-level-plan.md
+# Plain-text templates and legal text: whitespace is significant.
+about.hbs
+EULA.md
+.claude

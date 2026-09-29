@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Generated at build time (see scripts/generate-licenses.mjs)
+public/third-party-licenses.txt
+
+# Test output
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# Logs and local env
+*.log
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Local Claude Code state (worktrees, preview config, personal settings)
+.claude/worktrees/
+.claude/launch.json
+.claude/settings.local.json

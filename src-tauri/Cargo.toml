@@ -1,0 +1,29 @@
+[package]
+name = "smart-beat"
+version = "0.1.0"
+description = "Smart Beat desktop app (Tauri core)"
+authors = ["Mark Balyi"]
+edition = "2024"
+rust-version = "1.88"
+license = "LicenseRef-Proprietary"
+publish = false
+
+[lib]
+# `_lib` suffix avoids a name clash with the binary on Windows.
+name = "smart_beat_lib"
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tauri = { version = "2.12", features = ["test"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
