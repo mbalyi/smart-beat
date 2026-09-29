@@ -1,4 +1,5 @@
 import path from "node:path";
+import { alphaTab } from "@coderline/alphatab-vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -8,7 +9,14 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://v2.tauri.app/start/frontend/vite/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // Bundles alphaTab's worker and audio worklet, and copies its music font and
+    // Sonivox SoundFont to public/ (served at /font/ and /soundfont/). Unit tests
+    // mock alphaTab, so Vitest skips it.
+    !process.env.VITEST && alphaTab(),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
