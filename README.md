@@ -113,7 +113,7 @@ docs/                Licensing, code signing, ADRs
   - lint, format, types, Vitest with coverage, and Playwright;
   - Rust fmt, clippy and tests, plus an app compile on **macOS, Windows and Linux**;
   - the license policy (npm and cargo-deny, including advisories).
-- **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts.
+- **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts.
 
 ## Licensing
 

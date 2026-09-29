@@ -5,11 +5,19 @@ name: Release
 # - Push a `v*` tag (e.g. `v0.2.0`, matching package.json) to create a draft
 #   GitHub Release with the installers attached.
 # - Run manually to build installers as workflow artifacts only.
+# - PRs that change packaging configuration also build the installers (as
+#   artifacts, never a release) so bundling problems surface before a tag.
 # Signing turns on automatically once the secrets in docs/code-signing.md exist.
 
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - src-tauri/tauri.conf.json
+      - src-tauri/icons/**
+      - EULA.md
   workflow_dispatch:
     inputs:
       draft-release:
