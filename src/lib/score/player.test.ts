@@ -287,6 +287,32 @@ describe("ScorePlayer", () => {
     expect(api.play).not.toHaveBeenCalled();
   });
 
+  it("hides alphaTab's rewind while the MIDI is regenerated", async () => {
+    const { player, api, mix, callbacks, becomeReady } = await readySetup();
+    const position = (currentTime: number) =>
+      api.playerPositionChanged.trigger({
+        currentTime,
+        endTime: 12_000,
+        originalTempo: 60,
+        modifiedTempo: 60,
+      });
+    position(5_000);
+    api.tickPosition = 4_800;
+    api.loadMidiForScore.mockImplementation(() => {
+      api.tickPosition = 0;
+    });
+
+    player.setMix({ ...mix, tracks: mix.tracks.map((t) => ({ ...t, pan: 1 })) });
+    position(0); // reported while the new MIDI loads
+    api.tickPosition = 0; // a late rewind from alphaTab
+    becomeReady();
+    position(5_000);
+
+    expect(api.tickPosition).toBe(4_800);
+    expect(api.play).not.toHaveBeenCalled();
+    expect(callbacks.onPositionChange.mock.calls.map(([p]) => p.currentMs)).toEqual([5_000]);
+  });
+
   it("never interrupts playback for pan: applies it at the next pause", async () => {
     const { player, api, mix, setPlaying } = await readySetup();
     setPlaying(true);

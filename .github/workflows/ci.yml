@@ -19,9 +19,9 @@ env:
 
 jobs:
   web:
-    name: Web (lint, types, unit + integration, browser)
+    name: Web (lint, types, unit + integration)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -54,17 +54,40 @@ jobs:
           path: coverage/
           retention-days: 14
 
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium webkit
+  browser:
+    # One runner per browser: the tests play real audio and render in software,
+    # and two browsers sharing a 2-core runner starve each other (see
+    # playwright.config.ts).
+    name: Browser (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
 
       - name: Browser integration tests (Playwright + axe)
-        run: pnpm test:e2e
+        run: pnpm test:e2e --project=${{ matrix.browser }}
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 14
 

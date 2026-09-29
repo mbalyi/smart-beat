@@ -208,7 +208,8 @@ export class ScorePlayer {
   }
 
   private reportPosition(currentMs: number, endMs: number, bpm: number) {
-    // While new sounds load alphaTab reports position 0; the real one comes back after.
+    // While new sounds or a regenerated MIDI load, alphaTab reports position 0;
+    // the real one comes back once playback is ready again.
     if (this.resume) return;
     const next = { currentMs, endMs, bpm: Math.round(bpm) };
     const last = this.lastPosition;
@@ -267,11 +268,12 @@ export class ScorePlayer {
   /** Regenerates the MIDI (needed for pan) without losing the playback position. */
   private reloadMidi() {
     const { api } = this;
-    const wasPlaying = api.playerState === PlayerState.Playing;
-    const tick = api.tickPosition;
+    // alphaTab rewinds to 0 while it loads the new MIDI: return to this
+    // position (and hide the rewind) once it is ready again. A pending
+    // SoundFont switch already knows where to continue.
+    this.resume ??= { tick: api.tickPosition, play: api.playerState === PlayerState.Playing };
     api.loadMidiForScore();
-    api.tickPosition = tick;
-    if (wasPlaying) api.play();
+    api.tickPosition = this.resume.tick;
   }
 
   showTrack(trackIndex: number, view: TrackView) {

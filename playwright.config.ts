@@ -16,7 +16,10 @@ export default defineConfig({
   forbidOnly: isCI,
   globalTimeout: 15 * 60_000,
   retries: isCI ? 2 : 0,
-  workers: isCI ? 2 : undefined,
+  // One test at a time on CI: every song test synthesizes audio in real time,
+  // and parallel tests on a 2-core runner starve each other's audio and
+  // rendering (in WebKit's software renderer especially).
+  workers: isCI ? 1 : undefined,
   reporter: isCI ? [["github"], ["html", { open: "never" }]] : [["list"]],
   use: {
     baseURL: `http://${HOST}:${PORT}`,
@@ -34,6 +37,9 @@ export default defineConfig({
         // behaviour are the same at 1x, and no screenshots are compared.
         deviceScaleFactor: 1,
       },
+      // CI's headless WebKit renders in software and runs several times slower
+      // than on a Mac; the longer song tests need more than the default 30 s.
+      ...(isCI && { timeout: 90_000, expect: { timeout: 15_000 } }),
     },
   ],
   webServer: {
