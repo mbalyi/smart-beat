@@ -36,9 +36,13 @@ test.describe("native menu integration", () => {
     await expect(app.locator("html")).toHaveClass(/dark/);
   });
 
-  test("File → Open… announces that file support is coming", async ({ app }) => {
+  test("File → Open… shows the native Open dialog", async ({ app }) => {
     await emitMenuAction(app, "open");
 
-    await expect(app.getByText("Opening files is coming soon")).toBeVisible();
+    await expect
+      .poll(() => app.evaluate(() => window.__ipcCalls.some((c) => c.cmd === "plugin:dialog|open")))
+      .toBe(true);
+    // Cancelled (the mock's default): the welcome screen stays.
+    await expect(app.getByRole("heading", { level: 1 })).toHaveText(/Write, play/);
   });
 });

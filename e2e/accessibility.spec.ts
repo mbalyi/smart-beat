@@ -1,4 +1,4 @@
-import { emitMenuAction, expect, expectNoA11yViolations, tabKey, test } from "./fixtures";
+import { emitMenuAction, expect, expectNoA11yViolations, openSong, tabKey, test } from "./fixtures";
 
 test.describe("accessibility", () => {
   for (const colorScheme of ["light", "dark"] as const) {
@@ -10,7 +10,46 @@ test.describe("accessibility", () => {
 
       await expectNoA11yViolations(app);
     });
+
+    test(`song screen and mixer have no WCAG violations in ${colorScheme} mode`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await openSong(app);
+      await expectNoA11yViolations(app);
+
+      await app.getByRole("button", { name: "Mixer" }).click();
+      await expect(app.getByRole("dialog", { name: "Mixer" })).toBeVisible();
+      await expectNoA11yViolations(app);
+    });
   }
+
+  test("the song screen can be used with the keyboard", async ({ app, browserName }) => {
+    await openSong(app);
+    const tab = tabKey(browserName);
+    const mixerButton = app.getByRole("button", { name: "Mixer" });
+
+    await mixerButton.focus();
+    await app.keyboard.press("Enter");
+    const mixer = app.getByRole("dialog", { name: "Mixer" });
+    await expect(mixer).toBeVisible();
+    await expect(mixer.locator(":focus")).toHaveCount(1); // focus moved into the panel
+
+    // Sliders respond to the arrow keys.
+    const master = mixer.getByRole("slider", { name: "Master volume" });
+    await master.focus();
+    await app.keyboard.press("ArrowLeft");
+    await expect(master).toHaveAttribute("aria-valuetext", "99%");
+
+    await app.keyboard.press("Escape");
+    await expect(mixer).toBeHidden();
+    await expect(mixerButton).toBeFocused();
+
+    // The score region is focusable so it can be scrolled with the keyboard.
+    await app.getByRole("radio", { name: "Page" }).focus(); // last toolbar control
+    await app.keyboard.press(tab);
+    await expect(app.getByRole("region", { name: /^Score:/ })).toBeFocused();
+  });
 
   for (const action of ["about", "shortcuts", "licenses"] as const) {
     test(`${action} dialog has no WCAG violations`, async ({ app }) => {
