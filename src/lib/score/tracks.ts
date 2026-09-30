@@ -21,6 +21,7 @@ import {
   type Staff,
   type Track,
 } from "@/lib/score/model";
+import { adoptLyrics } from "@/lib/score/lyrics";
 import { MAX_CAPO, type InstrumentPreset, type TrackKind } from "@/lib/score/music";
 import { adoptTrack, rememberMix, trackMix } from "@/lib/score/score";
 
@@ -114,6 +115,7 @@ export function createTrack(score: Score, spec: NewTrack): Track {
     bar.addVoice(newVoice(placeholderBeats(masterBar, 0)));
   }
   adoptTrack(track);
+  adoptLyrics(track);
   return track;
 }
 
@@ -209,6 +211,7 @@ export function createSong(): Score {
   for (const track of score.tracks) {
     track.playbackInfo.volume = NEW_TRACK_VOLUME;
     adoptTrack(track);
+    adoptLyrics(track);
   }
   refinish(score);
   return score;

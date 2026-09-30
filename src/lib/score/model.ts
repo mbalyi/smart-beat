@@ -9,6 +9,7 @@
  */
 import { model, Settings } from "@coderline/alphatab";
 
+import { reflowLyrics } from "@/lib/score/lyrics";
 import { barRests, NO_TUPLET, type Duration, type Tuplet } from "@/lib/score/music";
 
 export type Score = model.Score;
@@ -47,9 +48,9 @@ function resetNoteLinks(note: Note) {
 
 /**
  * Re-links the whole model (indexes, parents, neighbours) and lets alphaTab
- * recompute everything it derives (timing, ties, tuplet groups...). Called
- * after every change, and after undo and redo. It is idempotent: a score that
- * was not changed comes out the same.
+ * recompute everything it derives (timing, ties, tuplet groups...), then puts
+ * the lyrics back on the notes. Called after every change, and after undo and
+ * redo. It is idempotent: a score that was not changed comes out the same.
  */
 export function refinish(score: Score): void {
   const masterBars = score.masterBars;
@@ -103,6 +104,7 @@ export function refinish(score: Score): void {
   });
 
   score.finish((finishSettings ??= new Settings()));
+  for (const track of score.tracks) reflowLyrics(track);
 }
 
 /** Everything a bar's content consists of: for snapshots before and after an edit. */
@@ -121,6 +123,25 @@ export function* staffContent(staff: Staff): Generator<object> {
   yield staff;
   yield staff.stringTuning;
   for (const bar of staff.bars) yield* barContent(bar);
+}
+
+/**
+ * Master bars `from`–`to` (inclusive) and every track's bars there, with
+ * their content: for edits to the song's structure (time and key signatures,
+ * repeats, tempo...).
+ */
+export function* masterBarContent(score: Score, from: number, to = from): Generator<object> {
+  for (let index = from; index <= to; index++) {
+    const masterBar = score.masterBars[index];
+    if (!masterBar) continue;
+    yield masterBar;
+    for (const track of score.tracks) {
+      for (const staff of track.staves) {
+        const bar = staff.bars[index];
+        if (bar) yield* barContent(bar);
+      }
+    }
+  }
 }
 
 export function* trackContent(track: Track): Generator<object> {
@@ -250,9 +271,23 @@ function copyProps<T extends object>(target: T, source: T, skip: readonly string
   }
 }
 
+const clonePoints = (points: model.BendPoint[] | null) =>
+  points?.map((point) => new model.BendPoint(point.offset, point.value)) ?? null;
+
+/** The highest (or lowest) of `points`, as alphaTab tracks it for drawing. */
+function extremePoint(points: model.BendPoint[] | null, pick: (a: number, b: number) => boolean) {
+  return (points ?? []).reduce<model.BendPoint | null>(
+    (best, point) => (!best || pick(point.value, best.value) ? point : best),
+    null,
+  );
+}
+
 export function cloneNote(note: Note): Note {
   const copy = new model.Note();
   copyProps(copy, note, ["id", "index", "_noteIdBag", "effectSlur"]);
+  // Bend points are objects: the copy gets its own.
+  copy.bendPoints = clonePoints(note.bendPoints);
+  copy.maxBendPoint = extremePoint(copy.bendPoints, (a, b) => a > b);
   return copy;
 }
 
@@ -260,6 +295,12 @@ export function cloneNote(note: Note): Note {
 export function cloneBeat(beat: Beat): Beat {
   const copy = new model.Beat();
   copyProps(copy, beat, ["id", "index", "notes"]);
+  copy.whammyBarPoints = clonePoints(beat.whammyBarPoints);
+  copy.maxWhammyPoint = extremePoint(copy.whammyBarPoints, (a, b) => a > b);
+  copy.minWhammyPoint = extremePoint(copy.whammyBarPoints, (a, b) => a < b);
+  if (beat.tremoloPicking) {
+    copy.tremoloPicking = Object.assign(new model.TremoloPickingEffect(), beat.tremoloPicking);
+  }
   for (const note of beat.notes) copy.addNote(cloneNote(note));
   return copy;
 }

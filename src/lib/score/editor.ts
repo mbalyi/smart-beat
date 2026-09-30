@@ -12,7 +12,26 @@
  */
 import { model } from "@coderline/alphatab";
 
+import { chordOf, setChord, type ChordSpec } from "@/lib/score/chords";
+import {
+  activeEffectName,
+  BEAT_EFFECTS,
+  bendOf,
+  effectAvailable,
+  effectOff,
+  effectText,
+  NOTE_EFFECTS,
+  setBend,
+  setWhammy,
+  unavailableText,
+  whammyOf,
+  type BeatEffectId,
+  type CurvePoint,
+  type Effect,
+  type NoteEffectId,
+} from "@/lib/score/effects";
 import { History } from "@/lib/score/history";
+import { keyAlteration } from "@/lib/score/keys";
 import {
   appendMasterBar,
   barContent,
@@ -20,6 +39,7 @@ import {
   cloneNote,
   ensureVoices,
   isStringed,
+  masterBarContent,
   newBeat,
   placeholderBeats,
   refinish,
@@ -47,7 +67,7 @@ import {
   type Tuplet,
 } from "@/lib/score/music";
 
-const { Duration: D } = model;
+const { Duration: D, GraceType } = model;
 
 /** Where the cursor is. `string` is alphaTab's (1 = lowest string). */
 export interface Cursor {
@@ -114,6 +134,21 @@ export interface BeatInfo {
   notes: NoteInfo[];
 }
 
+/** The effects at the cursor (or on the selection), for the toolbar and menus. */
+export interface EffectsInfo {
+  /** Note effects of the note under the cursor (null: no note there). */
+  note: Record<NoteEffectId, number> | null;
+  /** Beat effects of the cursor's beat (null: no notes there). */
+  beat: Record<BeatEffectId, number> | null;
+  bend: CurvePoint[] | null;
+  whammy: CurvePoint[] | null;
+  /** How the cursor's beat is a grace note (alphaTab's GraceType; 0 = not). */
+  grace: number;
+  /** Free text on the cursor's beat. */
+  text: string | null;
+  chord: ChordSpec | null;
+}
+
 /** A copied beat, with the sounding pitch of each note (a detached note can't compute it). */
 interface CopiedBeat {
   beat: Beat;
@@ -140,6 +175,24 @@ function isPlaceholder(beat: Beat): boolean {
 
 /** Which note of a chord is "under the cursor" on a pitched or drum track. */
 const pitchOf = soundOf;
+
+const graceText = (type: model.GraceType) =>
+  type === GraceType.OnBeat ? "Grace note on the beat" : "Grace note before the beat";
+
+/** A new note at the same place (string and fret, pitch or drum sound), without effects. */
+function plainNote(source: Note): Note {
+  const note = new model.Note();
+  if (source.isStringed) {
+    note.string = source.string;
+    note.fret = source.fret;
+  } else if (source.isPercussion) {
+    note.percussionArticulation = source.percussionArticulation;
+  } else {
+    note.octave = source.octave;
+    note.tone = source.tone;
+  }
+  return note;
+}
 
 export class ScoreEditor {
   readonly score: Score;
@@ -534,6 +587,7 @@ export class ScoreEditor {
           : pitchName(c.pitch, { spoken: true }),
       );
     }
+    parts.push(...this.effectNames());
     const beat = this.beatAt();
     if (!beat || isPlaceholder(beat))
       parts.push(`empty, next note ${noteValueLabel(info.duration)}`);
@@ -683,10 +737,14 @@ export class ScoreEditor {
     return 60; // middle C
   }
 
-  /** Enters a pitch from its letter name, in the octave nearest the music around it. */
+  /**
+   * Enters a pitch from its letter name, in the octave nearest the music
+   * around it, with the bar's key signature applied (F is F sharp in G major).
+   */
   enterLetter(letter: string) {
-    const pitch = pitchFromLetter(letter, this.nearbyPitch());
-    if (pitch !== null) this.enterPitch(pitch);
+    const natural = pitchFromLetter(letter, this.nearbyPitch());
+    if (natural === null) return;
+    this.enterPitch(natural + keyAlteration(letter, this.bar().keySignature));
   }
 
   /**
@@ -1006,6 +1064,283 @@ export class ScoreEditor {
         target.addNote(tied);
       }
     });
+  }
+
+  // --- Effects, text and chords ---------------------------------------------
+
+  /** Names of the effects on the cursor's note and beat ("palm mute", "grace note"). */
+  private effectNames(): string[] {
+    const beat = this.beatAt();
+    if (!beat || isPlaceholder(beat)) return [];
+    const note = this.noteAtCursor(beat);
+    const names: string[] = [];
+    if (note) {
+      for (const effect of Object.values(NOTE_EFFECTS) as Effect[]) {
+        if (effect.id === "trillSpeed") continue;
+        const value = (effect as (typeof NOTE_EFFECTS)[NoteEffectId]).get(note);
+        if (value !== effectOff(effect)) names.push(activeEffectName(effect, value));
+      }
+      if (note.hasBend) names.push("bend");
+    }
+    for (const effect of Object.values(BEAT_EFFECTS) as Effect[]) {
+      const value = (effect as (typeof BEAT_EFFECTS)[BeatEffectId]).get(beat);
+      if (value !== effectOff(effect)) names.push(activeEffectName(effect, value));
+    }
+    if (beat.hasWhammyBar) names.push("whammy bar");
+    if (beat.graceType !== GraceType.None) names.push("grace note");
+    return names;
+  }
+
+  /** The effects at the cursor, as plain data. */
+  get effects(): EffectsInfo {
+    const beat = this.beatAt();
+    const written = beat && !isPlaceholder(beat) ? beat : null;
+    const note = written ? this.noteAtCursor(written) : null;
+    const read = <T>(effects: Record<string, { get(target: T): number }>, target: T) =>
+      Object.fromEntries(Object.entries(effects).map(([id, e]) => [id, e.get(target)]));
+    return {
+      note: note ? (read(NOTE_EFFECTS, note) as Record<NoteEffectId, number>) : null,
+      beat:
+        written && written.notes.length > 0
+          ? (read(BEAT_EFFECTS, written) as Record<BeatEffectId, number>)
+          : null,
+      bend: note ? bendOf(note) : null,
+      whammy: written ? whammyOf(written) : null,
+      grace: written?.graceType ?? GraceType.None,
+      text: beat?.text ?? null,
+      chord: beat ? chordOf(beat) : null,
+    };
+  }
+
+  /** The notes effects apply to: every note of the selected beats, or the cursor's note. */
+  private effectNotes(): Note[] {
+    if (this._selection) return this.selectedBeats().flatMap((beat) => beat.notes);
+    const note = this.noteAtCursor();
+    return note ? [note] : [];
+  }
+
+  /** The beats beat effects apply to: the selected beats with notes, or the cursor's. */
+  private effectBeats(): Beat[] {
+    const beats = this._selection ? this.selectedBeats() : [this.beatAt()];
+    return beats.filter((beat): beat is Beat => !!beat && !beat.isEmpty && beat.notes.length > 0);
+  }
+
+  /** Says why nothing happened (no undo step), e.g. "No note at the cursor". */
+  private refuse(message: string) {
+    this.pendingDigit = null;
+    this._message = message;
+    this.emit("cursor");
+  }
+
+  private get effectTargets() {
+    return this._selection ? this.selectionTargets : this.cursorTargets;
+  }
+
+  /** Why an effect can't be used here, or null when it can. */
+  private effectProblem(effect: Effect, targets: readonly unknown[]): string | null {
+    if (!effectAvailable(effect, this.kind)) return unavailableText(effect);
+    if (targets.length === 0) {
+      return effect.scope === "note" ? "No note at the cursor" : "No notes on this beat";
+    }
+    return null;
+  }
+
+  /** Sets a note effect on the cursor's note (or every selected note). */
+  setNoteEffect(id: NoteEffectId, value: number) {
+    const effect: Effect = NOTE_EFFECTS[id];
+    const notes = this.effectNotes();
+    const problem = this.effectProblem(effect, notes);
+    if (problem) return this.refuse(problem);
+    const off = value === effectOff(effect);
+    if (
+      !off &&
+      id === "hammerPull" &&
+      !notes.some((n) => model.Note.findHammerPullDestination(n))
+    ) {
+      return this.refuse("A hammer-on or pull-off needs a next note on the same string");
+    }
+    if (
+      !off &&
+      id === "slideOut" &&
+      (value === model.SlideOutType.Shift || value === model.SlideOutType.Legato) &&
+      !notes.some((n) => model.Note.nextNoteOnSameLine(n))
+    ) {
+      return this.refuse("A slide to the next note needs a next note on the same string");
+    }
+    const had = notes.some((n) => NOTE_EFFECTS[id].get(n) !== effectOff(effect));
+    const label = off
+      ? `Remove ${effect.label.toLowerCase()}`
+      : had
+        ? `Change ${effect.label.toLowerCase()}`
+        : `Add ${effect.label.toLowerCase()}`;
+    this.run(
+      label,
+      this.effectTargets,
+      () => {
+        for (const note of this.effectNotes()) NOTE_EFFECTS[id].set(note, value);
+      },
+      effectText(effect, value),
+    );
+  }
+
+  /** Switches a note effect on (its usual value) or, when every target has it, off. */
+  toggleNoteEffect(id: NoteEffectId) {
+    const effect: Effect = NOTE_EFFECTS[id];
+    const notes = this.effectNotes();
+    const on =
+      notes.length > 0 && notes.every((n) => NOTE_EFFECTS[id].get(n) !== effectOff(effect));
+    this.setNoteEffect(id, on ? effectOff(effect) : effect.on);
+  }
+
+  /** Sets a beat effect on the cursor's beat (or every selected beat). */
+  setBeatEffect(id: BeatEffectId, value: number) {
+    const effect: Effect = BEAT_EFFECTS[id];
+    const beats = this.effectBeats();
+    const problem = this.effectProblem(effect, beats);
+    if (problem) return this.refuse(problem);
+    const off = value === effectOff(effect);
+    const had = beats.some((b) => BEAT_EFFECTS[id].get(b) !== effectOff(effect));
+    const label = off
+      ? `Remove ${effect.label.toLowerCase()}`
+      : had
+        ? `Change ${effect.label.toLowerCase()}`
+        : `Add ${effect.label.toLowerCase()}`;
+    this.run(
+      label,
+      this.effectTargets,
+      () => {
+        for (const beat of this.effectBeats()) BEAT_EFFECTS[id].set(beat, value);
+      },
+      effectText(effect, value),
+    );
+  }
+
+  toggleBeatEffect(id: BeatEffectId) {
+    const effect: Effect = BEAT_EFFECTS[id];
+    const beats = this.effectBeats();
+    const on =
+      beats.length > 0 && beats.every((b) => BEAT_EFFECTS[id].get(b) !== effectOff(effect));
+    this.setBeatEffect(id, on ? effectOff(effect) : effect.on);
+  }
+
+  /** Bends the cursor's note (or every selected note); null removes the bend. */
+  setBend(points: readonly CurvePoint[] | null) {
+    if (this.kind !== "stringed") return this.refuse("Bends are only available on tab tracks");
+    const notes = this.effectNotes();
+    if (notes.length === 0) return this.refuse("No note at the cursor");
+    const had = notes.some((n) => n.hasBend);
+    this.run(
+      points ? (had ? "Change bend" : "Add bend") : "Remove bend",
+      this.effectTargets,
+      () => {
+        for (const note of this.effectNotes()) setBend(note, points);
+      },
+      points ? "Bend" : "Bend off",
+    );
+  }
+
+  /** Puts a whammy bar curve on the cursor's beat (or the selected beats); null removes it. */
+  setWhammy(points: readonly CurvePoint[] | null) {
+    if (this.kind !== "stringed")
+      return this.refuse("The whammy bar is only available on tab tracks");
+    const beats = this.effectBeats();
+    if (beats.length === 0) return this.refuse("No notes on this beat");
+    const had = beats.some((b) => b.hasWhammyBar);
+    this.run(
+      points ? (had ? "Change whammy bar" : "Add whammy bar") : "Remove whammy bar",
+      this.effectTargets,
+      () => {
+        for (const beat of this.effectBeats()) setWhammy(beat, points);
+      },
+      points ? "Whammy bar" : "Whammy bar off",
+    );
+  }
+
+  /**
+   * Adds a grace note before the cursor's note (a copy of it, which can then
+   * be changed), played before the beat or on it. Grace notes take no time in
+   * the bar. On a grace note, changes how it is played; `GraceType.None`
+   * turns it into a normal note.
+   */
+  setGrace(type: model.GraceType) {
+    const beat = this.beatAt();
+    if (!beat || isPlaceholder(beat) || beat.notes.length === 0) {
+      return this.refuse("No note at the cursor");
+    }
+    if (beat.graceType !== GraceType.None) {
+      if (type === beat.graceType) return;
+      this.run(
+        type === GraceType.None ? "Remove grace note" : "Change grace note",
+        this.cursorTargets,
+        () => {
+          this.beatAt()!.graceType = type;
+        },
+        type === GraceType.None ? "Normal note" : graceText(type),
+      );
+      return;
+    }
+    if (type === GraceType.None) return;
+    this.run(
+      "Add grace note",
+      this.cursorTargets,
+      () => {
+        const current = this.beatAt()!;
+        const grace = newBeat(D.ThirtySecond);
+        grace.graceType = type;
+        const source = this.noteAtCursor(current) ?? current.notes[0]!;
+        grace.addNote(plainNote(source));
+        current.voice.beats.splice(current.index, 0, grace);
+        // The cursor stays at this position: on the new grace note.
+      },
+      `${graceText(type)}: type its fret or pitch`,
+    );
+  }
+
+  /** Writes free text above the cursor's beat (null or "" removes it). */
+  setText(text: string | null) {
+    const beat = this.beatAt();
+    if (!beat || beat.isEmpty) return this.refuse("Text goes on a note or rest");
+    const value = text?.trim() ? text.trim() : null;
+    if ((beat.text ?? null) === value) return;
+    this.run(
+      value === null ? "Remove text" : beat.text ? "Change text" : "Add text",
+      this.cursorTargets,
+      () => {
+        this.beatAt()!.text = value;
+      },
+      value === null ? "Text removed" : `Text: ${value}`,
+    );
+  }
+
+  /** Writes a chord (name and diagram) on the cursor's beat; null removes it. */
+  setChord(spec: ChordSpec | null) {
+    const beat = this.beatAt();
+    if (!beat || beat.isEmpty) return this.refuse("Chords go on a note or rest");
+    if (!spec && !beat.chordId) return;
+    this.run(
+      spec ? (beat.chordId ? "Change chord" : "Add chord") : "Remove chord",
+      () => [this.staff, ...barContent(this.bar())],
+      () => setChord(this.beatAt()!, spec),
+      spec ? `Chord ${spec.name}` : "Chord removed",
+    );
+  }
+
+  /**
+   * Runs a change to the song's structure (bars `from`–`to`, in every
+   * track) as one undo step.
+   */
+  editBars(label: string, range: { from: number; to: number }, apply: () => void, message = label) {
+    this.run(label, () => masterBarContent(this.score, range.from, range.to), apply, message);
+  }
+
+  /** Pitches of the selected beats (or the cursor's), for naming the chord they form. */
+  selectedPitches(): number[] {
+    const beats = this._selection ? this.selectedBeats() : [this.beatAt()];
+    return beats.flatMap((beat) =>
+      beat && !beat.isEmpty
+        ? beat.notes.filter((n) => !n.isPercussion).map((n) => n.realValue)
+        : [],
+    );
   }
 
   // --- Clipboard ---------------------------------------------------------------
