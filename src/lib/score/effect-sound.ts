@@ -11,9 +11,13 @@
  */
 import { midi, model } from "@coderline/alphatab";
 
+import { playableDrumKey } from "@/lib/score/drum-map";
 import type { Beat } from "@/lib/score/model";
 
-const { ControlChangeEvent, ControllerType, NoteOnEvent } = midi;
+const { ControlChangeEvent, ControllerType, NoteOffEvent, NoteOnEvent } = midi;
+
+/** MIDI channel 10, the percussion channel (0-based). */
+const PERCUSSION_CHANNEL = 9;
 const { PickStroke, TripletFeel, WahPedal } = model;
 
 /** How much louder (MIDI velocity) each effect plays its notes. */
@@ -120,4 +124,24 @@ export function approximateSilentEffects(
     }
   }
   return { notes, wah };
+}
+
+/**
+ * Replaces drum numbers the SoundFont has no sample for (rim shot, chokes,
+ * world percussion above 87…) by the closest sound it does have, so they are
+ * not silent. Edits `file` in place; returns how many notes were replaced.
+ */
+export function remapSilentDrums(file: midi.MidiFile): number {
+  let replaced = 0;
+  for (const track of file.tracks) {
+    for (const event of track.events) {
+      if (!(event instanceof NoteOnEvent || event instanceof NoteOffEvent)) continue;
+      if (event.channel !== PERCUSSION_CHANNEL) continue;
+      const key = playableDrumKey(event.noteKey);
+      if (key === event.noteKey) continue;
+      event.noteKey = key;
+      if (event instanceof NoteOnEvent) replaced++;
+    }
+  }
+  return replaced;
 }

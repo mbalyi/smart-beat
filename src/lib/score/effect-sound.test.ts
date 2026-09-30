@@ -2,6 +2,7 @@ import { midi, model } from "@coderline/alphatab";
 
 import {
   approximateSilentEffects,
+  remapSilentDrums,
   VELOCITY_CHANGE,
   WAH_EXPRESSION,
 } from "@/lib/score/effect-sound";
@@ -112,5 +113,31 @@ describe("approximateSilentEffects", () => {
     const { file, lookup } = generateMidi(score);
     approximateSilentEffects(file, lookup);
     expect(Math.max(...velocities(file, 40))).toBeLessThanOrEqual(127);
+  });
+});
+
+describe("remapSilentDrums", () => {
+  const { NoteOffEvent, NoteOnEvent } = midi;
+  const fileWith = (...events: midi.MidiEvent[]) =>
+    ({ tracks: [{ events }] }) as unknown as midi.MidiFile;
+
+  it("plays the closest sound for drum numbers the SoundFont has no sample for", () => {
+    const rimOn = new NoteOnEvent(0, 0, 9, 91, 100);
+    const rimOff = new NoteOffEvent(0, 10, 9, 91, 0);
+    const snare = new NoteOnEvent(0, 20, 9, 38, 100);
+    const crashChoke = new NoteOnEvent(0, 30, 9, 97, 100);
+
+    const replaced = remapSilentDrums(fileWith(rimOn, rimOff, snare, crashChoke));
+
+    expect(replaced).toBe(2); // notes, not note-offs
+    expect([rimOn.noteKey, rimOff.noteKey, snare.noteKey, crashChoke.noteKey]).toEqual([
+      38, 38, 38, 49,
+    ]);
+  });
+
+  it("leaves other instruments alone, even on the same key number", () => {
+    const piano = new NoteOnEvent(0, 0, 0, 91, 100);
+    expect(remapSilentDrums(fileWith(piano))).toBe(0);
+    expect(piano.noteKey).toBe(91);
   });
 });

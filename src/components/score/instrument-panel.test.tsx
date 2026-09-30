@@ -115,7 +115,7 @@ describe("InstrumentPanel: drums", () => {
     const { user, props } = setup({ kind: "drums", tuning: [], editing: true, drumSounds: [81] });
 
     await user.click(screen.getByRole("button", { name: "Crash cymbal" }));
-    await user.click(screen.getByRole("button", { name: "Drum sound 81" }));
+    await user.click(screen.getByRole("button", { name: "Triangle (hit)" }));
 
     expect(vi.mocked(props.onDrum).mock.calls).toEqual([[49], [81]]);
     await expectNoA11yViolations();

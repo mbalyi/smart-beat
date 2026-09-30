@@ -19,7 +19,7 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
-import { approximateSilentEffects } from "@/lib/score/effect-sound";
+import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
@@ -272,6 +272,7 @@ export class ScorePlayer {
     api.midiLoad.on((file) => {
       const lookup = api.tickCache;
       if (lookup) approximateSilentEffects(file, lookup);
+      remapSilentDrums(file); // the SoundFont has no sample for some drum numbers
     });
     api.playedBeatChanged.on((beat) =>
       this.delayer.run(() => this.reportBar(beat.voice.bar.index)),

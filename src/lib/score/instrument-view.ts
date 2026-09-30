@@ -5,6 +5,7 @@
 import type { NoteInfo } from "@/lib/score/editor";
 import { model } from "@coderline/alphatab";
 
+import { drumNumberName } from "@/lib/score/drum-map";
 import { soundOf, type Beat, type Track } from "@/lib/score/model";
 import {
   DRUM_KIT,
@@ -92,7 +93,7 @@ export function drumPads(
   const others = [...new Set(extra)]
     .filter((id) => !known.has(id))
     .sort((a, b) => a - b)
-    .map((id) => ({ id, name: `Drum sound ${id}`, short: String(id) }));
+    .map((id) => ({ id, name: drumNumberName(id), short: String(id) }));
   return [...DRUM_KIT, ...others];
 }
 

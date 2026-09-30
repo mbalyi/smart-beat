@@ -55,6 +55,7 @@ import {
   type Track,
   type Voice,
 } from "@/lib/score/model";
+import { drumNumberName } from "@/lib/score/drum-map";
 import {
   drumSound,
   MAX_FRET,
@@ -856,7 +857,7 @@ export class ScoreEditor {
         target.addNote(note);
         this._cursor.pitch = sound;
       },
-      drumSound(sound)?.name ?? `Drum sound ${sound}`,
+      drumSound(sound)?.name ?? drumNumberName(sound),
     );
   }
 
