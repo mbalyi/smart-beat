@@ -80,6 +80,15 @@ describe("Inspector: TRACK tab", () => {
     expect(screen.queryByText("Tuning")).not.toBeInTheDocument();
   });
 
+  it("explains why drum tracks have no tab view", () => {
+    setup({
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false },
+      view: { notation: "score", rhythm: false },
+    });
+    expect(screen.getByText(/Drum tracks are shown as a score/)).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Tablature" })).toBeDisabled();
+  });
+
   it("opens the track settings and the lyrics", async () => {
     const { user, actions } = setup();
 

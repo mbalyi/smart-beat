@@ -207,6 +207,12 @@ export function Inspector({
             disabled={!track.hasTablature}
             onChange={(on) => setNotation(showsScore, on)}
           />
+          {track.kind === "drums" && (
+            <p className="text-xs text-muted-foreground">
+              Drum tracks are shown as a score. The notation renderer has no drum tablature, so
+              “Tab” is not available for them.
+            </p>
+          )}
           {track.kind === "stringed" && (
             <Row label="Tuning">
               <span className="font-mono tracking-widest">
