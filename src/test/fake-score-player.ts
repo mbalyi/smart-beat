@@ -29,6 +29,10 @@ export class FakeScorePlayer {
   playPause = vi.fn();
   stop = vi.fn();
   pause = vi.fn();
+  renderAudio = vi.fn(async (onProgress?: (fraction: number) => void) => {
+    onProgress?.(1);
+    return { samples: new Float32Array([0, 0.5, -0.5, 1]), sampleRate: 44_100, channels: 2 };
+  });
   setZoom = vi.fn();
   seekToBar = vi.fn();
   destroy = vi.fn();

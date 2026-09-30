@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { ScoreWorkspace } from "@/components/score/score-workspace";
 import { Toaster } from "@/components/ui/sonner";
@@ -330,5 +330,102 @@ describe("ScoreWorkspace", () => {
 
     expect(await screen.findByText("Something went wrong with the score")).toBeInTheDocument();
     expect(screen.getByText("Render failed")).toBeInTheDocument();
+  });
+
+  describe("printing", () => {
+    /** What alphaTab draws into the score's element. */
+    const draw = (element: HTMLElement) => {
+      const part = document.createElement("div");
+      part.innerHTML = '<svg width="1000" height="300"></svg>';
+      element.append(part);
+    };
+
+    async function openPrintDialog(user: Awaited<ReturnType<typeof setup>>["user"]) {
+      await user.click(screen.getByRole("button", { name: "File" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Print / PDF…" }));
+      return screen.findByRole("dialog", { name: "Print or save as PDF" });
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      document.getElementById("print-root")?.remove();
+      document.getElementById("print-page-style")?.remove();
+    });
+
+    it("prints the drawn score with the chosen page settings, then removes the print copy", async () => {
+      const print = vi.spyOn(window, "print").mockImplementation(() => {
+        expect(document.querySelectorAll("#print-root svg")).toHaveLength(1);
+        expect(document.getElementById("print-page-style")!.textContent).toContain("A4 portrait");
+      });
+      const { user, player } = await setup();
+      draw(player.options.element);
+
+      const dialog = await openPrintDialog(user);
+      expect(dialog).toHaveTextContent("“Guitar”");
+      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+
+      await waitFor(() => expect(print).toHaveBeenCalledOnce());
+      expect(player.setLayout).not.toHaveBeenCalled(); // already the page layout
+      fireEvent(window, new Event("afterprint"));
+      expect(document.getElementById("print-root")).toBeNull();
+      expect(JSON.parse(localStorage.getItem("smart-beat:print")!)).toMatchObject({ paper: "a4" });
+    });
+
+    it("switches the continuous layout to pages for printing and back afterwards", async () => {
+      const print = vi.spyOn(window, "print").mockImplementation(() => {});
+      const { user, player } = await setup();
+      draw(player.options.element);
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      player.setLayout.mockClear();
+
+      const dialog = await openPrintDialog(user);
+      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+
+      expect(player.setLayout).toHaveBeenCalledWith("page");
+      expect(print).not.toHaveBeenCalled(); // waits until the pages are drawn
+      player.emit("onRendered");
+      await waitFor(() => expect(print).toHaveBeenCalledOnce());
+      fireEvent(window, new Event("afterprint"));
+      expect(player.setLayout).toHaveBeenLastCalledWith("horizontal");
+    });
+
+    it("says when nothing is drawn yet", async () => {
+      const print = vi.spyOn(window, "print").mockImplementation(() => {});
+      const { user } = await setup();
+
+      const dialog = await openPrintDialog(user);
+      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+
+      expect(
+        await screen.findByText("There is nothing to print yet", {}, { timeout: 5_000 }),
+      ).toBeInTheDocument();
+      expect(print).not.toHaveBeenCalled();
+    });
+
+    it("reports a print dialog that could not be opened", async () => {
+      vi.spyOn(window, "print").mockImplementation(() => {
+        throw new Error("No printer is available");
+      });
+      const { user, player } = await setup();
+      draw(player.options.element);
+
+      const dialog = await openPrintDialog(user);
+      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+
+      expect(await screen.findByText("Couldn't print")).toBeInTheDocument();
+      expect(screen.getByText("No printer is available")).toBeInTheDocument();
+      expect(document.getElementById("print-root")).toBeNull();
+    });
+
+    it("opens with Ctrl+P, or ⌘P on a Mac", async () => {
+      const { user } = await setup();
+      vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+
+      await user.keyboard("{Meta>}p{/Meta}");
+
+      expect(
+        await screen.findByRole("dialog", { name: "Print or save as PDF" }),
+      ).toBeInTheDocument();
+    });
   });
 });

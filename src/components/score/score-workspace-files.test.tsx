@@ -236,6 +236,63 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     expect((await screen.findAllByText(/tab.*left out|has no strings/)).length).toBeGreaterThan(0);
   });
 
+  it("exports the mix as a WAV file, named after the song, with progress", async () => {
+    const { user, player, onSaved } = await setup();
+    backend.saveResult = "/out/mix";
+
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)…" }));
+
+    await waitFor(() => expect(backend.written.has("/out/mix.wav")).toBe(true));
+    const wav = bytesOf("/out/mix.wav");
+    expect(text(wav.slice(0, 4))).toBe("RIFF");
+    expect(text(wav.slice(8, 12))).toBe("WAVE");
+    expect(wav).toHaveLength(44 + 8); // the fake player renders four samples
+    expect(player.renderAudio).toHaveBeenCalledOnce();
+    expect(onSaved).not.toHaveBeenCalled(); // the song's file is unchanged
+    expect((await screen.findAllByText("Exported “mix.wav”")).length).toBeGreaterThan(0);
+  });
+
+  it("starts the WAV export's Save dialog next to the song, and does nothing when cancelled", async () => {
+    const { user, player } = await setup({ path: "/songs/practice-song.gp" });
+    backend.saveResult = null;
+
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)…" }));
+
+    await waitFor(() => expect(backend.written.size).toBe(0));
+    expect(player.renderAudio).not.toHaveBeenCalled();
+  });
+
+  it("reports audio that could not be rendered", async () => {
+    const { user, player } = await setup();
+    backend.saveResult = "/out/mix.wav";
+    player.renderAudio.mockRejectedValueOnce(new Error("The instrument sounds are still loading."));
+
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)…" }));
+
+    expect((await screen.findAllByText("Couldn't export the audio")).length).toBeGreaterThan(0);
+    expect(screen.getByText("The instrument sounds are still loading.")).toBeInTheDocument();
+    expect(backend.written.size).toBe(0);
+  });
+
+  it("downloads the WAV file in a plain browser", async () => {
+    const createObjectURL = vi.fn(() => "blob:audio");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const { user } = await setup({ desktop: false });
+
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)…" }));
+
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect((await screen.findAllByText(/Downloaded “Practice Song.wav”/)).length).toBeGreaterThan(
+      0,
+    );
+  });
+
   it("ignores a second save while one is running", async () => {
     let release: () => void = () => {};
     const calls = mockTauri({

@@ -993,3 +993,70 @@ describe("ScorePlayer: cursor in sync with the sound", () => {
     storeSyncOffset(0);
   });
 });
+
+describe("ScorePlayer: audio export", () => {
+  it("renders the song with the mix to sound, chunk by chunk, with progress", async () => {
+    const { player, api, mix } = await readySetup();
+    api.exportChunks = [
+      { samples: new Float32Array([0.1, 0.2]), currentTime: 1_000, endTime: 3_000 },
+      { samples: new Float32Array([0.3, 0.4]), currentTime: 2_000, endTime: 3_000 },
+      { samples: new Float32Array([0.5]), currentTime: 3_000, endTime: 3_000 },
+    ];
+    const progress = vi.fn();
+
+    const audio = await player.renderAudio(progress);
+
+    expect(Array.from(audio.samples)).toEqual([
+      expect.closeTo(0.1),
+      expect.closeTo(0.2),
+      expect.closeTo(0.3),
+      expect.closeTo(0.4),
+      expect.closeTo(0.5),
+    ]);
+    expect(audio).toMatchObject({ sampleRate: 44_100, channels: 2 });
+    expect(progress.mock.calls.map(([p]) => Math.round(p * 100))).toEqual([33, 67, 100, 100]);
+    expect(api.exporterDestroyed).toHaveBeenCalledOnce();
+    expect(api.exportOptions).toMatchObject({
+      sampleRate: 44_100,
+      masterVolume: mix.master,
+      metronomeVolume: 0,
+    });
+  });
+
+  it("uses the mixer: muted tracks and tracks not soloed are silent, the others keep their volume", async () => {
+    const { player, api, mix } = await readySetup();
+    player.setMix({
+      ...mix,
+      tracks: mix.tracks.map((t, i) => ({ ...t, mute: i === 0, solo: i === 1 || i === 2 })),
+    });
+
+    await player.renderAudio();
+
+    const volumes = (api.exportOptions as { trackVolume: Map<number, number> }).trackVolume;
+    expect(volumes.get(0)).toBe(0); // muted
+    expect(volumes.get(1)).toBe(mix.tracks[1]!.volume);
+    expect(volumes.get(2)).toBe(mix.tracks[2]!.volume);
+    expect(volumes.get(3)).toBe(0); // not soloed
+  });
+
+  it("stops playing first, and says when the sounds are not loaded yet", async () => {
+    const { player, api, setPlaying } = await readySetup();
+    setPlaying(true);
+    await player.renderAudio();
+    expect(api.playPause).toHaveBeenCalled(); // paused
+
+    const loading = await setup();
+    await expect(loading.player.renderAudio()).rejects.toThrow("still loading");
+  });
+
+  it("releases the exporter when rendering fails", async () => {
+    const { player, api } = await readySetup();
+    api.exportAudio.mockResolvedValueOnce({
+      render: vi.fn(() => Promise.reject(new Error("out of memory"))),
+      destroy: api.exporterDestroyed,
+    } as never);
+
+    await expect(player.renderAudio()).rejects.toThrow("out of memory");
+    expect(api.exporterDestroyed).toHaveBeenCalledOnce();
+  });
+});

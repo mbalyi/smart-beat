@@ -102,7 +102,7 @@ export const SCORE_EXTENSIONS = [
 ] as const;
 
 /** Mirrors `WRITE_EXTENSIONS` in `src-tauri/src/score_write.rs`. */
-export const SAVE_EXTENSIONS = ["gp", "gp5", "mid", "midi", "musicxml", "txt"] as const;
+export const SAVE_EXTENSIONS = ["gp", "gp5", "mid", "midi", "musicxml", "txt", "wav"] as const;
 
 /** Mirrors `ErrorKind` in `src-tauri/src/error.rs`. */
 export type CommandErrorKind =

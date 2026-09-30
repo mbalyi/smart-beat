@@ -3,6 +3,7 @@ import {
   ChevronDownIcon,
   FileDownIcon,
   GaugeIcon,
+  PrinterIcon,
   RulerIcon,
   SaveAllIcon,
   SaveIcon,
@@ -32,10 +33,16 @@ export function FileMenu({
   onSave,
   onSaveAs,
   onExport,
+  onExportAudio,
+  onPrint,
 }: {
   onSave: () => void;
   onSaveAs: () => void;
   onExport: (format: ExportFormat) => void;
+  /** Renders the mix to a WAV file. */
+  onExportAudio: () => void;
+  /** Opens the print dialog (which also saves a PDF). */
+  onPrint: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -63,7 +70,13 @@ export function FileMenu({
               {label}
             </DropdownMenuItem>
           ))}
+          <DropdownMenuItem onSelect={onExportAudio}>Audio (WAV)…</DropdownMenuItem>
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onPrint}>
+          <PrinterIcon />
+          Print / PDF…
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

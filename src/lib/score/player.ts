@@ -19,6 +19,7 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
+import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
@@ -31,9 +32,14 @@ import {
   readSyncOffset,
   type LatencyInfo,
 } from "@/lib/score/sync";
+import { isAudible } from "@/lib/score/mixer";
 import type { MixerSettings } from "@/lib/tauri";
 
 const { PlayerState, PlaybackRange } = synth;
+
+/** Sample rate of exported audio, and how much sound is rendered at a time (ms). */
+const EXPORT_SAMPLE_RATE = 44_100;
+const EXPORT_CHUNK_MS = 1_000;
 
 /** A rectangle in the score's coordinates (pixels from the top left of the notation). */
 export interface Rect {
@@ -673,6 +679,45 @@ export class ScorePlayer {
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick; // seeking while new sounds load
     this.reportBar(barIndex);
+  }
+
+  /**
+   * Renders the whole song with the current mix (volumes, mute and solo, pan,
+   * master) to sound, without playing it: for the WAV export. `onProgress`
+   * gets the fraction done (0…1). Needs the instrument sounds to be loaded.
+   */
+  async renderAudio(onProgress?: (fraction: number) => void): Promise<RenderedAudio> {
+    if (!this.ready)
+      throw new Error("The instrument sounds are still loading. Try again in a moment.");
+    this.pause();
+    const trackVolume = new Map<number, number>();
+    this.score.tracks.forEach((_, index) => {
+      const mix = this.mix.tracks[index];
+      trackVolume.set(index, mix && isAudible(this.mix, index) ? mix.volume : 0);
+    });
+    const options = {
+      sampleRate: EXPORT_SAMPLE_RATE,
+      useSyncPoints: false,
+      masterVolume: this.mix.master,
+      metronomeVolume: 0,
+      trackVolume,
+      trackTranspositionPitches: new Map<number, number>(),
+    } as Parameters<AlphaTabApi["exportAudio"]>[0];
+    const exporter = await this.api.exportAudio(options);
+    const chunks: Float32Array[] = [];
+    try {
+      for (;;) {
+        const chunk = await exporter.render(EXPORT_CHUNK_MS);
+        if (!chunk) break;
+        chunks.push(chunk.samples);
+        if (chunk.endTime > 0) onProgress?.(Math.min(1, chunk.currentTime / chunk.endTime));
+      }
+    } finally {
+      exporter.destroy();
+    }
+    onProgress?.(1);
+    // alphaTab's synthesizer is stereo: interleaved left and right samples.
+    return { samples: concatSamples(chunks), sampleRate: EXPORT_SAMPLE_RATE, channels: 2 };
   }
 
   destroy() {

@@ -23,6 +23,7 @@ import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practic
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
 import { ScoreView, type EditOverlay } from "@/components/score/score-view";
+import { PrintDialog } from "@/components/score/print-dialog";
 import { TempoDialog, type TempoInitial } from "@/components/score/tempo-dialog";
 import { TextDialog } from "@/components/score/text-dialog";
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
@@ -50,6 +51,13 @@ import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
 import { drumKitOf, instrumentViewName, notesOf } from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
+import {
+  printScore,
+  readPrintSettings,
+  storePrintSettings,
+  whenDrawn,
+  type PrintSettings,
+} from "@/lib/print";
 import { applyTempo, tempoScope, type TempoRequest } from "@/lib/score/tempo";
 import { readSyncOffset, storeSyncOffset } from "@/lib/score/sync";
 import { mixerReducer, type MixerChange } from "@/lib/score/mixer";
@@ -322,6 +330,10 @@ export function ScoreWorkspace({
   });
   const [transposeOpen, setTransposeOpen] = useState(false);
   const [tempoOpen, setTempoOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printSettings, setPrintSettings] = useState(readPrintSettings);
+  /** Runs once the score has been drawn again (printing needs the page layout). */
+  const afterRender = useRef<(() => void) | null>(null);
   /** Where bars with the wrong length are drawn (shown track). */
   const [problemRects, setProblemRects] = useState<Rect[]>([]);
   const [scale, setScale] = useState<Scale | null>(null);
@@ -343,6 +355,11 @@ export function ScoreWorkspace({
     song,
     editor,
     getMix: () => mixRef.current,
+    renderAudio: (onProgress) => {
+      const player = playerRef.current;
+      if (!player) return Promise.reject(new Error("The score is not ready yet."));
+      return player.renderAudio(onProgress);
+    },
     onSaved: (saved) => onSaved?.(saved),
     onEditedChange,
   });
@@ -454,6 +471,9 @@ export function ScoreWorkspace({
         onRendered: () => {
           updateOverlay();
           refreshProblemRects();
+          const next = afterRender.current;
+          afterRender.current = null;
+          next?.();
         },
         onRangeSelect: (picked) => {
           setPickedRange(picked);
@@ -854,6 +874,47 @@ export function ScoreWorkspace({
     });
   };
 
+  // --- Print ----------------------------------------------------------------
+
+  /** Prints the score: in the page layout, which is switched to for the time it takes. */
+  const submitPrint = (settings: PrintSettings) => {
+    setPrintSettings(settings);
+    storePrintSettings(settings);
+    const run = async () => {
+      const surface = surfaceRef.current;
+      try {
+        // After a change of layout the parts of the score arrive a moment after the render.
+        if (!surface || !(await whenDrawn(surface)) || !printScore(surface, settings)) {
+          toast.error("There is nothing to print yet");
+        }
+      } catch (error) {
+        toast.error("Couldn't print", { description: errorText(error) });
+      }
+    };
+    if (layout === "page") {
+      void run();
+      return;
+    }
+    const before = layout;
+    changeLayout("page");
+    window.addEventListener("afterprint", () => changeLayout(before), { once: true });
+    afterRender.current = () => void run();
+  };
+
+  // Ctrl/⌘+P prints the shown song.
+  useEffect(() => {
+    if (!active) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const mod = navigator.platform.includes("Mac") ? event.metaKey : event.ctrlKey;
+      if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        setPrintOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active]);
+
   // --- Tempo ------------------------------------------------------------------
 
   const tempoInitial = (): TempoInitial => {
@@ -1046,6 +1107,8 @@ export function ScoreWorkspace({
         onSave={() => void fileActions.save()}
         onSaveAs={() => void fileActions.saveAs()}
         onExport={(format) => void fileActions.exportAs(format)}
+        onExportAudio={() => void fileActions.exportAudio()}
+        onPrint={() => setPrintOpen(true)}
       />
       <ToolsMenu
         onTranspose={() => setTransposeOpen(true)}
@@ -1303,6 +1366,14 @@ export function ScoreWorkspace({
         initial={lyricsTrack ? lyricsOf(lyricsTrack) : []}
         barCount={score.masterBars.length}
         onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <PrintDialog
+        open={printOpen}
+        onOpenChange={setPrintOpen}
+        initial={printSettings}
+        trackName={track.name}
+        onSubmit={submitPrint}
         onCloseAutoFocus={returnFocusToScore}
       />
       <TempoDialog
