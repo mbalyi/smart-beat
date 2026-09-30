@@ -1,6 +1,20 @@
 import { useEffect, useRef } from "react";
 
-import { updateMenuState, type MenuState } from "@/lib/tauri";
+import { updateMenuState, type MenuState, type NoteEffectFlags } from "@/lib/tauri";
+
+/** No note effects (or no note at the cursor). */
+export const NO_NOTE_EFFECTS: NoteEffectFlags = {
+  hammerPull: false,
+  slide: false,
+  vibrato: false,
+  palmMute: false,
+  letRing: false,
+  deadNote: false,
+  ghostNote: false,
+  harmonic: false,
+  accent: false,
+  staccato: false,
+};
 
 /** What the menu shows while no song is open. */
 export const NO_SONG_MENU: MenuState = {
@@ -13,6 +27,10 @@ export const NO_SONG_MENU: MenuState = {
   loop: false,
   metronome: false,
   countIn: false,
+  repeatStart: false,
+  repeatEnd: false,
+  hasNote: false,
+  noteEffects: NO_NOTE_EFFECTS,
 };
 
 /**

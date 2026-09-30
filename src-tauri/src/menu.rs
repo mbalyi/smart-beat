@@ -1,4 +1,5 @@
-//! Native application menu (File / Edit / View / Track / Playback / Help).
+//! Native application menu (File / Edit / View / Track / Bar / Note /
+//! Playback / Help).
 //!
 //! Custom menu items are described by [`MenuAction`]. Actions that only touch
 //! the native window (zoom, full screen, close, quit) are handled in Rust;
@@ -40,6 +41,24 @@ pub enum MenuAction {
     DuplicateTrack,
     RemoveTrack,
     TrackSettings,
+    Lyrics,
+    BarSettings,
+    ToggleRepeatStart,
+    ToggleRepeatEnd,
+    Bend,
+    ToggleHammerPull,
+    ToggleSlide,
+    ToggleVibrato,
+    TogglePalmMute,
+    ToggleLetRing,
+    ToggleDeadNote,
+    ToggleGhostNote,
+    ToggleHarmonic,
+    ToggleAccent,
+    ToggleStaccato,
+    Text,
+    Chord,
+    ScaleTool,
     ToggleLoop,
     SpeedTrainer,
     ToggleMetronome,
@@ -50,7 +69,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 42] = [
         Self::NewSong,
         Self::Open,
         Self::CloseWindow,
@@ -68,6 +87,24 @@ impl MenuAction {
         Self::DuplicateTrack,
         Self::RemoveTrack,
         Self::TrackSettings,
+        Self::Lyrics,
+        Self::BarSettings,
+        Self::ToggleRepeatStart,
+        Self::ToggleRepeatEnd,
+        Self::Bend,
+        Self::ToggleHammerPull,
+        Self::ToggleSlide,
+        Self::ToggleVibrato,
+        Self::TogglePalmMute,
+        Self::ToggleLetRing,
+        Self::ToggleDeadNote,
+        Self::ToggleGhostNote,
+        Self::ToggleHarmonic,
+        Self::ToggleAccent,
+        Self::ToggleStaccato,
+        Self::Text,
+        Self::Chord,
+        Self::ScaleTool,
         Self::ToggleLoop,
         Self::SpeedTrainer,
         Self::ToggleMetronome,
@@ -97,6 +134,24 @@ impl MenuAction {
             Self::DuplicateTrack => "track.duplicate",
             Self::RemoveTrack => "track.remove",
             Self::TrackSettings => "track.settings",
+            Self::Lyrics => "track.lyrics",
+            Self::BarSettings => "bar.settings",
+            Self::ToggleRepeatStart => "bar.toggle-repeat-start",
+            Self::ToggleRepeatEnd => "bar.toggle-repeat-end",
+            Self::Bend => "note.bend",
+            Self::ToggleHammerPull => "note.toggle-hammer-pull",
+            Self::ToggleSlide => "note.toggle-slide",
+            Self::ToggleVibrato => "note.toggle-vibrato",
+            Self::TogglePalmMute => "note.toggle-palm-mute",
+            Self::ToggleLetRing => "note.toggle-let-ring",
+            Self::ToggleDeadNote => "note.toggle-dead-note",
+            Self::ToggleGhostNote => "note.toggle-ghost-note",
+            Self::ToggleHarmonic => "note.toggle-harmonic",
+            Self::ToggleAccent => "note.toggle-accent",
+            Self::ToggleStaccato => "note.toggle-staccato",
+            Self::Text => "note.text",
+            Self::Chord => "note.chord",
+            Self::ScaleTool => "view.scale-tool",
             Self::ToggleLoop => "playback.toggle-loop",
             Self::SpeedTrainer => "playback.speed-trainer",
             Self::ToggleMetronome => "playback.toggle-metronome",
@@ -118,13 +173,30 @@ impl MenuAction {
             Self::Undo | Self::Redo | Self::ToggleEditMode => "Edit",
             Self::ToggleTheme
             | Self::ToggleFretboard
+            | Self::ScaleTool
             | Self::ZoomIn
             | Self::ZoomOut
             | Self::ZoomReset
             | Self::ToggleFullscreen => "View",
-            Self::AddTrack | Self::DuplicateTrack | Self::RemoveTrack | Self::TrackSettings => {
-                "Track"
-            }
+            Self::AddTrack
+            | Self::DuplicateTrack
+            | Self::RemoveTrack
+            | Self::TrackSettings
+            | Self::Lyrics => "Track",
+            Self::BarSettings | Self::ToggleRepeatStart | Self::ToggleRepeatEnd => "Bar",
+            Self::Bend
+            | Self::ToggleHammerPull
+            | Self::ToggleSlide
+            | Self::ToggleVibrato
+            | Self::TogglePalmMute
+            | Self::ToggleLetRing
+            | Self::ToggleDeadNote
+            | Self::ToggleGhostNote
+            | Self::ToggleHarmonic
+            | Self::ToggleAccent
+            | Self::ToggleStaccato
+            | Self::Text
+            | Self::Chord => "Note",
             Self::ToggleLoop | Self::SpeedTrainer | Self::ToggleMetronome | Self::ToggleCountIn => {
                 "Playback"
             }
@@ -151,6 +223,24 @@ impl MenuAction {
             Self::DuplicateTrack => "Duplicate Track",
             Self::RemoveTrack => "Remove Track",
             Self::TrackSettings => "Track Settings…",
+            Self::Lyrics => "Lyrics…",
+            Self::BarSettings => "Bar Settings…",
+            Self::ToggleRepeatStart => "Repeat Start",
+            Self::ToggleRepeatEnd => "Repeat End",
+            Self::Bend => "Bend…",
+            Self::ToggleHammerPull => "Hammer-On / Pull-Off",
+            Self::ToggleSlide => "Slide",
+            Self::ToggleVibrato => "Vibrato",
+            Self::TogglePalmMute => "Palm Mute",
+            Self::ToggleLetRing => "Let Ring",
+            Self::ToggleDeadNote => "Dead Note",
+            Self::ToggleGhostNote => "Ghost Note",
+            Self::ToggleHarmonic => "Natural Harmonic",
+            Self::ToggleAccent => "Accent",
+            Self::ToggleStaccato => "Staccato",
+            Self::Text => "Text…",
+            Self::Chord => "Chord…",
+            Self::ScaleTool => "Scale Tool…",
             Self::ToggleLoop => "Loop",
             Self::SpeedTrainer => "Speed Trainer…",
             Self::ToggleMetronome => "Metronome",
@@ -180,12 +270,32 @@ impl MenuAction {
             Self::ToggleFullscreen if os == "macos" => Some("Ctrl+Cmd+F"),
             Self::ToggleFullscreen => Some("F11"),
             Self::AddTrack => Some("CmdOrCtrl+Shift+N"),
+            Self::BarSettings => Some("CmdOrCtrl+B"),
+            Self::Text => Some("CmdOrCtrl+T"),
+            Self::Chord => Some("CmdOrCtrl+K"),
             Self::ToggleLoop => Some("CmdOrCtrl+L"),
             Self::ToggleMetronome => Some("CmdOrCtrl+Shift+M"),
             Self::Shortcuts => Some("CmdOrCtrl+/"),
+            // The note effects have plain keys in the score (H, P, L...); menu
+            // accelerators would take those keys away from text fields.
             Self::DuplicateTrack
             | Self::RemoveTrack
             | Self::TrackSettings
+            | Self::Lyrics
+            | Self::ToggleRepeatStart
+            | Self::ToggleRepeatEnd
+            | Self::Bend
+            | Self::ToggleHammerPull
+            | Self::ToggleSlide
+            | Self::ToggleVibrato
+            | Self::TogglePalmMute
+            | Self::ToggleLetRing
+            | Self::ToggleDeadNote
+            | Self::ToggleGhostNote
+            | Self::ToggleHarmonic
+            | Self::ToggleAccent
+            | Self::ToggleStaccato
+            | Self::ScaleTool
             | Self::SpeedTrainer
             | Self::ToggleCountIn
             | Self::Licenses
@@ -216,10 +326,40 @@ impl MenuAction {
             self,
             Self::ToggleEditMode
                 | Self::ToggleFretboard
+                | Self::ToggleRepeatStart
+                | Self::ToggleRepeatEnd
                 | Self::ToggleLoop
                 | Self::ToggleMetronome
                 | Self::ToggleCountIn
+        ) || self.is_note_effect()
+    }
+
+    /// The Note menu's check items: effects of the note under the edit cursor.
+    pub fn is_note_effect(self) -> bool {
+        matches!(
+            self,
+            Self::ToggleHammerPull
+                | Self::ToggleSlide
+                | Self::ToggleVibrato
+                | Self::TogglePalmMute
+                | Self::ToggleLetRing
+                | Self::ToggleDeadNote
+                | Self::ToggleGhostNote
+                | Self::ToggleHarmonic
+                | Self::ToggleAccent
+                | Self::ToggleStaccato
         )
+    }
+
+    /// Whether the item works on the edit cursor (the Bar and Note menus), so
+    /// it is only available in edit mode.
+    pub fn needs_edit_mode(self) -> bool {
+        matches!(self.menu(), "Bar" | "Note")
+    }
+
+    /// Whether the item needs a note under the edit cursor.
+    pub fn needs_note(self) -> bool {
+        self.is_note_effect() || self == Self::Bend
     }
 
     /// Whether the item only makes sense with a song open (disabled otherwise).
@@ -234,11 +374,13 @@ impl MenuAction {
                 | Self::DuplicateTrack
                 | Self::RemoveTrack
                 | Self::TrackSettings
+                | Self::Lyrics
+                | Self::ScaleTool
                 | Self::ToggleLoop
                 | Self::SpeedTrainer
                 | Self::ToggleMetronome
                 | Self::ToggleCountIn
-        )
+        ) || self.needs_edit_mode()
     }
 }
 
@@ -445,6 +587,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let view = SubmenuBuilder::new(app, "View")
         .item(&toggle_theme)
         .item(&check_item(app, ToggleFretboard)?)
+        .item(&item(app, ScaleTool)?)
         .separator()
         .item(&zoom_in)
         .item(&zoom_out)
@@ -459,6 +602,34 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&item(app, RemoveTrack)?)
         .separator()
         .item(&item(app, TrackSettings)?)
+        .item(&item(app, Lyrics)?)
+        .build()?;
+
+    let bar = SubmenuBuilder::new(app, "Bar")
+        .item(&item(app, BarSettings)?)
+        .separator()
+        .item(&check_item(app, ToggleRepeatStart)?)
+        .item(&check_item(app, ToggleRepeatEnd)?)
+        .build()?;
+
+    let note = SubmenuBuilder::new(app, "Note")
+        .item(&item(app, Bend)?)
+        .separator()
+        .item(&check_item(app, ToggleHammerPull)?)
+        .item(&check_item(app, ToggleSlide)?)
+        .item(&check_item(app, ToggleVibrato)?)
+        .separator()
+        .item(&check_item(app, TogglePalmMute)?)
+        .item(&check_item(app, ToggleLetRing)?)
+        .item(&check_item(app, ToggleDeadNote)?)
+        .item(&check_item(app, ToggleGhostNote)?)
+        .separator()
+        .item(&check_item(app, ToggleHarmonic)?)
+        .item(&check_item(app, ToggleAccent)?)
+        .item(&check_item(app, ToggleStaccato)?)
+        .separator()
+        .item(&item(app, Text)?)
+        .item(&item(app, Chord)?)
         .build()?;
 
     let playback = SubmenuBuilder::new(app, "Playback")
@@ -477,7 +648,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     }
     let help = help.build()?;
 
-    menu.items(&[&file, &edit, &view, &track, &playback, &help])
+    menu.items(&[&file, &edit, &view, &track, &bar, &note, &playback, &help])
         .build()
 }
 
@@ -581,14 +752,27 @@ mod tests {
             [
                 MenuAction::ToggleEditMode,
                 MenuAction::ToggleFretboard,
+                MenuAction::ToggleRepeatStart,
+                MenuAction::ToggleRepeatEnd,
+                MenuAction::ToggleHammerPull,
+                MenuAction::ToggleSlide,
+                MenuAction::ToggleVibrato,
+                MenuAction::TogglePalmMute,
+                MenuAction::ToggleLetRing,
+                MenuAction::ToggleDeadNote,
+                MenuAction::ToggleGhostNote,
+                MenuAction::ToggleHarmonic,
+                MenuAction::ToggleAccent,
+                MenuAction::ToggleStaccato,
                 MenuAction::ToggleLoop,
                 MenuAction::ToggleMetronome,
                 MenuAction::ToggleCountIn,
             ]
         );
-        // Every toggle is about the open song, and so are the Track and Playback menus.
+        // Every toggle is about the open song, and so are the Track, Bar, Note and Playback menus.
         for action in MenuAction::ALL {
-            if action.is_toggle() || matches!(action.menu(), "Track" | "Playback") {
+            if action.is_toggle() || matches!(action.menu(), "Track" | "Bar" | "Note" | "Playback")
+            {
                 assert!(action.needs_song(), "{action:?}");
             }
         }
@@ -596,6 +780,57 @@ mod tests {
         assert!(!MenuAction::Open.needs_song());
         assert!(!MenuAction::ToggleTheme.needs_song());
         assert!(!MenuAction::ToggleTheme.is_toggle());
+    }
+
+    #[test]
+    fn bar_and_note_items_work_on_the_edit_cursor() {
+        for action in MenuAction::ALL {
+            assert_eq!(
+                action.needs_edit_mode(),
+                matches!(action.menu(), "Bar" | "Note"),
+                "{action:?}"
+            );
+            // Note effects need a note, and are check items.
+            if action.is_note_effect() {
+                assert!(action.needs_note() && action.is_toggle(), "{action:?}");
+                assert_eq!(action.menu(), "Note");
+            }
+        }
+        assert!(MenuAction::Bend.needs_note());
+        assert!(!MenuAction::Text.needs_note());
+        assert!(!MenuAction::BarSettings.needs_note());
+        // The lyrics and the scale tool work outside edit mode too.
+        assert!(MenuAction::Lyrics.needs_song() && !MenuAction::Lyrics.needs_edit_mode());
+        assert!(MenuAction::ScaleTool.needs_song() && !MenuAction::ScaleTool.needs_edit_mode());
+    }
+
+    #[test]
+    fn note_effects_have_no_accelerators() {
+        // They have plain keys in the score; accelerators would steal them from text fields.
+        for os in ["macos", "windows", "linux"] {
+            for action in MenuAction::ALL.into_iter().filter(|a| a.is_note_effect()) {
+                assert_eq!(action.accelerator_for(os), None, "{action:?}");
+            }
+            assert_eq!(
+                MenuAction::BarSettings.accelerator_for(os),
+                Some("CmdOrCtrl+B")
+            );
+            assert_eq!(MenuAction::Text.accelerator_for(os), Some("CmdOrCtrl+T"));
+            assert_eq!(MenuAction::Chord.accelerator_for(os), Some("CmdOrCtrl+K"));
+        }
+    }
+
+    #[test]
+    fn serializes_new_actions_for_the_webview() {
+        for (action, name) in [
+            (MenuAction::BarSettings, "\"bar-settings\""),
+            (MenuAction::ToggleRepeatEnd, "\"toggle-repeat-end\""),
+            (MenuAction::TogglePalmMute, "\"toggle-palm-mute\""),
+            (MenuAction::ScaleTool, "\"scale-tool\""),
+            (MenuAction::Lyrics, "\"lyrics\""),
+        ] {
+            assert_eq!(serde_json::to_string(&action).unwrap(), name);
+        }
     }
 
     #[test]
@@ -613,7 +848,9 @@ mod tests {
 
     #[test]
     fn every_action_has_a_menu_and_a_label() {
-        let menus = ["File", "Edit", "View", "Track", "Playback", "Help"];
+        let menus = [
+            "File", "Edit", "View", "Track", "Bar", "Note", "Playback", "Help",
+        ];
         for action in MenuAction::ALL {
             assert!(menus.contains(&action.menu()), "{action:?}");
             assert!(!action.label().is_empty());

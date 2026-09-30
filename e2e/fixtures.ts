@@ -16,6 +16,24 @@ type MenuAction =
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
+  | "lyrics"
+  | "bar-settings"
+  | "toggle-repeat-start"
+  | "toggle-repeat-end"
+  | "bend"
+  | "toggle-hammer-pull"
+  | "toggle-slide"
+  | "toggle-vibrato"
+  | "toggle-palm-mute"
+  | "toggle-let-ring"
+  | "toggle-dead-note"
+  | "toggle-ghost-note"
+  | "toggle-harmonic"
+  | "toggle-accent"
+  | "toggle-staccato"
+  | "text"
+  | "chord"
+  | "scale-tool"
   | "toggle-loop"
   | "speed-trainer"
   | "toggle-metronome"
@@ -34,6 +52,10 @@ interface MenuState {
   loop: boolean;
   metronome: boolean;
   countIn: boolean;
+  repeatStart: boolean;
+  repeatEnd: boolean;
+  hasNote: boolean;
+  noteEffects: Record<string, boolean>;
 }
 
 interface MixerSettings {

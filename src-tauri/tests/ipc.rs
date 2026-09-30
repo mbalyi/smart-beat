@@ -428,3 +428,108 @@ fn a_mixer_store_managed_by_the_caller_is_kept() {
         dir.path()
     );
 }
+
+/// A menu state with a song open in edit mode, and `extra` fields on top.
+fn edit_state(extra: Value) -> Value {
+    let mut state = json!({
+        "songOpen": true, "undo": null, "redo": null, "canRemoveTrack": false,
+        "editMode": true, "fretboard": false, "loop": false, "metronome": false,
+        "countIn": false,
+    });
+    state
+        .as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    json!({ "state": state })
+}
+
+#[test]
+fn bar_note_and_tool_menu_items_reach_the_webview() {
+    let app = app();
+    let _window = main_window(&app);
+    let (tx, rx) = mpsc::channel();
+    app.listen_any(MENU_EVENT, move |event| {
+        tx.send(event.payload().to_string()).unwrap();
+    });
+
+    for (id, payload) in [
+        ("bar.settings", "\"bar-settings\""),
+        ("bar.toggle-repeat-start", "\"toggle-repeat-start\""),
+        ("bar.toggle-repeat-end", "\"toggle-repeat-end\""),
+        ("note.bend", "\"bend\""),
+        ("note.toggle-palm-mute", "\"toggle-palm-mute\""),
+        ("note.toggle-hammer-pull", "\"toggle-hammer-pull\""),
+        ("note.text", "\"text\""),
+        ("note.chord", "\"chord\""),
+        ("track.lyrics", "\"lyrics\""),
+        ("view.scale-tool", "\"scale-tool\""),
+    ] {
+        menu::handle_event(
+            app.handle(),
+            MenuEvent {
+                id: MenuId::new(id),
+            },
+        );
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), payload);
+    }
+}
+
+#[test]
+fn menu_state_with_the_edit_cursor_details_is_stored() {
+    let app = app();
+    let window = main_window(&app);
+
+    invoke_with(
+        &window,
+        "update_menu_state",
+        edit_state(json!({
+            "repeatStart": true,
+            "repeatEnd": false,
+            "hasNote": true,
+            "noteEffects": { "palmMute": true, "vibrato": true, "staccato": false },
+        })),
+    )
+    .expect("update_menu_state failed");
+
+    let state = app.state::<MenuStateStore>().get();
+    assert!(state.repeat_start && !state.repeat_end && state.has_note);
+    assert!(state.note_effects.palm_mute && state.note_effects.vibrato);
+    assert!(!state.note_effects.staccato);
+
+    // Wrong types are rejected, and the stored state stays as it was.
+    let error = invoke_with(
+        &window,
+        "update_menu_state",
+        edit_state(json!({ "noteEffects": { "palmMute": "yes" } })),
+    );
+    assert!(error.is_err());
+    assert!(app.state::<MenuStateStore>().get().note_effects.palm_mute);
+}
+
+#[test]
+fn menu_shortcuts_include_bar_and_note_items() {
+    let app = app();
+    let window = main_window(&app);
+
+    let shortcuts = invoke(&window, "menu_shortcuts").expect("menu_shortcuts failed");
+    let menus: Vec<_> = shortcuts
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["action"].as_str().unwrap().to_string(),
+                s["menu"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+
+    for (action, menu) in [("bar-settings", "Bar"), ("text", "Note"), ("chord", "Note")] {
+        assert!(
+            menus.iter().any(|(a, m)| a == action && m == menu),
+            "{action} missing"
+        );
+    }
+    // Note effects keep their plain keys in the score: no menu shortcut.
+    assert!(!menus.iter().any(|(a, _)| a == "toggle-palm-mute"));
+}

@@ -27,6 +27,24 @@ export type MenuAction =
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
+  | "lyrics"
+  | "bar-settings"
+  | "toggle-repeat-start"
+  | "toggle-repeat-end"
+  | "bend"
+  | "toggle-hammer-pull"
+  | "toggle-slide"
+  | "toggle-vibrato"
+  | "toggle-palm-mute"
+  | "toggle-let-ring"
+  | "toggle-dead-note"
+  | "toggle-ghost-note"
+  | "toggle-harmonic"
+  | "toggle-accent"
+  | "toggle-staccato"
+  | "text"
+  | "chord"
+  | "scale-tool"
   | "toggle-loop"
   | "speed-trainer"
   | "toggle-metronome"
@@ -118,6 +136,27 @@ export interface MenuState {
   loop: boolean;
   metronome: boolean;
   countIn: boolean;
+  /** The bar at the edit cursor starts a repeat. */
+  repeatStart: boolean;
+  /** The bar at the edit cursor ends a repeat. */
+  repeatEnd: boolean;
+  /** A note is under the edit cursor (or selected): the Note menu applies. */
+  hasNote: boolean;
+  noteEffects: NoteEffectFlags;
+}
+
+/** Mirrors `NoteEffects` in `src-tauri/src/menu_state.rs`: the Note menu's check marks. */
+export interface NoteEffectFlags {
+  hammerPull: boolean;
+  slide: boolean;
+  vibrato: boolean;
+  palmMute: boolean;
+  letRing: boolean;
+  deadNote: boolean;
+  ghostNote: boolean;
+  harmonic: boolean;
+  accent: boolean;
+  staccato: boolean;
 }
 
 /** Mirrors `MAX_LABEL_CHARS` in `src-tauri/src/menu_state.rs`. */

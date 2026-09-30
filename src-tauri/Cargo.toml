@@ -29,3 +29,10 @@ tauri = { version = "2.12", features = ["test"] }
 codegen-units = 1
 lto = true
 strip = true
+
+# The native menu (muda) can only be created on the main thread on macOS, and
+# the standard test harness runs tests on other threads: this test has its own
+# `main`.
+[[test]]
+name = "native_menu"
+harness = false
