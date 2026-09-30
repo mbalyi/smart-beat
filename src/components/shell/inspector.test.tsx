@@ -21,6 +21,7 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     onLyrics: vi.fn(),
     onTranspose: vi.fn(),
     onFixBars: vi.fn(),
+    onTempo: vi.fn(),
   };
   const props = {
     tab: "track" as const,
@@ -133,6 +134,8 @@ describe("Inspector: SONG tab", () => {
 
     await user.click(screen.getByRole("button", { name: "Transpose…" }));
     await user.click(screen.getByRole("button", { name: "Fix bar lengths" }));
+    await user.click(screen.getByRole("button", { name: "Change the tempo…" }));
+    expect(actions.onTempo).toHaveBeenCalledOnce();
     expect(actions.onTranspose).toHaveBeenCalledOnce();
     expect(actions.onFixBars).toHaveBeenCalledOnce();
     await expectNoA11yViolations();

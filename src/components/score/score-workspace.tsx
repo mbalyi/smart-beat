@@ -23,6 +23,7 @@ import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practic
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
 import { ScoreView, type EditOverlay } from "@/components/score/score-view";
+import { TempoDialog, type TempoInitial } from "@/components/score/tempo-dialog";
 import { TextDialog } from "@/components/score/text-dialog";
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
 import { Inspector } from "@/components/shell/inspector";
@@ -49,6 +50,7 @@ import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
 import { drumKitOf, instrumentViewName, notesOf } from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
+import { applyTempo, tempoScope, type TempoRequest } from "@/lib/score/tempo";
 import { readSyncOffset, storeSyncOffset } from "@/lib/score/sync";
 import { mixerReducer, type MixerChange } from "@/lib/score/mixer";
 import { trackContent, type Beat, type Track } from "@/lib/score/model";
@@ -319,6 +321,7 @@ export function ScoreWorkspace({
     track: null,
   });
   const [transposeOpen, setTransposeOpen] = useState(false);
+  const [tempoOpen, setTempoOpen] = useState(false);
   /** Where bars with the wrong length are drawn (shown track). */
   const [problemRects, setProblemRects] = useState<Rect[]>([]);
   const [scale, setScale] = useState<Scale | null>(null);
@@ -851,6 +854,43 @@ export function ScoreWorkspace({
     });
   };
 
+  // --- Tempo ------------------------------------------------------------------
+
+  const tempoInitial = (): TempoInitial => {
+    const [start, end] = editor.selection
+      ? selectionRange(editor.selection)
+      : [{ bar: cursorBar }, { bar: cursorBar }];
+    return {
+      bpm: tempoAt(score, start.bar),
+      barCount: score.masterBars.length,
+      bar: start.bar + 1,
+      endBar: end.bar + 1,
+      beats: score.masterBars[cursorBar]?.timeSignatureNumerator ?? 4,
+    };
+  };
+
+  const submitTempo = (request: TempoRequest) => {
+    const range = tempoScope(score, request);
+    const what =
+      request.scope === "song"
+        ? "Change the song tempo"
+        : request.scope === "from"
+          ? "Change the tempo"
+          : "Change the tempo of some bars";
+    editor.editBars(
+      what,
+      range,
+      () => applyTempo(score, request),
+      `Tempo ${request.bpm} BPM ${
+        request.scope === "song"
+          ? "for the song"
+          : request.scope === "from"
+            ? `from bar ${request.bar + 1}`
+            : `for bars ${request.from + 1} to ${request.to + 1}`
+      }`,
+    );
+  };
+
   const goToBar = (bar: number) => {
     editor.setCursorTo({ bar, beat: 0, voice: 0 });
     playerRef.current?.seekToBar(bar);
@@ -1007,7 +1047,11 @@ export function ScoreWorkspace({
         onSaveAs={() => void fileActions.saveAs()}
         onExport={(format) => void fileActions.exportAs(format)}
       />
-      <ToolsMenu onTranspose={() => setTransposeOpen(true)} onFixBars={() => fixBars()} />
+      <ToolsMenu
+        onTranspose={() => setTransposeOpen(true)}
+        onFixBars={() => fixBars()}
+        onTempo={() => setTempoOpen(true)}
+      />
     </>
   );
 
@@ -1172,6 +1216,7 @@ export function ScoreWorkspace({
                 onLyrics: () => openLyrics(trackObject),
                 onTranspose: () => setTransposeOpen(true),
                 onFixBars: () => fixBars(),
+                onTempo: () => setTempoOpen(true),
               }}
             />
           </aside>
@@ -1258,6 +1303,13 @@ export function ScoreWorkspace({
         initial={lyricsTrack ? lyricsOf(lyricsTrack) : []}
         barCount={score.masterBars.length}
         onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <TempoDialog
+        open={tempoOpen}
+        onOpenChange={setTempoOpen}
+        initial={tempoInitial()}
+        onSubmit={submitTempo}
         onCloseAutoFocus={returnFocusToScore}
       />
       <TransposeDialog

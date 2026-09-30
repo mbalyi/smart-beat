@@ -10,6 +10,7 @@ import type { ScoreDocument } from "@/hooks/use-score-document";
 import { fileKey } from "@/lib/score/format";
 import { mixFromScore } from "@/lib/score/mixer";
 import { parseScore } from "@/lib/score/score";
+import { tempoAt } from "@/lib/score/structure";
 import type { MenuAction } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { FakeScorePlayer } from "@/test/fake-score-player";
@@ -272,5 +273,60 @@ describe("ScoreWorkspace: text, chords, lyrics and scales", () => {
     expect(
       await screen.findByText("The scale tool works on stringed and keyboard tracks"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ScoreWorkspace: tempo", () => {
+  const tempos = (song: ScoreDocument) =>
+    song.score.masterBars.map((_, i) => tempoAt(song.score, i));
+
+  async function openTempo(user: Awaited<ReturnType<typeof setup>>["user"]) {
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Tempo…" }));
+    return screen.findByRole("dialog", { name: "Tempo" });
+  }
+
+  it("changes the song tempo from the Tools menu, with undo", async () => {
+    const { user, song } = await setup();
+    const dialog = await openTempo(user);
+
+    await user.click(within(dialog).getByRole("radio", { name: /The whole song/ }));
+    const bpm = within(dialog).getByRole("spinbutton", { name: "Tempo" });
+    expect(bpm).toHaveValue(60);
+    await user.clear(bpm);
+    await user.type(bpm, "72.5");
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    expect(tempos(song)).toEqual([72.5, 72.5, 120, 120]);
+    expect(FakeScorePlayer.last.refresh).toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Undo Change the song tempo" }));
+    expect(tempos(song)).toEqual([60, 60, 120, 120]);
+  });
+
+  it("sets a tempo for the selected bars only", async () => {
+    const { user, song } = await setup();
+    await user.keyboard("{Control>}{ArrowRight}{/Control}"); // bar 2
+    await user.keyboard("{Shift>}{Control>}{ArrowRight}{/Control}{/Shift}"); // select bars 2-3
+    const dialog = await openTempo(user);
+
+    expect(within(dialog).getByRole("radio", { name: /Only some bars/ })).toBeChecked();
+    expect(within(dialog).getByRole("spinbutton", { name: "From bar" })).toHaveValue(2);
+    expect(within(dialog).getByRole("spinbutton", { name: "To bar" })).toHaveValue(3);
+    const bpm = within(dialog).getByRole("spinbutton", { name: "Tempo" });
+    await user.clear(bpm);
+    await user.type(bpm, "90");
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    // Bar 4 has its own tempo (120), so nothing needs restoring.
+    expect(tempos(song)).toEqual([60, 90, 90, 120]);
+    await user.click(screen.getByRole("button", { name: /^Undo Change the tempo of some bars/ }));
+    expect(tempos(song)).toEqual([60, 60, 120, 120]);
+  });
+
+  it("changes the tempo from the inspector's Song tab", async () => {
+    const { user } = await setup();
+    await user.click(screen.getByRole("tab", { name: "Song" }));
+    await user.click(screen.getByRole("button", { name: "Change the tempo…" }));
+    expect(await screen.findByRole("dialog", { name: "Tempo" })).toBeInTheDocument();
   });
 });

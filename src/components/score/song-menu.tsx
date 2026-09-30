@@ -2,6 +2,7 @@ import {
   ArrowUpDownIcon,
   ChevronDownIcon,
   FileDownIcon,
+  GaugeIcon,
   RulerIcon,
   SaveAllIcon,
   SaveIcon,
@@ -72,9 +73,11 @@ export function FileMenu({
 export function ToolsMenu({
   onTranspose,
   onFixBars,
+  onTempo,
 }: {
   onTranspose: () => void;
   onFixBars: () => void;
+  onTempo: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -89,6 +92,10 @@ export function ToolsMenu({
         <DropdownMenuItem onSelect={onTranspose}>
           <ArrowUpDownIcon />
           Transpose…
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onTempo}>
+          <GaugeIcon />
+          Tempo…
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onFixBars}>
           <RulerIcon />

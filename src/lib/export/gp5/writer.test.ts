@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { writeGp5 } from "@/lib/export/gp5/writer";
 import { lyricsOf } from "@/lib/score/lyrics";
+import { tempoAt } from "@/lib/score/structure";
+import { applyTempo } from "@/lib/score/tempo";
 import { parseScore } from "@/lib/score/score";
 import { fixtureBytes } from "@/test/score";
 import { shotOf } from "@/test/score-snapshot";
@@ -57,5 +59,15 @@ describe("Guitar Pro 5 writer", () => {
 `);
     const { score, again } = roundTrip(bytes);
     expect(shotOf(again)).toEqual(shotOf(score));
+  });
+
+  it("saves tempo changes made with the tempo tool (song tempo, a bar, some bars) and reads them back", () => {
+    const { score } = parseScore(fixtureBytes("practice-song.gp")); // 60, 60, 120, 120
+    applyTempo(score, { scope: "song", bpm: 72 });
+    applyTempo(score, { scope: "range", from: 1, to: 1, bpm: 90 }); // bar 3 has its own 120
+
+    const again = parseScore(writeGp5(score).bytes).score;
+
+    expect(again.masterBars.map((_, i) => tempoAt(again, i))).toEqual([72, 90, 120, 120]);
   });
 });

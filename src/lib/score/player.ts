@@ -351,7 +351,7 @@ export class ScorePlayer {
     // While new sounds or a regenerated MIDI load, alphaTab reports position 0;
     // the real one comes back once playback is ready again.
     if (this.resume) return;
-    const next = { currentMs, endMs, bpm: Math.round(bpm) };
+    const next = { currentMs, endMs, bpm: Math.round(bpm * 10) / 10 }; // tempos can have decimals
     const last = this.lastPosition;
     // Position events arrive many times a second; the UI shows whole seconds.
     const changed =

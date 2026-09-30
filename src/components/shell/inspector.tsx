@@ -84,6 +84,8 @@ export interface InspectorActions {
   onLyrics: () => void;
   onTranspose: () => void;
   onFixBars: () => void;
+  /** Opens the tempo dialog (song tempo, tempo changes, tempo for some bars). */
+  onTempo: () => void;
 }
 
 /**
@@ -151,7 +153,18 @@ export function Inspector({
           <Row label="Artist">{song.artist || "—"}</Row>
           <Row label="File">{song.file}</Row>
           <Row label="Bars">{song.bars}</Row>
-          <Row label="Tempo">♩ = {song.tempo}</Row>
+          <Row label="Tempo">
+            ♩ = {song.tempo}
+            <Button
+              variant="ghost"
+              size="xs"
+              className="ml-1"
+              onClick={actions.onTempo}
+              aria-label="Change the tempo…"
+            >
+              Change…
+            </Button>
+          </Row>
         </Section>
         <Section title="Tools">
           <div className="flex flex-wrap gap-1.5">
