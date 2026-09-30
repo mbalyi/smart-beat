@@ -7,13 +7,21 @@ import {
   loadMixerSettings,
   MIXER_SETTINGS_VERSION,
   NotInDesktopAppError,
+  addRecentFile,
+  clearRecentFiles,
+  loadRecentFiles,
   onFileDrag,
   onMenuAction,
+  onOpenRecent,
+  onRecentChanged,
+  pickSavePath,
   pickScoreFile,
   readScoreFile,
+  removeRecentFile,
   saveMixerSettings,
   setNativeTheme,
   setWindowTitle,
+  writeScoreFile,
   type FileDragEvent,
   type MenuAction,
   type MixerSettings,
@@ -23,6 +31,7 @@ import {
   backend,
   emitFileDrag,
   emitMenuAction,
+  emitOpenRecent,
   mockTauri,
   SHORTCUTS,
 } from "@/test/tauri";
@@ -119,7 +128,15 @@ describe("score files", () => {
         options: expect.objectContaining({
           multiple: false,
           directory: false,
-          filters: [{ name: "Guitar Pro files", extensions: ["gp3", "gp4", "gp5", "gpx", "gp"] }],
+          filters: [
+            {
+              name: "Songs",
+              extensions: ["gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml"],
+            },
+            { name: "Guitar Pro files", extensions: ["gp3", "gp4", "gp5", "gpx", "gp"] },
+            { name: "MusicXML files", extensions: ["musicxml", "xml"] },
+            { name: "MIDI files", extensions: ["mid", "midi"] },
+          ],
         }),
       },
     });
@@ -218,5 +235,88 @@ describe("describePlatform", () => {
     [{ os: "freebsd", arch: "riscv64" }, "freebsd (riscv64)"],
   ])("describes %o as %s", (platform, expected) => {
     expect(describePlatform(platform)).toBe(expected);
+  });
+});
+
+describe("saving files", () => {
+  it("offers the given file types in the Save dialog", async () => {
+    const calls = mockTauri();
+    backend.saveResult = "/songs/a.gp";
+
+    await expect(
+      pickSavePath("/songs/a.gp", [{ name: "Guitar Pro 7", extensions: ["gp"] }], "Save As"),
+    ).resolves.toBe("/songs/a.gp");
+
+    expect(calls).toContainEqual({
+      cmd: "plugin:dialog|save",
+      args: {
+        options: expect.objectContaining({
+          title: "Save As",
+          defaultPath: "/songs/a.gp",
+          filters: [{ name: "Guitar Pro 7", extensions: ["gp"] }],
+        }),
+      },
+    });
+  });
+
+  it("returns null when the Save dialog is cancelled", async () => {
+    mockTauri();
+    await expect(pickSavePath("a.gp", [])).resolves.toBeNull();
+  });
+
+  it("sends the bytes as the request body and the path (URL-encoded) in a header", async () => {
+    mockTauri();
+
+    await writeScoreFile("/songs/my song é.gp", new Uint8Array([1, 2, 3]));
+
+    expect(backend.written.get("/songs/my song é.gp")).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("only works in the desktop app", async () => {
+    await expect(pickSavePath("a.gp", [])).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(writeScoreFile("/a.gp", new Uint8Array())).rejects.toBeInstanceOf(
+      NotInDesktopAppError,
+    );
+  });
+});
+
+describe("recent files", () => {
+  it("adds, lists, removes and clears the most recent songs", async () => {
+    mockTauri();
+
+    await expect(loadRecentFiles()).resolves.toEqual([]);
+    await addRecentFile("/a.gp5");
+    await expect(addRecentFile("/b.gp5")).resolves.toEqual(["/b.gp5", "/a.gp5"]);
+    await expect(loadRecentFiles()).resolves.toEqual(["/b.gp5", "/a.gp5"]);
+    await expect(removeRecentFile("/b.gp5")).resolves.toEqual(["/a.gp5"]);
+    await expect(clearRecentFiles()).resolves.toEqual([]);
+  });
+
+  it("does nothing in a browser", async () => {
+    await expect(loadRecentFiles()).resolves.toEqual([]);
+    await expect(addRecentFile("/a.gp5")).resolves.toEqual([]);
+    await expect(removeRecentFile("/a.gp5")).resolves.toEqual([]);
+    await expect(clearRecentFiles()).resolves.toEqual([]);
+    const stop = await onOpenRecent(() => {});
+    stop();
+    (await onRecentChanged(() => {}))();
+  });
+
+  it("hears File › Open Recent clicks and changes made by the menu", async () => {
+    mockTauri();
+    const opened: string[] = [];
+    const lists: string[][] = [];
+    const stopOpen = await onOpenRecent((path) => opened.push(path));
+    const stopChanged = await onRecentChanged((paths) => lists.push(paths));
+
+    await emitOpenRecent("/a.gp5");
+    const { emit } = await import("@tauri-apps/api/event");
+    await emit("recent-changed", []);
+    stopOpen();
+    stopChanged();
+    await emitOpenRecent("/b.gp5");
+
+    expect(opened).toEqual(["/a.gp5"]);
+    expect(lists).toEqual([[]]);
   });
 });

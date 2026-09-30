@@ -6,9 +6,12 @@ import { baseName, fileKey } from "@/lib/score/format";
 import { initialMix, mixFromScore } from "@/lib/score/mixer";
 import type { Score, ScoreSummary } from "@/lib/score/score";
 import {
+  addRecentFile,
+  isCommandError,
   isTauri,
   loadMixerSettings,
   readScoreFile,
+  removeRecentFile,
   type CommandError,
   type MixerSettings,
 } from "@/lib/tauri";
@@ -19,6 +22,10 @@ export interface ScoreDocument {
   id: number;
   /** File name, e.g. `song.gp5`. */
   name: string;
+  /** Full path on disk (desktop app), or null for new songs, browser files and exports. */
+  path: string | null;
+  /** The name of the file the song was opened from (for naming a converted song's new file). */
+  sourceName?: string;
   /** SHA-256 of the file content: the key for per-song settings. Null for new songs. */
   fileKey: string | null;
   score: Score;
@@ -32,8 +39,17 @@ export interface ScoreDocument {
 /** Name of a song created with File › New. */
 export const NEW_SONG_NAME = "Untitled";
 
+/** What changes about a song when it is saved. */
+export interface SavedAs {
+  name: string;
+  path: string | null;
+  fileKey: string;
+}
+
 interface Source {
   name: string;
+  /** Where the song is saved (desktop app). */
+  path?: string;
   read: () => Promise<Uint8Array>;
 }
 
@@ -47,6 +63,16 @@ async function savedMix(key: string): Promise<MixerSettings | null> {
   }
 }
 
+/** Adds (or removes) a song in the recent files list; never fails the open. */
+async function rememberRecent(path: string, add: boolean, changed: () => void) {
+  try {
+    await (add ? addRecentFile(path) : removeRecentFile(path));
+    changed();
+  } catch (error) {
+    console.warn("Could not update the recent files", error);
+  }
+}
+
 /** Picks the Guitar Pro file from a drop (or the first file, to report it). */
 export function firstScoreFile<T>(items: readonly T[], name: (item: T) => string): T | undefined {
   return items.find((item) => hasScoreExtension(name(item))) ?? items[0];
@@ -55,27 +81,47 @@ export function firstScoreFile<T>(items: readonly T[], name: (item: T) => string
 /** Opens songs from a path (desktop) or a `File` (browser) and reports failures. */
 export function useScoreDocument() {
   const [song, setSong] = useState<ScoreDocument | null>(null);
+  /** Changes whenever the recent files list was updated by an open. */
+  const [recentsVersion, setRecentsVersion] = useState(0);
   const latest = useRef(0);
 
-  const open = useCallback(async ({ name, read }: Source) => {
+  const open = useCallback(async ({ name, read, path }: Source) => {
     const id = ++latest.current;
     const toastId = toast.loading(`Opening “${name}”…`);
     try {
       const bytes = await read();
       // alphaTab is large: load it with the first song, not with the app.
-      const { parseScore } = await import("@/lib/score/score");
-      const { score, summary } = parseScore(bytes);
+      const { loadSong } = await import("@/lib/import");
+      const { score, summary, warnings, converted } = await loadSong(bytes);
       const key = await fileKey(bytes);
       const saved = await savedMix(key);
       toast.dismiss(toastId);
       // Ignore the result if another file was opened meanwhile.
       if (id === latest.current) {
-        setSong({ id, name, fileKey: key, score, summary, mix: initialMix(summary, saved) });
+        setSong({
+          id,
+          name,
+          // A MIDI or MusicXML file is never replaced by a save: Save asks for a new file.
+          path: converted ? null : (path ?? null),
+          sourceName: name,
+          fileKey: key,
+          score,
+          summary,
+          mix: initialMix(summary, saved),
+        });
       }
+      if (warnings.length > 0) {
+        toast.warning(`“${name}” was converted`, { description: warnings.join(" ") });
+      }
+      if (path) await rememberRecent(path, true, () => setRecentsVersion((v) => v + 1));
     } catch (error) {
       if (id !== latest.current) {
         toast.dismiss(toastId);
         return;
+      }
+      // A file that is gone is not worth offering again.
+      if (path && isCommandError(error) && error.kind === "not-found") {
+        await rememberRecent(path, false, () => setRecentsVersion((v) => v + 1));
       }
       toast.error(`Couldn't open “${name}”`, {
         id: toastId,
@@ -85,7 +131,7 @@ export function useScoreDocument() {
   }, []);
 
   const openPath = useCallback(
-    (path: string) => open({ name: baseName(path), read: () => readScoreFile(path) }),
+    (path: string) => open({ name: baseName(path), path, read: () => readScoreFile(path) }),
     [open],
   );
 
@@ -119,6 +165,7 @@ export function useScoreDocument() {
       setSong({
         id,
         name: NEW_SONG_NAME,
+        path: null,
         fileKey: null,
         score,
         summary,
@@ -130,5 +177,14 @@ export function useScoreDocument() {
     }
   }, []);
 
-  return { song, openPath, openFile, newSong };
+  /**
+   * After a save: the song now lives at `saved.path` (null for a download) and
+   * its content hash is `saved.fileKey`. The same document, so the workspace
+   * stays open.
+   */
+  const markSaved = useCallback((saved: SavedAs) => {
+    setSong((current) => (current ? { ...current, ...saved, isNew: false } : current));
+  }, []);
+
+  return { song, openPath, openFile, newSong, markSaved, recentsVersion };
 }

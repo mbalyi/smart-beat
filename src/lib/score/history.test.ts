@@ -62,3 +62,21 @@ describe("History", () => {
     expect(history.canUndo || history.canRedo).toBe(false);
   });
 });
+
+describe("History: identifying states", () => {
+  it("names the state by its latest edit, and returns to it after undo and redo", () => {
+    const { doc, history, edit } = setup();
+    expect(history.top).toBeNull();
+    edit("Add", () => doc.items.push("b"));
+    const afterAdd = history.top;
+    expect(afterAdd).not.toBeNull();
+    edit("Rename", () => (doc.title = "Two"));
+    expect(history.top).not.toBe(afterAdd);
+    history.undo();
+    expect(history.top).toBe(afterAdd);
+    history.undo();
+    expect(history.top).toBeNull();
+    history.redo();
+    expect(history.top).toBe(afterAdd);
+  });
+});

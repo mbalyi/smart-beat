@@ -35,7 +35,8 @@
     },
   ];
 
-  const SCORE_EXTENSIONS = ["gp3", "gp4", "gp5", "gpx", "gp"];
+  const SCORE_EXTENSIONS = ["gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml"];
+  const MAX_RECENT = 10;
 
   const callbacks = new Map();
   const listeners = new Map();
@@ -50,12 +51,19 @@
   window.__dialogResult = null;
   /** The last menu state the UI sent (see `update_menu_state` in src-tauri/src/menu_state.rs). */
   window.__menuState = null;
+  /** Recently opened songs (see `src-tauri/src/recent.rs`). */
+  window.__recent = [];
+  /** Path the native Save dialog "picks" (`null` = Cancel). Set by tests. */
+  window.__saveResult = null;
+  /** Files written by `write_score_file`, by path: they can be opened again. */
+  window.__written = new Map();
 
   /**
    * Mirrors `read_score_file` in src-tauri/src/score_file.rs. Files are served
    * from e2e/fixtures/ under /__e2e__/files/ (see e2e/fixtures.ts).
    */
   const readScoreFile = async (path) => {
+    if (window.__written.has(path)) return window.__written.get(path).slice().buffer;
     const name = path.split(/[\\/]/).pop();
     const extension = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
     if (!SCORE_EXTENSIONS.includes(extension)) {
@@ -66,7 +74,7 @@
     return response.arrayBuffer();
   };
 
-  const invoke = async (cmd, args) => {
+  const invoke = async (cmd, args, options) => {
     window.__ipcCalls.push({ cmd, args });
     switch (cmd) {
       case "app_info":
@@ -80,6 +88,28 @@
       case "save_mixer_settings":
         mixes.set(args.fileKey, args.settings);
         return null;
+      case "load_recent_files":
+        return window.__recent;
+      case "add_recent_file":
+        window.__recent = [args.path, ...window.__recent.filter((p) => p !== args.path)].slice(
+          0,
+          MAX_RECENT,
+        );
+        return window.__recent;
+      case "remove_recent_file":
+        window.__recent = window.__recent.filter((p) => p !== args.path);
+        return window.__recent;
+      case "clear_recent_files":
+        window.__recent = [];
+        return window.__recent;
+      case "write_score_file": {
+        // The bytes are the raw body; the URI-encoded path travels in a header.
+        const path = decodeURIComponent(options?.headers?.path ?? "");
+        window.__written.set(path, new Uint8Array(args));
+        return null;
+      }
+      case "plugin:dialog|save":
+        return window.__saveResult;
       case "update_menu_state":
         window.__menuState = args.state;
         return null;

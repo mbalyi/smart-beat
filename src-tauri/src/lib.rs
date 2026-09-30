@@ -5,7 +5,9 @@ pub mod error;
 pub mod menu;
 pub mod menu_state;
 pub mod mixer;
+pub mod recent;
 pub mod score_file;
+pub mod score_write;
 pub mod zoom;
 
 pub use commands::AppInfo;
@@ -29,14 +31,20 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 let dir = app.path().app_data_dir()?.join(MIXER_DIR);
                 app.manage(mixer::MixerStore::new(dir));
             }
+            recent::ensure_store(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::menu_shortcuts,
             commands::read_score_file,
+            commands::write_score_file,
             commands::load_mixer_settings,
             commands::save_mixer_settings,
+            commands::load_recent_files,
+            commands::add_recent_file,
+            commands::remove_recent_file,
+            commands::clear_recent_files,
             commands::update_menu_state,
         ])
         .on_menu_event(menu::handle_event)

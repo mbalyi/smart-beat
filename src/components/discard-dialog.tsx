@@ -9,10 +9,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-/**
- * Asks before an edited song is replaced by another one. Smart Beat can't
- * save songs yet (issue #15), so the changes would be lost.
- */
+/** Asks before an edited song is replaced by another one: unsaved changes would be lost. */
 export function DiscardDialog({
   songName,
   open,
@@ -30,7 +27,8 @@ export function DiscardDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Discard your changes to “{songName}”?</AlertDialogTitle>
           <AlertDialogDescription>
-            Smart Beat can't save songs yet, so the changes you made will be lost.
+            Your unsaved changes will be lost. Choose Keep editing, then Save (File menu) to keep
+            them.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -1,7 +1,8 @@
-import { useEffect, useEffectEvent, useId, useReducer, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useMemo, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { BarDialog } from "@/components/score/bar-dialog";
+import { BarProblems } from "@/components/score/bar-problems";
 import { BendDialog, type CurveKind } from "@/components/score/bend-dialog";
 import { ChordDialog } from "@/components/score/chord-dialog";
 import { EditToolbar, type EditActions } from "@/components/score/edit-toolbar";
@@ -12,19 +13,28 @@ import { LyricsStrip } from "@/components/score/lyrics-strip";
 import { MixerPanel, type MixerChange } from "@/components/score/mixer-panel";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { ScoreToolbar } from "@/components/score/score-toolbar";
+import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
+import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
 import { ScoreView, type EditOverlay } from "@/components/score/score-view";
 import { TextDialog } from "@/components/score/text-dialog";
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
 import { TracksPanel, type TrackActions } from "@/components/score/tracks-panel";
 import { TransportBar } from "@/components/score/transport-bar";
 import { useEditorKeys } from "@/hooks/use-editor-keys";
+import { useFileActions } from "@/hooks/use-file-actions";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
-import type { ScoreDocument } from "@/hooks/use-score-document";
+import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import { errorText } from "@/lib/errors";
 import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
+import {
+  barProblems,
+  fixBarDurations,
+  fixTargets,
+  type BarProblem,
+} from "@/lib/score/bar-duration";
 import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
 import { drumKitOf, instrumentViewName, notesOf } from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
@@ -66,12 +76,19 @@ import {
   type SoundFontId,
 } from "@/lib/score/soundfonts";
 import {
+  beatsFor,
+  planTranspose,
+  transposeMusic,
+  type TransposeRequest,
+} from "@/lib/score/transpose";
+import {
   createTrack,
   duplicateTrack,
   insertTrack,
   moveTrack,
   removeTrack,
   renameTrack,
+  retuneKeepingPitches,
   setCapo,
   setInstrument,
   setTuning,
@@ -195,10 +212,13 @@ export function ScoreWorkspace({
   song,
   onOpen,
   onEditedChange,
+  onSaved,
   startEditing = false,
 }: {
   song: ScoreDocument;
   onOpen: () => void;
+  /** Called after the song was saved (Save or Save As): its new name, path and content key. */
+  onSaved?: (saved: SavedAs) => void;
   /** Called when the song gets (or loses, by undoing everything) unsaved changes. */
   onEditedChange?: (edited: boolean) => void;
   /** Open in edit mode (new songs). */
@@ -228,6 +248,12 @@ export function ScoreWorkspace({
     views.get(t) ??
     summarizeScore(score).tracks[index]?.defaultView ?? { notation: "score", rhythm: false };
   const view = viewOf(trackObject, trackIndex);
+  // Bars of the shown track that do not add up to their time signature.
+  const revision = editor.revision; // changes with every edit, which changes the bars in place
+  const problems = useMemo(() => {
+    void revision;
+    return barProblems(score, trackIndex);
+  }, [score, trackIndex, revision]);
 
   const [layout, setLayout] = useState<Layout>("page");
   const [rendering, setRendering] = useState(true);
@@ -268,6 +294,9 @@ export function ScoreWorkspace({
     open: false,
     track: null,
   });
+  const [transposeOpen, setTransposeOpen] = useState(false);
+  /** Where bars with the wrong length are drawn (shown track). */
+  const [problemRects, setProblemRects] = useState<Rect[]>([]);
   const [scale, setScale] = useState<Scale | null>(null);
   const scalePickerRef = useRef<HTMLButtonElement>(null);
   const [practice, dispatchPractice] = useReducer(practiceReducer, undefined, () =>
@@ -282,6 +311,14 @@ export function ScoreWorkspace({
   // Only the desktop app can store settings, and only for the file's own tracks.
   const saved = isTauri() && song.fileKey !== null && sameTracks;
   useSavedMix(song, mix, saved);
+
+  const fileActions = useFileActions({
+    song,
+    editor,
+    getMix: () => mixRef.current,
+    onSaved: (saved) => onSaved?.(saved),
+    onEditedChange,
+  });
 
   const changeSoundFont = (id: SoundFontId) => {
     setSoundFont(id);
@@ -319,6 +356,19 @@ export function ScoreWorkspace({
         .map((b) => union(player.beatRects(b)))
         .filter((r): r is Rect => r !== null),
     });
+  });
+
+  /** Draws a frame around every bar of the shown track with the wrong length. */
+  const refreshProblemRects = useEffectEvent(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    const bars = trackObject.staves[0]?.bars ?? [];
+    const rects = [...new Set(problems.map((p) => p.bar))].flatMap((index) => {
+      const beats = bars[index]?.voices.flatMap((voice) => voice.beats) ?? [];
+      const rect = union(beats.flatMap((beat) => player.beatRects(beat)));
+      return rect ? [rect] : [];
+    });
+    setProblemRects(rects);
   });
 
   const onBeatClick = useEffectEvent(
@@ -374,7 +424,10 @@ export function ScoreWorkspace({
         onActiveBeatsChange: setActiveBeats,
         onBeatClick: (target) => onBeatClick(target),
         onBeatDrag: (beat) => onBeatDrag(beat),
-        onRendered: () => updateOverlay(),
+        onRendered: () => {
+          updateOverlay();
+          refreshProblemRects();
+        },
         onRangeSelect: (picked) => {
           setPickedRange(picked);
           if (picked) dispatchPractice({ type: "range", range: picked });
@@ -692,17 +745,23 @@ export function ScoreWorkspace({
           renameTrack(target, settings.name);
           if (settings.kind !== "drums") setInstrument(target, settings.program);
           if (settings.kind === "stringed") {
-            removed = setTuning(staff, settings.tuning);
-            setCapo(staff, settings.capo);
+            if (settings.keepPitches ?? true) {
+              removed = retuneKeepingPitches(staff, settings.tuning, settings.capo);
+            } else {
+              removed = setTuning(staff, settings.tuning);
+              setCapo(staff, settings.capo);
+            }
           }
         },
       );
       if (removed > 0) {
+        const plural = removed === 1;
+        const keep = settings.keepPitches ?? true;
         toast(
-          `${removed} ${removed === 1 ? "note was" : "notes were"} on removed strings and deleted`,
-          {
-            action: { label: "Undo", onClick: () => editor.undo() },
-          },
+          keep
+            ? `${removed} ${plural ? "note" : "notes"} could not be played in the new tuning and ${plural ? "was" : "were"} deleted`
+            : `${removed} ${plural ? "note was" : "notes were"} on removed strings and deleted`,
+          { action: { label: "Undo", onClick: () => editor.undo() } },
         );
       }
       return;
@@ -724,6 +783,48 @@ export function ScoreWorkspace({
 
   const editedTrack = trackDialog?.mode === "edit" ? trackDialog.track : null;
   const editedSummary = editedTrack ? summary.tracks[score.tracks.indexOf(editedTrack)] : null;
+
+  // --- Transpose and bar lengths ----------------------------------------------
+
+  /** What a transposition would do, without changing anything (for the dialog). */
+  const previewTranspose = (request: TransposeRequest): TransposePreview => {
+    const cursorBeat = editor.cursorBeat();
+    const selected = editor.selection ? editor.selectedBeatList() : cursorBeat ? [cursorBeat] : [];
+    const beats = beatsFor(score, request.scope, trackIndex, selected);
+    const plan = planTranspose(beats, request.semitones);
+    return { moved: plan.placements.length + plan.pitched.length, unplayable: plan.unplayable };
+  };
+
+  const submitTranspose = (request: TransposeRequest) => {
+    const result = transposeMusic(editor, request);
+    if (result.ok)
+      toast(result.message, { action: { label: "Undo", onClick: () => editor.undo() } });
+    else toast.error("Couldn't transpose", { description: result.message });
+  };
+
+  /** Fills short bars of the shown track with rests and trims long ones. */
+  const fixBars = (list: readonly BarProblem[] = problems) => {
+    if (list.length === 0) {
+      toast("All bars of this track have the right length");
+      return;
+    }
+    const bars = new Set(list.map((p) => p.bar)).size;
+    editor.run(
+      "Fix bar durations",
+      () => fixTargets(score, list),
+      () => fixBarDurations(score, list),
+      `Fixed ${bars} ${bars === 1 ? "bar" : "bars"}`,
+    );
+    toast(`Fixed ${bars} ${bars === 1 ? "bar" : "bars"}`, {
+      action: { label: "Undo", onClick: () => editor.undo() },
+    });
+  };
+
+  const goToBar = (bar: number) => {
+    editor.setCursorTo({ bar, beat: 0, voice: 0 });
+    playerRef.current?.seekToBar(bar);
+    focusScore();
+  };
 
   // --- Menu -------------------------------------------------------------------
 
@@ -772,6 +873,27 @@ export function ScoreWorkspace({
         break;
       case "lyrics":
         openLyrics(trackObject);
+        break;
+      case "save":
+        void fileActions.save();
+        break;
+      case "save-as":
+        void fileActions.saveAs();
+        break;
+      case "export-musicxml":
+        void fileActions.exportAs("musicxml");
+        break;
+      case "export-midi":
+        void fileActions.exportAs("midi");
+        break;
+      case "export-ascii-tab":
+        void fileActions.exportAs("ascii-tab");
+        break;
+      case "transpose":
+        setTransposeOpen(true);
+        break;
+      case "fix-bar-durations":
+        if (editing) fixBars();
         break;
       case "scale-tool":
         openScaleTool();
@@ -866,7 +988,18 @@ export function ScoreWorkspace({
         instrumentView={instrumentView}
         instrumentLabel={instrumentViewName(track.kind)}
         onToggleInstrumentView={toggleInstrumentView}
+        actions={
+          <>
+            <FileMenu
+              onSave={() => void fileActions.save()}
+              onSaveAs={() => void fileActions.saveAs()}
+              onExport={(format) => void fileActions.exportAs(format)}
+            />
+            <ToolsMenu onTranspose={() => setTransposeOpen(true)} onFixBars={() => fixBars()} />
+          </>
+        }
       />
+      <BarProblems problems={problems} onFix={() => fixBars()} onGoTo={goToBar} />
       {/* Scrolls as a whole when the window is too short for all of it. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {editing && (
@@ -891,6 +1024,7 @@ export function ScoreWorkspace({
           rendering={rendering}
           editing={editing}
           overlay={overlay}
+          problemRects={problemRects}
           describedBy={editing ? statusId : undefined}
         />
         {instrumentView && (
@@ -1026,6 +1160,14 @@ export function ScoreWorkspace({
         initial={lyricsTrack ? lyricsOf(lyricsTrack) : []}
         barCount={score.masterBars.length}
         onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <TransposeDialog
+        open={transposeOpen}
+        onOpenChange={setTransposeOpen}
+        hasSelection={editor.selection !== null}
+        preview={previewTranspose}
+        onSubmit={submitTranspose}
         onCloseAutoFocus={returnFocusToScore}
       />
       <SpeedTrainerDialog

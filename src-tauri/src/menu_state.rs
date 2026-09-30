@@ -244,6 +244,37 @@ mod tests {
     }
 
     #[test]
+    fn save_export_and_editing_helpers_follow_the_song() {
+        let song_items = [
+            MenuAction::Save,
+            MenuAction::SaveAs,
+            MenuAction::ExportMusicXml,
+            MenuAction::ExportMidi,
+            MenuAction::ExportAsciiTab,
+            MenuAction::Transpose,
+        ];
+        let closed = item_states(&MenuState::default());
+        let open = item_states(&open_song());
+        for action in song_items {
+            assert!(!state_for(&closed, action).enabled, "{action:?} closed");
+            assert!(state_for(&open, action).enabled, "{action:?} open");
+        }
+        // Fixing bar durations works on the edit cursor, like the rest of the Bar menu.
+        assert!(!state_for(&open, MenuAction::FixBarDurations).enabled);
+        let editing = item_states(&MenuState {
+            edit_mode: true,
+            ..open_song()
+        });
+        assert!(state_for(&editing, MenuAction::FixBarDurations).enabled);
+        // Clear Menu belongs to the native Open Recent list, not to the UI state.
+        assert!(
+            !open
+                .iter()
+                .any(|item| item.action == MenuAction::ClearRecent)
+        );
+    }
+
+    #[test]
     fn deserializes_the_ui_payload() {
         let state: MenuState = serde_json::from_value(serde_json::json!({
             "songOpen": true,

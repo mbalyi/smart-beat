@@ -59,6 +59,39 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
         .toBe(true);
     });
 
+    test("fits the recent songs, the bar length warning and the File and Tools menus", async ({
+      app,
+    }) => {
+      const overflowX = () =>
+        app.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+      await app.evaluate(() =>
+        window.__emitTauriEvent("recent-changed", [
+          "/Users/me/Music/a-rather-long-song-name-that-keeps-going-and-going.gp5",
+          "/Users/me/Music/another-song.gp",
+        ]),
+      );
+      await expect(app.getByRole("heading", { name: "Recent songs" })).toBeVisible();
+      expect(await overflowX()).toBeLessThanOrEqual(0);
+
+      await newSong(app);
+      await app.getByRole("button", { name: "Insert beat" }).click();
+      const banner = app.getByRole("status", { name: "Bar lengths" });
+      await expect(banner).toBeVisible();
+      expect(await overflowX()).toBeLessThanOrEqual(0);
+      await expect(banner.getByRole("button", { name: "Fix bar" })).toBeInViewport();
+
+      for (const [button, item] of [
+        ["File", "Save As…"],
+        ["Tools", "Transpose…"],
+      ] as const) {
+        await app.getByRole("button", { name: button }).click();
+        await expect(app.getByRole("menuitem", { name: item })).toBeInViewport();
+        await app.keyboard.press("Escape");
+      }
+    });
+
     test("fits the effects toolbar, lyrics strip and new dialogs inside the window", async ({
       app,
     }) => {
@@ -83,6 +116,7 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
         ["bar-settings", "Bar 1"],
         ["bend", "Bend"],
         ["chord", "Chord"],
+        ["transpose", "Transpose"],
       ] as const) {
         await emitMenuAction(app, action);
         const dialog = app.getByRole("dialog", { name });

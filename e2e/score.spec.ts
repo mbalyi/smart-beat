@@ -39,7 +39,14 @@ test.describe("opening Guitar Pro files (#4)", () => {
       window.__ipcCalls.find((c) => c.cmd === "plugin:dialog|open"),
     );
     expect(dialog?.args).toMatchObject({
-      options: { filters: [{ extensions: ["gp3", "gp4", "gp5", "gpx", "gp"] }] },
+      options: {
+        filters: [
+          { extensions: ["gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml"] },
+          { extensions: ["gp3", "gp4", "gp5", "gpx", "gp"] },
+          { extensions: ["musicxml", "xml"] },
+          { extensions: ["mid", "midi"] },
+        ],
+      },
     });
   });
 
@@ -54,14 +61,16 @@ test.describe("opening Guitar Pro files (#4)", () => {
     await dropFiles(app, ["/Users/me/Music/corrupt.gp5"]);
 
     await expect(app.getByText("Couldn't open “corrupt.gp5”")).toBeVisible();
-    await expect(app.getByText(/damaged or uses a Guitar Pro version/)).toBeVisible();
+    await expect(app.getByText(/damaged or is in a format Smart Beat can't read/)).toBeVisible();
     await expect(app.getByRole("heading", { level: 1 })).toHaveText(/Write, play/);
   });
 
   test("explains which files it opens", async ({ app }) => {
     await dropFiles(app, ["/Users/me/Music/scan.pdf"]);
 
-    await expect(app.getByText(/Smart Beat opens Guitar Pro files/)).toBeVisible();
+    await expect(
+      app.getByText(/Smart Beat opens Guitar Pro, MusicXML and MIDI files/),
+    ).toBeVisible();
   });
 
   test("switches tracks and notation", async ({ app }) => {

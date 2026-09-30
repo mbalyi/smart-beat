@@ -7,6 +7,13 @@ import { test as base, expect, type Page } from "@playwright/test";
 type MenuAction =
   | "new-song"
   | "open"
+  | "save"
+  | "save-as"
+  | "export-musicxml"
+  | "export-midi"
+  | "export-ascii-tab"
+  | "transpose"
+  | "fix-bar-durations"
   | "undo"
   | "redo"
   | "toggle-edit-mode"
@@ -69,6 +76,9 @@ declare global {
     __emitMenuAction: (action: MenuAction) => number;
     __emitTauriEvent: (event: string, payload: unknown) => number;
     __dialogResult: string | null;
+    __saveResult: string | null;
+    __recent: string[];
+    __written: Map<string, Uint8Array>;
     __mixes: Map<string, MixerSettings>;
     __ipcCalls: { cmd: string; args: unknown }[];
     __menuState: MenuState | null;

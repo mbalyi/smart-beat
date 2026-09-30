@@ -30,7 +30,7 @@ Status: **Done** shipped on `main`, **Partial** some of it exists, **Open** plan
 | Time/key signatures, repeats, endings, Coda/Segno, sections                   | Open   | #11   |
 | Guitar techniques (bends, slides, harmonics, ...)                             | Open   | #12   |
 | Lyrics, text, chord diagrams, chord/scale tools                               | Open   | #13   |
-| Transpose, bar-duration check, tab/staff conversion                           | Open   | #14   |
+| Transpose, bar-duration check, tuning change that keeps pitches               | Done   | #14   |
 | 7-9 string guitars, extended-range tunings, odd meters and polyrhythm display | Open   | #43   |
 
 ## Playback and sound
@@ -55,8 +55,8 @@ Status: **Done** shipped on `main`, **Partial** some of it exists, **Open** plan
 | Format                                                          | Status | Issue |
 | --------------------------------------------------------------- | ------ | ----- |
 | Read GP3/4/5, GPX, GP                                           | Done   | #4    |
-| Write GP5 and native format                                     | Open   | #15   |
-| MusicXML and MIDI                                               | Open   | #16   |
+| Write GP5 and native format (.gp, Guitar Pro 7)                 | Done   | #15   |
+| MusicXML and MIDI import and export, ASCII tab export           | Done   | #16   |
 | Power Tab, TuxGuitar, TablEdit, ASCII tab, MuseScore, GP7 write | Open   | #44   |
 | Print, PDF, WAV export                                          | Open   | #17   |
 

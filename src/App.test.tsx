@@ -12,7 +12,14 @@ import { expectNoA11yViolations } from "@/test/axe";
 import { FakeScorePlayer } from "@/test/fake-score-player";
 import { renderWithProviders } from "@/test/render";
 import { fixtureBytes, SUMMARY } from "@/test/score";
-import { APP_INFO, backend, emitFileDrag, emitMenuAction, mockTauri } from "@/test/tauri";
+import {
+  APP_INFO,
+  backend,
+  emitFileDrag,
+  emitMenuAction,
+  emitOpenRecent,
+  mockTauri,
+} from "@/test/tauri";
 
 // alphaTab needs a real browser to render and play: see e2e/score.spec.ts.
 vi.mock("@/lib/score/player", async () => ({
@@ -170,7 +177,7 @@ describe("App", () => {
     await act(() => emitFileDrag({ type: "drop", paths: ["/songs/corrupt.gp5"] }));
 
     expect(await screen.findByText("Couldn't open “corrupt.gp5”")).toBeInTheDocument();
-    expect(screen.getByText(/damaged or uses a Guitar Pro version/)).toBeInTheDocument();
+    expect(screen.getByText(/damaged or is in a format Smart Beat can't read/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/Write, play/);
   });
 
@@ -180,7 +187,7 @@ describe("App", () => {
     await act(() => emitFileDrag({ type: "drop", paths: ["/Users/me/scan.pdf"] }));
 
     expect(await screen.findByText("Couldn't open “scan.pdf”")).toBeInTheDocument();
-    expect(screen.getByText(/opens Guitar Pro files/)).toBeInTheDocument();
+    expect(screen.getByText(/opens Guitar Pro, MusicXML and MIDI files/)).toBeInTheDocument();
   });
 
   it("restores the mix saved for a song and saves changes", async () => {
@@ -275,7 +282,7 @@ describe("App", () => {
     const confirm = await screen.findByRole("alertdialog", {
       name: "Discard your changes to “Untitled”?",
     });
-    expect(confirm).toHaveTextContent("Smart Beat can't save songs yet");
+    expect(confirm).toHaveTextContent("Your unsaved changes will be lost");
     await expectNoA11yViolations();
     await user.click(within(confirm).getByRole("button", { name: "Keep editing" }));
     expect(screen.getByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
@@ -322,7 +329,7 @@ describe("App", () => {
     const { user } = renderWithProviders(<App />);
     const input = document.querySelector<HTMLInputElement>("input[type=file]")!;
     const click = vi.spyOn(input, "click");
-    expect(input).toHaveAttribute("accept", ".gp3,.gp4,.gp5,.gpx,.gp");
+    expect(input).toHaveAttribute("accept", ".gp3,.gp4,.gp5,.gpx,.gp,.mid,.midi,.musicxml,.xml");
 
     await user.click(screen.getByRole("button", { name: "Open a file…" }));
     expect(click).toHaveBeenCalled();
@@ -341,5 +348,130 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Shortcuts are unavailable.");
+  });
+});
+
+describe("App: recent songs and saving", () => {
+  const OTHER = "/Users/me/Songs/structure-song.gp";
+
+  async function renderWithRecent() {
+    mockTauri();
+    backend.recent = [SONG, OTHER];
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.files.set(OTHER, fixtureBytes("structure-song.gp"));
+    const utils = renderWithProviders(<App />);
+    await screen.findByRole("heading", { level: 2, name: "Recent songs" });
+    return utils;
+  }
+
+  it("lists the recent songs on the welcome screen and opens one", async () => {
+    const { user } = await renderWithRecent();
+    const list = screen.getByRole("heading", { name: "Recent songs" }).closest("section")!;
+    expect(
+      within(list)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["practice-song.gpSongs", "structure-song.gpSongs"]);
+
+    await user.click(within(list).getByRole("button", { name: /structure-song\.gp/ }));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Structure Song" }),
+    ).toBeInTheDocument();
+    // The opened song moves to the top of the list.
+    expect(backend.recent).toEqual([OTHER, SONG]);
+  });
+
+  it("opens the song File › Open Recent names", async () => {
+    await renderWithRecent();
+    await waitFor(async () => {
+      await act(() => emitOpenRecent(SONG));
+      expect(
+        await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("asks before File › Open Recent replaces a song with changes", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    await menu("new-song");
+    await screen.findByRole("toolbar", { name: "Edit" });
+    const score = screen.getByRole("region", { name: /^Score:/ });
+    await waitFor(() => expect(score).toHaveFocus());
+    await user.keyboard("5");
+    await screen.findByText("Edited");
+
+    await act(() => emitOpenRecent(SONG));
+
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Discard changes",
+      }),
+    );
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+    ).toBeInTheDocument();
+  });
+
+  it("drops a recent song that is gone from the list", async () => {
+    const { user } = await renderWithRecent();
+    backend.files.delete(OTHER);
+    // A file the Rust core can no longer read answers not-found.
+    const list = screen.getByRole("heading", { name: "Recent songs" }).closest("section")!;
+
+    await user.click(within(list).getByRole("button", { name: /structure-song\.gp/ }));
+
+    await waitFor(() => expect(backend.recent).toEqual([SONG]));
+    await waitFor(() =>
+      expect(
+        within(list).queryByRole("button", { name: /structure-song\.gp/ }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Write, play and arrange guitar music",
+    );
+  });
+
+  it("saves the open song to a new file and stops calling it edited", async () => {
+    const { user } = await renderWithRecent();
+    await user.click(screen.getByRole("button", { name: /practice-song\.gp/ }));
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const score = screen.getByRole("region", { name: /^Score:/ });
+    await waitFor(() => expect(score).toHaveFocus());
+    await user.keyboard("{Delete}");
+    await screen.findByText("Edited");
+    backend.saveResult = "/Users/me/Songs/renamed.gp";
+
+    await menu("save-as");
+
+    await waitFor(() => expect(backend.written.has("/Users/me/Songs/renamed.gp")).toBe(true));
+    await waitFor(() => expect(screen.queryByText("Edited")).not.toBeInTheDocument());
+    // Saved: replacing the song needs no question.
+    await menu("new-song");
+    expect(await screen.findByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("Save replaces the file it came from, and the next Save writes there again", async () => {
+    const { user } = await renderWithRecent();
+    await user.click(screen.getByRole("button", { name: /practice-song\.gp/ }));
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const score = screen.getByRole("region", { name: /^Score:/ });
+    await waitFor(() => expect(score).toHaveFocus());
+    await user.keyboard("{Delete}");
+    await screen.findByText("Edited");
+
+    await menu("save");
+    await waitFor(() => expect(backend.written.has(SONG)).toBe(true));
+    await waitFor(() => expect(screen.queryByText("Edited")).not.toBeInTheDocument());
+
+    backend.written.clear();
+    await user.keyboard("{ArrowRight}{Delete}");
+    await screen.findByText("Edited");
+    await menu("save");
+    await waitFor(() => expect(backend.written.has(SONG)).toBe(true));
   });
 });

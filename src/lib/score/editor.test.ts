@@ -500,3 +500,41 @@ describe("ScoreEditor: undo and redo", () => {
     expect(restored.vibrato).toBe(model.VibratoType.Slight);
   });
 });
+
+describe("ScoreEditor: saved state", () => {
+  it("is edited after a change and clean again when saved", () => {
+    const { editor, changes } = newSong();
+    expect(editor.edited).toBe(false);
+    editor.setFret(3);
+    expect(editor.edited).toBe(true);
+    changes.length = 0;
+    editor.markSaved();
+    expect(editor.edited).toBe(false);
+    // Subscribers (React) hear about it.
+    expect(changes).toEqual(["cursor"]);
+  });
+
+  it("is edited again by the next change, and by undoing past the save", () => {
+    const { editor } = newSong();
+    editor.setFret(3);
+    editor.markSaved();
+    editor.undo();
+    expect(editor.edited).toBe(true); // the music differs from the saved file
+    editor.redo();
+    expect(editor.edited).toBe(false); // back to the saved state
+    editor.transpose(1);
+    expect(editor.edited).toBe(true);
+    editor.undo();
+    expect(editor.edited).toBe(false);
+  });
+
+  it("treats a song saved before any change as clean until edited", () => {
+    const { editor } = newSong();
+    editor.markSaved();
+    expect(editor.edited).toBe(false);
+    editor.setFret(2);
+    expect(editor.edited).toBe(true);
+    editor.undo();
+    expect(editor.edited).toBe(false);
+  });
+});

@@ -121,7 +121,24 @@ describe("TrackDialog: settings", () => {
       name: "Rhythm",
       tuning: [64, 59, 55, 50, 45, 38],
       capo: 3,
+      keepPitches: true,
     });
+  });
+
+  it("can keep the fret numbers instead of the pitches when the tuning changes", async () => {
+    const { user, onSubmit } = setup(GUITAR);
+    const keep = screen.getByRole("checkbox", {
+      name: "Keep the pitches of existing notes (move them to other frets)",
+    });
+    expect(keep).toBeChecked();
+    await user.click(keep);
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ keepPitches: false }));
+  });
+
+  it("does not offer to keep pitches when adding a track", () => {
+    setup(null);
+    expect(screen.queryByRole("checkbox", { name: /Keep the pitches/ })).not.toBeInTheDocument();
   });
 
   it("tunes single strings and adds strings", async () => {

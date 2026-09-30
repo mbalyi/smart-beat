@@ -27,6 +27,7 @@ async function makeSong(): Promise<ScoreDocument> {
   return {
     id: 1,
     name: "practice-song.gp",
+    path: null,
     fileKey: await fileKey(bytes),
     score,
     summary,
@@ -366,6 +367,10 @@ describe("ScoreWorkspace: tracks", () => {
     await user.click(screen.getByRole("button", { name: "Tracks" }));
     await user.click(await screen.findByRole("button", { name: "Settings… for Guitar" }));
     const dialog = await screen.findByRole("dialog", { name: "Track settings" });
+    // Keep the fret numbers: notes on the removed string are deleted.
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: /Keep the pitches of existing notes/ }),
+    );
     await user.click(within(dialog).getByRole("combobox", { name: "Strings" }));
     await user.click(await screen.findByRole("option", { name: "5 strings" }));
     const capo = within(dialog).getByRole("spinbutton", { name: "Capo" });

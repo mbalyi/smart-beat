@@ -6,6 +6,8 @@ import { fileKey } from "@/lib/score/format";
 import { mixFromScore } from "@/lib/score/mixer";
 import { renderWithProviders } from "@/test/render";
 import { fixtureBytes, SUMMARY } from "@/test/score";
+import { exportScore } from "@/lib/export";
+import { texScore } from "@/test/playback";
 import { backend, mockTauri } from "@/test/tauri";
 
 const SONG = "/songs/practice-song.gp";
@@ -81,7 +83,7 @@ describe("useScoreDocument in the desktop app", () => {
     await act(() => result.current.openPath("/songs/corrupt.gp5"));
 
     expect(await screen.findByText("Couldn't open “corrupt.gp5”")).toBeInTheDocument();
-    expect(screen.getByText(/damaged or uses a Guitar Pro version/)).toBeInTheDocument();
+    expect(screen.getByText(/damaged or is in a format Smart Beat can't read/)).toBeInTheDocument();
     expect(result.current.song?.name).toBe("practice-song.gp");
   });
 
@@ -91,7 +93,7 @@ describe("useScoreDocument in the desktop app", () => {
 
     await act(() => result.current.openPath("/songs/gone.gp"));
 
-    expect(await screen.findByText(/could not be found/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/could not be found/)).length).toBeGreaterThan(0);
     expect(result.current.song).toBeNull();
   });
 
@@ -138,7 +140,9 @@ describe("useScoreDocument in a browser", () => {
 
     await act(() => result.current.openFile(file));
 
-    expect(await screen.findByText(/opens Guitar Pro files/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/opens Guitar Pro, MusicXML and MIDI files/),
+    ).toBeInTheDocument();
     expect(read).not.toHaveBeenCalled();
     await waitFor(() => expect(result.current.song).toBeNull());
   });
@@ -150,5 +154,106 @@ describe("firstScoreFile", () => {
     expect(firstScoreFile(["a.txt", "b.gp5", "c.gp"], name)).toBe("b.gp5");
     expect(firstScoreFile(["a.txt", "b.pdf"], name)).toBe("a.txt");
     expect(firstScoreFile([], name)).toBeUndefined();
+  });
+});
+
+describe("useScoreDocument: recent files and saving", () => {
+  it("remembers a song opened from a path, with its path", async () => {
+    mockTauri();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    const { result } = setup();
+
+    await act(() => result.current.openPath(SONG));
+
+    expect(result.current.song?.path).toBe(SONG);
+    expect(backend.recent).toEqual([SONG]);
+  });
+
+  it("forgets a file that is gone, and keeps the ones it could open", async () => {
+    mockTauri();
+    backend.recent = ["/gone.gp", SONG];
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    const { result } = setup();
+
+    await act(() => result.current.openPath("/gone.gp"));
+
+    expect(backend.recent).toEqual([SONG]);
+    expect((await screen.findAllByText(/could not be found/)).length).toBeGreaterThan(0);
+  });
+
+  it("does not forget a file that failed for another reason", async () => {
+    mockTauri();
+    backend.recent = [SONG];
+    backend.files.set(SONG, new Uint8Array([70, 70, 70]));
+    const { result } = setup();
+
+    await act(() => result.current.openPath(SONG));
+
+    expect(backend.recent).toEqual([SONG]);
+  });
+
+  it("still opens the song if the recent list can't be updated", async () => {
+    mockTauri({
+      add_recent_file: () => {
+        throw { kind: "io", message: "disk error" };
+      },
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    const { result } = setup();
+
+    await act(() => result.current.openPath(SONG));
+
+    expect(result.current.song?.name).toBe("practice-song.gp");
+  });
+
+  it("has no path for new songs or browser files", async () => {
+    const { result } = setup();
+    await act(() => result.current.newSong());
+    expect(result.current.song?.path).toBeNull();
+    await act(() =>
+      result.current.openFile(new File([fixtureBytes("practice-song.gp").slice()], "s.gp")),
+    );
+    expect(result.current.song?.path).toBeNull();
+  });
+
+  it("opens MIDI and MusicXML as converted songs that are never overwritten by a save", async () => {
+    mockTauri();
+    const source = texScore(
+      String.raw`\track "G" \staff {score tabs} \instrument 25 :4 3.6 5.6 7.6 5.6`,
+    );
+    backend.files.set("/songs/riff.mid", exportScore(source, "midi").bytes);
+    backend.files.set("/songs/riff.musicxml", exportScore(source, "musicxml").bytes);
+    const { result } = setup();
+
+    await act(() => result.current.openPath("/songs/riff.mid"));
+    expect(result.current.song).toMatchObject({
+      name: "riff.mid",
+      path: null,
+      sourceName: "riff.mid",
+    });
+    expect(await screen.findByText("“riff.mid” was converted")).toBeInTheDocument();
+    expect(backend.recent).toEqual(["/songs/riff.mid"]);
+
+    await act(() => result.current.openPath("/songs/riff.musicxml"));
+    expect(result.current.song).toMatchObject({ name: "riff.musicxml", path: null });
+  });
+
+  it("follows a save: new name, path and content key, same song", async () => {
+    mockTauri();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    const { result } = setup();
+    await act(() => result.current.openPath(SONG));
+    const id = result.current.song!.id;
+
+    act(() => result.current.markSaved({ name: "copy.gp", path: "/songs/copy.gp", fileKey: "k" }));
+
+    expect(result.current.song).toMatchObject({
+      id,
+      name: "copy.gp",
+      path: "/songs/copy.gp",
+      fileKey: "k",
+      isNew: false,
+    });
   });
 });

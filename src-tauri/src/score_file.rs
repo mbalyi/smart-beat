@@ -1,7 +1,7 @@
-//! Reading Guitar Pro files for the score viewer.
+//! Reading Guitar Pro, MusicXML and MIDI files for the score viewer.
 //!
 //! The webview asks for a file by path (picked in the native Open dialog or
-//! dropped on the window). Only files that are Guitar Pro scores are returned,
+//! dropped on the window). Only files that are music scores are returned,
 //! so the command cannot be used to read arbitrary files from disk.
 
 use std::fs::{self, File};
@@ -12,7 +12,9 @@ use crate::error::{CommandError, ErrorKind};
 
 /// File extensions offered in the Open dialog and accepted on drop.
 /// Mirrored by `SCORE_EXTENSIONS` in `src/lib/tauri.ts`.
-pub const EXTENSIONS: [&str; 5] = ["gp3", "gp4", "gp5", "gpx", "gp"];
+pub const EXTENSIONS: [&str; 9] = [
+    "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml",
+];
 
 /// Largest file we load. Guitar Pro 7+ files can embed audio, so this is generous.
 pub const MAX_SIZE: u64 = 100 * 1024 * 1024;
@@ -27,6 +29,10 @@ pub enum ScoreFormat {
     Gpx,
     /// Guitar Pro 7 and later (`.gp`).
     Gp7,
+    /// Standard MIDI file (`.mid`).
+    Midi,
+    /// Uncompressed MusicXML (`.musicxml`, `.xml`).
+    MusicXml,
 }
 
 /// GP3–GP5 start with a length byte followed by this text and the version,
@@ -36,6 +42,12 @@ const GP3_TO_5_SIGNATURE: &[u8] = b"FICHIER GUITAR PRO ";
 impl ScoreFormat {
     /// Detects the format from the start of a file.
     pub fn detect(bytes: &[u8]) -> Option<Self> {
+        if bytes.starts_with(b"MThd") {
+            return Some(Self::Midi);
+        }
+        if is_music_xml(bytes) {
+            return Some(Self::MusicXml);
+        }
         // GP6 containers are "BCFZ" (compressed) or "BCFS" (uncompressed).
         if bytes.starts_with(b"BCFZ") || bytes.starts_with(b"BCFS") {
             return Some(Self::Gpx);
@@ -61,6 +73,19 @@ impl ScoreFormat {
     }
 }
 
+/// A MusicXML document: XML whose start declares a `score-partwise` or
+/// `score-timewise` root (after an optional BOM and whitespace).
+fn is_music_xml(bytes: &[u8]) -> bool {
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    let start = bytes.iter().position(|b| !b.is_ascii_whitespace());
+    let Some(start) = start else { return false };
+    let head = &bytes[start..bytes.len().min(start + 4096)];
+    head.starts_with(b"<")
+        && [&b"<score-partwise"[..], b"<score-timewise"]
+            .iter()
+            .any(|tag| head.windows(tag.len()).any(|w| w == *tag))
+}
+
 /// Whether `path` ends in one of [`EXTENSIONS`] (case-insensitive).
 pub fn has_supported_extension(path: &Path) -> bool {
     path.extension()
@@ -74,7 +99,7 @@ pub fn read(path: &Path) -> Result<Vec<u8>, CommandError> {
     if !has_supported_extension(path) {
         return Err(CommandError::new(
             ErrorKind::UnsupportedType,
-            format!("“{name}” is not a Guitar Pro file (.gp3, .gp4, .gp5, .gpx or .gp)."),
+            format!("“{name}” is not a file Smart Beat can open (Guitar Pro, MusicXML or MIDI)."),
         ));
     }
 
@@ -101,7 +126,7 @@ pub fn read(path: &Path) -> Result<Vec<u8>, CommandError> {
     if ScoreFormat::detect(&bytes).is_none() {
         return Err(CommandError::new(
             ErrorKind::NotAScore,
-            format!("“{name}” is not a Guitar Pro file, or it is damaged."),
+            format!("“{name}” is not a supported music file, or it is damaged."),
         ));
     }
     Ok(bytes)
@@ -188,13 +213,35 @@ mod tests {
             &b""[..],
             b"\x00",
             b"%PDF-1.7",
-            b"MThd\x00\x00\x00\x06", // MIDI
+            b"<html><body>score-partwise</body></html>",
+            b"<?xml version=\"1.0\"?><svg/>",
+            b"   ",
             &gp_header("FICHIER GUITARE PRO v1.04"),
             &gp_header("FICHIER GUITAR PRO v6.00"),
             &gp_header("FICHIER GUITAR PRO"),
         ] {
             assert_eq!(ScoreFormat::detect(bytes), None, "{bytes:?}");
         }
+    }
+
+    #[test]
+    fn detects_midi_and_musicxml() {
+        assert_eq!(
+            ScoreFormat::detect(b"MThd\x00\x00\x00\x06"),
+            Some(ScoreFormat::Midi)
+        );
+        let xml = b"\xEF\xBB\xBF \n<?xml version=\"1.0\"?>\n<!DOCTYPE score-partwise PUBLIC \"x\">\n<score-partwise version=\"4.0\">";
+        assert_eq!(ScoreFormat::detect(xml), Some(ScoreFormat::MusicXml));
+        let timewise = b"<score-timewise></score-timewise>";
+        assert_eq!(ScoreFormat::detect(timewise), Some(ScoreFormat::MusicXml));
+    }
+
+    #[test]
+    fn accepts_midi_and_musicxml_extensions() {
+        for name in ["a.mid", "a.MIDI", "a.musicxml", "a.xml"] {
+            assert!(has_supported_extension(Path::new(name)), "{name}");
+        }
+        assert!(!has_supported_extension(Path::new("a.mxl")));
     }
 
     #[test]

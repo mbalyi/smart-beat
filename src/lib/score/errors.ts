@@ -17,9 +17,9 @@ export function describeOpenError(error: unknown): string {
   if (isCommandError(error)) {
     switch (error.kind) {
       case "unsupported-type":
-        return `Smart Beat opens Guitar Pro files (${EXTENSION_LIST}).`;
+        return `Smart Beat opens Guitar Pro, MusicXML and MIDI files (${EXTENSION_LIST}).`;
       case "not-a-score":
-        return "This is not a Guitar Pro file, or it is damaged.";
+        return "This is not a Guitar Pro, MusicXML or MIDI file, or it is damaged.";
       case "too-large":
         return "The file is too large to open.";
       case "not-found":
@@ -29,12 +29,12 @@ export function describeOpenError(error: unknown): string {
     }
   }
   if (error instanceof ScoreLoadError) {
-    return "The file is damaged or uses a Guitar Pro version Smart Beat can't read yet.";
+    return "The file is damaged or is in a format Smart Beat can't read yet.";
   }
   return errorText(error);
 }
 
-/** Whether a dropped or picked file name looks like a Guitar Pro file. */
+/** Whether a dropped or picked file name looks like a song file Smart Beat opens. */
 export function hasScoreExtension(name: string): boolean {
   const extension = name.split(".").pop()?.toLowerCase();
   return name.includes(".") && SCORE_EXTENSIONS.some((ext) => ext === extension);
