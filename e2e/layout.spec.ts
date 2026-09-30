@@ -1,3 +1,5 @@
+import type { Page } from "@playwright/test";
+
 import {
   expect,
   expectNoA11yViolations,
@@ -80,7 +82,7 @@ test.describe("song layout (#35)", () => {
     await expect(app.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
-  const openTooltip = (app: import("@playwright/test").Page, text: string) =>
+  const openTooltip = (app: Page, text: string) =>
     app.locator("[data-slot=tooltip-content]:not([data-state=closed])", { hasText: text });
 
   test("icon buttons show a tooltip on hover", async ({ app }) => {
