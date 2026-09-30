@@ -14,6 +14,7 @@ import type { MenuAction } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { FakeScorePlayer } from "@/test/fake-score-player";
 import { renderWithProviders } from "@/test/render";
+import { trackAction } from "@/test/track-actions";
 import { fixtureBytes } from "@/test/score";
 import { backend, emitMenuAction, mockTauri } from "@/test/tauri";
 
@@ -242,10 +243,9 @@ describe("ScoreWorkspace: text, chords, lyrics and scales", () => {
     expect(beats[0]!.lyrics).toBeNull();
   });
 
-  it("opens lyrics from the Tracks panel", async () => {
+  it("opens lyrics from a track's menu", async () => {
     const { user } = await setup();
-    await user.click(screen.getByRole("button", { name: "Tracks" }));
-    await user.click(await screen.findByRole("button", { name: "Lyrics… for Bass" }));
+    await trackAction(user, "Bass", "Lyrics…");
     expect(await screen.findByRole("dialog", { name: "Lyrics: Bass" })).toBeInTheDocument();
   });
 

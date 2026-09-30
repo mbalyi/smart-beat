@@ -32,7 +32,8 @@ test.describe("opening Guitar Pro files (#4)", () => {
     await openSong(app);
 
     await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
-    await expect(app.getByText("Smart Beat", { exact: true }).last()).toBeVisible();
+    await app.getByRole("tab", { name: "Song" }).click();
+    await expect(app.getByRole("complementary", { name: "Inspector" })).toContainText("Smart Beat");
     await expect(score(app).locator("svg").first()).toBeVisible();
     await expect(app).toHaveTitle("Practice Song — Smart Beat");
     const dialog = await app.evaluate(() =>
@@ -196,8 +197,7 @@ test.describe("playback (#5)", () => {
 test.describe("mixer (#6)", () => {
   test("starts from the file's mix, and saves changes for the song", async ({ app }) => {
     await openSong(app);
-    await app.getByRole("button", { name: "Mixer" }).click();
-    const mixer = app.getByRole("dialog", { name: "Mixer" });
+    const mixer = app.getByRole("region", { name: "Tracks and mixer" });
 
     // From the file: bass at 12/16 panned left, piano muted.
     await expect(mixer.getByRole("slider", { name: "Volume, Bass" })).toHaveAttribute(
@@ -228,9 +228,7 @@ test.describe("mixer (#6)", () => {
       });
 
     // Reopening the song restores the saved mix.
-    await app.keyboard.press("Escape");
     await openSong(app);
-    await app.getByRole("button", { name: "Mixer" }).click();
     await expect(app.getByRole("button", { name: "Solo Drums" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -243,7 +241,6 @@ test.describe("mixer (#6)", () => {
 
   test("mixing never interrupts playback; pan waits for the next pause", async ({ app }) => {
     await openSong(app);
-    await app.getByRole("button", { name: "Mixer" }).click();
     await app.getByRole("button", { name: "Play" }).click();
     await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
     await expect(app.getByText(/Pan changes are applied when you pause/)).toBeVisible();
@@ -292,7 +289,6 @@ test.describe("mixer (#6)", () => {
     await app.getByRole("option", { name: "Bass" }).click();
     await app.getByRole("radio", { name: "Continuous" }).click();
     await app.getByRole("radio", { name: "Score", exact: true }).click();
-    await app.getByRole("button", { name: "Mixer" }).click();
     await app.getByRole("button", { name: "Mute Piano" }).click();
     await app.getByRole("slider", { name: "Master volume" }).focus();
     await app.keyboard.press("ArrowLeft");
@@ -333,7 +329,6 @@ test.describe("mixer (#6)", () => {
       route.fulfill({ contentType: "application/octet-stream", body: sounds }),
     );
     await openSong(app);
-    await app.getByRole("button", { name: "Mixer" }).click();
     await app.getByRole("button", { name: "Play" }).click();
     await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
     const before = await playedSeconds(app);
@@ -348,7 +343,6 @@ test.describe("mixer (#6)", () => {
 
     await app.reload(); // the choice is remembered
     await openSong(app);
-    await app.getByRole("button", { name: "Mixer" }).click();
     await expect(app.getByRole("combobox", { name: "Instrument sounds" })).toHaveText(
       /High quality/,
     );
@@ -365,7 +359,6 @@ test.describe("mixer (#6)", () => {
       await route.fulfill({ contentType: "application/octet-stream", body: sounds });
     });
     await openSong(app);
-    await app.getByRole("button", { name: "Mixer" }).click();
     await app.getByRole("button", { name: "Play" }).click();
     await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
     const before = await playedSeconds(app);
@@ -393,7 +386,6 @@ test.describe("mixer (#6)", () => {
   test("falls back to the standard sounds when the others are missing", async ({ app }) => {
     await app.route("**/soundfont/FluidR3Mono_GM.sf3", (route) => route.fulfill({ status: 404 }));
     await openSong(app);
-    await app.getByRole("button", { name: "Mixer" }).click();
 
     await app.getByRole("combobox", { name: "Instrument sounds" }).click();
     await app.getByRole("option", { name: /High quality/ }).click();
@@ -405,46 +397,8 @@ test.describe("mixer (#6)", () => {
     await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
   });
 
-  test.describe("in a window where the panel covers the score", () => {
-    test.use({ viewport: { width: 1000, height: 720 } });
-
-    test("the playback cursor stays under the mixer panel", async ({ app }) => {
-      await openSong(app);
-      await app.getByRole("button", { name: "Mixer" }).click();
-      const mixer = app.getByRole("dialog", { name: "Mixer" });
-      await mixer.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
-      const bar = app.getByRole("spinbutton", { name: "Bar" });
-      await bar.fill("4");
-      await bar.press("Enter");
-
-      const panel = (await mixer.boundingBox())!;
-      const cursorBar = score(app).locator(".at-cursor-bar");
-      // alphaTab moves the cursor asynchronously: wait until it reaches bar 4,
-      // which runs under the panel at this window size.
-      await expect
-        .poll(async () => {
-          const box = await cursorBar.boundingBox();
-          return box ? box.x + box.width : 0;
-        })
-        .toBeGreaterThan(panel.x + 10);
-      const cursor = (await cursorBar.boundingBox())!;
-      const point = [panel.x + 10, cursor.y + cursor.height / 2];
-
-      const panelOnTop = await app.evaluate(([x, y]) => {
-        // The cursor ignores the pointer; make it hit-testable so elementFromPoint
-        // reports what is painted on top.
-        for (const el of document.querySelectorAll<HTMLElement>(".at-cursors, .at-cursors *")) {
-          el.style.pointerEvents = "auto";
-        }
-        return document.elementFromPoint(x!, y!)?.closest("[role=dialog]") !== null;
-      }, point);
-      expect(panelOnTop).toBe(true);
-    });
-  });
-
   test("shows pressed Mute and Solo buttons in distinct colours", async ({ app }) => {
     await openSong(app);
-    await app.getByRole("button", { name: "Mixer" }).click();
     // Read once the colour transition has finished.
     const background = (name: string) =>
       app.getByRole("button", { name }).evaluate(async (el) => {
@@ -473,9 +427,7 @@ test.describe("mixer (#6)", () => {
       .setInputFiles(path.join(import.meta.dirname, "fixtures/practice-song.gp"));
     await waitForScore(page);
 
-    await page.getByRole("button", { name: "Mixer" }).click();
-
-    await expect(page.getByText("Changes last until you open another song.")).toBeVisible();
+    await expect(page.getByText("Mix changes last until you close this song.")).toBeVisible();
   });
 });
 

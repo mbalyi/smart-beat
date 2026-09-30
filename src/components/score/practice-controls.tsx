@@ -115,7 +115,7 @@ export function PracticeControls({
           title="Loop the selected bars (drag across bars in the score to choose them)"
         >
           <Repeat2Icon data-icon="inline-start" />
-          Loop
+          <span className="max-xl:sr-only">Loop</span>
         </Toggle>
         {loop && (
           <div className="flex items-center gap-1 text-sm">
@@ -139,7 +139,7 @@ export function PracticeControls({
 
       <div className="flex items-center gap-1.5">
         <GaugeIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-        <span id={speedLabelId} className="text-sm">
+        <span id={speedLabelId} className="text-sm max-xl:sr-only">
           Speed
         </span>
         <Select value={String(speed)} onValueChange={(value) => onSpeedChange(Number(value))}>
@@ -172,7 +172,7 @@ export function PracticeControls({
         ) : (
           <Button variant="outline" size="sm" onClick={onOpenTrainer}>
             <TimerResetIcon data-icon="inline-start" />
-            Speed Trainer…
+            <span className="max-xl:sr-only">Speed Trainer…</span>
           </Button>
         )}
       </div>
@@ -185,7 +185,7 @@ export function PracticeControls({
           onPressedChange={onMetronomeChange}
         >
           <TimerIcon data-icon="inline-start" />
-          Metronome
+          <span className="max-xl:sr-only">Metronome</span>
         </Toggle>
         <Toggle
           variant="outline"

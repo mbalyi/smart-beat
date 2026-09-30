@@ -14,6 +14,7 @@ import type { MenuAction } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { FakeScorePlayer } from "@/test/fake-score-player";
 import { renderWithProviders } from "@/test/render";
+import { trackAction } from "@/test/track-actions";
 import { fixtureBytes } from "@/test/score";
 import { backend, emitMenuAction, mockTauri, type IpcCall } from "@/test/tauri";
 
@@ -285,8 +286,7 @@ describe("ScoreWorkspace: tracks", () => {
   it("adds a track, which gets a mixer strip and can be undone", async () => {
     const { user, song } = await setup({ desktop: true });
 
-    await user.click(screen.getByRole("button", { name: "Tracks" }));
-    await user.click(await screen.findByRole("button", { name: "Add track…" }));
+    await user.click(screen.getByRole("button", { name: "Add track" }));
     const dialog = await screen.findByRole("dialog", { name: "Add track" });
     await user.click(within(dialog).getByRole("combobox", { name: "Instrument" }));
     await user.click(await screen.findByRole("option", { name: "Banjo (5 strings)" }));
@@ -305,12 +305,10 @@ describe("ScoreWorkspace: tracks", () => {
       expect.objectContaining({ trackIndex: 4, view: { notation: "score-tab", rhythm: false } }),
     );
     await waitFor(() => expect(screen.getByRole("region", { name: "Score: Banjo" })).toHaveFocus());
-    await user.click(screen.getByRole("button", { name: "Mixer" }));
     expect(await screen.findByRole("slider", { name: "Volume, Banjo" })).toHaveAttribute(
       "aria-valuetext",
       "81%",
     );
-    await user.keyboard("{Escape}");
 
     await menu("undo");
     await waitFor(() => expect(song.score.tracks).toHaveLength(4));
@@ -320,11 +318,9 @@ describe("ScoreWorkspace: tracks", () => {
   it("removes a track with an Undo button in the message", async () => {
     const { user, song } = await setup();
 
-    await user.click(screen.getByRole("button", { name: "Tracks" }));
-    await user.click(await screen.findByRole("button", { name: "Remove Drums" }));
+    await trackAction(user, "Drums", "Remove");
 
     expect(song.score.tracks.map((t) => t.name)).toEqual(["Guitar", "Bass", "Piano"]);
-    await user.keyboard("{Escape}");
     const message = (await screen.findByText("Removed “Drums”")).closest("li")!;
     await user.click(within(message).getByRole("button", { name: "Undo" }));
     expect(song.score.tracks.map((t) => t.name)).toEqual(["Guitar", "Bass", "Drums", "Piano"]);
@@ -332,14 +328,10 @@ describe("ScoreWorkspace: tracks", () => {
 
   it("keeps each track's mix and the shown track when tracks move", async () => {
     const { user, song, player } = await setup();
-    await user.click(screen.getByRole("button", { name: "Mixer" }));
-    await user.click(await screen.findByRole("button", { name: "Solo Bass" }));
-    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Solo Bass" }));
 
-    await user.click(screen.getByRole("button", { name: "Tracks" }));
-    await user.click(await screen.findByRole("button", { name: "Move Guitar down" }));
-    await user.click(await screen.findByRole("button", { name: "Duplicate Bass" }));
-    await user.keyboard("{Escape}");
+    await trackAction(user, "Guitar", "Move down");
+    await trackAction(user, "Bass", "Duplicate");
 
     expect(song.score.tracks.map((t) => t.name)).toEqual([
       "Bass",
@@ -350,7 +342,6 @@ describe("ScoreWorkspace: tracks", () => {
     ]);
     expect(screen.getByRole("region", { name: "Score: Guitar" })).toBeInTheDocument();
     expect(player.refresh).toHaveBeenLastCalledWith(expect.objectContaining({ trackIndex: 2 }));
-    await user.click(screen.getByRole("button", { name: "Mixer" }));
     expect(await screen.findByRole("button", { name: "Solo Bass" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -364,8 +355,7 @@ describe("ScoreWorkspace: tracks", () => {
   it("changes a track's tuning and capo, and reports notes that no longer fit", async () => {
     const { user, song } = await setup();
 
-    await user.click(screen.getByRole("button", { name: "Tracks" }));
-    await user.click(await screen.findByRole("button", { name: "Settings… for Guitar" }));
+    await trackAction(user, "Guitar", "Settings…");
     const dialog = await screen.findByRole("dialog", { name: "Track settings" });
     // Keep the fret numbers: notes on the removed string are deleted.
     await user.click(
@@ -390,12 +380,9 @@ describe("ScoreWorkspace: tracks", () => {
 
   it("stops saving the mix once the tracks changed (desktop app)", async () => {
     const { user } = await setup({ desktop: true });
-    await user.click(screen.getByRole("button", { name: "Tracks" }));
-    await user.click(await screen.findByRole("button", { name: "Duplicate Piano" }));
-    await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: "Mixer" }));
+    await trackAction(user, "Piano", "Duplicate");
     expect(
-      await screen.findByText("Changes last until you open another song."),
+      await screen.findByText("Mix changes last until you close this song."),
     ).toBeInTheDocument();
   });
 });

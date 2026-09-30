@@ -15,6 +15,7 @@ import type { MenuAction } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { FakeScorePlayer } from "@/test/fake-score-player";
 import { renderWithProviders } from "@/test/render";
+import { trackAction } from "@/test/track-actions";
 import { fixtureBytes } from "@/test/score";
 import { backend, emitMenuAction, mockTauri } from "@/test/tauri";
 
@@ -204,7 +205,6 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
   it("writes the mixer's volume and pan into the file", async () => {
     const { user } = await setup();
     backend.saveResult = "/songs/mix.gp";
-    await user.click(screen.getByRole("button", { name: "Mixer" }));
     const pan = await screen.findByRole("slider", { name: /Pan.*Guitar|Guitar.*pan/i });
     pan.focus();
     await user.keyboard("{Home}");
@@ -423,8 +423,7 @@ describe("ScoreWorkspace: tuning and pitches", () => {
       );
     const before = pitches();
 
-    await user.click(screen.getByRole("button", { name: "Tracks" }));
-    await user.click(await screen.findByRole("button", { name: "Settings… for Guitar" }));
+    await trackAction(user, "Guitar", "Settings…");
     const dialog = await screen.findByRole("dialog", { name: "Track settings" });
     await user.click(within(dialog).getByRole("button", { name: "Lower string 6" }));
     await user.click(within(dialog).getByRole("button", { name: "Lower string 6" }));
@@ -438,8 +437,7 @@ describe("ScoreWorkspace: tuning and pitches", () => {
 
   it("deletes notes that cannot be played in the new tuning, and offers undo", async () => {
     const { user, song } = await setup();
-    await user.click(screen.getByRole("button", { name: "Tracks" }));
-    await user.click(await screen.findByRole("button", { name: "Settings… for Guitar" }));
+    await trackAction(user, "Guitar", "Settings…");
     const dialog = await screen.findByRole("dialog", { name: "Track settings" });
     const capo = within(dialog).getByRole("spinbutton", { name: "Capo" });
     await user.clear(capo);

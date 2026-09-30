@@ -27,6 +27,7 @@ vi.mock("@/lib/score/player", async () => ({
 }));
 
 const SONG = "/Users/me/Songs/practice-song.gp";
+const OTHER_SONG = "/Users/me/Songs/structure-song.gp";
 
 async function renderApp() {
   const calls = mockTauri();
@@ -40,6 +41,10 @@ async function renderApp() {
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   return { ...utils, calls };
 }
+
+/** The tabs of the open songs. */
+const openTabs = () =>
+  within(screen.getByRole("navigation", { name: "Open songs" })).getAllByRole("listitem");
 
 async function menu(action: MenuAction) {
   await act(() => emitMenuAction(action));
@@ -201,9 +206,7 @@ describe("App", () => {
     backend.dialogResult = SONG;
 
     await menu("open");
-    await user.click(await screen.findByRole("button", { name: "Mixer" }));
-
-    expect(screen.getByRole("button", { name: "Solo Drums" })).toHaveAttribute(
+    expect(await screen.findByRole("button", { name: "Solo Drums" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -215,18 +218,35 @@ describe("App", () => {
     expect(calls).toContainEqual(expect.objectContaining({ cmd: "load_mixer_settings" }));
   });
 
-  it("opens another song from the workspace", async () => {
+  it("opens another song from the workspace in a new tab and keeps the first one", async () => {
     const { user } = await renderApp();
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.files.set(OTHER_SONG, fixtureBytes("structure-song.gp"));
     backend.dialogResult = SONG;
     await menu("open");
     await screen.findByRole("heading", { level: 1, name: "Practice Song" });
     const first = FakeScorePlayer.last;
 
+    backend.dialogResult = OTHER_SONG;
     await user.click(screen.getByRole("button", { name: "Open…" }));
 
     await waitFor(() => expect(FakeScorePlayer.last).not.toBe(first));
-    expect(first.destroy).toHaveBeenCalled();
+    expect(first.destroy).not.toHaveBeenCalled();
+    const tabs = within(screen.getByRole("navigation", { name: "Open songs" }));
+    expect(tabs.getAllByRole("listitem")).toHaveLength(2);
+    expect(tabs.getByRole("button", { name: "Structure Song" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+
+    // Back to the first song: still loaded, and it stops playing while hidden.
+    await user.click(tabs.getByRole("button", { name: "Practice Song" }));
+    expect(first.pause).toHaveBeenCalled(); // paused when the second song came forward
+    expect(FakeScorePlayer.last.pause).toHaveBeenCalled(); // and the second when the first returned
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("region", { name: /^Score:/ })).toHaveLength(1);
   });
 
   it("reports a failing Open dialog", async () => {
@@ -267,7 +287,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
   });
 
-  it("asks before replacing a song with changes, and keeps it if asked to", async () => {
+  it("opens songs in tabs and asks before closing one with changes", async () => {
     const { user } = await renderApp();
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));
     backend.dialogResult = SONG;
@@ -278,29 +298,36 @@ describe("App", () => {
     await user.keyboard("5");
     expect(await screen.findByText("Edited")).toBeInTheDocument();
 
+    // Opening another song does not touch the edited one.
     await menu("open");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Untitled \(edited\)$/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close Untitled" }));
     const confirm = await screen.findByRole("alertdialog", {
       name: "Discard your changes to “Untitled”?",
     });
     expect(confirm).toHaveTextContent("Your unsaved changes will be lost");
     await expectNoA11yViolations();
     await user.click(within(confirm).getByRole("button", { name: "Keep editing" }));
-    expect(screen.getByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
+    expect(openTabs()).toHaveLength(2);
 
-    await act(() => emitFileDrag({ type: "drop", paths: [SONG] }));
+    await user.click(screen.getByRole("button", { name: "Close Untitled" }));
     await user.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", {
         name: "Discard changes",
       }),
     );
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
-    ).toBeInTheDocument();
+    expect(openTabs()).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Practice Song" })).toBeInTheDocument();
 
-    // The opened song has no changes: no question.
-    await menu("new-song");
-    expect(await screen.findByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
+    // A song without changes closes without a question; the last close shows the welcome screen.
+    await user.click(screen.getByRole("button", { name: "Close Practice Song" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open a file…" })).toBeInTheDocument();
   });
 
   it("ignores actions the Rust core handles natively", async () => {
@@ -392,7 +419,7 @@ describe("App: recent songs and saving", () => {
     });
   });
 
-  it("asks before File › Open Recent replaces a song with changes", async () => {
+  it("File › Open Recent opens the song in a new tab, leaving an edited song alone", async () => {
     const { user } = await renderApp();
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));
     await menu("new-song");
@@ -404,14 +431,11 @@ describe("App: recent songs and saving", () => {
 
     await act(() => emitOpenRecent(SONG));
 
-    await user.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", {
-        name: "Discard changes",
-      }),
-    );
     expect(
       await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(openTabs()).toHaveLength(2);
   });
 
   it("drops a recent song that is gone from the list", async () => {

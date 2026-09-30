@@ -28,6 +28,8 @@ export class FakeScorePlayer {
   setSoundFont = vi.fn();
   playPause = vi.fn();
   stop = vi.fn();
+  pause = vi.fn();
+  setZoom = vi.fn();
   seekToBar = vi.fn();
   destroy = vi.fn();
   refresh = vi.fn();

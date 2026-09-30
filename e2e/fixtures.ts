@@ -148,7 +148,8 @@ export async function dropFiles(page: Page, paths: string[]) {
 
 /** Waits until the score is drawn and the instrument sounds are loaded. */
 export async function waitForScore(page: Page) {
-  await expect(page.locator(".at-surface svg").first()).toBeVisible({ timeout: 20_000 });
+  // Songs in hidden tabs stay loaded: look at the shown one.
+  await expect(page.locator(".at-surface svg:visible").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Rendering score…")).toHaveCount(0, { timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
 }

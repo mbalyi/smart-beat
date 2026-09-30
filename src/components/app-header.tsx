@@ -16,12 +16,17 @@ export function AppHeader({
     <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur supports-backdrop-filter:bg-background/70">
       <div
         className={cn(
-          "mx-auto flex h-14 w-full items-center justify-between gap-4 px-4 sm:px-6",
-          !wide && "max-w-5xl lg:px-8",
+          "mx-auto flex w-full items-center justify-between gap-4 px-4 sm:px-6",
+          wide ? "h-11" : "h-14 max-w-5xl lg:px-8",
         )}
       >
         <div className="flex min-w-0 items-center">
-          <img src={wordmark} alt="Smart Beat" draggable={false} className="h-9 w-auto" />
+          <img
+            src={wordmark}
+            alt="Smart Beat"
+            draggable={false}
+            className={cn("w-auto", wide ? "h-7" : "h-9")}
+          />
         </div>
         <div className="flex items-center gap-1">
           <ThemeToggle />

@@ -609,6 +609,18 @@ export class ScorePlayer {
     this.api.playPause();
   }
 
+  /** Pauses playback (a song whose tab is hidden must not keep playing). */
+  pause() {
+    if (this.ready && this.playing) this.playPause();
+  }
+
+  /** Zooms the notation (1 = 100%). */
+  setZoom(scale: number) {
+    this.api.settings.display.scale = scale;
+    this.api.updateSettings();
+    this.api.render();
+  }
+
   stop() {
     if (this.resume) this.resume = { tick: 0, play: false };
     this.playing = false;

@@ -27,8 +27,6 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     onDeleteBeat: vi.fn(),
     onVoice: vi.fn(),
     onBar: vi.fn(),
-    onUndo: vi.fn(),
-    onRedo: vi.fn(),
     onDone: vi.fn(),
   };
   const props = {
@@ -37,8 +35,6 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     stringed: true,
     status: "Bar 1, beat 1 of 4, string 1 (E), fret 3, Quarter",
     message: "Fret 3 on string 1",
-    undoLabel: "Add note",
-    redoLabel: null,
     actions,
     statusId: "status",
     ...overrides,
@@ -58,8 +54,6 @@ describe("EditToolbar", () => {
     expect(screen.getByRole("combobox", { name: "Tuplet" })).toHaveTextContent("None");
     expect(screen.getByText(/fret 3, Quarter/)).toHaveAttribute("id", "status");
     expect(screen.getByRole("status")).toHaveTextContent("Fret 3 on string 1");
-    expect(screen.getByRole("button", { name: "Undo Add note" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
     await expectNoA11yViolations();
   });
 
@@ -75,7 +69,6 @@ describe("EditToolbar", () => {
     await user.click(screen.getByRole("button", { name: "Tie" }));
     await user.click(screen.getByRole("button", { name: "Insert beat" }));
     await user.click(screen.getByRole("button", { name: "Delete beat" }));
-    await user.click(screen.getByRole("button", { name: "Undo Add note" }));
 
     expect(actions.onDuration).toHaveBeenCalledWith(Duration.Eighth);
     expect(actions.onDots).toHaveBeenCalledWith(2);
@@ -84,8 +77,7 @@ describe("EditToolbar", () => {
     expect(actions.onTie).toHaveBeenCalledOnce();
     expect(actions.onInsertBeat).toHaveBeenCalledOnce();
     expect(actions.onDeleteBeat).toHaveBeenCalledOnce();
-    expect(actions.onUndo).toHaveBeenCalledOnce();
-    expect(actions.onDone).toHaveBeenCalledTimes(8);
+    expect(actions.onDone).toHaveBeenCalledTimes(7);
     expect(screen.getByRole("button", { name: "Dot" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Tie" })).toHaveAttribute("aria-pressed", "true");
   });

@@ -49,10 +49,8 @@ async function setup({
   return { ...utils, song, onOpen, player, calls, saves };
 }
 
-async function openMixer(user: Awaited<ReturnType<typeof setup>>["user"]) {
-  await user.click(screen.getByRole("button", { name: "Mixer" }));
-  return screen.findByRole("dialog", { name: "Mixer" });
-}
+/** The track list at the bottom holds the mixer (shown from the start). */
+const mixerRegion = () => screen.getByRole("region", { name: "Tracks and mixer" });
 
 describe("ScoreWorkspace", () => {
   it("creates a player for the song's first track", async () => {
@@ -96,7 +94,7 @@ describe("ScoreWorkspace", () => {
 
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
     expect(screen.getByRole("timer")).toHaveTextContent("0:09 / 0:12");
-    expect(screen.getByText("120 BPM")).toBeInTheDocument();
+    expect(screen.getByText(/120 BPM/)).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: "Bar" })).toHaveValue(3);
   });
 
@@ -152,26 +150,26 @@ describe("ScoreWorkspace", () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it("toggles the mixer and returns focus to its button when it closes", async () => {
+  it("shows and hides the track list and the inspector", async () => {
     const { user } = await setup();
-    const button = screen.getByRole("button", { name: "Mixer" });
+    const mixer = screen.getByRole("button", { name: "Mixer" });
+    const inspector = screen.getByRole("button", { name: "Inspector" });
+    expect(mixerRegion()).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
 
-    await openMixer(user);
-    expect(button).toHaveAttribute("aria-expanded", "true");
-    await user.keyboard("{Escape}");
+    await user.click(mixer);
+    await user.click(inspector);
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(button).toHaveFocus();
-    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "Tracks and mixer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).not.toBeInTheDocument();
+    expect(mixer).toHaveAttribute("aria-pressed", "false");
 
-    await user.click(button);
-    await user.click(button);
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(mixer);
+    expect(mixerRegion()).toBeInTheDocument();
   });
 
   it("sends mixer changes to the player", async () => {
     const { user, player } = await setup();
-    await openMixer(user);
 
     await user.click(screen.getByRole("button", { name: "Solo Bass" }));
 
@@ -185,13 +183,12 @@ describe("ScoreWorkspace", () => {
       "true",
     );
 
-    await user.click(screen.getByRole("button", { name: "Reset to the file's mix" }));
+    await user.click(screen.getByRole("button", { name: "Reset the mix" }));
     expect(player.setMix).toHaveBeenLastCalledWith(mixFromScore(SUMMARY));
   });
 
   it("applies pan when a slider is released, not while it is dragged", async () => {
-    const { user, player } = await setup();
-    await openMixer(user);
+    const { player } = await setup();
     const thumb = screen.getByRole("slider", { name: "Pan, Guitar" });
     const track = thumb.closest<HTMLElement>("[data-slot=slider]")!;
     // jsdom has no layout: give the slider a 100 px track.
@@ -214,8 +211,7 @@ describe("ScoreWorkspace", () => {
 
   it("saves the mix shortly after it changes (desktop app)", async () => {
     const { user, song, saves } = await setup({ desktop: true });
-    await openMixer(user);
-    expect(screen.getByText("Changes are saved for this song.")).toBeInTheDocument();
+    expect(screen.getByText("Mix changes are saved for this song.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Mute Guitar" }));
     await user.click(screen.getByRole("button", { name: "Mute Bass" }));
@@ -235,7 +231,6 @@ describe("ScoreWorkspace", () => {
 
   it("saves a pending change when the song is closed", async () => {
     const { user, unmount, saves, player } = await setup({ desktop: true });
-    await openMixer(user);
 
     await user.click(screen.getByRole("button", { name: "Solo Drums" }));
     unmount();
@@ -253,7 +248,6 @@ describe("ScoreWorkspace", () => {
         },
       },
     });
-    await openMixer(user);
 
     await user.click(screen.getByRole("button", { name: "Mute Guitar" }));
 
@@ -262,15 +256,13 @@ describe("ScoreWorkspace", () => {
   });
 
   it("does not save outside the desktop app", async () => {
-    const { user } = await setup();
-    await openMixer(user);
-    expect(screen.getByText("Changes last until you open another song.")).toBeInTheDocument();
+    await setup();
+    expect(screen.getByText("Mix changes last until you close this song.")).toBeInTheDocument();
   });
 
   it("switches instrument sounds and remembers the choice", async () => {
     const { user, player } = await setup();
     player.becomeReady();
-    await openMixer(user);
 
     await user.click(screen.getByRole("combobox", { name: "Instrument sounds" }));
     await user.click(await screen.findByRole("option", { name: /High quality/ }));
@@ -281,7 +273,7 @@ describe("ScoreWorkspace", () => {
 
   it("falls back to the standard sounds if the others fail to load", async () => {
     localStorage.setItem(SOUNDFONT_STORAGE_KEY, "fluidr3");
-    const { user, player } = await setup();
+    const { player } = await setup();
     expect(player.options.soundFontUrl).toBe("/soundfont/FluidR3Mono_GM.sf3");
 
     player.emit("onSoundFontError", new Error("404"), { previousKept: false });
@@ -289,7 +281,6 @@ describe("ScoreWorkspace", () => {
     expect(await screen.findByText("High quality sounds are not available")).toBeInTheDocument();
     expect(player.setSoundFont).toHaveBeenCalledWith("/soundfont/sonivox.sf3");
     expect(localStorage.getItem(SOUNDFONT_STORAGE_KEY)).toBe("sonivox");
-    await openMixer(user);
     expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toHaveTextContent(
       "Standard",
     );
@@ -298,7 +289,6 @@ describe("ScoreWorkspace", () => {
   it("keeps playing the standard sounds when the others fail to download", async () => {
     const { user, player } = await setup();
     player.becomeReady();
-    await openMixer(user);
     await user.click(screen.getByRole("combobox", { name: "Instrument sounds" }));
     await user.click(await screen.findByRole("option", { name: /High quality/ }));
     player.setSoundFont.mockClear();
@@ -313,8 +303,7 @@ describe("ScoreWorkspace", () => {
   });
 
   it("disables switching sounds while they load, and explains pan during playback", async () => {
-    const { user, player } = await setup();
-    await openMixer(user);
+    const { player } = await setup();
     expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toBeDisabled();
     expect(screen.queryByText(/Pan changes are applied when you pause/)).not.toBeInTheDocument();
 

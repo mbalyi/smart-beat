@@ -1,7 +1,7 @@
 import { act, renderHook, screen, waitFor } from "@testing-library/react";
 
 import { Toaster } from "@/components/ui/sonner";
-import { firstScoreFile, useScoreDocument } from "@/hooks/use-score-document";
+import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { fileKey } from "@/lib/score/format";
 import { mixFromScore } from "@/lib/score/mixer";
 import { renderWithProviders } from "@/test/render";
@@ -14,10 +14,10 @@ const SONG = "/songs/practice-song.gp";
 
 function setup() {
   renderWithProviders(<Toaster />);
-  return renderHook(() => useScoreDocument());
+  return renderHook(() => useScoreDocuments());
 }
 
-describe("useScoreDocument in the desktop app", () => {
+describe("useScoreDocuments in the desktop app", () => {
   it("opens a song from a path with the mix from the file", async () => {
     mockTauri();
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));
@@ -61,16 +61,56 @@ describe("useScoreDocument in the desktop app", () => {
     expect(result.current.song?.mix).toEqual(mixFromScore(SUMMARY));
   });
 
-  it("gives each open a new id, even for the same file", async () => {
+  it("opens each song in its own tab and shows the newest", async () => {
     mockTauri();
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.files.set("/songs/other.gp", fixtureBytes("practice-song.gp"));
     const { result } = setup();
 
     await act(() => result.current.openPath(SONG));
     const first = result.current.song!.id;
+    await act(() => result.current.openPath("/songs/other.gp"));
+
+    expect(result.current.songs.map((s) => s.name)).toEqual(["practice-song.gp", "other.gp"]);
+    expect(result.current.song!.id).toBeGreaterThan(first);
+  });
+
+  it("shows the tab of a song that is already open instead of opening it twice", async () => {
+    mockTauri();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.files.set("/songs/other.gp", fixtureBytes("practice-song.gp"));
+    const { result } = setup();
+    await act(() => result.current.openPath(SONG));
+    const first = result.current.song!.id;
+    await act(() => result.current.openPath("/songs/other.gp"));
+
     await act(() => result.current.openPath(SONG));
 
-    expect(result.current.song!.id).toBeGreaterThan(first);
+    expect(result.current.songs).toHaveLength(2);
+    expect(result.current.song!.id).toBe(first);
+  });
+
+  it("switches between tabs and closes them, showing the neighbour", async () => {
+    mockTauri();
+    backend.files.set("/a.gp", fixtureBytes("practice-song.gp"));
+    backend.files.set("/b.gp", fixtureBytes("practice-song.gp"));
+    backend.files.set("/c.gp", fixtureBytes("practice-song.gp"));
+    const { result } = setup();
+    await act(() => result.current.openPath("/a.gp"));
+    await act(() => result.current.openPath("/b.gp"));
+    await act(() => result.current.openPath("/c.gp"));
+    const [a, b, c] = result.current.songs.map((s) => s.id) as [number, number, number];
+
+    act(() => result.current.activate(b));
+    expect(result.current.song?.name).toBe("b.gp");
+
+    act(() => result.current.close(b)); // the next tab takes over
+    expect(result.current.song?.id).toBe(c);
+    act(() => result.current.close(a)); // a hidden tab: the shown one stays
+    expect(result.current.song?.id).toBe(c);
+    act(() => result.current.close(c));
+    expect(result.current.song).toBeNull();
+    expect(result.current.songs).toEqual([]);
   });
 
   it("explains why a file can't be opened and keeps the current song", async () => {
@@ -97,7 +137,7 @@ describe("useScoreDocument in the desktop app", () => {
     expect(result.current.song).toBeNull();
   });
 
-  it("ignores a file that finishes loading after a newer one", async () => {
+  it("keeps every song whichever one finishes loading first", async () => {
     let release: (bytes: ArrayBuffer) => void = () => {};
     mockTauri({
       read_score_file: (args) =>
@@ -117,11 +157,11 @@ describe("useScoreDocument in the desktop app", () => {
       await slow;
     });
 
-    expect(result.current.song?.name).toBe("fast.gp");
+    expect(result.current.songs.map((s) => s.name).sort()).toEqual(["fast.gp", "slow.gp"]);
   });
 });
 
-describe("useScoreDocument in a browser", () => {
+describe("useScoreDocuments in a browser", () => {
   it("opens a dropped or picked File without saved settings", async () => {
     const { result } = setup();
     const bytes = fixtureBytes("practice-song.gp");
@@ -157,7 +197,7 @@ describe("firstScoreFile", () => {
   });
 });
 
-describe("useScoreDocument: recent files and saving", () => {
+describe("useScoreDocuments: recent files and saving", () => {
   it("remembers a song opened from a path, with its path", async () => {
     mockTauri();
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));
@@ -246,7 +286,9 @@ describe("useScoreDocument: recent files and saving", () => {
     await act(() => result.current.openPath(SONG));
     const id = result.current.song!.id;
 
-    act(() => result.current.markSaved({ name: "copy.gp", path: "/songs/copy.gp", fileKey: "k" }));
+    act(() =>
+      result.current.markSaved(id, { name: "copy.gp", path: "/songs/copy.gp", fileKey: "k" }),
+    );
 
     expect(result.current.song).toMatchObject({
       id,
