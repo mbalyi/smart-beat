@@ -49,6 +49,7 @@ import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
 import { drumKitOf, instrumentViewName, notesOf } from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
+import { readSyncOffset, storeSyncOffset } from "@/lib/score/sync";
 import { mixerReducer, type MixerChange } from "@/lib/score/mixer";
 import { trackContent, type Beat, type Track } from "@/lib/score/model";
 import {
@@ -298,6 +299,7 @@ export function ScoreWorkspace({
   );
   const [inspectorTab, setInspectorTab] = useState<"song" | "track">("track");
   const [zoom, setZoom] = useState(100);
+  const [syncOffset, setSyncOffset] = useState(readSyncOffset);
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
   const [trainerOpen, setTrainerOpen] = useState(false);
   /** The bar dialog's bar and its settings when it opened (kept while it closes). */
@@ -1159,6 +1161,11 @@ export function ScoreWorkspace({
               soundFont={soundFont}
               onSoundFontChange={changeSoundFont}
               soundsReady={ready}
+              syncOffset={syncOffset}
+              onSyncOffsetChange={(ms) => {
+                storeSyncOffset(ms);
+                setSyncOffset(readSyncOffset());
+              }}
               actions={{
                 onTrackSettings: () => setTrackDialog({ mode: "edit", track: trackObject }),
                 onLyrics: () => openLyrics(trackObject),

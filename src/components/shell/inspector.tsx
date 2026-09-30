@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { describeInstrument } from "@/lib/score/instrument-view";
@@ -16,6 +17,7 @@ import { describePan, describeVolume } from "@/lib/score/mixer";
 import { pitchName } from "@/lib/score/music";
 import type { NotationView, TrackSummary, TrackView } from "@/lib/score/score";
 import { isSoundFontId, SOUNDFONTS, type SoundFontId } from "@/lib/score/soundfonts";
+import { MAX_SYNC_OFFSET_MS, MIN_SYNC_OFFSET_MS } from "@/lib/score/sync";
 import { trackColor } from "@/lib/score/track-colors";
 import type { TrackMix } from "@/lib/tauri";
 
@@ -100,6 +102,8 @@ export function Inspector({
   soundFont,
   onSoundFontChange,
   soundsReady,
+  syncOffset,
+  onSyncOffsetChange,
   actions,
 }: {
   tab: "song" | "track";
@@ -113,9 +117,13 @@ export function Inspector({
   onSoundFontChange: (id: SoundFontId) => void;
   /** False while instrument sounds load: switching again is disabled. */
   soundsReady: boolean;
+  /** Milliseconds the cursor is delayed on top of the measured output latency. */
+  syncOffset: number;
+  onSyncOffsetChange: (ms: number) => void;
   actions: InspectorActions;
 }) {
   const soundLabelId = useId();
+  const syncId = useId();
   const showsTab = view.notation !== "score";
   const showsScore = view.notation !== "tab";
 
@@ -237,6 +245,27 @@ export function Inspector({
               </SelectContent>
             </Select>
           </div>
+          <div className="flex items-center justify-between gap-2 text-sm">
+            <label htmlFor={syncId}>Sync offset (ms)</label>
+            <Input
+              id={syncId}
+              type="number"
+              inputMode="numeric"
+              min={MIN_SYNC_OFFSET_MS}
+              max={MAX_SYNC_OFFSET_MS}
+              step={10}
+              value={syncOffset}
+              onChange={(event) => {
+                if (event.target.value !== "") onSyncOffsetChange(event.target.valueAsNumber);
+              }}
+              aria-describedby={`${syncId}-help`}
+              className="h-7 w-20 text-right tabular-nums"
+            />
+          </div>
+          <p id={`${syncId}-help`} className="text-xs text-muted-foreground">
+            Raise it if the cursor runs ahead of the sound (Bluetooth speakers), lower it if it
+            lags.
+          </p>
         </Section>
 
         <Section title="Interpretation">

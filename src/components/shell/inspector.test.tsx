@@ -33,6 +33,8 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     soundFont: DEFAULT_SOUNDFONT,
     onSoundFontChange: vi.fn(),
     soundsReady: true,
+    syncOffset: 0,
+    onSyncOffsetChange: vi.fn(),
     actions,
     ...overrides,
   };
@@ -91,6 +93,16 @@ describe("Inspector: TRACK tab", () => {
   it("disables the sound choice while sounds load", () => {
     setup({ soundsReady: false });
     expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toBeDisabled();
+  });
+
+  it("sets the sync offset for the cursor", async () => {
+    const { user, onSyncOffsetChange } = setup({ syncOffset: 20 });
+    const field = screen.getByRole("spinbutton", { name: "Sync offset (ms)" });
+    expect(field).toHaveValue(20);
+
+    await user.type(field, "5");
+
+    expect(onSyncOffsetChange).toHaveBeenLastCalledWith(205);
   });
 
   it("switches between SONG and TRACK", async () => {

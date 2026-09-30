@@ -891,3 +891,105 @@ describe("ScorePlayer: effects alphaTab leaves silent", () => {
     expect(noteOns(file).map((e) => e.noteVelocity)).toEqual(before);
   });
 });
+
+describe("ScorePlayer: cursor in sync with the sound", () => {
+  const position = (api: FakeAlphaTabApi, currentTime: number) =>
+    api.playerPositionChanged.trigger({
+      currentTime,
+      endTime: 12_000,
+      originalTempo: 60,
+      modifiedTempo: 60,
+    });
+
+  afterEach(() => {
+    delete window.__smartBeatOutputLatencyMs;
+    vi.useRealTimers();
+  });
+
+  it("uses its own cursor handler, which delays the cursor by the latency", async () => {
+    const { api } = await setup();
+    expect(api.customCursorHandler).toBeDefined();
+  });
+
+  it("shows the position, bar and notes only once they are audible", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { api, callbacks, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    setPlaying(true);
+
+    position(api, 1_000);
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
+    api.activeBeatsChanged.trigger({ activeBeats: [] });
+    vi.advanceTimersByTime(149);
+    expect(callbacks.onPositionChange).not.toHaveBeenCalled();
+    expect(callbacks.onBarChange).not.toHaveBeenCalled();
+    expect(callbacks.onActiveBeatsChange).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(callbacks.onPositionChange).toHaveBeenCalledWith(
+      expect.objectContaining({ currentMs: 1_000 }),
+    );
+    expect(callbacks.onBarChange).toHaveBeenCalledWith(2);
+    expect(callbacks.onActiveBeatsChange).toHaveBeenCalledWith([]);
+  });
+
+  it("does not delay anything while paused (clicks and seeks show at once)", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { api, callbacks } = await readySetup();
+
+    position(api, 500);
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 1 } } });
+
+    expect(callbacks.onPositionChange).toHaveBeenCalledWith(
+      expect.objectContaining({ currentMs: 500 }),
+    );
+    expect(callbacks.onBarChange).toHaveBeenCalledWith(1);
+  });
+
+  it("drops what is waiting when the user seeks or stops, so the cursor never jumps back", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { api, player, callbacks, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    setPlaying(true);
+
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 3 } } }); // about to be heard
+    player.seekToBar(1);
+    vi.advanceTimersByTime(300);
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1]]);
+
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
+    player.stop();
+    vi.advanceTimersByTime(300);
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1]]);
+  });
+
+  it("keeps showing what is still audible for a moment after a pause, in order", async () => {
+    window.__smartBeatOutputLatencyMs = 100;
+    const { api, callbacks, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    setPlaying(true);
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 1 } } });
+    vi.advanceTimersByTime(40);
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
+
+    vi.advanceTimersByTime(60);
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1]]);
+    vi.advanceTimersByTime(40);
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1], [2]]);
+  });
+
+  it("follows the user's sync offset", async () => {
+    const { storeSyncOffset } = await import("@/lib/score/sync");
+    storeSyncOffset(80);
+    const { api, callbacks, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    setPlaying(true);
+
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
+    vi.advanceTimersByTime(79);
+    expect(callbacks.onBarChange).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(callbacks.onBarChange).toHaveBeenCalledWith(2);
+    storeSyncOffset(0);
+  });
+});

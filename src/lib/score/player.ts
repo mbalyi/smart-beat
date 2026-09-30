@@ -23,6 +23,14 @@ import { approximateSilentEffects } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
+import {
+  createCursorHandler,
+  Delayer,
+  measureLatency,
+  outputLatencyMs,
+  readSyncOffset,
+  type LatencyInfo,
+} from "@/lib/score/sync";
 import type { MixerSettings } from "@/lib/tauri";
 
 const { PlayerState, PlaybackRange } = synth;
@@ -155,6 +163,17 @@ export class ScorePlayer {
    */
   private playing = false;
   private destroyed = false;
+  /** What the audio output reports about its delay (measured when playback first starts). */
+  private latencyInfo: LatencyInfo = {};
+  private latencyMeasured = false;
+  /**
+   * alphaTab's position events come when sound is handed to the audio graph,
+   * not when it is heard: what the UI shows while playing is delayed by the
+   * output latency (see lib/score/sync.ts).
+   */
+  private readonly delayer = new Delayer(() =>
+    this.playing ? outputLatencyMs(this.latencyInfo, readSyncOffset()) : 0,
+  );
   private lastPosition: PlaybackPosition | null = null;
   private lastBar = -1;
   /** Where (and whether) to continue once a new SoundFont is loaded. */
@@ -196,6 +215,7 @@ export class ScorePlayer {
     this.applyView(options.view);
 
     this.api = new AlphaTabApi(options.element, createSettings(options));
+    this.api.customCursorHandler = createCursorHandler(this.delayer, !options.reducedMotion);
     // alphaTab reports clicked beats without the mouse event: remember Shift.
     options.element.addEventListener(
       "pointerdown",
@@ -227,6 +247,12 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
+      if (this.playing && !this.latencyMeasured) {
+        this.latencyMeasured = true;
+        void measureLatency().then((info) => {
+          if (!this.destroyed) this.latencyInfo = info;
+        });
+      }
       callbacks.onPlayingChange?.(this.playing);
       if (!this.playing && this.midiPending) {
         this.midiPending = false;
@@ -237,7 +263,9 @@ export class ScorePlayer {
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
     // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
     api.playerPositionChanged.on((e) =>
-      this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo),
+      this.delayer.run(() =>
+        this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo),
+      ),
     );
     // alphaTab leaves slap, pop, tapping, pick strokes and wah silent: make them
     // audible in the MIDI it just generated (its tick lookup is ready by now).
@@ -245,12 +273,17 @@ export class ScorePlayer {
       const lookup = api.tickCache;
       if (lookup) approximateSilentEffects(file, lookup);
     });
-    api.playedBeatChanged.on((beat) => this.reportBar(beat.voice.bar.index));
+    api.playedBeatChanged.on((beat) =>
+      this.delayer.run(() => this.reportBar(beat.voice.bar.index)),
+    );
     api.activeBeatsChanged.on((e) => {
-      if (this.playing) callbacks.onActiveBeatsChange?.(this.ownBeats(e.activeBeats));
+      if (this.playing) {
+        this.delayer.run(() => callbacks.onActiveBeatsChange?.(this.ownBeats(e.activeBeats)));
+      }
     });
     // playedBeatChanged only fires during playback; a click moves the cursor while paused too.
     api.beatMouseDown.on((beat) => {
+      this.delayer.clear(); // the click moves the cursor: what waits belongs to the old position
       this.reportBar(beat.voice.bar.index);
       if (this.editing) this.seekToBeat(beat);
       if (!this.playing) callbacks.onActiveBeatsChange?.(this.ownBeats([beat]));
@@ -566,6 +599,7 @@ export class ScorePlayer {
   seekToBeat(beat: Beat) {
     const tick = this.api.tickCache?.getBeatStart(beat);
     if (tick === undefined) return;
+    this.delayer.clear();
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick;
     this.reportBar(beat.voice.bar.index);
@@ -624,6 +658,7 @@ export class ScorePlayer {
   stop() {
     if (this.resume) this.resume = { tick: 0, play: false };
     this.playing = false;
+    this.delayer.clear();
     this.api.stop();
     this.callbacks.onActiveBeatsChange?.([]);
   }
@@ -633,6 +668,7 @@ export class ScorePlayer {
     const masterBar = this.score.masterBars[barIndex];
     if (!masterBar) return;
     const tick = this.api.tickCache?.getMasterBarStart(masterBar) ?? masterBar.start;
+    this.delayer.clear();
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick; // seeking while new sounds load
     this.reportBar(barIndex);
@@ -640,6 +676,7 @@ export class ScorePlayer {
 
   destroy() {
     this.destroyed = true;
+    this.delayer.clear();
     this.api.destroy();
   }
 }

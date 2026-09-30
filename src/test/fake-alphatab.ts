@@ -40,6 +40,8 @@ export class FakeAlphaTabApi {
     readyForPlayback: new Emitter(),
     soundFontLoadFailed: new Emitter<Error>(),
   };
+  /** The adapter sets its own cursor handler (see lib/score/sync.ts). */
+  customCursorHandler: unknown = undefined;
   playerState: PlayerState = 0; // Paused
   tickPosition = 0;
   masterVolume = 1;
