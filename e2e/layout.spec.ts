@@ -80,6 +80,31 @@ test.describe("song layout (#35)", () => {
     await expect(app.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
+  const openTooltip = (app: import("@playwright/test").Page, text: string) =>
+    app.locator("[data-slot=tooltip-content]:not([data-state=closed])", { hasText: text });
+
+  test("icon buttons show a tooltip on hover", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("button", { name: "Stop" }).hover();
+    await expect(openTooltip(app, "Stop")).toBeVisible();
+  });
+
+  test("icon buttons show a tooltip on keyboard focus, and Escape closes it", async ({
+    app,
+    browserName,
+  }) => {
+    await openSong(app);
+    const stop = app.getByRole("button", { name: "Stop" });
+
+    await app.getByRole("button", { name: "Play" }).focus();
+    await app.keyboard.press(tabKey(browserName));
+    await expect(stop).toBeFocused();
+    await expect(openTooltip(app, "Stop")).toBeVisible();
+    await app.keyboard.press("Escape");
+    await expect(openTooltip(app, "Stop")).toHaveCount(0);
+    await expect(stop).toBeFocused();
+  });
+
   test("the inspector shows the song and the shown track", async ({ app }) => {
     await openSong(app);
     const inspector = app.getByRole("complementary", { name: "Inspector" });

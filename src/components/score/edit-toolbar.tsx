@@ -168,7 +168,7 @@ export function EditToolbar({
         <div className="flex gap-1">
           <Button variant="outline" size="sm" onClick={then(actions.onRest)} title="Rest (R)">
             <RemoveFormattingIcon data-icon="inline-start" />
-            Rest
+            <span className="sr-only max-lg:not-sr-only">Rest</span>
           </Button>
           <Toggle
             variant="outline"
@@ -178,7 +178,7 @@ export function EditToolbar({
             title={stringed ? "Tie the note on this string (T)" : "Tie (T)"}
           >
             <LinkIcon data-icon="inline-start" />
-            Tie
+            <span className="sr-only max-lg:not-sr-only">Tie</span>
           </Toggle>
         </div>
 
@@ -205,7 +205,7 @@ export function EditToolbar({
 
         <Button variant="outline" size="sm" onClick={actions.onBar} title="Bar settings (⌘B)">
           <Columns3CogIcon data-icon="inline-start" />
-          Bar…
+          <span className="sr-only max-lg:not-sr-only">Bar…</span>
         </Button>
       </div>
       <p id={statusId} className="text-xs text-muted-foreground tabular-nums">
