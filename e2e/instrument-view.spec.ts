@@ -145,4 +145,40 @@ test.describe("fretboard and keyboard (#8)", () => {
     await expect.poll(() => editorStatus(app)).not.toBe(before);
     await expect(scoreRegion(app)).toBeFocused();
   });
+
+  test("writes a drum groove fast: a skeleton of 1/32 rests, then the drum numbers", async ({
+    app,
+  }) => {
+    await newSong(app);
+    await emitMenuAction(app, "add-track");
+    const dialog = app.getByRole("dialog", { name: "Add track" });
+    await dialog.getByRole("combobox", { name: "Instrument" }).click();
+    await app.getByRole("option", { name: "Drums" }).click();
+    await dialog.getByRole("button", { name: "Add track" }).click();
+    await app.getByRole("button", { name: "Drum pads" }).click();
+    // The pads show their MIDI numbers.
+    await expect(app.getByRole("button", { name: "Hi-hat (open)", exact: true })).toContainText(
+      "46",
+    );
+
+    await scoreRegion(app).focus();
+    await app.keyboard.press("Shift+Digit6"); // 1/32
+    await app.keyboard.press("Shift+R"); // fill the bar with 1/32 rests
+    await expect.poll(() => editorStatus(app)).toMatch(/beat 1 of 32/);
+
+    await app.keyboard.type("42"); // closed hi-hat
+    await expect.poll(() => editorStatus(app)).toMatch(/Hi-hat \(closed\)/);
+    await app.keyboard.press("ArrowRight");
+    await app.keyboard.type("46"); // open hi-hat on the next beat
+    await expect.poll(() => editorStatus(app)).toMatch(/beat 2 of 32.*Hi-hat \(open\)/);
+    await app.keyboard.type("36"); // and a kick at the same time
+    await expect.poll(() => editorStatus(app)).toMatch(/Kick drum/);
+
+    await app.keyboard.press("ArrowLeft");
+    await expect(app.getByRole("button", { name: "Hi-hat (closed)", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(scoreRegion(app)).toBeFocused();
+  });
 });

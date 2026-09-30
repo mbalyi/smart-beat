@@ -1,5 +1,6 @@
 import { useId, type MouseEvent } from "react";
 import {
+  AlignJustifyIcon,
   BetweenVerticalStartIcon,
   Columns3CogIcon,
   LinkIcon,
@@ -28,6 +29,8 @@ export interface EditActions {
   onDots: (dots: 1 | 2) => void;
   onTuplet: (tuplet: Tuplet) => void;
   onRest: () => void;
+  /** Fills the bar (or the selected bars) with rests of the selected note value. */
+  onFillRests: () => void;
   onTie: () => void;
   onInsertBeat: () => void;
   onDeleteBeat: () => void;
@@ -169,6 +172,15 @@ export function EditToolbar({
           <Button variant="outline" size="sm" onClick={then(actions.onRest)} title="Rest (R)">
             <RemoveFormattingIcon data-icon="inline-start" />
             <span className="sr-only max-lg:not-sr-only">Rest</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={then(actions.onFillRests)}
+            title="Fill the bar with rests of this note value (Shift+R)"
+          >
+            <AlignJustifyIcon data-icon="inline-start" />
+            <span className="sr-only max-lg:not-sr-only">Fill bar with rests</span>
           </Button>
           <Toggle
             variant="outline"

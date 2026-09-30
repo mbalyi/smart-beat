@@ -22,6 +22,7 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     onDots: vi.fn(),
     onTuplet: vi.fn(),
     onRest: vi.fn(),
+    onFillRests: vi.fn(),
     onTie: vi.fn(),
     onInsertBeat: vi.fn(),
     onDeleteBeat: vi.fn(),
@@ -66,6 +67,7 @@ describe("EditToolbar", () => {
     await user.click(screen.getByRole("button", { name: "Double dot" }));
     await user.click(screen.getByRole("radio", { name: "Voice 2" }));
     await user.click(screen.getByRole("button", { name: "Rest" }));
+    await user.click(screen.getByRole("button", { name: "Fill bar with rests" }));
     await user.click(screen.getByRole("button", { name: "Tie" }));
     await user.click(screen.getByRole("button", { name: "Insert beat" }));
     await user.click(screen.getByRole("button", { name: "Delete beat" }));
@@ -74,10 +76,11 @@ describe("EditToolbar", () => {
     expect(actions.onDots).toHaveBeenCalledWith(2);
     expect(actions.onVoice).toHaveBeenCalledWith(1);
     expect(actions.onRest).toHaveBeenCalledOnce();
+    expect(actions.onFillRests).toHaveBeenCalledOnce();
     expect(actions.onTie).toHaveBeenCalledOnce();
     expect(actions.onInsertBeat).toHaveBeenCalledOnce();
     expect(actions.onDeleteBeat).toHaveBeenCalledOnce();
-    expect(actions.onDone).toHaveBeenCalledTimes(7);
+    expect(actions.onDone).toHaveBeenCalledTimes(8);
     expect(screen.getByRole("button", { name: "Dot" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Tie" })).toHaveAttribute("aria-pressed", "true");
   });

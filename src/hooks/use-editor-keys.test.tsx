@@ -170,4 +170,43 @@ describe("useEditorKeys", () => {
     expect(EDITOR_SHORTCUTS.length).toBeGreaterThan(10);
     expect(EDITOR_SHORTCUTS.every((s) => s.keys.length > 0 && s.label)).toBe(true);
   });
+
+  it("Shift+1…7 choose the note value, whole to 64th", async () => {
+    const { user, editor } = setup();
+    for (const [key, duration] of [
+      ["1", Duration.Whole],
+      ["2", Duration.Half],
+      ["3", Duration.Quarter],
+      ["4", Duration.Eighth],
+      ["5", Duration.Sixteenth],
+      ["6", Duration.ThirtySecond],
+      ["7", Duration.SixtyFourth],
+    ] as const) {
+      await user.keyboard(`{Shift>}${key}{/Shift}`);
+      expect(editor.beatInfo.duration).toBe(duration);
+    }
+    // Without Shift the digits still type frets.
+    await user.keyboard("5");
+    expect(editor.score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!.notes[0]!.fret).toBe(5);
+  });
+
+  it("Shift+R fills the bar with rests of the note value", async () => {
+    const { user, editor } = setup();
+
+    await user.keyboard("{Shift>}6{/Shift}{Shift>}r{/Shift}");
+
+    const beats = editor.score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats;
+    expect(beats).toHaveLength(32);
+    expect(beats.every((b) => b.duration === Duration.ThirtySecond)).toBe(true);
+    // A plain R still makes a rest of the beat under the cursor.
+    await user.keyboard("r");
+    expect(editor.score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats).toHaveLength(32);
+  });
+
+  it("lists the new keys in the shortcuts", () => {
+    const labels = EDITOR_SHORTCUTS.map((s) => s.label).join("\n");
+    expect(labels).toMatch(/drum number/);
+    expect(labels).toMatch(/Note value: whole/);
+    expect(labels).toMatch(/Fill the bar with rests/);
+  });
 });

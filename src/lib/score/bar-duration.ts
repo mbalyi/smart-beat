@@ -120,6 +120,20 @@ export function fillDurations(ticks: number): { duration: Duration; dots: number
   return result;
 }
 
+/**
+ * Rests that fill a bar of `barTicks`: as many of `duration` as fit, then the
+ * longest note values for what is left (a 4/4 bar of 1/32 is 32 rests).
+ */
+export function restsFor(
+  barTicks: number,
+  duration: Duration,
+): { duration: Duration; dots: number }[] {
+  const each = durationTicks(duration);
+  const count = Math.floor((barTicks + TOLERANCE) / each);
+  const rests = Array.from({ length: count }, () => ({ duration, dots: 0 }));
+  return [...rests, ...fillDurations(barTicks - count * each)];
+}
+
 function fixVoice(voice: Voice, expected: number): void {
   let kept = 0;
   const beats: Beat[] = [];

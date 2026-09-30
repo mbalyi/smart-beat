@@ -36,6 +36,7 @@ import {
   type Scale,
 } from "@/lib/score/scales";
 import { spellPitchClass } from "@/lib/score/keys";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 
 const ACTIVE = "bg-sky-600 text-white dark:bg-sky-500";
@@ -435,24 +436,28 @@ function DrumPads({
           return (
             <span key={pad.id} className={className} aria-hidden="true">
               {pad.short}
+              <span className="text-[0.6rem] tabular-nums opacity-70">{pad.id}</span>
             </span>
           );
         }
         return (
-          <button
-            key={pad.id}
-            type="button"
-            aria-label={pad.name}
-            aria-pressed={on}
-            title={`${pad.name} (MIDI ${pad.id})`}
-            onClick={() => onDrum(pad.id)}
-            className={cn(
-              className,
-              "outline-none hover:bg-sky-100 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-sky-900",
-            )}
-          >
-            {pad.short}
-          </button>
+          <Tip key={pad.id} label={`${pad.name} · ${pad.id}`}>
+            <button
+              type="button"
+              aria-label={pad.name}
+              aria-pressed={on}
+              onClick={() => onDrum(pad.id)}
+              className={cn(
+                className,
+                "outline-none hover:bg-sky-100 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-sky-900",
+              )}
+            >
+              {pad.short}
+              <span aria-hidden="true" className="text-[0.6rem] tabular-nums opacity-70">
+                {pad.id}
+              </span>
+            </button>
+          </Tip>
         );
       })}
     </div>

@@ -976,6 +976,7 @@ export function ScoreWorkspace({
     onDots: (dots) => editor.toggleDots(dots),
     onTuplet: (t) => editor.setTuplet(t),
     onRest: () => editor.clearNotes(),
+    onFillRests: () => editor.fillWithRests(),
     onTie: () => editor.toggleTie(),
     onInsertBeat: () => editor.insertBeat(),
     onDeleteBeat: () => editor.deleteBeats(),

@@ -12,6 +12,7 @@
  */
 import { model } from "@coderline/alphatab";
 
+import { restsFor } from "@/lib/score/bar-duration";
 import { chordOf, setChord, type ChordSpec } from "@/lib/score/chords";
 import {
   activeEffectName,
@@ -55,7 +56,7 @@ import {
   type Track,
   type Voice,
 } from "@/lib/score/model";
-import { drumNumberName } from "@/lib/score/drum-map";
+import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
 import {
   drumSound,
   MAX_FRET,
@@ -100,6 +101,8 @@ export const MAX_VOICES = 2;
 
 /** How long after a digit a second digit makes a two-digit fret (as in Guitar Pro). */
 export const TWO_DIGIT_MS = 1000;
+/** Digits of a drum number ("4", "6") typed within this time belong together. */
+export const DRUM_DIGITS_MS = 1200;
 
 export function comparePositions(a: BeatPosition, b: BeatPosition): number {
   return a.bar - b.bar || a.beat - b.beat;
@@ -215,6 +218,8 @@ export class ScoreEditor {
   private _entryDuration: Duration = D.Quarter;
   /** The first digit of a possible two-digit fret. */
   private pendingDigit: { digit: number; at: number; key: string } | null = null;
+  /** Digits typed so far of a drum number on a drum track ("4", then "6" = 46). */
+  private pendingDrum: { text: string; at: number; key: string } | null = null;
   /** Increases with every change to the music (edits, undo, redo). */
   private _revision = 0;
   /** Spoken feedback for the last command ("Fret 5 on string 3"). */
@@ -405,6 +410,7 @@ export class ScoreEditor {
 
   private moved(message = this.describeCursor()) {
     this.pendingDigit = null;
+    this.pendingDrum = null;
     this._message = message;
     this.emit("cursor");
   }
@@ -626,6 +632,7 @@ export class ScoreEditor {
   run(label: string, targets: () => Iterable<object>, apply: () => void, message = label) {
     // Any edit ends a two-digit fret: its second digit must not undo this edit.
     this.pendingDigit = null;
+    this.pendingDrum = null;
     const before: HistoryExtra = {
       cursor: { ...this._cursor },
       selection: this._selection ? { ...this._selection } : null,
@@ -652,6 +659,7 @@ export class ScoreEditor {
     const entry = this.history.undo();
     if (!entry) return;
     this.pendingDigit = null;
+    this.pendingDrum = null;
     this._cursor = { ...entry.extra.before.cursor };
     this._selection = entry.extra.before.selection;
     this.changed(`Undo ${entry.label}`);
@@ -661,6 +669,7 @@ export class ScoreEditor {
     const entry = this.history.redo();
     if (!entry) return;
     this.pendingDigit = null;
+    this.pendingDrum = null;
     this._cursor = { ...entry.extra.after.cursor };
     this._selection = entry.extra.after.selection;
     this.changed(`Redo ${entry.label}`);
@@ -699,6 +708,10 @@ export class ScoreEditor {
 
   /** Types a digit on a tab track: a fret, or the second digit of one ("1", "2" = 12). */
   typeDigit(digit: number, now = Date.now()) {
+    if (this.kind === "drums") {
+      this.typeDrumDigit(digit, now);
+      return;
+    }
     if (this.kind !== "stringed") return;
     const c = this._cursor;
     const key = `${c.track}:${c.voice}:${c.bar}:${c.beat}:${c.string}`;
@@ -711,11 +724,96 @@ export class ScoreEditor {
       // Replace the first digit's edit with the combined fret: one undo step.
       this.history.undo();
       this.pendingDigit = null;
+      this.pendingDrum = null;
       this.setFret(fret);
       return;
     }
     this.setFret(digit);
     this.pendingDigit = { digit, at: now, key };
+  }
+
+  /**
+   * Types a drum number on a drum track, e.g. "4" then "6" for 46, the open
+   * hi-hat (the General MIDI numbers of Guitar Pro's drum kit). Digits typed
+   * within a moment of each other form one number; as soon as it is a known
+   * drum it is entered. A number already on the beat is removed again; another
+   * one is added to the beat, so two drums can sound together.
+   */
+  private typeDrumDigit(digit: number, now: number) {
+    const c = this._cursor;
+    const key = `${c.track}:${c.voice}:${c.bar}:${c.beat}`;
+    const pending = this.pendingDrum;
+    const continued = pending && pending.key === key && now - pending.at < DRUM_DIGITS_MS;
+    const text = continued && pending.text.length < 3 ? pending.text + digit : String(digit);
+    const sound = Number(text);
+    if (DRUM_MIDI_MAP[sound] !== undefined) {
+      this.pendingDrum = null;
+      this.toggleDrum(sound);
+      return;
+    }
+    if (text.length >= 3) {
+      this.pendingDrum = null;
+      this.announce(`No drum sound ${sound}`);
+      return;
+    }
+    this.announce(`Drum number ${text}…`); // (clears the pending number: set it after)
+    this.pendingDrum = { text, at: now, key };
+  }
+
+  /** Adds a drum sound to the cursor's beat, or removes it when it is already there. */
+  toggleDrum(sound: number) {
+    const existing = this.beatAt()?.notes.find((note) => pitchOf(note) === sound);
+    if (!existing) {
+      this.enterDrum(sound);
+      return;
+    }
+    this.run(
+      "Remove note",
+      this.cursorTargets,
+      () => {
+        const beat = this.writableBeat();
+        const note = beat.notes.find((n) => pitchOf(n) === sound);
+        if (note) beat.removeNote(note);
+        this._cursor.pitch = null;
+      },
+      `${drumNumberName(sound)} removed`,
+    );
+  }
+
+  /**
+   * Fills the bar at the cursor (or every selected bar) with rests of the
+   * selected note value, e.g. 1/32: the skeleton of a groove, to fill in by
+   * typing drum numbers. Works on the cursor's voice.
+   */
+  fillWithRests() {
+    const duration = this.beatInfo.duration;
+    const [start, end] = this._selection
+      ? selectionRange(this._selection)
+      : [this._cursor, this._cursor];
+    const voiceIndex = this._cursor.voice;
+    const from = start.bar;
+    const to = end.bar;
+    const bars = to - from + 1;
+    this.editBars(
+      "Fill with rests",
+      { from, to },
+      () => {
+        for (let index = from; index <= to; index++) {
+          const voice = this.staff.bars[index]?.voices[voiceIndex];
+          if (!voice) continue;
+          const barTicks = this.score.masterBars[index]!.calculateDuration();
+          voice.beats = [];
+          for (const rest of restsFor(barTicks, duration)) {
+            voice.addBeat(newBeat(rest.duration, rest.dots));
+          }
+        }
+        this._cursor.bar = from;
+        this._cursor.beat = 0;
+        this._cursor.pitch = null;
+        this._selection = null;
+      },
+      `${bars === 1 ? "Bar" : `${bars} bars`} filled with ${noteValueLabel(duration)} rests`,
+    );
   }
 
   /** Writes a fret on the cursor's string (tab tracks). */
@@ -1156,6 +1254,7 @@ export class ScoreEditor {
   /** Announces a message (to screen readers, in the status) without changing anything. */
   announce(message: string) {
     this.pendingDigit = null;
+    this.pendingDrum = null;
     this._message = message;
     this.emit("cursor");
   }
