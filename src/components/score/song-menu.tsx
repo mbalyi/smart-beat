@@ -41,7 +41,7 @@ export function FileMenu({
       <DropdownMenuTrigger asChild>
         <Button variant="outline" title="Save and export">
           <FileDownIcon data-icon="inline-start" />
-          <span className="sr-only md:not-sr-only">File</span>
+          <span className="sr-only 2xl:not-sr-only">File</span>
           <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
@@ -81,7 +81,7 @@ export function ToolsMenu({
       <DropdownMenuTrigger asChild>
         <Button variant="outline" title="Editing tools">
           <WrenchIcon data-icon="inline-start" />
-          <span className="sr-only md:not-sr-only">Tools</span>
+          <span className="sr-only 2xl:not-sr-only">Tools</span>
           <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>

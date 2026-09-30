@@ -34,6 +34,8 @@ export function App() {
   const { songs, song, activate, close, openPath, openFile, newSong, markSaved, recentsVersion } =
     useScoreDocuments();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Where an open song puts its main controls (the app header's centre). */
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   /**
    * Songs with changes that would be lost by closing them. A ref, updated as
    * soon as the music changes, so a menu command right after an edit sees it.
@@ -147,7 +149,7 @@ export function App() {
     <>
       <SkipLink />
       <div className={cn("flex flex-col", song ? "h-svh" : "min-h-svh")}>
-        <AppHeader onShowDialog={showDialog} wide={song !== null} />
+        <AppHeader onShowDialog={showDialog} wide={song !== null} centerRef={setHeaderSlot} />
         <main
           id="main"
           tabIndex={-1}
@@ -168,6 +170,7 @@ export function App() {
                     song={s}
                     active={s.id === song.id}
                     tabs={tabs}
+                    headerSlot={headerSlot}
                     onOpen={open}
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}

@@ -222,6 +222,7 @@ export function ScoreWorkspace({
   song,
   active = true,
   tabs,
+  headerSlot,
   onOpen,
   onEditedChange,
   onSaved,
@@ -232,6 +233,8 @@ export function ScoreWorkspace({
   active?: boolean;
   /** The document tabs, shown under the toolbar. */
   tabs?: ReactNode;
+  /** The app header's centre, where the main controls are shown. */
+  headerSlot?: HTMLElement | null;
   onOpen: () => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
   onSaved?: (saved: SavedAs) => void;
@@ -1070,6 +1073,8 @@ export function ScoreWorkspace({
         inspectorOpen={inspectorOpen}
         onToggleInspector={() => setInspectorOpen((open) => !open)}
         mixerOpen={mixerOpen}
+        headerSlot={headerSlot}
+        active={active}
         onToggleMixer={() => setMixerOpen((open) => !open)}
       />
       {tabs}

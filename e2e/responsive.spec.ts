@@ -80,6 +80,7 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
       const banner = app.getByRole("status", { name: "Bar lengths" });
       await expect(banner).toBeVisible();
       expect(await overflowX()).toBeLessThanOrEqual(0);
+      await banner.scrollIntoViewIfNeeded(); // a short window scrolls as a whole
       await expect(banner.getByRole("button", { name: "Fix bar" })).toBeInViewport();
 
       for (const [button, item] of [

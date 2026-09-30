@@ -1,5 +1,4 @@
 import {
-  emitMenuAction,
   expect,
   expectNoA11yViolations,
   newSong,
@@ -31,7 +30,32 @@ test.describe("song layout (#35)", () => {
     expect(score!.width).toBeGreaterThan(palette!.width + inspector!.width);
   });
 
+  test("puts the main controls in the app header, between the logo and the icons", async ({
+    app,
+  }) => {
+    await openSong(app);
+
+    const header = app.getByRole("banner");
+    const logo = await header.getByRole("img", { name: "Smart Beat" }).boundingBox();
+    const open = await header.getByRole("button", { name: "Open…" }).boundingBox();
+    const display = await header.getByRole("group", { name: "Display" }).boundingBox();
+    const theme = await header.getByRole("button", { name: "Theme" }).boundingBox();
+    const help = await header.getByRole("button", { name: "Help" }).boundingBox();
+    expect(logo!.x + logo!.width).toBeLessThanOrEqual(open!.x);
+    expect(display!.x + display!.width).toBeLessThanOrEqual(theme!.x);
+    expect(theme!.x).toBeLessThan(help!.x);
+    // The logo is big enough to read, and the view options stay below the header.
+    expect(logo!.height).toBeGreaterThanOrEqual(40);
+    const headerBox = (await header.boundingBox())!;
+    const notation = (await app.getByRole("radiogroup", { name: "Notation" }).boundingBox())!;
+    expect(notation.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+    // Only the shown song's controls are there.
+    await openSong(app, STRUCTURE_SONG);
+    await expect(header.getByRole("group", { name: "Display" })).toHaveCount(1);
+  });
+
   test("shows the LCD display, transport, zoom and undo/redo in the toolbar", async ({ app }) => {
+    await app.setViewportSize({ width: 1600, height: 800 }); // the first and last bar buttons need room
     await openSong(app);
 
     const lcd = app.getByRole("group", { name: "Display" });
@@ -143,7 +167,7 @@ test.describe("song layout (#35)", () => {
       await app.emulateMedia({ colorScheme });
       await openSong(app);
       await openSong(app, STRUCTURE_SONG);
-      await emitMenuAction(app, "toggle-edit-mode");
+      await app.getByRole("button", { name: "Edit", exact: true }).click();
       await expect(app.getByRole("toolbar", { name: "Edit" })).toBeVisible();
       await expectNoA11yViolations(app);
     });

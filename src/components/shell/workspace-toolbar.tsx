@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronsLeftIcon,
   ChevronsRightIcon,
@@ -90,6 +91,8 @@ export function WorkspaceToolbar({
   onToggleInspector,
   mixerOpen,
   onToggleMixer,
+  headerSlot,
+  active = true,
 }: {
   /** The song's title, the page's main heading. */
   title: string;
@@ -132,243 +135,260 @@ export function WorkspaceToolbar({
   onToggleInspector: () => void;
   mixerOpen: boolean;
   onToggleMixer: () => void;
+  /** Where the main controls go: the app header's centre. Without it they sit above the view options. */
+  headerSlot?: HTMLElement | null;
+  /** The song is shown (hidden songs leave the header to the shown one). */
+  active?: boolean;
 }) {
   const hasTab = summary.tracks[trackIndex]?.hasTablature ?? false;
   const zoomIndex = Math.max(0, ZOOM_STEPS.indexOf(zoom as (typeof ZOOM_STEPS)[number]));
 
-  return (
-    <header className="sticky top-0 z-30 flex shrink-0 flex-col gap-2 border-b bg-card px-3 py-2">
-      <h1 className="sr-only">{title}</h1>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" onClick={onOpen} title="Open…">
-            <FolderOpenIcon data-icon="inline-start" />
-            Open…
+  const inHeader = headerSlot !== null && headerSlot !== undefined && active;
+  const mainControls = (
+    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+      <div className="flex items-center gap-1.5">
+        <Button variant="outline" size="sm" onClick={onOpen} title="Open…">
+          <FolderOpenIcon data-icon="inline-start" />
+          <span className="max-2xl:sr-only">Open…</span>
+        </Button>
+        {actions}
+        <div className="flex gap-1" role="group" aria-label="History">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onUndo}
+            disabled={!undoLabel}
+            aria-label={undoLabel ? `Undo ${undoLabel}` : "Undo"}
+            title={undoLabel ? `Undo ${undoLabel}` : "Nothing to undo"}
+          >
+            <Undo2Icon />
           </Button>
-          {actions}
-          <div className="flex gap-1" role="group" aria-label="History">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={onUndo}
-              disabled={!undoLabel}
-              aria-label={undoLabel ? `Undo ${undoLabel}` : "Undo"}
-              title={undoLabel ? `Undo ${undoLabel}` : "Nothing to undo"}
-            >
-              <Undo2Icon />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={onRedo}
-              disabled={!redoLabel}
-              aria-label={redoLabel ? `Redo ${redoLabel}` : "Redo"}
-              title={redoLabel ? `Redo ${redoLabel}` : "Nothing to redo"}
-            >
-              <Redo2Icon />
-            </Button>
-          </div>
-          {edited && (
-            <Badge variant="secondary" className="shrink-0">
-              Edited
-            </Badge>
-          )}
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onRedo}
+            disabled={!redoLabel}
+            aria-label={redoLabel ? `Redo ${redoLabel}` : "Redo"}
+            title={redoLabel ? `Redo ${redoLabel}` : "Nothing to redo"}
+          >
+            <Redo2Icon />
+          </Button>
         </div>
-
-        <div className="flex items-center gap-2" role="group" aria-label="Transport">
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onSeekBar(0)}
-              disabled={!ready}
-              aria-label="First bar"
-              title="First bar"
-              className="max-xl:hidden"
-            >
-              <SkipBackIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onSeekBar(Math.max(0, bar - 1))}
-              disabled={!ready}
-              aria-label="Previous bar"
-              title="Previous bar"
-            >
-              <ChevronsLeftIcon />
-            </Button>
-            <Button
-              size="icon-lg"
-              onClick={onPlayPause}
-              disabled={!ready}
-              aria-label={playing ? "Pause" : "Play"}
-              title={playing ? "Pause (Space)" : "Play (Space)"}
-              className="rounded-full"
-            >
-              {playing ? <PauseIcon /> : <PlayIcon />}
-            </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={onStop}
-              disabled={!ready}
-              aria-label="Stop"
-              title="Stop"
-            >
-              <SquareIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onSeekBar(Math.min(barCount - 1, bar + 1))}
-              disabled={!ready}
-              aria-label="Next bar"
-              title="Next bar"
-            >
-              <ChevronsRightIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onSeekBar(barCount - 1)}
-              disabled={!ready}
-              aria-label="Last bar"
-              title="Last bar"
-              className="max-xl:hidden"
-            >
-              <SkipForwardIcon />
-            </Button>
-          </div>
-          <LcdDisplay
-            tracks={summary.tracks}
-            trackIndex={trackIndex}
-            onTrackChange={onTrackChange}
-            position={position}
-            bar={bar}
-            barCount={barCount}
-            ready={ready}
-            onSeekBar={onSeekBar}
-          />
-        </div>
-
-        <div className="ml-auto flex items-center gap-1.5">
-          <Toggle
-            variant="outline"
-            size="sm"
-            pressed={editing}
-            onPressedChange={onToggleEditing}
-            title="Edit mode: write notes with the keyboard and mouse"
-            className={EDIT_PRESSED}
-          >
-            <PencilIcon data-icon="inline-start" />
-            Edit
-          </Toggle>
-          <Toggle
-            variant="outline"
-            size="sm"
-            pressed={instrumentView}
-            onPressedChange={onToggleInstrumentView}
-          >
-            <KeyboardMusicIcon data-icon="inline-start" />
-            <span className="max-xl:sr-only">{instrumentLabel}</span>
-          </Toggle>
-          <Toggle
-            variant="outline"
-            size="sm"
-            pressed={mixerOpen}
-            onPressedChange={onToggleMixer}
-            aria-label="Mixer"
-            title="Show or hide the track list and mixer"
-          >
-            <SlidersHorizontalIcon data-icon="inline-start" />
-            <span className="max-xl:sr-only">Mixer</span>
-          </Toggle>
-          <Toggle
-            variant="outline"
-            size="sm"
-            pressed={inspectorOpen}
-            onPressedChange={onToggleInspector}
-            aria-label="Inspector"
-            title="Show or hide the inspector"
-          >
-            <PanelRightIcon data-icon="inline-start" />
-            <span className="max-xl:sr-only">Inspector</span>
-          </Toggle>
-        </div>
+        {edited && (
+          <Badge variant="secondary" className="shrink-0">
+            Edited
+          </Badge>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          spacing={0}
-          aria-label="Notation"
-          value={view.notation}
-          onValueChange={(value) => isNotation(value) && onViewChange({ ...view, notation: value })}
-        >
-          {NOTATIONS.map((n) => (
-            <ToggleGroupItem key={n.value} value={n.value} disabled={n.needsTab && !hasTab}>
-              {n.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+      <div
+        className="flex flex-wrap items-center justify-center gap-2"
+        role="group"
+        aria-label="Transport"
+      >
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onSeekBar(0)}
+            disabled={!ready}
+            aria-label="First bar"
+            title="First bar"
+            className="max-2xl:hidden"
+          >
+            <SkipBackIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onSeekBar(Math.max(0, bar - 1))}
+            disabled={!ready}
+            aria-label="Previous bar"
+            title="Previous bar"
+          >
+            <ChevronsLeftIcon />
+          </Button>
+          <Button
+            size="icon-lg"
+            onClick={onPlayPause}
+            disabled={!ready}
+            aria-label={playing ? "Pause" : "Play"}
+            title={playing ? "Pause (Space)" : "Play (Space)"}
+            className="rounded-full"
+          >
+            {playing ? <PauseIcon /> : <PlayIcon />}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onStop}
+            disabled={!ready}
+            aria-label="Stop"
+            title="Stop"
+          >
+            <SquareIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onSeekBar(Math.min(barCount - 1, bar + 1))}
+            disabled={!ready}
+            aria-label="Next bar"
+            title="Next bar"
+          >
+            <ChevronsRightIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onSeekBar(barCount - 1)}
+            disabled={!ready}
+            aria-label="Last bar"
+            title="Last bar"
+            className="max-2xl:hidden"
+          >
+            <SkipForwardIcon />
+          </Button>
+        </div>
+        <LcdDisplay
+          tracks={summary.tracks}
+          trackIndex={trackIndex}
+          onTrackChange={onTrackChange}
+          position={position}
+          bar={bar}
+          barCount={barCount}
+          ready={ready}
+          onSeekBar={onSeekBar}
+        />
+      </div>
 
+      <div className="ml-auto flex items-center gap-1.5">
         <Toggle
           variant="outline"
           size="sm"
-          pressed={view.rhythm}
-          disabled={!hasTab || view.notation === "score"}
-          onPressedChange={(rhythm) => onViewChange({ ...view, rhythm })}
+          pressed={editing}
+          onPressedChange={onToggleEditing}
+          title="Edit mode: write notes with the keyboard and mouse"
+          className={EDIT_PRESSED}
         >
-          Rhythm on tab
+          <PencilIcon data-icon="inline-start" />
+          Edit
         </Toggle>
-
-        <ToggleGroup
-          type="single"
+        <Toggle
           variant="outline"
           size="sm"
-          spacing={0}
-          aria-label="Layout"
-          value={layout}
-          onValueChange={(value) => isLayout(value) && onLayoutChange(value)}
+          pressed={instrumentView}
+          onPressedChange={onToggleInstrumentView}
         >
-          {LAYOUTS.map((l) => (
-            <ToggleGroupItem key={l.value} value={l.value}>
-              {l.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-
-        <div role="group" aria-label="Zoom" className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Zoom out"
-            title="Zoom out"
-            disabled={zoomIndex === 0}
-            onClick={() => onZoomChange(ZOOM_STEPS[zoomIndex - 1]!)}
-          >
-            <ZoomOutIcon />
-          </Button>
-          <span aria-live="polite" className="w-11 text-center text-sm tabular-nums">
-            {ZOOM_STEPS[zoomIndex]}%
-          </span>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Zoom in"
-            title="Zoom in"
-            disabled={zoomIndex === ZOOM_STEPS.length - 1}
-            onClick={() => onZoomChange(ZOOM_STEPS[zoomIndex + 1]!)}
-          >
-            <ZoomInIcon />
-          </Button>
-        </div>
-
-        {practice}
+          <KeyboardMusicIcon data-icon="inline-start" />
+          <span className="max-2xl:sr-only">{instrumentLabel}</span>
+        </Toggle>
+        <Toggle
+          variant="outline"
+          size="sm"
+          pressed={mixerOpen}
+          onPressedChange={onToggleMixer}
+          aria-label="Mixer"
+          title="Show or hide the track list and mixer"
+        >
+          <SlidersHorizontalIcon data-icon="inline-start" />
+          <span className="max-2xl:sr-only">Mixer</span>
+        </Toggle>
+        <Toggle
+          variant="outline"
+          size="sm"
+          pressed={inspectorOpen}
+          onPressedChange={onToggleInspector}
+          aria-label="Inspector"
+          title="Show or hide the inspector"
+        >
+          <PanelRightIcon data-icon="inline-start" />
+          <span className="max-2xl:sr-only">Inspector</span>
+        </Toggle>
       </div>
-    </header>
+    </div>
+  );
+
+  return (
+    <>
+      {inHeader && createPortal(mainControls, headerSlot)}
+      <header className="sticky top-0 z-30 flex shrink-0 flex-col gap-2 border-b bg-card px-3 py-2">
+        <h1 className="sr-only">{title}</h1>
+        {!inHeader && mainControls}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-label="Notation"
+            value={view.notation}
+            onValueChange={(value) =>
+              isNotation(value) && onViewChange({ ...view, notation: value })
+            }
+          >
+            {NOTATIONS.map((n) => (
+              <ToggleGroupItem key={n.value} value={n.value} disabled={n.needsTab && !hasTab}>
+                {n.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={view.rhythm}
+            disabled={!hasTab || view.notation === "score"}
+            onPressedChange={(rhythm) => onViewChange({ ...view, rhythm })}
+          >
+            Rhythm on tab
+          </Toggle>
+
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-label="Layout"
+            value={layout}
+            onValueChange={(value) => isLayout(value) && onLayoutChange(value)}
+          >
+            {LAYOUTS.map((l) => (
+              <ToggleGroupItem key={l.value} value={l.value}>
+                {l.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+
+          <div role="group" aria-label="Zoom" className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Zoom out"
+              title="Zoom out"
+              disabled={zoomIndex === 0}
+              onClick={() => onZoomChange(ZOOM_STEPS[zoomIndex - 1]!)}
+            >
+              <ZoomOutIcon />
+            </Button>
+            <span aria-live="polite" className="w-11 text-center text-sm tabular-nums">
+              {ZOOM_STEPS[zoomIndex]}%
+            </span>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Zoom in"
+              title="Zoom in"
+              disabled={zoomIndex === ZOOM_STEPS.length - 1}
+              onClick={() => onZoomChange(ZOOM_STEPS[zoomIndex + 1]!)}
+            >
+              <ZoomInIcon />
+            </Button>
+          </div>
+
+          {practice}
+        </div>
+      </header>
+    </>
   );
 }

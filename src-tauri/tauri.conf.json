@@ -19,7 +19,8 @@
         "minWidth": 480,
         "minHeight": 360,
         "center": true,
-        "resizable": true
+        "resizable": true,
+        "backgroundColor": "#000000"
       }
     ],
     "security": {
