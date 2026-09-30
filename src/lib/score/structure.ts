@@ -382,6 +382,12 @@ export function toggleRepeatEnd(score: Score, index: number): void {
   if (masterBar) masterBar.repeatCount = masterBar.repeatCount > 0 ? 0 : 2;
 }
 
+const DA_CAPO = [
+  Direction.JumpDaCapo,
+  Direction.JumpDaCapoAlCoda,
+  Direction.JumpDaCapoAlDoubleCoda,
+  Direction.JumpDaCapoAlFine,
+];
 const JUMPS_TO_SEGNO = [
   Direction.JumpDalSegno,
   Direction.JumpDalSegnoAlCoda,
@@ -410,22 +416,52 @@ const AL_FINE = [
   Direction.JumpDalSegnoSegnoAlFine,
 ];
 
+type Draft = { index: number; settings: Pick<BarSettings, "directions" | "endings"> };
+
+/**
+ * Whether a D.C. or D.S. jump goes back over bars with alternate endings.
+ * alphaTab plays every ending bar after a jump (repeats are not played
+ * again), so such a song doesn't sound as written.
+ */
+function replaysEndings(score: Score, draft?: Draft): boolean {
+  const bars = score.masterBars.map((masterBar, index) => {
+    const edited = draft?.index === index ? draft.settings : null;
+    return {
+      directions: new Set(edited ? edited.directions : (masterBar.directions ?? [])),
+      endings: edited ? edited.endings : masterBar.alternateEndings,
+    };
+  });
+  // Where a jump from bar `from` lands: alphaTab looks backwards first.
+  const target = (sign: DirectionType, from: number) => {
+    for (let i = from; i >= 0; i--) if (bars[i]!.directions.has(sign)) return i;
+    return bars.findIndex((bar) => bar.directions.has(sign));
+  };
+  return bars.some((bar, index) => {
+    const landsAt = [...bar.directions].flatMap((direction) => {
+      if (DA_CAPO.includes(direction)) return [0];
+      if (JUMPS_TO_SEGNO.includes(direction)) return [target(Direction.TargetSegno, index)];
+      if (JUMPS_TO_SEGNO_SEGNO.includes(direction))
+        return [target(Direction.TargetSegnoSegno, index)];
+      return [];
+    });
+    return landsAt.some(
+      (start) => start >= 0 && bars.slice(start, index + 1).some((b) => b.endings !== 0),
+    );
+  });
+}
+
 /**
  * Problems with the song's jumps that make playback differ from what the
  * score says, e.g. a D.S. without a Segno to jump to. With `draft`, bar
  * `draft.index` is judged with the jumps and endings being edited.
  */
-export function structureWarnings(
-  score: Score,
-  draft?: { index: number; settings: Pick<BarSettings, "directions" | "endings"> },
-): string[] {
+export function structureWarnings(score: Score, draft?: Draft): string[] {
   const used = new Set<DirectionType>();
-  let endings = false;
   score.masterBars.forEach((masterBar, index) => {
     const edited = draft?.index === index ? draft.settings : null;
-    const directions = edited ? edited.directions : [...(masterBar.directions ?? [])];
-    for (const direction of directions) used.add(direction);
-    if ((edited ? edited.endings : masterBar.alternateEndings) !== 0) endings = true;
+    for (const direction of edited ? edited.directions : (masterBar.directions ?? [])) {
+      used.add(direction);
+    }
   });
   const uses = (list: DirectionType[]) => list.some((d) => used.has(d));
   const warnings: string[] = [];
@@ -442,11 +478,11 @@ export function structureWarnings(
     warnings.push("An “al Double Coda” jump needs a “To Double Coda” sign and a Double Coda.");
   if (uses(AL_FINE) && !used.has(Direction.TargetFine))
     warnings.push("An “al Fine” jump needs a Fine to stop at.");
-  const jumps = DIRECTIONS.filter((d) => d.kind === "jump" && d.value !== Direction.JumpDaCoda);
-  if (endings && jumps.some((d) => used.has(d.value)))
+  if (replaysEndings(score, draft)) {
     warnings.push(
       "After a D.C. or D.S. jump, playback plays every alternate ending (repeats are not played again).",
     );
+  }
   return warnings;
 }
 

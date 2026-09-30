@@ -612,6 +612,8 @@ export class ScoreEditor {
    * re-finishes the model and notifies listeners.
    */
   run(label: string, targets: () => Iterable<object>, apply: () => void, message = label) {
+    // Any edit ends a two-digit fret: its second digit must not undo this edit.
+    this.pendingDigit = null;
     const before: HistoryExtra = {
       cursor: { ...this._cursor },
       selection: this._selection ? { ...this._selection } : null,

@@ -503,13 +503,21 @@ export function ScoreWorkspace({
       `Lyrics of ${target.name.trim() || "the track"} changed`,
     );
 
+  /** Set by View › Scale Tool: the scale picker takes focus once it is shown. */
+  const [focusScalePicker, setFocusScalePicker] = useState(false);
+  useEffect(() => {
+    if (!focusScalePicker || !scalePickerRef.current) return;
+    scalePickerRef.current.focus();
+    setFocusScalePicker(false);
+  }, [focusScalePicker, instrumentView]);
+
   const openScaleTool = () => {
     if (track.kind === "drums") {
       toast("The scale tool works on stringed and keyboard tracks");
       return;
     }
     if (!instrumentView) toggleInstrumentView();
-    requestAnimationFrame(() => scalePickerRef.current?.focus());
+    setFocusScalePicker(true);
   };
 
   const effectActions: EffectActions = {

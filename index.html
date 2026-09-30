@@ -10,8 +10,37 @@
       content="Smart Beat – tablature editor with self-hosted AI accompaniment."
     />
     <title>Smart Beat</title>
+    <style>
+      /* Startup splash: plays until the app has started (see src/main.tsx). */
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        pointer-events: none;
+        transition: opacity 0.35s ease;
+      }
+      #splash.done {
+        opacity: 0;
+      }
+      #splash video {
+        width: min(70vmin, 420px);
+        height: auto;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #splash {
+          transition: none;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="splash" aria-hidden="true" inert>
+      <video src="/loading.mp4" autoplay muted loop playsinline preload="auto"></video>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

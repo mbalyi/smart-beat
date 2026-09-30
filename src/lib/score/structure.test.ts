@@ -252,14 +252,27 @@ describe("structure warnings", () => {
     );
   });
 
-  it("warns that endings play again after a D.C. or D.S.", () => {
+  it("warns that endings play again when a D.C. or D.S. goes back over them", () => {
+    const warning =
+      "After a D.C. or D.S. jump, playback plays every alternate ending (repeats are not played again).";
     const score = bars();
     edit(score, 1, { endings: 1 });
     expect(structureWarnings(score)).toEqual([]);
     edit(score, 3, { directions: [Direction.JumpDaCapo] });
-    expect(structureWarnings(score)).toEqual([
-      "After a D.C. or D.S. jump, playback plays every alternate ending (repeats are not played again).",
-    ]);
+    expect(structureWarnings(score)).toEqual([warning]);
+
+    // A D.S. to a Segno after the endings never plays them again.
+    edit(score, 2, { directions: [Direction.TargetSegno] });
+    edit(score, 3, { directions: [Direction.JumpDalSegno] });
+    expect(structureWarnings(score)).toEqual([]);
+    // ...but one before them does.
+    edit(score, 2, { directions: [] });
+    edit(score, 0, { directions: [Direction.TargetSegno] });
+    expect(structureWarnings(score)).toEqual([warning]);
+    // The bar being edited counts with its draft values.
+    expect(
+      structureWarnings(score, { index: 1, settings: { directions: [], endings: 0 } }),
+    ).toEqual([]);
   });
 
   it("describes every direction", () => {

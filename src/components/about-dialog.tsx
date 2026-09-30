@@ -1,3 +1,4 @@
+import wordmark from "@/assets/smart-beat-wordmark.png";
 import { AppLogo } from "@/components/app-logo";
 import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
@@ -42,7 +43,9 @@ export function AboutDialog({ open, onOpenChange, onCloseAutoFocus }: AppDialogP
       <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader className="items-center text-center">
           <AppLogo className="size-16" />
-          <DialogTitle className="text-lg">Smart Beat</DialogTitle>
+          <DialogTitle className="text-lg">
+            <img src={wordmark} alt="Smart Beat" draggable={false} className="h-12 w-auto" />
+          </DialogTitle>
           <DialogDescription>Tablature editor with self-hosted AI accompaniment.</DialogDescription>
         </DialogHeader>
         <AppDetails />

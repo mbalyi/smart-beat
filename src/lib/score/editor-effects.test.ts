@@ -51,6 +51,16 @@ describe("ScoreEditor: note effects", () => {
     expect(beat(editor, 0).notes[0]!.isPalmMute).toBe(true);
   });
 
+  it("never lets a quick second digit undo another edit made in between", () => {
+    const editor = tabSong();
+    editor.typeDigit(1, 0);
+    editor.toggleNoteEffect("palmMute");
+    editor.typeDigit(2, 100); // within the two-digit window, but after another edit
+    const note = beat(editor, 0).notes[0]!;
+    expect(note.fret).toBe(2);
+    expect(note.isPalmMute).toBe(true);
+  });
+
   it("changes an effect's kind, and names the note's effects in the status", () => {
     const editor = tabSong();
     editor.setNoteEffect("vibrato", VibratoType.Slight);

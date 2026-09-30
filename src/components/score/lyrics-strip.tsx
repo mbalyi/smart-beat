@@ -27,7 +27,8 @@ export function LyricsStrip({ lines, current }: { lines: Syllable[][]; current: 
                     aria-current={now ? "true" : undefined}
                     className={cn(
                       "rounded-sm",
-                      now && "bg-sky-600 px-0.5 font-medium text-white dark:bg-sky-500",
+                      now &&
+                        "bg-sky-700 px-0.5 font-medium text-white dark:bg-sky-300 dark:text-sky-950",
                     )}
                   >
                     {syllable.text}
