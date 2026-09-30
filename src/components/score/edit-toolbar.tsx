@@ -1,6 +1,7 @@
 import { useId, type MouseEvent } from "react";
 import {
   BetweenVerticalStartIcon,
+  Columns3CogIcon,
   LinkIcon,
   Redo2Icon,
   RemoveFormattingIcon,
@@ -34,6 +35,8 @@ export interface EditActions {
   onInsertBeat: () => void;
   onDeleteBeat: () => void;
   onVoice: (voice: number) => void;
+  /** Opens the settings of the bar at the cursor (time, key, repeats...). */
+  onBar: () => void;
   onUndo: () => void;
   onRedo: () => void;
   /** Gives focus back to the score after a toolbar action. */
@@ -41,8 +44,8 @@ export interface EditActions {
 }
 
 /**
- * Edit mode tools: voice, note value, dots, tuplets, rests, ties, beats and
- * undo/redo, plus a status line saying where the cursor is. Buttons don't
+ * Edit mode tools: voice, note value, dots, tuplets, rests, ties, beats, the
+ * bar's settings and undo/redo, plus a status line saying where the cursor is. Buttons don't
  * take focus on click, so typing continues in the score.
  */
 export function EditToolbar({
@@ -207,6 +210,11 @@ export function EditToolbar({
             <Trash2Icon />
           </Button>
         </div>
+
+        <Button variant="outline" size="sm" onClick={actions.onBar} title="Bar settings (⌘B)">
+          <Columns3CogIcon data-icon="inline-start" />
+          Bar…
+        </Button>
 
         <Separator orientation="vertical" className="hidden h-6 sm:block" />
 

@@ -5,6 +5,7 @@
 import { AlphaTabError, importer, Settings, type model } from "@coderline/alphatab";
 
 import { ScoreLoadError } from "@/lib/score/errors";
+import { adoptLyrics } from "@/lib/score/lyrics";
 import type { TrackKind } from "@/lib/score/music";
 import type { TrackMix } from "@/lib/tauri";
 
@@ -145,7 +146,10 @@ export function parseScore(bytes: Uint8Array): LoadedScore {
     throw new ScoreLoadError("The file does not contain any tracks.");
   }
 
-  for (const track of score.tracks) adoptTrack(track);
+  for (const track of score.tracks) {
+    adoptTrack(track);
+    adoptLyrics(track);
+  }
   return { score, summary: summarizeScore(score) };
 }
 

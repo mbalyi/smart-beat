@@ -47,6 +47,31 @@ const PRACTICE_SONG = String.raw`
   :1 (C4 E4 G4) | (A3 C4 E4) | (F3 A3 C4) | (G3 B3 D4)
 `;
 
+/**
+ * One guitar, for the song's structure, techniques, lyrics and chords.
+ * Bars 1–3: an intro repeated once with a 1st and a 2nd ending; bar 4 has
+ * the Segno (verse, in G), bar 5 "To Coda", bar 6 "D.S. al Coda", bar 7 the
+ * Coda at 150 BPM. It plays bars 1 2 1 3 4 5 6 4 5 7: nine bars of 2.4 s at
+ * 100 BPM and the Coda's 1.6 s, 23.2 s in all.
+ */
+const STRUCTURE_SONG = String.raw`
+\title "Structure Song"
+\artist "Smart Beat"
+\tempo 100
+\track "Guitar"
+  \staff {score tabs}
+  \instrument 25
+  \lyrics "Ev-ery bar we sing a lit-tle more of this song for you and me"
+  \chord "G" 3 0 0 0 2 3
+  \section "Intro" \ro :4 3.6 5.6 7.6 5.6 |
+  \ae 1 \rc 2 3.5 5.5 7.5 5.5 |
+  \ae 2 5.4 7.4 9.4 7.4 |
+  \section "Verse" \ks G \jump Segno 3.6{ch "G"} 5.6{pm} 7.6{h} 5.6 |
+  \jump DaCoda 5.3{v} 7.3{b (0 4)} 5.3{sl} 7.3 |
+  \jump DalSegnoAlCoda :2 12.1{nh} 12.2 |
+  \section "Coda" \jump Coda \tempo 150 :1 (3.6 2.5 0.4 0.3 0.2 3.1)
+`;
+
 const settings = new alphaTab.Settings();
 
 function writeGp7(name, tex) {
@@ -71,4 +96,5 @@ function writeCorruptGp5(name) {
 
 mkdirSync(OUTPUT_DIR, { recursive: true });
 writeGp7("practice-song.gp", PRACTICE_SONG);
+writeGp7("structure-song.gp", STRUCTURE_SONG);
 writeCorruptGp5("corrupt.gp5");

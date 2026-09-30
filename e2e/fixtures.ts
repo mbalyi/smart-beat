@@ -16,6 +16,24 @@ type MenuAction =
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
+  | "lyrics"
+  | "bar-settings"
+  | "toggle-repeat-start"
+  | "toggle-repeat-end"
+  | "bend"
+  | "toggle-hammer-pull"
+  | "toggle-slide"
+  | "toggle-vibrato"
+  | "toggle-palm-mute"
+  | "toggle-let-ring"
+  | "toggle-dead-note"
+  | "toggle-ghost-note"
+  | "toggle-harmonic"
+  | "toggle-accent"
+  | "toggle-staccato"
+  | "text"
+  | "chord"
+  | "scale-tool"
   | "toggle-loop"
   | "speed-trainer"
   | "toggle-metronome"
@@ -34,6 +52,10 @@ interface MenuState {
   loop: boolean;
   metronome: boolean;
   countIn: boolean;
+  repeatStart: boolean;
+  repeatEnd: boolean;
+  hasNote: boolean;
+  noteEffects: Record<string, boolean>;
 }
 
 interface MixerSettings {
@@ -203,13 +225,25 @@ export async function waitForAnimations(page: Page) {
   );
 }
 
-/** Runs axe-core against WCAG 2.2 A/AA rules and fails on any violation. */
-export async function expectNoA11yViolations(page: Page) {
+/**
+ * Runs axe-core against WCAG 2.2 A/AA rules and fails on any violation. With
+ * `popup`, only that open popup (a menu or list) is scanned: popups are
+ * rendered outside the page's landmarks by design, so the "region" rule
+ * doesn't apply to them (the page itself is scanned without this option).
+ */
+export async function expectNoA11yViolations(page: Page, { popup }: { popup?: string } = {}) {
   // Colour contrast is only meaningful once colours have settled.
   await waitForAnimations(page);
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
-    .analyze();
+  let builder = new AxeBuilder({ page }).withTags([
+    "wcag2a",
+    "wcag2aa",
+    "wcag21a",
+    "wcag21aa",
+    "wcag22aa",
+    "best-practice",
+  ]);
+  if (popup) builder = builder.include(popup).disableRules(["region"]);
+  const results = await builder.analyze();
   const violations = results.violations.map(
     (v) => `${v.id}: ${v.help} → ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`,
   );

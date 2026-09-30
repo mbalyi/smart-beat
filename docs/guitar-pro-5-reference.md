@@ -6,15 +6,15 @@ Screenshots live in [`docs/assets/gp5`](assets/gp5) and are reference material o
 
 ## Facts
 
-| | |
-|---|---|
-| Vendor | Arobas Music (France) |
-| Released | November 2005 (Windows), July 2006 (Mac OS X, PowerPC and Intel) |
-| Last versions | 5.1, then 5.2 (Windows, Vista support) |
-| File format | `.gp5` (binary, no forward compatibility; GP4 = `.gp4`, GP3 = `.gp3`) |
-| Headline feature | Realistic Sound Engine (RSE): playback from recorded instrument samples instead of plain General MIDI |
-| Sound quality | RSE shipped with 14 sound banks (2 nylon, 2 acoustic, 2 electric, 1 jazz guitar, 4 bass, 3 drum kits), 44.1 kHz / 16 bit |
-| Successors | GP6 (`.gpx`, 2010), GP7 (`.gp`, 2017), GP8 (2022) |
+|                  |                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Vendor           | Arobas Music (France)                                                                                                    |
+| Released         | November 2005 (Windows), July 2006 (Mac OS X, PowerPC and Intel)                                                         |
+| Last versions    | 5.1, then 5.2 (Windows, Vista support)                                                                                   |
+| File format      | `.gp5` (binary, no forward compatibility; GP4 = `.gp4`, GP3 = `.gp3`)                                                    |
+| Headline feature | Realistic Sound Engine (RSE): playback from recorded instrument samples instead of plain General MIDI                    |
+| Sound quality    | RSE shipped with 14 sound banks (2 nylon, 2 acoustic, 2 electric, 1 jazz guitar, 4 bass, 3 drum kits), 44.1 kHz / 16 bit |
+| Successors       | GP6 (`.gpx`, 2010), GP7 (`.gp`, 2017), GP8 (2022)                                                                        |
 
 Sources: [Wikipedia: Guitar Pro](https://en.wikipedia.org/wiki/Guitar_Pro), [PCMag UK review gallery](https://uk.pcmag.com/software/80897/guitar-pro-5?p=3), [Ultimate Guitar thread on reading drum tab](https://www.ultimate-guitar.com/forum/showthread.php?t=1710671), [Audiofanzine](https://en.audiofanzine.com/tablature-editor/arobas-music/Guitar-Pro-5/), [Amazon listing text for 5.1](https://www.amazon.com/Guitar-Pro-5-1-Old-Version/dp/B000GAMYSK).
 
@@ -78,6 +78,7 @@ Users enter drums either on a 5-line drum staff or in tab using the MIDI number 
 Verified items come from the sources above. Items marked (plan) are from `high-level-plan.md` section 2, which itself is marked "to verify".
 
 ### Notation and editing
+
 - Multi-track score with standard notation, tablature and rhythm slashes; two voices per track (GP5 added multi-selection and a second voice per track over GP4). Up to **7 strings** for tab (4-7), plus keyboards, drums, vocals.
 - Key and time signatures, tempo, triplet feel, n-tuplets, ties, grace notes, dynamics, fingering.
 - Repeats, alternate endings, Coda / Segno / D.C. / D.S., section markers, free text, lyrics (up to 5 lines, followed during playback) (plan).
@@ -85,18 +86,22 @@ Verified items come from the sources above. Items marked (plan) are from `high-l
 - Copy/paste of bars and beats, bar-duration check, transpose, automatic conversion between tab and standard notation (plan).
 
 ### Guitar techniques
+
 Bends with an editable curve, slides (legato, shift, in, out), hammer-on/pull-off, vibrato, trills, tremolo picking, palm mute, let ring, dead and ghost notes, staccato, accents, natural/artificial/tapped/pinch/semi harmonics, tapping, slap, pop, whammy bar (dive, dip), rasgueado, pick direction, arpeggio and brush, fade-in, wah open/closed (plan). GP5 added wah-wah, accentuated notes, better artificial harmonics, bend and tremolo improvements.
 
 ### Playback and sound
+
 - **RSE** with sampled guitars, basses and drums, amp and effect chain per track, EQ, human-playing randomisation, auto-accentuation, auto let-ring and brush.
 - Or plain MIDI output (ports and channels per track).
 - Per-track volume, pan, chorus, reverb, phaser; automation of volume, pan, tempo and effects along the timeline (plan).
 - Metronome, count-in, loop, **Speed Trainer** (gradual tempo ramp), speed multiplier.
 
 ### Tools
+
 Virtual fretboard and piano keyboard, scale tool, chord tools, microphone tuner, MIDI step-input from a keyboard, page / screen / "parchment" views, style sheets (plan).
 
 ### Files
+
 - Native: `.gp5`; opens `.gp3`, `.gp4`, `.gtp`.
 - Import/export: MIDI, ASCII tab, MusicXML, Power Tab; export WAV and print (plan). See the format research in [tab-formats-and-sound-research.md](tab-formats-and-sound-research.md).
 

@@ -1,4 +1,4 @@
-import { AppLogo } from "@/components/app-logo";
+import wordmark from "@/assets/smart-beat-wordmark.png";
 import type { AppDialog } from "@/components/app-dialogs";
 import { HelpMenu } from "@/components/help-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -20,9 +20,8 @@ export function AppHeader({
           !wide && "max-w-5xl lg:px-8",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <AppLogo className="size-7 shrink-0" />
-          <span className="truncate font-heading text-base font-semibold">Smart Beat</span>
+        <div className="flex min-w-0 items-center">
+          <img src={wordmark} alt="Smart Beat" draggable={false} className="h-9 w-auto" />
         </div>
         <div className="flex items-center gap-1">
           <ThemeToggle />

@@ -59,6 +59,45 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
         .toBe(true);
     });
 
+    test("fits the effects toolbar, lyrics strip and new dialogs inside the window", async ({
+      app,
+    }) => {
+      await newSong(app);
+      await app.keyboard.press("5");
+      await emitMenuAction(app, "lyrics");
+      const lyrics = app.getByRole("dialog", { name: "Lyrics: Guitar" });
+      await lyrics.getByRole("textbox", { name: "Line 1 text" }).fill("la");
+      await lyrics.getByRole("button", { name: "Apply" }).click();
+      await expect(app.getByRole("toolbar", { name: "Effects" })).toBeVisible();
+      await expect(app.getByRole("region", { name: "Lyrics" })).toBeVisible();
+
+      const overflow = await app.evaluate(() => ({
+        x: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        y: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      }));
+      expect(overflow.x).toBeLessThanOrEqual(0); // the toolbar scrolls sideways inside itself
+      expect(overflow.y).toBeLessThanOrEqual(0);
+      await expect(app.getByRole("button", { name: "Play" })).toBeInViewport();
+
+      for (const [action, name] of [
+        ["bar-settings", "Bar 1"],
+        ["bend", "Bend"],
+        ["chord", "Chord"],
+      ] as const) {
+        await emitMenuAction(app, action);
+        const dialog = app.getByRole("dialog", { name });
+        await expect(dialog).toBeVisible();
+        await expect
+          .poll(async () => {
+            const box = (await dialog.boundingBox())!;
+            return box.x >= 0 && box.x + box.width <= width && box.y + box.height <= height;
+          })
+          .toBe(true);
+        await app.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+      }
+    });
+
     test("fits the mixer inside the window", async ({ app }) => {
       await openSong(app);
       await app.getByRole("button", { name: "Mixer" }).click();

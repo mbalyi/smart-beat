@@ -1,6 +1,8 @@
 //! Keeps the native menu in step with the UI: "Undo Add Note" and "Redo"
-//! labels, check marks for Edit Mode, Loop, Metronome..., and which items are
-//! available (nothing song-related while no song is open).
+//! labels, check marks for Edit Mode, Loop, Metronome, repeats and the note
+//! effects at the edit cursor, and which items are available (nothing
+//! song-related while no song is open, the Bar and Note menus only in edit
+//! mode).
 //!
 //! The UI sends a [`MenuState`] whenever one of these changes; Rust works out
 //! each item's text, enabled and checked state ([`item_states`]) and applies
@@ -9,7 +11,7 @@
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::menu::MenuItemKind;
+use tauri::menu::{Menu, MenuItemKind};
 use tauri::{AppHandle, Runtime};
 
 use crate::error::{CommandError, ErrorKind};
@@ -36,6 +38,35 @@ pub struct MenuState {
     pub looping: bool,
     pub metronome: bool,
     pub count_in: bool,
+    /// The bar at the edit cursor starts a repeat.
+    #[serde(default)]
+    pub repeat_start: bool,
+    /// The bar at the edit cursor ends a repeat.
+    #[serde(default)]
+    pub repeat_end: bool,
+    /// A note is under the edit cursor (or selected), so note effects apply.
+    #[serde(default)]
+    pub has_note: bool,
+    /// Effects of the note under the edit cursor.
+    #[serde(default)]
+    pub note_effects: NoteEffects,
+}
+
+/// Which of the Note menu's effects the note at the edit cursor has.
+/// Mirrored by `NoteEffectFlags` in `src/lib/tauri.ts`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NoteEffects {
+    pub hammer_pull: bool,
+    pub slide: bool,
+    pub vibrato: bool,
+    pub palm_mute: bool,
+    pub let_ring: bool,
+    pub dead_note: bool,
+    pub ghost_note: bool,
+    pub harmonic: bool,
+    pub accent: bool,
+    pub staccato: bool,
 }
 
 impl MenuState {
@@ -74,6 +105,31 @@ pub fn history_text(action: MenuAction, label: Option<&str>) -> String {
     }
 }
 
+/// Whether a check item is on. Every check item has its own flag.
+pub fn is_checked(state: &MenuState, action: MenuAction) -> bool {
+    let effects = &state.note_effects;
+    match action {
+        MenuAction::ToggleEditMode => state.edit_mode,
+        MenuAction::ToggleFretboard => state.fretboard,
+        MenuAction::ToggleRepeatStart => state.repeat_start,
+        MenuAction::ToggleRepeatEnd => state.repeat_end,
+        MenuAction::ToggleHammerPull => effects.hammer_pull,
+        MenuAction::ToggleSlide => effects.slide,
+        MenuAction::ToggleVibrato => effects.vibrato,
+        MenuAction::TogglePalmMute => effects.palm_mute,
+        MenuAction::ToggleLetRing => effects.let_ring,
+        MenuAction::ToggleDeadNote => effects.dead_note,
+        MenuAction::ToggleGhostNote => effects.ghost_note,
+        MenuAction::ToggleHarmonic => effects.harmonic,
+        MenuAction::ToggleAccent => effects.accent,
+        MenuAction::ToggleStaccato => effects.staccato,
+        MenuAction::ToggleLoop => state.looping,
+        MenuAction::ToggleMetronome => state.metronome,
+        MenuAction::ToggleCountIn => state.count_in,
+        _ => false,
+    }
+}
+
 /// Text, enabled and checked state of every item that depends on the UI.
 pub fn item_states(state: &MenuState) -> Vec<ItemState> {
     MenuAction::ALL
@@ -81,6 +137,7 @@ pub fn item_states(state: &MenuState) -> Vec<ItemState> {
         .filter(|action| action.needs_song())
         .map(|action| {
             let song = state.song_open;
+            let editing = song && state.edit_mode;
             let (text, enabled) = match action {
                 MenuAction::Undo => (
                     history_text(action, state.undo.as_deref()),
@@ -91,16 +148,19 @@ pub fn item_states(state: &MenuState) -> Vec<ItemState> {
                     song && state.redo.is_some(),
                 ),
                 MenuAction::RemoveTrack => (action.label().into(), song && state.can_remove_track),
+                _ if action.needs_note() => (action.label().into(), editing && state.has_note),
+                _ if action.needs_edit_mode() => (action.label().into(), editing),
                 _ => (action.label().into(), song),
             };
-            let on = match action {
-                MenuAction::ToggleEditMode => state.edit_mode,
-                MenuAction::ToggleFretboard => state.fretboard,
-                MenuAction::ToggleLoop => state.looping,
-                MenuAction::ToggleMetronome => state.metronome,
-                _ => state.count_in,
+            // Edit-mode items show no check marks while they are unavailable.
+            let shown = if action.needs_edit_mode() {
+                editing
+            } else {
+                song
             };
-            let checked = action.is_toggle().then_some(song && on);
+            let checked = action
+                .is_toggle()
+                .then_some(shown && is_checked(state, action));
             ItemState {
                 action,
                 text,
@@ -126,7 +186,7 @@ impl MenuStateStore {
 }
 
 /// Finds an item anywhere in the menu (`Menu::get` only looks at the top level).
-fn find_in<R: Runtime>(items: Vec<MenuItemKind<R>>, id: &str) -> Option<MenuItemKind<R>> {
+pub fn find_in<R: Runtime>(items: Vec<MenuItemKind<R>>, id: &str) -> Option<MenuItemKind<R>> {
     for item in items {
         if item.id() == id {
             return Some(item);
@@ -141,14 +201,18 @@ fn find_in<R: Runtime>(items: Vec<MenuItemKind<R>>, id: &str) -> Option<MenuItem
     None
 }
 
-fn find_item<R: Runtime>(app: &AppHandle<R>, id: &str) -> Option<MenuItemKind<R>> {
-    find_in(app.menu()?.items().ok()?, id)
+/// Applies `state` to the app's menu bar. Does nothing without one (e.g. in tests).
+pub fn apply<R: Runtime>(app: &AppHandle<R>, state: &MenuState) -> tauri::Result<()> {
+    match app.menu() {
+        Some(menu) => apply_to(&menu, state),
+        None => Ok(()),
+    }
 }
 
-/// Applies `state` to the menu bar. Does nothing without one (e.g. in tests).
-pub fn apply<R: Runtime>(app: &AppHandle<R>, state: &MenuState) -> tauri::Result<()> {
+/// Applies `state` to `menu`: item texts, enabled states and check marks.
+pub fn apply_to<R: Runtime>(menu: &Menu<R>, state: &MenuState) -> tauri::Result<()> {
     for item in item_states(state) {
-        match find_item(app, item.action.id()) {
+        match find_in(menu.items()?, item.action.id()) {
             Some(MenuItemKind::MenuItem(menu_item)) => {
                 menu_item.set_text(&item.text)?;
                 menu_item.set_enabled(item.enabled)?;
@@ -293,6 +357,132 @@ mod tests {
             ..open_song()
         };
         assert!(ok.validate().is_ok());
+    }
+
+    #[test]
+    fn deserializes_edit_mode_details_and_defaults_them() {
+        let state: MenuState = serde_json::from_value(serde_json::json!({
+            "songOpen": true,
+            "undo": null,
+            "redo": null,
+            "canRemoveTrack": false,
+            "editMode": true,
+            "fretboard": false,
+            "loop": false,
+            "metronome": false,
+            "countIn": false,
+            "repeatStart": true,
+            "hasNote": true,
+            "noteEffects": { "palmMute": true, "deadNote": true },
+        }))
+        .unwrap();
+        assert!(state.repeat_start && !state.repeat_end && state.has_note);
+        assert!(state.note_effects.palm_mute && state.note_effects.dead_note);
+        assert!(!state.note_effects.vibrato);
+
+        // Older payloads without them still work.
+        let old: MenuState = serde_json::from_value(serde_json::json!({
+            "songOpen": true, "undo": null, "redo": null, "canRemoveTrack": false,
+            "editMode": false, "fretboard": false, "loop": false, "metronome": false,
+            "countIn": false,
+        }))
+        .unwrap();
+        assert_eq!(old.note_effects, NoteEffects::default());
+    }
+
+    #[test]
+    fn every_check_item_has_its_own_flag() {
+        // Turn on one flag at a time: exactly one check item follows it.
+        let mut flags: Vec<MenuState> = Vec::new();
+        let base = MenuState {
+            edit_mode: true,
+            has_note: true,
+            ..open_song()
+        };
+        for set in [
+            |s: &mut MenuState| s.fretboard = true,
+            |s: &mut MenuState| s.repeat_start = true,
+            |s: &mut MenuState| s.repeat_end = true,
+            |s: &mut MenuState| s.looping = true,
+            |s: &mut MenuState| s.metronome = true,
+            |s: &mut MenuState| s.count_in = true,
+            |s: &mut MenuState| s.note_effects.hammer_pull = true,
+            |s: &mut MenuState| s.note_effects.slide = true,
+            |s: &mut MenuState| s.note_effects.vibrato = true,
+            |s: &mut MenuState| s.note_effects.palm_mute = true,
+            |s: &mut MenuState| s.note_effects.let_ring = true,
+            |s: &mut MenuState| s.note_effects.dead_note = true,
+            |s: &mut MenuState| s.note_effects.ghost_note = true,
+            |s: &mut MenuState| s.note_effects.harmonic = true,
+            |s: &mut MenuState| s.note_effects.accent = true,
+            |s: &mut MenuState| s.note_effects.staccato = true,
+        ] {
+            let mut state = base.clone();
+            set(&mut state);
+            flags.push(state);
+        }
+        let mut checked_items = Vec::new();
+        for state in &flags {
+            let on: Vec<_> = item_states(state)
+                .into_iter()
+                .filter(|i| i.checked == Some(true) && i.action != MenuAction::ToggleEditMode)
+                .map(|i| i.action)
+                .collect();
+            assert_eq!(on.len(), 1, "{state:?} checks {on:?}");
+            checked_items.push(on[0]);
+        }
+        // Together they cover every check item except Edit Mode (on in `base`).
+        let toggles = MenuAction::ALL
+            .into_iter()
+            .filter(|a| a.is_toggle() && *a != MenuAction::ToggleEditMode)
+            .count();
+        checked_items.sort_by_key(|a| a.id());
+        checked_items.dedup();
+        assert_eq!(checked_items.len(), toggles);
+    }
+
+    #[test]
+    fn bar_and_note_items_need_edit_mode_and_notes_need_a_note() {
+        let browsing = item_states(&MenuState {
+            repeat_start: true,
+            has_note: true,
+            ..open_song()
+        });
+        assert!(!state_for(&browsing, MenuAction::BarSettings).enabled);
+        assert!(!state_for(&browsing, MenuAction::Chord).enabled);
+        assert_eq!(
+            state_for(&browsing, MenuAction::ToggleRepeatStart).checked,
+            Some(false)
+        );
+        assert!(state_for(&browsing, MenuAction::Lyrics).enabled);
+        assert!(state_for(&browsing, MenuAction::ScaleTool).enabled);
+
+        let on_a_rest = item_states(&MenuState {
+            edit_mode: true,
+            ..open_song()
+        });
+        assert!(state_for(&on_a_rest, MenuAction::BarSettings).enabled);
+        assert!(state_for(&on_a_rest, MenuAction::Text).enabled);
+        assert!(!state_for(&on_a_rest, MenuAction::Bend).enabled);
+        assert!(!state_for(&on_a_rest, MenuAction::TogglePalmMute).enabled);
+
+        let on_a_note = item_states(&MenuState {
+            edit_mode: true,
+            has_note: true,
+            note_effects: NoteEffects {
+                palm_mute: true,
+                ..NoteEffects::default()
+            },
+            ..open_song()
+        });
+        assert!(state_for(&on_a_note, MenuAction::Bend).enabled);
+        let palm_mute = state_for(&on_a_note, MenuAction::TogglePalmMute);
+        assert!(palm_mute.enabled);
+        assert_eq!(palm_mute.checked, Some(true));
+        assert_eq!(
+            state_for(&on_a_note, MenuAction::ToggleVibrato).checked,
+            Some(false)
+        );
     }
 
     #[test]

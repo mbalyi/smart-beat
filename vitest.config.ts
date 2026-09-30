@@ -11,6 +11,8 @@ export default mergeConfig(
       setupFiles: ["./src/test/setup.ts"],
       include: ["src/**/*.test.{ts,tsx}"],
       css: false,
+      // Dialogs with long lists (Radix selects) are slow on the CI runners.
+      testTimeout: 20_000,
       restoreMocks: true,
       unstubGlobals: true,
       coverage: {

@@ -72,6 +72,79 @@ test.describe("accessibility", () => {
     });
   }
 
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`structure, effects, lyrics and chord screens have no WCAG violations in ${colorScheme} mode`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await newSong(app);
+      await app.keyboard.press("5");
+      await app.keyboard.press("p"); // palm mute: a pressed toggle in the effects toolbar
+      await expect(app.getByRole("toolbar", { name: "Effects" })).toBeVisible();
+      await expectNoA11yViolations(app);
+
+      await app
+        .getByRole("toolbar", { name: "Effects" })
+        .getByRole("button", { name: "Slide" })
+        .click();
+      await expect(app.getByRole("menu")).toBeVisible();
+      await expectNoA11yViolations(app, { popup: "[role='menu']" });
+      await app.keyboard.press("Escape");
+
+      for (const [action, name] of [
+        ["bar-settings", "Bar 1"],
+        ["bend", "Bend"],
+        ["chord", "Chord"],
+        ["text", "Text"],
+        ["lyrics", "Lyrics: Guitar"],
+      ] as const) {
+        await emitMenuAction(app, action);
+        const dialog = app.getByRole("dialog", { name });
+        await expect(dialog).toBeVisible();
+        await dialog.evaluate((el) =>
+          Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+        );
+        await expectNoA11yViolations(app);
+        await app.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+      }
+
+      // Lyrics strip and scale tool.
+      await emitMenuAction(app, "lyrics");
+      const lyrics = app.getByRole("dialog", { name: "Lyrics: Guitar" });
+      await lyrics.getByRole("textbox", { name: "Line 1 text" }).fill("la la");
+      await lyrics.getByRole("button", { name: "Apply" }).click();
+      await emitMenuAction(app, "scale-tool");
+      await app.getByRole("combobox", { name: "Scale" }).click();
+      await app.getByRole("option", { name: "Blues" }).click();
+      await expect(app.getByRole("region", { name: "Lyrics" })).toBeVisible();
+      await expectNoA11yViolations(app);
+    });
+  }
+
+  test("the bend editor can be used with the keyboard", async ({ app, browserName }) => {
+    await newSong(app);
+    await app.keyboard.press("7");
+    await app.keyboard.press("Shift+B");
+    const dialog = app.getByRole("dialog", { name: "Bend" });
+    await expect(dialog).toBeVisible();
+    const position = dialog.getByRole("spinbutton", { name: "Point 2 position" });
+    await position.focus();
+    await app.keyboard.press("Control+a");
+    await app.keyboard.type("20");
+    await app.keyboard.press(tabKey(browserName));
+    await expect(dialog.getByRole("combobox", { name: "Point 2 pitch" })).toBeFocused();
+    await app.keyboard.press("Enter");
+    await app.getByRole("option", { name: "+1½ steps" }).press("Enter");
+    await expect(dialog.getByRole("img", { name: /Curve:/ })).toHaveAccessibleName(
+      "Curve: full step up",
+    );
+    await dialog.getByRole("button", { name: "Apply" }).press("Enter");
+    await expect(dialog).toBeHidden();
+    // Focus goes back to the score.
+    await expect(scoreRegion(app)).toBeFocused();
+  });
+
   test("the song screen can be used with the keyboard", async ({ app, browserName }) => {
     await openSong(app);
     const tab = tabKey(browserName);

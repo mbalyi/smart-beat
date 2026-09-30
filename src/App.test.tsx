@@ -42,7 +42,10 @@ describe("App", () => {
   it("renders the app shell with landmarks", async () => {
     await renderApp();
 
-    expect(screen.getByRole("banner")).toHaveTextContent("Smart Beat");
+    // The title is the wordmark image.
+    expect(
+      within(screen.getByRole("banner")).getByRole("img", { name: "Smart Beat" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("contentinfo")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();

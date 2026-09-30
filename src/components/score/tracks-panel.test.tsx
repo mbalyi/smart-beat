@@ -12,6 +12,7 @@ function setup(tracks = SUMMARY.tracks) {
     onDuplicate: vi.fn(),
     onRemove: vi.fn(),
     onSettings: vi.fn(),
+    onLyrics: vi.fn(),
     onAdd: vi.fn(),
   };
   const utils = renderWithProviders(
@@ -54,6 +55,12 @@ describe("TracksPanel", () => {
     expect(actions.onRemove).toHaveBeenCalledWith(3);
     expect(actions.onSettings).toHaveBeenCalledWith(0);
     expect(actions.onAdd).toHaveBeenCalledOnce();
+  });
+
+  it("opens a track's lyrics", async () => {
+    const { user, actions } = setup();
+    await user.click(screen.getByRole("button", { name: "Lyrics… for Piano" }));
+    expect(actions.onLyrics).toHaveBeenCalledWith(3);
   });
 
   it("disables what can't be done", () => {

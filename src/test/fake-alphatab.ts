@@ -33,6 +33,7 @@ export class FakeAlphaTabApi {
     playbackRange: { startTick: number; endTick: number } | null;
   }>();
   playerFinished = new Emitter();
+  midiLoad = new Emitter<unknown>();
   player = {
     /** The synthesizer (worker) started: SoundFonts can be loaded. */
     ready: new Emitter(),

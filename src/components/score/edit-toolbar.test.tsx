@@ -26,6 +26,7 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     onInsertBeat: vi.fn(),
     onDeleteBeat: vi.fn(),
     onVoice: vi.fn(),
+    onBar: vi.fn(),
     onUndo: vi.fn(),
     onRedo: vi.fn(),
     onDone: vi.fn(),
@@ -87,6 +88,12 @@ describe("EditToolbar", () => {
     expect(actions.onDone).toHaveBeenCalledTimes(8);
     expect(screen.getByRole("button", { name: "Dot" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Tie" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("opens the bar's settings", async () => {
+    const { user, actions } = setup();
+    await user.click(screen.getByRole("button", { name: "Bar…" }));
+    expect(actions.onBar).toHaveBeenCalled();
   });
 
   it("chooses tuplets", async () => {

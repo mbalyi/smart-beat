@@ -19,6 +19,7 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
+import { approximateSilentEffects } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
@@ -238,6 +239,12 @@ export class ScorePlayer {
     api.playerPositionChanged.on((e) =>
       this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo),
     );
+    // alphaTab leaves slap, pop, tapping, pick strokes and wah silent: make them
+    // audible in the MIDI it just generated (its tick lookup is ready by now).
+    api.midiLoad.on((file) => {
+      const lookup = api.tickCache;
+      if (lookup) approximateSilentEffects(file, lookup);
+    });
     api.playedBeatChanged.on((beat) => this.reportBar(beat.voice.bar.index));
     api.activeBeatsChanged.on((e) => {
       if (this.playing) callbacks.onActiveBeatsChange?.(this.ownBeats(e.activeBeats));
