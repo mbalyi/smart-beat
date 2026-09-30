@@ -52,3 +52,49 @@ describe("Welcome", () => {
     await expectNoA11yViolations();
   });
 });
+
+describe("Welcome: recent songs", () => {
+  const recent = [
+    "/Users/me/Songs/riff.gp5",
+    "/Users/me/Songs/solo.gp",
+    "C:\\Music\\tabs\\intro.gp4",
+  ];
+
+  it("shows nothing without recent songs", () => {
+    renderWelcome();
+    expect(screen.queryByRole("heading", { name: "Recent songs" })).not.toBeInTheDocument();
+  });
+
+  it("lists the recent songs with their folders and opens one", async () => {
+    const onOpenRecent = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        recent={recent}
+        onOpenRecent={onOpenRecent}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { level: 2, name: "Recent songs" })).toBeInTheDocument();
+    const riff = screen.getByRole("button", { name: /riff\.gp5/ });
+    expect(riff).toHaveTextContent("Songs");
+    expect(screen.getByRole("button", { name: /intro\.gp4/ })).toHaveTextContent("tabs");
+    await user.click(riff);
+    expect(onOpenRecent).toHaveBeenCalledWith("/Users/me/Songs/riff.gp5");
+  });
+
+  it("has no accessibility violations", async () => {
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        recent={recent}
+        onOpenRecent={vi.fn()}
+      />,
+    );
+    await expectNoA11yViolations();
+  });
+});

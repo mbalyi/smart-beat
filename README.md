@@ -2,7 +2,7 @@
 
 A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with optional **self-hosted AI** that turns a hummed melody into drums, bass, piano and guitar parts. Runs on macOS (Apple Silicon and Intel), Windows and Linux.
 
-> **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), with a mixer, practice tools and a fretboard. Saving (GP5 and a native format, [#15](https://github.com/mbalyi/smart-beat/issues/15)) and the AI features are next: until then, changes last until you open another song. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3) and in [`high-level-plan.md`](high-level-plan.md).
+> **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`) and to Guitar Pro 5. It exports MusicXML, MIDI and ASCII tab. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3) and in [`high-level-plan.md`](high-level-plan.md).
 
 ## Features
 

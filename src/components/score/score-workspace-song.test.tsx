@@ -27,6 +27,7 @@ async function makeSong(): Promise<ScoreDocument> {
   return {
     id: 1,
     name: "practice-song.gp",
+    path: null,
     fileKey: await fileKey(bytes),
     score,
     summary,

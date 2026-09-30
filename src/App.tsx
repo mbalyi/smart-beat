@@ -11,6 +11,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useMenuActions } from "@/hooks/use-menu-actions";
+import { useRecentFiles } from "@/hooks/use-recent-files";
 import { firstScoreFile, useScoreDocument } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
 import { errorText } from "@/lib/errors";
@@ -29,7 +30,7 @@ export function App() {
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const { toggleTheme } = useTheme();
-  const { song, openPath, openFile, newSong } = useScoreDocument();
+  const { song, openPath, openFile, newSong, markSaved, recentsVersion } = useScoreDocument();
   const fileInputRef = useRef<HTMLInputElement>(null);
   /**
    * The open song has changes that would be lost by opening another one. A
@@ -70,6 +71,8 @@ export function App() {
 
   const open = () => replaceSong(() => void showOpenDialog());
   const startNewSong = () => replaceSong(() => void newSong());
+
+  const recent = useRecentFiles((path) => replaceSong(() => void openPath(path)), recentsVersion);
 
   const dragging = useFileDrop({
     onDropPaths: (paths) => {
@@ -135,6 +138,7 @@ export function App() {
                 song={song}
                 onOpen={open}
                 onEditedChange={setEdited}
+                onSaved={markSaved}
                 startEditing={song.isNew}
               />
             </Suspense>
@@ -143,6 +147,8 @@ export function App() {
               onOpenFile={open}
               onNewSong={startNewSong}
               onShowShortcuts={() => showDialog("shortcuts")}
+              recent={recent}
+              onOpenRecent={(path) => replaceSong(() => void openPath(path))}
             />
           )}
         </main>

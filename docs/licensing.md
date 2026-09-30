@@ -103,6 +103,7 @@ Weights are licensed separately from the code that runs them. The paid tier may 
 1. Specify the format only from public, non-code documentation: community format descriptions, and our own observations of files written by Guitar Pro or TuxGuitar.
 2. The person implementing the writer must not read TuxGuitar or PyGuitarPro source code for that feature.
 3. Test by round-tripping: files we write must open in Guitar Pro, TuxGuitar and alphaTab. Running their binaries as black boxes is fine.
+4. alphaTab's GP3–GP5 importer (MPL-2.0, allowed) may be read to confirm field order, but no code is copied from it. The first GP5 writer (issue #15) was made this way: see [file-formats.md](file-formats.md). Opening its files in Guitar Pro 5 and TuxGuitar by hand is still to do.
 
 ## Obligations checklist for each release
 

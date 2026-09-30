@@ -34,6 +34,11 @@ export class History<Extra> {
     return this.undone.at(-1)?.label ?? null;
   }
 
+  /** The most recent edit that has not been undone, or null at the start. Identifies a state. */
+  get top(): HistoryEntry<Extra> | null {
+    return this.done.at(-1) ?? null;
+  }
+
   /** Number of edits that can be undone. */
   get depth(): number {
     return this.done.length;

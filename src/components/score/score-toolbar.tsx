@@ -1,4 +1,4 @@
-import { useId, type Ref } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 import {
   FolderOpenIcon,
   KeyboardMusicIcon,
@@ -64,6 +64,7 @@ export function ScoreToolbar({
   instrumentView = false,
   instrumentLabel = "Fretboard",
   onToggleInstrumentView,
+  actions,
 }: {
   /** File name, shown when the song has no title. */
   name: string;
@@ -92,6 +93,8 @@ export function ScoreToolbar({
   /** "Fretboard", "Keyboard" or "Drum pads", for the shown track. */
   instrumentLabel?: string;
   onToggleInstrumentView?: () => void;
+  /** Save, export and tools menus. */
+  actions?: ReactNode;
 }) {
   const trackLabelId = useId();
   const track = summary.tracks[trackIndex];
@@ -132,6 +135,7 @@ export function ScoreToolbar({
               Edit
             </Toggle>
           )}
+          {actions}
           {onOpenTracks && (
             <Button ref={tracksButtonRef} variant="outline" onClick={onOpenTracks} title="Tracks">
               <ListMusicIcon data-icon="inline-start" />

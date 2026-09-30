@@ -62,6 +62,7 @@ export function ScoreView({
   rendering,
   editing = false,
   overlay = null,
+  problemRects = [],
   describedBy,
 }: {
   viewportRef: Ref<HTMLDivElement>;
@@ -73,6 +74,8 @@ export function ScoreView({
   /** Edit mode: the region takes the editor's keys. */
   editing?: boolean;
   overlay?: EditOverlay | null;
+  /** Bars with the wrong length, highlighted (also outside edit mode). */
+  problemRects?: Rect[];
   /** Id of the element describing the editor's keys and state. */
   describedBy?: string;
 }) {
@@ -106,6 +109,18 @@ export function ScoreView({
         >
           <div className="relative">
             <div ref={surfaceRef} />
+            {problemRects.length > 0 && (
+              <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden="true">
+                {problemRects.map((rect, i) => (
+                  <div
+                    key={i}
+                    data-testid="bar-problem"
+                    className="absolute rounded-sm border-2 border-amber-500 bg-amber-400/15"
+                    style={box(rect)}
+                  />
+                ))}
+              </div>
+            )}
             {editing && overlay && <EditOverlayLayer overlay={overlay} />}
           </div>
         </div>

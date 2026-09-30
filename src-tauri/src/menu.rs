@@ -9,9 +9,13 @@
 //! [`crate::menu_state`].
 
 use serde::Serialize;
-use tauri::menu::{CheckMenuItem, Menu, MenuBuilder, MenuEvent, MenuItem, SubmenuBuilder};
+use tauri::menu::{
+    CheckMenuItem, Menu, MenuBuilder, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
+    SubmenuBuilder,
+};
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewWindow};
 
+use crate::recent::RecentStore;
 use crate::zoom::{ZoomChange, ZoomState};
 
 /// Event name used to forward menu actions to the webview.
@@ -26,6 +30,12 @@ pub const MAIN_WINDOW: &str = "main";
 pub enum MenuAction {
     NewSong,
     Open,
+    ClearRecent,
+    Save,
+    SaveAs,
+    ExportMusicXml,
+    ExportMidi,
+    ExportAsciiTab,
     CloseWindow,
     Quit,
     Undo,
@@ -42,7 +52,9 @@ pub enum MenuAction {
     RemoveTrack,
     TrackSettings,
     Lyrics,
+    Transpose,
     BarSettings,
+    FixBarDurations,
     ToggleRepeatStart,
     ToggleRepeatEnd,
     Bend,
@@ -69,9 +81,15 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 50] = [
         Self::NewSong,
         Self::Open,
+        Self::ClearRecent,
+        Self::Save,
+        Self::SaveAs,
+        Self::ExportMusicXml,
+        Self::ExportMidi,
+        Self::ExportAsciiTab,
         Self::CloseWindow,
         Self::Quit,
         Self::Undo,
@@ -88,7 +106,9 @@ impl MenuAction {
         Self::RemoveTrack,
         Self::TrackSettings,
         Self::Lyrics,
+        Self::Transpose,
         Self::BarSettings,
+        Self::FixBarDurations,
         Self::ToggleRepeatStart,
         Self::ToggleRepeatEnd,
         Self::Bend,
@@ -119,6 +139,12 @@ impl MenuAction {
         match self {
             Self::NewSong => "file.new",
             Self::Open => "file.open",
+            Self::ClearRecent => "file.clear-recent",
+            Self::Save => "file.save",
+            Self::SaveAs => "file.save-as",
+            Self::ExportMusicXml => "file.export-musicxml",
+            Self::ExportMidi => "file.export-midi",
+            Self::ExportAsciiTab => "file.export-ascii-tab",
             Self::CloseWindow => "file.close-window",
             Self::Quit => "file.quit",
             Self::Undo => "edit.undo",
@@ -135,7 +161,9 @@ impl MenuAction {
             Self::RemoveTrack => "track.remove",
             Self::TrackSettings => "track.settings",
             Self::Lyrics => "track.lyrics",
+            Self::Transpose => "track.transpose",
             Self::BarSettings => "bar.settings",
+            Self::FixBarDurations => "bar.fix-durations",
             Self::ToggleRepeatStart => "bar.toggle-repeat-start",
             Self::ToggleRepeatEnd => "bar.toggle-repeat-end",
             Self::Bend => "note.bend",
@@ -169,7 +197,16 @@ impl MenuAction {
     /// Title of the submenu the item lives in (the macOS app menu counts as "Smart Beat").
     pub fn menu(self) -> &'static str {
         match self {
-            Self::NewSong | Self::Open | Self::CloseWindow | Self::Quit => "File",
+            Self::NewSong
+            | Self::Open
+            | Self::ClearRecent
+            | Self::Save
+            | Self::SaveAs
+            | Self::ExportMusicXml
+            | Self::ExportMidi
+            | Self::ExportAsciiTab
+            | Self::CloseWindow
+            | Self::Quit => "File",
             Self::Undo | Self::Redo | Self::ToggleEditMode => "Edit",
             Self::ToggleTheme
             | Self::ToggleFretboard
@@ -182,8 +219,12 @@ impl MenuAction {
             | Self::DuplicateTrack
             | Self::RemoveTrack
             | Self::TrackSettings
-            | Self::Lyrics => "Track",
-            Self::BarSettings | Self::ToggleRepeatStart | Self::ToggleRepeatEnd => "Bar",
+            | Self::Lyrics
+            | Self::Transpose => "Track",
+            Self::BarSettings
+            | Self::FixBarDurations
+            | Self::ToggleRepeatStart
+            | Self::ToggleRepeatEnd => "Bar",
             Self::Bend
             | Self::ToggleHammerPull
             | Self::ToggleSlide
@@ -208,6 +249,12 @@ impl MenuAction {
         match self {
             Self::NewSong => "New",
             Self::Open => "Open…",
+            Self::ClearRecent => "Clear Menu",
+            Self::Save => "Save",
+            Self::SaveAs => "Save As…",
+            Self::ExportMusicXml => "MusicXML…",
+            Self::ExportMidi => "MIDI…",
+            Self::ExportAsciiTab => "ASCII Tab…",
             Self::CloseWindow => "Close Window",
             Self::Quit => "Quit Smart Beat",
             Self::Undo => "Undo",
@@ -224,7 +271,9 @@ impl MenuAction {
             Self::RemoveTrack => "Remove Track",
             Self::TrackSettings => "Track Settings…",
             Self::Lyrics => "Lyrics…",
+            Self::Transpose => "Transpose…",
             Self::BarSettings => "Bar Settings…",
+            Self::FixBarDurations => "Fix Bar Durations…",
             Self::ToggleRepeatStart => "Repeat Start",
             Self::ToggleRepeatEnd => "Repeat End",
             Self::Bend => "Bend…",
@@ -256,6 +305,8 @@ impl MenuAction {
         match self {
             Self::NewSong => Some("CmdOrCtrl+N"),
             Self::Open => Some("CmdOrCtrl+O"),
+            Self::Save => Some("CmdOrCtrl+S"),
+            Self::SaveAs => Some("CmdOrCtrl+Shift+S"),
             Self::CloseWindow => Some("CmdOrCtrl+W"),
             Self::Quit => Some("CmdOrCtrl+Q"),
             Self::Undo => Some("CmdOrCtrl+Z"),
@@ -299,6 +350,12 @@ impl MenuAction {
             | Self::SpeedTrainer
             | Self::ToggleCountIn
             | Self::Licenses
+            | Self::ClearRecent
+            | Self::ExportMusicXml
+            | Self::ExportMidi
+            | Self::ExportAsciiTab
+            | Self::Transpose
+            | Self::FixBarDurations
             | Self::About => None,
         }
     }
@@ -313,6 +370,7 @@ impl MenuAction {
             self,
             Self::CloseWindow
                 | Self::Quit
+                | Self::ClearRecent
                 | Self::ZoomIn
                 | Self::ZoomOut
                 | Self::ZoomReset
@@ -368,6 +426,12 @@ impl MenuAction {
             self,
             Self::Undo
                 | Self::Redo
+                | Self::Save
+                | Self::SaveAs
+                | Self::ExportMusicXml
+                | Self::ExportMidi
+                | Self::ExportAsciiTab
+                | Self::Transpose
                 | Self::ToggleEditMode
                 | Self::ToggleFretboard
                 | Self::AddTrack
@@ -533,6 +597,16 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let shortcuts = item(app, Shortcuts)?;
     let licenses = item(app, Licenses)?;
 
+    crate::recent::ensure_store(app)?;
+    let recent = Submenu::with_id(app, RECENT_MENU_ID, "Open Recent", true)?;
+    fill_recent_menu(app, &recent, &app.state::<RecentStore>().load())?;
+    app.manage(RecentMenu(recent.clone()));
+    let export = SubmenuBuilder::new(app, "Export")
+        .item(&item(app, ExportMusicXml)?)
+        .item(&item(app, ExportMidi)?)
+        .item(&item(app, ExportAsciiTab)?)
+        .build()?;
+
     let mut menu = MenuBuilder::new(app);
 
     // macOS convention: an app menu named after the app, holding About and Quit.
@@ -555,6 +629,11 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         SubmenuBuilder::new(app, "File")
             .item(&new_song)
             .item(&open)
+            .item(&recent)
+            .separator()
+            .item(&item(app, Save)?)
+            .item(&item(app, SaveAs)?)
+            .item(&export)
             .separator()
             .close_window()
             .build()?
@@ -562,6 +641,11 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         SubmenuBuilder::new(app, "File")
             .item(&new_song)
             .item(&open)
+            .item(&recent)
+            .separator()
+            .item(&item(app, Save)?)
+            .item(&item(app, SaveAs)?)
+            .item(&export)
             .separator()
             .item(&item(app, CloseWindow)?)
             .item(&item(app, Quit)?)
@@ -603,10 +687,13 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .separator()
         .item(&item(app, TrackSettings)?)
         .item(&item(app, Lyrics)?)
+        .separator()
+        .item(&item(app, Transpose)?)
         .build()?;
 
     let bar = SubmenuBuilder::new(app, "Bar")
         .item(&item(app, BarSettings)?)
+        .item(&item(app, FixBarDurations)?)
         .separator()
         .item(&check_item(app, ToggleRepeatStart)?)
         .item(&check_item(app, ToggleRepeatEnd)?)
@@ -652,8 +739,99 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .build()
 }
 
+/// Id of the File › Open Recent submenu.
+pub const RECENT_MENU_ID: &str = "file.recent";
+
+/// Prefix of the ids of the recent file items (`file.recent.0`, `file.recent.1`...).
+const RECENT_ITEM_PREFIX: &str = "file.recent.";
+
+/// Event sent to the webview when the recent files list changed.
+pub const RECENT_CHANGED_EVENT: &str = "recent-changed";
+
+/// Event sent to the webview with the path of the recent file to open.
+pub const OPEN_RECENT_EVENT: &str = "open-recent";
+
+/// The Open Recent submenu, kept as state so it can be refilled.
+pub struct RecentMenu<R: Runtime>(pub Submenu<R>);
+
+/// Menu text for a recent file: its name, with the folder to tell equal names apart.
+pub fn recent_label(path: &str) -> String {
+    let path = std::path::Path::new(path);
+    let name = path
+        .file_name()
+        .map_or_else(|| path.to_string_lossy(), |n| n.to_string_lossy())
+        .into_owned();
+    match path.parent().and_then(|p| p.file_name()) {
+        Some(folder) => format!("{name} — {}", folder.to_string_lossy()),
+        None => name,
+    }
+}
+
+/// Replaces the items of the Open Recent submenu with `paths`.
+pub fn fill_recent_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    menu: &Submenu<R>,
+    paths: &[String],
+) -> tauri::Result<()> {
+    for existing in menu.items()? {
+        menu.remove(&existing)?;
+    }
+    if paths.is_empty() {
+        menu.append(&MenuItem::with_id(
+            app,
+            "file.recent.none",
+            "No Recent Files",
+            false,
+            None::<&str>,
+        )?)?;
+    }
+    for (index, path) in paths.iter().enumerate() {
+        menu.append(&MenuItem::with_id(
+            app,
+            format!("{RECENT_ITEM_PREFIX}{index}"),
+            recent_label(path),
+            true,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    let clear = item(app, MenuAction::ClearRecent)?;
+    clear.set_enabled(!paths.is_empty())?;
+    menu.append(&clear)?;
+    Ok(())
+}
+
+/// Shows the current recent files in the menu bar.
+pub fn refresh_recent_menu<R: Runtime>(app: &AppHandle<R>, paths: &[String]) {
+    let Some(menu) = app.try_state::<RecentMenu<R>>() else {
+        return; // no menu bar (tests)
+    };
+    if let Err(error) = fill_recent_menu(app, &menu.0, paths) {
+        eprintln!("could not update Open Recent: {error}");
+    }
+}
+
+fn open_recent<R: Runtime>(app: &AppHandle<R>, id: &str) -> tauri::Result<()> {
+    let Some(index) = id
+        .strip_prefix(RECENT_ITEM_PREFIX)
+        .and_then(|n| n.parse::<usize>().ok())
+    else {
+        return Ok(());
+    };
+    if let Some(path) = app.state::<RecentStore>().load().get(index) {
+        app.emit(OPEN_RECENT_EVENT, path)?;
+    }
+    Ok(())
+}
+
 /// Entry point registered with `Builder::on_menu_event`.
 pub fn handle_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
+    if event.id().as_ref().starts_with(RECENT_ITEM_PREFIX) {
+        if let Err(err) = open_recent(app, event.id().as_ref()) {
+            eprintln!("could not open the recent file: {err}");
+        }
+        return;
+    }
     let Some(action) = MenuAction::from_id(event.id().as_ref()) else {
         return; // predefined items are handled by the OS
     };
@@ -666,6 +844,13 @@ pub fn handle_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: MenuAction) -> tauri::Result<()> {
     match action {
         MenuAction::Quit => app.exit(0),
+        MenuAction::ClearRecent => match app.state::<RecentStore>().clear() {
+            Ok(paths) => {
+                refresh_recent_menu(app, &paths);
+                app.emit(RECENT_CHANGED_EVENT, &paths)?;
+            }
+            Err(error) => eprintln!("could not clear the recent files: {error}"),
+        },
         MenuAction::CloseWindow => {
             if let Some(window) = target_window(app) {
                 window.close()?;
@@ -831,6 +1016,45 @@ mod tests {
         ] {
             assert_eq!(serde_json::to_string(&action).unwrap(), name);
         }
+    }
+
+    #[test]
+    fn recent_files_are_labelled_with_name_and_folder() {
+        assert_eq!(recent_label("/Users/me/Songs/riff.gp5"), "riff.gp5 — Songs");
+        assert_eq!(recent_label("riff.gp5"), "riff.gp5");
+        assert_eq!(recent_label("/riff.gp5"), "riff.gp5");
+    }
+
+    #[test]
+    fn save_export_and_editing_helpers_are_menu_items() {
+        assert_eq!(
+            MenuAction::Save.accelerator_for("macos"),
+            Some("CmdOrCtrl+S")
+        );
+        assert_eq!(
+            MenuAction::SaveAs.accelerator_for("linux"),
+            Some("CmdOrCtrl+Shift+S")
+        );
+        for action in [
+            MenuAction::Save,
+            MenuAction::SaveAs,
+            MenuAction::ExportMusicXml,
+            MenuAction::ExportMidi,
+            MenuAction::ExportAsciiTab,
+            MenuAction::Transpose,
+            MenuAction::FixBarDurations,
+        ] {
+            assert!(action.needs_song(), "{action:?}");
+            assert!(!action.is_native(), "{action:?}");
+        }
+        assert!(MenuAction::ClearRecent.is_native());
+        assert!(!MenuAction::ClearRecent.needs_song());
+        assert_eq!(MenuAction::FixBarDurations.menu(), "Bar");
+        assert_eq!(MenuAction::Transpose.menu(), "Track");
+        assert_eq!(
+            serde_json::to_string(&MenuAction::ExportAsciiTab).unwrap(),
+            "\"export-ascii-tab\""
+        );
     }
 
     #[test]

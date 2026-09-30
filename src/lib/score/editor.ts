@@ -204,6 +204,8 @@ function plainNote(source: Note): Note {
 export class ScoreEditor {
   readonly score: Score;
   private readonly history = new History<HistoryExtra>();
+  /** The history state that is on disk (null: the state the song was opened in). */
+  private savedAt: ReturnType<History<HistoryExtra>["undo"]> = null;
   private readonly listeners = new Set<(change: EditorChange) => void>();
   private _cursor: Cursor;
   private _selection: Selection | null = null;
@@ -267,9 +269,18 @@ export class ScoreEditor {
     return this.history.redoLabel;
   }
 
-  /** Whether anything was changed since the song was opened. */
+  /**
+   * Whether the music differs from the last saved (or opened) state. Undoing
+   * back to that state makes it false again; undoing past a save makes it true.
+   */
   get edited(): boolean {
-    return this.history.depth > 0;
+    return this.history.top !== this.savedAt;
+  }
+
+  /** Marks the current music as saved: `edited` is false until the next change. */
+  markSaved() {
+    this.savedAt = this.history.top;
+    this.emit("cursor");
   }
 
   get hasClipboard(): boolean {

@@ -24,6 +24,7 @@ import {
 import { adoptLyrics } from "@/lib/score/lyrics";
 import { MAX_CAPO, type InstrumentPreset, type TrackKind } from "@/lib/score/music";
 import { adoptTrack, rememberMix, trackMix } from "@/lib/score/score";
+import { applyRetunePlan, planRetune } from "@/lib/score/transpose";
 
 const { Clef, Ottavia } = model;
 
@@ -189,6 +190,22 @@ export function setTuning(staff: Staff, tuning: number[]): number {
   }
   staff.stringTuning = new model.Tuning("", [...tuning], false);
   staff.stringTuning.finish();
+  return removed;
+}
+
+/**
+ * Changes a stringed track's tuning and capo keeping every note's pitch: notes
+ * move to the frets (and, when they no longer fit, strings) that sound the
+ * same. Notes that cannot be played in the new tuning are deleted. Returns how
+ * many.
+ */
+export function retuneKeepingPitches(staff: Staff, tuning: number[], capo: number): number {
+  if (!isStringed(staff) || tuning.length === 0) return 0;
+  const plan = planRetune(staff, tuning, capo);
+  const removed = applyRetunePlan(plan);
+  staff.stringTuning = new model.Tuning("", [...tuning], false);
+  staff.stringTuning.finish();
+  setCapo(staff, capo);
   return removed;
 }
 

@@ -6,8 +6,10 @@
 
 use smart_beat_lib::menu::{self, MenuAction};
 use smart_beat_lib::menu_state::{self, MenuState, NoteEffects, find_in};
+use smart_beat_lib::recent::RecentStore;
 use tauri::menu::{Menu, MenuItemKind};
 use tauri::test::{MockRuntime, mock_builder, mock_context, noop_assets};
+use tauri::{AppHandle, Manager};
 
 /// A check run against the menu, with its name for the report.
 type MenuTest = (&'static str, fn(&Menu<MockRuntime>));
@@ -110,11 +112,68 @@ fn disables_the_edit_menus_outside_edit_mode(menu: &Menu<MockRuntime>) {
     assert_eq!(undo.as_menuitem().unwrap().text().unwrap(), "Undo");
 }
 
+/// Text and enabled state of the items in File › Open Recent (separators have no text).
+fn recent_items(menu: &Menu<MockRuntime>) -> Vec<(String, bool)> {
+    let MenuItemKind::Submenu(recent) = item_by_id(menu, menu::RECENT_MENU_ID) else {
+        panic!("Open Recent is not a submenu");
+    };
+    recent
+        .items()
+        .unwrap()
+        .into_iter()
+        .filter_map(|kind| match kind {
+            MenuItemKind::MenuItem(item) => {
+                Some((item.text().unwrap(), item.is_enabled().unwrap()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn item_by_id(menu: &Menu<MockRuntime>, id: &str) -> MenuItemKind<MockRuntime> {
+    find_in(menu.items().unwrap(), id).unwrap_or_else(|| panic!("{id} is not in the menu"))
+}
+
+/// Open Recent follows the remembered songs: their names, in order, then "Clear Menu".
+fn open_recent_follows_the_list(app: &AppHandle<MockRuntime>, menu: &Menu<MockRuntime>) {
+    let clear = MenuAction::ClearRecent.label().to_string();
+    // The store starts with two songs (see `main`).
+    assert_eq!(
+        recent_items(menu),
+        [
+            ("riff.gp5 — Songs".to_string(), true),
+            ("solo.gp — Songs".to_string(), true),
+            (clear.clone(), true),
+        ]
+    );
+
+    let store = app.state::<RecentStore>();
+    let list = store.add("/Users/me/Music/new.gp").unwrap();
+    menu::refresh_recent_menu(app, &list);
+    assert_eq!(recent_items(menu)[0], ("new.gp — Music".to_string(), true));
+    assert_eq!(recent_items(menu).len(), 4);
+
+    let empty = store.clear().unwrap();
+    menu::refresh_recent_menu(app, &empty);
+    assert_eq!(
+        recent_items(menu),
+        [("No Recent Files".to_string(), false), (clear, false)]
+    );
+}
+
 fn main() {
-    let app = smart_beat_lib::setup(mock_builder())
+    let dir = tempfile::tempdir().unwrap();
+    let store = RecentStore::new(dir.path());
+    store.add("/Users/me/Songs/solo.gp").unwrap();
+    store.add("/Users/me/Songs/riff.gp5").unwrap();
+    let app = smart_beat_lib::setup(mock_builder().manage(store))
         .build(mock_context(noop_assets()))
         .expect("failed to build app");
     let menu = menu::build(app.handle()).expect("the menu builds");
+
+    // Open Recent first: it changes the store that the other checks do not use.
+    open_recent_follows_the_list(app.handle(), &menu);
+    println!("test open_recent_follows_the_list ... ok");
 
     let tests: [MenuTest; 4] = [
         (

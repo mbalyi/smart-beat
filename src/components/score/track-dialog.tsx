@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { MinusIcon, PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +47,11 @@ export interface TrackSettings {
   program: number;
   tuning: number[];
   capo: number;
+  /**
+   * Edit mode: move existing notes to the frets that keep their pitch when the
+   * tuning or capo change (otherwise they keep their fret numbers).
+   */
+  keepPitches?: boolean;
 }
 
 const CUSTOM = "custom";
@@ -183,9 +189,10 @@ function TrackForm({
     strings: useId(),
     tuning: useId(),
     capo: useId(),
+    keep: useId(),
   };
-  const [settings, setSettings] = useState<TrackSettings>(
-    () => initial ?? settingsFromPreset("guitar"),
+  const [settings, setSettings] = useState<TrackSettings>(() =>
+    initial ? { ...initial, keepPitches: true } : settingsFromPreset("guitar"),
   );
   const adding = initial === null;
   const set = (change: Partial<TrackSettings>) => setSettings((s) => ({ ...s, ...change }));
@@ -205,7 +212,7 @@ function TrackForm({
           {adding
             ? "Choose an instrument. Its sound, tuning and capo can be changed later too."
             : kind === "stringed"
-              ? "Changing the tuning keeps the fret numbers; the notes follow the new pitches."
+              ? "Changing the tuning or capo can keep the pitches of the notes by moving them to other frets."
               : kind === "drums"
                 ? "Drum tracks use the standard Guitar Pro drum-kit notation."
                 : "Written on a staff, in any General MIDI sound."}
@@ -323,6 +330,18 @@ function TrackForm({
             </Select>
           </Field>
           <TuningEditor tuning={tuning} onChange={(next) => set({ tuning: next })} />
+          {!adding && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={ids.keep}
+                checked={settings.keepPitches ?? true}
+                onCheckedChange={(checked) => set({ keepPitches: checked === true })}
+              />
+              <label htmlFor={ids.keep} className="text-sm">
+                Keep the pitches of existing notes (move them to other frets)
+              </label>
+            </div>
+          )}
         </>
       )}
 

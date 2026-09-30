@@ -2,8 +2,11 @@ import { describeOpenError, hasScoreExtension, ScoreLoadError } from "@/lib/scor
 
 describe("describeOpenError", () => {
   it.each([
-    ["unsupported-type", /opens Guitar Pro files \(\.gp3, \.gp4, \.gp5, \.gpx, \.gp\)/],
-    ["not-a-score", /not a Guitar Pro file, or it is damaged/],
+    [
+      "unsupported-type",
+      /opens Guitar Pro, MusicXML and MIDI files \(\.gp3, \.gp4, \.gp5, \.gpx, \.gp, \.mid, \.midi, \.musicxml, \.xml\)/,
+    ],
+    ["not-a-score", /not a Guitar Pro, MusicXML or MIDI file, or it is damaged/],
     ["too-large", /too large/],
     ["not-found", /could not be found/],
   ])("explains %s errors from the Rust core", (kind, message) => {
@@ -18,7 +21,7 @@ describe("describeOpenError", () => {
 
   it("explains files the score reader rejects", () => {
     expect(describeOpenError(new ScoreLoadError("x"))).toMatch(
-      /damaged or uses a Guitar Pro version/,
+      /damaged or is in a format Smart Beat can't read/,
     );
   });
 

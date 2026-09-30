@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use smart_beat_lib::menu::{self, MAIN_WINDOW, MENU_EVENT, MenuAction};
 use smart_beat_lib::menu_state::MenuStateStore;
 use smart_beat_lib::mixer::MixerStore;
+use smart_beat_lib::recent::RecentStore;
 use smart_beat_lib::zoom::ZoomState;
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
 use tauri::menu::{MenuEvent, MenuId};
@@ -532,4 +533,123 @@ fn menu_shortcuts_include_bar_and_note_items() {
     }
     // Note effects keep their plain keys in the score: no menu shortcut.
     assert!(!menus.iter().any(|(a, _)| a == "toggle-palm-mute"));
+}
+
+/// An app whose recent files list lives in `dir`.
+fn app_with_recent_dir(dir: &Path) -> App<MockRuntime> {
+    smart_beat_lib::setup(mock_builder().manage(RecentStore::new(dir)))
+        .build(mock_context(noop_assets()))
+        .expect("failed to build app")
+}
+
+fn paths(value: &Value) -> Vec<&str> {
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect()
+}
+
+#[test]
+fn recent_files_round_trip_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_recent_dir(dir.path());
+    let window = main_window(&app);
+
+    assert_eq!(invoke(&window, "load_recent_files").unwrap(), json!([]));
+    invoke_with(&window, "add_recent_file", json!({ "path": "/a.gp5" })).unwrap();
+    let list = invoke_with(&window, "add_recent_file", json!({ "path": "/b.gp5" }))
+        .unwrap()
+        .deserialize::<Value>()
+        .unwrap();
+    assert_eq!(paths(&list), ["/b.gp5", "/a.gp5"]);
+    assert_eq!(
+        paths(&invoke(&window, "load_recent_files").unwrap()),
+        ["/b.gp5", "/a.gp5"]
+    );
+
+    let list = invoke_with(&window, "remove_recent_file", json!({ "path": "/b.gp5" }))
+        .unwrap()
+        .deserialize::<Value>()
+        .unwrap();
+    assert_eq!(paths(&list), ["/a.gp5"]);
+    assert_eq!(invoke(&window, "clear_recent_files").unwrap(), json!([]));
+    assert_eq!(invoke(&window, "load_recent_files").unwrap(), json!([]));
+}
+
+#[test]
+fn an_empty_recent_path_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_recent_dir(dir.path());
+    let window = main_window(&app);
+    let error = invoke_with(&window, "add_recent_file", json!({ "path": "" })).unwrap_err();
+    assert_eq!(error["kind"], "not-found");
+}
+
+fn write_request(
+    window: &WebviewWindow<MockRuntime>,
+    path: &str,
+    bytes: Vec<u8>,
+) -> Result<InvokeResponseBody, Value> {
+    let url = if cfg!(windows) {
+        "http://tauri.localhost"
+    } else {
+        "tauri://localhost"
+    };
+    let mut headers = tauri::http::HeaderMap::new();
+    headers.insert("path", path.parse().unwrap());
+    get_ipc_response(
+        window,
+        InvokeRequest {
+            cmd: "write_score_file".into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: url.parse().unwrap(),
+            body: InvokeBody::Raw(bytes),
+            headers,
+            invoke_key: INVOKE_KEY.to_string(),
+        },
+    )
+}
+
+fn encode(path: &Path) -> String {
+    path.to_string_lossy()
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn write_score_file_saves_raw_bytes_atomically() {
+    let app = app();
+    let window = main_window(&app);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("my song é.gp5");
+
+    write_request(&window, &encode(&path), gp5_bytes()).expect("write failed");
+    assert_eq!(std::fs::read(&path).unwrap(), gp5_bytes());
+    write_request(&window, &encode(&path), b"second".to_vec()).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"second");
+}
+
+#[test]
+fn write_score_file_reports_structured_errors() {
+    let app = app();
+    let window = main_window(&app);
+    let dir = tempfile::tempdir().unwrap();
+
+    let bad_type = write_request(&window, &encode(&dir.path().join("a.sh")), vec![1]).unwrap_err();
+    assert_eq!(bad_type["kind"], "unsupported-type");
+    let missing =
+        write_request(&window, &encode(&dir.path().join("x/a.gp5")), vec![1]).unwrap_err();
+    assert_eq!(missing["kind"], "not-found");
+    let json_body = invoke_with(&window, "write_score_file", json!({})).unwrap_err();
+    assert_eq!(json_body["kind"], "io");
 }

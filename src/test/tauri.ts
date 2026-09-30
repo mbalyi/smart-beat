@@ -66,7 +66,17 @@ export const backend = {
   dialogResult: null as string | null,
   /** The last menu state the UI sent. */
   menuState: null as MenuState | null,
+  /** Recently opened songs, most recent first (see `src-tauri/src/recent.rs`). */
+  recent: [] as string[],
+  /** Path the Save dialog picks, or `null` for Cancel. */
+  saveResult: null as string | null,
+  /** Files written by `write_score_file`, by path. */
+  written: new Map<string, Uint8Array>(),
 };
+
+const MAX_RECENT = 10;
+
+let lastOptions: { headers?: Record<string, string> } | undefined;
 
 const fail = (kind: CommandError["kind"], message: string): never => {
   throw { kind, message } satisfies CommandError;
@@ -93,6 +103,9 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.mixes.clear();
   backend.dialogResult = null;
   backend.menuState = null;
+  backend.recent = [];
+  backend.saveResult = null;
+  backend.written.clear();
   mockWindows("main");
   mockIPC(
     (cmd, args) => {
@@ -113,6 +126,29 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           backend.mixes.set(fileKey, settings);
           return null;
         }
+        case "load_recent_files":
+          return backend.recent;
+        case "add_recent_file": {
+          const { path } = args as { path: string };
+          backend.recent = [path, ...backend.recent.filter((p) => p !== path)].slice(0, MAX_RECENT);
+          return backend.recent;
+        }
+        case "remove_recent_file": {
+          const { path } = args as { path: string };
+          backend.recent = backend.recent.filter((p) => p !== path);
+          return backend.recent;
+        }
+        case "clear_recent_files":
+          backend.recent = [];
+          return backend.recent;
+        case "write_score_file": {
+          // Raw body (bytes) plus the URI-encoded destination in a header.
+          const path = decodeURIComponent(lastOptions?.headers?.path ?? "");
+          backend.written.set(path, new Uint8Array(args as ArrayBuffer | Uint8Array));
+          return null;
+        }
+        case "plugin:dialog|save":
+          return backend.saveResult;
         case "update_menu_state":
           backend.menuState = (args as { state: MenuState }).state;
           return null;
@@ -127,12 +163,26 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
     },
     { shouldMockEvents: true },
   );
+  // mockIPC hides the invoke options; a write's destination header is needed.
+  const internals = window.__TAURI_INTERNALS__ as unknown as {
+    invoke: (cmd: string, args?: unknown, options?: unknown) => Promise<unknown>;
+  };
+  const inner = internals.invoke;
+  internals.invoke = (cmd, args, options) => {
+    lastOptions = options as typeof lastOptions;
+    return inner(cmd, args, options);
+  };
   return calls;
 }
 
 /** Simulates the Rust core forwarding a native menu click. */
 export async function emitMenuAction(action: MenuAction) {
   await emit(MENU_EVENT, action);
+}
+
+/** Simulates File › Open Recent: the core sends the chosen path. */
+export async function emitOpenRecent(path: string) {
+  await emit("open-recent", path);
 }
 
 /** Simulates the OS dragging files onto the window (Tauri webview events). */
