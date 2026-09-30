@@ -85,7 +85,7 @@ test.describe("note entry and editing (#9)", () => {
     await app.getByRole("option", { name: "Triplet (3:2)" }).click();
     await expect(app.getByRole("combobox", { name: "Tuplet" })).toHaveText("Triplet (3:2)");
 
-    await app.getByRole("button", { name: "Rest" }).click();
+    await app.getByRole("button", { name: "Rest", exact: true }).click();
     await expectTab(app, ["5"]);
     await expect(scoreRegion(app)).toBeFocused(); // typing continues in the score
   });

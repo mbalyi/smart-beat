@@ -36,7 +36,8 @@ test("the animation plays in full at least once before the app shows", async ({
   expect(removedAt - playingAt).toBeGreaterThanOrEqual(2300); // one loop is 2.3 s
 });
 
-test("the page is black, not white, while the animation loads", async ({ page }) => {
+test("the page is black, not white, while the animation loads", async ({ page, browserName }) => {
+  test.skip(browserName === "webkit", "Playwright's WebKit skips the splash (it cannot play mp4)");
   await page.goto("/");
   await expect(page.locator("#splash")).toHaveCount(1);
   const background = await page.evaluate(
