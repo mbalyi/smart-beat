@@ -8,13 +8,13 @@ Sources: [Guitar Pro features](https://www.guitar-pro.com/c/14-guitar-pro-featur
 
 ## Facts
 
-| | |
-|---|---|
-| Platforms | Windows 8/10/11, macOS 10.13+ (native Apple Silicon since 8.0.x) |
-| Price | about 70 EUR, 7-day full trial, 5 machines per licence |
-| Native format | `.gp` (zip archive with XML, same family as GP7) |
-| Engine | RSE (Realistic Sound Engine): over 1000 preset sounds, about 200 sound banks, about 80 effect and amp models, 100+ instruments; or plain MIDI, mixable per track |
-| Languages | English, French, German, Korean, Spanish, Italian, Japanese, Polish, Portuguese, Russian, Swedish, Traditional and Simplified Chinese |
+|               |                                                                                                                                                                  |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Platforms     | Windows 8/10/11, macOS 10.13+ (native Apple Silicon since 8.0.x)                                                                                                 |
+| Price         | about 70 EUR, 7-day full trial, 5 machines per licence                                                                                                           |
+| Native format | `.gp` (zip archive with XML, same family as GP7)                                                                                                                 |
+| Engine        | RSE (Realistic Sound Engine): over 1000 preset sounds, about 200 sound banks, about 80 effect and amp models, 100+ instruments; or plain MIDI, mixable per track |
+| Languages     | English, French, German, Korean, Spanish, Italian, Japanese, Polish, Portuguese, Russian, Swedish, Traditional and Simplified Chinese                            |
 
 ## Interface tour
 
@@ -32,10 +32,10 @@ Regions, top to bottom and left to right:
 3. **Left palette** (dark, icon grid): voice buttons `1 2 3 4`, Lyrics, Chords, then note durations, dots/tuplets, accidentals, dynamics, hairpins, clefs and octave marks, bar tools (repeats, sections), technique effects (bend, slide, hammer, palm mute, let ring, harmonics, tap, slap, pop, rasgueado, vibrato, whammy, ...), articulations, chord/text/beat tools, and at the bottom automation tools (tempo, volume, pan, sound changes).
 4. **Score area** (centre): white page with title block, chord diagrams in the header, tuning label, tempo marking, rehearsal sections (`A 1st Guitar Solo`), standard notation + TAB, page shadow on a grey desk.
 5. **Right inspector**, tabs **SONG** and **TRACK**. TRACK shows:
-   - *Information*: colour swatch, instrument icon, name (`E.Guitar I`) and short name (`E.Gtr`).
-   - *Musical notation*: notation toggles (tab, standard, rhythm, slash, ...), tuning (`E A D G B E`, gear button to edit), *More* menu.
-   - *Sounds*: engine switch **RSE / MIDI**, add-sound `+` and auto `A`, one row per sound (`1. Lead`, `2. w/Echo`) with a sound-bank selector and a **mini effect chain** (icons of the pedals in the chain, a dropdown to expand it).
-   - *Interpretation*: playing style (Pick), palm mute, accentuation (sliders), auto let ring, auto brush, stringed (toggles).
+   - _Information_: colour swatch, instrument icon, name (`E.Guitar I`) and short name (`E.Gtr`).
+   - _Musical notation_: notation toggles (tab, standard, rhythm, slash, ...), tuning (`E A D G B E`, gear button to edit), _More_ menu.
+   - _Sounds_: engine switch **RSE / MIDI**, add-sound `+` and auto `A`, one row per sound (`1. Lead`, `2. w/Echo`) with a sound-bank selector and a **mini effect chain** (icons of the pedals in the chain, a dropdown to expand it).
+   - _Interpretation_: playing style (Pick), palm mute, accentuation (sliders), auto let ring, auto brush, stringed (toggles).
 6. **Audio track panel** (optional, collapsible strip between score and tracks): waveform, per-bar sync markers (triangles), tempo readout (`156.0 bpm`), file name, toolbar with on/off, zoom, delete, settings, **filter** dropdown (`No Filter`), **Semitones** and **Cents** dials. See [Audio track](#audio-track).
 7. **Track list / mixer** (bottom): header `Tracks`, then `Vol`, `Pan`, `Eq`; one row per track with visibility (eye), mute, solo, volume fader with **A** (automation) toggle, pan knob, EQ button, and the coloured **bar grid**; a separate **Audio Track** row with its own waveform, and a **Master** row with volume, pan and its own effect entry. Section markers are shown under the grid.
 
@@ -43,7 +43,7 @@ Regions, top to bottom and left to right:
 
 ![GP8 track inspector, drum track](assets/gp8/gp8-track-inspector-drums.webp)
 
-Same inspector, adapted: *Information* (colour, drum icon, name `Drumkit`, short name `drm.`), *Musical notation* (drum notation options), *Sounds* (RSE / MIDI, `1. Drumkit` sound with mini chain), *Interpretation* (percussion mallets: Default, accentuation slider).
+Same inspector, adapted: _Information_ (colour, drum icon, name `Drumkit`, short name `drm.`), _Musical notation_ (drum notation options), _Sounds_ (RSE / MIDI, `1. Drumkit` sound with mini chain), _Interpretation_ (percussion mallets: Default, accentuation slider).
 
 ### Drum mixer (per-element volume and pan)
 
@@ -87,6 +87,7 @@ Chapters of the tutorial the screenshots come from: Intro, Drum Track Setup, Usi
 ## Feature catalogue
 
 ### Notation and editing
+
 - Instruments: 3-10 string guitars with custom tunings, bass, ukulele, violin, winds, brass, keyboards / piano (fingering, sustain pedal), drums, percussion, vocals.
 - Views: tablature, standard notation, rhythmic / slash notation, **Jianpu** (numbered notation), drum slash and standard.
 - Techniques: bends (including quarter-tone whammy bar), vibrato, slides, hammer-ons, palm mute, let ring, harmonics, tapping, slap, pop, rasgueado, pick scrape and more, with **customisable text** for palm mute, slap, pop, rasgueado, pick scrape.
@@ -99,12 +100,14 @@ Chapters of the tutorial the screenshots come from: Intro, Drum Track Setup, Usi
 - Copy / paste, undo / redo, pinned recent files.
 
 ### Playback, practice
+
 - Metronome with **visual countdown** on the LCD, count-in, loop, **speed trainer**, fixed-tempo mode, relative speed via `+`/`-` during playback, solo / mute per track, **Focus / Unfocus track** (boost or attenuate a track relative to the mix).
 - Virtual fretboard, keyboard, drum kit view; left-hand position visualisation.
 - **Line-in**: play along through the sound card, with the guitar sound locked across tracks and sessions.
 - Soundbank **preview on hover** while the tab plays.
 
 ### Sound engine
+
 - RSE with sampled guitars, basses, drums; MIDI mode; mix engines per track.
 - **Sounds**: each sound = sound bank + effect chain; a track can have **several sounds** and switch between them with **sound automations**.
 - **Pedalboard / virtual effect chain**: reverb, chorus, delay, compressor, EQ, tremolo, overdrive / distortion / fuzz, amps, dozens of licensed classic pedals; presets per pedal and per chain. See [Pedalboard](#pedalboard).
@@ -114,17 +117,20 @@ Chapters of the tutorial the screenshots come from: Intro, Drum Track Setup, Usi
 - **Detune** (alternative tunings), relative tempo, fine per-note sound adjustments.
 
 ### Audio track
+
 - Add `.mp3` or `.wav` (backing track, full song, teacher's recording) to a score.
 - Waveform display with **sync points** (triangles): double-click on the waveform to add, drag to align the bar to the audio. Tempo automations can be **imported** as sync points.
 - **Time-stretching** to change speed without pitch change, **Semitones** and **Cents** transposition, **filter** dropdown (for example to isolate bass while transcribing), zoom, delete, on/off toggle.
 - Compatible with relative tempo and detune modes; audio track has its own mixer row (volume, pan, EQ).
 
 ### File formats
+
 - Import: `.gtp`, `.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`, Power Tab, MIDI, ASCII tab, TablEdit, MusicXML, audio (`.mp3`, `.wav`).
 - Export: `.gp5`, `.gp`, `.gpx`, Power Tab, MIDI, ASCII, TablEdit, `.mp3`, `.wav`, FLAC, OGG, AIFF, PDF, PNG (transparent background), SVG.
 - See [tab-formats-and-sound-research.md](tab-formats-and-sound-research.md) for what Smart Beat should support.
 
 ### mySongBook and ecosystem
+
 Integrated store of professionally transcribed scores (rock, pop, metal, funk, reggae, blues, jazz, classical, country ...), full-band scores, simplified versions, scores with audio tracks, filters by genre, instrument / level and type; iOS / Android companion apps.
 
 ## Ideas to take, ideas to skip
