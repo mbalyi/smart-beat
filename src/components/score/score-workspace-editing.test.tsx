@@ -177,6 +177,27 @@ describe("ScoreWorkspace: instrument view", () => {
     await expectNoA11yViolations();
   });
 
+  it("keeps the focus and the arrow keys in the score after clicking the fretboard or a drum pad", async () => {
+    const { user, frets } = await setup();
+    await user.click(screen.getByRole("button", { name: "Fretboard" }));
+    await startEditing(user);
+    const score = screen.getByRole("region", { name: /^Score:/ });
+
+    await user.click(screen.getByRole("button", { name: "Fret 12, E5" }));
+    expect(score).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    await user.keyboard("{ArrowDown}"); // moves between strings, in the score
+    expect(score).toHaveFocus();
+    expect(frets()[0]).toBe("1:0 6:12");
+
+    await user.click(screen.getByRole("combobox", { name: "Track" }));
+    await user.click(await screen.findByRole("option", { name: "Drums" }));
+    await user.click(await screen.findByRole("button", { name: "Crash cymbal" }));
+    expect(screen.getByRole("region", { name: /^Score:/ })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("region", { name: /^Score:/ })).toHaveFocus();
+  });
+
   it("shows the notes being played", async () => {
     localStorage.setItem(INSTRUMENT_VIEW_STORAGE_KEY, "shown");
     const { player, song } = await setup();

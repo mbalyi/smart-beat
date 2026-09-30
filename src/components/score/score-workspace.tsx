@@ -1117,9 +1117,16 @@ export function ScoreWorkspace({
               onFret={(string, fret) => {
                 editor.setString(string);
                 editor.setFret(fret - track.capo);
+                if (editing) focusScore();
               }}
-              onPitch={(pitch) => editor.enterPitch(pitch)}
-              onDrum={(sound) => editor.enterDrum(sound)}
+              onPitch={(pitch) => {
+                editor.enterPitch(pitch);
+                if (editing) focusScore();
+              }}
+              onDrum={(sound) => {
+                editor.enterDrum(sound);
+                if (editing) focusScore();
+              }}
               scale={scale}
               defaultScaleRoot={keyTonic(keyBar?.keySignature ?? 0, keyBar?.keySignatureType ?? 0)}
               scalePickerRef={scalePickerRef}

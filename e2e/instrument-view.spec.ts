@@ -63,7 +63,12 @@ test.describe("fretboard and keyboard (#8)", () => {
         .getByRole("button", { name: "Fret 2, A3" }),
     ).toHaveAttribute("aria-pressed", "true");
 
-    // The fretboard can be played with the keyboard too.
+    // The click left the focus in the score. The fretboard can be played with the keyboard too:
+    // Tab into it, then use the arrows.
+    await board
+      .getByRole("group", { name: "String 3 (G3)" })
+      .getByRole("button", { name: "Fret 2, A3" })
+      .focus();
     await app.keyboard.press("ArrowRight");
     await app.keyboard.press("ArrowRight");
     await app.keyboard.press("Enter");
@@ -103,5 +108,41 @@ test.describe("fretboard and keyboard (#8)", () => {
 
     await expect.poll(() => editorStatus(app)).toMatch(/Crash cymbal/);
     await expect(crash).toHaveAttribute("aria-pressed", "true");
+  });
+
+  for (const notation of ["Score + tab", "Score", "Tab"]) {
+    test(`a click on the drum pad or the fretboard keeps the focus and arrows in the score (${notation})`, async ({
+      app,
+    }) => {
+      await newSong(app);
+      await app.getByRole("radio", { name: notation, exact: true }).click();
+      await app.getByRole("button", { name: "Fretboard" }).click();
+      await app.getByRole("button", { name: "Fret 5, A4" }).click();
+      await expect(scoreRegion(app)).toBeFocused();
+      const before = await editorStatus(app);
+
+      await app.keyboard.press("ArrowRight"); // next beat, in the score
+      await expect.poll(() => editorStatus(app)).not.toBe(before);
+      await app.keyboard.press("ArrowUp"); // a string up, in the score
+      await expect(scoreRegion(app)).toBeFocused();
+    });
+  }
+
+  test("a click on a drum pad keeps the focus and arrows in the score", async ({ app }) => {
+    await newSong(app);
+    await emitMenuAction(app, "add-track");
+    const dialog = app.getByRole("dialog", { name: "Add track" });
+    await dialog.getByRole("combobox", { name: "Instrument" }).click();
+    await app.getByRole("option", { name: "Drums" }).click();
+    await dialog.getByRole("button", { name: "Add track" }).click();
+    await app.getByRole("button", { name: "Drum pads" }).click();
+
+    await app.getByRole("button", { name: "Kick drum", exact: true }).click();
+
+    await expect(scoreRegion(app)).toBeFocused();
+    const before = await editorStatus(app);
+    await app.keyboard.press("ArrowRight");
+    await expect.poll(() => editorStatus(app)).not.toBe(before);
+    await expect(scoreRegion(app)).toBeFocused();
   });
 });
