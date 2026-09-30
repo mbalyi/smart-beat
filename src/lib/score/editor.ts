@@ -20,6 +20,7 @@ import {
   effectAvailable,
   effectOff,
   effectText,
+  harmonicValue,
   NOTE_EFFECTS,
   setBend,
   setWhammy,
@@ -178,6 +179,12 @@ const pitchOf = soundOf;
 
 const graceText = (type: model.GraceType) =>
   type === GraceType.OnBeat ? "Grace note on the beat" : "Grace note before the beat";
+
+/** Changes a tab note's fret; a natural harmonic moves along (it rings at the fret played). */
+function setNoteFret(note: Note, fret: number) {
+  note.fret = fret;
+  if (note.harmonicType === model.HarmonicType.Natural) note.harmonicValue = harmonicValue(fret);
+}
 
 /** A new note at the same place (string and fret, pitch or drum sound), without effects. */
 function plainNote(source: Note): Note {
@@ -709,7 +716,7 @@ export class ScoreEditor {
         this.prepareForNote(beat);
         const note = beat.getNoteOnString(this._cursor.string);
         if (note) {
-          note.fret = fret;
+          setNoteFret(note, fret);
           note.isTieDestination = false;
         } else {
           const added = new model.Note();
@@ -725,10 +732,12 @@ export class ScoreEditor {
   /** The pitch a letter (A–G) means here: near the note at the cursor or the one before. */
   private nearbyPitch(): number {
     const beat = this.beatAt();
+    // The fretted pitch: a harmonic sounds higher than the note it is played on.
+    const fretted = (note: Note) => note.calculateRealValue(true, false);
     const current = this.noteAtCursor(beat);
-    if (current) return current.realValue;
+    if (current) return fretted(current);
     for (let b: Beat | null = beat?.previousBeat ?? null; b; b = b.previousBeat) {
-      if (b.notes.length > 0 && !b.notes[0]!.isPercussion) return b.notes[0]!.realValue;
+      if (b.notes.length > 0 && !b.notes[0]!.isPercussion) return fretted(b.notes[0]!);
     }
     if (this.kind === "stringed") {
       const tuning = tuningOf(this.staff);
@@ -850,7 +859,7 @@ export class ScoreEditor {
         this.cursorTargets,
         () => {
           const target = this.noteAtCursor()!;
-          target.fret = fret;
+          setNoteFret(target, fret);
           target.isTieDestination = false;
         },
         `Fret ${fret}`,
@@ -1127,6 +1136,11 @@ export class ScoreEditor {
 
   /** Says why nothing happened (no undo step), e.g. "No note at the cursor". */
   private refuse(message: string) {
+    this.announce(message);
+  }
+
+  /** Announces a message (to screen readers, in the status) without changing anything. */
+  announce(message: string) {
     this.pendingDigit = null;
     this._message = message;
     this.emit("cursor");

@@ -88,3 +88,9 @@ export function spellPitchClass(pitchClass: number, preferFlats = false): string
 
 /** Flat keys spell their notes with flats. */
 export const prefersFlats = (signature: number) => signature < 0;
+
+/** Pitch class (0 = C) of a key's tonic: G major → 7, E minor → 4. */
+export function keyTonic(signature: number, type: KeySignatureType): number {
+  const major = (((signature * 7) % 12) + 12) % 12;
+  return type === KeySignatureType.Minor ? (major + 9) % 12 : major;
+}

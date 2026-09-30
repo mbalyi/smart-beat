@@ -1,26 +1,36 @@
 import { useEffect, useEffectEvent, useId, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { BarDialog } from "@/components/score/bar-dialog";
+import { BendDialog, type CurveKind } from "@/components/score/bend-dialog";
+import { ChordDialog } from "@/components/score/chord-dialog";
 import { EditToolbar, type EditActions } from "@/components/score/edit-toolbar";
+import { EffectsToolbar, type EffectActions } from "@/components/score/effects-toolbar";
 import { InstrumentPanel } from "@/components/score/instrument-panel";
+import { LyricsDialog } from "@/components/score/lyrics-dialog";
+import { LyricsStrip } from "@/components/score/lyrics-strip";
 import { MixerPanel, type MixerChange } from "@/components/score/mixer-panel";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { ScoreToolbar } from "@/components/score/score-toolbar";
 import { ScoreView, type EditOverlay } from "@/components/score/score-view";
+import { TextDialog } from "@/components/score/text-dialog";
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
 import { TracksPanel, type TrackActions } from "@/components/score/tracks-panel";
 import { TransportBar } from "@/components/score/transport-bar";
 import { useEditorKeys } from "@/hooks/use-editor-keys";
 import { useMenuActions } from "@/hooks/use-menu-actions";
-import { useMenuState } from "@/hooks/use-menu-state";
+import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { ScoreDocument } from "@/hooks/use-score-document";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import { errorText } from "@/lib/errors";
-import { selectionRange } from "@/lib/score/editor";
+import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
+import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
 import { drumKitOf, instrumentViewName, notesOf } from "@/lib/score/instrument-view";
+import { keyTonic, prefersFlats } from "@/lib/score/keys";
+import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
 import { mixerReducer } from "@/lib/score/mixer";
-import { trackContent, type Track } from "@/lib/score/model";
+import { trackContent, type Beat, type Track } from "@/lib/score/model";
 import {
   ScorePlayer,
   type Layout,
@@ -35,7 +45,19 @@ import {
   storePracticePrefs,
   type LoopRange,
 } from "@/lib/score/practice";
+import type { Scale } from "@/lib/score/scales";
 import { summarizeScore, trackMix, type TrackView } from "@/lib/score/score";
+import {
+  applyBarSettings,
+  barSettingsOf,
+  barSettingsRange,
+  changedParts,
+  structureWarnings,
+  tempoAt,
+  toggleRepeatEnd,
+  toggleRepeatStart,
+  type BarSettings,
+} from "@/lib/score/structure";
 import {
   DEFAULT_SOUNDFONT,
   getSoundFont,
@@ -59,7 +81,9 @@ import {
   isTauri,
   MIXER_SETTINGS_VERSION,
   saveMixerSettings,
+  type MenuAction,
   type MixerSettings,
+  type NoteEffectFlags,
   type TrackMix,
 } from "@/lib/tauri";
 
@@ -128,6 +152,41 @@ const isTextField = (element: Element | null) =>
 
 type TrackDialogState = { mode: "add" } | { mode: "edit"; track: Track };
 
+/** The Note menu's check marks for the effects at the cursor. */
+function noteEffectFlags(effects: EffectsInfo): NoteEffectFlags {
+  const note = effects.note;
+  if (!note) return NO_NOTE_EFFECTS;
+  return {
+    hammerPull: note.hammerPull !== 0,
+    slide: note.slideOut !== 0,
+    vibrato: note.vibrato !== 0,
+    palmMute: note.palmMute !== 0,
+    letRing: note.letRing !== 0,
+    deadNote: note.dead !== 0,
+    ghostNote: note.ghost !== 0,
+    harmonic: note.harmonic !== 0,
+    accent: note.accent !== 0,
+    staccato: note.staccato !== 0,
+  };
+}
+
+/** Note menu toggles and the effect each switches. */
+const NOTE_MENU_EFFECTS = {
+  "toggle-hammer-pull": "hammerPull",
+  "toggle-slide": "slideOut",
+  "toggle-vibrato": "vibrato",
+  "toggle-palm-mute": "palmMute",
+  "toggle-let-ring": "letRing",
+  "toggle-dead-note": "dead",
+  "toggle-ghost-note": "ghost",
+  "toggle-harmonic": "harmonic",
+  "toggle-accent": "accent",
+  "toggle-staccato": "staccato",
+} as const satisfies Partial<Record<MenuAction, string>>;
+
+const isNoteMenuEffect = (action: MenuAction): action is keyof typeof NOTE_MENU_EFFECTS =>
+  action in NOTE_MENU_EFFECTS;
+
 /**
  * An open song: toolbar, notation (with the editor), instrument view,
  * transport with practice tools, mixer and tracks.
@@ -178,7 +237,8 @@ export function ScoreWorkspace({
   const [bar, setBar] = useState(0);
   const [editing, setEditing] = useState(startEditing);
   const [overlay, setOverlay] = useState<EditOverlay | null>(null);
-  const [activeNotes, setActiveNotes] = useState(() => notesOf([]));
+  /** Beats of the shown track being played (or clicked while paused). */
+  const [activeBeats, setActiveBeats] = useState<Beat[]>([]);
   const [instrumentView, setInstrumentView] = useState(readInstrumentView);
 
   // The mix follows the tracks (not their positions) through reordering and undo.
@@ -192,6 +252,24 @@ export function ScoreWorkspace({
   const [tracksOpen, setTracksOpen] = useState(false);
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
   const [trainerOpen, setTrainerOpen] = useState(false);
+  /** The bar dialog's bar and its settings when it opened (kept while it closes). */
+  const [barDialog, setBarDialog] = useState<{
+    open: boolean;
+    index: number;
+    initial: BarSettings | null;
+  }>({ open: false, index: 0, initial: null });
+  const [curveDialog, setCurveDialog] = useState<{ open: boolean; kind: CurveKind }>({
+    open: false,
+    kind: "bend",
+  });
+  const [textDialogOpen, setTextDialogOpen] = useState(false);
+  const [chordDialogOpen, setChordDialogOpen] = useState(false);
+  const [lyricsDialog, setLyricsDialog] = useState<{ open: boolean; track: Track | null }>({
+    open: false,
+    track: null,
+  });
+  const [scale, setScale] = useState<Scale | null>(null);
+  const scalePickerRef = useRef<HTMLButtonElement>(null);
   const [practice, dispatchPractice] = useReducer(practiceReducer, undefined, () =>
     initialPractice(readPracticePrefs()),
   );
@@ -293,7 +371,7 @@ export function ScoreWorkspace({
         onSoundFontError,
         onError: (error) =>
           toast.error("Something went wrong with the score", { description: errorText(error) }),
-        onActiveBeatsChange: (beats) => setActiveNotes(notesOf(beats)),
+        onActiveBeatsChange: setActiveBeats,
         onBeatClick: (target) => onBeatClick(target),
         onBeatDrag: (beat) => onBeatDrag(beat),
         onRendered: () => updateOverlay(),
@@ -364,9 +442,112 @@ export function ScoreWorkspace({
     [editor],
   );
 
-  useEditorKeys(viewportRef, editor, { enabled: editing, menuHandlesUndo: isTauri() });
+  // --- Structure, effects, lyrics and chords ----------------------------------
 
-  const focusScore = () => viewportRef.current?.focus({ preventScroll: true });
+  const effects = editor.effects;
+  const cursorBar = editor.cursor.bar;
+  const keyBar = trackObject.staves[0]?.bars[cursorBar];
+
+  /** Opens the bend (or whammy bar) editor, or says why it can't be used here. */
+  const openCurve = (kind: CurveKind) => {
+    if (track.kind !== "stringed") {
+      editor.announce(
+        kind === "bend"
+          ? "Bends are only available on tab tracks"
+          : "The whammy bar is only available on tab tracks",
+      );
+    } else if (kind === "bend" && !effects.note) {
+      editor.announce("No note at the cursor");
+    } else if (kind === "whammy" && !effects.beat) {
+      editor.announce("No notes on this beat");
+    } else {
+      setCurveDialog({ open: true, kind });
+    }
+  };
+
+  const openBarDialog = () =>
+    setBarDialog({ open: true, index: cursorBar, initial: barSettingsOf(score, cursorBar) });
+
+  const openLyrics = (target: Track | undefined) => {
+    if (target) setLyricsDialog({ open: true, track: target });
+  };
+
+  const submitBar = (index: number, next: BarSettings) => {
+    const parts = changedParts(barSettingsOf(score, index), next);
+    if (parts.length === 0) return;
+    editor.editBars(
+      parts.length === 1 ? `Change ${parts[0]}` : "Change bar settings",
+      barSettingsRange(score, index, next),
+      () => applyBarSettings(score, index, next),
+      `Bar ${index + 1}: ${parts.join(", ")} changed`,
+    );
+  };
+
+  const toggleRepeat = (end: boolean) => {
+    const masterBar = score.masterBars[cursorBar]!;
+    const on = end ? masterBar.repeatCount > 0 : masterBar.isRepeatStart;
+    const what = end ? "repeat end" : "repeat start";
+    editor.editBars(
+      `${on ? "Remove" : "Add"} ${what}`,
+      { from: cursorBar, to: cursorBar },
+      () => (end ? toggleRepeatEnd(score, cursorBar) : toggleRepeatStart(score, cursorBar)),
+      `Bar ${cursorBar + 1}: ${what} ${on ? "removed" : "added"}`,
+    );
+  };
+
+  const submitLyrics = (target: Track, lines: Parameters<typeof setLyrics>[1]) =>
+    editor.run(
+      "Change lyrics",
+      () => [target],
+      () => setLyrics(target, lines),
+      `Lyrics of ${target.name.trim() || "the track"} changed`,
+    );
+
+  const openScaleTool = () => {
+    if (track.kind === "drums") {
+      toast("The scale tool works on stringed and keyboard tracks");
+      return;
+    }
+    if (!instrumentView) toggleInstrumentView();
+    requestAnimationFrame(() => scalePickerRef.current?.focus());
+  };
+
+  const effectActions: EffectActions = {
+    onToggleNote: (id) => editor.toggleNoteEffect(id),
+    onNoteEffect: (id, value) => editor.setNoteEffect(id, value),
+    onToggleBeat: (id) => editor.toggleBeatEffect(id),
+    onBeatEffect: (id, value) => editor.setBeatEffect(id, value),
+    onGrace: (type) => editor.setGrace(type),
+    onBend: () => openCurve("bend"),
+    onWhammy: () => openCurve("whammy"),
+    onText: () => setTextDialogOpen(true),
+    onChord: () => setChordDialogOpen(true),
+    onDone: () => focusScore(),
+  };
+
+  /** Chord names for the selected notes (or the cursor's), in the key's spelling. */
+  const flatKey = prefersFlats(keyBar?.keySignature ?? 0);
+  const chordSuggestions = chordDialogOpen
+    ? recognizeChord(editor.selectedPitches(), { preferFlats: flatKey })
+    : [];
+  const cursorNotes = editor.beatInfo.notes.filter((n) => n.string !== null && n.fret !== null);
+  const notesDiagram =
+    track.kind === "stringed" && cursorNotes.length > 0
+      ? diagramFromNotes(
+          cursorNotes.map((n) => ({ string: n.string!, fret: n.fret! })),
+          track.tuning.length,
+        )
+      : null;
+
+  useEditorKeys(viewportRef, editor, {
+    enabled: editing,
+    menuHandlesUndo: isTauri(),
+    onBend: () => openCurve("bend"),
+  });
+
+  function focusScore() {
+    viewportRef.current?.focus({ preventScroll: true });
+  }
 
   /** After a dialog opened from the menu or panel: continue in the score. */
   const returnFocusToScore = (event: Event) => {
@@ -481,6 +662,10 @@ export function ScoreWorkspace({
       setTracksOpen(false);
       setTrackDialog({ mode: "edit", track: score.tracks[index]! });
     },
+    onLyrics: (index) => {
+      setTracksOpen(false);
+      openLyrics(score.tracks[index]);
+    },
     onAdd: () => {
       setTracksOpen(false);
       setTrackDialog({ mode: "add" });
@@ -535,6 +720,10 @@ export function ScoreWorkspace({
   // --- Menu -------------------------------------------------------------------
 
   useMenuActions((action) => {
+    if (isNoteMenuEffect(action)) {
+      if (editing) editor.toggleNoteEffect(NOTE_MENU_EFFECTS[action]);
+      return;
+    }
     switch (action) {
       case "undo":
       case "redo":
@@ -573,6 +762,29 @@ export function ScoreWorkspace({
       case "toggle-count-in":
         dispatchPractice({ type: "count-in", value: !practice.countIn });
         break;
+      case "lyrics":
+        openLyrics(trackObject);
+        break;
+      case "scale-tool":
+        openScaleTool();
+        break;
+      // The Bar and Note menus work on the edit cursor (they are disabled outside edit mode).
+      case "bar-settings":
+        if (editing) openBarDialog();
+        break;
+      case "toggle-repeat-start":
+      case "toggle-repeat-end":
+        if (editing) toggleRepeat(action === "toggle-repeat-end");
+        break;
+      case "bend":
+        if (editing) openCurve("bend");
+        break;
+      case "text":
+        if (editing) setTextDialogOpen(true);
+        break;
+      case "chord":
+        if (editing) setChordDialogOpen(true);
+        break;
       default:
         break;
     }
@@ -588,6 +800,10 @@ export function ScoreWorkspace({
     loop: practice.loop,
     metronome: practice.metronome,
     countIn: practice.countIn,
+    repeatStart: score.masterBars[cursorBar]?.isRepeatStart ?? false,
+    repeatEnd: (score.masterBars[cursorBar]?.repeatCount ?? 0) > 0,
+    hasNote: effects.note !== null,
+    noteEffects: noteEffectFlags(effects),
   });
 
   const editActions: EditActions = {
@@ -599,12 +815,25 @@ export function ScoreWorkspace({
     onInsertBeat: () => editor.insertBeat(),
     onDeleteBeat: () => editor.deleteBeats(),
     onVoice: (v) => editor.switchVoice(v),
+    onBar: openBarDialog,
     onUndo: () => editor.undo(),
     onRedo: () => editor.redo(),
     onDone: focusScore,
   };
 
-  const shownNotes = !playing && editing ? editor.beatInfo.notes : activeNotes;
+  const shownNotes = !playing && editing ? editor.beatInfo.notes : notesOf(activeBeats);
+
+  // The lyrics strip follows playback, the edit cursor, or the bar last played.
+  const showLyrics = hasLyrics(trackObject);
+  const lyricBeat: Beat | null =
+    playing || !editing
+      ? (activeBeats.find((b) => b.voice.index === 0) ??
+        trackObject.staves[0]?.bars[bar]?.voices[0]?.beats[0] ??
+        null)
+      : editor.cursorBeat();
+  const lyricLines = showLyrics && lyricBeat ? syllablesAround(trackObject, lyricBeat) : [];
+  const barDialogIndex = barDialog.index;
+  const lyricsTrack = lyricsDialog.track;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -645,6 +874,7 @@ export function ScoreWorkspace({
             statusId={statusId}
           />
         )}
+        {editing && <EffectsToolbar effects={effects} kind={track.kind} actions={effectActions} />}
         <ScoreView
           viewportRef={viewportRef}
           surfaceRef={surfaceRef}
@@ -670,9 +900,14 @@ export function ScoreWorkspace({
             }}
             onPitch={(pitch) => editor.enterPitch(pitch)}
             onDrum={(sound) => editor.enterDrum(sound)}
+            scale={scale}
+            defaultScaleRoot={keyTonic(keyBar?.keySignature ?? 0, keyBar?.keySignatureType ?? 0)}
+            scalePickerRef={scalePickerRef}
+            onScaleChange={setScale}
           />
         )}
       </div>
+      {showLyrics && <LyricsStrip lines={lyricLines} current={lyricBeat} />}
       <TransportBar
         ready={ready}
         playing={playing}
@@ -734,6 +969,55 @@ export function ScoreWorkspace({
         }
         drumKit={drumKitOf(editedTrack)}
         onSubmit={submitTrack}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <BarDialog
+        open={barDialog.open}
+        onOpenChange={(open) => setBarDialog((d) => ({ ...d, open }))}
+        barNumber={barDialogIndex + 1}
+        initial={barDialog.initial}
+        currentTempo={tempoAt(score, barDialogIndex)}
+        warningsFor={(draft) =>
+          structureWarnings(score, { index: barDialogIndex, settings: draft })
+        }
+        onSubmit={(next) => submitBar(barDialogIndex, next)}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <BendDialog
+        open={curveDialog.open}
+        onOpenChange={(open) => setCurveDialog((d) => ({ ...d, open }))}
+        kind={curveDialog.kind}
+        initial={curveDialog.kind === "whammy" ? effects.whammy : effects.bend}
+        onSubmit={(points) =>
+          curveDialog.kind === "whammy" ? editor.setWhammy(points) : editor.setBend(points)
+        }
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <TextDialog
+        open={textDialogOpen}
+        onOpenChange={setTextDialogOpen}
+        initial={effects.text}
+        onSubmit={(text) => editor.setText(text)}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <ChordDialog
+        open={chordDialogOpen}
+        onOpenChange={setChordDialogOpen}
+        initial={effects.chord}
+        strings={track.kind === "stringed" ? { tuning: track.tuning, capo: track.capo } : null}
+        suggestions={chordSuggestions}
+        notesDiagram={notesDiagram}
+        preferFlats={flatKey}
+        onSubmit={(spec) => editor.setChord(spec)}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <LyricsDialog
+        open={lyricsDialog.open}
+        onOpenChange={(open) => setLyricsDialog((d) => ({ ...d, open }))}
+        trackName={lyricsTrack?.name.trim() || "Track"}
+        initial={lyricsTrack ? lyricsOf(lyricsTrack) : []}
+        barCount={score.masterBars.length}
+        onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
         onCloseAutoFocus={returnFocusToScore}
       />
       <SpeedTrainerDialog

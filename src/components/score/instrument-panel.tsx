@@ -1,5 +1,19 @@
-import { useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type RefObject,
+} from "react";
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { NoteInfo } from "@/lib/score/editor";
 import {
   drumPads,
@@ -12,9 +26,88 @@ import {
   keyboardRange,
 } from "@/lib/score/instrument-view";
 import { pitchName, tuningName, type TrackKind } from "@/lib/score/music";
+import {
+  describeScale,
+  SCALE_ROOTS,
+  SCALE_TYPES,
+  scaleDegree,
+  scalePrefersFlats,
+  type Scale,
+} from "@/lib/score/scales";
+import { spellPitchClass } from "@/lib/score/keys";
 import { cn } from "@/lib/utils";
 
 const ACTIVE = "bg-sky-600 text-white dark:bg-sky-500";
+
+/** How the scale tool marks the root and the other notes of the scale. */
+const SCALE_ROOT = "border-amber-600 bg-amber-500 text-white dark:bg-amber-600";
+const SCALE_NOTE = "border-amber-600 bg-background text-amber-900 dark:text-amber-100";
+
+/** ", scale root" / ", in the scale" for the spoken name of a fret or key. */
+const degreeText = (degree: "root" | "in" | null) =>
+  degree === "root" ? ", scale root" : degree === "in" ? ", in the scale" : "";
+
+/** Picks the scale the fretboard or keyboard shows (or none). */
+function ScalePicker({
+  scale,
+  defaultRoot,
+  onChange,
+  triggerRef,
+}: {
+  scale: Scale | null;
+  /** The root to start with (the key's tonic). */
+  defaultRoot: number;
+  onChange: (scale: Scale | null) => void;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
+}) {
+  const typeId = useId();
+  const rootId = useId();
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      <label htmlFor={typeId} className="font-medium">
+        Scale
+      </label>
+      <Select
+        value={scale?.type ?? "off"}
+        onValueChange={(type) =>
+          onChange(type === "off" ? null : { root: scale?.root ?? defaultRoot, type })
+        }
+      >
+        <SelectTrigger ref={triggerRef} id={typeId} size="sm" className="w-44">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="off">Off</SelectItem>
+          {SCALE_TYPES.map((type) => (
+            <SelectItem key={type.id} value={type.id}>
+              {type.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <label htmlFor={rootId} className="font-medium">
+        Root
+      </label>
+      <Select
+        value={String(scale?.root ?? defaultRoot)}
+        disabled={!scale}
+        onValueChange={(root) => scale && onChange({ ...scale, root: Number(root) })}
+      >
+        <SelectTrigger id={rootId} size="sm" className="w-24">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {SCALE_ROOTS.map((root) => (
+            <SelectItem key={root.pitchClass} value={String(root.pitchClass)}>
+              {root.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {scale && <span className="text-muted-foreground">{describeScale(scale)}</span>}
+    </div>
+  );
+}
 
 /** Moves focus between buttons in a roving-tabindex group. */
 function focusButton(container: HTMLElement | null, selector: string) {
@@ -27,6 +120,7 @@ function Fretboard({
   active,
   editing,
   cursorString,
+  scale,
   onFret,
 }: {
   tuning: number[];
@@ -34,6 +128,7 @@ function Fretboard({
   active: NoteInfo[];
   editing: boolean;
   cursorString: number | null;
+  scale: Scale | null;
   onFret: (string: number, fretFromNut: number) => void;
 }) {
   const strings = fretboardStrings(tuning);
@@ -71,6 +166,8 @@ function Fretboard({
             return `string ${tuning.length - p.string + 1} fret ${p.fret} (${pitchName(open + p.fret, { spoken: true })})`;
           })
           .join(", ");
+  const scaleSummary = scale ? `. Scale: ${describeScale(scale, { spoken: true })}` : "";
+  const flats = scale ? scalePrefersFlats(scale) : false;
 
   return (
     <div className="flex flex-col gap-1">
@@ -81,7 +178,11 @@ function Fretboard({
       <div
         ref={boardRef}
         role={editing ? "group" : "img"}
-        aria-label={editing ? "Fretboard: click a fret to enter it" : `Fretboard. ${summary}`}
+        aria-label={
+          editing
+            ? `Fretboard: click a fret to enter it${scaleSummary}`
+            : `Fretboard. ${summary}${scaleSummary}`
+        }
         className="grid w-max gap-y-0.5"
         style={{ gridTemplateColumns: `2rem repeat(${FRET_COUNT + 1}, minmax(1.75rem, 1fr))` }}
       >
@@ -106,6 +207,7 @@ function Fretboard({
             {frets.map((fret) => {
               const on = isActive(s.string, fret);
               const behindCapo = fret < capo;
+              const degree = scale && !behindCapo ? scaleDegree(scale, s.open + fret) : null;
               const cell = cn(
                 "relative flex h-6 items-center justify-center border-r border-muted-foreground/30 text-[0.65rem] tabular-nums",
                 fret === 0 && "border-r-4 border-r-foreground/60",
@@ -123,14 +225,24 @@ function Fretboard({
                   {fret - capo}
                 </span>
               );
+              const marker = !on && degree && (
+                <span
+                  className={cn(
+                    "relative z-10 flex size-4 items-center justify-center rounded-full border text-[0.55rem] leading-none",
+                    degree === "root" ? SCALE_ROOT : SCALE_NOTE,
+                  )}
+                >
+                  {spellPitchClass(s.open + fret, flats)}
+                </span>
+              );
               if (!editing) {
                 return (
                   <span key={fret} className={cell} aria-hidden="true">
-                    {dot}
+                    {dot || marker}
                   </span>
                 );
               }
-              const label = `Fret ${fret}, ${pitchName(s.open + fret, { spoken: true })}`;
+              const label = `Fret ${fret}, ${pitchName(s.open + fret, { spoken: true })}${degreeText(degree)}`;
               return (
                 <button
                   key={fret}
@@ -152,7 +264,7 @@ function Fretboard({
                     "outline-none hover:bg-sky-100 focus-visible:z-20 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-sky-900",
                   )}
                 >
-                  {dot}
+                  {dot || marker}
                 </button>
               );
             })}
@@ -181,10 +293,12 @@ function Fretboard({
 function PianoKeyboard({
   active,
   editing,
+  scale,
   onPitch,
 }: {
   active: NoteInfo[];
   editing: boolean;
+  scale: Scale | null;
   onPitch: (pitch: number) => void;
 }) {
   const pitches = active.map((n) => n.pitch);
@@ -208,20 +322,36 @@ function PianoKeyboard({
     focusButton(ref.current, `[data-pitch="${next}"]`);
   };
 
+  const scaleSummary = scale ? `. Scale: ${describeScale(scale, { spoken: true })}` : "";
   const key = (pitch: number, black: boolean, style?: CSSProperties) => {
     const on = pitches.includes(pitch);
+    const degree = scale ? scaleDegree(scale, pitch) : null;
     const className = cn(
       "flex items-end justify-center rounded-b-sm pb-1 text-[0.6rem]",
       black
         ? "absolute top-0 z-10 h-[60%] w-[0.95rem] -translate-x-1/2 bg-neutral-900 text-white"
-        : "h-full w-6 border border-neutral-400 bg-white text-neutral-600",
+        : "relative h-full w-6 border border-neutral-400 bg-white text-neutral-600",
       on && ACTIVE,
     );
     const label = pitch % 12 === 0 ? pitchName(pitch) : "";
+    const marker = degree && !on && (
+      <span
+        className={cn(
+          "absolute bottom-4 size-2.5 rounded-full border",
+          degree === "root" ? SCALE_ROOT : SCALE_NOTE,
+        )}
+      />
+    );
+    const content = (
+      <>
+        {marker}
+        {label}
+      </>
+    );
     if (!editing) {
       return (
         <span key={pitch} className={className} style={style} aria-hidden="true">
-          {label}
+          {content}
         </span>
       );
     }
@@ -231,7 +361,7 @@ function PianoKeyboard({
         type="button"
         data-pitch={pitch}
         tabIndex={pitch === focused ? 0 : -1}
-        aria-label={pitchName(pitch, { spoken: true })}
+        aria-label={`${pitchName(pitch, { spoken: true })}${degreeText(degree)}`}
         aria-pressed={on}
         onClick={() => {
           setFocus(pitch);
@@ -241,7 +371,7 @@ function PianoKeyboard({
         className={cn(className, "outline-none focus-visible:ring-2 focus-visible:ring-ring")}
         style={style}
       >
-        {label}
+        {content}
       </button>
     );
   };
@@ -251,7 +381,9 @@ function PianoKeyboard({
       ref={ref}
       role={editing ? "group" : "img"}
       aria-label={
-        editing ? "Piano keyboard: click a key to enter it" : `Piano keyboard. ${summary}`
+        editing
+          ? `Piano keyboard: click a key to enter it${scaleSummary}`
+          : `Piano keyboard. ${summary}${scaleSummary}`
       }
       className="relative flex h-24 w-max"
     >
@@ -339,6 +471,10 @@ export function InstrumentPanel({
   editing,
   cursorString,
   drumSounds = [],
+  scale = null,
+  defaultScaleRoot = 0,
+  scalePickerRef,
+  onScaleChange,
   onFret,
   onPitch,
   onDrum,
@@ -350,11 +486,18 @@ export function InstrumentPanel({
   editing: boolean;
   cursorString: number | null;
   drumSounds?: number[];
+  /** The scale the scale tool shows, or null. */
+  scale?: Scale | null;
+  /** The root the scale tool starts with (the key's tonic). */
+  defaultScaleRoot?: number;
+  scalePickerRef?: RefObject<HTMLButtonElement | null>;
+  onScaleChange?: (scale: Scale | null) => void;
   onFret: (string: number, fretFromNut: number) => void;
   onPitch: (pitch: number) => void;
   onDrum: (sound: number) => void;
 }) {
   const name = instrumentViewName(kind);
+  const shownScale = kind === "drums" ? null : scale;
   return (
     <section
       aria-label={name}
@@ -362,6 +505,16 @@ export function InstrumentPanel({
       // Scrollable: keyboard users must be able to reach it even when it has no buttons.
       tabIndex={editing ? undefined : 0}
     >
+      {kind !== "drums" && onScaleChange && (
+        <div className="pb-1.5">
+          <ScalePicker
+            scale={shownScale}
+            defaultRoot={defaultScaleRoot}
+            onChange={onScaleChange}
+            triggerRef={scalePickerRef}
+          />
+        </div>
+      )}
       {kind === "stringed" ? (
         <Fretboard
           tuning={tuning}
@@ -369,12 +522,13 @@ export function InstrumentPanel({
           active={active}
           editing={editing}
           cursorString={cursorString}
+          scale={shownScale}
           onFret={onFret}
         />
       ) : kind === "drums" ? (
         <DrumPads active={active} editing={editing} used={drumSounds} onDrum={onDrum} />
       ) : (
-        <PianoKeyboard active={active} editing={editing} onPitch={onPitch} />
+        <PianoKeyboard active={active} editing={editing} scale={shownScale} onPitch={onPitch} />
       )}
     </section>
   );

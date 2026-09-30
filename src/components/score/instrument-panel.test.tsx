@@ -119,3 +119,68 @@ describe("InstrumentPanel: drums", () => {
     await expectNoA11yViolations();
   });
 });
+
+describe("InstrumentPanel: scale tool", () => {
+  it("marks the scale's notes and root on the fretboard", async () => {
+    const onScaleChange = vi.fn();
+    const { user } = setup({
+      scale: { root: 9, type: "minor-pentatonic" },
+      onScaleChange,
+    });
+    const panel = screen.getByRole("region", { name: "Fretboard" });
+    expect(panel).toHaveTextContent("A minor pentatonic: A C D E G");
+    expect(screen.getByRole("img")).toHaveAccessibleName(
+      "Fretboard. No notes. Scale: A minor pentatonic: A C D E G",
+    );
+    // Fret 5 of the low E string is A: the root.
+    const roots = panel.querySelectorAll(".bg-amber-500");
+    expect(roots.length).toBeGreaterThan(0);
+    expect([...roots].every((r) => r.textContent === "A")).toBe(true);
+    await expectNoA11yViolations();
+
+    await user.click(screen.getByRole("combobox", { name: "Root" }));
+    await user.click(await screen.findByRole("option", { name: "E" }));
+    expect(onScaleChange).toHaveBeenLastCalledWith({ root: 4, type: "minor-pentatonic" });
+    await user.click(screen.getByRole("combobox", { name: "Scale" }));
+    await user.click(await screen.findByRole("option", { name: "Off" }));
+    expect(onScaleChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("names scale notes on the frets while editing", () => {
+    setup({ editing: true, scale: { root: 0, type: "major" }, onScaleChange: vi.fn() });
+    // On the low E string: fret 8 is C3, fret 3 is G2, fret 2 is F sharp 2.
+    expect(screen.getByRole("button", { name: "Fret 8, C3, scale root" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fret 3, G2, in the scale" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fret 2, F sharp2" })).toBeInTheDocument();
+  });
+
+  it("starts a scale on the key's tonic", async () => {
+    const onScaleChange = vi.fn();
+    const { user } = setup({ defaultScaleRoot: 7, onScaleChange });
+    expect(screen.getByRole("combobox", { name: "Root" })).toBeDisabled();
+    await user.click(screen.getByRole("combobox", { name: "Scale" }));
+    await user.click(await screen.findByRole("option", { name: "Major" }));
+    expect(onScaleChange).toHaveBeenCalledWith({ root: 7, type: "major" });
+  });
+
+  it("marks scale notes on the piano keyboard", () => {
+    setup({
+      kind: "pitched",
+      tuning: [],
+      editing: true,
+      scale: { root: 2, type: "dorian" },
+      onScaleChange: vi.fn(),
+    });
+    expect(screen.getByRole("button", { name: "D4, scale root" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "F4, in the scale" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "F sharp4" })).toBeInTheDocument();
+    expect(screen.getByRole("group")).toHaveAccessibleName(
+      "Piano keyboard: click a key to enter it. Scale: D dorian: D E F G A B C",
+    );
+  });
+
+  it("has no scale tool for drums", () => {
+    setup({ kind: "drums", tuning: [], onScaleChange: vi.fn(), scale: { root: 0, type: "major" } });
+    expect(screen.queryByRole("combobox", { name: "Scale" })).not.toBeInTheDocument();
+  });
+});

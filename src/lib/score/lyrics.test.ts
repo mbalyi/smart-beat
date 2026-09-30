@@ -109,6 +109,26 @@ describe("lyrics", () => {
     expect(lyricsOf(track)).toEqual(storedLyrics(track));
   });
 
+  it("clears the syllables when the lyrics go back to none (undo)", () => {
+    const score = song();
+    const track = score.tracks[0]!;
+    setLyrics(track, [{ startBar: 0, text: "la la" }]);
+    refinish(score);
+    (track as unknown as Record<string, unknown>).smartBeatLyrics = null;
+    refinish(score);
+    expect(sung(track)[0]).toBe("· · · ·");
+  });
+
+  it("leaves tracks alone that were never taken over", () => {
+    const score = song();
+    const track = score.tracks[0]!;
+    delete (track as unknown as Record<string, unknown>).smartBeatLyrics;
+    const beat = track.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+    beat.lyrics = ["kept"];
+    reflowLyrics(track);
+    expect(beat.lyrics).toEqual(["kept"]);
+  });
+
   it("marks tracks without lyrics explicitly, and adopts only once", () => {
     const score = song();
     const track = score.tracks[0]!;

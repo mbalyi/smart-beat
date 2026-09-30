@@ -5,6 +5,7 @@ import {
   KEY_SIGNATURES,
   keyAlteration,
   keyName,
+  keyTonic,
   prefersFlats,
   spellPitchClass,
   spokenNoteName,
@@ -50,6 +51,14 @@ describe("key signatures", () => {
     expect(spellPitchClass(0, true)).toBe("C");
     expect(prefersFlats(-1)).toBe(true);
     expect(prefersFlats(0)).toBe(false);
+  });
+
+  it("finds the tonic of a key", () => {
+    expect(keyTonic(0, KeySignatureType.Major)).toBe(0);
+    expect(keyTonic(1, KeySignatureType.Major)).toBe(7); // G
+    expect(keyTonic(-2, KeySignatureType.Major)).toBe(10); // B flat
+    expect(keyTonic(1, KeySignatureType.Minor)).toBe(4); // E minor
+    expect(keyTonic(-3, KeySignatureType.Minor)).toBe(0); // C minor
   });
 
   it("spells note names for screen readers", () => {

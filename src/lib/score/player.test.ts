@@ -10,6 +10,7 @@ import {
 } from "@/lib/score/player";
 import { parseScore } from "@/lib/score/score";
 import { FakeAlphaTabApi } from "@/test/fake-alphatab";
+import { generateMidi, noteOns } from "@/test/playback";
 import { fixtureBytes } from "@/test/score";
 
 const { PlayerState } = synth;
@@ -861,5 +862,32 @@ describe("ScorePlayer", () => {
       player.stop();
       expect(callbacks.onActiveBeatsChange).toHaveBeenCalledWith([]);
     });
+  });
+});
+
+describe("ScorePlayer: effects alphaTab leaves silent", () => {
+  it("makes slap and pop audible in the MIDI before it is loaded", async () => {
+    const { api, score } = await setup();
+    const beat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+    beat.slap = true;
+    const { file, lookup } = generateMidi(score);
+    const before = noteOns(file).map((e) => e.noteVelocity);
+    api.tickCache = lookup as never;
+
+    api.midiLoad.trigger(file);
+
+    const after = noteOns(file).map((e) => e.noteVelocity);
+    expect(after).not.toEqual(before);
+    expect(after.filter((v, i) => v !== before[i])).toHaveLength(1);
+  });
+
+  it("leaves the MIDI alone before alphaTab has a tick lookup", async () => {
+    const { api, score } = await setup();
+    score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!.slap = true;
+    const { file } = generateMidi(score);
+    const before = noteOns(file).map((e) => e.noteVelocity);
+    api.tickCache = null;
+    api.midiLoad.trigger(file);
+    expect(noteOns(file).map((e) => e.noteVelocity)).toEqual(before);
   });
 });

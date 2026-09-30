@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, type RefObject } from "react";
 
 import type { ScoreEditor } from "@/lib/score/editor";
+import type { NoteEffectId } from "@/lib/score/effects";
 
 /** ⌘ on macOS, Ctrl elsewhere. */
 const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -13,7 +14,22 @@ export interface EditorKeyOptions {
    * avoid undoing twice.
    */
   menuHandlesUndo: boolean;
+  /** Shift+B: opens the bend editor. */
+  onBend?: () => void;
 }
+
+/** Plain keys that switch a note effect on or off (as in Guitar Pro where it can). */
+const EFFECT_KEYS: Record<string, NoteEffectId> = {
+  h: "hammerPull",
+  s: "slideOut",
+  p: "palmMute",
+  l: "letRing",
+  x: "dead",
+  o: "ghost",
+  w: "vibrato",
+  n: "harmonic",
+  ">": "accent",
+};
 
 /**
  * Keyboard entry in the score (while it has focus), modelled on Guitar Pro:
@@ -23,7 +39,7 @@ export interface EditorKeyOptions {
 export function useEditorKeys(
   target: RefObject<HTMLElement | null>,
   editor: ScoreEditor,
-  { enabled, menuHandlesUndo }: EditorKeyOptions,
+  { enabled, menuHandlesUndo, onBend }: EditorKeyOptions,
 ): void {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing) return;
@@ -92,6 +108,17 @@ export function useEditorKeys(
     if (/^[a-g]$/.test(lower) && !event.shiftKey) {
       handled();
       editor.enterLetter(lower);
+      return;
+    }
+    if (key === "B" && event.shiftKey && onBend) {
+      handled();
+      onBend();
+      return;
+    }
+    const effect = EFFECT_KEYS[key] ?? EFFECT_KEYS[lower];
+    if (effect) {
+      handled();
+      editor.toggleNoteEffect(effect);
       return;
     }
     switch (key) {
@@ -166,6 +193,16 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
   { keys: ["T"], spoken: "T", label: "Tie to the previous note" },
   { keys: ["V"], spoken: "V", label: "Switch between voice 1 and 2" },
   { keys: ["I"], spoken: "I", label: "Insert a beat" },
+  { keys: ["H"], spoken: "H", label: "Hammer-on / pull-off" },
+  { keys: ["S"], spoken: "S", label: "Slide to the next note" },
+  { keys: ["P"], spoken: "P", label: "Palm mute" },
+  { keys: ["L"], spoken: "L", label: "Let ring" },
+  { keys: ["X"], spoken: "X", label: "Dead note" },
+  { keys: ["O"], spoken: "O", label: "Ghost note" },
+  { keys: ["W"], spoken: "W", label: "Vibrato" },
+  { keys: ["N"], spoken: "N", label: "Natural harmonic" },
+  { keys: [">"], spoken: "Greater than", label: "Accent" },
+  { keys: ["⇧", "B"], spoken: "Shift+B", label: "Bend…" },
   { keys: ["Delete"], spoken: "Delete", label: "Delete the note (or clear the selection)" },
   { keys: ["⇧", "Delete"], spoken: "Shift+Delete", label: "Delete the beat" },
   { keys: ["mod", "C / X / V"], spoken: "mod+C, X or V", label: "Copy / cut / paste" },

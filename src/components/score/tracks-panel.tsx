@@ -5,6 +5,7 @@ import {
   CopyIcon,
   DrumIcon,
   GuitarIcon,
+  MicVocalIcon,
   PianoIcon,
   PlusIcon,
   Settings2Icon,
@@ -36,6 +37,7 @@ export interface TrackActions {
   onDuplicate: (index: number) => void;
   onRemove: (index: number) => void;
   onSettings: (index: number) => void;
+  onLyrics: (index: number) => void;
   onAdd: () => void;
 }
 
@@ -155,6 +157,15 @@ export function TracksPanel({
                   >
                     <Settings2Icon data-icon="inline-start" />
                     Settings…
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => actions.onLyrics(i)}
+                    aria-label={`Lyrics… for ${track.name}`}
+                  >
+                    <MicVocalIcon data-icon="inline-start" />
+                    Lyrics…
                   </Button>
                 </div>
               </li>

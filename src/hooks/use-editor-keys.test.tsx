@@ -13,18 +13,27 @@ function Harness({
   editor,
   enabled = true,
   menuHandlesUndo = false,
+  onBend,
 }: {
   editor: ScoreEditor;
   enabled?: boolean;
   menuHandlesUndo?: boolean;
+  onBend?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEditorKeys(ref, editor, { enabled, menuHandlesUndo });
+  useEditorKeys(ref, editor, { enabled, menuHandlesUndo, onBend });
   // A focusable stand-in for the score region.
   return <div ref={ref} tabIndex={0} role="region" aria-label="Score" />;
 }
 
-function setup(options: { enabled?: boolean; menuHandlesUndo?: boolean; platform?: string } = {}) {
+function setup(
+  options: {
+    enabled?: boolean;
+    menuHandlesUndo?: boolean;
+    platform?: string;
+    onBend?: () => void;
+  } = {},
+) {
   vi.spyOn(navigator, "platform", "get").mockReturnValue(options.platform ?? "MacIntel");
   const editor = new ScoreEditor(createSong());
   render(<Harness editor={editor} {...options} />);
@@ -38,6 +47,37 @@ function setup(options: { enabled?: boolean; menuHandlesUndo?: boolean; platform
 }
 
 describe("useEditorKeys", () => {
+  it("switches note effects with their keys, and opens the bend editor", async () => {
+    const onBend = vi.fn();
+    const { user, editor } = setup({ onBend });
+    await user.keyboard("5{ArrowRight}7{ArrowLeft}");
+    const note = () => editor.score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!.notes[0]!;
+
+    await user.keyboard("h");
+    expect(note().isHammerPullOrigin).toBe(true);
+    await user.keyboard("plxow>");
+    expect(note()).toMatchObject({
+      isPalmMute: true,
+      isLetRing: true,
+      isDead: true,
+      isGhost: true,
+      vibrato: model.VibratoType.Slight,
+      accentuated: model.AccentuationType.Normal,
+    });
+    await user.keyboard("n");
+    expect(note().harmonicType).toBe(model.HarmonicType.Natural);
+    await user.keyboard("s");
+    expect(note().slideOutType).toBe(model.SlideOutType.Shift);
+    await user.keyboard("P"); // Shift works too
+    expect(note().isPalmMute).toBe(false);
+
+    await user.keyboard("{Shift>}B{/Shift}");
+    expect(onBend).toHaveBeenCalledOnce();
+    // Plain B is still the pitch letter: B4 is fret 7 on this string.
+    await user.keyboard("b");
+    expect(note().fret).toBe(7);
+  });
+
   it("types frets and moves between beats and strings", async () => {
     const { user, frets, editor } = setup();
 

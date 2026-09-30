@@ -412,15 +412,21 @@ const AL_FINE = [
 
 /**
  * Problems with the song's jumps that make playback differ from what the
- * score says, e.g. a D.S. without a Segno to jump to.
+ * score says, e.g. a D.S. without a Segno to jump to. With `draft`, bar
+ * `draft.index` is judged with the jumps and endings being edited.
  */
-export function structureWarnings(score: Score): string[] {
+export function structureWarnings(
+  score: Score,
+  draft?: { index: number; settings: Pick<BarSettings, "directions" | "endings"> },
+): string[] {
   const used = new Set<DirectionType>();
   let endings = false;
-  for (const masterBar of score.masterBars) {
-    for (const direction of masterBar.directions ?? []) used.add(direction);
-    if (masterBar.alternateEndings !== 0) endings = true;
-  }
+  score.masterBars.forEach((masterBar, index) => {
+    const edited = draft?.index === index ? draft.settings : null;
+    const directions = edited ? edited.directions : [...(masterBar.directions ?? [])];
+    for (const direction of directions) used.add(direction);
+    if ((edited ? edited.endings : masterBar.alternateEndings) !== 0) endings = true;
+  });
   const uses = (list: DirectionType[]) => list.some((d) => used.has(d));
   const warnings: string[] = [];
   if (uses(JUMPS_TO_SEGNO) && !used.has(Direction.TargetSegno))

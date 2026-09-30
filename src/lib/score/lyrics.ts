@@ -113,12 +113,12 @@ export function adoptLyrics(track: Track): void {
 
 /**
  * Places the stored lines' syllables on the notes again (clearing what was
- * there). Tracks whose lyrics were never set in Smart Beat are left alone.
- * Needs a finished model (beats linked to the next beat).
+ * there; "no lyrics" clears them all). Tracks Smart Beat never took over are
+ * left alone. Needs a finished model (beats linked to the next beat).
  */
 export function reflowLyrics(track: Track): void {
-  const lines = storedLyrics(track);
-  if (lines === null) return;
+  if (!(LINES_KEY in track)) return;
+  const lines = storedLyrics(track) ?? [];
   const staff = track.staves[0];
   for (const bar of staff?.bars ?? []) {
     for (const beat of bar.voices[0]?.beats ?? []) beat.lyrics = null;
