@@ -1,6 +1,7 @@
 import { LayoutMode, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
 
 import { mixFromScore } from "@/lib/score/mixer";
+import { cloneNote } from "@/lib/score/model";
 import {
   isSoundFont,
   ScorePlayer,
@@ -84,6 +85,12 @@ async function setup(overrides: Partial<ScorePlayerOptions> = {}) {
     onBarChange: vi.fn<Callback<"onBarChange">>(),
     onSoundFontError: vi.fn<Callback<"onSoundFontError">>(),
     onError: vi.fn<Callback<"onError">>(),
+    onActiveBeatsChange: vi.fn<Callback<"onActiveBeatsChange">>(),
+    onBeatClick: vi.fn<Callback<"onBeatClick">>(),
+    onBeatDrag: vi.fn<Callback<"onBeatDrag">>(),
+    onRendered: vi.fn<Callback<"onRendered">>(),
+    onRangeSelect: vi.fn<Callback<"onRangeSelect">>(),
+    onLoopRestart: vi.fn<Callback<"onLoopRestart">>(),
   } satisfies ScorePlayerCallbacks;
   const mix = mixFromScore(summary);
   const player = new ScorePlayer(
@@ -107,7 +114,8 @@ async function setup(overrides: Partial<ScorePlayerOptions> = {}) {
     api.playerState = playing ? PlayerState.Playing : PlayerState.Paused;
     api.playerStateChanged.trigger({ state: api.playerState, stopped: false });
   };
-  return { player, api, score, mix, callbacks, downloads, becomeReady, setPlaying };
+  const element = api.element;
+  return { player, api, score, mix, callbacks, downloads, becomeReady, setPlaying, element };
 }
 
 /** A player whose default sounds are loaded and which can play. */
@@ -208,9 +216,9 @@ describe("ScorePlayer", () => {
   });
 
   it("reports the bar clicked in the score, even while paused", async () => {
-    const { api, callbacks } = await setup();
+    const { api, score, callbacks } = await setup();
 
-    api.beatMouseDown.trigger({ voice: { bar: { index: 3 } } });
+    api.beatMouseDown.trigger(score.tracks[0]!.staves[0]!.bars[3]!.voices[0]!.beats[0]);
 
     expect(callbacks.onBarChange).toHaveBeenCalledWith(3);
   });
@@ -382,8 +390,8 @@ describe("ScorePlayer", () => {
 
     player.seekToBar(2);
 
-    expect(api.tickCache.getMasterBarStart).toHaveBeenCalledWith(score.masterBars[2]);
-    expect(api.tickPosition).toBe(3840);
+    expect(api.tickCache!.getMasterBarStart).toHaveBeenCalledWith(score.masterBars[2]);
+    expect(api.tickPosition).toBe(7680);
     expect(callbacks.onBarChange).toHaveBeenCalledWith(2);
 
     player.seekToBar(99);
@@ -626,6 +634,232 @@ describe("ScorePlayer", () => {
         previousKept: false,
       });
       expect(callbacks.onError).toHaveBeenCalledExactlyOnceWith(renderError);
+    });
+  });
+
+  describe("practice tools", () => {
+    it("loops whole bars and starts at the loop", async () => {
+      const { player, api, score } = await readySetup();
+
+      player.setLoop({ start: 1, end: 2 });
+
+      expect(api.isLooping).toBe(true);
+      expect(api.playbackRange).toMatchObject({ startTick: 3840, endTick: 11520 });
+      expect(api.tickPosition).toBe(3840); // was before the loop
+      const guitar = score.tracks[0]!.staves[0]!;
+      expect(api.highlightPlaybackRange).toHaveBeenCalledWith(
+        guitar.bars[1]!.voices[0]!.beats[0],
+        guitar.bars[2]!.voices[0]!.beats.at(-1),
+      );
+
+      api.tickPosition = 5000;
+      player.setLoop({ start: 1, end: 3 });
+      expect(api.tickPosition).toBe(5000); // inside the loop: stays
+
+      player.setLoop(null);
+      expect(api.isLooping).toBe(false);
+      expect(api.playbackRange).toBeNull();
+      expect(api.clearPlaybackRangeHighlight).toHaveBeenCalled();
+    });
+
+    it("applies a loop set before the song is loaded once it is", async () => {
+      const { player, api, becomeReady } = await setup();
+      const cache = api.tickCache;
+      api.tickCache = null;
+
+      player.setLoop({ start: 3, end: 3 });
+      expect(api.playbackRange).toBeNull();
+
+      api.tickCache = cache;
+      becomeReady();
+      expect(api.playbackRange).toMatchObject({ startTick: 11520, endTick: 15360 });
+    });
+
+    it("reports bars dragged across in the score, snapped to whole bars", async () => {
+      const { player, api, callbacks } = await readySetup();
+
+      api.playbackRangeChanged.trigger({ playbackRange: { startTick: 4000, endTick: 9000 } });
+      expect(callbacks.onRangeSelect).toHaveBeenLastCalledWith({ start: 1, end: 2 });
+      expect(api.isLooping).toBe(false); // selecting alone doesn't loop
+
+      api.playbackRangeChanged.trigger({ playbackRange: null });
+      expect(callbacks.onRangeSelect).toHaveBeenLastCalledWith(null);
+
+      player.setLoop({ start: 0, end: 0 });
+      // The synthesizer reports the loop back: that's not a new selection.
+      api.playbackRangeChanged.trigger({ playbackRange: { startTick: 0, endTick: 3840 } });
+      expect(api.playbackRange).toMatchObject({ startTick: 0, endTick: 3840 });
+
+      api.playbackRangeChanged.trigger({ playbackRange: { startTick: 8000, endTick: 12000 } });
+      expect(api.playbackRange).toMatchObject({ startTick: 7680, endTick: 15360 });
+      // A range ending exactly at a bar line doesn't include the next bar.
+      api.playbackRangeChanged.trigger({ playbackRange: { startTick: 0, endTick: 7680 } });
+      expect(callbacks.onRangeSelect).toHaveBeenLastCalledWith({ start: 0, end: 1 });
+
+      // A click clears alphaTab's range, but the loop stays.
+      api.playbackRange = null;
+      api.playbackRangeChanged.trigger({ playbackRange: null });
+      expect(api.playbackRange).toMatchObject({ startTick: 0, endTick: 7680 });
+    });
+
+    it("reports each restart of the loop (for the Speed Trainer)", async () => {
+      const { player, api, callbacks } = await readySetup();
+      api.playerFinished.trigger();
+      expect(callbacks.onLoopRestart).not.toHaveBeenCalled(); // the song ended
+
+      player.setLoop({ start: 0, end: 1 });
+      api.playerFinished.trigger();
+      expect(callbacks.onLoopRestart).toHaveBeenCalledOnce();
+    });
+
+    it("sets the speed, metronome and count-in", async () => {
+      const { player, api } = await readySetup();
+      player.setSpeed(75);
+      player.setMetronome(true);
+      player.setCountIn(true);
+      expect(api.playbackSpeed).toBe(0.75);
+      expect(api.metronomeVolume).toBe(1);
+      expect(api.countInVolume).toBe(1);
+      player.setMetronome(false);
+      player.setCountIn(false);
+      expect(api.metronomeVolume).toBe(0);
+      expect(api.countInVolume).toBe(0);
+    });
+  });
+
+  describe("editing", () => {
+    it("takes over clicks in edit mode", async () => {
+      const { player, api } = await readySetup();
+      player.setEditing(true);
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+      expect(api.updateSettings).toHaveBeenCalled();
+      player.setEditing(false);
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+    });
+
+    it("reports clicked beats and notes, with Shift", async () => {
+      const { player, api, score, callbacks, element } = await readySetup();
+      const beat = score.tracks[0]!.staves[0]!.bars[1]!.voices[0]!.beats[2]!;
+
+      element.dispatchEvent(new PointerEvent("pointerdown", { shiftKey: true }));
+      api.beatMouseDown.trigger(beat);
+      api.noteMouseDown.trigger(beat.notes[0]);
+      await Promise.resolve();
+
+      expect(callbacks.onBeatClick).toHaveBeenCalledWith({
+        beat,
+        note: beat.notes[0],
+        extend: true,
+      });
+      expect(callbacks.onActiveBeatsChange).toHaveBeenCalledWith([beat]);
+      expect(api.tickPosition).toBe(0); // alphaTab moves the cursor itself...
+
+      player.setEditing(true);
+      api.beatMouseDown.trigger(beat);
+      expect(api.tickPosition).toBe(3840 + 2 * 960); // ...but not in edit mode
+      api.beatMouseMove.trigger(beat);
+      expect(callbacks.onBeatDrag).toHaveBeenCalledWith(beat);
+    });
+
+    it("only reports drags in edit mode", async () => {
+      const { api, score, callbacks } = await readySetup();
+      api.beatMouseMove.trigger(score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]);
+      expect(callbacks.onBeatDrag).not.toHaveBeenCalled();
+    });
+
+    it("reports the shown track's beats being played", async () => {
+      const { api, score, callbacks, setPlaying } = await readySetup();
+      const guitarBeat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+      const bassBeat = score.tracks[1]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+
+      api.activeBeatsChanged.trigger({ activeBeats: [guitarBeat, bassBeat] });
+      expect(callbacks.onActiveBeatsChange).not.toHaveBeenCalled(); // paused
+
+      setPlaying(true);
+      api.activeBeatsChanged.trigger({ activeBeats: [guitarBeat, bassBeat] });
+      expect(callbacks.onActiveBeatsChange).toHaveBeenCalledWith([guitarBeat]);
+    });
+
+    it("re-renders quietly after edits and regenerates the MIDI", async () => {
+      const { player, api, score, mix, callbacks, setPlaying } = await readySetup();
+
+      player.refresh({ trackIndex: 1, view: { notation: "tab", rhythm: true }, mix });
+      api.renderStarted.trigger(false);
+      api.renderFinished.trigger({});
+
+      expect(api.renderTracks).toHaveBeenCalledWith([score.tracks[1]]);
+      expect(score.tracks[1]!.staves[0]!.showStandardNotation).toBe(false);
+      expect(callbacks.onRenderingChange).not.toHaveBeenCalled();
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+
+      // During playback, the MIDI waits for the next pause.
+      setPlaying(true);
+      player.refresh({ trackIndex: 1, view: { notation: "tab", rhythm: true }, mix });
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+      setPlaying(false);
+      expect(api.loadMidiForScore).toHaveBeenCalledTimes(2);
+      api.renderFinished.trigger({});
+
+      // Other renders still show "Rendering…".
+      api.renderStarted.trigger(false);
+      expect(callbacks.onRenderingChange).toHaveBeenCalledWith(true);
+    });
+
+    it("doesn't start playing again when the music changes right after a pause", async () => {
+      const { player, api, mix, becomeReady, setPlaying } = await readySetup();
+      setPlaying(true);
+
+      player.playPause(); // alphaTab reports the pause a moment later
+      player.refresh({ trackIndex: 0, view: { notation: "score-tab", rhythm: false }, mix });
+      becomeReady();
+
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+      expect(api.play).not.toHaveBeenCalled();
+    });
+
+    it("ignores a refresh for a track that no longer exists", async () => {
+      const { player, api, mix } = await readySetup();
+      player.refresh({ trackIndex: 9, view: { notation: "tab", rhythm: false }, mix });
+      expect(api.renderTracks).not.toHaveBeenCalled();
+    });
+
+    it("tells where beats and notes are drawn", async () => {
+      const { player, api, score } = await readySetup();
+      const beat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+      const note = beat.notes[0]!;
+      expect(player.beatRects(beat)).toEqual([]); // not rendered yet
+
+      api.boundsLookup = {
+        findBeats: vi.fn(() => [
+          {
+            realBounds: { x: 10, y: 0, w: 20, h: 5 },
+            barBounds: { visualBounds: { x: 0, y: 40, w: 100, h: 80 } },
+            notes: [{ note, noteHeadBounds: { x: 12, y: 60, w: 6, h: 8 } }],
+          },
+        ]),
+      };
+
+      expect(player.beatRects(beat)).toEqual([{ x: 10, y: 40, w: 20, h: 80 }]);
+      expect(player.noteRects(note)).toEqual([{ x: 12, y: 60, w: 6, h: 8 }]);
+      expect(player.noteRects(cloneNote(note))).toEqual([]); // not drawn
+    });
+
+    it("reports finished renders and keeps the loop highlighted in edit mode", async () => {
+      const { player, api, callbacks } = await readySetup();
+      player.setLoop({ start: 0, end: 1 });
+      player.setEditing(true);
+      api.highlightPlaybackRange.mockClear();
+
+      api.postRenderFinished.trigger();
+
+      expect(callbacks.onRendered).toHaveBeenCalledOnce();
+      expect(api.highlightPlaybackRange).toHaveBeenCalledOnce();
+    });
+
+    it("clears the played notes on stop", async () => {
+      const { player, callbacks } = await readySetup();
+      player.stop();
+      expect(callbacks.onActiveBeatsChange).toHaveBeenCalledWith([]);
     });
   });
 });

@@ -2,7 +2,7 @@
 
 A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with optional **self-hosted AI** that turns a hummed melody into drums, bass, piano and guitar parts. Runs on macOS (Apple Silicon and Intel), Windows and Linux.
 
-> **Status:** early preview. Smart Beat opens and plays Guitar Pro files (GP3–GP8) with a mixer. Editing and the AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3) and in [`high-level-plan.md`](high-level-plan.md).
+> **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), with a mixer, practice tools and a fretboard. Saving (GP5 and a native format, [#15](https://github.com/mbalyi/smart-beat/issues/15)) and the AI features are next: until then, changes last until you open another song. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3) and in [`high-level-plan.md`](high-level-plan.md).
 
 ## Features
 
@@ -11,6 +11,10 @@ A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with op
 - **Play it**: play, pause, stop (Space plays and pauses), start from any bar by clicking it or typing its number. The cursor follows the music and the score scrolls with it. Tempo changes in the song are respected.
 - **Mix it**: master volume, and volume, pan, mute and solo per track. The mix starts from the file's own settings and is saved per song (by its content, so renaming or moving the file keeps it). Volume, mute and solo apply instantly. Pan applies at the next pause, because changing it mid-song would cut off ringing notes.
 - **Two sound sets**: _Standard_ (Sonivox, 1 MB, the default) or _High quality_ (FluidR3 Mono, 15 MB), switchable in the mixer. Switching during playback keeps the current sounds playing while the new ones download, then continues from the same point after a short pause while they load.
+- **Practice**: loop a range of bars (type them, or drag across bars in the score), play at 25–200 % speed, and let the **Speed Trainer** loop the bars from a slow speed up to a target, a step after each loop (or every few loops). Metronome and count-in, remembered between songs. All in the Playback menu too (Loop ⌘L, Metronome ⇧⌘M).
+- **Fretboard, keyboard and drum pads** (View › Fretboard and Keyboard, ⇧⌘F): the notes being played on the track's instrument, following its tuning and capo. In edit mode, click a fret, key or pad to write that note.
+- **Write music** (Edit › Edit Mode, ⌘E; File › New, ⌘N): an edit cursor on tab and staff. Type frets (two quick digits for 10–29) and pitches by letter (A–G), set note values, dots, rests, ties and tuplets, write a second voice, select beats (Shift+arrows, drag, ⌘A) to copy, cut and paste them, with unlimited undo and redo (the Edit menu names what it will undo). Moving past the end of a bar or of the song adds beats and bars. The full key list is in Help › Keyboard Shortcuts.
+- **Tracks and instruments** (the Tracks panel and the Track menu): add, remove, reorder and duplicate tracks. Guitars with 6–8 strings, basses with 4–6, banjo, ukulele, drums and any General MIDI instrument, with tuning presets, custom tunings (string by string) and a capo. Drum tracks use the standard Guitar Pro drum-kit notation, shown in the track settings.
 
 ## Tech stack
 
@@ -68,17 +72,17 @@ pnpm tauri dev      # desktop app with hot reload
 
 ## Testing
 
-| Layer               | Where                                                      | Tool                                                                                                                                                                                                                              |
-| ------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UI unit             | `src/**/*.test.ts(x)` next to the code                     | Vitest, Testing Library, axe-core                                                                                                                                                                                                 |
-| UI integration      | [`src/App.test.tsx`](src/App.test.tsx)                     | Vitest with `@tauri-apps/api/mocks`: the whole UI plus a mocked Rust IPC (commands and menu events)                                                                                                                               |
-| Browser integration | [`e2e/`](e2e)                                              | Playwright in Chromium (≈ WebView2 on Windows) and WebKit (≈ WKWebView on macOS, WebKitGTK on Linux): WCAG 2.2 AA scans in light and dark mode, keyboard navigation, focus management, reduced motion, layouts at 375/768/1280 px |
-| Rust unit           | `#[cfg(test)]` modules in [`src-tauri/src`](src-tauri/src) | `cargo test`                                                                                                                                                                                                                      |
-| Rust integration    | [`src-tauri/tests/ipc.rs`](src-tauri/tests/ipc.rs)         | `tauri::test` mock runtime: real command wiring over IPC and menu routing                                                                                                                                                         |
+| Layer               | Where                                                                                                                               | Tool                                                                                                                                                                                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| UI unit             | `src/**/*.test.ts(x)` next to the code                                                                                              | Vitest, Testing Library, axe-core                                                                                                                                                                                                 |
+| UI integration      | [`src/App.test.tsx`](src/App.test.tsx), [`score-workspace-editing.test.tsx`](src/components/score/score-workspace-editing.test.tsx) | Vitest with `@tauri-apps/api/mocks`: the whole UI plus a mocked Rust IPC (commands, menu events and menu state), editing a real score                                                                                             |
+| Browser integration | [`e2e/`](e2e)                                                                                                                       | Playwright in Chromium (≈ WebView2 on Windows) and WebKit (≈ WKWebView on macOS, WebKitGTK on Linux): WCAG 2.2 AA scans in light and dark mode, keyboard navigation, focus management, reduced motion, layouts at 375/768/1280 px |
+| Rust unit           | `#[cfg(test)]` modules in [`src-tauri/src`](src-tauri/src)                                                                          | `cargo test`                                                                                                                                                                                                                      |
+| Rust integration    | [`src-tauri/tests/ipc.rs`](src-tauri/tests/ipc.rs)                                                                                  | `tauri::test` mock runtime: real command wiring over IPC and menu routing                                                                                                                                                         |
 
 The frontend fixtures in [`src/test/tauri.ts`](src/test/tauri.ts) mirror the JSON returned by the Rust commands. The Rust integration tests assert the same shape.
 
-alphaTab needs a real browser to render and play, so Vitest tests use a fake player ([`src/test/fake-score-player.ts`](src/test/fake-score-player.ts)) while parsing runs for real. The Playwright tests in [`e2e/score.spec.ts`](e2e/score.spec.ts) drive the real renderer and synthesizer. Their songs in [`e2e/fixtures/`](e2e/fixtures) are original and generated by [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs). Don't commit commercial transcriptions.
+alphaTab needs a real browser to render and play, so Vitest tests use a fake player ([`src/test/fake-score-player.ts`](src/test/fake-score-player.ts)) while parsing and editing run for real on alphaTab's model. The Playwright tests in [`e2e/`](e2e) (`score`, `practice`, `editing`, `instrument-view` and `tracks` specs) drive the real renderer and synthesizer. Their songs in [`e2e/fixtures/`](e2e/fixtures) are original and generated by [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs). Don't commit commercial transcriptions.
 
 ## Packaging
 
@@ -102,13 +106,17 @@ Local macOS builds are ad-hoc signed. See [`docs/code-signing.md`](docs/code-sig
 ```
 src/                 React UI
   components/        App components (+ ui/ generated by shadcn)
-    score/           Song screen: toolbar, score view, transport, mixer
-  hooks/ providers/  Theme, menu-action, file-open/drop and data-loading hooks
+    score/           Song screen: toolbars, score view, instrument panel, transport and
+                     practice tools, mixer, tracks panel and dialogs
+  hooks/ providers/  Theme, menu (actions and state), editor keys, file-open/drop hooks
   lib/tauri.ts       Typed bridge to the Rust commands and events
-  lib/score/         alphaTab adapter (player.ts), parsing, mixer model, SoundFonts
+  lib/score/         alphaTab adapter (player.ts), parsing, mixer and practice models,
+                     editor (editor.ts, history.ts, snapshot.ts, model.ts), tracks,
+                     instrument view data, music vocabulary (music.ts), SoundFonts
   test/              Test setup, IPC mocks, fake player, axe helper
 src-tauri/           Rust core
   src/menu.rs        Native menu bar and shortcut formatting
+  src/menu_state.rs  Menu labels, check marks and enabled items, sent by the UI
   src/commands.rs    IPC commands (thin wrappers)
   src/score_file.rs  Reading Guitar Pro files (signature and size checks)
   src/mixer.rs       Per-song mixer settings in the app data folder
@@ -125,9 +133,10 @@ docs/                Licensing, code signing, ADRs
 - **Commands** (`invoke`), defined in `src-tauri/src/commands.rs` and wrapped with types in `src/lib/tauri.ts`:
   - `app_info` and `menu_shortcuts` (About and Keyboard Shortcuts dialogs);
   - `read_score_file(path)` returns a Guitar Pro file as raw bytes. It only reads files with a Guitar Pro extension and signature, up to 100 MB, and fails with `{ kind, message }`;
-  - `load_mixer_settings(fileKey)` / `save_mixer_settings(fileKey, settings)` store a song's mix as `<app data>/mixer/<sha256>.json`.
+  - `load_mixer_settings(fileKey)` / `save_mixer_settings(fileKey, settings)` store a song's mix as `<app data>/mixer/<sha256>.json`;
+  - `update_menu_state(state)` keeps the menu bar in step with the UI: "Undo Add note", check marks for Edit Mode, Fretboard, Loop, Metronome and Count-In, and song-only items disabled while no song is open.
 - **Plugins:** the dialog plugin shows the native Open dialog (`dialog:allow-open`).
-- **Events:** clicking a native menu item goes to `menu::handle_event`. Window actions (zoom, full screen, close, quit) are handled in Rust. Everything else is emitted as a `menu-action` event, which the UI handles in `useMenuActions`. Files dropped on the window arrive as Tauri drag-and-drop events with their paths (`useFileDrop`).
+- **Events:** clicking a native menu item goes to `menu::handle_event`. Window actions (zoom, full screen, close, quit) are handled in Rust. Everything else is emitted as a `menu-action` event, which the UI handles in `useMenuActions` (the app handles New, Open and dialogs; the song workspace handles Undo/Redo, edit mode, tracks and practice). Undo and Redo are custom items so they undo score edits; in a text field they fall back to the field's own undo. Cut, Copy, Paste and Select All stay the platform's own items, and the score editor handles those keys itself. Files dropped on the window arrive as Tauri drag-and-drop events with their paths (`useFileDrop`).
 
 ## CI/CD
 

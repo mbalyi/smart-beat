@@ -1,4 +1,4 @@
-import { emitMenuAction, expect, openSong, test } from "./fixtures";
+import { emitMenuAction, expect, newSong, openSong, test } from "./fixtures";
 
 const VIEWPORTS = [
   { name: "narrow window", width: 375, height: 700, columns: 1 },
@@ -25,6 +25,38 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
       }
       const region = await app.getByRole("region", { name: /^Score:/ }).boundingBox();
       expect(region!.height).toBeGreaterThan(40);
+    });
+
+    test("fits edit mode, the fretboard and the practice tools without page scrolling", async ({
+      app,
+    }) => {
+      await newSong(app);
+      await emitMenuAction(app, "toggle-fretboard");
+      await emitMenuAction(app, "toggle-loop");
+      await expect(app.getByRole("region", { name: "Fretboard" })).toBeVisible();
+
+      const overflow = await app.evaluate(() => ({
+        x: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        y: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      }));
+      expect(overflow.x).toBeLessThanOrEqual(0); // the fretboard scrolls inside its panel
+      expect(overflow.y).toBeLessThanOrEqual(0);
+      for (const name of ["Play", "Edit", "Mixer"]) {
+        await expect(app.getByRole("button", { name, exact: true })).toBeInViewport();
+      }
+    });
+
+    test("fits the tracks panel and track dialog inside the window", async ({ app }) => {
+      await openSong(app);
+      await emitMenuAction(app, "track-settings");
+      const dialog = app.getByRole("dialog", { name: "Track settings" });
+      await expect(dialog).toBeVisible();
+      await expect
+        .poll(async () => {
+          const box = (await dialog.boundingBox())!;
+          return box.x >= 0 && box.x + box.width <= width && box.y + box.height <= height;
+        })
+        .toBe(true);
     });
 
     test("fits the mixer inside the window", async ({ app }) => {

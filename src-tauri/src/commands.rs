@@ -9,6 +9,7 @@ use tauri::{AppHandle, PackageInfo, Runtime, State};
 
 use crate::error::CommandError;
 use crate::menu::{self, Shortcut};
+use crate::menu_state::{self, MenuState, MenuStateStore};
 use crate::mixer::{FileKey, MixerSettings, MixerStore};
 use crate::score_file;
 
@@ -71,6 +72,22 @@ pub fn save_mixer_settings(
     settings: MixerSettings,
 ) -> Result<(), CommandError> {
     store.save(&FileKey::parse(&file_key)?, &settings)
+}
+
+/// Updates the menu bar to match the UI (undo labels, check marks, enabled items).
+#[tauri::command]
+pub fn update_menu_state<R: Runtime>(
+    app: AppHandle<R>,
+    store: State<'_, MenuStateStore>,
+    state: MenuState,
+) -> Result<(), CommandError> {
+    state.validate()?;
+    if let Err(error) = menu_state::apply(&app, &state) {
+        // The menu is a convenience: never fail the UI over it.
+        eprintln!("could not update the menu: {error}");
+    }
+    store.set(state);
+    Ok(())
 }
 
 #[cfg(test)]

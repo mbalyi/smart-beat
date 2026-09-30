@@ -8,6 +8,7 @@ import {
   type AppInfo,
   type CommandError,
   type MenuAction,
+  type MenuState,
   type MixerSettings,
   type Shortcut,
 } from "@/lib/tauri";
@@ -63,6 +64,8 @@ export const backend = {
   mixes: new Map<string, MixerSettings>(),
   /** Path the Open dialog picks, or `null` for Cancel. */
   dialogResult: null as string | null,
+  /** The last menu state the UI sent. */
+  menuState: null as MenuState | null,
 };
 
 const fail = (kind: CommandError["kind"], message: string): never => {
@@ -89,6 +92,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.files.clear();
   backend.mixes.clear();
   backend.dialogResult = null;
+  backend.menuState = null;
   mockWindows("main");
   mockIPC(
     (cmd, args) => {
@@ -109,6 +113,9 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           backend.mixes.set(fileKey, settings);
           return null;
         }
+        case "update_menu_state":
+          backend.menuState = (args as { state: MenuState }).state;
+          return null;
         case "plugin:dialog|open":
           return backend.dialogResult;
         case "plugin:window|set_theme":

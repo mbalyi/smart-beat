@@ -3,6 +3,7 @@
 mod commands;
 pub mod error;
 pub mod menu;
+pub mod menu_state;
 pub mod mixer;
 pub mod score_file;
 pub mod zoom;
@@ -22,6 +23,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .plugin(tauri_plugin_dialog::init())
         .manage(zoom::ZoomState::default())
+        .manage(menu_state::MenuStateStore::default())
         .setup(|app| {
             if app.try_state::<mixer::MixerStore>().is_none() {
                 let dir = app.path().app_data_dir()?.join(MIXER_DIR);
@@ -35,6 +37,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::read_score_file,
             commands::load_mixer_settings,
             commands::save_mixer_settings,
+            commands::update_menu_state,
         ])
         .on_menu_event(menu::handle_event)
 }

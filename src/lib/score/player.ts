@@ -1,7 +1,10 @@
 /**
  * Adapter between the UI and alphaTab: renders a score into an element and
- * plays it with a SoundFont. Components talk to this class only, so they can
- * be tested without alphaTab (which needs a real browser to render and play).
+ * plays it with a SoundFont, with practice tools (loop, speed, metronome,
+ * count-in) and what the editor needs (clicks, re-rendering after edits,
+ * where beats and notes are drawn). Components talk to this class only, so
+ * they can be tested without alphaTab (which needs a real browser to render
+ * and play).
  */
 import {
   AlphaTabApi,
@@ -16,10 +19,20 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
+import type { Beat, Note } from "@/lib/score/model";
+import type { LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
 import type { MixerSettings } from "@/lib/tauri";
 
-const { PlayerState } = synth;
+const { PlayerState, PlaybackRange } = synth;
+
+/** A rectangle in the score's coordinates (pixels from the top left of the notation). */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 export type Layout = "page" | "horizontal";
 
@@ -44,6 +57,18 @@ export interface ScorePlayerCallbacks {
    */
   onSoundFontError?: (error: Error, details: { previousKept: boolean }) => void;
   onError?: (error: Error) => void;
+  /** Beats of the shown track being played (or clicked while paused). */
+  onActiveBeatsChange?: (beats: Beat[]) => void;
+  /** A beat (and the note, if any) was clicked. `extend`: with Shift held. */
+  onBeatClick?: (target: { beat: Beat; note: Note | null; extend: boolean }) => void;
+  /** The mouse was dragged onto another beat after a click. */
+  onBeatDrag?: (beat: Beat) => void;
+  /** Rendering finished: beat and note positions are up to date. */
+  onRendered?: () => void;
+  /** Bars dragged across in the score (the range to loop), or null when cleared. */
+  onRangeSelect?: (range: LoopRange | null) => void;
+  /** Playback reached the end of the loop and starts it again. */
+  onLoopRestart?: () => void;
 }
 
 export interface ScorePlayerOptions {
@@ -92,6 +117,8 @@ function createSettings(options: ScorePlayerOptions): Settings {
   const settings = new Settings();
   settings.core.fontDirectory = `${base}font/`;
   settings.core.logLevel = LogLevel.Warning;
+  // Note positions, for clicking notes and drawing the edit cursor.
+  settings.core.includeNoteBounds = true;
   settings.display.layoutMode = LAYOUT_MODES[options.layout];
   settings.display.staveProfile = StaveProfile.Default; // per-staff flags decide
   settings.notation.rhythmMode = rhythmMode(options.view);
@@ -133,8 +160,25 @@ export class ScorePlayer {
   private resume: { tick: number; play: boolean } | null = null;
   /** Increases with every SoundFont request, so only the latest one is loaded. */
   private soundFontRequest = 0;
-  /** Pan changed during playback: applied at the next pause, never mid-song. */
-  private panPending = false;
+  /**
+   * The MIDI must be regenerated (pan or music changed) during playback: done
+   * at the next pause, never mid-song.
+   */
+  private midiPending = false;
+  /** Bars to loop, or null. Applied once the MIDI is loaded. */
+  private loop: LoopRange | null = null;
+  /** Set while the adapter itself changes the playback range. */
+  private settingRange = false;
+  /**
+   * The range the adapter last set. alphaTab's synthesizer (in a worker)
+   * reports it back later, which must not count as the user's selection.
+   */
+  private appliedRange: { startTick: number; endTick: number } | null = null;
+  /** Suppresses "Rendering…" for re-renders after edits. */
+  private quietRender = false;
+  private editing = false;
+  /** Shift was held on the last pointer press in the score. */
+  private shiftDown = false;
   /** A SoundFont is loaded in the synthesizer (none right after a reset). */
   private hasSounds = false;
   private readonly synthReady: Promise<void>;
@@ -151,6 +195,14 @@ export class ScorePlayer {
     this.applyView(options.view);
 
     this.api = new AlphaTabApi(options.element, createSettings(options));
+    // alphaTab reports clicked beats without the mouse event: remember Shift.
+    options.element.addEventListener(
+      "pointerdown",
+      (event) => {
+        this.shiftDown = event.shiftKey;
+      },
+      { capture: true },
+    );
     // alphaTab ignores SoundFonts sent before its synthesizer is ready.
     this.synthReady = new Promise((resolve) => this.api.player?.ready.on(() => resolve()));
     this.subscribe();
@@ -160,13 +212,23 @@ export class ScorePlayer {
 
   private subscribe() {
     const { api, callbacks } = this;
-    api.renderStarted.on(() => callbacks.onRenderingChange?.(true));
-    api.renderFinished.on(() => callbacks.onRenderingChange?.(false));
+    api.renderStarted.on(() => {
+      if (!this.quietRender) callbacks.onRenderingChange?.(true);
+    });
+    api.renderFinished.on(() => {
+      if (!this.quietRender) callbacks.onRenderingChange?.(false);
+      this.quietRender = false;
+    });
+    api.postRenderFinished.on(() => {
+      // alphaTab only redraws the loop highlight when clicks select ranges.
+      if (this.loop && this.editing) this.highlightLoop();
+      callbacks.onRendered?.();
+    });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
       callbacks.onPlayingChange?.(this.playing);
-      if (!this.playing && this.panPending) {
-        this.panPending = false;
+      if (!this.playing && this.midiPending) {
+        this.midiPending = false;
         this.reloadMidi();
       }
     });
@@ -177,8 +239,29 @@ export class ScorePlayer {
       this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo),
     );
     api.playedBeatChanged.on((beat) => this.reportBar(beat.voice.bar.index));
+    api.activeBeatsChanged.on((e) => {
+      if (this.playing) callbacks.onActiveBeatsChange?.(this.ownBeats(e.activeBeats));
+    });
     // playedBeatChanged only fires during playback; a click moves the cursor while paused too.
-    api.beatMouseDown.on((beat) => this.reportBar(beat.voice.bar.index));
+    api.beatMouseDown.on((beat) => {
+      this.reportBar(beat.voice.bar.index);
+      if (this.editing) this.seekToBeat(beat);
+      if (!this.playing) callbacks.onActiveBeatsChange?.(this.ownBeats([beat]));
+      // The note (if any) is reported right after the beat: wait for it.
+      const extend = this.shiftDown;
+      this.clickedNote = null;
+      queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend }));
+    });
+    api.noteMouseDown.on((note) => {
+      this.clickedNote = note;
+    });
+    api.beatMouseMove.on((beat) => {
+      if (this.editing) callbacks.onBeatDrag?.(beat);
+    });
+    api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
+    api.playerFinished.on(() => {
+      if (this.loop) callbacks.onLoopRestart?.();
+    });
     // alphaTab reports SoundFont failures through `error` too: report them once.
     api.error.on((error) => {
       queueMicrotask(() => {
@@ -194,6 +277,7 @@ export class ScorePlayer {
     player.readyForPlayback.on(() => {
       this.hasSounds = true;
       this.applyMix(null, this.mix);
+      this.applyLoop();
       const resume = this.resume;
       this.resume = null;
       if (resume) api.tickPosition = resume.tick;
@@ -207,6 +291,13 @@ export class ScorePlayer {
       this.soundFontErrors.add(error);
       callbacks.onSoundFontError?.(error, { previousKept: false });
     });
+  }
+
+  private clickedNote: Note | null = null;
+
+  /** The beats that belong to the shown track. */
+  private ownBeats(beats: readonly Beat[]): Beat[] {
+    return beats.filter((beat) => beat.voice.bar.staff.track === this.track);
   }
 
   private setReady(ready: boolean) {
@@ -278,8 +369,10 @@ export class ScorePlayer {
     const { api } = this;
     // alphaTab rewinds to 0 while it loads the new MIDI: return to this
     // position (and hide the rewind) once it is ready again. A pending
-    // SoundFont switch already knows where to continue.
-    this.resume ??= { tick: api.tickPosition, play: api.playerState === PlayerState.Playing };
+    // SoundFont switch already knows where to continue. Whether to play is our
+    // own flag: alphaTab reports a pause late, so right after one (an edit
+    // straight after pausing) it would still say "playing".
+    this.resume ??= { tick: api.tickPosition, play: this.playing };
     api.loadMidiForScore();
     api.tickPosition = this.resume.tick;
   }
@@ -316,8 +409,159 @@ export class ScorePlayer {
     this.mix = mix;
     if (this.ready) this.applyMix(previous, mix);
     if (!this.applyPans(mix)) return;
-    if (this.playing) this.panPending = true;
+    this.regenerateMidi();
+  }
+
+  /** Regenerates the MIDI now, or at the next pause during playback. */
+  private regenerateMidi() {
+    if (this.playing) this.midiPending = true;
     else this.reloadMidi();
+  }
+
+  /**
+   * Shows the score again after the music changed (edits, undo, track
+   * changes): re-renders without the "Rendering…" status and regenerates the
+   * MIDI (at the next pause during playback, like pan). `trackIndex` is where
+   * the shown track is now, and `mix` the mix in the new track order.
+   */
+  refresh({ trackIndex, view, mix }: { trackIndex: number; view: TrackView; mix: MixerSettings }) {
+    const track = this.score.tracks[trackIndex];
+    if (!track) return;
+    this.trackIndex = trackIndex;
+    this.mix = mix;
+    this.applyPans(mix);
+    this.applyView(view);
+    this.quietRender = true;
+    this.api.renderTracks([track]);
+    this.regenerateMidi();
+  }
+
+  /**
+   * Edit mode: clicks place the edit cursor (and still move the playback
+   * cursor), and dragging selects beats to edit instead of a range to play.
+   */
+  setEditing(editing: boolean) {
+    this.editing = editing;
+    this.api.settings.player.enableUserInteraction = !editing;
+    this.api.updateSettings();
+  }
+
+  /** Loops `range` (whole bars), or stops looping with null. */
+  setLoop(range: LoopRange | null) {
+    this.loop = range;
+    this.applyLoop();
+  }
+
+  private applyLoop() {
+    const { api } = this;
+    const loop = this.loop;
+    this.settingRange = true;
+    try {
+      if (!loop) {
+        this.appliedRange = null;
+        api.isLooping = false;
+        api.playbackRange = null;
+        api.clearPlaybackRangeHighlight();
+        return;
+      }
+      const cache = api.tickCache;
+      const first = this.score.masterBars[loop.start];
+      const last = this.score.masterBars[loop.end];
+      if (!cache || !first || !last) return; // applied once the MIDI is loaded
+      const range = new PlaybackRange();
+      range.startTick = cache.getMasterBarStart(first);
+      range.endTick = cache.getMasterBarStart(last) + last.calculateDuration();
+      this.appliedRange = { startTick: range.startTick, endTick: range.endTick };
+      api.playbackRange = range;
+      api.isLooping = true;
+      this.highlightLoop();
+      const tick = api.tickPosition;
+      if (tick < range.startTick || tick >= range.endTick) {
+        api.tickPosition = range.startTick;
+        if (this.resume) this.resume.tick = range.startTick;
+      }
+    } finally {
+      this.settingRange = false;
+    }
+  }
+
+  private highlightLoop() {
+    const loop = this.loop;
+    const staff = this.track.staves[0];
+    const start = staff?.bars[loop?.start ?? -1]?.voices[0]?.beats[0];
+    const end = staff?.bars[loop?.end ?? -1]?.voices[0]?.beats.at(-1);
+    if (start && end) this.api.highlightPlaybackRange(start, end);
+  }
+
+  /** A range selected with the mouse: reported as whole bars (and snapped to them). */
+  private onPlaybackRangeChanged(range: synth.PlaybackRange | null) {
+    if (this.settingRange) return;
+    const applied = this.appliedRange;
+    if (range && applied?.startTick === range.startTick && applied.endTick === range.endTick) {
+      return; // our own loop, reported back by the synthesizer
+    }
+    const cache = this.api.tickCache;
+    if (!range || !cache) {
+      // A click clears alphaTab's range; a loop stays until it is turned off.
+      if (this.loop) this.applyLoop();
+      else this.callbacks.onRangeSelect?.(null);
+      return;
+    }
+    const barAt = (tick: number) => {
+      const bars = this.score.masterBars;
+      let index = 0;
+      for (let i = 0; i < bars.length; i++) {
+        if (cache.getMasterBarStart(bars[i]!) <= tick) index = i;
+      }
+      return index;
+    };
+    // The end tick is where the range stops (exclusive).
+    const selected = {
+      start: barAt(range.startTick),
+      end: barAt(Math.max(range.startTick, range.endTick - 1)),
+    };
+    if (this.loop) this.setLoop(selected);
+    this.callbacks.onRangeSelect?.(selected);
+  }
+
+  /** Playback speed in percent (100 = as written). */
+  setSpeed(percent: number) {
+    this.api.playbackSpeed = percent / 100;
+  }
+
+  setMetronome(on: boolean) {
+    this.api.metronomeVolume = on ? 1 : 0;
+  }
+
+  setCountIn(on: boolean) {
+    this.api.countInVolume = on ? 1 : 0;
+  }
+
+  /** Where a beat is drawn: one rectangle per staff (standard notation, tab). */
+  beatRects(beat: Beat): Rect[] {
+    return (this.api.boundsLookup?.findBeats(beat) ?? []).map((bounds) => {
+      const bar = bounds.barBounds.visualBounds;
+      return { x: bounds.realBounds.x, y: bar.y, w: bounds.realBounds.w, h: bar.h };
+    });
+  }
+
+  /** Where a note's head (or fret number) is drawn, on each staff. */
+  noteRects(note: Note): Rect[] {
+    const beats = this.api.boundsLookup?.findBeats(note.beat) ?? [];
+    return beats.flatMap((bounds) =>
+      (bounds.notes ?? [])
+        .filter((n) => n.note === note)
+        .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
+    );
+  }
+
+  /** Moves the playback cursor to a beat. */
+  seekToBeat(beat: Beat) {
+    const tick = this.api.tickCache?.getBeatStart(beat);
+    if (tick === undefined) return;
+    this.api.tickPosition = tick;
+    if (this.resume) this.resume.tick = tick;
+    this.reportBar(beat.voice.bar.index);
   }
 
   /**
@@ -362,6 +606,7 @@ export class ScorePlayer {
     if (this.resume) this.resume = { tick: 0, play: false };
     this.playing = false;
     this.api.stop();
+    this.callbacks.onActiveBeatsChange?.([]);
   }
 
   /** Moves the playback cursor to the start of a bar (0-based). */

@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use smart_beat_lib::menu::{self, MAIN_WINDOW, MENU_EVENT, MenuAction};
+use smart_beat_lib::menu_state::MenuStateStore;
 use smart_beat_lib::mixer::MixerStore;
 use smart_beat_lib::zoom::ZoomState;
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
@@ -287,6 +288,117 @@ fn mixer_commands_validate_their_input() {
     .unwrap_err();
     assert_eq!(error["kind"], "invalid-settings");
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn menu_state_updates_are_stored() {
+    let app = app();
+    let window = main_window(&app);
+
+    invoke_with(
+        &window,
+        "update_menu_state",
+        json!({
+            "state": {
+                "songOpen": true,
+                "undo": "Add Note",
+                "redo": null,
+                "canRemoveTrack": true,
+                "editMode": true,
+                "fretboard": false,
+                "loop": true,
+                "metronome": false,
+                "countIn": false,
+            }
+        }),
+    )
+    .expect("update_menu_state failed");
+
+    let state = app.state::<MenuStateStore>().get();
+    assert!(state.song_open && state.edit_mode && state.looping);
+    assert_eq!(state.undo.as_deref(), Some("Add Note"));
+}
+
+#[test]
+fn menu_state_updates_are_validated() {
+    let app = app();
+    let window = main_window(&app);
+    let state = |undo: &str| {
+        json!({
+            "state": {
+                "songOpen": true, "undo": undo, "redo": null, "canRemoveTrack": false,
+                "editMode": false, "fretboard": false, "loop": false, "metronome": false,
+                "countIn": false,
+            }
+        })
+    };
+
+    let error = invoke_with(&window, "update_menu_state", state("Add\nNote")).unwrap_err();
+    assert_eq!(error["kind"], "invalid-menu-state");
+    let error = invoke_with(&window, "update_menu_state", state(&"x".repeat(61))).unwrap_err();
+    assert_eq!(error["kind"], "invalid-menu-state");
+    // Missing fields are a malformed request, not a crash.
+    assert!(invoke_with(&window, "update_menu_state", json!({ "state": {} })).is_err());
+    assert!(!app.state::<MenuStateStore>().get().song_open);
+}
+
+#[test]
+fn editing_and_practice_menu_items_reach_the_webview() {
+    let app = app();
+    let _window = main_window(&app);
+    let (tx, rx) = mpsc::channel();
+    app.listen_any(MENU_EVENT, move |event| {
+        tx.send(event.payload().to_string()).unwrap();
+    });
+    let click = |id: &str| {
+        menu::handle_event(
+            app.handle(),
+            MenuEvent {
+                id: MenuId::new(id),
+            },
+        )
+    };
+
+    for (id, payload) in [
+        ("file.new", "\"new-song\""),
+        ("edit.undo", "\"undo\""),
+        ("edit.redo", "\"redo\""),
+        ("edit.toggle-edit-mode", "\"toggle-edit-mode\""),
+        ("view.toggle-fretboard", "\"toggle-fretboard\""),
+        ("track.add", "\"add-track\""),
+        ("track.remove", "\"remove-track\""),
+        ("playback.toggle-loop", "\"toggle-loop\""),
+        ("playback.speed-trainer", "\"speed-trainer\""),
+        ("playback.toggle-count-in", "\"toggle-count-in\""),
+    ] {
+        click(id);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), payload);
+    }
+}
+
+#[test]
+fn menu_shortcuts_include_editing_and_practice() {
+    let app = app();
+    let window = main_window(&app);
+
+    let shortcuts = invoke(&window, "menu_shortcuts").expect("menu_shortcuts failed");
+    let actions: Vec<_> = shortcuts
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["action"].as_str().unwrap().to_string())
+        .collect();
+
+    for action in [
+        "new-song",
+        "undo",
+        "redo",
+        "toggle-edit-mode",
+        "toggle-loop",
+        "add-track",
+    ] {
+        assert!(actions.iter().any(|a| a == action), "{action} missing");
+    }
 }
 
 /// Delivers the Ready event (which runs the setup hook) and returns where the

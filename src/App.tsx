@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { DiscardDialog } from "@/components/discard-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
 import { Toaster } from "@/components/ui/sonner";
@@ -28,8 +29,25 @@ export function App() {
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const { toggleTheme } = useTheme();
-  const { song, openPath, openFile } = useScoreDocument();
+  const { song, openPath, openFile, newSong } = useScoreDocument();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * The open song has changes that would be lost by opening another one. A
+   * ref, updated as soon as the music changes, so a menu command right after
+   * an edit sees it.
+   */
+  const edited = useRef(false);
+  const setEdited = useCallback((value: boolean) => {
+    edited.current = value;
+  }, []);
+  /** What to do once the user agrees to discard their changes. */
+  const [pending, setPending] = useState<(() => void) | null>(null);
+
+  /** Runs `action` (which replaces the song), asking first if it was edited. */
+  const replaceSong = (action: () => void) => {
+    if (song && edited.current) setPending(() => action);
+    else action();
+  };
 
   const showDialog = (next: AppDialog, returnFocusTo: HTMLElement | null = null) => {
     setReturnFocusTo(returnFocusTo);
@@ -50,14 +68,17 @@ export function App() {
     }
   };
 
+  const open = () => replaceSong(() => void showOpenDialog());
+  const startNewSong = () => replaceSong(() => void newSong());
+
   const dragging = useFileDrop({
     onDropPaths: (paths) => {
       const path = firstScoreFile(paths, baseName);
-      if (path) void openPath(path);
+      if (path) replaceSong(() => void openPath(path));
     },
     onDropFiles: (files) => {
       const file = firstScoreFile(files, (f) => f.name);
-      if (file) void openFile(file);
+      if (file) replaceSong(() => void openFile(file));
     },
   });
 
@@ -70,8 +91,11 @@ export function App() {
 
   useMenuActions((action) => {
     switch (action) {
+      case "new-song":
+        startNewSong();
+        break;
       case "open":
-        void showOpenDialog();
+        open();
         break;
       case "toggle-theme":
         toggleTheme();
@@ -82,7 +106,8 @@ export function App() {
         showDialog(action);
         break;
       default:
-        // Window actions (zoom, full screen, quit) are handled natively.
+        // Window actions (zoom, full screen, quit) are handled natively;
+        // song actions (undo, loop, tracks...) by the workspace.
         break;
     }
   });
@@ -105,11 +130,18 @@ export function App() {
                 </p>
               }
             >
-              <ScoreWorkspace key={song.id} song={song} onOpen={() => void showOpenDialog()} />
+              <ScoreWorkspace
+                key={song.id}
+                song={song}
+                onOpen={open}
+                onEditedChange={setEdited}
+                startEditing={song.isNew}
+              />
             </Suspense>
           ) : (
             <Welcome
-              onOpenFile={() => void showOpenDialog()}
+              onOpenFile={open}
+              onNewSong={startNewSong}
               onShowShortcuts={() => showDialog("shortcuts")}
             />
           )}
@@ -129,6 +161,17 @@ export function App() {
         }}
       />
       <DropOverlay visible={dragging} />
+      <DiscardDialog
+        songName={song ? song.summary.title || song.name : ""}
+        open={pending !== null}
+        onCancel={() => setPending(null)}
+        onDiscard={() => {
+          const action = pending;
+          setPending(null);
+          edited.current = false;
+          action?.();
+        }}
+      />
       <AppDialogs open={dialog} onOpenChange={setDialog} returnFocusTo={returnFocusTo} />
       <Toaster position="bottom-right" />
     </>

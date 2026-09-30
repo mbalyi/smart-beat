@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { LoaderCircleIcon, PauseIcon, PlayIcon, SquareIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,7 @@ export function TransportBar({
   onPlayPause,
   onStop,
   onSeekBar,
+  practice,
 }: {
   ready: boolean;
   playing: boolean;
@@ -78,9 +79,12 @@ export function TransportBar({
   onPlayPause: () => void;
   onStop: () => void;
   onSeekBar: (barIndex: number) => void;
+  /** Practice tools (loop, speed...), after the transport controls. */
+  practice?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t bg-background px-4 py-2 sm:px-6">
+    // One row that scrolls sideways in narrow windows, wrapping from `sm` up.
+    <div className="flex shrink-0 items-center gap-x-4 gap-y-2 overflow-x-auto border-t bg-background px-4 py-2 *:shrink-0 sm:flex-wrap sm:px-6">
       <div className="flex items-center gap-1">
         <Button
           size="icon-lg"
@@ -126,6 +130,7 @@ export function TransportBar({
           Loading instrument sounds…
         </p>
       )}
+      {practice}
     </div>
   );
 }

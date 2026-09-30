@@ -10,14 +10,27 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 /** Mirrors `MenuAction` in `src-tauri/src/menu.rs` (kebab-case). */
 export type MenuAction =
+  | "new-song"
   | "open"
   | "close-window"
   | "quit"
+  | "undo"
+  | "redo"
+  | "toggle-edit-mode"
   | "toggle-theme"
+  | "toggle-fretboard"
   | "zoom-in"
   | "zoom-out"
   | "zoom-reset"
   | "toggle-fullscreen"
+  | "add-track"
+  | "duplicate-track"
+  | "remove-track"
+  | "track-settings"
+  | "toggle-loop"
+  | "speed-trainer"
+  | "toggle-metronome"
+  | "toggle-count-in"
   | "shortcuts"
   | "licenses"
   | "about";
@@ -54,6 +67,7 @@ export type CommandErrorKind =
   | "not-a-score"
   | "invalid-key"
   | "invalid-settings"
+  | "invalid-menu-state"
   | "io";
 
 /** Mirrors `CommandError` in `src-tauri/src/error.rs`: how commands fail. */
@@ -91,6 +105,23 @@ export interface MixerSettings {
   master: number;
   tracks: TrackMix[];
 }
+
+/** Mirrors `MenuState` in `src-tauri/src/menu_state.rs`: what the menu bar reflects. */
+export interface MenuState {
+  songOpen: boolean;
+  /** What Undo would undo ("Add note"), or null. */
+  undo: string | null;
+  redo: string | null;
+  canRemoveTrack: boolean;
+  editMode: boolean;
+  fretboard: boolean;
+  loop: boolean;
+  metronome: boolean;
+  countIn: boolean;
+}
+
+/** Mirrors `MAX_LABEL_CHARS` in `src-tauri/src/menu_state.rs`. */
+export const MAX_MENU_LABEL_CHARS = 60;
 
 declare global {
   interface Window {
@@ -151,6 +182,12 @@ export const loadMixerSettings = (fileKey: string) =>
 
 export const saveMixerSettings = (fileKey: string, settings: MixerSettings) =>
   call<void>("save_mixer_settings", { fileKey, settings });
+
+/** Updates the native menu bar (labels, check marks, enabled items). No-op in a browser. */
+export async function updateMenuState(state: MenuState): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("update_menu_state", { state });
+}
 
 export type FileDragEvent =
   { type: "enter" } | { type: "leave" } | { type: "drop"; paths: string[] };

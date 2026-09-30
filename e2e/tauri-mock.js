@@ -48,6 +48,8 @@
   window.__ipcCalls = [];
   /** Path the native Open dialog "picks" (`null` = Cancel). Set by tests. */
   window.__dialogResult = null;
+  /** The last menu state the UI sent (see `update_menu_state` in src-tauri/src/menu_state.rs). */
+  window.__menuState = null;
 
   /**
    * Mirrors `read_score_file` in src-tauri/src/score_file.rs. Files are served
@@ -77,6 +79,9 @@
         return mixes.get(args.fileKey) ?? null;
       case "save_mixer_settings":
         mixes.set(args.fileKey, args.settings);
+        return null;
+      case "update_menu_state":
+        window.__menuState = args.state;
         return null;
       case "plugin:dialog|open":
         return window.__dialogResult;

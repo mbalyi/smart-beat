@@ -3,18 +3,18 @@ import { FileMusicIcon, MicIcon, PencilLineIcon } from "lucide-react";
 /** Feature highlights (available and upcoming) shown on the welcome screen. */
 export const FEATURES = [
   {
-    title: "Open and play Guitar Pro files",
+    title: "Open, play and practice",
     description:
-      "View GP3–GP7 songs as tab and standard notation, play them with a cursor that follows along, and balance tracks in the mixer.",
+      "View GP3–GP7 songs as tab and standard notation, play them with a cursor, a mixer and a fretboard, and practice with loops, the Speed Trainer, a metronome and count-in.",
     Icon: FileMusicIcon,
     badge: "Available",
   },
   {
-    title: "Edit tabs and scores",
+    title: "Write tabs and scores",
     description:
-      "Enter notes, techniques and song structure, and save to GP5 or MusicXML, with full undo and redo.",
+      "Write notes on tab or staff with full undo and redo, for guitars, basses, drums and any MIDI instrument. Saving to GP5 and MusicXML is next.",
     Icon: PencilLineIcon,
-    badge: "Coming soon",
+    badge: "Preview",
   },
   {
     title: "Hum to accompaniment",

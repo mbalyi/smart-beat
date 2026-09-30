@@ -1,6 +1,13 @@
 import { useId, type Ref } from "react";
-import { FolderOpenIcon, SlidersHorizontalIcon } from "lucide-react";
+import {
+  FolderOpenIcon,
+  KeyboardMusicIcon,
+  ListMusicIcon,
+  PencilIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -25,6 +32,13 @@ const LAYOUTS: { value: Layout; label: string }[] = [
   { value: "horizontal", label: "Continuous" },
 ];
 
+/**
+ * Pressed Edit stands out in blue, the colour of the edit cursor. Radix sets
+ * both `data-state=on` and `aria-pressed`, so both are overridden.
+ */
+const EDIT_PRESSED =
+  "data-[state=on]:border-sky-700 data-[state=on]:bg-sky-700 aria-pressed:bg-sky-700 data-[state=on]:text-white data-[state=on]:hover:bg-sky-800 data-[state=on]:hover:text-white";
+
 const isNotation = (value: string): value is NotationView =>
   NOTATIONS.some((n) => n.value === value);
 const isLayout = (value: string): value is Layout => LAYOUTS.some((l) => l.value === value);
@@ -42,6 +56,14 @@ export function ScoreToolbar({
   onToggleMixer,
   mixerOpen = false,
   mixerButtonRef,
+  editing = false,
+  onToggleEditing,
+  edited = false,
+  onOpenTracks,
+  tracksButtonRef,
+  instrumentView = false,
+  instrumentLabel = "Fretboard",
+  onToggleInstrumentView,
 }: {
   /** File name, shown when the song has no title. */
   name: string;
@@ -57,6 +79,19 @@ export function ScoreToolbar({
   mixerOpen?: boolean;
   /** Where focus returns when the mixer closes. */
   mixerButtonRef?: Ref<HTMLButtonElement>;
+  /** Edit mode is on. */
+  editing?: boolean;
+  onToggleEditing?: () => void;
+  /** The song was changed since it was opened. */
+  edited?: boolean;
+  onOpenTracks?: () => void;
+  /** Where focus returns when the tracks panel closes. */
+  tracksButtonRef?: Ref<HTMLButtonElement>;
+  /** The fretboard (keyboard, drum pads) is shown. */
+  instrumentView?: boolean;
+  /** "Fretboard", "Keyboard" or "Drum pads", for the shown track. */
+  instrumentLabel?: string;
+  onToggleInstrumentView?: () => void;
 }) {
   const trackLabelId = useId();
   const track = summary.tracks[trackIndex];
@@ -66,31 +101,58 @@ export function ScoreToolbar({
     <div className="flex flex-col gap-3 border-b px-4 py-3 sm:px-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="truncate font-heading text-lg font-semibold sm:text-xl">
-            {summary.title || name}
-          </h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate font-heading text-lg font-semibold sm:text-xl">
+              {summary.title || name}
+            </h1>
+            {edited && (
+              <Badge variant="secondary" className="shrink-0">
+                Edited
+              </Badge>
+            )}
+          </div>
           {summary.artist && (
             <p className="truncate text-sm text-muted-foreground">{summary.artist}</p>
           )}
         </div>
-        <div className="flex shrink-0 gap-2">
-          <Button variant="outline" onClick={onOpen}>
+        <div className="flex shrink-0 gap-1.5 sm:gap-2">
+          <Button variant="outline" onClick={onOpen} title="Open…">
             <FolderOpenIcon data-icon="inline-start" />
-            Open…
+            <span className="sr-only md:not-sr-only">Open…</span>
           </Button>
+          {onToggleEditing && (
+            <Toggle
+              variant="outline"
+              pressed={editing}
+              onPressedChange={onToggleEditing}
+              title="Edit mode: write notes with the keyboard and mouse"
+              className={EDIT_PRESSED}
+            >
+              <PencilIcon data-icon="inline-start" />
+              Edit
+            </Toggle>
+          )}
+          {onOpenTracks && (
+            <Button ref={tracksButtonRef} variant="outline" onClick={onOpenTracks} title="Tracks">
+              <ListMusicIcon data-icon="inline-start" />
+              <span className="sr-only md:not-sr-only">Tracks</span>
+            </Button>
+          )}
           <Button
             ref={mixerButtonRef}
             variant="outline"
             aria-expanded={mixerOpen}
             onClick={onToggleMixer}
+            title="Mixer"
           >
             <SlidersHorizontalIcon data-icon="inline-start" />
-            Mixer
+            <span className="sr-only md:not-sr-only">Mixer</span>
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      {/* One row that scrolls sideways in narrow windows, wrapping from `sm` up. */}
+      <div className="-my-1 flex items-center gap-x-4 gap-y-2 overflow-x-auto py-1 *:shrink-0 sm:flex-wrap">
         <div className="flex min-w-0 items-center gap-2">
           <span id={trackLabelId} className="text-sm font-medium">
             Track
@@ -153,6 +215,18 @@ export function ScoreToolbar({
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+
+        {onToggleInstrumentView && (
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={instrumentView}
+            onPressedChange={onToggleInstrumentView}
+          >
+            <KeyboardMusicIcon data-icon="inline-start" />
+            {instrumentLabel}
+          </Toggle>
+        )}
       </div>
     </div>
   );

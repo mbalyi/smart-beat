@@ -5,6 +5,7 @@
 import { AlphaTabError, importer, Settings, type model } from "@coderline/alphatab";
 
 import { ScoreLoadError } from "@/lib/score/errors";
+import type { TrackKind } from "@/lib/score/music";
 import type { TrackMix } from "@/lib/tauri";
 
 export type Score = model.Score;
@@ -24,9 +25,15 @@ export interface TrackSummary {
   isPercussion: boolean;
   /** Stringed tracks can show tablature; others only standard notation. */
   hasTablature: boolean;
+  kind: TrackKind;
+  /** General MIDI program (0–127). */
+  program: number;
+  /** MIDI pitches of the strings, highest first (empty without strings). */
+  tuning: number[];
+  capo: number;
   /** The view saved in the file. */
   defaultView: TrackView;
-  /** Mixer values saved in the file. */
+  /** Mixer values saved in the file (or a new track's defaults). */
   mix: TrackMix;
 }
 
@@ -53,27 +60,67 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+/** Mixer values each track started with (from the file, or a new track's defaults). */
+const START_MIX = new WeakMap<model.Track, TrackMix>();
+
+const mixFromPlayback = (info: model.PlaybackInformation): TrackMix => ({
+  volume: volumeFromGp(info.volume),
+  pan: panFromGp(info.balance),
+  mute: info.isMute,
+  solo: info.isSolo,
+});
+
+/**
+ * Takes a track under the mixer's control: remembers its volume, pan, mute and
+ * solo as its starting mix, then sets it to full volume in the model, so the
+ * mixer can range from silent to full whatever the file says.
+ */
+export function adoptTrack(track: model.Track): void {
+  if (!START_MIX.has(track)) START_MIX.set(track, mixFromPlayback(track.playbackInfo));
+  track.playbackInfo.volume = GP_MAX;
+}
+
+export function rememberMix(track: model.Track, mix: TrackMix): void {
+  START_MIX.set(track, { ...mix });
+}
+
+/** The mix a track started with. */
+export const trackMix = (track: model.Track): TrackMix =>
+  START_MIX.get(track) ?? mixFromPlayback(track.playbackInfo);
+
+function trackKindOf(track: model.Track, hasTablature: boolean): TrackKind {
+  if (track.isPercussion || track.staves[0]?.isPercussion) return "drums";
+  return hasTablature ? "stringed" : "pitched";
+}
+
 function summarizeTrack(track: model.Track): TrackSummary {
   const staff = track.staves[0];
   const hasTablature = !track.isPercussion && (staff?.tuning.length ?? 0) > 0;
   const showsTab = hasTablature && (staff?.showTablature ?? false);
   const showsScore = !hasTablature || (staff?.showStandardNotation ?? true);
-  const info = track.playbackInfo;
   return {
     index: track.index,
     name: track.name.trim() || `Track ${track.index + 1}`,
     isPercussion: track.isPercussion,
     hasTablature,
+    kind: trackKindOf(track, hasTablature),
+    program: track.playbackInfo.program,
+    tuning: hasTablature ? [...staff!.tuning] : [],
+    capo: staff?.capo ?? 0,
     defaultView: {
       notation: showsTab && showsScore ? "score-tab" : showsTab ? "tab" : "score",
       rhythm: false,
     },
-    mix: {
-      volume: volumeFromGp(info.volume),
-      pan: panFromGp(info.balance),
-      mute: info.isMute,
-      solo: info.isSolo,
-    },
+    mix: { ...trackMix(track) },
+  };
+}
+
+/** The plain-data summary of a (possibly edited) score. */
+export function summarizeScore(score: Score): ScoreSummary {
+  return {
+    title: score.title.trim(),
+    artist: score.artist.trim(),
+    tracks: score.tracks.map(summarizeTrack),
   };
 }
 
@@ -98,13 +145,8 @@ export function parseScore(bytes: Uint8Array): LoadedScore {
     throw new ScoreLoadError("The file does not contain any tracks.");
   }
 
-  const summary: ScoreSummary = {
-    title: score.title.trim(),
-    artist: score.artist.trim(),
-    tracks: score.tracks.map(summarizeTrack),
-  };
-  for (const track of score.tracks) track.playbackInfo.volume = GP_MAX;
-  return { score, summary };
+  for (const track of score.tracks) adoptTrack(track);
+  return { score, summary: summarizeScore(score) };
 }
 
 /** Applies a {@link TrackView} to the track's staves (before rendering). */

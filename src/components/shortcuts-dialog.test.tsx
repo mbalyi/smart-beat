@@ -29,6 +29,15 @@ describe("ShortcutsDialog", () => {
     await expectNoA11yViolations();
   });
 
+  it("lists the score editor's keys", async () => {
+    mockTauri();
+    renderWithProviders(<ShortcutsDialog open onOpenChange={() => {}} />);
+
+    const editor = await screen.findByRole("region", { name: "Score editor (Edit mode)" });
+    expect(within(editor).getByText("Type a fret (two quick digits: 10–29)")).toBeInTheDocument();
+    expect(within(editor).getByText("Copy / cut / paste")).toBeInTheDocument();
+  });
+
   it("explains when shortcuts are unavailable", async () => {
     renderWithProviders(<ShortcutsDialog open onOpenChange={() => {}} />);
 

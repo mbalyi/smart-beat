@@ -1,12 +1,14 @@
-//! Native application menu (File / Edit / View / Help).
+//! Native application menu (File / Edit / View / Track / Playback / Help).
 //!
 //! Custom menu items are described by [`MenuAction`]. Actions that only touch
 //! the native window (zoom, full screen, close, quit) are handled in Rust;
 //! everything else is forwarded to the webview as a [`MENU_EVENT`] event so the
-//! UI can react (open a dialog, switch theme, ...).
+//! UI can react (open a dialog, switch theme, undo an edit, ...). The UI keeps
+//! item labels, enabled and checked states in sync through
+//! [`crate::menu_state`].
 
 use serde::Serialize;
-use tauri::menu::{Menu, MenuBuilder, MenuEvent, MenuItem, SubmenuBuilder};
+use tauri::menu::{CheckMenuItem, Menu, MenuBuilder, MenuEvent, MenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewWindow};
 
 use crate::zoom::{ZoomChange, ZoomState};
@@ -21,29 +23,55 @@ pub const MAIN_WINDOW: &str = "main";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MenuAction {
+    NewSong,
     Open,
     CloseWindow,
     Quit,
+    Undo,
+    Redo,
+    ToggleEditMode,
     ToggleTheme,
+    ToggleFretboard,
     ZoomIn,
     ZoomOut,
     ZoomReset,
     ToggleFullscreen,
+    AddTrack,
+    DuplicateTrack,
+    RemoveTrack,
+    TrackSettings,
+    ToggleLoop,
+    SpeedTrainer,
+    ToggleMetronome,
+    ToggleCountIn,
     Shortcuts,
     Licenses,
     About,
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 24] = [
+        Self::NewSong,
         Self::Open,
         Self::CloseWindow,
         Self::Quit,
+        Self::Undo,
+        Self::Redo,
+        Self::ToggleEditMode,
         Self::ToggleTheme,
+        Self::ToggleFretboard,
         Self::ZoomIn,
         Self::ZoomOut,
         Self::ZoomReset,
         Self::ToggleFullscreen,
+        Self::AddTrack,
+        Self::DuplicateTrack,
+        Self::RemoveTrack,
+        Self::TrackSettings,
+        Self::ToggleLoop,
+        Self::SpeedTrainer,
+        Self::ToggleMetronome,
+        Self::ToggleCountIn,
         Self::Shortcuts,
         Self::Licenses,
         Self::About,
@@ -52,14 +80,27 @@ impl MenuAction {
     /// Stable menu item id.
     pub fn id(self) -> &'static str {
         match self {
+            Self::NewSong => "file.new",
             Self::Open => "file.open",
             Self::CloseWindow => "file.close-window",
             Self::Quit => "file.quit",
+            Self::Undo => "edit.undo",
+            Self::Redo => "edit.redo",
+            Self::ToggleEditMode => "edit.toggle-edit-mode",
             Self::ToggleTheme => "view.toggle-theme",
+            Self::ToggleFretboard => "view.toggle-fretboard",
             Self::ZoomIn => "view.zoom-in",
             Self::ZoomOut => "view.zoom-out",
             Self::ZoomReset => "view.zoom-reset",
             Self::ToggleFullscreen => "view.toggle-fullscreen",
+            Self::AddTrack => "track.add",
+            Self::DuplicateTrack => "track.duplicate",
+            Self::RemoveTrack => "track.remove",
+            Self::TrackSettings => "track.settings",
+            Self::ToggleLoop => "playback.toggle-loop",
+            Self::SpeedTrainer => "playback.speed-trainer",
+            Self::ToggleMetronome => "playback.toggle-metronome",
+            Self::ToggleCountIn => "playback.toggle-count-in",
             Self::Shortcuts => "help.shortcuts",
             Self::Licenses => "help.licenses",
             Self::About => "help.about",
@@ -73,26 +114,47 @@ impl MenuAction {
     /// Title of the submenu the item lives in (the macOS app menu counts as "Smart Beat").
     pub fn menu(self) -> &'static str {
         match self {
-            Self::Open | Self::CloseWindow | Self::Quit => "File",
+            Self::NewSong | Self::Open | Self::CloseWindow | Self::Quit => "File",
+            Self::Undo | Self::Redo | Self::ToggleEditMode => "Edit",
             Self::ToggleTheme
+            | Self::ToggleFretboard
             | Self::ZoomIn
             | Self::ZoomOut
             | Self::ZoomReset
             | Self::ToggleFullscreen => "View",
+            Self::AddTrack | Self::DuplicateTrack | Self::RemoveTrack | Self::TrackSettings => {
+                "Track"
+            }
+            Self::ToggleLoop | Self::SpeedTrainer | Self::ToggleMetronome | Self::ToggleCountIn => {
+                "Playback"
+            }
             Self::Shortcuts | Self::Licenses | Self::About => "Help",
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::NewSong => "New",
             Self::Open => "Open…",
             Self::CloseWindow => "Close Window",
             Self::Quit => "Quit Smart Beat",
+            Self::Undo => "Undo",
+            Self::Redo => "Redo",
+            Self::ToggleEditMode => "Edit Mode",
             Self::ToggleTheme => "Toggle Dark Mode",
+            Self::ToggleFretboard => "Fretboard and Keyboard",
             Self::ZoomIn => "Zoom In",
             Self::ZoomOut => "Zoom Out",
             Self::ZoomReset => "Actual Size",
             Self::ToggleFullscreen => "Toggle Full Screen",
+            Self::AddTrack => "Add Track…",
+            Self::DuplicateTrack => "Duplicate Track",
+            Self::RemoveTrack => "Remove Track",
+            Self::TrackSettings => "Track Settings…",
+            Self::ToggleLoop => "Loop",
+            Self::SpeedTrainer => "Speed Trainer…",
+            Self::ToggleMetronome => "Metronome",
+            Self::ToggleCountIn => "Count-In",
             Self::Shortcuts => "Keyboard Shortcuts",
             Self::Licenses => "Open-Source Licenses",
             Self::About => "About Smart Beat",
@@ -102,17 +164,32 @@ impl MenuAction {
     /// Accelerator in Tauri syntax for the given `std::env::consts::OS` value.
     pub fn accelerator_for(self, os: &str) -> Option<&'static str> {
         match self {
+            Self::NewSong => Some("CmdOrCtrl+N"),
             Self::Open => Some("CmdOrCtrl+O"),
             Self::CloseWindow => Some("CmdOrCtrl+W"),
             Self::Quit => Some("CmdOrCtrl+Q"),
+            Self::Undo => Some("CmdOrCtrl+Z"),
+            Self::Redo if os == "macos" => Some("Shift+CmdOrCtrl+Z"),
+            Self::Redo => Some("Ctrl+Y"),
+            Self::ToggleEditMode => Some("CmdOrCtrl+E"),
             Self::ToggleTheme => Some("CmdOrCtrl+Shift+L"),
+            Self::ToggleFretboard => Some("CmdOrCtrl+Shift+F"),
             Self::ZoomIn => Some("CmdOrCtrl+="),
             Self::ZoomOut => Some("CmdOrCtrl+-"),
             Self::ZoomReset => Some("CmdOrCtrl+0"),
             Self::ToggleFullscreen if os == "macos" => Some("Ctrl+Cmd+F"),
             Self::ToggleFullscreen => Some("F11"),
+            Self::AddTrack => Some("CmdOrCtrl+Shift+N"),
+            Self::ToggleLoop => Some("CmdOrCtrl+L"),
+            Self::ToggleMetronome => Some("CmdOrCtrl+Shift+M"),
             Self::Shortcuts => Some("CmdOrCtrl+/"),
-            Self::Licenses | Self::About => None,
+            Self::DuplicateTrack
+            | Self::RemoveTrack
+            | Self::TrackSettings
+            | Self::SpeedTrainer
+            | Self::ToggleCountIn
+            | Self::Licenses
+            | Self::About => None,
         }
     }
 
@@ -130,6 +207,37 @@ impl MenuAction {
                 | Self::ZoomOut
                 | Self::ZoomReset
                 | Self::ToggleFullscreen
+        )
+    }
+
+    /// Whether the item shows a check mark (an on/off setting).
+    pub fn is_toggle(self) -> bool {
+        matches!(
+            self,
+            Self::ToggleEditMode
+                | Self::ToggleFretboard
+                | Self::ToggleLoop
+                | Self::ToggleMetronome
+                | Self::ToggleCountIn
+        )
+    }
+
+    /// Whether the item only makes sense with a song open (disabled otherwise).
+    pub fn needs_song(self) -> bool {
+        matches!(
+            self,
+            Self::Undo
+                | Self::Redo
+                | Self::ToggleEditMode
+                | Self::ToggleFretboard
+                | Self::AddTrack
+                | Self::DuplicateTrack
+                | Self::RemoveTrack
+                | Self::TrackSettings
+                | Self::ToggleLoop
+                | Self::SpeedTrainer
+                | Self::ToggleMetronome
+                | Self::ToggleCountIn
         )
     }
 }
@@ -243,7 +351,29 @@ pub fn format_accelerator(accelerator: &str, os: &str) -> (Vec<String>, String) 
 }
 
 fn item<R: Runtime>(app: &AppHandle<R>, action: MenuAction) -> tauri::Result<MenuItem<R>> {
-    MenuItem::with_id(app, action.id(), action.label(), true, action.accelerator())
+    let enabled = !action.needs_song(); // enabled once a song is open (see menu_state)
+    MenuItem::with_id(
+        app,
+        action.id(),
+        action.label(),
+        enabled,
+        action.accelerator(),
+    )
+}
+
+fn check_item<R: Runtime>(
+    app: &AppHandle<R>,
+    action: MenuAction,
+) -> tauri::Result<CheckMenuItem<R>> {
+    let enabled = !action.needs_song();
+    CheckMenuItem::with_id(
+        app,
+        action.id(),
+        action.label(),
+        enabled,
+        false,
+        action.accelerator(),
+    )
 }
 
 /// Builds the application menu bar.
@@ -251,6 +381,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     use MenuAction::*;
 
     let about = item(app, About)?;
+    let new_song = item(app, NewSong)?;
     let open = item(app, Open)?;
     let toggle_theme = item(app, ToggleTheme)?;
     let zoom_in = item(app, ZoomIn)?;
@@ -280,12 +411,14 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         menu = menu.item(&app_menu);
 
         SubmenuBuilder::new(app, "File")
+            .item(&new_song)
             .item(&open)
             .separator()
             .close_window()
             .build()?
     } else {
         SubmenuBuilder::new(app, "File")
+            .item(&new_song)
             .item(&open)
             .separator()
             .item(&item(app, CloseWindow)?)
@@ -293,24 +426,47 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .build()?
     };
 
+    // Undo and Redo are custom items: they undo score edits (the UI falls back
+    // to the text field's own undo when one has focus). Cut, Copy, Paste and
+    // Select All stay predefined so text fields keep working; the score editor
+    // handles those keys itself.
     let edit = SubmenuBuilder::new(app, "Edit")
-        .undo()
-        .redo()
+        .item(&item(app, Undo)?)
+        .item(&item(app, Redo)?)
         .separator()
         .cut()
         .copy()
         .paste()
         .select_all()
+        .separator()
+        .item(&check_item(app, ToggleEditMode)?)
         .build()?;
 
     let view = SubmenuBuilder::new(app, "View")
         .item(&toggle_theme)
+        .item(&check_item(app, ToggleFretboard)?)
         .separator()
         .item(&zoom_in)
         .item(&zoom_out)
         .item(&zoom_reset)
         .separator()
         .item(&fullscreen)
+        .build()?;
+
+    let track = SubmenuBuilder::new(app, "Track")
+        .item(&item(app, AddTrack)?)
+        .item(&item(app, DuplicateTrack)?)
+        .item(&item(app, RemoveTrack)?)
+        .separator()
+        .item(&item(app, TrackSettings)?)
+        .build()?;
+
+    let playback = SubmenuBuilder::new(app, "Playback")
+        .item(&check_item(app, ToggleLoop)?)
+        .item(&item(app, SpeedTrainer)?)
+        .separator()
+        .item(&check_item(app, ToggleMetronome)?)
+        .item(&check_item(app, ToggleCountIn)?)
         .build()?;
 
     let mut help = SubmenuBuilder::new(app, "Help")
@@ -321,7 +477,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     }
     let help = help.build()?;
 
-    menu.items(&[&file, &edit, &view, &help]).build()
+    menu.items(&[&file, &edit, &view, &track, &playback, &help])
+        .build()
 }
 
 /// Entry point registered with `Builder::on_menu_event`.
@@ -409,21 +566,73 @@ mod tests {
         assert!(MenuAction::Quit.is_native());
         assert!(!MenuAction::Open.is_native());
         assert!(!MenuAction::About.is_native());
+        assert!(!MenuAction::Undo.is_native());
+        assert!(!MenuAction::ToggleLoop.is_native());
+    }
+
+    #[test]
+    fn settings_are_check_items_and_song_items_need_a_song() {
+        let toggles: Vec<_> = MenuAction::ALL
+            .into_iter()
+            .filter(|a| a.is_toggle())
+            .collect();
+        assert_eq!(
+            toggles,
+            [
+                MenuAction::ToggleEditMode,
+                MenuAction::ToggleFretboard,
+                MenuAction::ToggleLoop,
+                MenuAction::ToggleMetronome,
+                MenuAction::ToggleCountIn,
+            ]
+        );
+        // Every toggle is about the open song, and so are the Track and Playback menus.
+        for action in MenuAction::ALL {
+            if action.is_toggle() || matches!(action.menu(), "Track" | "Playback") {
+                assert!(action.needs_song(), "{action:?}");
+            }
+        }
+        assert!(!MenuAction::NewSong.needs_song());
+        assert!(!MenuAction::Open.needs_song());
+        assert!(!MenuAction::ToggleTheme.needs_song());
+        assert!(!MenuAction::ToggleTheme.is_toggle());
+    }
+
+    #[test]
+    fn redo_uses_platform_convention() {
+        assert_eq!(
+            MenuAction::Redo.accelerator_for("macos"),
+            Some("Shift+CmdOrCtrl+Z")
+        );
+        assert_eq!(MenuAction::Redo.accelerator_for("windows"), Some("Ctrl+Y"));
+        assert_eq!(MenuAction::Redo.accelerator_for("linux"), Some("Ctrl+Y"));
+        let (keys, spoken) = format_accelerator("Shift+CmdOrCtrl+Z", "macos");
+        assert_eq!(keys, ["⇧", "⌘", "Z"]);
+        assert_eq!(spoken, "Shift+Command+Z");
+    }
+
+    #[test]
+    fn every_action_has_a_menu_and_a_label() {
+        let menus = ["File", "Edit", "View", "Track", "Playback", "Help"];
+        for action in MenuAction::ALL {
+            assert!(menus.contains(&action.menu()), "{action:?}");
+            assert!(!action.label().is_empty());
+            let prefix = action.id().split('.').next().unwrap();
+            assert_eq!(prefix, action.menu().to_lowercase(), "{action:?}");
+        }
     }
 
     #[test]
     fn accelerators_are_unique_per_platform() {
         for os in ["macos", "windows", "linux"] {
-            let accelerators: Vec<_> = MenuAction::ALL
+            // Compare the keys, so "Shift+Cmd+Z" and "Cmd+Shift+Z" count as the same.
+            let keys: Vec<_> = MenuAction::ALL
                 .iter()
                 .filter_map(|a| a.accelerator_for(os))
+                .map(|accelerator| format_accelerator(accelerator, os).0)
                 .collect();
-            let unique: HashSet<_> = accelerators.iter().collect();
-            assert_eq!(
-                unique.len(),
-                accelerators.len(),
-                "duplicate accelerator on {os}"
-            );
+            let unique: HashSet<_> = keys.iter().collect();
+            assert_eq!(unique.len(), keys.len(), "duplicate accelerator on {os}");
         }
     }
 
