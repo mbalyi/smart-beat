@@ -137,8 +137,9 @@ test.describe("note entry and editing (#9)", () => {
     await expect.poll(() => editorStatus(app)).toMatch(/fret 2/);
 
     await app.keyboard.press("7");
-    await expect.poll(() => tabNumbers(app)).not.toEqual(before);
-    expect(await tabNumbers(app)).toContain("7");
+    // The tab is briefly empty while alphaTab redraws: wait for the 7 itself.
+    await expect.poll(() => tabNumbers(app)).toContain("7");
+    expect(await tabNumbers(app)).not.toEqual(before);
     await expect(app.getByTestId("edit-cursor-note").first()).toBeVisible();
   });
 

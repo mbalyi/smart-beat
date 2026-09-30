@@ -39,8 +39,26 @@
   </head>
   <body>
     <div id="splash" aria-hidden="true" inert>
-      <video src="/loading.mp4" autoplay muted loop playsinline preload="auto"></video>
+      <video src="/loading.mp4" muted loop playsinline preload="auto"></video>
     </div>
+    <script>
+      // Start the animation ourselves: WebKit ignores the muted attribute on
+      // parse and then blocks autoplay (showing a play button). If it still
+      // can't play, skip the splash rather than show a dead video.
+      (function () {
+        var video = document.querySelector("#splash video");
+        if (!video) return;
+        video.muted = true;
+        video.defaultMuted = true;
+        video.controls = false;
+        var skip = function () {
+          var splash = document.getElementById("splash");
+          if (splash) splash.remove();
+        };
+        var started = video.play();
+        if (started && started.catch) started.catch(skip);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
