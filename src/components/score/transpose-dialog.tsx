@@ -191,7 +191,10 @@ export function TransposeDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogContent
+        className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-md"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         <TransposeForm
           hasSelection={hasSelection}
           preview={preview}

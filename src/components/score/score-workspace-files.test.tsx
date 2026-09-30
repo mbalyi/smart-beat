@@ -87,6 +87,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
 
     await waitFor(() => expect(backend.written.has("/songs/mine.gp")).toBe(true));
     expect(isZip(bytesOf("/songs/mine.gp"))).toBe(true); // Guitar Pro 7 (.gp) is a ZIP
+    await waitFor(() => expect(onSaved).toHaveBeenCalled()); // after the content key is computed
     const saved = onSaved.mock.calls[0]![0];
     expect(saved).toMatchObject({ name: "mine.gp", path: "/songs/mine.gp" });
     expect(saved.fileKey).toMatch(/^[0-9a-f]{64}$/);
