@@ -45,9 +45,9 @@ describe("the drum map", () => {
     }
   });
 
-  // The Sonivox SF2 is part of the repository; the SF3 files are downloaded before a build.
+  // The SoundFonts are downloaded before a build (public/soundfont is not in the repository).
   const fonts = [
-    ["sonivox.sf2", true],
+    ["sonivox.sf2", existsSync(path.join(SOUNDFONTS, "sonivox.sf2"))],
     ["sonivox.sf3", existsSync(path.join(SOUNDFONTS, "sonivox.sf3"))],
     ["FluidR3Mono_GM.sf3", existsSync(path.join(SOUNDFONTS, "FluidR3Mono_GM.sf3"))],
   ] as const;
@@ -66,8 +66,11 @@ describe("the drum map", () => {
     });
   }
 
-  it("the playable range really ends at 87 in the bundled SoundFont", () => {
-    const keys = [...percussionKeys(load("sonivox.sf2")).keys()];
-    expect(Math.max(...keys)).toBe(LAST_PLAYABLE_DRUM);
-  });
+  it.skipIf(!existsSync(path.join(SOUNDFONTS, "sonivox.sf2")))(
+    "the playable range really ends at 87 in the bundled SoundFont",
+    () => {
+      const keys = [...percussionKeys(load("sonivox.sf2")).keys()];
+      expect(Math.max(...keys)).toBe(LAST_PLAYABLE_DRUM);
+    },
+  );
 });
