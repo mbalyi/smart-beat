@@ -108,6 +108,12 @@ pub enum Transport {
     MasterVolume {
         value: f32,
     },
+    /// Plays one note now (a drum picked in the kit), e.g. channel 9, key 38.
+    Preview {
+        channel: u8,
+        key: u8,
+        velocity: u8,
+    },
 }
 
 fn with_engine<T>(inner: &Inner, f: impl FnOnce(&mut Engine) -> T) -> Result<T, CommandError> {
@@ -284,6 +290,15 @@ pub fn audio_transport(
         }
         Transport::Metronome { volume } => engine.set_metronome_volume(volume),
         Transport::MasterVolume { value } => engine.set_master_volume(value),
+        Transport::Preview {
+            channel,
+            key,
+            velocity,
+        } => {
+            if let Err(e) = engine.preview(channel, key, velocity) {
+                eprintln!("preview: {e}");
+            }
+        }
     })
 }
 

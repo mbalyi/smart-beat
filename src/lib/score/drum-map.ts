@@ -109,6 +109,28 @@ export const DRUM_MIDI_MAP: Readonly<Record<number, string>> = {
   127: "Ride (bell)",
 };
 
+export type DrumCategory = "Kicks" | "Snares" | "Hi-hats" | "Toms" | "Cymbals" | "Percussion";
+
+export const DRUM_CATEGORIES: readonly DrumCategory[] = [
+  "Kicks",
+  "Snares",
+  "Hi-hats",
+  "Toms",
+  "Cymbals",
+  "Percussion",
+];
+
+/** Which group of the Virtual Drumkit a drum number belongs to (by its name). */
+export function drumCategory(key: number): DrumCategory {
+  const name = drumNumberName(key);
+  if (/^(Kick|Grancassa)/.test(name)) return "Kicks";
+  if (/Snare/.test(name)) return "Snares";
+  if (/Hi-Hat/.test(name)) return "Hi-hats";
+  if (/Tom/.test(name)) return "Toms";
+  if (/^(Ride|Crash|China|Splash|Reverse Cymbal|Piatti)/.test(name)) return "Cymbals";
+  return "Percussion";
+}
+
 /** The name of a drum number ("Drum sound 130" if it is not in the table). */
 export const drumNumberName = (key: number): string => DRUM_MIDI_MAP[key] ?? `Drum sound ${key}`;
 

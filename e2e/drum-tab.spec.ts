@@ -83,4 +83,26 @@ test.describe("drum tab (#49)", () => {
     await showDrums(app, "Tab");
     await expectNoA11yViolations(app);
   });
+
+  test("the virtual drumkit enters a drum by name at the cursor (#45)", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("combobox", { name: "Track" }).click();
+    await app.getByRole("option", { name: "Drums" }).click();
+    await app.getByRole("button", { name: "Drum pads" }).click();
+    await app.getByRole("button", { name: "Edit" }).click();
+    await app
+      .getByRole("radiogroup", { name: "Drum view" })
+      .getByRole("radio", { name: "Virtual drumkit" })
+      .click();
+    const kit = app.getByTestId("virtual-drumkit");
+    await expect(kit.getByRole("region", { name: "Cymbals" })).toBeVisible();
+    await expectNoA11yViolations(app);
+
+    await kit.getByRole("button", { name: "Snare (rim shot), 91" }).click();
+    await expect.poll(() => editorStatus(app)).toMatch(/Snare \(rim shot\)/);
+    await expect(kit.getByRole("button", { name: "Snare (rim shot), 91" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+  });
 });

@@ -10,6 +10,7 @@ import {
   AlphaTabApi,
   LayoutMode,
   LogLevel,
+  midi,
   NotationElement,
   PlayerMode,
   PlayerOutputMode,
@@ -22,6 +23,7 @@ import {
 
 import { busMixes, NativeEngine, trackChannels } from "@/lib/audio/native-engine";
 import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
+import { playableDrumKey } from "@/lib/score/drum-map";
 import {
   mirrorBeatOf,
   mirrorNoteOf,
@@ -51,6 +53,9 @@ import {
 } from "@/lib/tauri";
 
 const { PlayerState, PlaybackRange } = synth;
+
+/** MIDI channel 10, where General MIDI plays drums (0-based). */
+const PERCUSSION_CHANNEL = 9;
 
 /** Sample rate of exported audio, and how much sound is rendered at a time (ms). */
 const EXPORT_SAMPLE_RATE = 44_100;
@@ -728,6 +733,23 @@ export class ScorePlayer {
   /** Count-in (alphaTab's synthesizer only; the native engine has none yet). */
   setCountIn(on: boolean) {
     this.api.countInVolume = on ? 1 : 0;
+  }
+
+  /**
+   * Plays one drum sound now (the kit picker): through the native engine, or
+   * alphaTab's synthesizer once its sounds are loaded.
+   */
+  previewDrum(key: number) {
+    const sound = playableDrumKey(key);
+    if (this.engine) {
+      this.engine.preview(PERCUSSION_CHANNEL, sound);
+      return;
+    }
+    if (!this.hasSounds) return;
+    const file = new midi.MidiFile();
+    file.addEvent(new midi.NoteOnEvent(0, 0, PERCUSSION_CHANNEL, sound, 100));
+    file.addEvent(new midi.NoteOffEvent(0, file.division, PERCUSSION_CHANNEL, sound, 0));
+    this.api.player?.playOneTimeMidiFile(file);
   }
 
   /** Whether the native engine makes the sound. */

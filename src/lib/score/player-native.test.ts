@@ -140,4 +140,17 @@ describe("ScorePlayer with the native engine", () => {
     });
     expect(api.exportAudio).not.toHaveBeenCalled();
   });
+
+  it("previews drums through the engine", async () => {
+    const { player } = await setup();
+    player.previewDrum(42);
+    await vi.waitFor(() =>
+      expect(mocked.engineTransport).toHaveBeenCalledWith({
+        type: "preview",
+        channel: 9,
+        key: 42,
+        velocity: 100,
+      }),
+    );
+  });
 });

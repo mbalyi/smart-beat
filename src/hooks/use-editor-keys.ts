@@ -112,6 +112,11 @@ export function useEditorKeys(
       editor.fillWithRests();
       return;
     }
+    if (key === "k" && !event.shiftKey && editor.kind === "drums") {
+      handled();
+      editor.startDrumReplace();
+      return;
+    }
     if (/^[0-9]$/.test(key)) {
       handled();
       editor.typeDigit(Number(key));
@@ -193,7 +198,8 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
   {
     keys: ["↑", "↓"],
     spoken: "Up or Down arrow",
-    label: "Higher / lower string (tab), or note of a chord",
+    label:
+      "Higher / lower string (tab), note of a chord, or drum line (drums; past the last one, the other voice)",
   },
   { keys: ["mod", "←/→"], spoken: "mod+Left or Right arrow", label: "Previous / next bar" },
   { keys: ["⇧", "arrows"], spoken: "Shift+arrows", label: "Select beats" },
@@ -203,6 +209,11 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
     spoken: "0 to 9",
     label:
       "Drum track: type a drum number (46 = open hi-hat, 38 = snare); the same number again removes it",
+  },
+  {
+    keys: ["K", "0–9"],
+    spoken: "K, then a drum number",
+    label: "Drum track: replace the drum under the cursor by the number you type next",
   },
   { keys: ["⇧", "1–7"], spoken: "Shift+1 to 7", label: "Note value: whole, half, … 64th" },
   { keys: ["⇧", "R"], spoken: "Shift+R", label: "Fill the bar with rests of the note value" },

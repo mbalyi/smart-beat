@@ -157,6 +157,15 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         case "plugin:window|set_theme":
         case "plugin:window|set_title":
           return null;
+        // The sound library starts empty; the native engine is never started here.
+        case "library_list":
+          return [];
+        case "audio_set_chain":
+          return [];
+        case "audio_transport":
+        case "audio_set_mix":
+        case "audio_stop":
+          return null;
         default:
           throw new Error(`Unmocked Tauri command: ${cmd}`);
       }

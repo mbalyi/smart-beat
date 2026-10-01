@@ -241,3 +241,12 @@ fn every_bundled_preset_builds_and_sounds() {
         assert!(rms(&out[out.len() / 2..]) > 0.001, "{id}: silent");
     }
 }
+
+#[test]
+fn previews_a_drum_without_playing_the_song() {
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.preview(9, 38, 110).unwrap();
+    let (l, _) = render(&mut engine, 0.3);
+    assert!(rms(&l) > 0.001, "silent preview");
+    assert!(!engine.is_playing());
+}

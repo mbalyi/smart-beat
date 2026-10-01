@@ -203,10 +203,22 @@ describe("useEditorKeys", () => {
     expect(editor.score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats).toHaveLength(32);
   });
 
+  it("K starts replacing the drum under the cursor (drum tracks only)", async () => {
+    const { user, editor } = setup();
+    await user.keyboard("k"); // a guitar track: nothing happens
+    expect(editor.message).not.toMatch(/Replace/);
+    const spy = vi.spyOn(editor, "kind", "get").mockReturnValue("drums");
+    const replace = vi.spyOn(editor, "startDrumReplace").mockImplementation(() => {});
+    await user.keyboard("k");
+    expect(replace).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it("lists the new keys in the shortcuts", () => {
     const labels = EDITOR_SHORTCUTS.map((s) => s.label).join("\n");
     expect(labels).toMatch(/drum number/);
     expect(labels).toMatch(/Note value: whole/);
     expect(labels).toMatch(/Fill the bar with rests/);
+    expect(labels).toMatch(/replace the drum under the cursor/);
   });
 });

@@ -215,6 +215,11 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     });
   }
 
+  /** Plays one note now (a drum picked in the kit). */
+  preview(channel: number, key: number, velocity = 100) {
+    this.send({ type: "preview", channel, key, velocity });
+  }
+
   setMetronome(volume: number) {
     this.send({ type: "metronome", volume });
   }

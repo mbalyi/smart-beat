@@ -614,6 +614,71 @@ describe("ScoreEditor: drum numbers and rests", () => {
     expect(hits(editor)).toEqual([49, 36]);
   });
 
+  it("walks the beat's drums line by line with Up and Down, as in the drum tab", () => {
+    const editor = drumSong();
+    editor.enterDrum(36); // kick
+    editor.enterDrum(38); // snare
+    editor.enterDrum(42); // hi-hat
+    editor.moveString(1); // up: towards the top line
+    expect(editor.cursor.pitch).toBe(42);
+    editor.moveString(-1);
+    expect(editor.cursor.pitch).toBe(38);
+    editor.moveString(-1);
+    expect(editor.cursor.pitch).toBe(36);
+    editor.moveString(-1); // past the kick: voice 2 is empty, so it stays
+    expect([editor.cursor.voice, editor.cursor.pitch]).toEqual([0, 36]);
+  });
+
+  it("goes on to the other voice past the last drum", () => {
+    const editor = drumSong();
+    editor.enterDrum(42);
+    editor.switchVoice(1);
+    editor.enterDrum(36);
+    editor.switchVoice(0);
+    editor.moveString(-1); // onto the beat's only drum, the hi-hat
+    expect(editor.cursor.pitch).toBe(42);
+    editor.moveString(-1); // past it: down goes to voice 2
+    expect([editor.cursor.voice, editor.cursor.pitch]).toEqual([1, 36]);
+    editor.moveString(1); // and back up
+    expect([editor.cursor.voice, editor.cursor.pitch]).toEqual([0, 42]);
+  });
+
+  it("replaces the drum under the cursor with K and a number (one undo step)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38);
+    editor.startDrumReplace();
+    expect(editor.message).toBe("Replace Snare (hit): type the new drum number");
+    editor.typeDigit(9, 1_000);
+    editor.typeDigit(1, 1_100); // rim shot
+    expect(hits(editor)).toEqual([91]);
+    expect(editor.message).toBe("Snare (hit) replaced by Snare (rim shot)");
+    // The next number adds again.
+    editor.typeDigit(3, 3_000);
+    editor.typeDigit(6, 3_100);
+    expect(hits(editor)).toEqual([91, 36]);
+    editor.undo();
+    editor.undo();
+    expect(hits(editor)).toEqual([38]);
+  });
+
+  it("does not replace into a drum the beat already has, nor without a drum", () => {
+    const editor = drumSong();
+    editor.startDrumReplace();
+    expect(editor.message).toBe("No drum at the cursor to replace");
+    editor.enterDrum(36);
+    editor.enterDrum(38);
+    editor.replaceDrum(36);
+    expect(editor.message).toBe("Kick (hit) is already on this beat");
+    expect(hits(editor)).toEqual([36, 38]);
+  });
+
+  it("names every drum of the Virtual Drumkit table in the cursor description", () => {
+    // Regression: drums outside the standard pads were described as "drum sound 91".
+    const editor = drumSong();
+    editor.enterDrum(91);
+    expect(editor.describeCursor()).toMatch(/Snare \(rim shot\)/);
+  });
+
   it("does not mix digits typed on different beats", () => {
     const editor = drumSong();
     editor.typeDigit(4, 1_000);

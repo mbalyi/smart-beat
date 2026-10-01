@@ -437,7 +437,8 @@ export type TransportCommand =
   | { type: "rate"; value: number }
   | { type: "loop"; startTick: number | null; endTick: number | null }
   | { type: "metronome"; volume: number }
-  | { type: "masterVolume"; value: number };
+  | { type: "masterVolume"; value: number }
+  | { type: "preview"; channel: number; key: number; velocity: number };
 
 /** Mirrors `BlockProblem` in `src-tauri/src/audio/chain.rs`. */
 export interface BlockProblem {

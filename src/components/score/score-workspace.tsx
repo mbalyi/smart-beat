@@ -63,7 +63,13 @@ import {
   type BarProblem,
 } from "@/lib/score/bar-duration";
 import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
-import { drumKitOf, instrumentViewName, notesOf } from "@/lib/score/instrument-view";
+import {
+  drumKitOf,
+  instrumentViewName,
+  kitEntries,
+  notesOf,
+  ownDrumKit,
+} from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
 import {
@@ -813,6 +819,12 @@ export function ScoreWorkspace({
           name: summary.tracks[pedalboard.track]?.name ?? "Track",
           presetTarget: presetTargetOf(summary.tracks[pedalboard.track] ?? track),
         };
+  const drumKitEntries = useMemo(
+    () => kitEntries(track.kind === "drums" ? ownDrumKit(trackObject) : []),
+    // The kit changes with the track (and its articulations with edits).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [trackObject, track.kind, revision],
+  );
   const pedalboardChain =
     pedalboard.track === null ? (mix.masterEffects ?? []) : trackEffects(mix, pedalboard.track);
   const changePedalboardChain = (slots: EffectSlot[]) =>
@@ -1335,6 +1347,13 @@ export function ScoreWorkspace({
                 editor.enterDrum(sound);
                 if (editing) focusScore();
               }}
+              drumKit={drumKitEntries}
+              cursorDrum={editing ? editor.cursor.pitch : null}
+              onReplaceDrum={(sound) => {
+                editor.replaceDrum(sound);
+                focusScore();
+              }}
+              onPreviewDrum={(sound) => playerRef.current?.previewDrum(sound)}
               scale={scale}
               defaultScaleRoot={keyTonic(keyBar?.keySignature ?? 0, keyBar?.keySignatureType ?? 0)}
               scalePickerRef={scalePickerRef}

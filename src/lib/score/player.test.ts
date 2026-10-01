@@ -1,4 +1,4 @@
-import { LayoutMode, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
+import { LayoutMode, midi, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
 
 import { mixFromScore } from "@/lib/score/mixer";
 import { cloneNote } from "@/lib/score/model";
@@ -1058,5 +1058,24 @@ describe("ScorePlayer: audio export", () => {
 
     await expect(player.renderAudio()).rejects.toThrow("out of memory");
     expect(api.exporterDestroyed).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ScorePlayer.previewDrum", () => {
+  it("plays one drum through the synthesizer once the sounds are loaded", async () => {
+    const { player, api } = await readySetup();
+    player.previewDrum(38);
+    const file = api.player.playOneTimeMidiFile.mock.calls[0]![0] as midi.MidiFile;
+    const on = file.events.find((e) => e instanceof midi.NoteOnEvent) as midi.NoteOnEvent;
+    expect([on.channel, on.noteKey]).toEqual([9, 38]);
+    player.previewDrum(91); // no sample for the rim shot: its stand-in
+    const second = api.player.playOneTimeMidiFile.mock.calls[1]![0] as midi.MidiFile;
+    expect((second.events[0] as midi.NoteOnEvent).noteKey).toBe(38);
+  });
+
+  it("stays silent while the sounds load", async () => {
+    const { player, api } = await setup();
+    player.previewDrum(38);
+    expect(api.player.playOneTimeMidiFile).not.toHaveBeenCalled();
   });
 });

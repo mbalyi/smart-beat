@@ -57,6 +57,7 @@ import {
   type Voice,
 } from "@/lib/score/model";
 import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
+import { drumTabString } from "@/lib/score/drum-tab";
 import {
   drumSound,
   MAX_FRET,
@@ -220,6 +221,8 @@ export class ScoreEditor {
   private pendingDigit: { digit: number; at: number; key: string } | null = null;
   /** Digits typed so far of a drum number on a drum track ("4", then "6" = 46). */
   private pendingDrum: { text: string; at: number; key: string } | null = null;
+  /** After R: the next drum number typed replaces the drum under the cursor. */
+  private replacingDrum = false;
   /** Increases with every change to the music (edits, undo, redo). */
   private _revision = 0;
   /** Spoken feedback for the last command ("Fret 5 on string 3"). */
@@ -501,6 +504,9 @@ export class ScoreEditor {
     if (this.kind === "stringed") {
       // Up the screen is a higher string, which alphaTab numbers higher.
       this._cursor.string = Math.min(this.stringCount, Math.max(1, this._cursor.string + step));
+    } else if (this.kind === "drums") {
+      this.moveDrumLine(step);
+      return;
     } else {
       const pitches = this.beatInfo.notes.map((n) => n.pitch).sort((a, b) => a - b);
       if (pitches.length > 0) {
@@ -510,6 +516,78 @@ export class ScoreEditor {
       }
     }
     this.moved();
+  }
+
+  /** The drums of the cursor's beat, top line of the drum tab first (cymbals … kick). */
+  private drumsTopDown(): number[] {
+    return [...new Set(this.beatInfo.notes.map((n) => n.pitch))].sort(
+      (a, b) => drumTabString(b) - drumTabString(a) || b - a,
+    );
+  }
+
+  /**
+   * Drums: Up and Down walk the beat's drums line by line (as in the drum
+   * tab); past the top or bottom drum they go to the other voice.
+   */
+  private moveDrumLine(step: 1 | -1) {
+    const drums = this.drumsTopDown();
+    const index = this._cursor.pitch === null ? -1 : drums.indexOf(this._cursor.pitch);
+    // Up the screen is towards the top line, the start of the list.
+    const next = index < 0 ? (step > 0 ? 0 : drums.length - 1) : index - step;
+    if (drums.length > 0 && next >= 0 && next < drums.length) {
+      this._cursor.pitch = drums[next]!;
+      this.moved();
+      return;
+    }
+    const other = this._cursor.voice === 0 ? 1 : 0;
+    const otherVoice = this.staff.bars[this._cursor.bar]?.voices[other];
+    if (!otherVoice || otherVoice.isEmpty) {
+      this.moved();
+      return;
+    }
+    this.switchVoice(other);
+    const there = this.drumsTopDown();
+    this._cursor.pitch = (step > 0 ? there.at(-1) : there[0]) ?? null;
+    this.moved();
+  }
+
+  /** R: the next drum number typed replaces the drum under the cursor. */
+  startDrumReplace() {
+    if (this.kind !== "drums") return;
+    const note = this.noteAtCursor();
+    if (!note) {
+      this.announce("No drum at the cursor to replace");
+      return;
+    }
+    this.replacingDrum = true;
+    this.announce(`Replace ${drumNumberName(pitchOf(note))}: type the new drum number`);
+  }
+
+  /** Puts another drum in place of the one under the cursor. */
+  replaceDrum(sound: number) {
+    this.replacingDrum = false;
+    const note = this.noteAtCursor();
+    if (this.kind !== "drums" || !note) {
+      this.enterDrum(sound);
+      return;
+    }
+    const old = pitchOf(note);
+    if (old === sound) return;
+    if (this.beatAt()?.notes.some((n) => pitchOf(n) === sound)) {
+      this.announce(`${drumNumberName(sound)} is already on this beat`);
+      return;
+    }
+    const own = this.track.percussionArticulations.findIndex((a) => a.outputMidiNumber === sound);
+    this.run(
+      "Replace note",
+      this.cursorTargets,
+      () => {
+        const target = this.noteAtCursor()!;
+        target.percussionArticulation = own >= 0 ? own : sound;
+        this._cursor.pitch = sound;
+      },
+      `${drumNumberName(old)} replaced by ${drumNumberName(sound)}`,
+    );
   }
 
   /** Puts the cursor on a string (1 = lowest), e.g. from a fretboard click. */
@@ -608,7 +686,7 @@ export class ScoreEditor {
     } else if (c.pitch !== null && info.notes.some((n) => n.pitch === c.pitch)) {
       parts.push(
         this.kind === "drums"
-          ? (drumSound(c.pitch)?.name ?? `drum sound ${c.pitch}`)
+          ? (drumSound(c.pitch)?.name ?? drumNumberName(c.pitch))
           : pitchName(c.pitch, { spoken: true }),
       );
     }
@@ -748,7 +826,8 @@ export class ScoreEditor {
     const sound = Number(text);
     if (DRUM_MIDI_MAP[sound] !== undefined) {
       this.pendingDrum = null;
-      this.toggleDrum(sound);
+      if (this.replacingDrum) this.replaceDrum(sound);
+      else this.toggleDrum(sound);
       return;
     }
     if (text.length >= 3) {

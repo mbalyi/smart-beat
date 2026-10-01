@@ -82,6 +82,9 @@ pub struct Engine {
     click_left: f64,
     click_accent: bool,
     master_peak: f32,
+    /// Plays single notes the user picks (drum kit preview), on the master bus.
+    preview: Option<Synthesizer>,
+    preview_buf: [Vec<f32>; 2],
 }
 
 impl Engine {
@@ -104,7 +107,22 @@ impl Engine {
             click_left: 0.0,
             click_accent: false,
             master_peak: 0.0,
+            preview: None,
+            preview_buf: [vec![0.0; BLOCK], vec![0.0; BLOCK]],
         }
+    }
+
+    /// Plays one note now (e.g. a drum from the kit picker), whether or not
+    /// the song plays. Allocates the preview synthesizer the first time.
+    pub fn preview(&mut self, channel: u8, key: u8, velocity: u8) -> Result<(), String> {
+        if self.preview.is_none() {
+            self.preview = Some(self.new_synth()?);
+        }
+        let synth = self.preview.as_mut().expect("just created");
+        let channel = (channel & 0x0f) as i32;
+        synth.note_off_all_channel(channel, false);
+        synth.process_midi_message(channel, 0x90, key.min(127) as i32, velocity.min(127) as i32);
+        Ok(())
     }
 
     pub fn sample_rate(&self) -> f32 {
@@ -306,6 +324,15 @@ impl Engine {
                 out_r[i] += b;
             }
             bus.peak = peak;
+        }
+
+        if let Some(preview) = self.preview.as_mut() {
+            let [pl, pr] = &mut self.preview_buf;
+            preview.render(&mut pl[..n], &mut pr[..n]);
+            for i in 0..n {
+                out_l[i] += pl[i];
+                out_r[i] += pr[i];
+            }
         }
 
         if self.click_left > 0.0 && self.metronome_volume > 0.0 {
