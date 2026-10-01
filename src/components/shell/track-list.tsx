@@ -1,10 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  AudioLinesIcon,
   CopyIcon,
+  CrosshairIcon,
   DrumIcon,
   EyeIcon,
+  FileMusicIcon,
   GuitarIcon,
   MicVocalIcon,
   MoreVerticalIcon,
@@ -12,10 +15,15 @@ import {
   PlusIcon,
   RotateCcwIcon,
   Settings2Icon,
+  SlidersHorizontalIcon,
   SlidersVerticalIcon,
   Trash2Icon,
 } from "lucide-react";
 
+import { AudioWaveform } from "@/components/audio/audio-track-panel";
+import { AutomationLane, LaneKindSelect } from "@/components/audio/automation-lane";
+import { EqPopover } from "@/components/audio/eq-popover";
+import { LevelMeter } from "@/components/audio/level-meter";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,15 +33,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { filledBars } from "@/lib/score/bar-grid";
 import { tempoMarkers } from "@/lib/score/tempo";
 import { describeInstrument } from "@/lib/score/instrument-view";
-import { describePan, describeVolume, isAudible, type MixerChange } from "@/lib/score/mixer";
+import {
+  describePan,
+  describeVolume,
+  EMPTY_AUTOMATION,
+  isAudible,
+  trackAutomation,
+  trackEq,
+  type MixerChange,
+} from "@/lib/score/mixer";
 import type { Score } from "@/lib/score/model";
 import type { TrackSummary } from "@/lib/score/score";
 import { trackColor } from "@/lib/score/track-colors";
-import type { MixerSettings } from "@/lib/tauri";
+import type { AutomationLaneKind, BackingInfo, MixerSettings } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 /**
@@ -54,10 +71,16 @@ export interface TrackActions {
   onSettings: (index: number) => void;
   onLyrics: (index: number) => void;
   onAdd: () => void;
+  /** Opens the track's pedalboard. */
+  onEffects?: (index: number) => void;
+  /** Opens the drum mixer of a drum track. */
+  onDrumMixer?: (index: number) => void;
 }
 
 /** One column of the grid: a bar. */
 const BAR_WIDTH = "1.25rem";
+/** A bar column plus the 1 px gap, in pixels (for drawings that line up with the grid). */
+export const BAR_PX = 21;
 
 /** Width of the controls next to the bar grid. */
 const CONTROLS =
@@ -110,10 +133,14 @@ function TrackRowMenu({
   track,
   count,
   actions,
+  focused,
+  onFocus,
 }: {
   track: TrackSummary;
   count: number;
   actions: TrackActions;
+  focused: boolean;
+  onFocus: (focus: boolean) => void;
 }) {
   const i = track.index;
   return (
@@ -136,6 +163,22 @@ function TrackRowMenu({
         <DropdownMenuItem onSelect={() => actions.onLyrics(i)}>
           <MicVocalIcon />
           Lyrics…
+        </DropdownMenuItem>
+        {actions.onEffects && (
+          <DropdownMenuItem onSelect={() => actions.onEffects?.(i)}>
+            <SlidersHorizontalIcon />
+            Effects (pedalboard)…
+          </DropdownMenuItem>
+        )}
+        {actions.onDrumMixer && track.kind === "drums" && (
+          <DropdownMenuItem onSelect={() => actions.onDrumMixer?.(i)}>
+            <DrumIcon />
+            Drum mixer…
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={() => onFocus(!focused)}>
+          <CrosshairIcon />
+          {focused ? "Unfocus" : "Focus (turn the others down)"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={i === 0} onSelect={() => actions.onMove(i, i - 1)}>
@@ -182,8 +225,8 @@ export function TrackList({
   onSeekBar,
   saved,
   playing,
-  onEqualizer,
   onMasterEffects,
+  audio,
 }: {
   score: Score;
   /** Changes with every edit (the bars change in place). */
@@ -202,11 +245,18 @@ export function TrackList({
   saved: boolean;
   /** Pan is applied at the next pause during playback (see ScorePlayer.setMix). */
   playing: boolean;
-  /** Opens the track's effects at its equaliser. */
-  onEqualizer?: (track: number) => void;
   /** Opens the master bus's effects. */
   onMasterEffects?: () => void;
+  /** The audio track row (missing: none and none can be added here). */
+  audio?: {
+    info: BackingInfo | null;
+    /** Song ms at each bar start, plus the end. */
+    barTimes: readonly number[];
+    onAdd: () => void;
+    onEdit: () => void;
+  };
 }) {
+  const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
   const barCount = score.masterBars.length;
   const grids = useMemo(() => {
     void revision;
@@ -237,6 +287,17 @@ export function TrackList({
                 >
                   <PlusIcon />
                 </Button>
+                {audio && !mix.audioTrack && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Add audio track"
+                    title="Add audio track (mp3, wav…)…"
+                    onClick={audio.onAdd}
+                  >
+                    <FileMusicIcon />
+                  </Button>
+                )}
                 <h2 className="font-semibold text-foreground">Tracks</h2>
               </div>
               <span />
@@ -287,123 +348,303 @@ export function TrackList({
             if (!trackMix) return null;
             const audible = isAudible(mix, i);
             const isShown = i === shown;
+            const automation = trackAutomation(mix, i);
+            const lane = lanes[i] ?? "volume";
+            const focused = mix.focus === i;
             return (
               <li
                 key={`${i}-${track.name}`}
-                className={cn("flex border-b", isShown && "bg-muted/70")}
+                className={cn("flex flex-col border-b", isShown && "bg-muted/70")}
                 aria-current={isShown ? "true" : undefined}
               >
-                <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r [background-color:inherit] bg-inherit px-2 py-1">
-                  <div className={cn(CONTROLS, "w-full")}>
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span
-                        aria-hidden="true"
-                        className="h-5 w-1 shrink-0 rounded-full"
-                        style={{ backgroundColor: trackColor(i) }}
+                <div className="flex">
+                  <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r [background-color:inherit] bg-inherit px-2 py-1">
+                    <div className={cn(CONTROLS, "w-full")}>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          aria-hidden="true"
+                          className="h-5 w-1 shrink-0 rounded-full"
+                          style={{ backgroundColor: trackColor(i) }}
+                        />
+                        <TrackIcon track={track} />
+                        <button
+                          type="button"
+                          onClick={() => actions.onShow(i)}
+                          title={describeInstrument(track)}
+                          aria-label={`Show ${track.name}${focused ? " (in focus)" : ""}`}
+                          className="min-w-0 truncate rounded text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                        >
+                          <span className="tabular-nums">{i + 1}. </span>
+                          {track.name}
+                          {isShown && <span className="sr-only"> (shown)</span>}
+                          {focused && <span className="sr-only"> (in focus)</span>}
+                        </button>
+                        {focused && (
+                          <CrosshairIcon
+                            className="size-3.5 shrink-0 text-primary"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </div>
+                      <div className="flex items-center">
+                        <Toggle
+                          size="sm"
+                          pressed={isShown}
+                          onPressedChange={() => actions.onShow(i)}
+                          aria-label={`Visible: ${track.name}`}
+                          title="Show in the score"
+                          className="size-7 min-w-7 px-0"
+                        >
+                          <EyeIcon />
+                        </Toggle>
+                      </div>
+                      <div className="flex gap-0.5">
+                        <Toggle
+                          size="sm"
+                          variant="outline"
+                          pressed={trackMix.mute}
+                          onPressedChange={(value) => onChange({ type: "mute", track: i, value })}
+                          aria-label={`Mute ${track.name}`}
+                          title="Mute"
+                          className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
+                        >
+                          M
+                        </Toggle>
+                        <Toggle
+                          size="sm"
+                          variant="outline"
+                          pressed={trackMix.solo}
+                          onPressedChange={(value) => onChange({ type: "solo", track: i, value })}
+                          aria-label={`Solo ${track.name}`}
+                          title="Solo"
+                          className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
+                        >
+                          S
+                        </Toggle>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <LabeledSlider
+                          label={`Volume, ${track.name}`}
+                          valueText={describeVolume(trackMix.volume)}
+                          value={trackMix.volume}
+                          onValueChange={(value) => onChange({ type: "volume", track: i, value })}
+                        />
+                        <LevelMeter
+                          label={`Level, ${track.name}`}
+                          select={(m) => m.tracks[i] ?? 0}
+                        />
+                      </div>
+                      <LabeledSlider
+                        label={`Pan, ${track.name}`}
+                        valueText={describePan(trackMix.pan)}
+                        value={trackMix.pan}
+                        min={-1}
+                        max={1}
+                        step={0.125}
+                        onValueChange={(value) =>
+                          onChange({ type: "pan", track: i, value }, { commit: false })
+                        }
+                        onValueCommit={(value) => onChange({ type: "pan", track: i, value })}
                       />
-                      <TrackIcon track={track} />
-                      <button
-                        type="button"
-                        onClick={() => actions.onShow(i)}
-                        title={describeInstrument(track)}
-                        aria-label={`Show ${track.name}`}
-                        className="min-w-0 truncate rounded text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                      >
-                        <span className="tabular-nums">{i + 1}. </span>
-                        {track.name}
-                        {isShown && <span className="sr-only"> (shown)</span>}
-                      </button>
-                    </div>
-                    <div className="flex items-center">
-                      <Toggle
-                        size="sm"
-                        pressed={isShown}
-                        onPressedChange={() => actions.onShow(i)}
-                        aria-label={`Visible: ${track.name}`}
-                        title="Show in the score"
-                        className="size-7 min-w-7 px-0"
-                      >
-                        <EyeIcon />
-                      </Toggle>
-                    </div>
-                    <div className="flex gap-0.5">
-                      <Toggle
-                        size="sm"
-                        variant="outline"
-                        pressed={trackMix.mute}
-                        onPressedChange={(value) => onChange({ type: "mute", track: i, value })}
-                        aria-label={`Mute ${track.name}`}
-                        title="Mute"
-                        className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
-                      >
-                        M
-                      </Toggle>
-                      <Toggle
-                        size="sm"
-                        variant="outline"
-                        pressed={trackMix.solo}
-                        onPressedChange={(value) => onChange({ type: "solo", track: i, value })}
-                        aria-label={`Solo ${track.name}`}
-                        title="Solo"
-                        className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
-                      >
-                        S
-                      </Toggle>
-                    </div>
-                    <LabeledSlider
-                      label={`Volume, ${track.name}`}
-                      valueText={describeVolume(trackMix.volume)}
-                      value={trackMix.volume}
-                      onValueChange={(value) => onChange({ type: "volume", track: i, value })}
-                    />
-                    <LabeledSlider
-                      label={`Pan, ${track.name}`}
-                      valueText={describePan(trackMix.pan)}
-                      value={trackMix.pan}
-                      min={-1}
-                      max={1}
-                      step={0.125}
-                      onValueChange={(value) =>
-                        onChange({ type: "pan", track: i, value }, { commit: false })
-                      }
-                      onValueCommit={(value) => onChange({ type: "pan", track: i, value })}
-                    />
-                    <div className="flex items-center justify-end gap-0.5">
-                      <Toggle
-                        size="sm"
-                        disabled
-                        aria-label={`Automation for ${track.name} (not available yet)`}
-                        title="Automation (not available yet)"
-                        className="size-6 min-w-6 px-0 text-xs"
-                      >
-                        A
-                      </Toggle>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        disabled={!onEqualizer}
-                        onClick={() => onEqualizer?.(i)}
-                        aria-label={`Equaliser and effects for ${track.name}`}
-                        title="Equaliser and effects"
-                      >
-                        <SlidersVerticalIcon />
-                      </Button>
-                      <TrackRowMenu track={track} count={tracks.length} actions={actions} />
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Toggle
+                          size="sm"
+                          pressed={automation.enabled}
+                          onPressedChange={(enabled) =>
+                            onChange({
+                              type: "automation",
+                              track: i,
+                              automation: { ...automation, enabled },
+                            })
+                          }
+                          aria-label={`Automation for ${track.name}`}
+                          title="Automation (volume, pan and mute along the song)"
+                          className="size-6 min-w-6 px-0 text-xs"
+                        >
+                          A
+                        </Toggle>
+                        <EqPopover
+                          name={track.name}
+                          eq={trackEq(mix, i)}
+                          onChange={(eq) => onChange({ type: "eq", track: i, eq })}
+                        />
+                        <TrackRowMenu
+                          track={track}
+                          count={tracks.length}
+                          actions={actions}
+                          focused={focused}
+                          onFocus={(on) => onChange({ type: "focus", track: on ? i : null })}
+                        />
+                      </div>
                     </div>
                   </div>
+                  <div className="flex items-center px-0">
+                    <BarGrid
+                      color={trackColor(i)}
+                      filled={grids[i] ?? []}
+                      current={bar}
+                      dimmed={!audible}
+                      onSeek={onSeekBar}
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center px-0">
-                  <BarGrid
-                    color={trackColor(i)}
-                    filled={grids[i] ?? []}
-                    current={bar}
-                    dimmed={!audible}
-                    onSeek={onSeekBar}
-                  />
-                </div>
+                {automation.enabled && (
+                  <div className="flex border-t border-dashed">
+                    <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center justify-end gap-2 border-r [background-color:inherit] bg-inherit px-2 py-1 text-xs">
+                      <span>Automation</span>
+                      <LaneKindSelect
+                        name={track.name}
+                        kind={lane}
+                        onChange={(kind) => setLanes((l) => ({ ...l, [i]: kind }))}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        disabled={automation[lane].length === 0}
+                        onClick={() =>
+                          onChange({
+                            type: "automation",
+                            track: i,
+                            automation: { ...automation, [lane]: [] },
+                          })
+                        }
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <AutomationLane
+                      name={track.name}
+                      kind={lane}
+                      automation={automation.enabled ? automation : EMPTY_AUTOMATION}
+                      barCount={barCount}
+                      barWidth={BAR_PX}
+                      onChange={(next) =>
+                        onChange({ type: "automation", track: i, automation: next })
+                      }
+                    />
+                  </div>
+                )}
               </li>
             );
           })}
+          {audio && mix.audioTrack && (
+            <li className="flex border-b" data-testid="audio-track-row">
+              <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r bg-card px-2 py-1">
+                <div className={cn(CONTROLS, "w-full")}>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="h-5 w-1 shrink-0 rounded-full bg-amber-500"
+                    />
+                    <AudioLinesIcon className="size-4 shrink-0" aria-hidden="true" />
+                    <button
+                      type="button"
+                      onClick={audio.onEdit}
+                      title={mix.audioTrack.path ?? mix.audioTrack.name}
+                      aria-label={`Edit the audio track ${mix.audioTrack.name}`}
+                      className="min-w-0 truncate rounded text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      {mix.audioTrack.name}
+                    </button>
+                  </div>
+                  <div className="flex items-center">
+                    <Switch
+                      checked={mix.audioTrack.enabled}
+                      onCheckedChange={(enabled) =>
+                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, enabled } })
+                      }
+                      aria-label="Audio track on"
+                    />
+                  </div>
+                  <div className="flex gap-0.5">
+                    <Toggle
+                      size="sm"
+                      variant="outline"
+                      pressed={mix.audioTrack.mute}
+                      onPressedChange={(mute) =>
+                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, mute } })
+                      }
+                      aria-label="Mute the audio track"
+                      className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
+                    >
+                      M
+                    </Toggle>
+                    <Toggle
+                      size="sm"
+                      variant="outline"
+                      pressed={mix.audioTrack.solo}
+                      onPressedChange={(solo) =>
+                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, solo } })
+                      }
+                      aria-label="Solo the audio track"
+                      className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
+                    >
+                      S
+                    </Toggle>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <LabeledSlider
+                      label="Volume, audio track"
+                      valueText={describeVolume(mix.audioTrack.volume)}
+                      value={mix.audioTrack.volume}
+                      onValueChange={(volume) =>
+                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, volume } })
+                      }
+                    />
+                    <LevelMeter label="Level, audio track" select={(m) => m.backing ?? 0} />
+                  </div>
+                  <LabeledSlider
+                    label="Pan, audio track"
+                    valueText={describePan(mix.audioTrack.pan)}
+                    value={mix.audioTrack.pan}
+                    min={-1}
+                    max={1}
+                    step={0.125}
+                    onValueChange={(pan) =>
+                      onChange({ type: "audio-track", value: { ...mix.audioTrack!, pan } })
+                    }
+                  />
+                  <div className="flex items-center justify-end gap-0.5">
+                    <EqPopover
+                      name="audio track"
+                      eq={mix.audioTrack.eq}
+                      onChange={(eq) =>
+                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, eq } })
+                      }
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={audio.onEdit}
+                      aria-label="Audio track settings and sync points"
+                      title="Settings and sync points"
+                    >
+                      <Settings2Icon />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                onClick={audio.onEdit}
+                className="flex items-center overflow-hidden"
+              >
+                {audio.info ? (
+                  <AudioWaveform
+                    info={audio.info}
+                    sync={mix.audioTrack.sync}
+                    barTimes={audio.barTimes}
+                    barWidth={BAR_PX}
+                    className="h-6!"
+                  />
+                ) : (
+                  <span className="px-2 text-xs text-muted-foreground">Recording not loaded</span>
+                )}
+              </button>
+            </li>
+          )}
         </ol>
 
         <div className="flex">
@@ -412,23 +653,32 @@ export function TrackList({
               <span className="pl-2.5 font-semibold">Master</span>
               <span />
               <span />
+              <div className="flex flex-col gap-0.5">
+                <LabeledSlider
+                  label="Master volume"
+                  valueText={describeVolume(mix.master)}
+                  value={mix.master}
+                  onValueChange={(value) => onChange({ type: "master", value })}
+                />
+                <LevelMeter label="Level, master" select={(m) => m.master} />
+              </div>
               <LabeledSlider
-                label="Master volume"
-                valueText={describeVolume(mix.master)}
-                value={mix.master}
-                onValueChange={(value) => onChange({ type: "master", value })}
+                label="Master pan"
+                valueText={describePan(mix.masterPan ?? 0)}
+                value={mix.masterPan ?? 0}
+                min={-1}
+                max={1}
+                step={0.125}
+                onValueChange={(value) => onChange({ type: "master-pan", value })}
               />
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {describeVolume(mix.master)}
-              </span>
-              <span className="flex items-center">
+              <span className="flex items-center justify-end">
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   disabled={!onMasterEffects}
                   onClick={onMasterEffects}
-                  aria-label="Master effects"
-                  title="Master effects"
+                  aria-label="Mastering effects"
+                  title="Mastering effects (pedalboard)"
                 >
                   <SlidersVerticalIcon />
                 </Button>

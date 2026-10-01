@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Effect, db_to_gain, flush_denormal, gain_to_db, time_coefficient};
+use crate::audio::chain::EffectConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -64,6 +65,7 @@ impl CompressorParams {
 }
 
 pub struct Compressor {
+    rate: f32,
     params: CompressorParams,
     attack: f32,
     release: f32,
@@ -78,6 +80,7 @@ impl Compressor {
     pub fn new(params: CompressorParams, sample_rate: f32) -> Self {
         let params = params.clamped();
         Self {
+            rate: sample_rate,
             params,
             attack: time_coefficient(params.attack_ms, sample_rate),
             release: time_coefficient(params.release_ms, sample_rate),
@@ -113,6 +116,17 @@ impl Effect for Compressor {
     fn reset(&mut self) {
         self.reduction = 0.0;
         self.meter_db = 0.0;
+    }
+
+    fn update(&mut self, config: &EffectConfig) -> bool {
+        let EffectConfig::Compressor(params) = config else {
+            return false;
+        };
+        *self = Self {
+            reduction: self.reduction,
+            ..Self::new(*params, self.rate)
+        };
+        true
     }
 }
 

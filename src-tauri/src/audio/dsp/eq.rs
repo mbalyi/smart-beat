@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Effect;
 use super::biquad::{Biquad, Coefficients, FilterKind};
+use crate::audio::chain::EffectConfig;
 
 pub const MAX_BANDS: usize = 12;
 /// Boost or cut limit of a band, in dB.
@@ -41,7 +42,18 @@ pub fn graphic_bands() -> Vec<Band> {
 }
 
 pub struct Eq {
+    rate: f32,
     bands: Vec<(Biquad, Biquad)>,
+}
+
+fn coefficients(band: &Band, sample_rate: f32) -> Coefficients {
+    Coefficients::new(
+        band.kind,
+        band.freq,
+        band.q,
+        band.gain_db.clamp(-MAX_GAIN_DB, MAX_GAIN_DB),
+        sample_rate,
+    )
 }
 
 impl Eq {
@@ -50,19 +62,29 @@ impl Eq {
             .iter()
             .take(MAX_BANDS)
             .map(|band| {
-                let c = Coefficients::new(
-                    band.kind,
-                    band.freq,
-                    band.q,
-                    band.gain_db.clamp(-MAX_GAIN_DB, MAX_GAIN_DB),
-                    sample_rate,
-                );
                 let mut l = Biquad::default();
-                l.set(c);
+                l.set(coefficients(band, sample_rate));
                 (l, l)
             })
             .collect();
-        Self { bands }
+        Self {
+            rate: sample_rate,
+            bands,
+        }
+    }
+
+    /// New band settings, keeping the filter state; false if the number of
+    /// bands differs (that needs a new EQ).
+    pub fn set_bands(&mut self, bands: &[Band]) -> bool {
+        if bands.len().min(MAX_BANDS) != self.bands.len() {
+            return false;
+        }
+        for ((l, r), band) in self.bands.iter_mut().zip(bands) {
+            let c = coefficients(band, self.rate);
+            l.set(c);
+            r.set(c);
+        }
+        true
     }
 }
 
@@ -82,6 +104,13 @@ impl Effect for Eq {
         for (l, r) in &mut self.bands {
             l.reset();
             r.reset();
+        }
+    }
+
+    fn update(&mut self, config: &EffectConfig) -> bool {
+        match config {
+            EffectConfig::Eq { bands } => self.set_bands(bands),
+            _ => false,
         }
     }
 }

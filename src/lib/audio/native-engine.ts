@@ -10,20 +10,61 @@ import { midi, type synth } from "@coderline/alphatab";
 import type { EffectSlot } from "@/lib/audio/effects";
 import type { Score } from "@/lib/score/score";
 import {
+  clearEngineBacking,
   engineState,
   engineTransport,
+  loadEngineBacking,
   loadEngineSong,
   loadEngineSoundFont,
+  setEngineAutomation,
+  setEngineBacking,
   setEngineChain,
+  setEngineDrumMix,
   setEngineMix,
+  setEngineSounds,
+  setEngineTrackEq,
   startEngine,
+  type BackingInfo,
+  type BackingParams,
+  type BackingSource,
   type BlockProblem,
   type BusMix,
+  type EngineAutomation,
+  type EngineDrumMix,
   type EngineMeters,
   type EngineSong,
   type EngineStatus,
+  type TrackEq,
   type TransportCommand,
 } from "@/lib/tauri";
+
+/** A track's sounds as the engine plays them: a chain each, and `[tick, sound]` switches. */
+export interface EngineTrackSounds {
+  chains: EffectSlot[][];
+  switches: [number, number][];
+}
+
+/** Everything the engine plays besides the notes. Sent again after every song load. */
+export interface EngineExtras {
+  sounds: EngineTrackSounds[];
+  master: EffectSlot[];
+  automation: EngineAutomation[];
+  eq: TrackEq[];
+  drums: (EngineDrumMix | null)[];
+  masterPan: number;
+  /** Audio track settings and sync points (null: none loaded). */
+  backing: { params: BackingParams; sync: { tick: number; ms: number }[] } | null;
+}
+
+/** Blocks that cannot run: per track and sound, and the master's. */
+export interface EffectProblems {
+  tracks: BlockProblem[][][];
+  master: BlockProblem[];
+}
+
+const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
+const EMPTY_AUTOMATION: EngineAutomation = { enabled: false, volume: [], pan: [], mute: [] };
+const FLAT: TrackEq = { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 };
 
 const {
   AlphaTabMetronomeEvent,
@@ -115,8 +156,10 @@ export class NativeEngine implements synth.IExternalMediaHandler {
    * threads, and a Play must never overtake the song it plays.
    */
   private queue: Promise<unknown> = Promise.resolve();
-  /** The chains to (re)send with every song: track index → chain, -1 = master. */
-  private chains = new Map<number, EffectSlot[]>();
+  /** What the engine should have, and what it was last sent (null: nothing yet). */
+  private desired: EngineExtras | null = null;
+  private sent: EngineExtras | null = null;
+  private problems: EffectProblems = { tracks: [], master: [] };
 
   constructor(callbacks: NativeEngineCallbacks = {}) {
     this.callbacks = callbacks;
@@ -192,13 +235,103 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     const song = songFromMidi(file, channels);
     const status = await this.enqueue(async () => {
       await loadEngineSong(song);
-      // Loading a song clears the engine's chains: send them again.
-      for (const [track, slots] of this.chains) {
-        await setEngineChain(track < 0 ? null : track, slots);
-      }
+      // Loading a song clears the engine's chains, sounds, automation, EQ and
+      // drum mixes: send them all again.
+      this.sent = null;
+      await this.sendExtras();
       return engineState();
     });
     this.backingTrackDuration = status.durationMs;
+  }
+
+  /** What to send with the next song (without sending anything now). */
+  prepare(extras: EngineExtras) {
+    this.desired = extras;
+  }
+
+  /**
+   * Sets everything besides the notes; only what changed since the last call
+   * is sent (a knob turn updates one block). Resolves to the blocks that
+   * cannot run.
+   */
+  configure(extras: EngineExtras): Promise<EffectProblems> {
+    this.desired = extras;
+    return this.enqueue(() => this.sendExtras());
+  }
+
+  private async sendExtras(): Promise<EffectProblems> {
+    const next = this.desired;
+    if (!next) return this.problems;
+    const prev = this.sent;
+    const problems: EffectProblems = {
+      tracks: next.sounds.map((_, i) => this.problems.tracks[i] ?? []),
+      master: this.problems.master,
+    };
+    for (const [i, sounds] of next.sounds.entries()) {
+      const before = prev?.sounds[i];
+      if (before && same(before, sounds)) continue;
+      const oneSound = sounds.chains.length === 1 && sounds.switches.length === 0;
+      const wasOne = !before || (before.chains.length === 1 && before.switches.length === 0);
+      if (oneSound && wasOne) {
+        problems.tracks[i] = [await setEngineChain(i, sounds.chains[0] ?? [])];
+      } else if (
+        before &&
+        before.chains.length === sounds.chains.length &&
+        same(before.switches, sounds.switches)
+      ) {
+        // The same sounds: send only the chains that changed (live knob updates).
+        const list = [...(problems.tracks[i] ?? [])];
+        for (const [sound, chain] of sounds.chains.entries()) {
+          if (!same(before.chains[sound], chain))
+            list[sound] = await setEngineChain(i, chain, sound);
+        }
+        problems.tracks[i] = list;
+      } else {
+        problems.tracks[i] = await setEngineSounds(i, sounds.chains, sounds.switches);
+      }
+    }
+    if (!prev || !same(prev.master, next.master)) {
+      problems.master = await setEngineChain(null, next.master);
+    }
+    for (const [i, automation] of next.automation.entries()) {
+      const before = prev?.automation[i] ?? EMPTY_AUTOMATION;
+      if (!same(before, automation)) await setEngineAutomation(i, automation);
+    }
+    for (const [i, eq] of next.eq.entries()) {
+      const before = prev?.eq[i] ?? FLAT;
+      if (!same(before, eq)) await setEngineTrackEq(i, eq);
+    }
+    for (const [i, drums] of next.drums.entries()) {
+      const before = prev?.drums[i] ?? null;
+      if (!same(before, drums)) await setEngineDrumMix(i, drums);
+    }
+    if ((prev?.masterPan ?? 0) !== next.masterPan) {
+      await engineTransport({ type: "masterPan", value: next.masterPan });
+    }
+    if (next.backing && !same(prev?.backing ?? null, next.backing)) {
+      await setEngineBacking(next.backing.params, next.backing.sync);
+    }
+    this.sent = next;
+    this.problems = problems;
+    return problems;
+  }
+
+  /** Opens a recording as the audio track; its settings follow with {@link configure}. */
+  loadBacking(source: BackingSource): Promise<BackingInfo> {
+    return this.enqueue(async () => {
+      const info = await loadEngineBacking(source);
+      // The engine starts it with default settings: send ours again.
+      if (this.sent) this.sent = { ...this.sent, backing: null };
+      await this.sendExtras();
+      return info;
+    });
+  }
+
+  clearBacking(): Promise<void> {
+    return this.enqueue(async () => {
+      await clearEngineBacking();
+      if (this.sent) this.sent = { ...this.sent, backing: null };
+    });
   }
 
   setMix(mixes: BusMix[]) {
@@ -222,28 +355,6 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   setMetronome(volume: number) {
     this.send({ type: "metronome", volume });
-  }
-
-  setChain(track: number | null, slots: EffectSlot[]): Promise<BlockProblem[]> {
-    this.chains.set(track ?? -1, slots);
-    return this.enqueue(() => setEngineChain(track, slots));
-  }
-
-  /**
-   * Replaces every chain (after tracks were added, removed or moved). Resolves
-   * to the problems of each track's chain and of the master's.
-   */
-  async setAllChains(
-    tracks: readonly EffectSlot[][],
-    master: EffectSlot[],
-  ): Promise<{ tracks: BlockProblem[][]; master: BlockProblem[] }> {
-    this.chains = new Map(tracks.map((slots, i) => [i, slots]));
-    this.chains.set(-1, master);
-    return this.enqueue(async () => {
-      const problems: BlockProblem[][] = [];
-      for (const [i, slots] of tracks.entries()) problems.push(await setEngineChain(i, slots));
-      return { tracks: problems, master: await setEngineChain(null, master) };
-    });
   }
 
   private startPolling() {
@@ -282,10 +393,17 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 }
 
 /** The bus mixes for the engine from the app's mixer settings. */
-export function busMixes(mix: {
-  tracks: { volume: number; mute: boolean; solo: boolean }[];
-}): BusMix[] {
+export function busMixes(
+  mix: { tracks: { volume: number; mute: boolean; solo: boolean }[] },
+  trims: readonly number[] = [],
+): BusMix[] {
   // Pan is written into the MIDI (as for alphaTab's synthesizer), so the
-  // engine's own pan stays centred.
-  return mix.tracks.map((t) => ({ volume: t.volume, pan: 0, mute: t.mute, solo: t.solo }));
+  // engine's own pan stays centred (pan automation moves it).
+  return mix.tracks.map((t, i) => ({
+    volume: t.volume,
+    pan: 0,
+    mute: t.mute,
+    solo: t.solo,
+    trimDb: trims[i] ?? 0,
+  }));
 }

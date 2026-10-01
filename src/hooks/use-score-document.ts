@@ -10,6 +10,7 @@ import {
   isCommandError,
   isTauri,
   loadMixerSettings,
+  readProjectSettings,
   readScoreFile,
   removeRecentFile,
   type CommandError,
@@ -53,8 +54,20 @@ interface Source {
   read: () => Promise<Uint8Array>;
 }
 
-async function savedMix(key: string): Promise<MixerSettings | null> {
+/**
+ * The mix saved for a song: inside the file itself (`.gp` files saved by
+ * Smart Beat), else in the app's settings for this file's content.
+ */
+async function savedMix(key: string, path?: string): Promise<MixerSettings | null> {
   if (!isTauri()) return null; // settings are only saved in the desktop app
+  if (path?.toLowerCase().endsWith(".gp")) {
+    try {
+      const inFile = await readProjectSettings(path);
+      if (inFile) return inFile;
+    } catch (error) {
+      console.warn("Could not read the settings in the song file", error);
+    }
+  }
   try {
     return await loadMixerSettings(key);
   } catch (error) {
@@ -114,7 +127,7 @@ export function useScoreDocuments() {
         const { loadSong } = await import("@/lib/import");
         const { score, summary, warnings, converted } = await loadSong(bytes, name);
         const key = await fileKey(bytes);
-        const saved = await savedMix(key);
+        const saved = await savedMix(key, path);
         toast.dismiss(toastId);
         add({
           id,

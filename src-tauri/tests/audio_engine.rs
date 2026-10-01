@@ -250,3 +250,277 @@ fn previews_a_drum_without_playing_the_song() {
     assert!(rms(&l) > 0.001, "silent preview");
     assert!(!engine.is_playing());
 }
+
+fn playing_engine(setup: impl FnOnce(&mut Engine)) -> Engine {
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.load(Arc::new(song())).unwrap();
+    setup(&mut engine);
+    engine.play();
+    engine
+}
+
+fn chain_of(effects: Vec<EffectConfig>) -> Chain {
+    let slots: Vec<EffectSlot> = effects
+        .into_iter()
+        .map(|effect| EffectSlot {
+            enabled: true,
+            effect,
+        })
+        .collect();
+    Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, BLOCK, &NoAssets)
+}
+
+/// A chain that mostly changes the level (a clean boost with an output level).
+fn gain_chain(db: f32) -> Chain {
+    use smart_beat_lib::audio::dsp::drive::DriveMode;
+    chain_of(vec![EffectConfig::Drive(DriveParams {
+        mode: DriveMode::Boost,
+        drive: 0.0,
+        tone: 1.0,
+        level_db: db,
+        tight_hz: 20.0,
+    })])
+}
+
+fn solo_guitar() -> [BusMix; 2] {
+    [
+        BusMix::default(),
+        BusMix {
+            mute: true,
+            ..Default::default()
+        },
+    ]
+}
+
+#[test]
+fn automation_switches_the_sound_at_a_bar() {
+    let mut engine = playing_engine(|e| {
+        for (i, mix) in solo_guitar().into_iter().enumerate() {
+            e.set_mix(i, mix);
+        }
+        e.set_sound_chain(0, 0, gain_chain(0.0));
+        e.set_sound_chain(0, 1, gain_chain(-18.0));
+        // Bar 2 starts at 2 s.
+        e.set_sound_switches(0, vec![(2.0, 1)]);
+    });
+    let (first, _) = render(&mut engine, 2.0);
+    let (second, _) = render(&mut engine, 2.0);
+    let ratio = rms(&second) / rms(&first);
+    assert!(ratio < 0.3, "the quieter sound did not take over: {ratio}");
+    // Seeking back plays the first sound again at once.
+    engine.seek(0.5);
+    let (again, _) = render(&mut engine, 1.0);
+    assert!(rms(&again) > rms(&second) * 3.0);
+    // Dropping the extra sound falls back to the first.
+    assert_eq!(engine.set_sound_count(0, 1).len(), 1);
+    engine.seek(2.5);
+    let (back, _) = render(&mut engine, 1.0);
+    assert!(rms(&back) > rms(&second) * 3.0);
+}
+
+#[test]
+fn knob_turns_update_a_running_chain() {
+    use smart_beat_lib::audio::dsp::delay::DelayParams;
+    let delay = |time_ms| {
+        vec![EffectSlot {
+            enabled: true,
+            effect: EffectConfig::Delay(DelayParams {
+                time_ms,
+                ..Default::default()
+            }),
+        }]
+    };
+    let mut engine = playing_engine(|e| {
+        e.set_track_chain(
+            0,
+            Chain::build(&delay(300.0), MAX_TRACK_EFFECTS, RATE, BLOCK, &NoAssets),
+        );
+    });
+    render(&mut engine, 0.2);
+    assert!(engine.update_sound_chain(Some(0), 0, &delay(120.0), MAX_TRACK_EFFECTS));
+    // Adding a block is not a knob turn.
+    let mut longer = delay(120.0);
+    longer.extend(delay(50.0));
+    assert!(!engine.update_sound_chain(Some(0), 0, &longer, MAX_TRACK_EFFECTS));
+    let (l, _) = render(&mut engine, 0.5);
+    assert!(l.iter().all(|s| s.is_finite()));
+}
+
+#[test]
+fn volume_and_mute_automation_follow_the_timeline() {
+    use smart_beat_lib::audio::mixing::{Automation, AutomationData};
+    let data = AutomationData {
+        enabled: true,
+        volume: vec![(0, 1.0), (1920, 1.0), (1921, 0.05)],
+        pan: vec![],
+        mute: vec![(0, 0.0), (3840, 1.0)],
+    };
+    let song = song();
+    let mut engine = playing_engine(|e| {
+        for (i, mix) in solo_guitar().into_iter().enumerate() {
+            e.set_mix(i, mix);
+        }
+        e.set_automation(0, Automation::from_ticks(&data, |t| song.seconds_at(t)));
+    });
+    let (loud, _) = render(&mut engine, 1.0);
+    render(&mut engine, 0.1);
+    let (quiet, _) = render(&mut engine, 0.8);
+    assert!(
+        rms(&quiet) < rms(&loud) * 0.15,
+        "{} vs {}",
+        rms(&quiet),
+        rms(&loud)
+    );
+    // Muted from 2 s (tick 3840) on: only the gain ramp's first block leaks.
+    engine.seek(2.2);
+    let (muted, _) = render(&mut engine, 0.5);
+    assert_eq!(rms(&muted), 0.0);
+}
+
+#[test]
+fn pan_eq_trim_and_master_pan() {
+    use smart_beat_lib::audio::mixing::TrackEq;
+    let level = |setup: &dyn Fn(&mut Engine)| {
+        let mut engine = playing_engine(|e| {
+            for (i, mix) in solo_guitar().into_iter().enumerate() {
+                e.set_mix(i, mix);
+            }
+            setup(e);
+        });
+        let (l, r) = render(&mut engine, 1.0);
+        (rms(&l), rms(&r))
+    };
+    let (centre_l, centre_r) = level(&|_| {});
+    assert!((centre_l - centre_r).abs() < centre_l * 0.2);
+    // Hard left: the right side is silent.
+    let (_, right) = level(&|e| {
+        e.set_mix(
+            0,
+            BusMix {
+                pan: -1.0,
+                ..Default::default()
+            },
+        )
+    });
+    assert!(right < 1e-4, "{right}");
+    let (_, right) = level(&|e| e.set_master_pan(-1.0));
+    assert!(right < 1e-4, "{right}");
+    // Focus: trimming a track by -12 dB.
+    let (trimmed, _) = level(&|e| {
+        e.set_mix(
+            0,
+            BusMix {
+                trim_db: -12.0,
+                ..Default::default()
+            },
+        )
+    });
+    assert!(
+        (trimmed / centre_l - 0.25).abs() < 0.05,
+        "{}",
+        trimmed / centre_l
+    );
+    // A deep cut on every band of the channel EQ.
+    let (cut, _) = level(&|e| {
+        e.set_track_eq(
+            0,
+            &TrackEq {
+                graphic: vec![-15.0; 10],
+                ..Default::default()
+            },
+        )
+    });
+    assert!(cut < centre_l * 0.3, "{cut} vs {centre_l}");
+}
+
+#[test]
+fn drum_elements_have_their_own_mix_and_meters() {
+    // Kick (36) and snare (38) on separate elements.
+    let groups = vec![vec![35, 36], vec![38, 40]];
+    let drums_only = [
+        BusMix {
+            mute: true,
+            ..Default::default()
+        },
+        BusMix::default(),
+    ];
+    let run = |mixes: [BusMix; 3], stereo: bool| {
+        let mut engine = playing_engine(|e| {
+            for (i, mix) in drums_only.into_iter().enumerate() {
+                e.set_mix(i, mix);
+            }
+            let split = e.synth_source().drum_split(&groups).unwrap();
+            assert!(e.set_drum_split(1, Some(split)).is_none());
+            e.set_drum_mix(1, &mixes, stereo);
+        });
+        let (l, r) = render(&mut engine, 2.0);
+        (l, r, engine.take_meters())
+    };
+    let on = BusMix::default();
+    let (both, _, meters) = run([on, on, on], true);
+    assert_eq!(meters.drums[1].len(), 3, "kick, snare and other");
+    assert!(meters.drums[1][0] > 0.0 && meters.drums[1][1] > 0.0);
+    assert_eq!(meters.drums[1][2], 0.0, "nothing else was played");
+    assert!(meters.drums[0].is_empty());
+    let (no_snare, _, meters) = run([on, BusMix { mute: true, ..on }, on], true);
+    assert_eq!(meters.drums[1][1], 0.0);
+    assert!(rms(&no_snare) < rms(&both));
+    let (kick_solo, _, meters) = run([BusMix { solo: true, ..on }, on, on], true);
+    assert_eq!(meters.drums[1][1], 0.0);
+    assert!(rms(&kick_solo) > 0.0);
+    // Mono: both sides are the same even with a panned snare.
+    let (l, r, _) = run([on, BusMix { pan: 1.0, ..on }, on], false);
+    assert!(l.iter().zip(&r).all(|(a, b)| (a - b).abs() < 1e-6));
+}
+
+#[test]
+fn the_audio_track_follows_sync_points_and_solo() {
+    use smart_beat_lib::audio::backing::{Backing, BackingParams, DecodedAudio, SyncMap};
+    let rate = 44_100u32;
+    let tone: Vec<f32> = (0..rate as usize * 6)
+        .map(|i| 0.5 * (std::f32::consts::TAU * 330.0 * i as f32 / rate as f32).sin())
+        .collect();
+    let audio = Arc::new(DecodedAudio {
+        rate,
+        channels: 1,
+        left: tone.clone(),
+        right: tone,
+    });
+    let backing = |solo| {
+        let mut b = Backing::new(audio.clone(), RATE, BLOCK);
+        b.set(
+            BackingParams {
+                solo,
+                ..Default::default()
+            },
+            SyncMap::new(vec![(0.0, 0.5)]),
+        );
+        b
+    };
+    let mut engine = playing_engine(|e| {
+        e.set_backing(Some(backing(true)));
+    });
+    let (l, _) = render(&mut engine, 1.0);
+    // Solo on the audio track silences the score, so only the 330 Hz tone is left.
+    let crossings = l[4_800..]
+        .windows(2)
+        .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
+        .count();
+    let freq = crossings as f32 * RATE / (l.len() - 4_800) as f32;
+    assert!((freq - 330.0).abs() < 5.0, "{freq} Hz");
+    assert!(engine.take_meters().backing > 0.3);
+    // Paused: the audio track stops too.
+    engine.pause();
+    let (paused, _) = render(&mut engine, 0.2);
+    assert!(rms(&paused) < 1e-4);
+    // Offline renders include it.
+    let mut offline = playing_engine(|e| {
+        e.set_backing(Some(backing(false)));
+    });
+    let bytes = smart_beat_lib::audio::render_offline(&mut offline, 48_000 * 60);
+    assert!(bytes.len() / 8 > 4 * 48_000);
+    // Sync map: song second 1 is recording second 1.5.
+    let map = SyncMap::new(vec![(0.0, 0.5)]);
+    assert_eq!(map.audio_at(1.0), 1.5);
+    let _ = BackingParams::default();
+}

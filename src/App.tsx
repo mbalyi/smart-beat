@@ -17,12 +17,22 @@ import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
 import { errorText } from "@/lib/errors";
 import { baseName } from "@/lib/score/format";
-import { isTauri, pickScoreFile, SCORE_EXTENSIONS, setWindowTitle } from "@/lib/tauri";
+import {
+  AUDIO_EXTENSIONS,
+  isTauri,
+  pickScoreFile,
+  SCORE_EXTENSIONS,
+  setWindowTitle,
+} from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
 // alphaTab (renderer and synthesizer) is large: load it with the first song.
+/** Whether a dropped file is a recording for the audio track. */
+const isAudioFile = (path: string) =>
+  (AUDIO_EXTENSIONS as readonly string[]).includes(path.split(".").pop()?.toLowerCase() ?? "");
+
 const ScoreWorkspace = lazy(() =>
   import("@/components/score/score-workspace").then((m) => ({ default: m.ScoreWorkspace })),
 );
@@ -104,10 +114,17 @@ export function App() {
   const open = () => void showOpenDialog();
   const recent = useRecentFiles((path) => void openPath(path), recentsVersion);
 
+  const [droppedAudio, setDroppedAudio] = useState<{ path: string; nonce: number } | null>(null);
   const dragging = useFileDrop({
     onDropPaths: (paths) => {
       const path = firstScoreFile(paths, baseName);
-      if (path) void openPath(path);
+      if (path) {
+        void openPath(path);
+        return;
+      }
+      // An mp3, wav… dropped on an open song becomes its audio track.
+      const audio = paths.find((p) => isAudioFile(p));
+      if (audio && song) setDroppedAudio((d) => ({ path: audio, nonce: (d?.nonce ?? 0) + 1 }));
     },
     onDropFiles: (files) => {
       const file = firstScoreFile(files, (f) => f.name);
@@ -175,6 +192,7 @@ export function App() {
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}
                     startEditing={s.isNew}
+                    droppedAudio={s.id === song.id ? droppedAudio : null}
                   />
                 ))}
               </div>

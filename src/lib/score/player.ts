@@ -21,7 +21,13 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
-import { busMixes, NativeEngine, trackChannels } from "@/lib/audio/native-engine";
+import { barOccurrences, engineExtras, type BarOccurrence } from "@/lib/audio/engine-config";
+import {
+  busMixes,
+  NativeEngine,
+  trackChannels,
+  type EffectProblems,
+} from "@/lib/audio/native-engine";
 import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
 import { playableDrumKey } from "@/lib/score/drum-map";
 import {
@@ -45,10 +51,11 @@ import {
   type LatencyInfo,
 } from "@/lib/score/sync";
 import { applyInterpretation } from "@/lib/score/interpretation";
-import { allTrackEffects, isAudible, trackInterpretation } from "@/lib/score/mixer";
+import { focusTrims, isAudible, trackInterpretation } from "@/lib/score/mixer";
 import {
   renderEngineAudio,
-  type BlockProblem,
+  type BackingInfo,
+  type BackingSource,
   type EngineMeters,
   type MixerSettings,
 } from "@/lib/tauri";
@@ -108,7 +115,9 @@ export interface ScorePlayerCallbacks {
   /** Native engine only: peak levels of each track and the master while playing. */
   onMeters?: (meters: EngineMeters) => void;
   /** Native engine only: effect blocks that cannot run (per track, and the master's). */
-  onEffectProblems?: (problems: { tracks: BlockProblem[][]; master: BlockProblem[] }) => void;
+  onEffectProblems?: (problems: EffectProblems) => void;
+  /** Native engine: the bars in playback order (after every MIDI load), for the audio track. */
+  onOccurrences?: (occurrences: BarOccurrence[]) => void;
 }
 
 /**
@@ -357,9 +366,17 @@ export class ScorePlayer {
         this.mix.tracks.map((_, i) => trackInterpretation(this.mix, i)),
         trackChannels(this.score),
       );
-      this.engine
-        ?.loadSong(file, trackChannels(this.score))
-        .catch((error: unknown) => callbacks.onError?.(asError(error)));
+      if (this.engine) {
+        // Automation, sound switches and sync points are placed on the bars
+        // as they are played (repeats included).
+        this.occurrences = barOccurrences(this.score, lookup ?? null);
+        callbacks.onOccurrences?.(this.occurrences);
+        this.engine.prepare(engineExtras(this.mix, this.occurrences));
+        this.engine
+          .loadSong(file, trackChannels(this.score))
+          .then(() => this.applyExtras(this.mix))
+          .catch((error: unknown) => callbacks.onError?.(asError(error)));
+      }
     });
     api.playedBeatChanged.on((beat) =>
       this.delayer.run(() => this.reportBar(beat.voice.bar.index)),
@@ -507,68 +524,43 @@ export class ScorePlayer {
     const { api } = this;
     if (previous?.master !== next.master) api.masterVolume = next.master;
     if (this.engine) {
-      this.engine.setMix(busMixes(next));
-      this.applyEffects(previous, next);
+      this.engine.setMix(busMixes(next, focusTrims(next)));
+      this.applyExtras(next);
       return;
     }
+    // alphaTab's synthesizer cannot boost: the focus switch only turns the others down.
+    const trims = focusTrims(next).map((db) => Math.min(1, 10 ** (db / 20)));
+    const previousTrims = previous
+      ? focusTrims(previous).map((db) => Math.min(1, 10 ** (db / 20)))
+      : [];
     next.tracks.forEach((trackMix, index) => {
       const track = this.score.tracks[index];
       if (!track) return;
       const before = previous?.tracks[index];
-      if (before?.volume !== trackMix.volume) api.changeTrackVolume([track], trackMix.volume);
+      const volume = trackMix.volume * (trims[index] ?? 1);
+      const volumeBefore = before ? before.volume * (previousTrims[index] ?? 1) : undefined;
+      if (volumeBefore !== volume) api.changeTrackVolume([track], volume);
       if (before?.mute !== trackMix.mute) api.changeTrackMute([track], trackMix.mute);
       if (before?.solo !== trackMix.solo) api.changeTrackSolo([track], trackMix.solo);
     });
   }
 
-  /** What the engine reported about each chain (blocks that cannot run). */
-  private effectProblems: { tracks: BlockProblem[][]; master: BlockProblem[] } = {
-    tracks: [],
-    master: [],
-  };
+  /** Native engine: every pass through a bar (ticks), from the last generated MIDI. */
+  private occurrences: BarOccurrence[] = [];
 
   /**
-   * Native engine: sends the chains that changed (all of them the first
-   * time), so turning one knob does not rebuild every track's chain.
+   * Native engine: sends effect chains and sounds, automation, EQ, drum
+   * mixes, master pan and the audio track. Only what changed is sent, so
+   * turning a knob updates one block.
    */
-  private applyEffects(previous: MixerSettings | null, next: MixerSettings) {
+  private applyExtras(mix: MixerSettings) {
     const engine = this.engine;
     if (!engine) return;
-    const report = () => this.callbacks.onEffectProblems?.(this.effectProblems);
-    const fail = (error: unknown) => this.callbacks.onError?.(asError(error));
-    if (!previous || previous.tracks.length !== next.tracks.length) {
-      engine
-        .setAllChains(allTrackEffects(next), next.masterEffects ?? [])
-        .then((problems) => {
-          this.effectProblems = problems;
-          report();
-        })
-        .catch(fail);
-      return;
-    }
-    // A missing chain and an empty one are the same (no effects).
-    const same = (a?: unknown[], b?: unknown[]) => a === b || (!a?.length && !b?.length);
-    next.tracks.forEach((_, i) => {
-      if (same(previous.effects?.[i], next.effects?.[i])) return;
-      engine
-        .setChain(i, next.effects?.[i] ?? [])
-        .then((problems) => {
-          const tracks = [...this.effectProblems.tracks];
-          tracks[i] = problems;
-          this.effectProblems = { ...this.effectProblems, tracks };
-          report();
-        })
-        .catch(fail);
-    });
-    if (!same(previous.masterEffects, next.masterEffects)) {
-      engine
-        .setChain(null, next.masterEffects ?? [])
-        .then((master) => {
-          this.effectProblems = { ...this.effectProblems, master };
-          report();
-        })
-        .catch(fail);
-    }
+    if (this.occurrences.length === 0) this.occurrences = barOccurrences(this.score, null);
+    engine
+      .configure(engineExtras(mix, this.occurrences))
+      .then((problems) => this.callbacks.onEffectProblems?.(problems))
+      .catch((error: unknown) => this.callbacks.onError?.(asError(error)));
   }
 
   /** Regenerates the MIDI (needed for pan) without losing the playback position. */
@@ -797,6 +789,17 @@ export class ScorePlayer {
   }
 
   /** Whether the native engine makes the sound. */
+  /** Opens a recording as the audio track (native engine only). */
+  loadBacking(source: BackingSource): Promise<BackingInfo> {
+    if (!this.engine)
+      return Promise.reject(new Error("The audio track needs the native audio engine."));
+    return this.engine.loadBacking(source);
+  }
+
+  clearBacking(): Promise<void> {
+    return this.engine?.clearBacking() ?? Promise.resolve();
+  }
+
   get usesNativeEngine(): boolean {
     return this.engine !== null;
   }

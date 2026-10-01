@@ -1,7 +1,13 @@
 import { midi, type synth } from "@coderline/alphatab";
 
 import { defaultEffect } from "@/lib/audio/effects";
-import { busMixes, NativeEngine, POLL_MS, songFromMidi } from "@/lib/audio/native-engine";
+import {
+  busMixes,
+  NativeEngine,
+  POLL_MS,
+  songFromMidi,
+  type EngineExtras,
+} from "@/lib/audio/native-engine";
 import * as tauri from "@/lib/tauri";
 
 vi.mock("@/lib/tauri", async (importOriginal) => {
@@ -27,6 +33,24 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
     startEngine: vi.fn(() => Promise.resolve({})),
     setEngineMix: vi.fn(() => Promise.resolve()),
     setEngineChain: vi.fn(() => Promise.resolve([])),
+    setEngineSounds: vi.fn((_t: number, sounds: unknown[]) =>
+      Promise.resolve(sounds.map(() => [])),
+    ),
+    setEngineAutomation: vi.fn(() => Promise.resolve()),
+    setEngineTrackEq: vi.fn(() => Promise.resolve()),
+    setEngineDrumMix: vi.fn(() => Promise.resolve()),
+    setEngineBacking: vi.fn(() => Promise.resolve()),
+    loadEngineBacking: vi.fn(() =>
+      Promise.resolve({
+        name: "a.wav",
+        durationMs: 1000,
+        sampleRate: 44100,
+        channels: 1,
+        peaks: [],
+        peaksPerSecond: 100,
+      }),
+    ),
+    clearEngineBacking: vi.fn(() => Promise.resolve()),
   };
 });
 
@@ -70,10 +94,17 @@ describe("songFromMidi", () => {
 });
 
 describe("busMixes", () => {
-  it("keeps volume, mute and solo and leaves pan to the MIDI", () => {
+  it("keeps volume, mute and solo, leaves pan to the MIDI and adds the focus trim", () => {
     expect(busMixes({ tracks: [{ volume: 0.5, mute: true, solo: false }] })).toEqual([
-      { volume: 0.5, pan: 0, mute: true, solo: false },
+      { volume: 0.5, pan: 0, mute: true, solo: false, trimDb: 0 },
     ]);
+    const two = {
+      tracks: [
+        { volume: 1, mute: false, solo: false },
+        { volume: 1, mute: false, solo: false },
+      ],
+    };
+    expect(busMixes(two, [3, -12]).map((m) => m.trimDb)).toEqual([3, -12]);
   });
 });
 
@@ -128,10 +159,24 @@ describe("NativeEngine", () => {
     expect(out.handler).toBeUndefined();
   });
 
-  it("sends its chains again with every song", async () => {
+  const extras = (over: Partial<EngineExtras> = {}): EngineExtras => ({
+    sounds: [
+      { chains: [[defaultEffect("gate")]], switches: [] },
+      { chains: [[]], switches: [] },
+    ],
+    master: [defaultEffect("gate")],
+    automation: [],
+    eq: [],
+    drums: [],
+    masterPan: 0,
+    backing: null,
+    ...over,
+  });
+
+  it("sends everything again with every song", async () => {
     const engine = new NativeEngine();
     const gate = defaultEffect("gate");
-    await engine.setAllChains([[gate], []], [gate]);
+    await engine.configure(extras());
     mocked.setEngineChain.mockClear();
     await engine.loadSong(file(), [[1], [9]]);
     expect(mocked.setEngineChain.mock.calls).toEqual([
@@ -139,6 +184,67 @@ describe("NativeEngine", () => {
       [1, []],
       [null, [gate]],
     ]);
+  });
+
+  it("only sends what changed, one sound at a time for a knob turn", async () => {
+    const engine = new NativeEngine();
+    const gate = defaultEffect("gate");
+    const delay = defaultEffect("delay");
+    const twoSounds = { chains: [[gate], [delay]], switches: [[1920, 1]] as [number, number][] };
+    const problems = await engine.configure(extras({ sounds: [twoSounds] }));
+    expect(mocked.setEngineSounds).toHaveBeenCalledWith(0, [[gate], [delay]], [[1920, 1]]);
+    expect(problems.tracks[0]).toEqual([[], []]);
+    vi.clearAllMocks();
+    const louder = { ...delay, mix: 0.9 };
+    await engine.configure(extras({ sounds: [{ ...twoSounds, chains: [[gate], [louder]] }] }));
+    expect(mocked.setEngineChain.mock.calls).toEqual([[0, [louder], 1]]);
+    expect(mocked.setEngineSounds).not.toHaveBeenCalled();
+    vi.clearAllMocks();
+    // Automation, EQ, drums, master pan and the audio track go when they change.
+    const automation = { enabled: true, volume: [[0, 1]] as [number, number][], pan: [], mute: [] };
+    const eq = { lowDb: 3, midDb: 0, midHz: 1000, highDb: 0 };
+    const drums = {
+      stereo: false,
+      elements: [],
+      other: { volume: 1, pan: 0, mute: false, solo: false },
+    };
+    const backing = {
+      params: {
+        enabled: true,
+        volume: 1,
+        pan: 0,
+        mute: false,
+        solo: false,
+        eq,
+        semitones: 0,
+        cents: 0,
+        filter: "off" as const,
+      },
+      sync: [{ tick: 0, ms: 500 }],
+    };
+    await engine.configure(
+      extras({
+        sounds: [{ ...twoSounds, chains: [[gate], [louder]] }],
+        automation: [automation],
+        eq: [eq],
+        drums: [drums],
+        masterPan: -0.5,
+        backing,
+      }),
+    );
+    expect(mocked.setEngineAutomation).toHaveBeenCalledWith(0, automation);
+    expect(mocked.setEngineTrackEq).toHaveBeenCalledWith(0, eq);
+    expect(mocked.setEngineDrumMix).toHaveBeenCalledWith(0, drums);
+    expect(mocked.engineTransport).toHaveBeenCalledWith({ type: "masterPan", value: -0.5 });
+    expect(mocked.setEngineBacking).toHaveBeenCalledWith(backing.params, backing.sync);
+    expect(mocked.setEngineChain).not.toHaveBeenCalled();
+    // Loading a recording resends its settings (the engine starts it with defaults).
+    vi.clearAllMocks();
+    const info = await engine.loadBacking({ type: "file", path: "/a.wav" });
+    expect(info.name).toBe("a.wav");
+    expect(mocked.setEngineBacking).toHaveBeenCalledTimes(1);
+    await engine.clearBacking();
+    expect(mocked.clearEngineBacking).toHaveBeenCalled();
   });
 
   it("reports failures without throwing", async () => {

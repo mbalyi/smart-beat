@@ -7,10 +7,12 @@ use serde::Serialize;
 use tauri::ipc::Response;
 use tauri::{AppHandle, PackageInfo, Runtime, State};
 
+use crate::audio::AudioState;
 use crate::error::{CommandError, ErrorKind};
 use crate::menu::{self, Shortcut};
 use crate::menu_state::{self, MenuState, MenuStateStore};
 use crate::mixer::{FileKey, MixerSettings, MixerStore};
+use crate::project;
 use crate::recent::RecentStore;
 use crate::score_file;
 use crate::score_write;
@@ -110,6 +112,44 @@ pub fn save_mixer_settings(
     settings: MixerSettings,
 ) -> Result<(), CommandError> {
     store.save(&FileKey::parse(&file_key)?, &settings)
+}
+
+/// Mixer settings stored inside a `.gp` file (`null` for other files or none).
+#[tauri::command(async)]
+pub fn read_project_settings(path: PathBuf) -> Result<Option<MixerSettings>, CommandError> {
+    project::read_settings(&path)
+}
+
+/// Stores mixer settings inside a `.gp` file that was just saved. With
+/// `embed_audio`, the loaded audio track's recording goes in too.
+#[tauri::command(async)]
+pub fn write_project_settings(
+    audio: State<'_, AudioState>,
+    path: PathBuf,
+    settings: MixerSettings,
+    embed_audio: bool,
+) -> Result<(), CommandError> {
+    let recording = if embed_audio {
+        let wanted = settings.audio_track.as_ref().map(|t| t.name.clone());
+        match (audio.backing_bytes(), wanted) {
+            (Some((name, bytes)), Some(wanted)) if name == wanted => Some((name, bytes)),
+            _ => {
+                return Err(CommandError::new(
+                    ErrorKind::Audio,
+                    "The audio track is not loaded, so it cannot be embedded.",
+                ));
+            }
+        }
+    } else {
+        None
+    };
+    project::write_settings(
+        &path,
+        &settings,
+        recording
+            .as_ref()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+    )
 }
 
 /// The recently opened songs, most recent first (at most 10).

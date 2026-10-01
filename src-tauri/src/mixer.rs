@@ -1,9 +1,10 @@
-//! Per-song mixer settings, stored as JSON files in the app data folder.
+//! Per-song mixer settings: volume, pan, mute and solo, effect chains and
+//! sounds, channel EQ, automation, the drum mixer, the audio track and chain
+//! presets.
 //!
-//! Settings are keyed by the SHA-256 of the song file's content, so they follow
-//! the song when it is renamed or moved, and the user's folders are never
-//! touched. Once Smart Beat can save Guitar Pro files (issue #15), the mix will
-//! also be written into the file itself.
+//! Saved `.gp` files carry them inside (see `project.rs`). They are also
+//! stored as JSON files in the app data folder, keyed by the SHA-256 of the
+//! song file's content, so songs in other formats keep their mix too.
 
 use std::fs;
 use std::io::{self, Write};
@@ -11,11 +12,22 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::audio::backing::BackingParams;
 use crate::audio::chain::{EffectSlot, MAX_MASTER_EFFECTS, MAX_TRACK_EFFECTS};
+use crate::audio::engine::MAX_SOUNDS;
+use crate::audio::mixing::TrackEq;
 use crate::error::{CommandError, ErrorKind};
 
-/// Current settings format. Files with another version are ignored.
-pub const VERSION: u32 = 1;
+/// Current settings format. Version 1 files (before sounds, EQ, automation,
+/// the drum mixer and the audio track) still load; other versions are ignored.
+pub const VERSION: u32 = 2;
+/// Oldest version still read.
+pub const MIN_VERSION: u32 = 1;
+/// Upper bounds that keep a damaged file from exhausting memory.
+pub const MAX_AUTOMATION_POINTS: usize = 4_096;
+pub const MAX_PRESETS: usize = 200;
+pub const MAX_DRUM_ELEMENTS: usize = 24;
+const MAX_NAME: usize = 120;
 
 /// Upper bound on tracks per song, well above what Guitar Pro allows.
 pub const MAX_TRACKS: usize = 256;
@@ -38,6 +50,139 @@ pub struct MixerSettings {
     /// How each track is played back (style, palm mute, accents, let ring, brush).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub interpretation: Vec<Interpretation>,
+    /// Master pan, -1…1.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub master_pan: f64,
+    /// Sounds of each track (several effect chains switched by automation).
+    /// Empty for a track with one sound (its chain is `effects`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sounds: Vec<TrackSounds>,
+    /// Channel EQ of each track.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub eq: Vec<TrackEq>,
+    /// Volume, pan and mute automation of each track.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub automation: Vec<TrackAutomation>,
+    /// The track in focus (the others are turned down).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<usize>,
+    /// Drum mixer of each track (`null` for tracks that are not drums or not split).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drums: Vec<Option<DrumMixer>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_track: Option<AudioTrack>,
+    /// Effect chain presets saved with the song.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub presets: Vec<ChainPreset>,
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
+}
+
+/// One sound of a track: a named effect chain.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sound {
+    pub name: String,
+    pub effects: Vec<EffectSlot>,
+}
+
+/// "From bar `bar` (0-based) on, play sound `sound`."
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundSwitch {
+    pub bar: u32,
+    pub sound: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackSounds {
+    pub sounds: Vec<Sound>,
+    #[serde(default)]
+    pub switches: Vec<SoundSwitch>,
+}
+
+/// An automation point: a position in bars (0-based, fractional) and a value.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationPoint {
+    pub bar: f64,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TrackAutomation {
+    pub enabled: bool,
+    /// 0…1.
+    pub volume: Vec<AutomationPoint>,
+    /// -1…1.
+    pub pan: Vec<AutomationPoint>,
+    /// 0 (on) or 1 (muted).
+    pub mute: Vec<AutomationPoint>,
+}
+
+/// Mix of one drum kit element (snare, hi-hat, kick, …).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrumElementMix {
+    pub id: String,
+    pub volume: f64,
+    pub pan: f64,
+    pub mute: bool,
+    pub solo: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrumMixer {
+    pub stereo: bool,
+    pub elements: Vec<DrumElementMix>,
+}
+
+/// A sync point: bar `bar` (0-based) starts at `ms` in the recording.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPoint {
+    pub bar: u32,
+    pub ms: f64,
+}
+
+/// The audio track of a song.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTrack {
+    /// File name of the recording.
+    pub name: String,
+    /// Where the recording is on disk (when it is not embedded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The recording is stored inside the song file.
+    #[serde(default)]
+    pub embedded: bool,
+    #[serde(flatten)]
+    pub params: BackingParams,
+    #[serde(default)]
+    pub sync: Vec<SyncPoint>,
+}
+
+/// An effect chain preset stored in the song.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChainPreset {
+    pub name: String,
+    /// "guitar", "bass", "drums" or "master".
+    pub target: String,
+    pub effects: Vec<EffectSlot>,
+}
+
+fn check_name(name: &str, what: &str) -> Result<(), String> {
+    if name.chars().count() > MAX_NAME {
+        return Err(format!("{what} name is too long"));
+    }
+    Ok(())
 }
 
 /// Playing style of a track. Mirrored by `PlayingStyle` in `src/lib/score/interpretation.ts`.
@@ -77,9 +222,10 @@ pub struct TrackMix {
 impl MixerSettings {
     /// Checks the version and that every value is in range.
     pub fn validate(&self) -> Result<(), String> {
-        if self.version != VERSION {
+        if !(MIN_VERSION..=VERSION).contains(&self.version) {
             return Err(format!("unsupported settings version {}", self.version));
         }
+        self.validate_v2()?;
         if self.tracks.len() > MAX_TRACKS {
             return Err(format!("more than {MAX_TRACKS} tracks"));
         }
@@ -115,6 +261,96 @@ impl MixerSettings {
             }
             if !in_range(track.pan, -1.0, 1.0) {
                 return Err(format!("track {index}: pan must be between -1 and 1"));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl MixerSettings {
+    fn validate_v2(&self) -> Result<(), String> {
+        let tracks = self.tracks.len();
+        if !in_range(self.master_pan, -1.0, 1.0) {
+            return Err("master pan must be between -1 and 1".into());
+        }
+        for (what, len) in [
+            ("sound lists", self.sounds.len()),
+            ("EQs", self.eq.len()),
+            ("automations", self.automation.len()),
+            ("drum mixers", self.drums.len()),
+        ] {
+            if len > tracks {
+                return Err(format!("more {what} than tracks"));
+            }
+        }
+        if self.focus.is_some_and(|f| f >= tracks) {
+            return Err("the focused track does not exist".into());
+        }
+        for (index, sounds) in self.sounds.iter().enumerate() {
+            if sounds.sounds.len() > MAX_SOUNDS {
+                return Err(format!("track {index}: more than {MAX_SOUNDS} sounds"));
+            }
+            for sound in &sounds.sounds {
+                check_name(&sound.name, "sound")?;
+                if sound.effects.len() > MAX_TRACK_EFFECTS {
+                    return Err(format!(
+                        "track {index}: more than {MAX_TRACK_EFFECTS} effects"
+                    ));
+                }
+            }
+            if sounds.switches.len() > MAX_AUTOMATION_POINTS
+                || sounds
+                    .switches
+                    .iter()
+                    .any(|s| s.sound >= sounds.sounds.len().max(1))
+            {
+                return Err(format!("track {index}: invalid sound switch"));
+            }
+        }
+        for (index, eq) in self.eq.iter().enumerate() {
+            eq.validate().map_err(|e| format!("track {index}: {e}"))?;
+        }
+        for (index, automation) in self.automation.iter().enumerate() {
+            for (lane, min, max) in [
+                (&automation.volume, 0.0, 1.0),
+                (&automation.pan, -1.0, 1.0),
+                (&automation.mute, 0.0, 1.0),
+            ] {
+                if lane.len() > MAX_AUTOMATION_POINTS
+                    || lane
+                        .iter()
+                        .any(|p| !in_range(p.bar, 0.0, 100_000.0) || !in_range(p.value, min, max))
+                {
+                    return Err(format!("track {index}: automation out of range"));
+                }
+            }
+        }
+        for (index, drums) in self.drums.iter().enumerate() {
+            let Some(drums) = drums else { continue };
+            if drums.elements.len() > MAX_DRUM_ELEMENTS {
+                return Err(format!("track {index}: too many drum elements"));
+            }
+            for e in &drums.elements {
+                check_name(&e.id, "drum element")?;
+                if !in_range(e.volume, 0.0, 1.0) || !in_range(e.pan, -1.0, 1.0) {
+                    return Err(format!("track {index}: drum mixer out of range"));
+                }
+            }
+        }
+        if let Some(audio) = &self.audio_track {
+            check_name(&audio.name, "audio file")?;
+            audio.params.validate()?;
+            if audio.sync.len() > 10_000 || audio.sync.iter().any(|p| !in_range(p.ms, 0.0, 1.0e9)) {
+                return Err("invalid audio track sync points".into());
+            }
+        }
+        if self.presets.len() > MAX_PRESETS {
+            return Err(format!("more than {MAX_PRESETS} presets"));
+        }
+        for preset in &self.presets {
+            check_name(&preset.name, "preset")?;
+            if preset.effects.len() > MAX_TRACK_EFFECTS {
+                return Err("a preset has too many effects".into());
             }
         }
         Ok(())
@@ -248,6 +484,14 @@ mod tests {
             effects: Vec::new(),
             master_effects: Vec::new(),
             interpretation: Vec::new(),
+            master_pan: 0.0,
+            sounds: Vec::new(),
+            eq: Vec::new(),
+            automation: Vec::new(),
+            focus: None,
+            drums: Vec::new(),
+            audio_track: None,
+            presets: Vec::new(),
         }
     }
 
@@ -325,6 +569,196 @@ mod tests {
         assert!(bad.validate().unwrap_err().contains("interpretation"));
     }
 
+    fn full() -> MixerSettings {
+        use crate::audio::backing::BackingFilter;
+        use crate::audio::chain::{EffectConfig, EffectSlot};
+        use crate::audio::dsp::delay::DelayParams;
+        let delay = EffectSlot {
+            enabled: true,
+            effect: EffectConfig::Delay(DelayParams::default()),
+        };
+        MixerSettings {
+            master_pan: -0.25,
+            sounds: vec![TrackSounds {
+                sounds: vec![
+                    Sound {
+                        name: "Clean".into(),
+                        effects: vec![],
+                    },
+                    Sound {
+                        name: "Lead".into(),
+                        effects: vec![delay.clone()],
+                    },
+                ],
+                switches: vec![SoundSwitch { bar: 4, sound: 1 }],
+            }],
+            eq: vec![TrackEq {
+                low_db: 3.0,
+                ..Default::default()
+            }],
+            automation: vec![
+                TrackAutomation::default(),
+                TrackAutomation {
+                    enabled: true,
+                    volume: vec![
+                        AutomationPoint {
+                            bar: 0.0,
+                            value: 1.0,
+                        },
+                        AutomationPoint {
+                            bar: 2.5,
+                            value: 0.2,
+                        },
+                    ],
+                    pan: vec![AutomationPoint {
+                        bar: 1.0,
+                        value: -1.0,
+                    }],
+                    mute: vec![AutomationPoint {
+                        bar: 3.0,
+                        value: 1.0,
+                    }],
+                },
+            ],
+            focus: Some(1),
+            drums: vec![
+                None,
+                Some(DrumMixer {
+                    stereo: false,
+                    elements: vec![DrumElementMix {
+                        id: "snare".into(),
+                        volume: 0.8,
+                        pan: 0.3,
+                        mute: false,
+                        solo: true,
+                    }],
+                }),
+            ],
+            audio_track: Some(AudioTrack {
+                name: "backing.mp3".into(),
+                path: Some("/music/backing.mp3".into()),
+                embedded: false,
+                params: BackingParams {
+                    volume: 0.7,
+                    semitones: -2,
+                    filter: BackingFilter::BassIsolate,
+                    ..Default::default()
+                },
+                sync: vec![
+                    SyncPoint {
+                        bar: 0,
+                        ms: 1_200.0,
+                    },
+                    SyncPoint {
+                        bar: 8,
+                        ms: 17_000.0,
+                    },
+                ],
+            }),
+            presets: vec![ChainPreset {
+                name: "Slapback".into(),
+                target: "guitar".into(),
+                effects: vec![delay],
+            }],
+            ..settings()
+        }
+    }
+
+    #[test]
+    fn round_trips_every_v2_field() {
+        let s = full();
+        assert_eq!(s.validate(), Ok(()));
+        let json = serde_json::to_string(&s).unwrap();
+        for key in [
+            "\"masterPan\"",
+            "\"sounds\"",
+            "\"switches\"",
+            "\"eq\"",
+            "\"automation\"",
+            "\"focus\"",
+            "\"drums\"",
+            "\"audioTrack\"",
+            "\"semitones\":-2",
+            "\"filter\":\"bassIsolate\"",
+            "\"presets\"",
+        ] {
+            assert!(json.contains(key), "{key} missing in {json}");
+        }
+        assert_eq!(serde_json::from_str::<MixerSettings>(&json).unwrap(), s);
+    }
+
+    #[test]
+    fn rejects_bad_v2_values() {
+        let cases: Vec<(MixerSettings, &str)> = vec![
+            (
+                MixerSettings {
+                    master_pan: 2.0,
+                    ..full()
+                },
+                "master pan",
+            ),
+            (
+                MixerSettings {
+                    focus: Some(5),
+                    ..full()
+                },
+                "focused",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.sounds[0].switches[0].sound = 7;
+                    s
+                },
+                "sound switch",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.automation[1].pan[0].value = 3.0;
+                    s
+                },
+                "automation",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.eq[0].mid_db = 99.0;
+                    s
+                },
+                "EQ",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.drums[1].as_mut().unwrap().elements[0].volume = -1.0;
+                    s
+                },
+                "drum mixer",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.audio_track.as_mut().unwrap().params.cents = 500;
+                    s
+                },
+                "transposition",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.eq = vec![TrackEq::default(); 3];
+                    s
+                },
+                "more EQs",
+            ),
+        ];
+        for (settings, message) in cases {
+            let error = settings.validate().unwrap_err();
+            assert!(error.contains(message), "{error} should mention {message}");
+        }
+    }
+
     #[test]
     fn rejects_out_of_range_values() {
         let mut s = settings();
@@ -340,8 +774,10 @@ mod tests {
         assert!(s.validate().unwrap_err().contains("track 0: pan"));
 
         let mut s = settings();
-        s.version = 2;
+        s.version = 3;
         assert!(s.validate().unwrap_err().contains("version"));
+        s.version = 1;
+        assert_eq!(s.validate(), Ok(()), "version 1 files still load");
 
         let mut s = settings();
         s.tracks = vec![s.tracks[0]; MAX_TRACKS + 1];
@@ -351,7 +787,9 @@ mod tests {
     #[test]
     fn serializes_camel_case_json() {
         let json = serde_json::to_value(settings()).unwrap();
-        assert_eq!(json["version"], 1);
+        assert_eq!(json["version"], VERSION);
+        // Empty v2 fields are left out, so plain mixes stay small.
+        assert!(json.get("sounds").is_none() && json.get("audioTrack").is_none());
         assert_eq!(json["tracks"][0]["solo"], true);
     }
 

@@ -1,13 +1,17 @@
 //! Effect DSP written for Smart Beat (no third-party DSP code): noise gate,
-//! compressor, EQ and drive. Every effect is stereo-linked, processes blocks of
+//! compressor, EQ, drive, a built-in amp, modulation, delay and reverb. Every effect is stereo-linked, processes blocks of
 //! samples in place and never allocates while processing.
 
+pub mod amp_sim;
 pub mod biquad;
 pub mod compressor;
 pub mod convolver;
+pub mod delay;
 pub mod drive;
 pub mod eq;
 pub mod gate;
+pub mod modulation;
+pub mod reverb;
 
 /// Smallest level treated as sound; anything below is flushed to zero so the
 /// filters never run on denormal numbers (they are very slow on some CPUs).
@@ -47,6 +51,12 @@ pub trait Effect: Send {
     fn process(&mut self, left: &mut [f32], right: &mut [f32]);
     /// Forgets all state (after a seek or when playback stops).
     fn reset(&mut self);
+    /// Takes new parameters while running (a knob turn), keeping the state so
+    /// nothing clicks. Returns false if `config` is another kind of block, or
+    /// a change that needs the block to be rebuilt.
+    fn update(&mut self, _config: &crate::audio::chain::EffectConfig) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

@@ -72,6 +72,8 @@ export const backend = {
   saveResult: null as string | null,
   /** Files written by `write_score_file`, by path. */
   written: new Map<string, Uint8Array>(),
+  /** Settings stored inside saved `.gp` files, by path. */
+  projectSettings: new Map<string, MixerSettings>(),
 };
 
 const MAX_RECENT = 10;
@@ -106,6 +108,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.recent = [];
   backend.saveResult = null;
   backend.written.clear();
+  backend.projectSettings.clear();
   mockWindows("main");
   mockIPC(
     (cmd, args) => {
@@ -162,6 +165,30 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return [];
         case "audio_set_chain":
           return [];
+        case "audio_set_sounds":
+          return (args as { sounds: unknown[] }).sounds.map(() => []);
+        case "read_project_settings":
+          return backend.projectSettings.get((args as { path: string }).path) ?? null;
+        case "write_project_settings": {
+          const { path, settings } = args as { path: string; settings: MixerSettings };
+          backend.projectSettings.set(path, settings);
+          return null;
+        }
+        case "audio_set_automation":
+        case "audio_set_track_eq":
+        case "audio_set_drum_mix":
+        case "audio_set_backing":
+        case "audio_clear_backing":
+          return null;
+        case "audio_load_backing":
+          return {
+            name: "take.mp3",
+            durationMs: 2000,
+            sampleRate: 44100,
+            channels: 2,
+            peaks: Array.from({ length: 200 }, (_, i) => (i % 10) / 10),
+            peaksPerSecond: 100,
+          };
         case "audio_transport":
         case "audio_set_mix":
         case "audio_stop":

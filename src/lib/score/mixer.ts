@@ -1,6 +1,7 @@
 /**
- * Mixer state: master volume plus volume, pan, mute and solo per track, and
- * the effect chains of the tracks and the master (native audio engine).
+ * Mixer state: master volume and pan, volume, pan, mute and solo per track,
+ * and for the native audio engine the effect chains (several sounds per
+ * track), channel EQ, automation, focus, the drum mixer and the audio track.
  */
 import type { EffectSlot } from "@/lib/audio/effects";
 import {
@@ -9,22 +10,61 @@ import {
   type Interpretation,
 } from "@/lib/score/interpretation";
 import type { ScoreSummary } from "@/lib/score/score";
-import { MIXER_SETTINGS_VERSION, type MixerSettings, type TrackMix } from "@/lib/tauri";
+import {
+  MIXER_SETTINGS_MIN_VERSION,
+  MIXER_SETTINGS_VERSION,
+  type AudioTrackSettings,
+  type AutomationLaneKind,
+  type AutomationPoint,
+  type DrumMixer,
+  type MixerSettings,
+  type SongPreset,
+  type TrackAutomation,
+  type TrackEq,
+  type TrackMix,
+  type TrackSounds,
+} from "@/lib/tauri";
 
 /** Pan changes regenerate the MIDI, so they're applied when the user lets go. */
 export type MixerChange = (action: MixerAction, options?: { commit: boolean }) => void;
 
 export type MixerAction =
   | { type: "master"; value: number }
+  | { type: "master-pan"; value: number }
   | { type: "volume"; track: number; value: number }
   | { type: "pan"; track: number; value: number }
   | { type: "mute"; track: number; value: boolean }
   | { type: "solo"; track: number; value: boolean }
+  /** The chain of a track's first sound. */
   | { type: "effects"; track: number; slots: EffectSlot[] }
+  /** The chain of one sound of a track. */
+  | { type: "sound-effects"; track: number; sound: number; slots: EffectSlot[] }
+  /** All sounds of a track and their switches (null: back to one sound). */
+  | { type: "sounds"; track: number; sounds: TrackSounds | null }
   | { type: "master-effects"; slots: EffectSlot[] }
   | { type: "interpretation"; track: number; value: Interpretation }
-  /** Volumes, pans, mute and solo back to the file's; effects stay. */
+  | { type: "eq"; track: number; eq: TrackEq }
+  | { type: "automation"; track: number; automation: TrackAutomation }
+  /** Focus one track (null: none). */
+  | { type: "focus"; track: number | null }
+  | { type: "drums"; track: number; drums: DrumMixer | null }
+  | { type: "audio-track"; value: AudioTrackSettings | null }
+  | { type: "presets"; presets: SongPreset[] }
+  /** Volumes, pans, mute and solo back to the file's; effects and the rest stay. */
   | { type: "reset"; mix: MixerSettings };
+
+export const FLAT_EQ: TrackEq = { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 };
+export const EMPTY_AUTOMATION: TrackAutomation = {
+  enabled: false,
+  volume: [],
+  pan: [],
+  mute: [],
+};
+/** Mirrors `MAX_SOUNDS` in `src-tauri/src/audio/engine.rs`. */
+export const MAX_SOUNDS = 8;
+/** How the focus switch changes the levels (dB). */
+export const FOCUS_BOOST_DB = 3;
+export const FOCUS_CUT_DB = -12;
 
 /** The mix saved in the song file. */
 export function mixFromScore(summary: ScoreSummary): MixerSettings {
@@ -37,14 +77,19 @@ export function mixFromScore(summary: ScoreSummary): MixerSettings {
 
 /**
  * The mix to start with: the user's saved mix if it fits this song, otherwise
- * the one from the file.
+ * the one from the file. Older settings are upgraded.
  */
 export function initialMix(summary: ScoreSummary, saved: MixerSettings | null): MixerSettings {
   const fromFile = mixFromScore(summary);
-  if (saved?.version !== MIXER_SETTINGS_VERSION || saved.tracks.length !== fromFile.tracks.length) {
+  if (
+    !saved ||
+    saved.version < MIXER_SETTINGS_MIN_VERSION ||
+    saved.version > MIXER_SETTINGS_VERSION ||
+    saved.tracks.length !== fromFile.tracks.length
+  ) {
     return fromFile;
   }
-  return saved;
+  return { ...saved, version: MIXER_SETTINGS_VERSION };
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -57,10 +102,95 @@ function updateTrack(mix: MixerSettings, index: number, change: Partial<TrackMix
   };
 }
 
+/** A per-track list with `value` at `index` (and `fallback(i)` where unset). */
+function perTrack<T>(
+  mix: MixerSettings,
+  list: readonly T[] | undefined,
+  index: number,
+  value: T,
+  fallback: (i: number) => T,
+): T[] {
+  return mix.tracks.map((_, i) => (i === index ? value : (list?.[i] ?? fallback(i))));
+}
+
+/** Everything the mixer knows about one track; it follows the track when tracks move. */
+export interface TrackState {
+  mix: TrackMix;
+  effects: EffectSlot[];
+  interpretation: Interpretation;
+  /** Null: the track has one sound (its chain is `effects`). */
+  sounds: TrackSounds | null;
+  eq: TrackEq;
+  automation: TrackAutomation;
+  drums: DrumMixer | null;
+  focused: boolean;
+}
+
+export function trackStates(mix: MixerSettings): TrackState[] {
+  return mix.tracks.map((track, i) => ({
+    mix: track,
+    effects: trackEffects(mix, i),
+    interpretation: trackInterpretation(mix, i),
+    sounds: trackSoundsOf(mix, i),
+    eq: trackEq(mix, i),
+    automation: trackAutomation(mix, i),
+    drums: mix.drums?.[i] ?? null,
+    focused: mix.focus === i,
+  }));
+}
+
+/** The mix with these tracks (in this order); master settings stay. */
+export function withTrackStates(mix: MixerSettings, states: readonly TrackState[]): MixerSettings {
+  const next: MixerSettings = {
+    ...mix,
+    version: MIXER_SETTINGS_VERSION,
+    tracks: states.map((s) => s.mix),
+    effects: states.map((s) => s.effects),
+    interpretation: states.map((s) => s.interpretation),
+  };
+  const someSounds = states.some((s) => s.sounds);
+  const someEq = states.some((s) => s.eq !== FLAT_EQ && !isFlat(s.eq));
+  const someAutomation = states.some(
+    (s) => s.automation.enabled || automationPointCount(s.automation) > 0,
+  );
+  const someDrums = states.some((s) => s.drums);
+  next.sounds = someSounds
+    ? states.map((s) => s.sounds ?? { sounds: [], switches: [] })
+    : undefined;
+  next.eq = someEq ? states.map((s) => s.eq) : undefined;
+  next.automation = someAutomation ? states.map((s) => s.automation) : undefined;
+  next.drums = someDrums ? states.map((s) => s.drums) : undefined;
+  const focus = states.findIndex((s) => s.focused);
+  next.focus = focus >= 0 ? focus : undefined;
+  return stripUndefined(next);
+}
+
+/** The mix without some optional settings. */
+function without(mix: MixerSettings, ...keys: (keyof MixerSettings)[]): MixerSettings {
+  const out = { ...mix };
+  for (const key of keys) delete out[key];
+  return out;
+}
+
+function stripUndefined(mix: MixerSettings): MixerSettings {
+  const out = { ...mix } as Record<string, unknown>;
+  for (const key of Object.keys(out)) if (out[key] === undefined) delete out[key];
+  return out as unknown as MixerSettings;
+}
+
+export const isFlat = (eq: TrackEq) =>
+  eq.graphic?.length === 10
+    ? eq.graphic.every((g) => g === 0)
+    : eq.lowDb === 0 && eq.midDb === 0 && eq.highDb === 0;
+
+const automationPointCount = (a: TrackAutomation) => a.volume.length + a.pan.length + a.mute.length;
+
 export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSettings {
   switch (action.type) {
     case "master":
       return { ...mix, master: clamp(action.value, 0, 1) };
+    case "master-pan":
+      return { ...mix, masterPan: clamp(action.value, -1, 1) };
     case "volume":
       return updateTrack(mix, action.track, { volume: clamp(action.value, 0, 1) });
     case "pan":
@@ -69,49 +199,241 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
       return updateTrack(mix, action.track, { mute: action.value });
     case "solo":
       return updateTrack(mix, action.track, { solo: action.value });
-    case "effects": {
+    case "effects":
+      return mixerReducer(mix, {
+        type: "sound-effects",
+        track: action.track,
+        sound: 0,
+        slots: action.slots,
+      });
+    case "sound-effects": {
       if (!mix.tracks[action.track]) return mix;
-      const effects = mix.tracks.map((_, i) =>
-        i === action.track ? action.slots : (mix.effects?.[i] ?? []),
+      const own = trackSoundsOf(mix, action.track);
+      if (!own || action.sound === 0) {
+        const effects = perTrack(mix, mix.effects, action.track, action.slots, () => []);
+        if (!own) return { ...mix, effects };
+        const sounds = own.sounds.map((s, i) => (i === 0 ? { ...s, effects: action.slots } : s));
+        return withSounds({ ...mix, effects }, action.track, { ...own, sounds });
+      }
+      if (!own.sounds[action.sound]) return mix;
+      const sounds = own.sounds.map((s, i) =>
+        i === action.sound ? { ...s, effects: action.slots } : s,
       );
-      return { ...mix, effects };
+      return withSounds(mix, action.track, { ...own, sounds });
+    }
+    case "sounds": {
+      if (!mix.tracks[action.track]) return mix;
+      const value = normalizeSounds(action.sounds);
+      const first = value?.sounds[0]?.effects ?? trackEffects(mix, action.track);
+      const effects = perTrack(mix, mix.effects, action.track, first, () => []);
+      return withSounds({ ...mix, effects }, action.track, value);
     }
     case "master-effects":
       return { ...mix, masterEffects: action.slots };
     case "interpretation": {
       if (!mix.tracks[action.track]) return mix;
-      const interpretation = mix.tracks.map((_, i) =>
-        i === action.track ? normalizeInterpretation(action.value) : trackInterpretation(mix, i),
+      const interpretation = perTrack(
+        mix,
+        mix.interpretation,
+        action.track,
+        normalizeInterpretation(action.value),
+        (i) => trackInterpretation(mix, i),
       );
       return { ...mix, interpretation };
     }
+    case "eq": {
+      if (!mix.tracks[action.track]) return mix;
+      return {
+        ...mix,
+        eq: perTrack(mix, mix.eq, action.track, normalizeEq(action.eq), () => FLAT_EQ),
+      };
+    }
+    case "automation": {
+      if (!mix.tracks[action.track]) return mix;
+      const automation = perTrack(
+        mix,
+        mix.automation,
+        action.track,
+        normalizeAutomation(action.automation),
+        () => EMPTY_AUTOMATION,
+      );
+      return { ...mix, automation };
+    }
+    case "focus": {
+      if (action.track === null || !mix.tracks[action.track]) return without(mix, "focus");
+      return { ...mix, focus: action.track };
+    }
+    case "drums": {
+      if (!mix.tracks[action.track]) return mix;
+      return { ...mix, drums: perTrack(mix, mix.drums, action.track, action.drums, () => null) };
+    }
+    case "audio-track": {
+      if (!action.value) return without(mix, "audioTrack");
+      return { ...mix, audioTrack: normalizeAudioTrack(action.value) };
+    }
+    case "presets":
+      return { ...mix, presets: action.presets };
     case "reset":
       return {
-        ...action.mix,
-        effects: mix.effects,
-        masterEffects: mix.masterEffects,
-        interpretation: mix.interpretation,
+        ...without(mix, "focus", "masterPan"),
+        master: action.mix.master,
+        tracks: action.mix.tracks,
       };
   }
+}
+
+function withSounds(mix: MixerSettings, track: number, value: TrackSounds | null): MixerSettings {
+  const sounds = perTrack(mix, mix.sounds, track, value ?? { sounds: [], switches: [] }, () => ({
+    sounds: [],
+    switches: [],
+  }));
+  if (sounds.every((s) => s.sounds.length === 0)) return without(mix, "sounds");
+  return { ...mix, sounds };
+}
+
+/** One sound is the same as none: a track with sounds has at least two. */
+function normalizeSounds(value: TrackSounds | null): TrackSounds | null {
+  if (!value || value.sounds.length < 2) return null;
+  const sounds = value.sounds.slice(0, MAX_SOUNDS);
+  const switches = value.switches
+    .filter((s) => s.sound >= 0 && s.sound < sounds.length && s.bar >= 0)
+    .map((s) => ({ bar: Math.round(s.bar), sound: s.sound }))
+    .sort((a, b) => a.bar - b.bar)
+    // One switch per bar: the last one wins.
+    .filter((s, i, all) => all[i + 1]?.bar !== s.bar);
+  return { sounds, switches };
+}
+
+function normalizeEq(eq: TrackEq): TrackEq {
+  const gain = (g: number) => clamp(Number.isFinite(g) ? g : 0, -15, 15);
+  const next: TrackEq = {
+    lowDb: gain(eq.lowDb),
+    midDb: gain(eq.midDb),
+    midHz: clamp(Number.isFinite(eq.midHz) ? eq.midHz : 1000, 200, 5000),
+    highDb: gain(eq.highDb),
+  };
+  if (eq.graphic?.length === 10) next.graphic = eq.graphic.map(gain);
+  return next;
+}
+
+const LANE_RANGE: Record<AutomationLaneKind, [number, number]> = {
+  volume: [0, 1],
+  pan: [-1, 1],
+  mute: [0, 1],
+};
+
+function normalizeLane(kind: AutomationLaneKind, points: readonly AutomationPoint[]) {
+  const [min, max] = LANE_RANGE[kind];
+  return points
+    .filter((p) => Number.isFinite(p.bar) && Number.isFinite(p.value))
+    .map((p) => ({
+      bar: Math.max(0, p.bar),
+      value: kind === "mute" ? (p.value >= 0.5 ? 1 : 0) : clamp(p.value, min, max),
+    }))
+    .sort((a, b) => a.bar - b.bar);
+}
+
+function normalizeAutomation(a: TrackAutomation): TrackAutomation {
+  return {
+    enabled: a.enabled,
+    volume: normalizeLane("volume", a.volume),
+    pan: normalizeLane("pan", a.pan),
+    mute: normalizeLane("mute", a.mute),
+  };
+}
+
+function normalizeAudioTrack(a: AudioTrackSettings): AudioTrackSettings {
+  const sync = a.sync
+    .filter((p) => p.bar >= 0 && Number.isFinite(p.ms) && p.ms >= 0)
+    .map((p) => ({ bar: Math.round(p.bar), ms: p.ms }))
+    .sort((x, y) => x.bar - y.bar)
+    .filter((p, i, all) => all[i + 1]?.bar !== p.bar);
+  return {
+    ...a,
+    volume: clamp(a.volume, 0, 1),
+    pan: clamp(a.pan, -1, 1),
+    semitones: clamp(Math.round(a.semitones), -24, 24),
+    cents: clamp(Math.round(a.cents), -100, 100),
+    eq: normalizeEq(a.eq),
+    sync,
+  };
 }
 
 /** How a track is played back (the defaults if nothing was set). */
 export const trackInterpretation = (mix: MixerSettings, track: number): Interpretation =>
   mix.interpretation?.[track] ?? DEFAULT_INTERPRETATION;
 
-/** A track's effect chain (empty if it has none). */
+/** A track's effect chain (its first sound; empty if it has none). */
 export const trackEffects = (mix: MixerSettings, track: number): EffectSlot[] =>
   mix.effects?.[track] ?? [];
 
-/** The chain of every track, one per track (for the engine). */
+/** The sounds of a track, or null when it has just one. */
+export function trackSoundsOf(mix: MixerSettings, track: number): TrackSounds | null {
+  const own = mix.sounds?.[track];
+  return own && own.sounds.length > 1 ? own : null;
+}
+
+/** Every sound's chain of a track (one or more). */
+export function soundChains(mix: MixerSettings, track: number): EffectSlot[][] {
+  const own = trackSoundsOf(mix, track);
+  return own ? own.sounds.map((s) => s.effects) : [trackEffects(mix, track)];
+}
+
+/** The names of a track's sounds ("Sound 1" when it has one). */
+export function soundNames(mix: MixerSettings, track: number): string[] {
+  return trackSoundsOf(mix, track)?.sounds.map((s) => s.name) ?? ["Sound 1"];
+}
+
+/** The chain of one sound of a track. */
+export const soundEffects = (mix: MixerSettings, track: number, sound: number): EffectSlot[] =>
+  soundChains(mix, track)[sound] ?? [];
+
+/** The chain of every track, one per track (sound 1 of each). */
 export const allTrackEffects = (mix: MixerSettings): EffectSlot[][] =>
   mix.tracks.map((_, i) => trackEffects(mix, i));
 
-/** Whether a track is heard: not muted, and soloed if any track is. */
+export const trackEq = (mix: MixerSettings, track: number): TrackEq => mix.eq?.[track] ?? FLAT_EQ;
+
+export const trackAutomation = (mix: MixerSettings, track: number): TrackAutomation =>
+  mix.automation?.[track] ?? EMPTY_AUTOMATION;
+
+/** Extra gain of each track from the focus switch (dB). */
+export function focusTrims(mix: MixerSettings): number[] {
+  return mix.tracks.map((_, i) =>
+    mix.focus === undefined ? 0 : i === mix.focus ? FOCUS_BOOST_DB : FOCUS_CUT_DB,
+  );
+}
+
+/** Adds a sound (a copy of `from`'s chain) and returns the new list. */
+export function addSound(mix: MixerSettings, track: number, from = 0): TrackSounds {
+  const own = trackSoundsOf(mix, track) ?? {
+    sounds: [{ name: "Sound 1", effects: trackEffects(mix, track) }],
+    switches: [],
+  };
+  if (own.sounds.length >= MAX_SOUNDS) return own;
+  const name = `Sound ${own.sounds.length + 1}`;
+  const effects = structuredClone(own.sounds[from]?.effects ?? []);
+  return { ...own, sounds: [...own.sounds, { name, effects }] };
+}
+
+/** Removes a sound; switches to it go, later ones move down. */
+export function removeSound(mix: MixerSettings, track: number, sound: number): TrackSounds | null {
+  const own = trackSoundsOf(mix, track);
+  if (!own || !own.sounds[sound]) return own;
+  return {
+    sounds: own.sounds.filter((_, i) => i !== sound),
+    switches: own.switches
+      .filter((s) => s.sound !== sound)
+      .map((s) => ({ ...s, sound: s.sound > sound ? s.sound - 1 : s.sound })),
+  };
+}
+
+/** Whether a track is heard: not muted, and soloed if any track (or the audio track) is. */
 export function isAudible(mix: MixerSettings, index: number): boolean {
   const track = mix.tracks[index];
   if (!track || track.mute) return false;
-  return track.solo || !mix.tracks.some((t) => t.solo);
+  const audioSolo = !!mix.audioTrack?.enabled && !!mix.audioTrack.solo;
+  return track.solo || (!mix.tracks.some((t) => t.solo) && !audioSolo);
 }
 
 /** Spoken/visible pan value, e.g. "Centre", "40% left". */
@@ -121,4 +443,17 @@ export function describePan(pan: number): string {
   return `${percent}% ${pan < 0 ? "left" : "right"}`;
 }
 
+/** Short pan label as Guitar Pro shows it: "C", "30L", "100R". */
+export function shortPan(pan: number): string {
+  const percent = Math.round(Math.abs(pan) * 100);
+  return percent === 0 ? "C" : `${percent}${pan < 0 ? "L" : "R"}`;
+}
+
 export const describeVolume = (volume: number) => `${Math.round(volume * 100)}%`;
+
+/** A gain (0…1) in decibels, "-∞ dB" for silence. */
+export function describeDb(volume: number): string {
+  if (volume <= 0) return "-∞ dB";
+  const db = 20 * Math.log10(volume);
+  return `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
+}

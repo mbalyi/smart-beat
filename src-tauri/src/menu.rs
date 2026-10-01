@@ -50,6 +50,7 @@ pub enum MenuAction {
     ZoomReset,
     ToggleFullscreen,
     AddTrack,
+    AddAudioTrack,
     DuplicateTrack,
     RemoveTrack,
     TrackSettings,
@@ -83,7 +84,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 52] = [
+    pub const ALL: [Self; 53] = [
         Self::NewSong,
         Self::Open,
         Self::ClearRecent,
@@ -106,6 +107,7 @@ impl MenuAction {
         Self::ZoomReset,
         Self::ToggleFullscreen,
         Self::AddTrack,
+        Self::AddAudioTrack,
         Self::DuplicateTrack,
         Self::RemoveTrack,
         Self::TrackSettings,
@@ -163,6 +165,7 @@ impl MenuAction {
             Self::ZoomReset => "view.zoom-reset",
             Self::ToggleFullscreen => "view.toggle-fullscreen",
             Self::AddTrack => "track.add",
+            Self::AddAudioTrack => "track.add-audio",
             Self::DuplicateTrack => "track.duplicate",
             Self::RemoveTrack => "track.remove",
             Self::TrackSettings => "track.settings",
@@ -224,6 +227,7 @@ impl MenuAction {
             | Self::ZoomReset
             | Self::ToggleFullscreen => "View",
             Self::AddTrack
+            | Self::AddAudioTrack
             | Self::DuplicateTrack
             | Self::RemoveTrack
             | Self::TrackSettings
@@ -277,6 +281,7 @@ impl MenuAction {
             Self::ZoomReset => "Actual Size",
             Self::ToggleFullscreen => "Toggle Full Screen",
             Self::AddTrack => "Add Track…",
+            Self::AddAudioTrack => "Add Audio Track…",
             Self::DuplicateTrack => "Duplicate Track",
             Self::RemoveTrack => "Remove Track",
             Self::TrackSettings => "Track Settings…",
@@ -340,7 +345,8 @@ impl MenuAction {
             Self::Shortcuts => Some("CmdOrCtrl+/"),
             // The note effects have plain keys in the score (H, P, L...); menu
             // accelerators would take those keys away from text fields.
-            Self::DuplicateTrack
+            Self::AddAudioTrack
+            | Self::DuplicateTrack
             | Self::RemoveTrack
             | Self::TrackSettings
             | Self::Lyrics
@@ -449,6 +455,7 @@ impl MenuAction {
                 | Self::ToggleEditMode
                 | Self::ToggleFretboard
                 | Self::AddTrack
+                | Self::AddAudioTrack
                 | Self::DuplicateTrack
                 | Self::RemoveTrack
                 | Self::TrackSettings
@@ -700,6 +707,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let track = SubmenuBuilder::new(app, "Track")
         .item(&item(app, AddTrack)?)
+        .item(&item(app, AddAudioTrack)?)
         .item(&item(app, DuplicateTrack)?)
         .item(&item(app, RemoveTrack)?)
         .separator()

@@ -137,6 +137,12 @@ impl Biquad {
         self.z1 = 0.0;
         self.z2 = 0.0;
     }
+
+    /// Takes the filter memory of `other` (to change coefficients smoothly).
+    pub fn copy_state(&mut self, other: &Biquad) {
+        self.z1 = other.z1;
+        self.z2 = other.z2;
+    }
 }
 
 #[cfg(test)]
