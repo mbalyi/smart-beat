@@ -1,5 +1,6 @@
 //! Smart Beat desktop core: native window, menu bar, file access and IPC commands.
 
+pub mod audio;
 mod commands;
 pub mod error;
 pub mod menu;
@@ -15,6 +16,8 @@ use tauri::{Builder, Manager, Runtime};
 
 /// Folder (inside the app data folder) that holds per-song mixer settings.
 const MIXER_DIR: &str = "mixer";
+/// Folder (inside the app data folder) of the user's sound library.
+const LIBRARY_DIR: &str = "library";
 
 /// Registers plugins, state, commands and menu handling on `builder`.
 ///
@@ -31,6 +34,10 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 let dir = app.path().app_data_dir()?.join(MIXER_DIR);
                 app.manage(mixer::MixerStore::new(dir));
             }
+            if app.try_state::<audio::AudioState>().is_none() {
+                let dir = app.path().app_data_dir()?.join(LIBRARY_DIR);
+                app.manage(audio::AudioState::new(dir));
+            }
             recent::ensure_store(app.handle())?;
             Ok(())
         })
@@ -46,6 +53,18 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::remove_recent_file,
             commands::clear_recent_files,
             commands::update_menu_state,
+            audio::audio_load_soundfont,
+            audio::audio_start,
+            audio::audio_stop,
+            audio::audio_load_song,
+            audio::audio_transport,
+            audio::audio_set_mix,
+            audio::audio_set_chain,
+            audio::audio_state,
+            audio::library_list,
+            audio::library_import,
+            audio::library_update,
+            audio::library_remove,
         ])
         .on_menu_event(menu::handle_event)
 }
