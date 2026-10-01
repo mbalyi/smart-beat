@@ -17,9 +17,9 @@ export function describeOpenError(error: unknown): string {
   if (isCommandError(error)) {
     switch (error.kind) {
       case "unsupported-type":
-        return `Smart Beat opens Guitar Pro, MusicXML and MIDI files (${EXTENSION_LIST}).`;
+        return `Smart Beat opens Guitar Pro, MusicXML, MIDI, MuseScore, alphaTex, Capella and text tab files (${EXTENSION_LIST}).`;
       case "not-a-score":
-        return "This is not a Guitar Pro, MusicXML or MIDI file, or it is damaged.";
+        return "This is not a song file Smart Beat can open, or it is damaged.";
       case "too-large":
         return "The file is too large to open.";
       case "not-found":

@@ -181,7 +181,7 @@ describe("useScoreDocuments in a browser", () => {
     await act(() => result.current.openFile(file));
 
     expect(
-      await screen.findByText(/opens Guitar Pro, MusicXML and MIDI files/),
+      await screen.findByText(/opens Guitar Pro, MusicXML, MIDI, MuseScore/),
     ).toBeInTheDocument();
     expect(read).not.toHaveBeenCalled();
     await waitFor(() => expect(result.current.song).toBeNull());
@@ -191,8 +191,8 @@ describe("useScoreDocuments in a browser", () => {
 describe("firstScoreFile", () => {
   it("prefers a Guitar Pro file, or falls back to the first item", () => {
     const name = (s: string) => s;
-    expect(firstScoreFile(["a.txt", "b.gp5", "c.gp"], name)).toBe("b.gp5");
-    expect(firstScoreFile(["a.txt", "b.pdf"], name)).toBe("a.txt");
+    expect(firstScoreFile(["a.pdf", "b.gp5", "c.gp"], name)).toBe("b.gp5");
+    expect(firstScoreFile(["a.pdf", "b.zip"], name)).toBe("a.pdf");
     expect(firstScoreFile([], name)).toBeUndefined();
   });
 });

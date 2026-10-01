@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<museScore version="3.02">
+  <Score>
+    <metaTag name="workTitle">MuseScore Practice</metaTag>
+    <metaTag name="composer">Smart Beat</metaTag>
+    <Part>
+      <Staff id="1"/>
+      <trackName>Guitar</trackName>
+      <Instrument>
+        <trackName>Guitar</trackName>
+        <StringData>
+          <frets>24</frets>
+          <string>40</string>
+          <string>45</string>
+          <string>50</string>
+          <string>55</string>
+          <string>59</string>
+          <string>64</string>
+        </StringData>
+      </Instrument>
+    </Part>
+    <Part>
+      <Staff id="2"/>
+      <trackName>Piano</trackName>
+      <Instrument>
+        <trackName>Piano</trackName>
+      </Instrument>
+    </Part>
+    <Staff id="1">
+      <Measure>
+        <voice>
+          <KeySig><accidental>1</accidental></KeySig>
+          <TimeSig><sigN>4</sigN><sigD>4</sigD></TimeSig>
+          <Tempo><tempo>1.5</tempo></Tempo>
+          <Chord><durationType>quarter</durationType><Note><pitch>40</pitch></Note></Chord>
+          <Chord><durationType>quarter</durationType><Note><pitch>47</pitch></Note><Note><pitch>52</pitch></Note></Chord>
+          <Rest><durationType>quarter</durationType></Rest>
+          <Chord><durationType>eighth</durationType><dots>0</dots><Note><pitch>64</pitch></Note></Chord>
+          <Chord><durationType>eighth</durationType><Note><pitch>67</pitch></Note></Chord>
+        </voice>
+      </Measure>
+      <Measure>
+        <voice>
+          <Chord><durationType>half</durationType><dots>1</dots><Note><pitch>45</pitch></Note></Chord>
+          <Rest><durationType>quarter</durationType></Rest>
+        </voice>
+      </Measure>
+    </Staff>
+    <Staff id="2">
+      <Measure>
+        <voice>
+          <Chord><durationType>whole</durationType><Note><pitch>60</pitch></Note><Note><pitch>64</pitch></Note><Note><pitch>67</pitch></Note></Chord>
+        </voice>
+      </Measure>
+      <Measure>
+        <voice>
+          <Rest><durationType>measure</durationType><duration>4/4</duration></Rest>
+        </voice>
+      </Measure>
+    </Staff>
+  </Score>
+</museScore>

@@ -112,7 +112,7 @@ export function useScoreDocuments() {
         const bytes = await read();
         // alphaTab is large: load it with the first song, not with the app.
         const { loadSong } = await import("@/lib/import");
-        const { score, summary, warnings, converted } = await loadSong(bytes);
+        const { score, summary, warnings, converted } = await loadSong(bytes, name);
         const key = await fileKey(bytes);
         const saved = await savedMix(key);
         toast.dismiss(toastId);

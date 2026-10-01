@@ -4,6 +4,7 @@ import { exportScore } from "@/lib/export";
 import { isMidiFile, isXmlFile, loadSong } from "@/lib/import";
 import { ScoreLoadError } from "@/lib/score/errors";
 import { texScore } from "@/test/playback";
+import { makeZip } from "@/test/zip";
 import { fixtureBytes } from "@/test/score";
 
 const source = () =>
@@ -53,5 +54,63 @@ describe("loading songs", () => {
     await expect(loadSong(new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0, 0]))).rejects.toThrow(
       ScoreLoadError,
     );
+  });
+
+  it("opens alphaTex, as a converted song (saving asks for a new file)", async () => {
+    const tex = new TextEncoder().encode(
+      String.raw`\title "Tex" \tempo 100 \track "G" :4 0.6 2.6 3.6 0.6 |`,
+    );
+
+    const loaded = await loadSong(tex, "riff.atex");
+
+    expect(loaded.summary.title).toBe("Tex");
+    expect(loaded.converted).toBe(true);
+    expect(loaded.warnings).toEqual([]);
+  });
+
+  it("opens text tab by its .txt name, with the warnings of the guess", async () => {
+    const tab = new TextEncoder().encode(
+      [
+        "e|--0---3--|",
+        "B|--1---0--|",
+        "G|--0---0--|",
+        "D|--2---0--|",
+        "A|--3---2--|",
+        "E|----------|",
+      ].join("\n"),
+    );
+
+    const loaded = await loadSong(tab, "song.TXT");
+
+    expect(loaded.summary.tracks).toHaveLength(1);
+    expect(loaded.converted).toBe(true);
+    expect(loaded.warnings.join(" ")).toMatch(/no rhythm/);
+  });
+
+  it("opens MuseScore files, plain or zipped", async () => {
+    const mscx = fixtureBytes("practice-song.mscx");
+
+    const plain = await loadSong(mscx, "practice.mscx");
+    const zipped = await loadSong(
+      makeZip([{ name: "practice.mscx", data: mscx, deflate: true }]),
+      "practice.mscz",
+    );
+
+    expect(plain.summary.tracks.map((t) => t.name)).toEqual(["Guitar", "Piano"]);
+    expect(zipped.summary.tracks.map((t) => t.name)).toEqual(["Guitar", "Piano"]);
+    expect(plain.converted && zipped.converted).toBe(true);
+  });
+
+  it("does not take a text file for a song when it has no tab", async () => {
+    await expect(loadSong(new TextEncoder().encode("shopping list"), "list.txt")).rejects.toThrow(
+      ScoreLoadError,
+    );
+  });
+
+  it("decides by the name only for text and MuseScore: other files by their content", async () => {
+    // A Guitar Pro file called .txt would be read as text tab: the name decides for text.
+    const gp = fixtureBytes("practice-song.gp");
+    await expect(loadSong(gp, "renamed.txt")).rejects.toThrow(ScoreLoadError);
+    expect((await loadSong(gp, "renamed.dat")).converted).toBe(false);
   });
 });

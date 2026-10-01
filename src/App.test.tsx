@@ -166,8 +166,8 @@ describe("App", () => {
     expect(overlay).toHaveAttribute("data-visible", "false");
     await act(() => emitFileDrag({ type: "enter", paths: [SONG] }));
     expect(overlay).toHaveAttribute("data-visible", "true");
-    expect(overlay).toHaveTextContent("Drop a Guitar Pro file to open it");
-    await act(() => emitFileDrag({ type: "drop", paths: ["/Users/me/notes.txt", SONG] }));
+    expect(overlay).toHaveTextContent("Drop a song to open it");
+    await act(() => emitFileDrag({ type: "drop", paths: ["/Users/me/notes.pdf", SONG] }));
 
     expect(
       await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
@@ -192,7 +192,7 @@ describe("App", () => {
     await act(() => emitFileDrag({ type: "drop", paths: ["/Users/me/scan.pdf"] }));
 
     expect(await screen.findByText("Couldn't open “scan.pdf”")).toBeInTheDocument();
-    expect(screen.getByText(/opens Guitar Pro, MusicXML and MIDI files/)).toBeInTheDocument();
+    expect(screen.getByText(/opens Guitar Pro, MusicXML, MIDI, MuseScore/)).toBeInTheDocument();
   });
 
   it("restores the mix saved for a song and saves changes", async () => {
@@ -356,7 +356,10 @@ describe("App", () => {
     const { user } = renderWithProviders(<App />);
     const input = document.querySelector<HTMLInputElement>("input[type=file]")!;
     const click = vi.spyOn(input, "click");
-    expect(input).toHaveAttribute("accept", ".gp3,.gp4,.gp5,.gpx,.gp,.mid,.midi,.musicxml,.xml");
+    expect(input).toHaveAttribute(
+      "accept",
+      ".gp3,.gp4,.gp5,.gpx,.gp,.mid,.midi,.musicxml,.xml,.mscx,.mscz,.atex,.capx,.txt",
+    );
 
     await user.click(screen.getByRole("button", { name: "Open a file…" }));
     expect(click).toHaveBeenCalled();
