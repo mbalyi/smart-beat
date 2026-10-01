@@ -34,6 +34,10 @@ export class FakeScorePlayer {
     return { samples: new Float32Array([0, 0.5, -0.5, 1]), sampleRate: 44_100, channels: 2 };
   });
   setZoom = vi.fn();
+  /** The view put back after printing. */
+  restoreAfterPrint = vi.fn();
+  showForPrint = vi.fn((_tracks: number[], _scale: number) => this.restoreAfterPrint);
+  previewDrum = vi.fn();
   seekToBar = vi.fn();
   destroy = vi.fn();
   refresh = vi.fn();

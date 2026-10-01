@@ -20,6 +20,8 @@ export type MenuAction =
   | "export-musicxml"
   | "export-midi"
   | "export-ascii-tab"
+  | "export-audio"
+  | "print"
   | "close-window"
   | "quit"
   | "undo"

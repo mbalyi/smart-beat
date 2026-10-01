@@ -1079,3 +1079,19 @@ describe("ScorePlayer.previewDrum", () => {
     expect(api.player.playOneTimeMidiFile).not.toHaveBeenCalled();
   });
 });
+
+describe("ScorePlayer.showForPrint", () => {
+  it("draws the chosen tracks in page layout at the print size, then restores the view", async () => {
+    const { player, api, score } = await readySetup({ layout: "horizontal" });
+    api.settings.display.scale = 1.5;
+    const restore = player.showForPrint([0, 2], 0.8);
+    expect(api.settings.display.scale).toBe(0.8);
+    expect(api.settings.display.layoutMode).toBe(LayoutMode.Page);
+    expect(api.renderTracks).toHaveBeenLastCalledWith([score.tracks[0], score.tracks[2]]);
+    restore();
+    expect(api.settings.display.scale).toBe(1.5);
+    expect(api.settings.display.layoutMode).toBe(LayoutMode.Horizontal);
+    expect(api.renderTracks).toHaveBeenLastCalledWith([score.tracks[0]]);
+  });
+});
+

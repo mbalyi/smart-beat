@@ -778,6 +778,30 @@ export class ScorePlayer {
     this.api.player?.playOneTimeMidiFile(file);
   }
 
+  /**
+   * Shows `trackIndexes` together (a full score, in page layout) at a size for
+   * printing. Returns a function that puts back the shown track, layout and zoom.
+   */
+  showForPrint(trackIndexes: number[], scale: number): () => void {
+    const display = this.api.settings.display;
+    const before = { scale: display.scale, layout: display.layoutMode };
+    const tracks = trackIndexes
+      .map((i) => this.score.tracks[i])
+      .filter((t): t is NonNullable<typeof t> => t !== undefined);
+    display.scale = scale;
+    display.layoutMode = LayoutMode.Page;
+    this.api.updateSettings();
+    this.quietRender = true;
+    this.api.renderTracks(tracks.length > 0 ? tracks : [this.track]);
+    return () => {
+      display.scale = before.scale;
+      display.layoutMode = before.layout;
+      this.api.updateSettings();
+      this.quietRender = true;
+      this.api.renderTracks([this.track]);
+    };
+  }
+
   /** Whether the native engine makes the sound. */
   get usesNativeEngine(): boolean {
     return this.engine !== null;

@@ -12,6 +12,8 @@ type MenuAction =
   | "export-musicxml"
   | "export-midi"
   | "export-ascii-tab"
+  | "export-audio"
+  | "print"
   | "transpose"
   | "fix-bar-durations"
   | "undo"

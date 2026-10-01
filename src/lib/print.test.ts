@@ -35,25 +35,31 @@ afterEach(() => {
 
 describe("pageCss", () => {
   it("sets paper size, orientation and margin", () => {
-    expect(pageCss({ paper: "a4", orientation: "portrait", margin: 15 })).toBe(
+    expect(pageCss({ paper: "a4", orientation: "portrait", margin: 15, scale: 1 })).toBe(
       "@page { size: A4 portrait; margin: 15mm; }",
     );
-    expect(pageCss({ paper: "letter", orientation: "landscape", margin: 10 })).toBe(
+    expect(pageCss({ paper: "letter", orientation: "landscape", margin: 10, scale: 1 })).toBe(
       "@page { size: letter landscape; margin: 10mm; }",
     );
-    expect(pageCss({ paper: "a3", orientation: "portrait", margin: 5 })).toContain("A3");
+    expect(pageCss({ paper: "a3", orientation: "portrait", margin: 5, scale: 1 })).toContain("A3");
   });
 });
 
 describe("print settings", () => {
-  it("start with A4 portrait and 15 mm margins", () => {
+  it("start with A4 portrait, 15 mm margins and notation at 90%", () => {
     expect(readPrintSettings()).toEqual(DEFAULT_PRINT);
-    expect(DEFAULT_PRINT).toEqual({ paper: "a4", orientation: "portrait", margin: 15 });
+    expect(DEFAULT_PRINT).toEqual({ paper: "a4", orientation: "portrait", margin: 15, scale: 0.9 });
   });
 
   it("are remembered", () => {
-    storePrintSettings({ paper: "letter", orientation: "landscape", margin: 20 });
-    expect(readPrintSettings()).toEqual({ paper: "letter", orientation: "landscape", margin: 20 });
+    const settings = {
+      paper: "letter",
+      orientation: "landscape",
+      margin: 20,
+      scale: 1.25,
+    } as const;
+    storePrintSettings(settings);
+    expect(readPrintSettings()).toEqual(settings);
   });
 
   it("ignore damaged or unknown values", () => {
@@ -61,7 +67,7 @@ describe("print settings", () => {
     expect(readPrintSettings()).toEqual(DEFAULT_PRINT);
     localStorage.setItem(
       PRINT_STORAGE_KEY,
-      JSON.stringify({ paper: "tabloid", orientation: "sideways", margin: 13 }),
+      JSON.stringify({ paper: "tabloid", orientation: "sideways", margin: 13, scale: 7 }),
     );
     expect(readPrintSettings()).toEqual(DEFAULT_PRINT);
     localStorage.setItem(PRINT_STORAGE_KEY, "null");

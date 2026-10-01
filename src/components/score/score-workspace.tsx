@@ -78,6 +78,7 @@ import {
   storePrintSettings,
   whenDrawn,
   type PrintSettings,
+  type PrintTracks,
 } from "@/lib/print";
 import { applyTempo, tempoScope, type TempoRequest } from "@/lib/score/tempo";
 import { readSyncOffset, storeSyncOffset } from "@/lib/score/sync";
@@ -987,28 +988,33 @@ export function ScoreWorkspace({
   // --- Print ----------------------------------------------------------------
 
   /** Prints the score: in the page layout, which is switched to for the time it takes. */
-  const submitPrint = (settings: PrintSettings) => {
+  const submitPrint = (settings: PrintSettings, tracks: PrintTracks) => {
     setPrintSettings(settings);
     storePrintSettings(settings);
-    const run = async () => {
+    const player = playerRef.current;
+    if (!player) return;
+    // The chosen tracks, in page layout at the print size; back to the screen view afterwards.
+    const restore = player.showForPrint(tracks, settings.scale);
+    let restored = false;
+    const back = () => {
+      if (restored) return;
+      restored = true;
+      restore();
+    };
+    window.addEventListener("afterprint", back, { once: true });
+    afterRender.current = async () => {
       const surface = surfaceRef.current;
       try {
-        // After a change of layout the parts of the score arrive a moment after the render.
+        // The parts of the score arrive a moment after the render.
         if (!surface || !(await whenDrawn(surface)) || !printScore(surface, settings)) {
           toast.error("There is nothing to print yet");
+          back();
         }
       } catch (error) {
         toast.error("Couldn't print", { description: errorText(error) });
+        back();
       }
     };
-    if (layout === "page") {
-      void run();
-      return;
-    }
-    const before = layout;
-    changeLayout("page");
-    window.addEventListener("afterprint", () => changeLayout(before), { once: true });
-    afterRender.current = () => void run();
   };
 
   // Ctrl/⌘+P prints the shown song.
@@ -1131,6 +1137,12 @@ export function ScoreWorkspace({
         break;
       case "export-ascii-tab":
         void fileActions.exportAs("ascii-tab");
+        break;
+      case "export-audio":
+        void fileActions.exportAudio();
+        break;
+      case "print":
+        setPrintOpen(true);
         break;
       case "transpose":
         setTransposeOpen(true);
@@ -1527,7 +1539,8 @@ export function ScoreWorkspace({
         open={printOpen}
         onOpenChange={setPrintOpen}
         initial={printSettings}
-        trackName={track.name}
+        trackNames={summary.tracks.map((t) => t.name)}
+        shownTrack={trackIndex}
         onSubmit={submitPrint}
         onCloseAutoFocus={returnFocusToScore}
       />
