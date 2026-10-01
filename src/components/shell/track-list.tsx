@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Toggle } from "@/components/ui/toggle";
 import { filledBars } from "@/lib/score/bar-grid";
+import { tempoMarkers } from "@/lib/score/tempo";
 import { describeInstrument } from "@/lib/score/instrument-view";
 import { describePan, describeVolume, isAudible, type MixerChange } from "@/lib/score/mixer";
 import type { Score } from "@/lib/score/model";
@@ -212,6 +213,10 @@ export function TrackList({
     return score.tracks.map((t) => filledBars(t, barCount));
   }, [score, barCount, revision]);
   const numbers = Array.from({ length: barCount }, (_, i) => i + 1);
+  const tempos = useMemo(() => {
+    void revision;
+    return new Map(tempoMarkers(score).map((m) => [m.bar, m]));
+  }, [score, revision]);
 
   return (
     <section
@@ -241,14 +246,37 @@ export function TrackList({
               <span>Eq</span>
             </div>
           </div>
-          <div
-            aria-hidden="true"
-            className="grid items-center gap-px text-center text-[10px] text-muted-foreground tabular-nums"
-            style={{ gridTemplateColumns: `repeat(${barCount}, ${BAR_WIDTH})` }}
-          >
-            {numbers.map((n) => (
-              <span key={n}>{n === 1 || n % 4 === 0 ? n : ""}</span>
-            ))}
+          <div className="flex flex-col justify-center">
+            {/* Tempo markers (GP8 shows them above the bar grid); the score shows them too. */}
+            <div
+              data-testid="tempo-markers"
+              className="grid h-3.5 items-center gap-px text-[9px] leading-none whitespace-nowrap text-amber-700 tabular-nums dark:text-amber-400"
+              style={{ gridTemplateColumns: `repeat(${barCount}, ${BAR_WIDTH})` }}
+            >
+              {numbers.map((n) => {
+                const marker = tempos.get(n - 1);
+                return marker ? (
+                  <span
+                    key={n}
+                    className="overflow-visible"
+                    title={`Bar ${n}: ${marker.label ? `${marker.label}, ` : ""}${marker.bpm} BPM`}
+                  >
+                    ♩{marker.bpm}
+                  </span>
+                ) : (
+                  <span key={n} />
+                );
+              })}
+            </div>
+            <div
+              aria-hidden="true"
+              className="grid items-center gap-px text-center text-[10px] text-muted-foreground tabular-nums"
+              style={{ gridTemplateColumns: `repeat(${barCount}, ${BAR_WIDTH})` }}
+            >
+              {numbers.map((n) => (
+                <span key={n}>{n === 1 || n % 4 === 0 ? n : ""}</span>
+              ))}
+            </div>
           </div>
         </div>
 

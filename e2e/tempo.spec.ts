@@ -52,6 +52,34 @@ test.describe("tempo (#46)", () => {
     await expect(app.getByRole("dialog", { name: "Tempo" })).toBeVisible();
   });
 
+  test("marks tempo changes above the bar grid and opens the dialog from the LCD", async ({
+    app,
+  }) => {
+    await openSong(app); // 60 BPM for two bars, then 120
+    const markers = app.getByTestId("tempo-markers");
+    await expect(markers).toContainText("♩60");
+    await expect(markers).toContainText("♩120");
+
+    await app.getByRole("button", { name: /^Tempo 60 BPM\. Change the tempo/ }).click();
+    await expect(app.getByRole("dialog", { name: "Tempo" })).toBeVisible();
+  });
+
+  test("a slower practice speed follows the tempo map (speed trainer)", async ({ app }) => {
+    await openSong(app);
+    const display = app.getByRole("group", { name: "Display" });
+    await app.getByRole("combobox", { name: "Speed" }).click();
+    await app.getByRole("option", { name: "50%", exact: true }).click();
+    // Bars 1–2 at 60 BPM play at 30, bars 3–4 at 120 play at 60.
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(display).toContainText("♩ = 30", { timeout: 10_000 });
+    await app.getByRole("button", { name: "Stop" }).click();
+    await display.getByRole("spinbutton", { name: "Bar" }).fill("3");
+    await display.getByRole("spinbutton", { name: "Bar" }).press("Enter");
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(display).toContainText("♩ = 60", { timeout: 10_000 });
+    await app.getByRole("button", { name: "Stop" }).click();
+  });
+
   for (const colorScheme of ["light", "dark"] as const) {
     test(`the tempo dialog has no WCAG violations in ${colorScheme} mode`, async ({ app }) => {
       await app.emulateMedia({ colorScheme });

@@ -229,4 +229,3 @@ describe("createCursorHandler scrolling", () => {
     vi.useRealTimers();
   });
 });
-

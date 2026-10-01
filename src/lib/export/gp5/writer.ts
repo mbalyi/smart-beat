@@ -22,6 +22,12 @@ import {
 } from "@/lib/score/model";
 import { tempoAt } from "@/lib/score/structure";
 
+/** A tempo change written in a mix table: its BPM and its name (may be empty). */
+interface TempoChange {
+  bpm: number;
+  name: string;
+}
+
 const {
   AccentuationType,
   AutomationType,
@@ -242,7 +248,7 @@ class Gp5Writer {
   private readonly warnings = new Warnings();
   private readonly plans: TrackPlan[];
   /** Tempo changes after the start, by `bar:beat` (beat of the first track's first voice). */
-  private readonly tempoChanges = new Map<string, number>();
+  private readonly tempoChanges = new Map<string, TempoChange>();
 
   private readonly score: Score;
 
@@ -258,7 +264,7 @@ class Gp5Writer {
     this.writeInformation();
     this.writeLyrics();
     this.writePageSetup();
-    out.intByteString(score.tempoLabel ?? ""); // tempo name
+    out.intByteString(score.tempoLabel ?? ""); // tempo name (of the start tempo)
     out.i32(Math.round(tempoAt(score, 0)));
     out.i32(0); // key signature: stored per bar below
     out.u8(0); // octave
@@ -462,7 +468,10 @@ class Gp5Writer {
           start += beatTicks(beat);
           position++;
         }
-        this.tempoChanges.set(`${barIndex}:${chosen}`, Math.round(automation.value));
+        this.tempoChanges.set(`${barIndex}:${chosen}`, {
+          bpm: Math.round(automation.value),
+          name: automation.text ?? "",
+        });
       }
     });
   }
@@ -504,7 +513,7 @@ class Gp5Writer {
     plan: TrackPlan,
     beat: Beat,
     graceBeat: Beat | null,
-    tempo: number | undefined,
+    tempo: TempoChange | undefined,
   ) {
     const { out } = this;
     const notes = this.placeNotes(plan, beat);
@@ -665,7 +674,10 @@ class Gp5Writer {
   }
 
   /** A mix table change for tempo, instrument, volume and balance changes on the beat. */
-  private mixChange(beat: Beat, tempo: number | undefined): ((out: ByteWriter) => void) | null {
+  private mixChange(
+    beat: Beat,
+    tempo: TempoChange | undefined,
+  ): ((out: ByteWriter) => void) | null {
     const volume = beat.getAutomation(AutomationType.Volume);
     const balance = beat.getAutomation(AutomationType.Balance);
     const instrument = beat.getAutomation(AutomationType.Instrument);
@@ -676,8 +688,8 @@ class Gp5Writer {
       out.i8(volume ? volume.value : -1);
       out.i8(balance ? balance.value : -1);
       out.i8(-1).i8(-1).i8(-1).i8(-1); // chorus, reverb, phaser, tremolo
-      out.intByteString("");
-      out.i32(tempo ?? -1);
+      out.intByteString(tempo?.name ?? ""); // tempo name ("Allegro", "Breakdown"…)
+      out.i32(tempo?.bpm ?? -1);
       if (volume) out.u8(0);
       if (balance) out.u8(0);
       if (tempo !== undefined) out.i8(0);

@@ -143,6 +143,13 @@ describe("TrackList", () => {
     expect(onSeekBar).toHaveBeenCalledWith(2);
   });
 
+  it("marks the tempo changes above the bar grid", () => {
+    setup();
+    const markers = screen.getByTestId("tempo-markers");
+    expect(markers).toHaveTextContent("♩60");
+    expect(markers).toHaveTextContent("♩120");
+  });
+
   it("keeps automation off until it works", () => {
     setup();
     expect(screen.getByRole("button", { name: /^Automation for Guitar/ })).toBeDisabled();

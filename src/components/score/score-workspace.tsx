@@ -1273,6 +1273,7 @@ export function ScoreWorkspace({
         barCount={score.masterBars.length}
         onPlayPause={playPause}
         onStop={() => playerRef.current?.stop()}
+        onTempo={() => setTempoOpen(true)}
         onSeekBar={(index) => playerRef.current?.seekToBar(index)}
         practice={
           <PracticeControls

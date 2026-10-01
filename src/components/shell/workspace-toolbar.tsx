@@ -83,6 +83,7 @@ export function WorkspaceToolbar({
   onPlayPause,
   onStop,
   onSeekBar,
+  onTempo,
   practice,
   instrumentView,
   instrumentLabel,
@@ -125,6 +126,8 @@ export function WorkspaceToolbar({
   onPlayPause: () => void;
   onStop: () => void;
   onSeekBar: (barIndex: number) => void;
+  /** Opens the tempo dialog. */
+  onTempo?: () => void;
   /** Practice tools (loop, speed, metronome…). */
   practice?: ReactNode;
   instrumentView: boolean;
@@ -259,6 +262,7 @@ export function WorkspaceToolbar({
           barCount={barCount}
           ready={ready}
           onSeekBar={onSeekBar}
+          onTempo={onTempo}
         />
       </div>
 
