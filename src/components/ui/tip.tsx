@@ -17,6 +17,30 @@ export function Tip({ label, children }: { label: ReactNode; children: ReactElem
   );
 }
 
+/**
+ * The tooltip of a button or toggle. A disabled control gets no pointer
+ * events, so it is wrapped in a span that shows the tooltip on hover: the
+ * text can say why it is disabled ("Nothing to undo", "Not available yet").
+ */
+export function ControlTip({
+  label,
+  disabled,
+  children,
+}: {
+  label: ReactNode;
+  disabled?: boolean;
+  children: ReactElement;
+}) {
+  if (!disabled) return <Tip label={label}>{children}</Tip>;
+  return (
+    <Tip label={label}>
+      <span data-slot="disabled-tip" className="inline-flex">
+        {children}
+      </span>
+    </Tip>
+  );
+}
+
 /** Whether `children` contain text (also visually hidden text), which gives a control its name. */
 export function hasText(children: ReactNode): boolean {
   return Children.toArray(children).some((child) => {

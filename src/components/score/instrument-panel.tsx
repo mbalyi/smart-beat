@@ -173,12 +173,22 @@ function Fretboard({
           .join(", ");
   const scaleSummary = scale ? `. Scale: ${describeScale(scale, { spoken: true })}` : "";
   const flats = scale ? scalePrefersFlats(scale) : false;
+  /** The fret under the mouse or the keyboard focus, shown above the board (one shared tooltip). */
+  const [hint, setHint] = useState<string | null>(null);
 
   return (
     <div className="flex flex-col gap-1">
-      <p className="text-xs text-muted-foreground">
-        {name ?? "Custom tuning"}: {strings.map((s) => s.label).join(" ")}
-        {capo > 0 && ` · Capo ${capo}`}
+      <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+        <span>
+          {name ?? "Custom tuning"}: {strings.map((s) => s.label).join(" ")}
+          {capo > 0 && ` · Capo ${capo}`}
+        </span>
+        {editing && (
+          // The buttons have the same text as their names: screen readers need no copy.
+          <span aria-hidden="true" data-testid="fret-hint" className="font-medium text-foreground">
+            {hint ?? "Point at a fret to see its note"}
+          </span>
+        )}
       </p>
       <div
         ref={boardRef}
@@ -258,7 +268,9 @@ function Fretboard({
                   tabIndex={focus.string === s.string && focus.fret === fret ? 0 : -1}
                   aria-label={label}
                   aria-pressed={on}
-                  title={`String ${s.number}, ${label.toLowerCase()}`}
+                  onMouseEnter={() => setHint(`String ${s.number}, ${label.toLowerCase()}`)}
+                  onFocus={() => setHint(`String ${s.number}, ${label.toLowerCase()}`)}
+                  onMouseLeave={() => setHint(null)}
                   onClick={() => {
                     setFocus({ string: s.string, fret });
                     onFret(s.string, fret);

@@ -1,5 +1,7 @@
 import {
   createCursorHandler,
+  scrollTarget,
+  SCROLL_MARGIN,
   Delayer,
   MAX_LATENCY_MS,
   measureLatency,
@@ -193,3 +195,38 @@ describe("measureLatency", () => {
     expect(await measureLatency()).toEqual({});
   });
 });
+
+describe("scrollTarget", () => {
+  const view = { scrollTop: 100, scrollLeft: 0, clientHeight: 400, clientWidth: 800 };
+
+  it("leaves a visible bar alone", () => {
+    expect(scrollTarget({ x: 0, y: 150, w: 200, h: 100 }, view, false)).toBeNull();
+  });
+
+  it("scrolls down or up to a bar out of view, with a margin", () => {
+    expect(scrollTarget({ x: 0, y: 600, w: 200, h: 100 }, view, false)).toBe(600 - SCROLL_MARGIN);
+    expect(scrollTarget({ x: 0, y: 20, w: 200, h: 100 }, view, false)).toBe(0);
+  });
+
+  it("scrolls sideways in the continuous layout", () => {
+    expect(scrollTarget({ x: 900, y: 0, w: 200, h: 100 }, view, true)).toBe(900 - SCROLL_MARGIN);
+  });
+});
+
+describe("createCursorHandler scrolling", () => {
+  it("reports the bar the cursor moves into, after the delay", () => {
+    vi.useFakeTimers();
+    const onBar = vi.fn();
+    const handler = createCursorHandler(new Delayer(() => 100), true, onBar);
+    const bar = { x: 1, y: 2, w: 3, h: 4 };
+    handler.placeBarCursor(
+      { setBounds: vi.fn(), transitionToX: vi.fn() },
+      { onNotesX: 0, barBounds: { masterBarBounds: { visualBounds: bar } } },
+    );
+    expect(onBar).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(100);
+    expect(onBar).toHaveBeenCalledWith(bar);
+    vi.useRealTimers();
+  });
+});
+

@@ -42,6 +42,7 @@ import {
   measureLatency,
   outputLatencyMs,
   readSyncOffset,
+  scrollTarget,
   type LatencyInfo,
 } from "@/lib/score/sync";
 import { allTrackEffects, isAudible } from "@/lib/score/mixer";
@@ -182,7 +183,9 @@ function createSettings(options: ScorePlayerOptions): Settings {
   // Loaded by ScorePlayer.setSoundFont (see there), not by alphaTab.
   settings.player.soundFont = null;
   settings.player.scrollElement = options.scrollElement;
-  settings.player.scrollMode = ScrollMode.Continuous;
+  // The adapter scrolls itself, when the (delayed) cursor reaches a new bar,
+  // so the view follows what is heard rather than what was just synthesized.
+  settings.player.scrollMode = ScrollMode.Off;
   settings.player.enableCursor = true;
   settings.player.enableAnimatedBeatCursor = !options.reducedMotion;
   settings.player.nativeBrowserSmoothScroll = !options.reducedMotion;
@@ -278,7 +281,30 @@ export class ScorePlayer {
     }
     // The native engine reports what is heard (its output latency is already
     // taken off): only the user's offset is added.
-    this.api.customCursorHandler = createCursorHandler(this.delayer, !options.reducedMotion);
+    const viewport = options.scrollElement;
+    this.api.customCursorHandler = createCursorHandler(
+      this.delayer,
+      !options.reducedMotion,
+      (bar) => {
+        if (!this.playing) return; // clicks while paused: the user chose where to look
+        // alphaTab's coordinates are relative to the score surface; the view scrolls around it.
+        const surface = options.element.getBoundingClientRect();
+        const frame = viewport.getBoundingClientRect();
+        const offsetTop = surface.top - frame.top + viewport.scrollTop;
+        const offsetLeft = surface.left - frame.left + viewport.scrollLeft;
+        const horizontal = this.api.settings.display.layoutMode === LayoutMode.Horizontal;
+        const target = scrollTarget(
+          { ...bar, x: bar.x + offsetLeft, y: bar.y + offsetTop },
+          viewport,
+          horizontal,
+        );
+        if (target === null) return;
+        viewport.scrollTo({
+          [horizontal ? "left" : "top"]: target,
+          behavior: options.reducedMotion ? "auto" : "smooth",
+        });
+      },
+    );
     // alphaTab reports clicked beats without the mouse event: remember Shift.
     options.element.addEventListener(
       "pointerdown",

@@ -43,3 +43,18 @@ test("the position trails the audio by the output latency", async ({ app }) => {
   // One interval is stretched by the new latency (~400 ms); the others are a normal second.
   expect(Math.max(shifted, across)).toBeGreaterThan(1_250);
 });
+
+/** The view scrolls with the (delayed) cursor, not ahead of it (#46). */
+test("the score scrolls along while playing", async ({ app }) => {
+  await app.setViewportSize({ width: 700, height: 700 });
+  await openSong(app);
+  await app.getByRole("radio", { name: "Continuous" }).click();
+  const region = app.getByRole("region", { name: /^Score:/ });
+  await expect.poll(() => region.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  await region.evaluate((el) => el.scrollTo({ left: 0 }));
+  await app.getByRole("button", { name: "Play" }).click();
+  await expect
+    .poll(() => region.evaluate((el) => el.scrollLeft), { timeout: 15_000 })
+    .toBeGreaterThan(0);
+  await app.getByRole("button", { name: "Stop" }).click();
+});

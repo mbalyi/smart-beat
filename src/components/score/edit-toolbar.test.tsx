@@ -107,4 +107,10 @@ describe("EditToolbar", () => {
     expect(event).toBe(false); // default prevented: the score keeps focus
     expect(fireEvent.mouseDown(screen.getByRole("combobox", { name: "Tuplet" }))).toBe(true);
   });
+
+  it("explains the dot and tuplet controls in tooltips", async () => {
+    const { user } = setup();
+    await user.hover(screen.getByRole("button", { name: "Dot" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("half as long again");
+  });
 });

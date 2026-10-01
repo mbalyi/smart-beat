@@ -16,10 +16,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tip } from "@/components/ui/tip";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { BeatInfo } from "@/lib/score/editor";
 import { NOTE_VALUES, TUPLETS, tupletKey, type Duration, type Tuplet } from "@/lib/score/music";
+
+/** One or two augmentation dots, drawn (music symbols are missing from many system fonts). */
+function Dots({ count }: { count: 1 | 2 }) {
+  return (
+    <span aria-hidden="true" className="inline-flex items-center gap-1">
+      {Array.from({ length: count }, (_, i) => (
+        <span key={i} className="size-1.5 rounded-full bg-current" />
+      ))}
+    </span>
+  );
+}
 
 /** Note values as fractions (music symbols are missing from many system fonts). */
 const fraction = (duration: number) => (duration === 1 ? "1" : `1/${duration}`);
@@ -129,44 +141,47 @@ export function EditToolbar({
             size="sm"
             pressed={beat.dots === 1}
             onPressedChange={then(() => actions.onDots(1))}
-            title="Dotted (.)"
+            aria-label="Dot"
+            title="Dotted: half as long again (.)"
+            className="min-w-8"
           >
-            Dot
+            <Dots count={1} />
           </Toggle>
           <Toggle
             variant="outline"
             size="sm"
             pressed={beat.dots === 2}
             onPressedChange={then(() => actions.onDots(2))}
-            title="Double dotted"
+            aria-label="Double dot"
+            title="Double dotted: three quarters as long again"
+            className="min-w-8"
           >
-            Double dot
+            <Dots count={2} />
           </Toggle>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span id={tupletLabelId} className="text-sm">
-            Tuplet
+        <Tip label="Tuplet: play 3, 5, 6… notes in the time of 2, 4 or 8">
+          <span className="inline-flex" id={tupletLabelId}>
+            <Select
+              value={tupletKey(beat.tuplet)}
+              onValueChange={(value) => {
+                const tuplet = TUPLETS.find((t) => tupletKey(t) === value);
+                if (tuplet) then(actions.onTuplet)(tuplet);
+              }}
+            >
+              <SelectTrigger size="sm" aria-label="Tuplet" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TUPLETS.map((tuplet) => (
+                  <SelectItem key={tupletKey(tuplet)} value={tupletKey(tuplet)}>
+                    {tuplet.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </span>
-          <Select
-            value={tupletKey(beat.tuplet)}
-            onValueChange={(value) => {
-              const tuplet = TUPLETS.find((t) => tupletKey(t) === value);
-              if (tuplet) then(actions.onTuplet)(tuplet);
-            }}
-          >
-            <SelectTrigger size="sm" aria-labelledby={tupletLabelId} className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TUPLETS.map((tuplet) => (
-                <SelectItem key={tupletKey(tuplet)} value={tupletKey(tuplet)}>
-                  {tuplet.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        </Tip>
 
         <div className="flex gap-1">
           <Button variant="outline" size="sm" onClick={then(actions.onRest)} title="Rest (R)">
