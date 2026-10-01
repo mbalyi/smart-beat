@@ -1,0 +1,514 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "nu-metal-crunch",
+      "name": "Nu-metal crunch",
+      "target": "guitar",
+      "genres": ["nu-metal"],
+      "description": "Scooped Rectifier-style crunch with plenty of low end, for drop C and B riffs.",
+      "chain": [
+        {
+          "type": "gate",
+          "enabled": true,
+          "thresholdDb": -55,
+          "rangeDb": -80,
+          "attackMs": 0.5,
+          "holdMs": 15,
+          "releaseMs": 50
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "distortion",
+          "drive": 0.7,
+          "tone": 0.4,
+          "levelDb": -3,
+          "tightHz": 80
+        },
+        { "type": "cab", "enabled": true, "ir": "builtin:4x12-vintage" },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 70, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 120, "q": 1, "gainDb": 3 },
+            { "kind": "peak", "freq": 500, "q": 0.9, "gainDb": -5 },
+            { "kind": "peak", "freq": 2000, "q": 1.2, "gainDb": -2 },
+            { "kind": "peak", "freq": 4500, "q": 1.2, "gainDb": 3 },
+            { "kind": "lowPass", "freq": 9000, "q": 0.707, "gainDb": 0 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "metalcore-tight",
+      "name": "Metalcore tight",
+      "target": "guitar",
+      "genres": ["metalcore"],
+      "description": "Tube-screamer style boost into a tight, bright high-gain voicing.",
+      "chain": [
+        {
+          "type": "gate",
+          "enabled": true,
+          "thresholdDb": -50,
+          "rangeDb": -80,
+          "attackMs": 0.5,
+          "holdMs": 10,
+          "releaseMs": 40
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "overdrive",
+          "drive": 0.15,
+          "tone": 0.6,
+          "levelDb": 6,
+          "tightHz": 180
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "distortion",
+          "drive": 0.8,
+          "tone": 0.55,
+          "levelDb": -4,
+          "tightHz": 110
+        },
+        { "type": "cab", "enabled": true, "ir": "builtin:4x12-modern" },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 90, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 250, "q": 1, "gainDb": -2 },
+            { "kind": "peak", "freq": 800, "q": 1, "gainDb": 1.5 },
+            { "kind": "peak", "freq": 3000, "q": 1.2, "gainDb": 2 },
+            { "kind": "lowPass", "freq": 8500, "q": 0.707, "gainDb": 0 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hardcore-crunch",
+      "name": "Hardcore crunch",
+      "target": "guitar",
+      "genres": ["hardcore"],
+      "description": "Less gain, more bite: a Marshall-style crunch that stays clear.",
+      "chain": [
+        {
+          "type": "gate",
+          "enabled": true,
+          "thresholdDb": -60,
+          "rangeDb": -80,
+          "attackMs": 0.5,
+          "holdMs": 20,
+          "releaseMs": 70
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "distortion",
+          "drive": 0.5,
+          "tone": 0.5,
+          "levelDb": -2,
+          "tightHz": 100
+        },
+        { "type": "cab", "enabled": true, "ir": "builtin:4x12-vintage" },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 80, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 1000, "q": 1, "gainDb": 2 },
+            { "kind": "lowPass", "freq": 7000, "q": 0.707, "gainDb": 0 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "deathcore-chug",
+      "name": "Deathcore chug",
+      "target": "guitar",
+      "genres": ["deathcore"],
+      "description": "Hard gating and a high-passed, ultra-tight low end for drop A breakdowns.",
+      "chain": [
+        {
+          "type": "gate",
+          "enabled": true,
+          "thresholdDb": -45,
+          "rangeDb": -90,
+          "attackMs": 0.3,
+          "holdMs": 5,
+          "releaseMs": 30
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "overdrive",
+          "drive": 0.1,
+          "tone": 0.6,
+          "levelDb": 8,
+          "tightHz": 220
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "distortion",
+          "drive": 0.9,
+          "tone": 0.5,
+          "levelDb": -5,
+          "tightHz": 120
+        },
+        { "type": "cab", "enabled": true, "ir": "builtin:4x12-modern" },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 100, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 400, "q": 1, "gainDb": -3 },
+            { "kind": "peak", "freq": 1200, "q": 1, "gainDb": 1 },
+            { "kind": "peak", "freq": 2500, "q": 1.2, "gainDb": 2 },
+            { "kind": "lowPass", "freq": 8000, "q": 0.707, "gainDb": 0 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "djent-8-string",
+      "name": "Djent 8-string",
+      "target": "guitar",
+      "genres": ["djent"],
+      "description": "Compressed, mid-forward and tightly gated for extended-range palm mutes.",
+      "chain": [
+        {
+          "type": "gate",
+          "enabled": true,
+          "thresholdDb": -48,
+          "rangeDb": -90,
+          "attackMs": 0.3,
+          "holdMs": 5,
+          "releaseMs": 25
+        },
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -20,
+          "ratio": 4,
+          "attackMs": 5,
+          "releaseMs": 80,
+          "makeupDb": 2,
+          "kneeDb": 6,
+          "mix": 1
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "overdrive",
+          "drive": 0.05,
+          "tone": 0.6,
+          "levelDb": 9,
+          "tightHz": 250
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "distortion",
+          "drive": 0.75,
+          "tone": 0.6,
+          "levelDb": -5,
+          "tightHz": 140
+        },
+        { "type": "cab", "enabled": true, "ir": "builtin:4x12-modern" },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 85, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 200, "q": 1, "gainDb": -3 },
+            { "kind": "peak", "freq": 800, "q": 1, "gainDb": 3 },
+            { "kind": "peak", "freq": 1600, "q": 1.2, "gainDb": 2 },
+            { "kind": "lowPass", "freq": 9000, "q": 0.707, "gainDb": 0 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ambient-clean-layer",
+      "name": "Ambient clean layer",
+      "target": "guitar",
+      "genres": ["djent", "metalcore"],
+      "description": "A compressed, airy clean tone for arpeggios over the heavy parts.",
+      "chain": [
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -24,
+          "ratio": 3,
+          "attackMs": 15,
+          "releaseMs": 200,
+          "makeupDb": 4,
+          "kneeDb": 6,
+          "mix": 1
+        },
+        { "type": "cab", "enabled": true, "ir": "builtin:2x12-open" },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 120, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 3000, "q": 1, "gainDb": 2 },
+            { "kind": "highShelf", "freq": 8000, "q": 0.707, "gainDb": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bass-di-amp-blend",
+      "name": "Bass DI and amp blend",
+      "target": "bass",
+      "genres": ["metalcore", "djent", "deathcore", "hardcore"],
+      "description": "Even, solid bass: compression, a little grit and an 8×10 cabinet.",
+      "chain": [
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -18,
+          "ratio": 4,
+          "attackMs": 20,
+          "releaseMs": 150,
+          "makeupDb": 3,
+          "kneeDb": 6,
+          "mix": 1
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "boost",
+          "drive": 0.3,
+          "tone": 0.5,
+          "levelDb": 0,
+          "tightHz": 40
+        },
+        { "type": "cab", "enabled": true, "ir": "builtin:8x10-bass" },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 35, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 100, "q": 1, "gainDb": 2 },
+            { "kind": "peak", "freq": 800, "q": 1, "gainDb": -2 },
+            { "kind": "peak", "freq": 2500, "q": 1, "gainDb": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nu-metal-clanky-bass",
+      "name": "Nu-metal clanky bass",
+      "target": "bass",
+      "genres": ["nu-metal"],
+      "description": "Loud, bright and clanky bass with a scooped middle.",
+      "chain": [
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -22,
+          "ratio": 6,
+          "attackMs": 3,
+          "releaseMs": 100,
+          "makeupDb": 4,
+          "kneeDb": 6,
+          "mix": 1
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "distortion",
+          "drive": 0.3,
+          "tone": 0.8,
+          "levelDb": -4,
+          "tightHz": 60
+        },
+        { "type": "cab", "enabled": true, "ir": "builtin:8x10-bass" },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 40, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 80, "q": 1, "gainDb": 3 },
+            { "kind": "peak", "freq": 500, "q": 0.9, "gainDb": -4 },
+            { "kind": "peak", "freq": 2500, "q": 1, "gainDb": 5 },
+            { "kind": "highShelf", "freq": 6000, "q": 0.707, "gainDb": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "drums-tight-metal",
+      "name": "Tight metal drums",
+      "target": "drums",
+      "genres": ["metalcore", "deathcore", "djent", "nu-metal"],
+      "description": "Gated, compressed kit with sub in the kick and click on top, for double kick.",
+      "chain": [
+        {
+          "type": "gate",
+          "enabled": true,
+          "thresholdDb": -40,
+          "rangeDb": -30,
+          "attackMs": 0.2,
+          "holdMs": 30,
+          "releaseMs": 80
+        },
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -20,
+          "ratio": 6,
+          "attackMs": 2,
+          "releaseMs": 80,
+          "makeupDb": 4,
+          "kneeDb": 3,
+          "mix": 1
+        },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 30, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 60, "q": 1, "gainDb": 3 },
+            { "kind": "peak", "freq": 400, "q": 1, "gainDb": -4 },
+            { "kind": "peak", "freq": 4000, "q": 1, "gainDb": 3 },
+            { "kind": "highShelf", "freq": 10000, "q": 0.707, "gainDb": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "drums-parallel-bus",
+      "name": "Parallel drum bus",
+      "target": "drums",
+      "genres": ["metalcore", "hardcore", "nu-metal", "deathcore", "djent"],
+      "description": "Heavily squashed drums blended under the dry kit (New York compression).",
+      "chain": [
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -30,
+          "ratio": 10,
+          "attackMs": 1,
+          "releaseMs": 60,
+          "makeupDb": 8,
+          "kneeDb": 3,
+          "mix": 0.4
+        },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "peak", "freq": 60, "q": 1, "gainDb": 2 },
+            { "kind": "peak", "freq": 5000, "q": 1, "gainDb": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "drums-punchy-hardcore",
+      "name": "Punchy hardcore drums",
+      "target": "drums",
+      "genres": ["hardcore"],
+      "description": "Fast attack let through, less box, more snare crack.",
+      "chain": [
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -16,
+          "ratio": 4,
+          "attackMs": 10,
+          "releaseMs": 120,
+          "makeupDb": 3,
+          "kneeDb": 6,
+          "mix": 1
+        },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "peak", "freq": 100, "q": 1, "gainDb": 2 },
+            { "kind": "peak", "freq": 350, "q": 1, "gainDb": -3 },
+            { "kind": "peak", "freq": 3000, "q": 1, "gainDb": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "master-loud-metal",
+      "name": "Loud metal master",
+      "target": "master",
+      "genres": ["nu-metal", "metalcore", "hardcore", "deathcore", "djent"],
+      "description": "EQ, glue compression and a limiter for a loud, finished mix.",
+      "chain": [
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "highPass", "freq": 30, "q": 0.707, "gainDb": 0 },
+            { "kind": "peak", "freq": 200, "q": 1, "gainDb": -1 },
+            { "kind": "peak", "freq": 3000, "q": 1, "gainDb": 1 },
+            { "kind": "highShelf", "freq": 10000, "q": 0.707, "gainDb": 1.5 }
+          ]
+        },
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -14,
+          "ratio": 2,
+          "attackMs": 30,
+          "releaseMs": 200,
+          "makeupDb": 2,
+          "kneeDb": 6,
+          "mix": 1
+        },
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -3,
+          "ratio": 20,
+          "attackMs": 0.1,
+          "releaseMs": 50,
+          "makeupDb": 2,
+          "kneeDb": 0,
+          "mix": 1
+        }
+      ]
+    },
+    {
+      "id": "master-gentle-glue",
+      "name": "Gentle glue master",
+      "target": "master",
+      "genres": ["hardcore", "nu-metal"],
+      "description": "Light compression that holds the mix together without squashing it.",
+      "chain": [
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -12,
+          "ratio": 1.5,
+          "attackMs": 30,
+          "releaseMs": 250,
+          "makeupDb": 1,
+          "kneeDb": 6,
+          "mix": 1
+        },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            { "kind": "lowShelf", "freq": 100, "q": 0.707, "gainDb": 1 },
+            { "kind": "highShelf", "freq": 8000, "q": 0.707, "gainDb": 1 }
+          ]
+        }
+      ]
+    }
+  ]
+}

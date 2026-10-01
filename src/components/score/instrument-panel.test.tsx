@@ -78,6 +78,18 @@ describe("InstrumentPanel: fretboard", () => {
   });
 });
 
+describe("InstrumentPanel: fret hint", () => {
+  it("shows the string, fret and note under the mouse or the focus", async () => {
+    const { user } = setup({ editing: true, cursorString: 6 });
+    const hint = screen.getByTestId("fret-hint");
+    expect(hint).toHaveTextContent("Point at a fret");
+    await user.hover(screen.getAllByRole("button", { name: /^Fret 5, A/ })[0]!);
+    expect(hint).toHaveTextContent(/^String \d, fret 5, a/);
+    await user.unhover(screen.getAllByRole("button", { name: /^Fret 5, A/ })[0]!);
+    expect(hint).toHaveTextContent("Point at a fret");
+  });
+});
+
 describe("InstrumentPanel: keyboard", () => {
   it("shows the notes on a piano keyboard", async () => {
     setup({ kind: "pitched", tuning: [], active: [note(null, null, 60), note(null, null, 64)] });
@@ -104,6 +116,14 @@ describe("InstrumentPanel: keyboard", () => {
 });
 
 describe("InstrumentPanel: drums", () => {
+  it("switches between the pads and the virtual drumkit", async () => {
+    const { user } = setup({ kind: "drums", tuning: [], editing: true });
+    await user.click(screen.getByRole("radio", { name: "Virtual drumkit" }));
+    expect(screen.getByTestId("virtual-drumkit")).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "Pads" }));
+    expect(screen.queryByTestId("virtual-drumkit")).not.toBeInTheDocument();
+  });
+
   it("shows which drums are hit", async () => {
     setup({ kind: "drums", tuning: [], active: [note(null, null, 38), note(null, null, 42)] });
     expect(screen.getByRole("region", { name: "Drum pads" })).toBeInTheDocument();

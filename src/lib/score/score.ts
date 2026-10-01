@@ -8,6 +8,10 @@ import { ScoreLoadError } from "@/lib/score/errors";
 import { adoptLyrics } from "@/lib/score/lyrics";
 import type { TrackKind } from "@/lib/score/music";
 import type { TrackMix } from "@/lib/tauri";
+import { mirrorOf, setDrumTab } from "@/lib/score/drum-tab";
+import { applyAlphaTabFixes } from "@/lib/score/alphatab-fixes";
+
+applyAlphaTabFixes();
 
 export type Score = model.Score;
 
@@ -26,6 +30,8 @@ export interface TrackSummary {
   isPercussion: boolean;
   /** Stringed tracks can show tablature; others only standard notation. */
   hasTablature: boolean;
+  /** Tab can be shown: stringed tracks, and drums (as a drum tab with drum numbers). */
+  canShowTab: boolean;
   kind: TrackKind;
   /** General MIDI program (0–127). */
   program: number;
@@ -104,6 +110,7 @@ function summarizeTrack(track: model.Track): TrackSummary {
     name: track.name.trim() || `Track ${track.index + 1}`,
     isPercussion: track.isPercussion,
     hasTablature,
+    canShowTab: hasTablature || trackKindOf(track, hasTablature) === "drums",
     kind: trackKindOf(track, hasTablature),
     program: track.playbackInfo.program,
     tuning: hasTablature ? [...staff!.tuning] : [],
@@ -153,8 +160,19 @@ export function parseScore(bytes: Uint8Array): LoadedScore {
   return { score, summary: summarizeScore(score) };
 }
 
-/** Applies a {@link TrackView} to the track's staves (before rendering). */
+/**
+ * Applies a {@link TrackView} to the track's staves (before rendering). A
+ * drum track shows its tab through a mirror staff (see drum-tab.ts), which is
+ * built or removed here; the drum staff itself is hidden for "tab".
+ */
 export function applyTrackView(track: model.Track, view: TrackView) {
+  const drums = track.staves[0]?.isPercussion ?? false;
+  if (drums) {
+    setDrumTab(track.score, track, view.notation !== "score");
+    track.staves[0]!.showStandardNotation = view.notation !== "tab";
+    return;
+  }
+  if (track.score.tracks.some((t) => mirrorOf(t))) setDrumTab(track.score, track, false);
   for (const staff of track.staves) {
     const stringed = !track.isPercussion && staff.tuning.length > 0;
     staff.showTablature = stringed && view.notation !== "score";

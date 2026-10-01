@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 
-import { expect, expectNoA11yViolations as expectNoA11y, openSong, test } from "./fixtures";
+import {
+  emitMenuAction,
+  expect,
+  expectNoA11yViolations as expectNoA11y,
+  openSong,
+  test,
+} from "./fixtures";
 
 declare global {
   interface Window {
@@ -154,5 +160,28 @@ test.describe("print and PDF (#17)", () => {
     const dialog = app.getByRole("dialog", { name: "Print or save as PDF" });
     await expect(dialog).toBeVisible();
     await expectNoA11y(app);
+  });
+
+  test("File › Print… (native menu) prints every track as a full score", async ({ app }) => {
+    await openSong(app);
+    await app.evaluate(() => {
+      (window as unknown as { __printed: number }).__printed = 0;
+      window.print = () => {
+        const w = window as unknown as { __printed: number };
+        w.__printed = document.querySelectorAll("#print-root svg").length;
+        window.dispatchEvent(new Event("afterprint"));
+      };
+    });
+    await emitMenuAction(app, "print");
+    const dialog = app.getByRole("dialog", { name: "Print or save as PDF" });
+    await dialog.getByRole("radio", { name: /^All \d+ tracks/ }).check();
+    await dialog.getByRole("button", { name: "Print…" }).click();
+    await expect
+      .poll(() => app.evaluate(() => (window as unknown as { __printed: number }).__printed), {
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(0);
+    // Back to the shown track afterwards.
+    await expect(app.getByRole("region", { name: "Score: Guitar" })).toBeVisible();
   });
 });

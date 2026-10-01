@@ -71,3 +71,23 @@ describe("Guitar Pro 5 writer", () => {
     expect(again.masterBars.map((_, i) => tempoAt(again, i))).toEqual([72, 90, 120, 120]);
   });
 });
+
+describe("tempo names", () => {
+  const contains = (bytes: Uint8Array, text: string) =>
+    new TextDecoder("latin1").decode(bytes).includes(text);
+
+  it("writes the names of the song tempo and of tempo changes", () => {
+    const { score } = parseScore(fixtureBytes("practice-song.gp"));
+    applyTempo(score, { scope: "song", bpm: 100 });
+    score.masterBars[0]!.tempoAutomations[0]!.text = "Moderato";
+    applyTempo(score, { scope: "from", bar: 2, beat: 0, bpm: 140 });
+    score.masterBars[2]!.tempoAutomations[0]!.text = "Breakdown";
+    const { bytes } = writeGp5(score);
+    expect(contains(bytes, "Moderato")).toBe(true);
+    expect(contains(bytes, "Breakdown")).toBe(true);
+    // Still a file alphaTab reads, with the same tempos.
+    const back = importer.ScoreLoader.loadScoreFromBytes(bytes, new Settings());
+    expect(tempoAt(back, 0)).toBe(100);
+    expect(tempoAt(back, 2)).toBe(140);
+  });
+});

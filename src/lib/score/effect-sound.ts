@@ -13,6 +13,7 @@ import { midi, model } from "@coderline/alphatab";
 
 import { playableDrumKey } from "@/lib/score/drum-map";
 import type { Beat } from "@/lib/score/model";
+import { realStaves } from "@/lib/score/drum-tab";
 
 const { ControlChangeEvent, ControllerType, NoteOffEvent, NoteOnEvent } = midi;
 
@@ -76,7 +77,7 @@ export function approximateSilentEffects(
     for (const track of score.tracks) {
       const info = track.playbackInfo;
       const channels = [...new Set([info.primaryChannel, info.secondaryChannel])];
-      for (const staff of track.staves) {
+      for (const staff of realStaves(track)) {
         const bar = staff.bars[masterBar.index];
         for (const voice of bar?.voices ?? []) {
           for (const beat of voice.beats) {

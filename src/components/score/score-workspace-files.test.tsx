@@ -125,8 +125,11 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     await menu("save");
 
     await waitFor(() => expect(backend.written.has("/songs/practice-song.gp")).toBe(true));
-    expect(onSaved).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "practice-song.gp", path: "/songs/practice-song.gp" }),
+    // The file is written first, then the song is told it was saved.
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "practice-song.gp", path: "/songs/practice-song.gp" }),
+      ),
     );
   });
 

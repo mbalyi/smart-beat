@@ -5,7 +5,12 @@
 import type { NoteInfo } from "@/lib/score/editor";
 import { model } from "@coderline/alphatab";
 
-import { drumNumberName } from "@/lib/score/drum-map";
+import {
+  DRUM_MIDI_MAP,
+  drumCategory,
+  drumNumberName,
+  type DrumCategory,
+} from "@/lib/score/drum-map";
 import { soundOf, type Beat, type Track } from "@/lib/score/model";
 import {
   DRUM_KIT,
@@ -137,6 +142,10 @@ export function drumKitOf(track: Track | null): DrumMapping[] {
   }));
 }
 
+/** The track's own drum map (Guitar Pro 6+ and imported kits), or none. */
+export const ownDrumKit = (track: Track | null): DrumMapping[] =>
+  (track?.percussionArticulations.length ?? 0) > 0 ? drumKitOf(track) : [];
+
 /** What the instrument view is called for a kind of track. */
 export const instrumentViewName = (kind: TrackKind) =>
   kind === "stringed" ? "Fretboard" : kind === "drums" ? "Drum pads" : "Keyboard";
@@ -153,4 +162,50 @@ export function describeInstrument(track: TrackSummary): string {
     if (track.capo > 0) parts.push(`Capo ${track.capo}`);
   }
   return parts.join(" · ");
+}
+
+export interface KitEntry {
+  /** The drum number (General MIDI key). */
+  id: number;
+  name: string;
+  category: DrumCategory;
+  /** In the track's own kit (listed first, under its own names). */
+  own?: boolean;
+  /** How it is written in standard notation ("X black"…), when known. */
+  notehead?: string;
+}
+
+/**
+ * Every articulation to pick from: the track's own kit first (Guitar Pro 6+
+ * files and imported kits, under their own names), then the rest of the
+ * Virtual Drumkit table (27–127), by drum number.
+ */
+export function kitEntries(own: readonly DrumMapping[] = []): KitEntry[] {
+  const seen = new Set<number>();
+  const mine: KitEntry[] = own
+    .filter((m) => !seen.has(m.midi) && seen.add(m.midi))
+    .map((m) => ({
+      id: m.midi,
+      name: m.name,
+      category: drumCategory(m.midi),
+      own: true,
+      notehead: m.notehead,
+    }))
+    .sort((a, b) => a.id - b.id);
+  const rest = Object.entries(DRUM_MIDI_MAP)
+    .map(([key, name]) => ({ id: Number(key), name, category: drumCategory(Number(key)) }))
+    .filter((e) => !seen.has(e.id));
+  return [...mine, ...rest];
+}
+
+/** "38", "snare", "rim" all find "Snare (rim shot)" by number or name. */
+export function filterKit(entries: readonly KitEntry[], query: string): KitEntry[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...entries];
+  return entries.filter(
+    (e) =>
+      String(e.id).startsWith(q) ||
+      e.name.toLowerCase().includes(q) ||
+      e.category.toLowerCase().includes(q),
+  );
 }

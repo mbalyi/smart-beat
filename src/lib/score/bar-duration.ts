@@ -16,6 +16,7 @@ import {
   type Voice,
 } from "@/lib/score/model";
 import { durationTicks, NOTE_VALUES, type Duration } from "@/lib/score/music";
+import { realStaves } from "@/lib/score/drum-tab";
 
 const { GraceType } = model;
 
@@ -83,7 +84,7 @@ function barProblemsOf(bar: Bar): BarProblem[] {
 export function barProblems(score: Score, trackIndex?: number): BarProblem[] {
   return score.tracks
     .filter((track) => trackIndex === undefined || track.index === trackIndex)
-    .flatMap((track) => track.staves.flatMap((staff) => staff.bars.flatMap(barProblemsOf)));
+    .flatMap((track) => realStaves(track).flatMap((staff) => staff.bars.flatMap(barProblemsOf)));
 }
 
 /** "Bar 3 is 1/4 too short", for messages. */

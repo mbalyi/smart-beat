@@ -83,6 +83,7 @@ export function WorkspaceToolbar({
   onPlayPause,
   onStop,
   onSeekBar,
+  onTempo,
   practice,
   instrumentView,
   instrumentLabel,
@@ -125,6 +126,8 @@ export function WorkspaceToolbar({
   onPlayPause: () => void;
   onStop: () => void;
   onSeekBar: (barIndex: number) => void;
+  /** Opens the tempo dialog. */
+  onTempo?: () => void;
   /** Practice tools (loop, speed, metronome…). */
   practice?: ReactNode;
   instrumentView: boolean;
@@ -140,7 +143,7 @@ export function WorkspaceToolbar({
   /** The song is shown (hidden songs leave the header to the shown one). */
   active?: boolean;
 }) {
-  const hasTab = summary.tracks[trackIndex]?.hasTablature ?? false;
+  const hasTab = summary.tracks[trackIndex]?.canShowTab ?? false;
   const zoomIndex = Math.max(0, ZOOM_STEPS.indexOf(zoom as (typeof ZOOM_STEPS)[number]));
 
   const inHeader = headerSlot !== null && headerSlot !== undefined && active;
@@ -259,6 +262,7 @@ export function WorkspaceToolbar({
           barCount={barCount}
           ready={ready}
           onSeekBar={onSeekBar}
+          onTempo={onTempo}
         />
       </div>
 

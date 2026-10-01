@@ -89,6 +89,29 @@
     return response.arrayBuffer();
   };
 
+  // The sound library: generated cabinets plus what the tests import.
+  const builtinCab = (id, name) => ({
+    id: `builtin:${id}`,
+    kind: "cab",
+    name,
+    tags: [],
+    file: "",
+    sampleRate: 0,
+    source: "Smart Beat",
+    builtin: true,
+    includesCab: false,
+  });
+  window.__library = [
+    builtinCab("4x12-modern", "4×12 modern (generated)"),
+    builtinCab("4x12-vintage", "4×12 vintage (generated)"),
+    builtinCab("2x12-open", "2×12 open back (generated)"),
+    builtinCab("8x10-bass", "8×10 bass (generated)"),
+  ];
+  // The native engine: a clock that runs while "playing" (no sound in tests).
+  const engine = { playing: false, startedAt: 0, position: 0, durationMs: 0, chains: {} };
+  const enginePosition = () =>
+    engine.playing ? engine.position + (performance.now() - engine.startedAt) : engine.position;
+
   const invoke = async (cmd, args, options) => {
     window.__ipcCalls.push({ cmd, args });
     switch (cmd) {
@@ -149,6 +172,78 @@
         );
         return null;
       }
+      case "library_list":
+        return window.__library;
+      case "library_import": {
+        const name = args.path
+          .split("/")
+          .pop()
+          .replace(/\.[^.]+$/, "");
+        const item = {
+          id: `lib-${window.__library.length}`,
+          kind: args.kind,
+          name,
+          tags: [],
+          file: args.path,
+          sampleRate: 48000,
+          source: args.path.split("/").pop(),
+          builtin: false,
+          includesCab: false,
+        };
+        window.__library = [...window.__library, item];
+        return item;
+      }
+      case "library_update": {
+        window.__library = window.__library.map((i) =>
+          i.id === args.id ? { ...i, name: args.name, tags: args.tags } : i,
+        );
+        return window.__library.find((i) => i.id === args.id);
+      }
+      case "library_remove":
+        window.__library = window.__library.filter((i) => i.id !== args.id);
+        return null;
+      case "audio_load_soundfont":
+      case "audio_stop":
+      case "audio_set_mix":
+        return null;
+      case "audio_start":
+      case "audio_state":
+        return {
+          running: true,
+          sampleRate: 48000,
+          positionMs: enginePosition(),
+          durationMs: engine.durationMs,
+          playing: engine.playing,
+          latencyMs: 10,
+          dropouts: 0,
+          loadPercent: 1,
+          meters: { tracks: [], master: 0 },
+        };
+      case "audio_load_song":
+        // 120 BPM is close enough for the clock in tests.
+        engine.durationMs = (args.song.endTick / args.song.division) * 500;
+        engine.chains = {};
+        return null;
+      case "audio_set_chain":
+        engine.chains[args.track ?? "master"] = args.slots;
+        window.__engineChains = engine.chains;
+        return [];
+      case "audio_transport": {
+        const c = args.command;
+        if (c.type === "play" && !engine.playing) {
+          engine.playing = true;
+          engine.startedAt = performance.now();
+        } else if (c.type === "pause" && engine.playing) {
+          engine.position = enginePosition();
+          engine.playing = false;
+        } else if (c.type === "seek") {
+          engine.position = c.ms;
+          engine.startedAt = performance.now();
+        }
+        return null;
+      }
+      case "audio_render":
+        return new Float32Array(2 * 4410).buffer;
       default:
         throw new Error(`Unmocked Tauri command: ${cmd}`);
     }

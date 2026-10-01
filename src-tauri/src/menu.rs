@@ -36,6 +36,8 @@ pub enum MenuAction {
     ExportMusicXml,
     ExportMidi,
     ExportAsciiTab,
+    ExportAudio,
+    Print,
     CloseWindow,
     Quit,
     Undo,
@@ -81,7 +83,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 50] = [
+    pub const ALL: [Self; 52] = [
         Self::NewSong,
         Self::Open,
         Self::ClearRecent,
@@ -90,6 +92,8 @@ impl MenuAction {
         Self::ExportMusicXml,
         Self::ExportMidi,
         Self::ExportAsciiTab,
+        Self::ExportAudio,
+        Self::Print,
         Self::CloseWindow,
         Self::Quit,
         Self::Undo,
@@ -145,6 +149,8 @@ impl MenuAction {
             Self::ExportMusicXml => "file.export-musicxml",
             Self::ExportMidi => "file.export-midi",
             Self::ExportAsciiTab => "file.export-ascii-tab",
+            Self::ExportAudio => "file.export-audio",
+            Self::Print => "file.print",
             Self::CloseWindow => "file.close-window",
             Self::Quit => "file.quit",
             Self::Undo => "edit.undo",
@@ -205,6 +211,8 @@ impl MenuAction {
             | Self::ExportMusicXml
             | Self::ExportMidi
             | Self::ExportAsciiTab
+            | Self::ExportAudio
+            | Self::Print
             | Self::CloseWindow
             | Self::Quit => "File",
             Self::Undo | Self::Redo | Self::ToggleEditMode => "Edit",
@@ -255,6 +263,8 @@ impl MenuAction {
             Self::ExportMusicXml => "MusicXML…",
             Self::ExportMidi => "MIDI…",
             Self::ExportAsciiTab => "ASCII Tab…",
+            Self::ExportAudio => "Audio (WAV)…",
+            Self::Print => "Print or Save as PDF…",
             Self::CloseWindow => "Close Window",
             Self::Quit => "Quit Smart Beat",
             Self::Undo => "Undo",
@@ -307,6 +317,7 @@ impl MenuAction {
             Self::Open => Some("CmdOrCtrl+O"),
             Self::Save => Some("CmdOrCtrl+S"),
             Self::SaveAs => Some("CmdOrCtrl+Shift+S"),
+            Self::Print => Some("CmdOrCtrl+P"),
             Self::CloseWindow => Some("CmdOrCtrl+W"),
             Self::Quit => Some("CmdOrCtrl+Q"),
             Self::Undo => Some("CmdOrCtrl+Z"),
@@ -354,6 +365,7 @@ impl MenuAction {
             | Self::ExportMusicXml
             | Self::ExportMidi
             | Self::ExportAsciiTab
+            | Self::ExportAudio
             | Self::Transpose
             | Self::FixBarDurations
             | Self::About => None,
@@ -431,6 +443,8 @@ impl MenuAction {
                 | Self::ExportMusicXml
                 | Self::ExportMidi
                 | Self::ExportAsciiTab
+                | Self::ExportAudio
+                | Self::Print
                 | Self::Transpose
                 | Self::ToggleEditMode
                 | Self::ToggleFretboard
@@ -605,6 +619,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&item(app, ExportMusicXml)?)
         .item(&item(app, ExportMidi)?)
         .item(&item(app, ExportAsciiTab)?)
+        .separator()
+        .item(&item(app, ExportAudio)?)
         .build()?;
 
     let mut menu = MenuBuilder::new(app);
@@ -634,6 +650,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
             .item(&export)
+            .item(&item(app, Print)?)
             .separator()
             .close_window()
             .build()?
@@ -646,6 +663,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
             .item(&export)
+            .item(&item(app, Print)?)
             .separator()
             .item(&item(app, CloseWindow)?)
             .item(&item(app, Quit)?)
@@ -1041,6 +1059,8 @@ mod tests {
             MenuAction::ExportMusicXml,
             MenuAction::ExportMidi,
             MenuAction::ExportAsciiTab,
+            MenuAction::ExportAudio,
+            MenuAction::Print,
             MenuAction::Transpose,
             MenuAction::FixBarDurations,
         ] {

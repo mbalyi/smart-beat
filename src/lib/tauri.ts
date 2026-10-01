@@ -8,6 +8,9 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
+import type { EffectSlot } from "@/lib/audio/effects";
+import type { Interpretation } from "@/lib/score/interpretation";
+
 /** Mirrors `MenuAction` in `src-tauri/src/menu.rs` (kebab-case). */
 export type MenuAction =
   | "new-song"
@@ -18,6 +21,8 @@ export type MenuAction =
   | "export-musicxml"
   | "export-midi"
   | "export-ascii-tab"
+  | "export-audio"
+  | "print"
   | "close-window"
   | "quit"
   | "undo"
@@ -118,6 +123,7 @@ export type CommandErrorKind =
   | "invalid-key"
   | "invalid-settings"
   | "invalid-menu-state"
+  | "audio"
   | "io";
 
 /** Mirrors `CommandError` in `src-tauri/src/error.rs`: how commands fail. */
@@ -154,6 +160,12 @@ export interface MixerSettings {
   /** Master volume, 0 to 1. */
   master: number;
   tracks: TrackMix[];
+  /** Effect chain of each track, in score order (native audio engine). */
+  effects?: EffectSlot[][];
+  /** Effect chain of the master bus (at most three effects). */
+  masterEffects?: EffectSlot[];
+  /** How each track is played back, in score order. */
+  interpretation?: Interpretation[];
 }
 
 /** Mirrors `MenuState` in `src-tauri/src/menu_state.rs`: what the menu bar reflects. */
@@ -380,4 +392,125 @@ export function describePlatform({ os, arch }: Pick<AppInfo, "os" | "arch">): st
   const archName =
     os === "macos" && arch === "aarch64" ? "Apple Silicon" : (ARCH_NAMES[arch] ?? arch);
   return `${osName} (${archName})`;
+}
+
+// --- Native audio engine and sound library (src-tauri/src/audio) ---
+
+/** Mirrors `BusMix` in `src-tauri/src/audio/engine.rs`. */
+export interface BusMix {
+  volume: number;
+  pan: number;
+  mute: boolean;
+  solo: boolean;
+}
+
+/** Mirrors `Meters` in `src-tauri/src/audio/engine.rs` (peak levels, 0…1). */
+export interface EngineMeters {
+  tracks: number[];
+  master: number;
+}
+
+/** Mirrors `EngineStatus` in `src-tauri/src/audio/mod.rs`. */
+export interface EngineStatus {
+  running: boolean;
+  sampleRate: number;
+  positionMs: number;
+  durationMs: number;
+  playing: boolean;
+  latencyMs: number;
+  dropouts: number;
+  loadPercent: number;
+  meters: EngineMeters;
+}
+
+/** Mirrors `SongData` in `src-tauri/src/audio/song.rs`. */
+export interface EngineSong {
+  division: number;
+  /** `[tick, status, data1, data2]`. */
+  events: [number, number, number, number][];
+  tempos: [number, number][];
+  metronome: [number, boolean][];
+  tracks: number[][];
+  endTick: number;
+}
+
+/** Mirrors `Transport` in `src-tauri/src/audio/mod.rs`. */
+export type TransportCommand =
+  | { type: "play" }
+  | { type: "pause" }
+  | { type: "seek"; ms: number }
+  | { type: "rate"; value: number }
+  | { type: "loop"; startTick: number | null; endTick: number | null }
+  | { type: "metronome"; volume: number }
+  | { type: "masterVolume"; value: number }
+  | { type: "preview"; channel: number; key: number; velocity: number };
+
+/** Mirrors `BlockProblem` in `src-tauri/src/audio/chain.rs`. */
+export interface BlockProblem {
+  index: number;
+  message: string;
+}
+
+/** Mirrors `AssetKind` in `src-tauri/src/audio/library.rs`. */
+export type AssetKind = "amp" | "cab";
+
+/** Mirrors `LibraryItem` in `src-tauri/src/audio/library.rs`. */
+export interface LibraryItem {
+  id: string;
+  kind: AssetKind;
+  name: string;
+  tags: string[];
+  file: string;
+  sampleRate: number;
+  source: string;
+  builtin: boolean;
+  includesCab: boolean;
+}
+
+/** Sends a SoundFont (SF2 or SF3) to the native engine. */
+export async function loadEngineSoundFont(id: string, bytes: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  await invoke<void>("audio_load_soundfont", bytes, { headers: { "x-sound-font-id": id } });
+}
+
+export const startEngine = (soundFont: string) => call<EngineStatus>("audio_start", { soundFont });
+export const stopEngine = () => call<void>("audio_stop");
+export const loadEngineSong = (song: EngineSong) => call<void>("audio_load_song", { song });
+export const engineTransport = (command: TransportCommand) =>
+  call<void>("audio_transport", { command });
+export const setEngineMix = (mixes: BusMix[]) => call<void>("audio_set_mix", { mixes });
+export const engineState = () => call<EngineStatus>("audio_state");
+
+/**
+ * Sets the effect chain of a track (`track: null` for the master bus).
+ * Resolves to the blocks that cannot run (missing library items and so on).
+ */
+export const setEngineChain = (track: number | null, slots: EffectSlot[]) =>
+  call<BlockProblem[]>("audio_set_chain", { track, slots });
+
+/** Interleaved stereo float samples of the whole song, with effects. */
+export async function renderEngineAudio(sampleRate: number): Promise<Float32Array> {
+  const buffer = await call<ArrayBuffer>("audio_render", { sampleRate });
+  return new Float32Array(buffer);
+}
+
+export const listLibrary = () => call<LibraryItem[]>("library_list");
+export const importLibraryFile = (path: string, kind: AssetKind) =>
+  call<LibraryItem>("library_import", { path, kind });
+export const updateLibraryItem = (id: string, name: string, tags: string[]) =>
+  call<LibraryItem>("library_update", { id, name, tags });
+export const removeLibraryItem = (id: string) => call<void>("library_remove", { id });
+
+/** Native Open dialog for an amp capture (`.nam`) or a cabinet IR (`.wav`). */
+export async function pickLibraryFile(kind: AssetKind): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: kind === "amp" ? "Import an amp or pedal capture" : "Import a cabinet impulse response",
+    multiple: false,
+    directory: false,
+    filters:
+      kind === "amp"
+        ? [{ name: "Neural Amp Modeler captures", extensions: ["nam"] }]
+        : [{ name: "Impulse responses (WAV)", extensions: ["wav"] }],
+  });
 }

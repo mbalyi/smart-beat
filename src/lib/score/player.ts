@@ -10,6 +10,8 @@ import {
   AlphaTabApi,
   LayoutMode,
   LogLevel,
+  midi,
+  NotationElement,
   PlayerMode,
   PlayerOutputMode,
   ScrollMode,
@@ -19,7 +21,17 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
+import { busMixes, NativeEngine, trackChannels } from "@/lib/audio/native-engine";
 import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
+import { playableDrumKey } from "@/lib/score/drum-map";
+import {
+  mirrorBeatOf,
+  mirrorNoteOf,
+  mirrorOf,
+  realBeatOf,
+  realNoteOf,
+  removeMirrorNotes,
+} from "@/lib/score/drum-tab";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
@@ -32,10 +44,19 @@ import {
   readSyncOffset,
   type LatencyInfo,
 } from "@/lib/score/sync";
-import { isAudible } from "@/lib/score/mixer";
-import type { MixerSettings } from "@/lib/tauri";
+import { applyInterpretation } from "@/lib/score/interpretation";
+import { allTrackEffects, isAudible, trackInterpretation } from "@/lib/score/mixer";
+import {
+  renderEngineAudio,
+  type BlockProblem,
+  type EngineMeters,
+  type MixerSettings,
+} from "@/lib/tauri";
 
 const { PlayerState, PlaybackRange } = synth;
+
+/** MIDI channel 10, where General MIDI plays drums (0-based). */
+const PERCUSSION_CHANNEL = 9;
 
 /** Sample rate of exported audio, and how much sound is rendered at a time (ms). */
 const EXPORT_SAMPLE_RATE = 44_100;
@@ -84,7 +105,17 @@ export interface ScorePlayerCallbacks {
   onRangeSelect?: (range: LoopRange | null) => void;
   /** Playback reached the end of the loop and starts it again. */
   onLoopRestart?: () => void;
+  /** Native engine only: peak levels of each track and the master while playing. */
+  onMeters?: (meters: EngineMeters) => void;
+  /** Native engine only: effect blocks that cannot run (per track, and the master's). */
+  onEffectProblems?: (problems: { tracks: BlockProblem[][]; master: BlockProblem[] }) => void;
 }
+
+/**
+ * Who makes the sound: alphaTab's synthesizer in the webview, or the native
+ * engine with effect chains (desktop app only, ADR 0002).
+ */
+export type AudioEngineKind = "alphatab" | "native";
 
 export interface ScorePlayerOptions {
   /** Where the notation is drawn. */
@@ -98,6 +129,8 @@ export interface ScorePlayerOptions {
   mix: MixerSettings;
   soundFontUrl: string;
   reducedMotion?: boolean;
+  /** Default: alphaTab. */
+  audioEngine?: AudioEngineKind;
 }
 
 const LAYOUT_MODES: Record<Layout, LayoutMode> = {
@@ -137,7 +170,11 @@ function createSettings(options: ScorePlayerOptions): Settings {
   settings.display.layoutMode = LAYOUT_MODES[options.layout];
   settings.display.staveProfile = StaveProfile.Default; // per-staff flags decide
   settings.notation.rhythmMode = rhythmMode(options.view);
-  settings.player.playerMode = PlayerMode.EnabledSynthesizer;
+  // With the native engine alphaTab only follows its clock (external media).
+  settings.player.playerMode =
+    options.audioEngine === "native"
+      ? PlayerMode.EnabledExternalMedia
+      : PlayerMode.EnabledSynthesizer;
   // Synthesize in a worker and play through an AudioWorklet, off the main
   // thread, with alphaTab's default 500 ms buffer, so rendering, scrolling or
   // UI updates can't make the audio stutter.
@@ -178,7 +215,11 @@ export class ScorePlayer {
    * output latency (see lib/score/sync.ts).
    */
   private readonly delayer = new Delayer(() =>
-    this.playing ? outputLatencyMs(this.latencyInfo, readSyncOffset()) : 0,
+    !this.playing
+      ? 0
+      : this.engine
+        ? Math.max(0, readSyncOffset())
+        : outputLatencyMs(this.latencyInfo, readSyncOffset()),
   );
   private lastPosition: PlaybackPosition | null = null;
   private lastBar = -1;
@@ -209,6 +250,10 @@ export class ScorePlayer {
   private hasSounds = false;
   private readonly synthReady: Promise<void>;
   private readonly soundFontErrors = new WeakSet<Error>();
+  /** The native engine, when it makes the sound (null: alphaTab's synthesizer). */
+  private readonly engine: NativeEngine | null;
+  /** alphaTab has the MIDI and is ready (native engine: waits for the engine's sounds too). */
+  private alphaTabReady = false;
 
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks = {}) {
     this.score = options.score;
@@ -221,7 +266,30 @@ export class ScorePlayer {
     this.applyView(options.view);
 
     this.api = new AlphaTabApi(options.element, createSettings(options));
+    this.engine =
+      options.audioEngine === "native"
+        ? new NativeEngine({
+            onMeters: (meters) => callbacks.onMeters?.(meters),
+            onError: (error) => callbacks.onError?.(error),
+          })
+        : null;
+    if (this.engine) {
+      const output = this.api.player?.output as synth.IExternalMediaSynthOutput | undefined;
+      if (output) this.engine.attach(output);
+    }
+    // The native engine reports what is heard (its output latency is already
+    // taken off): only the user's offset is added.
     this.api.customCursorHandler = createCursorHandler(this.delayer, !options.reducedMotion);
+    // alphaTab scrolls the view as the cursor moves: delay that too, so the
+    // view follows what is heard (the delay is 0 while paused, e.g. for seeks).
+    const ui = this.api.uiFacade as unknown as {
+      scrollToY: (...args: unknown[]) => void;
+      scrollToX: (...args: unknown[]) => void;
+    };
+    for (const method of ["scrollToY", "scrollToX"] as const) {
+      const original = ui[method].bind(ui);
+      ui[method] = (...args: unknown[]) => this.delayer.run(() => original(...args));
+    }
     // alphaTab reports clicked beats without the mouse event: remember Shift.
     options.element.addEventListener(
       "pointerdown",
@@ -233,6 +301,8 @@ export class ScorePlayer {
     // alphaTab ignores SoundFonts sent before its synthesizer is ready.
     this.synthReady = new Promise((resolve) => this.api.player?.ready.on(() => resolve()));
     this.subscribe();
+    this.hasMirror = this.score.tracks.some((t) => mirrorOf(t) !== null);
+    this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !this.hasMirror);
     this.api.renderScore(this.score, [this.trackIndex]);
     void this.setSoundFont(options.soundFontUrl);
   }
@@ -253,7 +323,7 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
-      if (this.playing && !this.latencyMeasured) {
+      if (this.playing && !this.latencyMeasured && !this.engine) {
         this.latencyMeasured = true;
         void measureLatency().then((info) => {
           if (!this.destroyed) this.latencyInfo = info;
@@ -279,6 +349,17 @@ export class ScorePlayer {
       const lookup = api.tickCache;
       if (lookup) approximateSilentEffects(file, lookup);
       remapSilentDrums(file); // the SoundFont has no sample for some drum numbers
+      removeMirrorNotes(file); // the drum tab's mirror staff is silent
+      applyInterpretation(
+        file,
+        this.score,
+        lookup ?? null,
+        this.mix.tracks.map((_, i) => trackInterpretation(this.mix, i)),
+        trackChannels(this.score),
+      );
+      this.engine
+        ?.loadSong(file, trackChannels(this.score))
+        .catch((error: unknown) => callbacks.onError?.(asError(error)));
     });
     api.playedBeatChanged.on((beat) =>
       this.delayer.run(() => this.reportBar(beat.voice.bar.index)),
@@ -289,7 +370,9 @@ export class ScorePlayer {
       }
     });
     // playedBeatChanged only fires during playback; a click moves the cursor while paused too.
-    api.beatMouseDown.on((beat) => {
+    api.beatMouseDown.on((clicked) => {
+      // A click on the drum tab is a click on the drum beat it shows.
+      const beat = realBeatOf(clicked);
       this.delayer.clear(); // the click moves the cursor: what waits belongs to the old position
       this.reportBar(beat.voice.bar.index);
       if (this.editing) this.seekToBeat(beat);
@@ -300,10 +383,10 @@ export class ScorePlayer {
       queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend }));
     });
     api.noteMouseDown.on((note) => {
-      this.clickedNote = note;
+      this.clickedNote = realNoteOf(note);
     });
     api.beatMouseMove.on((beat) => {
-      if (this.editing) callbacks.onBeatDrag?.(beat);
+      if (this.editing) callbacks.onBeatDrag?.(realBeatOf(beat));
     });
     api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
     api.playerFinished.on(() => {
@@ -322,6 +405,9 @@ export class ScorePlayer {
     // becomes ready. This handler is registered after alphaTab's own, so the
     // mixer is applied last. It also runs again after every MIDI or SoundFont reload.
     player.readyForPlayback.on(() => {
+      this.alphaTabReady = true;
+      // The native engine's sounds load separately (see setSoundFont).
+      if (this.engine && !this.engine.soundFont) return;
       this.hasSounds = true;
       this.applyMix(null, this.mix);
       this.applyLoop();
@@ -342,9 +428,28 @@ export class ScorePlayer {
 
   private clickedNote: Note | null = null;
 
-  /** The beats that belong to the shown track. */
+  /** The beats that belong to the shown track (drum-tab beats as their drum beats). */
   private ownBeats(beats: readonly Beat[]): Beat[] {
-    return beats.filter((beat) => beat.voice.bar.staff.track === this.track);
+    return [...new Set(beats.map(realBeatOf))].filter(
+      (beat) => beat.voice.bar.staff.track === this.track,
+    );
+  }
+
+  /** The drum tab's mirror staff exists (its beats must be in the MIDI's tick lookup). */
+  private hasMirror = false;
+
+  /**
+   * After the view changed: the tuning label means nothing on a drum tab, and
+   * a mirror staff that appeared or went away needs a new MIDI (for the cursor).
+   */
+  private afterViewChange() {
+    const mirror = this.score.tracks.some((t) => mirrorOf(t) !== null);
+    this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !mirror);
+    this.api.updateSettings();
+    if (mirror !== this.hasMirror) {
+      this.hasMirror = mirror;
+      this.regenerateMidi();
+    }
   }
 
   private setReady(ready: boolean) {
@@ -401,6 +506,11 @@ export class ScorePlayer {
   private applyMix(previous: MixerSettings | null, next: MixerSettings) {
     const { api } = this;
     if (previous?.master !== next.master) api.masterVolume = next.master;
+    if (this.engine) {
+      this.engine.setMix(busMixes(next));
+      this.applyEffects(previous, next);
+      return;
+    }
     next.tracks.forEach((trackMix, index) => {
       const track = this.score.tracks[index];
       if (!track) return;
@@ -409,6 +519,56 @@ export class ScorePlayer {
       if (before?.mute !== trackMix.mute) api.changeTrackMute([track], trackMix.mute);
       if (before?.solo !== trackMix.solo) api.changeTrackSolo([track], trackMix.solo);
     });
+  }
+
+  /** What the engine reported about each chain (blocks that cannot run). */
+  private effectProblems: { tracks: BlockProblem[][]; master: BlockProblem[] } = {
+    tracks: [],
+    master: [],
+  };
+
+  /**
+   * Native engine: sends the chains that changed (all of them the first
+   * time), so turning one knob does not rebuild every track's chain.
+   */
+  private applyEffects(previous: MixerSettings | null, next: MixerSettings) {
+    const engine = this.engine;
+    if (!engine) return;
+    const report = () => this.callbacks.onEffectProblems?.(this.effectProblems);
+    const fail = (error: unknown) => this.callbacks.onError?.(asError(error));
+    if (!previous || previous.tracks.length !== next.tracks.length) {
+      engine
+        .setAllChains(allTrackEffects(next), next.masterEffects ?? [])
+        .then((problems) => {
+          this.effectProblems = problems;
+          report();
+        })
+        .catch(fail);
+      return;
+    }
+    // A missing chain and an empty one are the same (no effects).
+    const same = (a?: unknown[], b?: unknown[]) => a === b || (!a?.length && !b?.length);
+    next.tracks.forEach((_, i) => {
+      if (same(previous.effects?.[i], next.effects?.[i])) return;
+      engine
+        .setChain(i, next.effects?.[i] ?? [])
+        .then((problems) => {
+          const tracks = [...this.effectProblems.tracks];
+          tracks[i] = problems;
+          this.effectProblems = { ...this.effectProblems, tracks };
+          report();
+        })
+        .catch(fail);
+    });
+    if (!same(previous.masterEffects, next.masterEffects)) {
+      engine
+        .setChain(null, next.masterEffects ?? [])
+        .then((master) => {
+          this.effectProblems = { ...this.effectProblems, master };
+          report();
+        })
+        .catch(fail);
+    }
   }
 
   /** Regenerates the MIDI (needed for pan) without losing the playback position. */
@@ -428,16 +588,18 @@ export class ScorePlayer {
     const track = this.score.tracks[trackIndex];
     if (!track) return;
     this.trackIndex = trackIndex;
-    this.setView(view, false);
+    this.applyView(view);
+    this.api.settings.notation.rhythmMode = rhythmMode(view);
+    this.afterViewChange();
     this.api.renderTracks([track]);
   }
 
   /** Changes the notation of the shown track. */
-  setView(view: TrackView, render = true) {
+  setView(view: TrackView) {
     this.applyView(view);
     this.api.settings.notation.rhythmMode = rhythmMode(view);
-    this.api.updateSettings();
-    if (render) this.api.render();
+    this.afterViewChange();
+    this.api.render();
   }
 
   setLayout(layout: Layout) {
@@ -455,7 +617,9 @@ export class ScorePlayer {
     const previous = this.mix;
     this.mix = mix;
     if (this.ready) this.applyMix(previous, mix);
-    if (!this.applyPans(mix)) return;
+    // Pan and the interpretation are in the generated MIDI.
+    const pansChanged = this.applyPans(mix);
+    if (!pansChanged && previous.interpretation === mix.interpretation) return;
     this.regenerateMidi();
   }
 
@@ -478,6 +642,9 @@ export class ScorePlayer {
     this.mix = mix;
     this.applyPans(mix);
     this.applyView(view);
+    this.hasMirror = this.score.tracks.some((t) => mirrorOf(t) !== null);
+    this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !this.hasMirror);
+    this.api.updateSettings();
     this.quietRender = true;
     this.api.renderTracks([track]);
     this.regenerateMidi();
@@ -505,6 +672,7 @@ export class ScorePlayer {
     this.settingRange = true;
     try {
       if (!loop) {
+        this.engine?.setLoop(null);
         this.appliedRange = null;
         api.isLooping = false;
         api.playbackRange = null;
@@ -519,6 +687,7 @@ export class ScorePlayer {
       range.startTick = cache.getMasterBarStart(first);
       range.endTick = cache.getMasterBarStart(last) + last.calculateDuration();
       this.appliedRange = { startTick: range.startTick, endTick: range.endTick };
+      this.engine?.setLoop(this.appliedRange);
       api.playbackRange = range;
       api.isLooping = true;
       this.highlightLoop();
@@ -578,27 +747,81 @@ export class ScorePlayer {
 
   setMetronome(on: boolean) {
     this.api.metronomeVolume = on ? 1 : 0;
+    this.engine?.setMetronome(on ? 1 : 0);
   }
 
+  /** Count-in (alphaTab's synthesizer only; the native engine has none yet). */
   setCountIn(on: boolean) {
     this.api.countInVolume = on ? 1 : 0;
   }
 
-  /** Where a beat is drawn: one rectangle per staff (standard notation, tab). */
+  /**
+   * Plays one drum sound now (the kit picker): through the native engine, or
+   * alphaTab's synthesizer once its sounds are loaded.
+   */
+  previewDrum(key: number) {
+    const sound = playableDrumKey(key);
+    if (this.engine) {
+      this.engine.preview(PERCUSSION_CHANNEL, sound);
+      return;
+    }
+    if (!this.hasSounds) return;
+    const file = new midi.MidiFile();
+    file.addEvent(new midi.NoteOnEvent(0, 0, PERCUSSION_CHANNEL, sound, 100));
+    file.addEvent(new midi.NoteOffEvent(0, file.division, PERCUSSION_CHANNEL, sound, 0));
+    this.api.player?.playOneTimeMidiFile(file);
+  }
+
+  /**
+   * Shows `trackIndexes` together (a full score, in page layout) at a size for
+   * printing. Returns a function that puts back the shown track, layout and zoom.
+   */
+  showForPrint(trackIndexes: number[], scale: number): () => void {
+    const display = this.api.settings.display;
+    const before = { scale: display.scale, layout: display.layoutMode };
+    const tracks = trackIndexes
+      .map((i) => this.score.tracks[i])
+      .filter((t): t is NonNullable<typeof t> => t !== undefined);
+    display.scale = scale;
+    display.layoutMode = LayoutMode.Page;
+    this.api.updateSettings();
+    this.quietRender = true;
+    this.api.renderTracks(tracks.length > 0 ? tracks : [this.track]);
+    return () => {
+      display.scale = before.scale;
+      display.layoutMode = before.layout;
+      this.api.updateSettings();
+      this.quietRender = true;
+      this.api.renderTracks([this.track]);
+    };
+  }
+
+  /** Whether the native engine makes the sound. */
+  get usesNativeEngine(): boolean {
+    return this.engine !== null;
+  }
+
+  /** Where a beat is drawn: one rectangle per staff (standard notation, tab, drum tab). */
   beatRects(beat: Beat): Rect[] {
-    return (this.api.boundsLookup?.findBeats(beat) ?? []).map((bounds) => {
-      const bar = bounds.barBounds.visualBounds;
-      return { x: bounds.realBounds.x, y: bar.y, w: bounds.realBounds.w, h: bar.h };
-    });
+    const mirror = mirrorBeatOf(beat);
+    const beats = mirror && mirror !== beat ? [beat, mirror] : [beat];
+    return beats
+      .flatMap((b) => this.api.boundsLookup?.findBeats(b) ?? [])
+      .map((bounds) => {
+        const bar = bounds.barBounds.visualBounds;
+        return { x: bounds.realBounds.x, y: bar.y, w: bounds.realBounds.w, h: bar.h };
+      });
   }
 
   /** Where a note's head (or fret number) is drawn, on each staff. */
   noteRects(note: Note): Rect[] {
-    const beats = this.api.boundsLookup?.findBeats(note.beat) ?? [];
-    return beats.flatMap((bounds) =>
-      (bounds.notes ?? [])
-        .filter((n) => n.note === note)
-        .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
+    const mirror = mirrorNoteOf(note);
+    return [note, ...(mirror ? [mirror] : [])].flatMap((n) =>
+      (this.api.boundsLookup?.findBeats(n.beat) ?? []).flatMap((bounds) =>
+        (bounds.notes ?? [])
+          .filter((drawn) => drawn.note === n)
+          .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
+      ),
     );
   }
 
@@ -633,6 +856,11 @@ export class ScorePlayer {
     }
     if (!isCurrent()) return;
 
+    if (this.engine) {
+      await this.useEngineSoundFont(url, bytes, isCurrent);
+      return;
+    }
+
     const { api } = this;
     // While a previous switch is still loading, keep the position from before it.
     if (this.ready) this.resume = { tick: api.tickPosition, play: this.playing };
@@ -642,6 +870,33 @@ export class ScorePlayer {
     this.hasSounds = false;
     api.resetSoundFonts();
     api.loadSoundFont(bytes, false);
+  }
+
+  /** Native engine: hands the sounds to the engine, then playback is ready. */
+  private async useEngineSoundFont(url: string, bytes: Uint8Array, isCurrent: () => boolean) {
+    const engine = this.engine!;
+    const wasPlaying = this.playing;
+    if (wasPlaying) this.api.pause();
+    this.setReady(false);
+    try {
+      await engine.useSoundFont(url.split("/").pop() ?? url, bytes);
+    } catch (error) {
+      if (isCurrent()) {
+        this.callbacks.onSoundFontError?.(asError(error), { previousKept: this.hasSounds });
+      }
+      return;
+    }
+    if (!isCurrent()) return;
+    this.hasSounds = true;
+    if (this.alphaTabReady) {
+      this.applyMix(null, this.mix);
+      this.applyLoop();
+      this.setReady(true);
+      if (wasPlaying) {
+        this.playing = true;
+        this.api.play();
+      }
+    }
   }
 
   playPause() {
@@ -690,6 +945,13 @@ export class ScorePlayer {
     if (!this.ready)
       throw new Error("The instrument sounds are still loading. Try again in a moment.");
     this.pause();
+    if (this.engine) {
+      // Rendered by the engine, with the effect chains.
+      onProgress?.(0);
+      const samples = await renderEngineAudio(EXPORT_SAMPLE_RATE);
+      onProgress?.(1);
+      return { samples, sampleRate: EXPORT_SAMPLE_RATE, channels: 2 };
+    }
     const trackVolume = new Map<number, number>();
     this.score.tracks.forEach((_, index) => {
       const mix = this.mix.tracks[index];
@@ -722,6 +984,7 @@ export class ScorePlayer {
 
   destroy() {
     this.destroyed = true;
+    this.engine?.destroy();
     this.delayer.clear();
     this.api.destroy();
   }

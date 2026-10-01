@@ -1,11 +1,16 @@
+import { defaultEffect } from "@/lib/audio/effects";
 import {
+  allTrackEffects,
   describePan,
   describeVolume,
   initialMix,
   isAudible,
   mixerReducer,
   mixFromScore,
+  trackEffects,
+  trackInterpretation,
 } from "@/lib/score/mixer";
+import { DEFAULT_INTERPRETATION } from "@/lib/score/interpretation";
 import { MIXER_SETTINGS_VERSION, type MixerSettings } from "@/lib/tauri";
 import { SUMMARY } from "@/test/score";
 
@@ -14,6 +19,8 @@ const mix = (tracks: Partial<MixerSettings["tracks"][number]>[]): MixerSettings 
   master: 1,
   tracks: tracks.map((t) => ({ volume: 1, pan: 0, mute: false, solo: false, ...t })),
 });
+
+const GATE = defaultEffect("gate");
 
 describe("mixFromScore", () => {
   it("uses the values from the file at full master volume", () => {
@@ -65,9 +72,25 @@ describe("mixerReducer", () => {
     expect(mixerReducer(start, { type: "mute", track: 7, value: true })).toBe(start);
   });
 
-  it("resets to a given mix", () => {
+  it("resets to a given mix but keeps the effects", () => {
     const other = mix([{ volume: 0.1 }]);
-    expect(mixerReducer(start, { type: "reset", mix: other })).toBe(other);
+    const withEffects = { ...start, effects: [[GATE]], masterEffects: [GATE] };
+    expect(mixerReducer(withEffects, { type: "reset", mix: other })).toEqual({
+      ...other,
+      effects: [[GATE]],
+      masterEffects: [GATE],
+    });
+  });
+
+  it("sets a track's effects (other tracks keep theirs) and the master's", () => {
+    const two = mix([{}, {}]);
+    const first = mixerReducer(two, { type: "effects", track: 1, slots: [GATE] });
+    expect(allTrackEffects(first)).toEqual([[], [GATE]]);
+    expect(trackEffects(first, 0)).toEqual([]);
+    expect(mixerReducer(first, { type: "effects", track: 5, slots: [GATE] })).toBe(first);
+    expect(mixerReducer(first, { type: "master-effects", slots: [GATE] }).masterEffects).toEqual([
+      GATE,
+    ]);
   });
 });
 
@@ -100,5 +123,27 @@ describe("describing values", () => {
 
   it("reads volume as a percentage", () => {
     expect(describeVolume(0.755)).toBe("76%");
+  });
+});
+
+describe("interpretation", () => {
+  it("is set per track (cleaned up) and kept on reset", () => {
+    const two = mix([{}, {}]);
+    const next = mixerReducer(two, {
+      type: "interpretation",
+      track: 1,
+      value: { style: "slap", palmMute: 3, accent: 0.5, letRing: false, brush: true },
+    });
+    expect(trackInterpretation(next, 1)).toEqual({
+      style: "slap",
+      palmMute: 1,
+      accent: 0.5,
+      letRing: false,
+      brush: true,
+    });
+    expect(trackInterpretation(next, 0)).toEqual(DEFAULT_INTERPRETATION);
+    expect(mixerReducer(next, { type: "reset", mix: two }).interpretation).toBe(
+      next.interpretation,
+    );
   });
 });

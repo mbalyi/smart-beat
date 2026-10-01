@@ -8,8 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
+import { PedalboardDialog, type PedalboardTarget } from "@/components/audio/pedalboard-dialog";
+import { SoundLibraryDialog } from "@/components/audio/sound-library-dialog";
+import { Button } from "@/components/ui/button";
 import { BarDialog } from "@/components/score/bar-dialog";
 import { BarProblems } from "@/components/score/bar-problems";
 import { BendDialog, type CurveKind } from "@/components/score/bend-dialog";
@@ -37,7 +41,20 @@ import { useMenuActions } from "@/hooks/use-menu-actions";
 import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { useScoreEditor } from "@/hooks/use-score-editor";
+import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
+import {
+  MAX_TRACK_EFFECTS,
+  withFocusBlock,
+  type EffectSlot,
+  type EffectType,
+} from "@/lib/audio/effects";
+import {
+  nativeEngineAvailable,
+  readAudioEnginePreference,
+  storeAudioEnginePreference,
+} from "@/lib/audio/engine-preference";
+import { presetTargetOf } from "@/lib/audio/presets";
 import { errorText } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
@@ -48,7 +65,13 @@ import {
   type BarProblem,
 } from "@/lib/score/bar-duration";
 import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
-import { drumKitOf, instrumentViewName, notesOf } from "@/lib/score/instrument-view";
+import {
+  drumKitOf,
+  instrumentViewName,
+  kitEntries,
+  notesOf,
+  ownDrumKit,
+} from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
 import {
@@ -57,10 +80,17 @@ import {
   storePrintSettings,
   whenDrawn,
   type PrintSettings,
+  type PrintTracks,
 } from "@/lib/print";
 import { applyTempo, tempoScope, type TempoRequest } from "@/lib/score/tempo";
 import { readSyncOffset, storeSyncOffset } from "@/lib/score/sync";
-import { mixerReducer, type MixerChange } from "@/lib/score/mixer";
+import { DEFAULT_INTERPRETATION, type Interpretation } from "@/lib/score/interpretation";
+import {
+  mixerReducer,
+  trackEffects,
+  trackInterpretation,
+  type MixerChange,
+} from "@/lib/score/mixer";
 import { trackContent, type Beat, type Track } from "@/lib/score/model";
 import {
   ScorePlayer,
@@ -119,6 +149,7 @@ import {
   isTauri,
   MIXER_SETTINGS_VERSION,
   saveMixerSettings,
+  type BlockProblem,
   type MenuAction,
   type MixerSettings,
   type NoteEffectFlags,
@@ -301,13 +332,46 @@ export function ScoreWorkspace({
   const mixByTrack = useRef(
     new Map<Track, TrackMix>(score.tracks.map((t, i) => [t, song.mix.tracks[i]!])),
   );
+  // Effect chains follow their tracks too.
+  const effectsByTrack = useRef(
+    new Map<Track, EffectSlot[]>(score.tracks.map((t, i) => [t, trackEffects(song.mix, i)])),
+  );
+  const interpretationByTrack = useRef(
+    new Map<Track, Interpretation>(
+      score.tracks.map((t, i) => [t, trackInterpretation(song.mix, i)]),
+    ),
+  );
   const [soundFont, setSoundFont] = useState<SoundFontId>(readSoundFontPreference);
+  const [audioEngine, setAudioEngine] = useState(readAudioEnginePreference);
+  const [effectProblems, setEffectProblems] = useState<{
+    tracks: BlockProblem[][];
+    master: BlockProblem[];
+  }>({ tracks: [], master: [] });
+  const [pedalboard, setPedalboard] = useState<{
+    open: boolean;
+    track: number | null;
+    focus?: EffectType;
+    /** Changes with every opening, so the dialog starts fresh. */
+    session: number;
+  }>({ open: false, track: null, session: 0 });
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const library = useSoundLibrary();
   const [mixerOpen, setMixerOpen] = useState(true);
   // Side panels cover the score in narrow windows: start without the inspector there.
   const [inspectorOpen, setInspectorOpen] = useState(
     () => !window.matchMedia?.("(max-width: 1023px)").matches,
   );
   const [inspectorTab, setInspectorTab] = useState<"song" | "track">("track");
+  // Narrowing the window below 1024 px closes the inspector: it would cover the score.
+  useEffect(() => {
+    const narrow = window.matchMedia?.("(max-width: 1023px)");
+    if (!narrow) return;
+    const onChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setInspectorOpen(false);
+    };
+    narrow.addEventListener("change", onChange);
+    return () => narrow.removeEventListener("change", onChange);
+  }, []);
   const [zoom, setZoom] = useState(100);
   const [syncOffset, setSyncOffset] = useState(readSyncOffset);
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
@@ -438,6 +502,21 @@ export function ScoreWorkspace({
   // The initial state, read once when the player is created. Later changes go
   // straight to the player from the handlers below.
   const initial = useRef({ trackIndex, view, layout, soundFont });
+  // Kept current, for a player created again (the audio engine changed).
+  useEffect(() => {
+    initial.current = { trackIndex, view, layout, soundFont };
+  });
+
+  /** A new player for the same song (other audio engine) gets the current settings. */
+  const restorePlayerSettings = useEffectEvent((player: ScorePlayer) => {
+    player.setZoom(zoom / 100);
+    player.setEditing(editing);
+    player.setLoop(practice.loop ? practice.range : null);
+    player.setSpeed(practice.speed);
+    player.setMetronome(practice.metronome);
+    player.setCountIn(practice.countIn);
+  });
+  const playerCreated = useRef(false);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -455,6 +534,7 @@ export function ScoreWorkspace({
         mix: mixRef.current,
         soundFontUrl: getSoundFont(start.soundFont).url,
         reducedMotion: prefersReducedMotion(),
+        audioEngine,
       },
       {
         onRenderingChange: setRendering,
@@ -480,14 +560,17 @@ export function ScoreWorkspace({
           if (picked) dispatchPractice({ type: "range", range: picked });
         },
         onLoopRestart: () => dispatchPractice({ type: "loop-completed" }),
+        onEffectProblems: setEffectProblems,
       },
     );
     playerRef.current = player;
+    if (playerCreated.current) restorePlayerSettings(player);
+    playerCreated.current = true;
     return () => {
       player.destroy();
       playerRef.current = null;
     };
-  }, [song.score]);
+  }, [song.score, audioEngine]);
 
   // A song in a hidden tab does not keep playing.
   useEffect(() => {
@@ -516,10 +599,22 @@ export function ScoreWorkspace({
       mixByTrack.current.set(t, fresh);
       return fresh;
     });
-    const next: MixerSettings = { ...mixRef.current, version: MIXER_SETTINGS_VERSION, tracks };
+    const effects = score.tracks.map((t) => effectsByTrack.current.get(t) ?? []);
+    const interpretation = score.tracks.map(
+      (t) => interpretationByTrack.current.get(t) ?? DEFAULT_INTERPRETATION,
+    );
+    const next: MixerSettings = {
+      ...mixRef.current,
+      version: MIXER_SETTINGS_VERSION,
+      tracks,
+      effects,
+      interpretation,
+    };
     const changedOrder =
       tracks.length !== mixRef.current.tracks.length ||
-      tracks.some((t, i) => t !== mixRef.current.tracks[i]);
+      tracks.some((t, i) => t !== mixRef.current.tracks[i]) ||
+      effects.some((e, i) => e !== trackEffects(mixRef.current, i)) ||
+      interpretation.some((v, i) => v !== trackInterpretation(mixRef.current, i));
     if (changedOrder) {
       mixRef.current = next;
       setMix(next);
@@ -706,7 +801,11 @@ export function ScoreWorkspace({
   const changeMix: MixerChange = (action, { commit } = { commit: true }) => {
     const next = mixerReducer(mixRef.current, action);
     mixRef.current = next;
-    score.tracks.forEach((t, i) => mixByTrack.current.set(t, next.tracks[i]!));
+    score.tracks.forEach((t, i) => {
+      mixByTrack.current.set(t, next.tracks[i]!);
+      effectsByTrack.current.set(t, trackEffects(next, i));
+      interpretationByTrack.current.set(t, trackInterpretation(next, i));
+    });
     setMix(next);
     if (commit) playerRef.current?.setMix(next);
   };
@@ -723,6 +822,47 @@ export function ScoreWorkspace({
 
   const playPause = () => playerRef.current?.playPause();
   useSpaceToPlay(playPause, ready && active);
+
+  // --- Effects and the native audio engine -------------------------------------
+
+  const changeAudioEngine = (kind: typeof audioEngine) => {
+    storeAudioEnginePreference(kind);
+    setEffectProblems({ tracks: [], master: [] });
+    setAudioEngine(kind);
+  };
+  const openPedalboard = (track: number | null, focus?: EffectType) => {
+    if (focus && track !== null) {
+      // The EQ button: the track gets an EQ if it has none (and there is room).
+      const current = trackEffects(mixRef.current, track);
+      const { chain, index } = withFocusBlock(current, focus, MAX_TRACK_EFFECTS);
+      if (index >= 0 && chain.length !== current.length) {
+        changeMix({ type: "effects", track, slots: chain });
+      }
+    }
+    setPedalboard((p) => ({ open: true, track, focus, session: p.session + 1 }));
+  };
+  const pedalboardTarget: PedalboardTarget =
+    pedalboard.track === null
+      ? { track: null, name: "Master", presetTarget: "master" }
+      : {
+          track: pedalboard.track,
+          name: summary.tracks[pedalboard.track]?.name ?? "Track",
+          presetTarget: presetTargetOf(summary.tracks[pedalboard.track] ?? track),
+        };
+  const drumKitEntries = useMemo(
+    () => kitEntries(track.kind === "drums" ? ownDrumKit(trackObject) : []),
+    // The kit changes with the track (and its articulations with edits).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [trackObject, track.kind, revision],
+  );
+  const pedalboardChain =
+    pedalboard.track === null ? (mix.masterEffects ?? []) : trackEffects(mix, pedalboard.track);
+  const changePedalboardChain = (slots: EffectSlot[]) =>
+    changeMix(
+      pedalboard.track === null
+        ? { type: "master-effects", slots }
+        : { type: "effects", track: pedalboard.track, slots },
+    );
 
   const toggleInstrumentView = () => {
     setInstrumentView((shown) => {
@@ -877,28 +1017,33 @@ export function ScoreWorkspace({
   // --- Print ----------------------------------------------------------------
 
   /** Prints the score: in the page layout, which is switched to for the time it takes. */
-  const submitPrint = (settings: PrintSettings) => {
+  const submitPrint = (settings: PrintSettings, tracks: PrintTracks) => {
     setPrintSettings(settings);
     storePrintSettings(settings);
-    const run = async () => {
+    const player = playerRef.current;
+    if (!player) return;
+    // The chosen tracks, in page layout at the print size; back to the screen view afterwards.
+    const restore = player.showForPrint(tracks, settings.scale);
+    let restored = false;
+    const back = () => {
+      if (restored) return;
+      restored = true;
+      restore();
+    };
+    window.addEventListener("afterprint", back, { once: true });
+    afterRender.current = async () => {
       const surface = surfaceRef.current;
       try {
-        // After a change of layout the parts of the score arrive a moment after the render.
+        // The parts of the score arrive a moment after the render.
         if (!surface || !(await whenDrawn(surface)) || !printScore(surface, settings)) {
           toast.error("There is nothing to print yet");
+          back();
         }
       } catch (error) {
         toast.error("Couldn't print", { description: errorText(error) });
+        back();
       }
     };
-    if (layout === "page") {
-      void run();
-      return;
-    }
-    const before = layout;
-    changeLayout("page");
-    window.addEventListener("afterprint", () => changeLayout(before), { once: true });
-    afterRender.current = () => void run();
   };
 
   // Ctrl/⌘+P prints the shown song.
@@ -1021,6 +1166,12 @@ export function ScoreWorkspace({
         break;
       case "export-ascii-tab":
         void fileActions.exportAs("ascii-tab");
+        break;
+      case "export-audio":
+        void fileActions.exportAudio();
+        break;
+      case "print":
+        setPrintOpen(true);
         break;
       case "transpose":
         setTransposeOpen(true);
@@ -1163,6 +1314,7 @@ export function ScoreWorkspace({
         barCount={score.masterBars.length}
         onPlayPause={playPause}
         onStop={() => playerRef.current?.stop()}
+        onTempo={() => setTempoOpen(true)}
         onSeekBar={(index) => playerRef.current?.seekToBar(index)}
         practice={
           <PracticeControls
@@ -1189,7 +1341,8 @@ export function ScoreWorkspace({
       />
       {tabs}
       <BarProblems problems={problems} onFix={() => fixBars()} onGoTo={goToBar} />
-      <div className="relative flex min-h-72 flex-1">
+      {/* Palette | score | inspector; below 1024 px the palette stacks above the score. */}
+      <div className="relative flex min-h-72 flex-1 max-lg:flex-col">
         <NotePalette editing={editing}>
           <EditToolbar
             beat={editor.beatInfo}
@@ -1237,6 +1390,13 @@ export function ScoreWorkspace({
                 editor.enterDrum(sound);
                 if (editing) focusScore();
               }}
+              drumKit={drumKitEntries}
+              cursorDrum={editing ? editor.cursor.pitch : null}
+              onReplaceDrum={(sound) => {
+                editor.replaceDrum(sound);
+                focusScore();
+              }}
+              onPreviewDrum={(sound) => playerRef.current?.previewDrum(sound)}
               scale={scale}
               defaultScaleRoot={keyTonic(keyBar?.keySignature ?? 0, keyBar?.keySignatureType ?? 0)}
               scalePickerRef={scalePickerRef}
@@ -1251,6 +1411,16 @@ export function ScoreWorkspace({
             className="flex min-h-0 w-72 shrink-0 flex-col border-l bg-sidebar text-sidebar-foreground max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 max-lg:shadow-xl"
           >
             <h2 className="sr-only">Inspector</h2>
+            {/* In narrow windows the inspector covers the score: it can be closed from here too. */}
+            <Button
+              variant="ghost"
+              size="xs"
+              className="self-end lg:hidden"
+              onClick={() => setInspectorOpen(false)}
+            >
+              <XIcon data-icon="inline-start" />
+              Close inspector
+            </Button>
             <Inspector
               tab={inspectorTab}
               onTabChange={setInspectorTab}
@@ -1280,7 +1450,17 @@ export function ScoreWorkspace({
                 onTranspose: () => setTransposeOpen(true),
                 onFixBars: () => fixBars(),
                 onTempo: () => setTempoOpen(true),
+                onEditEffects: () => openPedalboard(trackIndex),
               }}
+              audioEngine={audioEngine}
+              onAudioEngineChange={nativeEngineAvailable() ? changeAudioEngine : undefined}
+              effects={trackEffects(mix, trackIndex)}
+              effectProblems={effectProblems.tracks[trackIndex]?.length ?? 0}
+              onEffectsChange={(slots) => changeMix({ type: "effects", track: trackIndex, slots })}
+              interpretation={trackInterpretation(mix, trackIndex)}
+              onInterpretationChange={(value) =>
+                changeMix({ type: "interpretation", track: trackIndex, value })
+              }
             />
           </aside>
         )}
@@ -1299,8 +1479,39 @@ export function ScoreWorkspace({
           onSeekBar={(index) => playerRef.current?.seekToBar(index)}
           saved={saved}
           playing={playing}
+          onEqualizer={(index) => openPedalboard(index, "eq")}
+          onMasterEffects={() => openPedalboard(null)}
         />
       )}
+      <PedalboardDialog
+        key={pedalboard.session}
+        open={pedalboard.open}
+        onOpenChange={(open) => setPedalboard((p) => ({ ...p, open }))}
+        target={pedalboardTarget}
+        chain={pedalboardChain}
+        onChange={changePedalboardChain}
+        problems={
+          audioEngine !== "native"
+            ? []
+            : pedalboard.track === null
+              ? effectProblems.master
+              : (effectProblems.tracks[pedalboard.track] ?? [])
+        }
+        library={library.items}
+        onImport={(kind) => void library.importFile(kind)}
+        onManageLibrary={() => setLibraryOpen(true)}
+        engineOn={audioEngine === "native"}
+        onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
+        focusType={pedalboard.focus}
+      />
+      <SoundLibraryDialog
+        open={libraryOpen}
+        onOpenChange={setLibraryOpen}
+        items={library.items}
+        onImport={(kind) => void library.importFile(kind)}
+        onRename={(id, name, tags) => void library.rename(id, name, tags)}
+        onRemove={(id) => void library.remove(id)}
+      />
       <TrackDialog
         open={trackDialog !== null}
         onOpenChange={(open) => !open && setTrackDialog(null)}
@@ -1372,7 +1583,8 @@ export function ScoreWorkspace({
         open={printOpen}
         onOpenChange={setPrintOpen}
         initial={printSettings}
-        trackName={track.name}
+        trackNames={summary.tracks.map((t) => t.name)}
+        shownTrack={trackIndex}
         onSubmit={submitPrint}
         onCloseAutoFocus={returnFocusToScore}
       />

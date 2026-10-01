@@ -13,7 +13,15 @@ export interface PrintSettings {
   orientation: Orientation;
   /** Page margin in millimetres. */
   margin: number;
+  /** Size of the notation on paper (1 = 100%). */
+  scale: number;
 }
+
+/** Which tracks a print shows: indexes into the score's tracks. Not remembered (songs differ). */
+export type PrintTracks = number[];
+
+/** Notation sizes offered for printing. */
+export const PRINT_SCALES = [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
 
 export const PAPERS: { value: Paper; label: string; css: string }[] = [
   { value: "a4", label: "A4", css: "A4" },
@@ -23,7 +31,12 @@ export const PAPERS: { value: Paper; label: string; css: string }[] = [
 
 export const MARGINS = [5, 10, 15, 20, 25] as const;
 
-export const DEFAULT_PRINT: PrintSettings = { paper: "a4", orientation: "portrait", margin: 15 };
+export const DEFAULT_PRINT: PrintSettings = {
+  paper: "a4",
+  orientation: "portrait",
+  margin: 15,
+  scale: 0.9,
+};
 
 export const PRINT_STORAGE_KEY = "smart-beat:print";
 
@@ -45,6 +58,7 @@ export function readPrintSettings(): PrintSettings {
           ? value.orientation
           : DEFAULT_PRINT.orientation,
       margin: MARGINS.some((m) => m === value?.margin) ? value!.margin! : DEFAULT_PRINT.margin,
+      scale: PRINT_SCALES.some((s) => s === value?.scale) ? value!.scale! : DEFAULT_PRINT.scale,
     };
   } catch {
     return DEFAULT_PRINT;

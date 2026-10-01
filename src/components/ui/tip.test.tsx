@@ -133,4 +133,25 @@ describe("tooltips keep the on/off state of toggles", () => {
     await user.click(screen.getByRole("button"));
     expect(screen.getByRole("button")).toHaveAttribute("data-state", "on");
   });
+
+  it("explains a disabled button on hover", async () => {
+    const { user } = renderWithProviders(
+      <Button title="Nothing to undo" disabled>
+        <PlayIcon />
+      </Button>,
+    );
+    expect(screen.getByRole("button", { name: "Nothing to undo" })).toBeDisabled();
+    await user.hover(screen.getByRole("button").parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Nothing to undo");
+  });
+
+  it("explains a disabled toggle on hover", async () => {
+    const { user } = renderWithProviders(
+      <Toggle title="Automation (not available yet)" disabled>
+        A
+      </Toggle>,
+    );
+    await user.hover(screen.getByRole("button").parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("not available yet");
+  });
 });

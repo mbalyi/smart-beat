@@ -1,6 +1,6 @@
-import { LayoutMode, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
+import { LayoutMode, midi, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
 
-import { mixFromScore } from "@/lib/score/mixer";
+import { mixerReducer, mixFromScore } from "@/lib/score/mixer";
 import { cloneNote } from "@/lib/score/model";
 import {
   isSoundFont,
@@ -257,6 +257,18 @@ describe("ScorePlayer", () => {
     expect(api.changeTrackSolo).toHaveBeenCalledExactlyOnceWith([score.tracks[2]], true);
     expect(api.changeTrackMute).not.toHaveBeenCalled();
     expect(api.loadMidiForScore).not.toHaveBeenCalled();
+  });
+
+  it("regenerates the MIDI when a track's interpretation changes (it is in the MIDI)", async () => {
+    const { player, api, mix } = await readySetup();
+    player.setMix(
+      mixerReducer(mix, {
+        type: "interpretation",
+        track: 0,
+        value: { style: "fingers", palmMute: 0.5, accent: 0.5, letRing: false, brush: false },
+      }),
+    );
+    expect(api.loadMidiForScore).toHaveBeenCalledOnce();
   });
 
   it("applies volume, mute and solo instantly during playback, without reloading", async () => {
@@ -906,6 +918,22 @@ describe("ScorePlayer: cursor in sync with the sound", () => {
     vi.useRealTimers();
   });
 
+  it("delays alphaTab's scrolling by the latency while playing, not while paused", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { api, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+
+    api.uiFacade.scrollToY("view", 200, 0);
+    expect(api.scrolls).toEqual([["view", 200, 0]]); // paused: at once
+
+    setPlaying(true);
+    api.uiFacade.scrollToY("view", 400, 0);
+    vi.advanceTimersByTime(149);
+    expect(api.scrolls).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(api.scrolls.at(-1)).toEqual(["view", 400, 0]);
+  });
+
   it("uses its own cursor handler, which delays the cursor by the latency", async () => {
     const { api } = await setup();
     expect(api.customCursorHandler).toBeDefined();
@@ -1058,5 +1086,39 @@ describe("ScorePlayer: audio export", () => {
 
     await expect(player.renderAudio()).rejects.toThrow("out of memory");
     expect(api.exporterDestroyed).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ScorePlayer.previewDrum", () => {
+  it("plays one drum through the synthesizer once the sounds are loaded", async () => {
+    const { player, api } = await readySetup();
+    player.previewDrum(38);
+    const file = api.player.playOneTimeMidiFile.mock.calls[0]![0] as midi.MidiFile;
+    const on = file.events.find((e) => e instanceof midi.NoteOnEvent) as midi.NoteOnEvent;
+    expect([on.channel, on.noteKey]).toEqual([9, 38]);
+    player.previewDrum(91); // no sample for the rim shot: its stand-in
+    const second = api.player.playOneTimeMidiFile.mock.calls[1]![0] as midi.MidiFile;
+    expect((second.events[0] as midi.NoteOnEvent).noteKey).toBe(38);
+  });
+
+  it("stays silent while the sounds load", async () => {
+    const { player, api } = await setup();
+    player.previewDrum(38);
+    expect(api.player.playOneTimeMidiFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("ScorePlayer.showForPrint", () => {
+  it("draws the chosen tracks in page layout at the print size, then restores the view", async () => {
+    const { player, api, score } = await readySetup({ layout: "horizontal" });
+    api.settings.display.scale = 1.5;
+    const restore = player.showForPrint([0, 2], 0.8);
+    expect(api.settings.display.scale).toBe(0.8);
+    expect(api.settings.display.layoutMode).toBe(LayoutMode.Page);
+    expect(api.renderTracks).toHaveBeenLastCalledWith([score.tracks[0], score.tracks[2]]);
+    restore();
+    expect(api.settings.display.scale).toBe(1.5);
+    expect(api.settings.display.layoutMode).toBe(LayoutMode.Horizontal);
+    expect(api.renderTracks).toHaveBeenLastCalledWith([score.tracks[0]]);
   });
 });

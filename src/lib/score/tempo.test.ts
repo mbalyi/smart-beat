@@ -1,4 +1,4 @@
-import { applyTempo, beatRatio, clampTempo, tempoChangesOf } from "@/lib/score/tempo";
+import { applyTempo, beatRatio, clampTempo, tempoChangesOf, tempoMarkers } from "@/lib/score/tempo";
 import { tempoAt } from "@/lib/score/structure";
 import { createSong } from "@/lib/score/tracks";
 import { parseScore } from "@/lib/score/score";
@@ -152,5 +152,15 @@ describe("tempo changes of a real song", () => {
     applyTempo(score, { scope: "range", from: 1, to: 1, bpm: 90 });
 
     expect([0, 1, 2, 3].map((i) => tempoAt(score, i))).toEqual([60, 90, 120, 120]);
+  });
+});
+
+describe("tempoMarkers", () => {
+  it("lists the bars where the tempo is set, with the tempo", () => {
+    const { score } = parseScore(fixtureBytes("practice-song.gp"));
+    expect(tempoMarkers(score).map(({ bar, bpm }) => [bar, bpm])).toEqual([
+      [0, 60],
+      [2, 120],
+    ]);
   });
 });

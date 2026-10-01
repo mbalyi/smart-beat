@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
-import { ChevronDownIcon, GuitarIcon, SplineIcon, TypeIcon } from "lucide-react";
+import { ChevronDownIcon, Grid3x3Icon, GuitarIcon, SplineIcon, TypeIcon } from "lucide-react";
 import { model } from "@coderline/alphatab";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Toggle } from "@/components/ui/toggle";
+import { cn } from "@/lib/utils";
 import type { EffectsInfo } from "@/lib/score/editor";
 import {
   BEAT_EFFECTS,
@@ -100,6 +101,15 @@ function EffectRadios({
 }
 
 /** A toolbar button opening a menu of effects. */
+/** Short text of each menu's button in the compact palette (the full name is its label). */
+const MENU_SHORT: Record<string, string> = {
+  Slide: "sl",
+  Harmonic: "harm",
+  "Vibrato and trill": "vib",
+  Picking: "pick",
+  More: "•••",
+};
+
 function EffectMenu({
   label,
   active,
@@ -118,11 +128,15 @@ function EffectMenu({
         <Button
           variant="outline"
           size="sm"
-          className={active ? "border-sky-600 bg-sky-100 dark:bg-sky-900" : undefined}
+          className={cn(
+            "min-w-9 px-1.5 italic",
+            active && "border-sky-600 bg-sky-100 dark:bg-sky-900",
+          )}
           aria-label={active ? `${label} (on)` : label}
+          title={label}
         >
-          {label}
-          <ChevronDownIcon data-icon="inline-end" />
+          <span aria-hidden="true">{MENU_SHORT[label] ?? label}</span>
+          <ChevronDownIcon data-icon="inline-end" className="size-3" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -394,7 +408,7 @@ export function EffectsToolbar({
           )}
         </EffectMenu>
 
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {stringed && (
             <>
               <Button
@@ -406,7 +420,7 @@ export function EffectsToolbar({
                 className={effects.bend ? "border-sky-600 bg-sky-100 dark:bg-sky-900" : undefined}
               >
                 <SplineIcon data-icon="inline-start" />
-                Bend…
+                <span className="sr-only">Bend…</span>
               </Button>
               <Button
                 variant="outline"
@@ -417,16 +431,17 @@ export function EffectsToolbar({
                 className={effects.whammy ? "border-sky-600 bg-sky-100 dark:bg-sky-900" : undefined}
               >
                 <GuitarIcon data-icon="inline-start" />
-                Whammy…
+                <span className="sr-only">Whammy…</span>
               </Button>
             </>
           )}
           <Button variant="outline" size="sm" onClick={actions.onText} title="Text">
             <TypeIcon data-icon="inline-start" />
-            Text…
+            <span className="sr-only">Text…</span>
           </Button>
           <Button variant="outline" size="sm" onClick={actions.onChord} title="Chord">
-            Chord…
+            <Grid3x3Icon data-icon="inline-start" />
+            <span className="sr-only">Chord…</span>
           </Button>
         </div>
       </div>

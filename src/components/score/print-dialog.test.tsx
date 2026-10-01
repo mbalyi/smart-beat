@@ -13,7 +13,8 @@ function setup() {
       open
       onOpenChange={onOpenChange}
       initial={DEFAULT_PRINT}
-      trackName="Guitar"
+      trackNames={["Guitar", "Bass", "Drums"]}
+      shownTrack={0}
       onSubmit={onSubmit}
     />,
   );
@@ -47,13 +48,15 @@ describe("PrintDialog", () => {
     await user.click(await screen.findByRole("option", { name: "Landscape" }));
     await user.click(within(dialog).getByRole("combobox", { name: "Margins" }));
     await user.click(await screen.findByRole("option", { name: "10 mm" }));
+
+    await user.click(within(dialog).getByRole("combobox", { name: "Notation size" }));
+    await user.click(await screen.findByRole("option", { name: "125%" }));
     await user.click(within(dialog).getByRole("button", { name: "Print…" }));
 
-    expect(onSubmit).toHaveBeenCalledWith({
-      paper: "letter",
-      orientation: "landscape",
-      margin: 10,
-    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      { paper: "letter", orientation: "landscape", margin: 10, scale: 1.25 },
+      [0],
+    );
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -62,5 +65,24 @@ describe("PrintDialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(onSubmit).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("prints all tracks, or the chosen ones", async () => {
+    const { user, dialog, onSubmit } = setup();
+    await user.click(within(dialog).getByRole("radio", { name: /All 3 tracks/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+    expect(onSubmit).toHaveBeenLastCalledWith(DEFAULT_PRINT, [0, 1, 2]);
+  });
+
+  it("needs at least one chosen track", async () => {
+    const { user, dialog, onSubmit } = setup();
+    await user.click(within(dialog).getByRole("radio", { name: "Choose tracks…" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "Guitar" }));
+    expect(within(dialog).getByRole("button", { name: "Print…" })).toBeDisabled();
+    await user.click(within(dialog).getByRole("checkbox", { name: "Drums" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "Bass" }));
+    await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+    expect(onSubmit).toHaveBeenLastCalledWith(DEFAULT_PRINT, [1, 2]);
+    await expectNoA11yViolations();
   });
 });

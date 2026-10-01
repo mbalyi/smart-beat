@@ -143,10 +143,32 @@ describe("TrackList", () => {
     expect(onSeekBar).toHaveBeenCalledWith(2);
   });
 
-  it("keeps the equaliser and automation switches off until they work", () => {
+  it("marks the tempo changes above the bar grid", () => {
     setup();
-    expect(screen.getByRole("button", { name: /^Equaliser for Guitar/ })).toBeDisabled();
+    const markers = screen.getByTestId("tempo-markers");
+    expect(markers).toHaveTextContent("♩60");
+    expect(markers).toHaveTextContent("♩120");
+  });
+
+  it("keeps automation off until it works", () => {
+    setup();
     expect(screen.getByRole("button", { name: /^Automation for Guitar/ })).toBeDisabled();
+  });
+
+  it("opens a track's equaliser and the master effects", async () => {
+    const onEqualizer = vi.fn();
+    const onMasterEffects = vi.fn();
+    const { user } = setup({ onEqualizer, onMasterEffects });
+    await user.click(screen.getByRole("button", { name: "Equaliser and effects for Guitar" }));
+    expect(onEqualizer).toHaveBeenCalledWith(0);
+    await user.click(screen.getByRole("button", { name: "Master effects" }));
+    expect(onMasterEffects).toHaveBeenCalled();
+  });
+
+  it("disables the effect buttons where effects cannot be edited", () => {
+    setup();
+    expect(screen.getByRole("button", { name: "Equaliser and effects for Guitar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Master effects" })).toBeDisabled();
   });
 
   it("says whether the mix is saved and when pan waits for a pause", () => {

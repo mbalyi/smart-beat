@@ -364,29 +364,35 @@ describe("ScoreWorkspace", () => {
       expect(dialog).toHaveTextContent("“Guitar”");
       await user.click(within(dialog).getByRole("button", { name: "Print…" }));
 
-      await waitFor(() => expect(print).toHaveBeenCalledOnce());
-      expect(player.setLayout).not.toHaveBeenCalled(); // already the page layout
-      fireEvent(window, new Event("afterprint"));
-      expect(document.getElementById("print-root")).toBeNull();
-      expect(JSON.parse(localStorage.getItem("smart-beat:print")!)).toMatchObject({ paper: "a4" });
-    });
-
-    it("switches the continuous layout to pages for printing and back afterwards", async () => {
-      const print = vi.spyOn(window, "print").mockImplementation(() => {});
-      const { user, player } = await setup();
-      draw(player.options.element);
-      await user.click(screen.getByRole("radio", { name: "Continuous" }));
-      player.setLayout.mockClear();
-
-      const dialog = await openPrintDialog(user);
-      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
-
-      expect(player.setLayout).toHaveBeenCalledWith("page");
-      expect(print).not.toHaveBeenCalled(); // waits until the pages are drawn
+      // The shown track at the print size, then the print once it is drawn.
+      expect(player.showForPrint).toHaveBeenCalledWith([0], 0.9);
+      expect(print).not.toHaveBeenCalled();
       player.emit("onRendered");
       await waitFor(() => expect(print).toHaveBeenCalledOnce());
       fireEvent(window, new Event("afterprint"));
-      expect(player.setLayout).toHaveBeenLastCalledWith("horizontal");
+      expect(document.getElementById("print-root")).toBeNull();
+      expect(player.restoreAfterPrint).toHaveBeenCalledOnce();
+      expect(JSON.parse(localStorage.getItem("smart-beat:print")!)).toMatchObject({ paper: "a4" });
+    });
+
+    it("prints all tracks together at the chosen size, and puts the view back afterwards", async () => {
+      const print = vi.spyOn(window, "print").mockImplementation(() => {});
+      const { user, player } = await setup();
+      draw(player.options.element);
+
+      const dialog = await openPrintDialog(user);
+      await user.click(within(dialog).getByRole("radio", { name: /^All \d+ tracks/ }));
+      await user.click(within(dialog).getByRole("combobox", { name: "Notation size" }));
+      await user.click(await screen.findByRole("option", { name: "70%" }));
+      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+
+      const [tracks, scale] = player.showForPrint.mock.calls[0]!;
+      expect(tracks.length).toBeGreaterThan(1);
+      expect(scale).toBe(0.7);
+      player.emit("onRendered");
+      await waitFor(() => expect(print).toHaveBeenCalledOnce());
+      fireEvent(window, new Event("afterprint"));
+      expect(player.restoreAfterPrint).toHaveBeenCalledOnce();
     });
 
     it("says when nothing is drawn yet", async () => {
@@ -395,11 +401,13 @@ describe("ScoreWorkspace", () => {
 
       const dialog = await openPrintDialog(user);
       await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+      FakeScorePlayer.last.emit("onRendered");
 
       expect(
         await screen.findByText("There is nothing to print yet", {}, { timeout: 5_000 }),
       ).toBeInTheDocument();
       expect(print).not.toHaveBeenCalled();
+      expect(FakeScorePlayer.last.restoreAfterPrint).toHaveBeenCalled();
     });
 
     it("reports a print dialog that could not be opened", async () => {
@@ -411,6 +419,7 @@ describe("ScoreWorkspace", () => {
 
       const dialog = await openPrintDialog(user);
       await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+      player.emit("onRendered");
 
       expect(await screen.findByText("Couldn't print")).toBeInTheDocument();
       expect(screen.getByText("No printer is available")).toBeInTheDocument();

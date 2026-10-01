@@ -21,6 +21,9 @@ pub enum ErrorKind {
     InvalidSettings,
     /// A menu state the UI sent that can't be shown (e.g. an overlong label).
     InvalidMenuState,
+    /// The audio engine or the sound library refused a request (no output
+    /// device, a bad SoundFont, an unusable amp model or impulse response).
+    Audio,
     /// Any other I/O failure.
     Io,
 }

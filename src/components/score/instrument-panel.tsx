@@ -15,6 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { VirtualDrumkit } from "@/components/score/virtual-drumkit";
 import type { NoteInfo } from "@/lib/score/editor";
 import {
   drumPads,
@@ -25,6 +27,7 @@ import {
   instrumentViewName,
   isBlackKey,
   keyboardRange,
+  type KitEntry,
 } from "@/lib/score/instrument-view";
 import { pitchName, tuningName, type TrackKind } from "@/lib/score/music";
 import {
@@ -170,12 +173,22 @@ function Fretboard({
           .join(", ");
   const scaleSummary = scale ? `. Scale: ${describeScale(scale, { spoken: true })}` : "";
   const flats = scale ? scalePrefersFlats(scale) : false;
+  /** The fret under the mouse or the keyboard focus, shown above the board (one shared tooltip). */
+  const [hint, setHint] = useState<string | null>(null);
 
   return (
     <div className="flex flex-col gap-1">
-      <p className="text-xs text-muted-foreground">
-        {name ?? "Custom tuning"}: {strings.map((s) => s.label).join(" ")}
-        {capo > 0 && ` · Capo ${capo}`}
+      <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+        <span>
+          {name ?? "Custom tuning"}: {strings.map((s) => s.label).join(" ")}
+          {capo > 0 && ` · Capo ${capo}`}
+        </span>
+        {editing && (
+          // The buttons have the same text as their names: screen readers need no copy.
+          <span aria-hidden="true" data-testid="fret-hint" className="font-medium text-foreground">
+            {hint ?? "Point at a fret to see its note"}
+          </span>
+        )}
       </p>
       <div
         ref={boardRef}
@@ -255,7 +268,9 @@ function Fretboard({
                   tabIndex={focus.string === s.string && focus.fret === fret ? 0 : -1}
                   aria-label={label}
                   aria-pressed={on}
-                  title={`String ${s.number}, ${label.toLowerCase()}`}
+                  onMouseEnter={() => setHint(`String ${s.number}, ${label.toLowerCase()}`)}
+                  onFocus={() => setHint(`String ${s.number}, ${label.toLowerCase()}`)}
+                  onMouseLeave={() => setHint(null)}
                   onClick={() => {
                     setFocus({ string: s.string, fret });
                     onFret(s.string, fret);
@@ -484,6 +499,10 @@ export function InstrumentPanel({
   onFret,
   onPitch,
   onDrum,
+  drumKit = [],
+  cursorDrum = null,
+  onReplaceDrum,
+  onPreviewDrum,
 }: {
   kind: TrackKind;
   tuning: number[];
@@ -501,8 +520,15 @@ export function InstrumentPanel({
   onFret: (string: number, fretFromNut: number) => void;
   onPitch: (pitch: number) => void;
   onDrum: (sound: number) => void;
+  /** Drums: every articulation the Virtual Drumkit lists. */
+  drumKit?: KitEntry[];
+  /** Drums: the drum under the edit cursor. */
+  cursorDrum?: number | null;
+  onReplaceDrum?: (sound: number) => void;
+  onPreviewDrum?: (sound: number) => void;
 }) {
   const name = instrumentViewName(kind);
+  const [drumView, setDrumView] = useState<"pads" | "kit">("pads");
   const shownScale = kind === "drums" ? null : scale;
   /** Clicks on the keys, frets and pads must not move the keyboard focus out of the score (typing and arrows continue there). */
   const keepFocus = (event: MouseEvent<HTMLElement>) => {
@@ -540,7 +566,34 @@ export function InstrumentPanel({
           onFret={onFret}
         />
       ) : kind === "drums" ? (
-        <DrumPads active={active} editing={editing} used={drumSounds} onDrum={onDrum} />
+        <div className="flex flex-col gap-2">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-label="Drum view"
+            value={drumView}
+            onValueChange={(value) => value && setDrumView(value === "kit" ? "kit" : "pads")}
+            className="self-start"
+          >
+            <ToggleGroupItem value="pads">Pads</ToggleGroupItem>
+            <ToggleGroupItem value="kit">Virtual drumkit</ToggleGroupItem>
+          </ToggleGroup>
+          {drumView === "pads" ? (
+            <DrumPads active={active} editing={editing} used={drumSounds} onDrum={onDrum} />
+          ) : (
+            <VirtualDrumkit
+              kit={drumKit}
+              active={active.map((n) => n.pitch)}
+              cursorSound={cursorDrum}
+              editing={editing}
+              onInsert={onDrum}
+              onReplace={onReplaceDrum ?? onDrum}
+              onPreview={onPreviewDrum ?? (() => {})}
+            />
+          )}
+        </div>
       ) : (
         <PianoKeyboard active={active} editing={editing} scale={shownScale} onPitch={onPitch} />
       )}

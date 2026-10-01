@@ -80,6 +80,7 @@ export function LcdDisplay({
   barCount,
   ready,
   onSeekBar,
+  onTempo,
 }: {
   tracks: TrackSummary[];
   trackIndex: number;
@@ -89,6 +90,8 @@ export function LcdDisplay({
   barCount: number;
   ready: boolean;
   onSeekBar: (barIndex: number) => void;
+  /** Opens the tempo dialog (a click on the tempo, as in Guitar Pro). */
+  onTempo?: () => void;
 }) {
   const trackLabelId = useId();
 
@@ -137,9 +140,19 @@ export function LcdDisplay({
         >
           {formatTime(position.currentMs)} / {formatTime(position.endMs)}
         </span>
-        {position.bpm > 0 && (
-          <span className="text-lcd-muted tabular-nums">♩ = {position.bpm} BPM</span>
-        )}
+        {position.bpm > 0 &&
+          (onTempo ? (
+            <button
+              type="button"
+              onClick={onTempo}
+              aria-label={`Tempo ${position.bpm} BPM. Change the tempo…`}
+              className="rounded px-1 text-lcd-muted tabular-nums outline-none hover:bg-white/10 hover:text-lcd-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              ♩ = {position.bpm} BPM
+            </button>
+          ) : (
+            <span className="text-lcd-muted tabular-nums">♩ = {position.bpm} BPM</span>
+          ))}
       </div>
     </div>
   );

@@ -68,6 +68,22 @@ describe("loading songs", () => {
     expect(loaded.warnings).toEqual([]);
   });
 
+  it("opens a Capella file (synthetic fixture): staves, tempo, key, tuplets, repeats, ties", async () => {
+    const loaded = await loadSong(fixtureBytes("practice-song.capx"), "practice-song.capx");
+    const { score } = loaded;
+    expect(loaded.converted).toBe(true);
+    expect(score.tracks.map((t) => t.name)).toEqual(["Guitar", "Bass"]);
+    expect(score.masterBars).toHaveLength(2);
+    expect(score.masterBars[1]!.isRepeatStart).toBe(true);
+    expect(score.masterBars[0]!.tempoAutomations[0]?.value).toBe(100);
+    const guitar = score.tracks[0]!.staves[0]!.bars;
+    expect(guitar[0]!.keySignature).toBe(1);
+    expect(guitar[0]!.voices[0]!.beats.map((b) => b.notes.length)).toEqual([1, 2, 1, 1, 1, 0]);
+    expect(guitar[0]!.voices[0]!.beats.filter((b) => b.tupletNumerator === 3)).toHaveLength(3);
+    expect(guitar[1]!.voices[0]!.beats[1]!.notes[0]!.isTieDestination).toBe(true);
+    expect(score.tracks[1]!.staves[0]!.bars.map((b) => b.voices[0]!.beats.length)).toEqual([1, 1]);
+  });
+
   it("opens text tab by its .txt name, with the warnings of the guess", async () => {
     const tab = new TextEncoder().encode(
       [

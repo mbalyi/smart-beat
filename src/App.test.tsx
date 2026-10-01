@@ -128,7 +128,8 @@ describe("App", () => {
     await menu("open");
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+      // Opening parses the file and builds the workspace: slower when the suite runs in parallel.
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }, { timeout: 5_000 }),
     ).toBeInTheDocument();
     expect(calls).toContainEqual(expect.objectContaining({ cmd: "plugin:dialog|open" }));
     expect(calls).toContainEqual({ cmd: "read_score_file", args: { path: SONG } });

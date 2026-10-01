@@ -22,6 +22,7 @@ import {
   type Track,
 } from "@/lib/score/model";
 import { MAX_FRET } from "@/lib/score/music";
+import { realStaves } from "@/lib/score/drum-tab";
 
 /** Highest MIDI pitch. */
 const MAX_PITCH = 127;
@@ -85,7 +86,7 @@ export function findPosition(
 
 /** All beats of a track (every voice). */
 function trackBeats(track: Track): Beat[] {
-  return track.staves.flatMap((staff) =>
+  return realStaves(track).flatMap((staff) =>
     staff.bars.flatMap((bar) => bar.voices.flatMap((voice) => voice.beats)),
   );
 }

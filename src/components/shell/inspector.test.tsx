@@ -1,6 +1,7 @@
 import { screen, within } from "@testing-library/react";
 
 import { Inspector, type InspectorActions, type SongInfo } from "@/components/shell/inspector";
+import { DEFAULT_INTERPRETATION } from "@/lib/score/interpretation";
 import { DEFAULT_SOUNDFONT } from "@/lib/score/soundfonts";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -22,6 +23,7 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     onTranspose: vi.fn(),
     onFixBars: vi.fn(),
     onTempo: vi.fn(),
+    onEditEffects: vi.fn(),
   };
   const props = {
     tab: "track" as const,
@@ -37,6 +39,12 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     syncOffset: 0,
     onSyncOffsetChange: vi.fn(),
     actions,
+    audioEngine: "alphatab" as const,
+    effects: [],
+    effectProblems: 0,
+    onEffectsChange: vi.fn(),
+    interpretation: DEFAULT_INTERPRETATION,
+    onInterpretationChange: vi.fn(),
     ...overrides,
   };
   return { ...renderWithProviders(<Inspector {...props} />), ...props };
@@ -81,12 +89,20 @@ describe("Inspector: TRACK tab", () => {
     expect(screen.queryByText("Tuning")).not.toBeInTheDocument();
   });
 
-  it("explains why drum tracks have no tab view", () => {
+  it("offers the drum tab for drum tracks and says how it is written", () => {
     setup({
-      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false },
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
       view: { notation: "score", rhythm: false },
     });
-    expect(screen.getByText(/Drum tracks are shown as a score/)).toBeInTheDocument();
+    expect(screen.getByText(/each hit as its drum number/)).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Tablature" })).toBeEnabled();
+  });
+
+  it("keeps the tab switches off for keyboards", () => {
+    setup({
+      track: { ...SUMMARY.tracks[3]!, kind: "pitched", hasTablature: false, canShowTab: false },
+      view: { notation: "score", rhythm: false },
+    });
     expect(screen.getByRole("switch", { name: "Tablature" })).toBeDisabled();
   });
 
@@ -150,5 +166,89 @@ describe("Inspector: SONG tab", () => {
     setup({ tab: "song", song: { ...SONG, title: "", artist: "" } });
     expect(screen.getAllByText("practice-song.gp")).not.toHaveLength(0);
     expect(screen.getByText("—")).toBeInTheDocument();
+  });
+});
+
+describe("Inspector: effects", () => {
+  it("shows the track's chain, switches blocks and opens the pedalboard", async () => {
+    const { user, onEffectsChange, actions } = setup({
+      effects: [
+        {
+          type: "gate",
+          enabled: true,
+          thresholdDb: -50,
+          rangeDb: -80,
+          attackMs: 0.5,
+          holdMs: 20,
+          releaseMs: 60,
+        },
+        { type: "cab", enabled: true, ir: "builtin:4x12-modern" },
+      ],
+    });
+    const chain = screen.getByTestId("mini-chain");
+    expect(within(chain).getAllByRole("listitem")).toHaveLength(2);
+    await user.click(within(chain).getByRole("switch", { name: "Cabinet 2 on" }));
+    expect(onEffectsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ type: "gate", enabled: true }),
+      expect.objectContaining({ type: "cab", enabled: false }),
+    ]);
+    await user.click(screen.getByRole("button", { name: "Pedalboard…" }));
+    expect(actions.onEditEffects).toHaveBeenCalled();
+    await expectNoA11yViolations();
+  });
+
+  it("offers the native engine only where it exists, and reports blocks that cannot play", async () => {
+    const onAudioEngineChange = vi.fn();
+    const { user } = setup({
+      onAudioEngineChange,
+      audioEngine: "native",
+      effects: [{ type: "amp", enabled: true, model: "gone", inputDb: 0, outputDb: 0 }],
+      effectProblems: 1,
+    });
+    expect(screen.getByText(/One effect cannot play/)).toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Native engine with effects" }));
+    expect(onAudioEngineChange).toHaveBeenCalledWith("alphatab");
+  });
+
+  it("hides the engine switch in a browser", () => {
+    setup();
+    expect(
+      screen.queryByRole("switch", { name: "Native engine with effects" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/No effects/)).toBeInTheDocument();
+  });
+});
+
+describe("Inspector: interpretation", () => {
+  it("sets the playing style, palm mute and accent strength, let ring and brush", async () => {
+    const onInterpretationChange = vi.fn();
+    const { user } = setup({ onInterpretationChange });
+    await user.click(screen.getByRole("combobox", { name: "Playing style" }));
+    await user.click(screen.getByRole("option", { name: "Fingers" }));
+    expect(onInterpretationChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ style: "fingers" }),
+    );
+    screen.getByRole("slider", { name: "Palm mute strength" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(onInterpretationChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ palmMute: 0.55 }),
+    );
+    await user.click(screen.getByRole("switch", { name: "Auto let ring" }));
+    expect(onInterpretationChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ letRing: true }),
+    );
+    await user.click(screen.getByRole("switch", { name: "Auto brush (strum chords)" }));
+    expect(onInterpretationChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ brush: true }),
+    );
+    await expectNoA11yViolations();
+  });
+
+  it("explains that drums play as written", () => {
+    setup({
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
+    });
+    expect(screen.getByText(/Drums play as written/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Playing style" })).not.toBeInTheDocument();
   });
 });

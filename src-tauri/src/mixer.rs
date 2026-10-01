@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::audio::chain::{EffectSlot, MAX_MASTER_EFFECTS, MAX_TRACK_EFFECTS};
 use crate::error::{CommandError, ErrorKind};
 
 /// Current settings format. Files with another version are ignored.
@@ -28,6 +29,37 @@ pub struct MixerSettings {
     pub master: f64,
     /// One entry per track, in score order.
     pub tracks: Vec<TrackMix>,
+    /// Effect chain of each track, in score order (missing: no effects).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Vec<EffectSlot>>,
+    /// Effect chain of the master bus.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub master_effects: Vec<EffectSlot>,
+    /// How each track is played back (style, palm mute, accents, let ring, brush).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interpretation: Vec<Interpretation>,
+}
+
+/// Playing style of a track. Mirrored by `PlayingStyle` in `src/lib/score/interpretation.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayingStyle {
+    Pick,
+    Fingers,
+    Slap,
+}
+
+/// How a track is played back. Mirrored by `Interpretation` in `src/lib/score/interpretation.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Interpretation {
+    pub style: PlayingStyle,
+    /// 0.0 … 1.0.
+    pub palm_mute: f64,
+    /// 0.0 … 1.0.
+    pub accent: f64,
+    pub let_ring: bool,
+    pub brush: bool,
 }
 
 /// Mixer state of one track.
@@ -53,6 +85,29 @@ impl MixerSettings {
         }
         if !in_range(self.master, 0.0, 1.0) {
             return Err("master volume must be between 0 and 1".into());
+        }
+        if self.effects.len() > self.tracks.len() {
+            return Err("more effect chains than tracks".into());
+        }
+        if let Some(index) = self
+            .effects
+            .iter()
+            .position(|c| c.len() > MAX_TRACK_EFFECTS)
+        {
+            return Err(format!(
+                "track {index}: more than {MAX_TRACK_EFFECTS} effects"
+            ));
+        }
+        if self.master_effects.len() > MAX_MASTER_EFFECTS {
+            return Err(format!("more than {MAX_MASTER_EFFECTS} master effects"));
+        }
+        if self.interpretation.len() > self.tracks.len() {
+            return Err("more interpretations than tracks".into());
+        }
+        for (index, i) in self.interpretation.iter().enumerate() {
+            if !in_range(i.palm_mute, 0.0, 1.0) || !in_range(i.accent, 0.0, 1.0) {
+                return Err(format!("track {index}: interpretation out of range"));
+            }
         }
         for (index, track) in self.tracks.iter().enumerate() {
             if !in_range(track.volume, 0.0, 1.0) {
@@ -190,6 +245,9 @@ mod tests {
                     solo: false,
                 },
             ],
+            effects: Vec::new(),
+            master_effects: Vec::new(),
+            interpretation: Vec::new(),
         }
     }
 
@@ -201,6 +259,70 @@ mod tests {
             ..settings()
         };
         assert_eq!(empty.validate(), Ok(()));
+    }
+
+    #[test]
+    fn stores_effect_chains_and_reads_files_without_them() {
+        use crate::audio::chain::{EffectConfig, EffectSlot};
+        use crate::audio::dsp::gate::GateParams;
+        let gate = EffectSlot {
+            enabled: true,
+            effect: EffectConfig::Gate(GateParams::default()),
+        };
+        let with_effects = MixerSettings {
+            effects: vec![vec![gate.clone()], vec![]],
+            master_effects: vec![gate.clone()],
+            ..settings()
+        };
+        assert_eq!(with_effects.validate(), Ok(()));
+        let json = serde_json::to_string(&with_effects).unwrap();
+        assert!(json.contains(r#""masterEffects":[{"#));
+        assert_eq!(
+            serde_json::from_str::<MixerSettings>(&json).unwrap(),
+            with_effects
+        );
+        // Files written before effects existed still load.
+        let old: MixerSettings =
+            serde_json::from_str(r#"{"version":1,"master":1,"tracks":[]}"#).unwrap();
+        assert!(old.effects.is_empty() && old.master_effects.is_empty());
+        // Limits.
+        let too_many = MixerSettings {
+            master_effects: vec![gate.clone(); 4],
+            ..settings()
+        };
+        assert!(too_many.validate().unwrap_err().contains("master effects"));
+        let long_chain = MixerSettings {
+            effects: vec![vec![gate; 7]],
+            ..settings()
+        };
+        assert!(long_chain.validate().unwrap_err().contains("track 0"));
+    }
+
+    #[test]
+    fn stores_the_interpretation_of_tracks() {
+        let style = Interpretation {
+            style: PlayingStyle::Fingers,
+            palm_mute: 0.8,
+            accent: 0.2,
+            let_ring: true,
+            brush: false,
+        };
+        let with = MixerSettings {
+            interpretation: vec![style],
+            ..settings()
+        };
+        assert_eq!(with.validate(), Ok(()));
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains(r#""style":"fingers""#) && json.contains(r#""letRing":true"#));
+        assert_eq!(serde_json::from_str::<MixerSettings>(&json).unwrap(), with);
+        let bad = MixerSettings {
+            interpretation: vec![Interpretation {
+                accent: 2.0,
+                ..style
+            }],
+            ..settings()
+        };
+        assert!(bad.validate().unwrap_err().contains("interpretation"));
     }
 
     #[test]

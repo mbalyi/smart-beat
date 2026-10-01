@@ -10,6 +10,7 @@ import { writeMidi } from "@/lib/export/midi";
 import { writeMusicXml } from "@/lib/export/musicxml";
 import type { Score } from "@/lib/score/model";
 import type { MixerSettings } from "@/lib/tauri";
+import { withoutDrumTabs } from "@/lib/score/drum-tab";
 
 export type ExportFormat = "gp" | "gp5" | "musicxml" | "midi" | "ascii-tab";
 
@@ -77,6 +78,11 @@ export function exportScore(
   format: ExportFormat,
   mix: MixerSettings | null = null,
 ): ExportResult {
+  // The drum tab's mirror staff is only for the screen.
+  return withoutDrumTabs(score, () => buildFile(score, format, mix));
+}
+
+function buildFile(score: Score, format: ExportFormat, mix: MixerSettings | null): ExportResult {
   return withMix(score, mix, (): ExportResult => {
     switch (format) {
       case "gp":

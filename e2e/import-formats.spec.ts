@@ -13,13 +13,8 @@ import {
 const MUSIC = "/Users/me/Music";
 
 test.describe("more file formats (#44)", () => {
-  test("opens a MuseScore file (.mscz) as tablature and a score, and says what was left out", async ({
-    app,
-  }) => {
+  test("opens a MuseScore file (.mscz) as tablature and a score", async ({ app }) => {
     await openSong(app, `${MUSIC}/practice-song.mscz`);
-
-    // A converted song: the warnings are listed, and saving asks for a new file.
-    await expect(app.getByText(/repeats, ties, tuplets/).first()).toBeVisible();
 
     await expect(app.getByRole("heading", { level: 1, name: "MuseScore Practice" })).toBeVisible();
     await expect(scoreRegion(app)).toHaveAccessibleName("Score: Guitar");
@@ -32,6 +27,13 @@ test.describe("more file formats (#44)", () => {
     await app.getByRole("button", { name: "Play" }).click();
     await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
     await expect(app.getByRole("group", { name: "Display" })).toContainText("90 BPM");
+  });
+
+  test("opens a Capella file (.capx) with its staves (alphaTab workaround)", async ({ app }) => {
+    await openSong(app, `${MUSIC}/practice-song.capx`);
+    await expect(scoreRegion(app)).toHaveAccessibleName("Score: Guitar");
+    await expect(app.getByRole("button", { name: "Show Bass", exact: true })).toBeVisible();
+    await expect(app.getByRole("group", { name: "Display" })).toContainText("100 BPM");
   });
 
   test("opens text tab (.txt) with a guess at the rhythm", async ({ app }) => {

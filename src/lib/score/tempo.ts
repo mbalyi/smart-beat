@@ -124,3 +124,11 @@ export function tempoChangesOf(
     .map((a) => ({ ratio: a.ratioPosition, bpm: a.value, label: a.text }))
     .sort((a, b) => a.ratio - b.ratio);
 }
+
+/** Every bar where the tempo is set (the start included), with the first tempo set there. */
+export function tempoMarkers(score: Score): { bar: number; bpm: number; label: string }[] {
+  return score.masterBars.flatMap((masterBar, bar) => {
+    const first = tempoChangesOf(masterBar)[0];
+    return first ? [{ bar, bpm: Math.round(first.bpm), label: first.label }] : [];
+  });
+}

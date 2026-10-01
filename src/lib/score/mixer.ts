@@ -1,4 +1,13 @@
-/** Mixer state: master volume plus volume, pan, mute and solo per track. */
+/**
+ * Mixer state: master volume plus volume, pan, mute and solo per track, and
+ * the effect chains of the tracks and the master (native audio engine).
+ */
+import type { EffectSlot } from "@/lib/audio/effects";
+import {
+  DEFAULT_INTERPRETATION,
+  normalizeInterpretation,
+  type Interpretation,
+} from "@/lib/score/interpretation";
 import type { ScoreSummary } from "@/lib/score/score";
 import { MIXER_SETTINGS_VERSION, type MixerSettings, type TrackMix } from "@/lib/tauri";
 
@@ -11,6 +20,10 @@ export type MixerAction =
   | { type: "pan"; track: number; value: number }
   | { type: "mute"; track: number; value: boolean }
   | { type: "solo"; track: number; value: boolean }
+  | { type: "effects"; track: number; slots: EffectSlot[] }
+  | { type: "master-effects"; slots: EffectSlot[] }
+  | { type: "interpretation"; track: number; value: Interpretation }
+  /** Volumes, pans, mute and solo back to the file's; effects stay. */
   | { type: "reset"; mix: MixerSettings };
 
 /** The mix saved in the song file. */
@@ -56,10 +69,43 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
       return updateTrack(mix, action.track, { mute: action.value });
     case "solo":
       return updateTrack(mix, action.track, { solo: action.value });
+    case "effects": {
+      if (!mix.tracks[action.track]) return mix;
+      const effects = mix.tracks.map((_, i) =>
+        i === action.track ? action.slots : (mix.effects?.[i] ?? []),
+      );
+      return { ...mix, effects };
+    }
+    case "master-effects":
+      return { ...mix, masterEffects: action.slots };
+    case "interpretation": {
+      if (!mix.tracks[action.track]) return mix;
+      const interpretation = mix.tracks.map((_, i) =>
+        i === action.track ? normalizeInterpretation(action.value) : trackInterpretation(mix, i),
+      );
+      return { ...mix, interpretation };
+    }
     case "reset":
-      return action.mix;
+      return {
+        ...action.mix,
+        effects: mix.effects,
+        masterEffects: mix.masterEffects,
+        interpretation: mix.interpretation,
+      };
   }
 }
+
+/** How a track is played back (the defaults if nothing was set). */
+export const trackInterpretation = (mix: MixerSettings, track: number): Interpretation =>
+  mix.interpretation?.[track] ?? DEFAULT_INTERPRETATION;
+
+/** A track's effect chain (empty if it has none). */
+export const trackEffects = (mix: MixerSettings, track: number): EffectSlot[] =>
+  mix.effects?.[track] ?? [];
+
+/** The chain of every track, one per track (for the engine). */
+export const allTrackEffects = (mix: MixerSettings): EffectSlot[][] =>
+  mix.tracks.map((_, i) => trackEffects(mix, i));
 
 /** Whether a track is heard: not muted, and soloed if any track is. */
 export function isAudible(mix: MixerSettings, index: number): boolean {
