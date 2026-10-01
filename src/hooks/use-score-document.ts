@@ -128,7 +128,11 @@ export function useScoreDocuments() {
           mix: initialMix(summary, saved),
         });
         if (warnings.length > 0) {
-          toast.warning(`“${name}” was converted`, { description: warnings.join(" ") });
+          // Long enough to read what was left out.
+          toast.warning(`“${name}” was converted`, {
+            description: warnings.join(" "),
+            duration: 12_000,
+          });
         }
         if (path) await rememberRecent(path, true, () => setRecentsVersion((v) => v + 1));
       } catch (error) {

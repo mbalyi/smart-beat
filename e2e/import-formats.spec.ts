@@ -18,12 +18,13 @@ test.describe("more file formats (#44)", () => {
   }) => {
     await openSong(app, `${MUSIC}/practice-song.mscz`);
 
+    // A converted song: the warnings are listed, and saving asks for a new file.
+    await expect(app.getByText(/repeats, ties, tuplets/).first()).toBeVisible();
+
     await expect(app.getByRole("heading", { level: 1, name: "MuseScore Practice" })).toBeVisible();
     await expect(scoreRegion(app)).toHaveAccessibleName("Score: Guitar");
     expect(await tabNumbers(app)).toEqual(expect.arrayContaining(["0", "2"]));
     await expect(app.getByRole("button", { name: "Show Piano", exact: true })).toBeVisible();
-    // A converted song: the warnings are listed, and saving asks for a new file.
-    await expect(app.getByText(/repeats, ties, tuplets/).first()).toBeVisible();
   });
 
   test("opens a plain MuseScore file (.mscx) and plays it", async ({ app }) => {
