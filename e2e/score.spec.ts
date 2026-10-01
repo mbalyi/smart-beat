@@ -42,17 +42,37 @@ test.describe("opening Guitar Pro files (#4)", () => {
     expect(dialog?.args).toMatchObject({
       options: {
         filters: [
-          { extensions: ["gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml"] },
+          {
+            extensions: [
+              "gp3",
+              "gp4",
+              "gp5",
+              "gpx",
+              "gp",
+              "mid",
+              "midi",
+              "musicxml",
+              "xml",
+              "mscx",
+              "mscz",
+              "atex",
+              "capx",
+              "txt",
+            ],
+          },
           { extensions: ["gp3", "gp4", "gp5", "gpx", "gp"] },
           { extensions: ["musicxml", "xml"] },
           { extensions: ["mid", "midi"] },
+          { extensions: ["mscx", "mscz"] },
+          { extensions: ["txt", "atex"] },
+          { extensions: ["capx"] },
         ],
       },
     });
   });
 
   test("opens a file dropped onto the window", async ({ app }) => {
-    await dropFiles(app, ["/Users/me/Music/readme.txt", PRACTICE_SONG]);
+    await dropFiles(app, ["/Users/me/Music/readme.pdf", PRACTICE_SONG]);
 
     await waitForScore(app);
     await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
@@ -70,7 +90,7 @@ test.describe("opening Guitar Pro files (#4)", () => {
     await dropFiles(app, ["/Users/me/Music/scan.pdf"]);
 
     await expect(
-      app.getByText(/Smart Beat opens Guitar Pro, MusicXML and MIDI files/),
+      app.getByText(/Smart Beat opens Guitar Pro, MusicXML, MIDI, MuseScore/),
     ).toBeVisible();
   });
 
