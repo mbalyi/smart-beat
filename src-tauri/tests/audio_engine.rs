@@ -149,22 +149,17 @@ fn seeking_loops_and_stops_at_the_end() {
 fn renders_much_faster_than_real_time() {
     // A rough guard for the ADR's numbers: 8 tracks with the full chain must
     // render 4 s of audio in well under 4 s even in a debug build.
-    let base = song();
+    let mut song = song();
     let mut tracks = Vec::new();
     for _ in 0..4 {
         tracks.push(vec![0]);
         tracks.push(vec![9]);
     }
-    let mut events = base.events.clone();
-    for (i, e) in events.iter_mut().enumerate() {
+    for (i, e) in song.events.iter_mut().enumerate() {
         e.track = (i % 8) as u16;
     }
-    let song = Song {
-        events,
-        clicks: vec![],
-        track_channels: tracks,
-        duration: base.duration,
-    };
+    song.clicks.clear();
+    song.track_channels = tracks;
     let mut engine = Engine::new(sonivox(), RATE);
     engine.load(Arc::new(song)).unwrap();
     for t in 0..8 {
@@ -178,4 +173,71 @@ fn renders_much_faster_than_real_time() {
     render(&mut engine, 4.0);
     let factor = started.elapsed().as_secs_f32() / 4.0;
     assert!(factor < 1.0, "real-time factor {factor}");
+}
+
+#[test]
+fn renders_the_whole_song_offline() {
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.load(Arc::new(song())).unwrap();
+    let bytes = smart_beat_lib::audio::render_offline(&mut engine, 48_000 * 60);
+    let frames = bytes.len() / 8;
+    // 4 s of music plus the release tail.
+    assert!(
+        frames as f32 >= 4.0 * RATE && (frames as f32) < 6.0 * RATE,
+        "{frames}"
+    );
+    let samples: Vec<f32> = bytes
+        .chunks(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    assert!(samples.iter().all(|s| s.is_finite()));
+    assert!(rms(&samples) > 0.01);
+}
+
+#[test]
+fn loop_points_come_from_ticks() {
+    let song = song();
+    assert!((song.seconds_at(960 * 2) - 1.0).abs() < 1e-9);
+}
+
+/// Every bundled preset (`src/lib/audio/presets.json`) loads, builds without
+/// problems and turns a loud signal into finite, bounded, non-silent audio.
+#[test]
+fn every_bundled_preset_builds_and_sounds() {
+    use smart_beat_lib::audio::chain::MAX_MASTER_EFFECTS;
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src/lib/audio/presets.json");
+    let data: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let presets = data["presets"].as_array().unwrap();
+    assert!(presets.len() >= 10);
+    let dir = tempfile::tempdir().unwrap();
+    let library = Arc::new(smart_beat_lib::audio::library::Library::new(
+        dir.path().to_path_buf(),
+    ));
+    for preset in presets {
+        let id = preset["id"].as_str().unwrap();
+        let slots: Vec<EffectSlot> =
+            serde_json::from_value(preset["chain"].clone()).unwrap_or_else(|e| panic!("{id}: {e}"));
+        let limit = if preset["target"] == "master" {
+            MAX_MASTER_EFFECTS
+        } else {
+            MAX_TRACK_EFFECTS
+        };
+        assert!(slots.len() <= limit, "{id}: too many effects");
+        let mut chain = Chain::build(&slots, limit, RATE, BLOCK, &library.assets(48_000));
+        assert!(chain.problems.is_empty(), "{id}: {:?}", chain.problems);
+        let mut out = Vec::new();
+        for block in 0..1_500 {
+            let mut l: Vec<f32> = (0..BLOCK)
+                .map(|i| 0.8 * (((block * BLOCK + i) as f32) * 0.05).sin())
+                .collect();
+            let mut r = l.clone();
+            chain.process(&mut l, &mut r);
+            out.extend(l);
+        }
+        assert!(
+            out.iter().all(|s| s.is_finite() && s.abs() < 16.0),
+            "{id}: unbounded"
+        );
+        assert!(rms(&out[out.len() / 2..]) > 0.001, "{id}: silent");
+    }
 }

@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { MicVocalIcon, Settings2Icon, TriangleAlertIcon } from "lucide-react";
+import { AudioLinesIcon, MicVocalIcon, Settings2Icon, TriangleAlertIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EFFECT_LABELS, replaceEffect, type EffectSlot } from "@/lib/audio/effects";
+import type { AudioEngineKind } from "@/lib/score/player";
 import { describeInstrument } from "@/lib/score/instrument-view";
 import { describePan, describeVolume } from "@/lib/score/mixer";
 import { pitchName } from "@/lib/score/music";
@@ -86,6 +88,66 @@ export interface InspectorActions {
   onFixBars: () => void;
   /** Opens the tempo dialog (song tempo, tempo changes, tempo for some bars). */
   onTempo: () => void;
+  /** Opens the pedalboard of the shown track. */
+  onEditEffects: () => void;
+}
+
+/** The track's effects as a compact list (GP8's mini effect chain). */
+function MiniChain({
+  chain,
+  problems,
+  onChange,
+  onEdit,
+}: {
+  chain: EffectSlot[];
+  problems: number;
+  onChange: (chain: EffectSlot[]) => void;
+  onEdit: () => void;
+}) {
+  const headingId = useId();
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span id={headingId} className="text-sm">
+          Effects
+        </span>
+        <Button variant="ghost" size="xs" onClick={onEdit} aria-label="Edit the track's effects…">
+          <AudioLinesIcon data-icon="inline-start" />
+          Edit…
+        </Button>
+      </div>
+      {chain.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No effects. Add some, or load a preset.</p>
+      ) : (
+        <ol aria-labelledby={headingId} className="flex flex-col gap-1" data-testid="mini-chain">
+          {chain.map((slot, i) => (
+            <li
+              key={i}
+              className="flex items-center gap-2 rounded border bg-background/60 px-2 py-1 text-xs"
+            >
+              <span className="flex-1 truncate">
+                {i + 1}. {EFFECT_LABELS[slot.type]}
+              </span>
+              <Switch
+                checked={slot.enabled}
+                onCheckedChange={(enabled) =>
+                  onChange(replaceEffect(chain, i, { ...slot, enabled }))
+                }
+                aria-label={`${EFFECT_LABELS[slot.type]} ${i + 1} on`}
+              />
+            </li>
+          ))}
+        </ol>
+      )}
+      {problems > 0 && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {problems === 1 ? "One effect cannot play" : `${problems} effects cannot play`} (open Edit
+          for details).
+        </p>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -107,6 +169,11 @@ export function Inspector({
   syncOffset,
   onSyncOffsetChange,
   actions,
+  audioEngine,
+  onAudioEngineChange,
+  effects,
+  effectProblems,
+  onEffectsChange,
 }: {
   tab: "song" | "track";
   onTabChange: (tab: "song" | "track") => void;
@@ -123,6 +190,13 @@ export function Inspector({
   syncOffset: number;
   onSyncOffsetChange: (ms: number) => void;
   actions: InspectorActions;
+  audioEngine: AudioEngineKind;
+  /** Missing where only alphaTab's synthesizer can play (a browser). */
+  onAudioEngineChange?: (kind: AudioEngineKind) => void;
+  effects: EffectSlot[];
+  /** How many of the track's effects cannot play (missing library items…). */
+  effectProblems: number;
+  onEffectsChange: (chain: EffectSlot[]) => void;
 }) {
   const soundLabelId = useId();
   const syncId = useId();
@@ -285,6 +359,24 @@ export function Inspector({
             Raise it if the cursor runs ahead of the sound (Bluetooth speakers), lower it if it
             lags.
           </p>
+          {onAudioEngineChange && (
+            <>
+              <SwitchRow
+                label="Native engine with effects"
+                checked={audioEngine === "native"}
+                onChange={(on) => onAudioEngineChange(on ? "native" : "alphatab")}
+              />
+              <p className="text-xs text-muted-foreground">
+                Experimental: plays through effect chains and your sound library. No count-in yet.
+              </p>
+            </>
+          )}
+          <MiniChain
+            chain={effects}
+            problems={audioEngine === "native" ? effectProblems : 0}
+            onChange={onEffectsChange}
+            onEdit={actions.onEditEffects}
+          />
         </Section>
 
         <Section title="Interpretation">

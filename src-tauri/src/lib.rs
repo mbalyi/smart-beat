@@ -61,6 +61,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::audio_set_mix,
             audio::audio_set_chain,
             audio::audio_state,
+            audio::audio_render,
             audio::library_list,
             audio::library_import,
             audio::library_update,

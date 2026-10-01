@@ -39,6 +39,8 @@ export class FakeAlphaTabApi {
     ready: new Emitter(),
     readyForPlayback: new Emitter(),
     soundFontLoadFailed: new Emitter<Error>(),
+    /** The external media output (used in the native engine's mode). */
+    output: { handler: undefined as unknown, updatePosition: vi.fn() },
   };
   /** The adapter sets its own cursor handler (see lib/score/sync.ts). */
   customCursorHandler: unknown = undefined;

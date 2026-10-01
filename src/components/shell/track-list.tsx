@@ -181,6 +181,8 @@ export function TrackList({
   onSeekBar,
   saved,
   playing,
+  onEqualizer,
+  onMasterEffects,
 }: {
   score: Score;
   /** Changes with every edit (the bars change in place). */
@@ -199,6 +201,10 @@ export function TrackList({
   saved: boolean;
   /** Pan is applied at the next pause during playback (see ScorePlayer.setMix). */
   playing: boolean;
+  /** Opens the track's effects at its equaliser. */
+  onEqualizer?: (track: number) => void;
+  /** Opens the master bus's effects. */
+  onMasterEffects?: () => void;
 }) {
   const barCount = score.masterBars.length;
   const grids = useMemo(() => {
@@ -347,9 +353,10 @@ export function TrackList({
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        disabled
-                        aria-label={`Equaliser for ${track.name} (not available yet)`}
-                        title="Equaliser (not available yet)"
+                        disabled={!onEqualizer}
+                        onClick={() => onEqualizer?.(i)}
+                        aria-label={`Equaliser and effects for ${track.name}`}
+                        title="Equaliser and effects"
                       >
                         <SlidersVerticalIcon />
                       </Button>
@@ -386,15 +393,27 @@ export function TrackList({
               <span className="text-xs text-muted-foreground tabular-nums">
                 {describeVolume(mix.master)}
               </span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={onReset}
-                aria-label="Reset the mix"
-                title="Reset the mix"
-              >
-                <RotateCcwIcon />
-              </Button>
+              <span className="flex items-center">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={!onMasterEffects}
+                  onClick={onMasterEffects}
+                  aria-label="Master effects"
+                  title="Master effects"
+                >
+                  <SlidersVerticalIcon />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onReset}
+                  aria-label="Reset the mix"
+                  title="Reset the mix"
+                >
+                  <RotateCcwIcon />
+                </Button>
+              </span>
             </div>
           </div>
         </div>

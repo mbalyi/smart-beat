@@ -22,6 +22,7 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     onTranspose: vi.fn(),
     onFixBars: vi.fn(),
     onTempo: vi.fn(),
+    onEditEffects: vi.fn(),
   };
   const props = {
     tab: "track" as const,
@@ -37,6 +38,10 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     syncOffset: 0,
     onSyncOffsetChange: vi.fn(),
     actions,
+    audioEngine: "alphatab" as const,
+    effects: [],
+    effectProblems: 0,
+    onEffectsChange: vi.fn(),
     ...overrides,
   };
   return { ...renderWithProviders(<Inspector {...props} />), ...props };
@@ -150,5 +155,55 @@ describe("Inspector: SONG tab", () => {
     setup({ tab: "song", song: { ...SONG, title: "", artist: "" } });
     expect(screen.getAllByText("practice-song.gp")).not.toHaveLength(0);
     expect(screen.getByText("—")).toBeInTheDocument();
+  });
+});
+
+describe("Inspector: effects", () => {
+  it("shows the track's chain, switches blocks and opens the pedalboard", async () => {
+    const { user, onEffectsChange, actions } = setup({
+      effects: [
+        {
+          type: "gate",
+          enabled: true,
+          thresholdDb: -50,
+          rangeDb: -80,
+          attackMs: 0.5,
+          holdMs: 20,
+          releaseMs: 60,
+        },
+        { type: "cab", enabled: true, ir: "builtin:4x12-modern" },
+      ],
+    });
+    const chain = screen.getByTestId("mini-chain");
+    expect(within(chain).getAllByRole("listitem")).toHaveLength(2);
+    await user.click(within(chain).getByRole("switch", { name: "Cabinet 2 on" }));
+    expect(onEffectsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ type: "gate", enabled: true }),
+      expect.objectContaining({ type: "cab", enabled: false }),
+    ]);
+    await user.click(screen.getByRole("button", { name: "Edit the track's effects…" }));
+    expect(actions.onEditEffects).toHaveBeenCalled();
+    await expectNoA11yViolations();
+  });
+
+  it("offers the native engine only where it exists, and reports blocks that cannot play", async () => {
+    const onAudioEngineChange = vi.fn();
+    const { user } = setup({
+      onAudioEngineChange,
+      audioEngine: "native",
+      effects: [{ type: "amp", enabled: true, model: "gone", inputDb: 0, outputDb: 0 }],
+      effectProblems: 1,
+    });
+    expect(screen.getByText(/One effect cannot play/)).toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Native engine with effects" }));
+    expect(onAudioEngineChange).toHaveBeenCalledWith("alphatab");
+  });
+
+  it("hides the engine switch in a browser", () => {
+    setup();
+    expect(
+      screen.queryByRole("switch", { name: "Native engine with effects" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/No effects/)).toBeInTheDocument();
   });
 });

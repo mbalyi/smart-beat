@@ -53,9 +53,11 @@ pub struct Song {
     pub track_channels: Vec<Vec<u8>>,
     /// Seconds.
     pub duration: f64,
+    tempo: TempoMap,
 }
 
 /// Converts ticks to seconds along a tempo map.
+#[derive(Debug, Clone, Default)]
 struct TempoMap {
     /// (tick, seconds at that tick, seconds per tick from there on)
     segments: Vec<(u32, f64, f64)>,
@@ -136,7 +138,17 @@ impl Song {
             clicks,
             track_channels: data.tracks.clone(),
             duration: map.seconds(data.end_tick),
+            tempo: map,
         })
+    }
+
+    /// Seconds from the start of the song to `tick` (at normal speed).
+    pub fn seconds_at(&self, tick: u32) -> f64 {
+        if self.tempo.segments.is_empty() {
+            0.0
+        } else {
+            self.tempo.seconds(tick)
+        }
     }
 }
 

@@ -19,6 +19,7 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
+import { busMixes, NativeEngine, trackChannels } from "@/lib/audio/native-engine";
 import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
@@ -32,8 +33,13 @@ import {
   readSyncOffset,
   type LatencyInfo,
 } from "@/lib/score/sync";
-import { isAudible } from "@/lib/score/mixer";
-import type { MixerSettings } from "@/lib/tauri";
+import { allTrackEffects, isAudible } from "@/lib/score/mixer";
+import {
+  renderEngineAudio,
+  type BlockProblem,
+  type EngineMeters,
+  type MixerSettings,
+} from "@/lib/tauri";
 
 const { PlayerState, PlaybackRange } = synth;
 
@@ -84,7 +90,17 @@ export interface ScorePlayerCallbacks {
   onRangeSelect?: (range: LoopRange | null) => void;
   /** Playback reached the end of the loop and starts it again. */
   onLoopRestart?: () => void;
+  /** Native engine only: peak levels of each track and the master while playing. */
+  onMeters?: (meters: EngineMeters) => void;
+  /** Native engine only: effect blocks that cannot run (per track, and the master's). */
+  onEffectProblems?: (problems: { tracks: BlockProblem[][]; master: BlockProblem[] }) => void;
 }
+
+/**
+ * Who makes the sound: alphaTab's synthesizer in the webview, or the native
+ * engine with effect chains (desktop app only, ADR 0002).
+ */
+export type AudioEngineKind = "alphatab" | "native";
 
 export interface ScorePlayerOptions {
   /** Where the notation is drawn. */
@@ -98,6 +114,8 @@ export interface ScorePlayerOptions {
   mix: MixerSettings;
   soundFontUrl: string;
   reducedMotion?: boolean;
+  /** Default: alphaTab. */
+  audioEngine?: AudioEngineKind;
 }
 
 const LAYOUT_MODES: Record<Layout, LayoutMode> = {
@@ -137,7 +155,11 @@ function createSettings(options: ScorePlayerOptions): Settings {
   settings.display.layoutMode = LAYOUT_MODES[options.layout];
   settings.display.staveProfile = StaveProfile.Default; // per-staff flags decide
   settings.notation.rhythmMode = rhythmMode(options.view);
-  settings.player.playerMode = PlayerMode.EnabledSynthesizer;
+  // With the native engine alphaTab only follows its clock (external media).
+  settings.player.playerMode =
+    options.audioEngine === "native"
+      ? PlayerMode.EnabledExternalMedia
+      : PlayerMode.EnabledSynthesizer;
   // Synthesize in a worker and play through an AudioWorklet, off the main
   // thread, with alphaTab's default 500 ms buffer, so rendering, scrolling or
   // UI updates can't make the audio stutter.
@@ -178,7 +200,11 @@ export class ScorePlayer {
    * output latency (see lib/score/sync.ts).
    */
   private readonly delayer = new Delayer(() =>
-    this.playing ? outputLatencyMs(this.latencyInfo, readSyncOffset()) : 0,
+    !this.playing
+      ? 0
+      : this.engine
+        ? Math.max(0, readSyncOffset())
+        : outputLatencyMs(this.latencyInfo, readSyncOffset()),
   );
   private lastPosition: PlaybackPosition | null = null;
   private lastBar = -1;
@@ -209,6 +235,10 @@ export class ScorePlayer {
   private hasSounds = false;
   private readonly synthReady: Promise<void>;
   private readonly soundFontErrors = new WeakSet<Error>();
+  /** The native engine, when it makes the sound (null: alphaTab's synthesizer). */
+  private readonly engine: NativeEngine | null;
+  /** alphaTab has the MIDI and is ready (native engine: waits for the engine's sounds too). */
+  private alphaTabReady = false;
 
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks = {}) {
     this.score = options.score;
@@ -221,6 +251,19 @@ export class ScorePlayer {
     this.applyView(options.view);
 
     this.api = new AlphaTabApi(options.element, createSettings(options));
+    this.engine =
+      options.audioEngine === "native"
+        ? new NativeEngine({
+            onMeters: (meters) => callbacks.onMeters?.(meters),
+            onError: (error) => callbacks.onError?.(error),
+          })
+        : null;
+    if (this.engine) {
+      const output = this.api.player?.output as synth.IExternalMediaSynthOutput | undefined;
+      if (output) this.engine.attach(output);
+    }
+    // The native engine reports what is heard (its output latency is already
+    // taken off): only the user's offset is added.
     this.api.customCursorHandler = createCursorHandler(this.delayer, !options.reducedMotion);
     // alphaTab reports clicked beats without the mouse event: remember Shift.
     options.element.addEventListener(
@@ -253,7 +296,7 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
-      if (this.playing && !this.latencyMeasured) {
+      if (this.playing && !this.latencyMeasured && !this.engine) {
         this.latencyMeasured = true;
         void measureLatency().then((info) => {
           if (!this.destroyed) this.latencyInfo = info;
@@ -279,6 +322,9 @@ export class ScorePlayer {
       const lookup = api.tickCache;
       if (lookup) approximateSilentEffects(file, lookup);
       remapSilentDrums(file); // the SoundFont has no sample for some drum numbers
+      this.engine
+        ?.loadSong(file, trackChannels(this.score))
+        .catch((error: unknown) => callbacks.onError?.(asError(error)));
     });
     api.playedBeatChanged.on((beat) =>
       this.delayer.run(() => this.reportBar(beat.voice.bar.index)),
@@ -322,6 +368,9 @@ export class ScorePlayer {
     // becomes ready. This handler is registered after alphaTab's own, so the
     // mixer is applied last. It also runs again after every MIDI or SoundFont reload.
     player.readyForPlayback.on(() => {
+      this.alphaTabReady = true;
+      // The native engine's sounds load separately (see setSoundFont).
+      if (this.engine && !this.engine.soundFont) return;
       this.hasSounds = true;
       this.applyMix(null, this.mix);
       this.applyLoop();
@@ -401,6 +450,11 @@ export class ScorePlayer {
   private applyMix(previous: MixerSettings | null, next: MixerSettings) {
     const { api } = this;
     if (previous?.master !== next.master) api.masterVolume = next.master;
+    if (this.engine) {
+      this.engine.setMix(busMixes(next));
+      this.applyEffects(previous, next);
+      return;
+    }
     next.tracks.forEach((trackMix, index) => {
       const track = this.score.tracks[index];
       if (!track) return;
@@ -409,6 +463,56 @@ export class ScorePlayer {
       if (before?.mute !== trackMix.mute) api.changeTrackMute([track], trackMix.mute);
       if (before?.solo !== trackMix.solo) api.changeTrackSolo([track], trackMix.solo);
     });
+  }
+
+  /** What the engine reported about each chain (blocks that cannot run). */
+  private effectProblems: { tracks: BlockProblem[][]; master: BlockProblem[] } = {
+    tracks: [],
+    master: [],
+  };
+
+  /**
+   * Native engine: sends the chains that changed (all of them the first
+   * time), so turning one knob does not rebuild every track's chain.
+   */
+  private applyEffects(previous: MixerSettings | null, next: MixerSettings) {
+    const engine = this.engine;
+    if (!engine) return;
+    const report = () => this.callbacks.onEffectProblems?.(this.effectProblems);
+    const fail = (error: unknown) => this.callbacks.onError?.(asError(error));
+    if (!previous || previous.tracks.length !== next.tracks.length) {
+      engine
+        .setAllChains(allTrackEffects(next), next.masterEffects ?? [])
+        .then((problems) => {
+          this.effectProblems = problems;
+          report();
+        })
+        .catch(fail);
+      return;
+    }
+    // A missing chain and an empty one are the same (no effects).
+    const same = (a?: unknown[], b?: unknown[]) => a === b || (!a?.length && !b?.length);
+    next.tracks.forEach((_, i) => {
+      if (same(previous.effects?.[i], next.effects?.[i])) return;
+      engine
+        .setChain(i, next.effects?.[i] ?? [])
+        .then((problems) => {
+          const tracks = [...this.effectProblems.tracks];
+          tracks[i] = problems;
+          this.effectProblems = { ...this.effectProblems, tracks };
+          report();
+        })
+        .catch(fail);
+    });
+    if (!same(previous.masterEffects, next.masterEffects)) {
+      engine
+        .setChain(null, next.masterEffects ?? [])
+        .then((master) => {
+          this.effectProblems = { ...this.effectProblems, master };
+          report();
+        })
+        .catch(fail);
+    }
   }
 
   /** Regenerates the MIDI (needed for pan) without losing the playback position. */
@@ -505,6 +609,7 @@ export class ScorePlayer {
     this.settingRange = true;
     try {
       if (!loop) {
+        this.engine?.setLoop(null);
         this.appliedRange = null;
         api.isLooping = false;
         api.playbackRange = null;
@@ -519,6 +624,7 @@ export class ScorePlayer {
       range.startTick = cache.getMasterBarStart(first);
       range.endTick = cache.getMasterBarStart(last) + last.calculateDuration();
       this.appliedRange = { startTick: range.startTick, endTick: range.endTick };
+      this.engine?.setLoop(this.appliedRange);
       api.playbackRange = range;
       api.isLooping = true;
       this.highlightLoop();
@@ -578,10 +684,17 @@ export class ScorePlayer {
 
   setMetronome(on: boolean) {
     this.api.metronomeVolume = on ? 1 : 0;
+    this.engine?.setMetronome(on ? 1 : 0);
   }
 
+  /** Count-in (alphaTab's synthesizer only; the native engine has none yet). */
   setCountIn(on: boolean) {
     this.api.countInVolume = on ? 1 : 0;
+  }
+
+  /** Whether the native engine makes the sound. */
+  get usesNativeEngine(): boolean {
+    return this.engine !== null;
   }
 
   /** Where a beat is drawn: one rectangle per staff (standard notation, tab). */
@@ -633,6 +746,11 @@ export class ScorePlayer {
     }
     if (!isCurrent()) return;
 
+    if (this.engine) {
+      await this.useEngineSoundFont(url, bytes, isCurrent);
+      return;
+    }
+
     const { api } = this;
     // While a previous switch is still loading, keep the position from before it.
     if (this.ready) this.resume = { tick: api.tickPosition, play: this.playing };
@@ -642,6 +760,33 @@ export class ScorePlayer {
     this.hasSounds = false;
     api.resetSoundFonts();
     api.loadSoundFont(bytes, false);
+  }
+
+  /** Native engine: hands the sounds to the engine, then playback is ready. */
+  private async useEngineSoundFont(url: string, bytes: Uint8Array, isCurrent: () => boolean) {
+    const engine = this.engine!;
+    const wasPlaying = this.playing;
+    if (wasPlaying) this.api.pause();
+    this.setReady(false);
+    try {
+      await engine.useSoundFont(url.split("/").pop() ?? url, bytes);
+    } catch (error) {
+      if (isCurrent()) {
+        this.callbacks.onSoundFontError?.(asError(error), { previousKept: this.hasSounds });
+      }
+      return;
+    }
+    if (!isCurrent()) return;
+    this.hasSounds = true;
+    if (this.alphaTabReady) {
+      this.applyMix(null, this.mix);
+      this.applyLoop();
+      this.setReady(true);
+      if (wasPlaying) {
+        this.playing = true;
+        this.api.play();
+      }
+    }
   }
 
   playPause() {
@@ -690,6 +835,13 @@ export class ScorePlayer {
     if (!this.ready)
       throw new Error("The instrument sounds are still loading. Try again in a moment.");
     this.pause();
+    if (this.engine) {
+      // Rendered by the engine, with the effect chains.
+      onProgress?.(0);
+      const samples = await renderEngineAudio(EXPORT_SAMPLE_RATE);
+      onProgress?.(1);
+      return { samples, sampleRate: EXPORT_SAMPLE_RATE, channels: 2 };
+    }
     const trackVolume = new Map<number, number>();
     this.score.tracks.forEach((_, index) => {
       const mix = this.mix.tracks[index];
@@ -722,6 +874,7 @@ export class ScorePlayer {
 
   destroy() {
     this.destroyed = true;
+    this.engine?.destroy();
     this.delayer.clear();
     this.api.destroy();
   }

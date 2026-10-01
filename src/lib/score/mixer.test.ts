@@ -1,10 +1,13 @@
+import { defaultEffect } from "@/lib/audio/effects";
 import {
+  allTrackEffects,
   describePan,
   describeVolume,
   initialMix,
   isAudible,
   mixerReducer,
   mixFromScore,
+  trackEffects,
 } from "@/lib/score/mixer";
 import { MIXER_SETTINGS_VERSION, type MixerSettings } from "@/lib/tauri";
 import { SUMMARY } from "@/test/score";
@@ -14,6 +17,8 @@ const mix = (tracks: Partial<MixerSettings["tracks"][number]>[]): MixerSettings 
   master: 1,
   tracks: tracks.map((t) => ({ volume: 1, pan: 0, mute: false, solo: false, ...t })),
 });
+
+const GATE = defaultEffect("gate");
 
 describe("mixFromScore", () => {
   it("uses the values from the file at full master volume", () => {
@@ -65,9 +70,25 @@ describe("mixerReducer", () => {
     expect(mixerReducer(start, { type: "mute", track: 7, value: true })).toBe(start);
   });
 
-  it("resets to a given mix", () => {
+  it("resets to a given mix but keeps the effects", () => {
     const other = mix([{ volume: 0.1 }]);
-    expect(mixerReducer(start, { type: "reset", mix: other })).toBe(other);
+    const withEffects = { ...start, effects: [[GATE]], masterEffects: [GATE] };
+    expect(mixerReducer(withEffects, { type: "reset", mix: other })).toEqual({
+      ...other,
+      effects: [[GATE]],
+      masterEffects: [GATE],
+    });
+  });
+
+  it("sets a track's effects (other tracks keep theirs) and the master's", () => {
+    const two = mix([{}, {}]);
+    const first = mixerReducer(two, { type: "effects", track: 1, slots: [GATE] });
+    expect(allTrackEffects(first)).toEqual([[], [GATE]]);
+    expect(trackEffects(first, 0)).toEqual([]);
+    expect(mixerReducer(first, { type: "effects", track: 5, slots: [GATE] })).toBe(first);
+    expect(mixerReducer(first, { type: "master-effects", slots: [GATE] }).masterEffects).toEqual([
+      GATE,
+    ]);
   });
 });
 

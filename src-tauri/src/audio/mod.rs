@@ -96,10 +96,11 @@ pub enum Transport {
     Rate {
         value: f64,
     },
+    /// Loops between two ticks of the song; both null stops looping.
     #[serde(rename_all = "camelCase")]
     Loop {
-        start_ms: Option<f64>,
-        end_ms: Option<f64>,
+        start_tick: Option<u32>,
+        end_tick: Option<u32>,
     },
     Metronome {
         volume: f32,
@@ -250,6 +251,9 @@ pub fn audio_load_song(song: SongData, state: State<'_, AudioState>) -> Result<(
     let song = Arc::new(Song::from_data(&song).map_err(audio_error)?);
     let mut inner = state.inner.lock().unwrap();
     inner.song = Some(song.clone());
+    // Chains belong to a song: the UI sends them again after loading one.
+    inner.track_chains.clear();
+    inner.master_chain.clear();
     if inner.engine.is_some() {
         with_engine(&inner, |engine| engine.load(song))?.map_err(audio_error)?;
         apply_mix_and_chains(&state, &inner)?;
@@ -268,8 +272,15 @@ pub fn audio_transport(
         Transport::Pause => engine.pause(),
         Transport::Seek { ms } => engine.seek(ms / 1000.0),
         Transport::Rate { value } => engine.set_rate(value),
-        Transport::Loop { start_ms, end_ms } => {
-            engine.set_loop(start_ms.zip(end_ms).map(|(a, b)| (a / 1000.0, b / 1000.0)))
+        Transport::Loop {
+            start_tick,
+            end_tick,
+        } => {
+            let range = start_tick
+                .zip(end_tick)
+                .zip(inner.song.as_ref())
+                .map(|((a, b), song)| (song.seconds_at(a), song.seconds_at(b)));
+            engine.set_loop(range)
         }
         Transport::Metronome { volume } => engine.set_metronome_volume(volume),
         Transport::MasterVolume { value } => engine.set_master_volume(value),
@@ -370,4 +381,68 @@ pub fn library_update(
 #[tauri::command]
 pub fn library_remove(id: String, state: State<'_, AudioState>) -> Result<(), CommandError> {
     state.library.remove(&id).map_err(audio_error)
+}
+
+/// Largest offline render (frames): an hour at 48 kHz.
+const MAX_RENDER_FRAMES: usize = 48_000 * 3_600;
+
+/// Renders the loaded song with the current mix and effect chains, offline,
+/// for the audio export. Returns interleaved stereo 32-bit floats (raw bytes).
+#[tauri::command(async)]
+pub fn audio_render(
+    sample_rate: u32,
+    state: State<'_, AudioState>,
+) -> Result<tauri::ipc::Response, CommandError> {
+    if !(8_000..=192_000).contains(&sample_rate) {
+        return Err(audio_error("Unsupported sample rate"));
+    }
+    let inner = state.inner.lock().unwrap();
+    let font = inner
+        .sound_font_id
+        .as_ref()
+        .and_then(|id| inner.sound_fonts.get(id))
+        .or_else(|| inner.sound_fonts.values().next())
+        .cloned()
+        .ok_or_else(|| audio_error("The instrument sounds are not loaded"))?;
+    let song = inner
+        .song
+        .clone()
+        .ok_or_else(|| audio_error("No song is loaded"))?;
+    let mut engine = Engine::new(font, sample_rate as f32);
+    engine.load(song).map_err(audio_error)?;
+    for (track, mix) in inner.mixes.iter().enumerate() {
+        engine.set_mix(track, *mix);
+    }
+    let master = build_chain(&state, sample_rate, &inner.master_chain, MAX_MASTER_EFFECTS);
+    engine.set_master_chain(master);
+    for (&track, slots) in &inner.track_chains {
+        engine.set_track_chain(
+            track,
+            build_chain(&state, sample_rate, slots, MAX_TRACK_EFFECTS),
+        );
+    }
+    drop(inner);
+    Ok(tauri::ipc::Response::new(render_offline(
+        &mut engine,
+        MAX_RENDER_FRAMES,
+    )))
+}
+
+/// Plays `engine` from the start to the end of the song (with its release
+/// tail) and returns interleaved stereo little-endian f32 bytes.
+pub fn render_offline(engine: &mut Engine, max_frames: usize) -> Vec<u8> {
+    engine.seek(0.0);
+    engine.play();
+    let mut out = Vec::new();
+    let (mut l, mut r) = (vec![0.0f32; 4_096], vec![0.0f32; 4_096]);
+    let mut frames = 0;
+    while engine.is_playing() && frames < max_frames {
+        engine.render(&mut l, &mut r);
+        for (a, b) in l.iter().zip(&r) {
+            out.extend_from_slice(&a.to_le_bytes());
+            out.extend_from_slice(&b.to_le_bytes());
+        }
+        frames += l.len();
+    }
+    out
 }
