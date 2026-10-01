@@ -3,6 +3,11 @@
  * the effect chains of the tracks and the master (native audio engine).
  */
 import type { EffectSlot } from "@/lib/audio/effects";
+import {
+  DEFAULT_INTERPRETATION,
+  normalizeInterpretation,
+  type Interpretation,
+} from "@/lib/score/interpretation";
 import type { ScoreSummary } from "@/lib/score/score";
 import { MIXER_SETTINGS_VERSION, type MixerSettings, type TrackMix } from "@/lib/tauri";
 
@@ -17,6 +22,7 @@ export type MixerAction =
   | { type: "solo"; track: number; value: boolean }
   | { type: "effects"; track: number; slots: EffectSlot[] }
   | { type: "master-effects"; slots: EffectSlot[] }
+  | { type: "interpretation"; track: number; value: Interpretation }
   /** Volumes, pans, mute and solo back to the file's; effects stay. */
   | { type: "reset"; mix: MixerSettings };
 
@@ -72,10 +78,26 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
     }
     case "master-effects":
       return { ...mix, masterEffects: action.slots };
+    case "interpretation": {
+      if (!mix.tracks[action.track]) return mix;
+      const interpretation = mix.tracks.map((_, i) =>
+        i === action.track ? normalizeInterpretation(action.value) : trackInterpretation(mix, i),
+      );
+      return { ...mix, interpretation };
+    }
     case "reset":
-      return { ...action.mix, effects: mix.effects, masterEffects: mix.masterEffects };
+      return {
+        ...action.mix,
+        effects: mix.effects,
+        masterEffects: mix.masterEffects,
+        interpretation: mix.interpretation,
+      };
   }
 }
+
+/** How a track is played back (the defaults if nothing was set). */
+export const trackInterpretation = (mix: MixerSettings, track: number): Interpretation =>
+  mix.interpretation?.[track] ?? DEFAULT_INTERPRETATION;
 
 /** A track's effect chain (empty if it has none). */
 export const trackEffects = (mix: MixerSettings, track: number): EffectSlot[] =>

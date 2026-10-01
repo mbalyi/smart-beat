@@ -82,7 +82,13 @@ import {
 } from "@/lib/print";
 import { applyTempo, tempoScope, type TempoRequest } from "@/lib/score/tempo";
 import { readSyncOffset, storeSyncOffset } from "@/lib/score/sync";
-import { mixerReducer, trackEffects, type MixerChange } from "@/lib/score/mixer";
+import { DEFAULT_INTERPRETATION, type Interpretation } from "@/lib/score/interpretation";
+import {
+  mixerReducer,
+  trackEffects,
+  trackInterpretation,
+  type MixerChange,
+} from "@/lib/score/mixer";
 import { trackContent, type Beat, type Track } from "@/lib/score/model";
 import {
   ScorePlayer,
@@ -327,6 +333,11 @@ export function ScoreWorkspace({
   // Effect chains follow their tracks too.
   const effectsByTrack = useRef(
     new Map<Track, EffectSlot[]>(score.tracks.map((t, i) => [t, trackEffects(song.mix, i)])),
+  );
+  const interpretationByTrack = useRef(
+    new Map<Track, Interpretation>(
+      score.tracks.map((t, i) => [t, trackInterpretation(song.mix, i)]),
+    ),
   );
   const [soundFont, setSoundFont] = useState<SoundFontId>(readSoundFontPreference);
   const [audioEngine, setAudioEngine] = useState(readAudioEnginePreference);
@@ -577,16 +588,21 @@ export function ScoreWorkspace({
       return fresh;
     });
     const effects = score.tracks.map((t) => effectsByTrack.current.get(t) ?? []);
+    const interpretation = score.tracks.map(
+      (t) => interpretationByTrack.current.get(t) ?? DEFAULT_INTERPRETATION,
+    );
     const next: MixerSettings = {
       ...mixRef.current,
       version: MIXER_SETTINGS_VERSION,
       tracks,
       effects,
+      interpretation,
     };
     const changedOrder =
       tracks.length !== mixRef.current.tracks.length ||
       tracks.some((t, i) => t !== mixRef.current.tracks[i]) ||
-      effects.some((e, i) => e !== trackEffects(mixRef.current, i));
+      effects.some((e, i) => e !== trackEffects(mixRef.current, i)) ||
+      interpretation.some((v, i) => v !== trackInterpretation(mixRef.current, i));
     if (changedOrder) {
       mixRef.current = next;
       setMix(next);
@@ -776,6 +792,7 @@ export function ScoreWorkspace({
     score.tracks.forEach((t, i) => {
       mixByTrack.current.set(t, next.tracks[i]!);
       effectsByTrack.current.set(t, trackEffects(next, i));
+      interpretationByTrack.current.set(t, trackInterpretation(next, i));
     });
     setMix(next);
     if (commit) playerRef.current?.setMix(next);
@@ -1417,6 +1434,10 @@ export function ScoreWorkspace({
               effects={trackEffects(mix, trackIndex)}
               effectProblems={effectProblems.tracks[trackIndex]?.length ?? 0}
               onEffectsChange={(slots) => changeMix({ type: "effects", track: trackIndex, slots })}
+              interpretation={trackInterpretation(mix, trackIndex)}
+              onInterpretationChange={(value) =>
+                changeMix({ type: "interpretation", track: trackIndex, value })
+              }
             />
           </aside>
         )}

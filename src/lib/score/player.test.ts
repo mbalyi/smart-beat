@@ -1,6 +1,6 @@
 import { LayoutMode, midi, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
 
-import { mixFromScore } from "@/lib/score/mixer";
+import { mixerReducer, mixFromScore } from "@/lib/score/mixer";
 import { cloneNote } from "@/lib/score/model";
 import {
   isSoundFont,
@@ -257,6 +257,18 @@ describe("ScorePlayer", () => {
     expect(api.changeTrackSolo).toHaveBeenCalledExactlyOnceWith([score.tracks[2]], true);
     expect(api.changeTrackMute).not.toHaveBeenCalled();
     expect(api.loadMidiForScore).not.toHaveBeenCalled();
+  });
+
+  it("regenerates the MIDI when a track's interpretation changes (it is in the MIDI)", async () => {
+    const { player, api, mix } = await readySetup();
+    player.setMix(
+      mixerReducer(mix, {
+        type: "interpretation",
+        track: 0,
+        value: { style: "fingers", palmMute: 0.5, accent: 0.5, letRing: false, brush: false },
+      }),
+    );
+    expect(api.loadMidiForScore).toHaveBeenCalledOnce();
   });
 
   it("applies volume, mute and solo instantly during playback, without reloading", async () => {
@@ -1094,4 +1106,3 @@ describe("ScorePlayer.showForPrint", () => {
     expect(api.renderTracks).toHaveBeenLastCalledWith([score.tracks[0]]);
   });
 });
-

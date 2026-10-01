@@ -1,6 +1,7 @@
 import { screen, within } from "@testing-library/react";
 
 import { Inspector, type InspectorActions, type SongInfo } from "@/components/shell/inspector";
+import { DEFAULT_INTERPRETATION } from "@/lib/score/interpretation";
 import { DEFAULT_SOUNDFONT } from "@/lib/score/soundfonts";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -42,6 +43,8 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     effects: [],
     effectProblems: 0,
     onEffectsChange: vi.fn(),
+    interpretation: DEFAULT_INTERPRETATION,
+    onInterpretationChange: vi.fn(),
     ...overrides,
   };
   return { ...renderWithProviders(<Inspector {...props} />), ...props };
@@ -213,5 +216,39 @@ describe("Inspector: effects", () => {
       screen.queryByRole("switch", { name: "Native engine with effects" }),
     ).not.toBeInTheDocument();
     expect(screen.getByText(/No effects/)).toBeInTheDocument();
+  });
+});
+
+describe("Inspector: interpretation", () => {
+  it("sets the playing style, palm mute and accent strength, let ring and brush", async () => {
+    const onInterpretationChange = vi.fn();
+    const { user } = setup({ onInterpretationChange });
+    await user.click(screen.getByRole("combobox", { name: "Playing style" }));
+    await user.click(screen.getByRole("option", { name: "Fingers" }));
+    expect(onInterpretationChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ style: "fingers" }),
+    );
+    screen.getByRole("slider", { name: "Palm mute strength" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(onInterpretationChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ palmMute: 0.55 }),
+    );
+    await user.click(screen.getByRole("switch", { name: "Auto let ring" }));
+    expect(onInterpretationChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ letRing: true }),
+    );
+    await user.click(screen.getByRole("switch", { name: "Auto brush (strum chords)" }));
+    expect(onInterpretationChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ brush: true }),
+    );
+    await expectNoA11yViolations();
+  });
+
+  it("explains that drums play as written", () => {
+    setup({
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
+    });
+    expect(screen.getByText(/Drums play as written/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Playing style" })).not.toBeInTheDocument();
   });
 });

@@ -8,7 +8,9 @@ import {
   mixerReducer,
   mixFromScore,
   trackEffects,
+  trackInterpretation,
 } from "@/lib/score/mixer";
+import { DEFAULT_INTERPRETATION } from "@/lib/score/interpretation";
 import { MIXER_SETTINGS_VERSION, type MixerSettings } from "@/lib/tauri";
 import { SUMMARY } from "@/test/score";
 
@@ -121,5 +123,27 @@ describe("describing values", () => {
 
   it("reads volume as a percentage", () => {
     expect(describeVolume(0.755)).toBe("76%");
+  });
+});
+
+describe("interpretation", () => {
+  it("is set per track (cleaned up) and kept on reset", () => {
+    const two = mix([{}, {}]);
+    const next = mixerReducer(two, {
+      type: "interpretation",
+      track: 1,
+      value: { style: "slap", palmMute: 3, accent: 0.5, letRing: false, brush: true },
+    });
+    expect(trackInterpretation(next, 1)).toEqual({
+      style: "slap",
+      palmMute: 1,
+      accent: 0.5,
+      letRing: false,
+      brush: true,
+    });
+    expect(trackInterpretation(next, 0)).toEqual(DEFAULT_INTERPRETATION);
+    expect(mixerReducer(next, { type: "reset", mix: two }).interpretation).toBe(
+      next.interpretation,
+    );
   });
 });

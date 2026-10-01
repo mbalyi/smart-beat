@@ -9,6 +9,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 import type { EffectSlot } from "@/lib/audio/effects";
+import type { Interpretation } from "@/lib/score/interpretation";
 
 /** Mirrors `MenuAction` in `src-tauri/src/menu.rs` (kebab-case). */
 export type MenuAction =
@@ -163,6 +164,8 @@ export interface MixerSettings {
   effects?: EffectSlot[][];
   /** Effect chain of the master bus (at most three effects). */
   masterEffects?: EffectSlot[];
+  /** How each track is played back, in score order. */
+  interpretation?: Interpretation[];
 }
 
 /** Mirrors `MenuState` in `src-tauri/src/menu_state.rs`: what the menu bar reflects. */

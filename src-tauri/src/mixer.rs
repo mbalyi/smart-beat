@@ -35,6 +35,31 @@ pub struct MixerSettings {
     /// Effect chain of the master bus.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub master_effects: Vec<EffectSlot>,
+    /// How each track is played back (style, palm mute, accents, let ring, brush).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interpretation: Vec<Interpretation>,
+}
+
+/// Playing style of a track. Mirrored by `PlayingStyle` in `src/lib/score/interpretation.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayingStyle {
+    Pick,
+    Fingers,
+    Slap,
+}
+
+/// How a track is played back. Mirrored by `Interpretation` in `src/lib/score/interpretation.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Interpretation {
+    pub style: PlayingStyle,
+    /// 0.0 … 1.0.
+    pub palm_mute: f64,
+    /// 0.0 … 1.0.
+    pub accent: f64,
+    pub let_ring: bool,
+    pub brush: bool,
 }
 
 /// Mixer state of one track.
@@ -75,6 +100,14 @@ impl MixerSettings {
         }
         if self.master_effects.len() > MAX_MASTER_EFFECTS {
             return Err(format!("more than {MAX_MASTER_EFFECTS} master effects"));
+        }
+        if self.interpretation.len() > self.tracks.len() {
+            return Err("more interpretations than tracks".into());
+        }
+        for (index, i) in self.interpretation.iter().enumerate() {
+            if !in_range(i.palm_mute, 0.0, 1.0) || !in_range(i.accent, 0.0, 1.0) {
+                return Err(format!("track {index}: interpretation out of range"));
+            }
         }
         for (index, track) in self.tracks.iter().enumerate() {
             if !in_range(track.volume, 0.0, 1.0) {
@@ -214,6 +247,7 @@ mod tests {
             ],
             effects: Vec::new(),
             master_effects: Vec::new(),
+            interpretation: Vec::new(),
         }
     }
 
@@ -262,6 +296,33 @@ mod tests {
             ..settings()
         };
         assert!(long_chain.validate().unwrap_err().contains("track 0"));
+    }
+
+    #[test]
+    fn stores_the_interpretation_of_tracks() {
+        let style = Interpretation {
+            style: PlayingStyle::Fingers,
+            palm_mute: 0.8,
+            accent: 0.2,
+            let_ring: true,
+            brush: false,
+        };
+        let with = MixerSettings {
+            interpretation: vec![style],
+            ..settings()
+        };
+        assert_eq!(with.validate(), Ok(()));
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains(r#""style":"fingers""#) && json.contains(r#""letRing":true"#));
+        assert_eq!(serde_json::from_str::<MixerSettings>(&json).unwrap(), with);
+        let bad = MixerSettings {
+            interpretation: vec![Interpretation {
+                accent: 2.0,
+                ..style
+            }],
+            ..settings()
+        };
+        assert!(bad.validate().unwrap_err().contains("interpretation"));
     }
 
     #[test]

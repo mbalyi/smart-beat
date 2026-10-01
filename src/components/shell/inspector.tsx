@@ -14,7 +14,9 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EFFECT_LABELS, replaceEffect, type EffectSlot } from "@/lib/audio/effects";
 import type { AudioEngineKind } from "@/lib/score/player";
+import { LabeledSlider } from "@/components/labeled-slider";
 import { describeInstrument } from "@/lib/score/instrument-view";
+import { PLAYING_STYLES, type Interpretation, type PlayingStyle } from "@/lib/score/interpretation";
 import { describePan, describeVolume } from "@/lib/score/mixer";
 import { pitchName } from "@/lib/score/music";
 import type { NotationView, TrackSummary, TrackView } from "@/lib/score/score";
@@ -63,6 +65,75 @@ function SwitchRow({
     <div className="flex items-center justify-between gap-2 text-sm">
       <label htmlFor={id}>{label}</label>
       <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+/** GP8's Interpretation: playing style, palm mute and accent strength, let ring, brush. */
+function InterpretationControls({
+  value,
+  onChange,
+}: {
+  value: Interpretation;
+  onChange: (value: Interpretation) => void;
+}) {
+  const styleId = useId();
+  const set = (change: Partial<Interpretation>) => onChange({ ...value, ...change });
+  const percent = (v: number) => `${Math.round(v * 100)}%`;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span id={styleId}>Playing style</span>
+        <Select
+          value={value.style}
+          onValueChange={(style) => set({ style: style as PlayingStyle })}
+        >
+          <SelectTrigger aria-labelledby={styleId} size="sm" className="w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PLAYING_STYLES.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-[6.5rem_1fr_2.5rem] items-center gap-2 text-sm">
+        <span>Palm mute</span>
+        <LabeledSlider
+          label="Palm mute strength"
+          valueText={percent(value.palmMute)}
+          value={value.palmMute}
+          step={0.05}
+          onValueChange={(palmMute) => set({ palmMute })}
+        />
+        <span className="text-right text-xs text-muted-foreground tabular-nums">
+          {percent(value.palmMute)}
+        </span>
+        <span>Accentuation</span>
+        <LabeledSlider
+          label="Accentuation strength"
+          valueText={percent(value.accent)}
+          value={value.accent}
+          step={0.05}
+          onValueChange={(accent) => set({ accent })}
+        />
+        <span className="text-right text-xs text-muted-foreground tabular-nums">
+          {percent(value.accent)}
+        </span>
+      </div>
+      <SwitchRow
+        label="Auto let ring"
+        checked={value.letRing}
+        onChange={(letRing) => set({ letRing })}
+      />
+      <SwitchRow
+        label="Auto brush (strum chords)"
+        checked={value.brush}
+        onChange={(brush) => set({ brush })}
+      />
     </div>
   );
 }
@@ -174,6 +245,8 @@ export function Inspector({
   effects,
   effectProblems,
   onEffectsChange,
+  interpretation,
+  onInterpretationChange,
 }: {
   tab: "song" | "track";
   onTabChange: (tab: "song" | "track") => void;
@@ -197,6 +270,8 @@ export function Inspector({
   /** How many of the track's effects cannot play (missing library items…). */
   effectProblems: number;
   onEffectsChange: (chain: EffectSlot[]) => void;
+  interpretation: Interpretation;
+  onInterpretationChange: (value: Interpretation) => void;
 }) {
   const soundLabelId = useId();
   const syncId = useId();
@@ -380,11 +455,17 @@ export function Inspector({
         </Section>
 
         <Section title="Interpretation">
+          {track.kind === "drums" ? (
+            <p className="text-xs text-muted-foreground">
+              Drums play as written. Mix them in the track list.
+            </p>
+          ) : (
+            <InterpretationControls value={interpretation} onChange={onInterpretationChange} />
+          )}
           {mix && (
-            <>
-              <Row label="Volume">{describeVolume(mix.volume)}</Row>
-              <Row label="Pan">{describePan(mix.pan)}</Row>
-            </>
+            <p className="text-xs text-muted-foreground">
+              Volume {describeVolume(mix.volume)} · Pan {describePan(mix.pan)}
+            </p>
           )}
           <Button variant="outline" size="sm" className="self-start" onClick={actions.onLyrics}>
             <MicVocalIcon data-icon="inline-start" />

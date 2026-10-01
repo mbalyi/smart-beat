@@ -45,7 +45,8 @@ import {
   scrollTarget,
   type LatencyInfo,
 } from "@/lib/score/sync";
-import { allTrackEffects, isAudible } from "@/lib/score/mixer";
+import { applyInterpretation } from "@/lib/score/interpretation";
+import { allTrackEffects, isAudible, trackInterpretation } from "@/lib/score/mixer";
 import {
   renderEngineAudio,
   type BlockProblem,
@@ -365,6 +366,13 @@ export class ScorePlayer {
       if (lookup) approximateSilentEffects(file, lookup);
       remapSilentDrums(file); // the SoundFont has no sample for some drum numbers
       removeMirrorNotes(file); // the drum tab's mirror staff is silent
+      applyInterpretation(
+        file,
+        this.score,
+        lookup ?? null,
+        this.mix.tracks.map((_, i) => trackInterpretation(this.mix, i)),
+        trackChannels(this.score),
+      );
       this.engine
         ?.loadSong(file, trackChannels(this.score))
         .catch((error: unknown) => callbacks.onError?.(asError(error)));
@@ -625,7 +633,9 @@ export class ScorePlayer {
     const previous = this.mix;
     this.mix = mix;
     if (this.ready) this.applyMix(previous, mix);
-    if (!this.applyPans(mix)) return;
+    // Pan and the interpretation are in the generated MIDI.
+    const pansChanged = this.applyPans(mix);
+    if (!pansChanged && previous.interpretation === mix.interpretation) return;
     this.regenerateMidi();
   }
 
