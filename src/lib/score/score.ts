@@ -9,6 +9,9 @@ import { adoptLyrics } from "@/lib/score/lyrics";
 import type { TrackKind } from "@/lib/score/music";
 import type { TrackMix } from "@/lib/tauri";
 import { mirrorOf, setDrumTab } from "@/lib/score/drum-tab";
+import { applyAlphaTabFixes } from "@/lib/score/alphatab-fixes";
+
+applyAlphaTabFixes();
 
 export type Score = model.Score;
 

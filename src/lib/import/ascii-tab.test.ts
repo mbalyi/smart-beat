@@ -1,5 +1,5 @@
 import { writeAsciiTab } from "@/lib/export/ascii-tab";
-import { importAsciiTab } from "@/lib/import/ascii-tab";
+import { guessSteps, importAsciiTab } from "@/lib/import/ascii-tab";
 import { ScoreLoadError } from "@/lib/score/errors";
 import type { Score } from "@/lib/score/model";
 import { parseScore } from "@/lib/score/score";
@@ -113,13 +113,55 @@ describe("importAsciiTab", () => {
     expect(score.masterBars).toHaveLength(1);
   });
 
-  it("lists the techniques it left out", () => {
+  it("takes over hammer-ons, pull-offs, slides, bends, vibrato, ghost notes and harmonics", () => {
+    const { score, warnings } = importAsciiTab(
+      [
+        "e|-5h7p5-7/9-7b--|-9~--(5)-<12>----|",
+        "B|---------------|-----------------|",
+        "G|---------------|-----------------|",
+        "D|---------------|-----------------|",
+        "A|---------------|-----------------|",
+        "E|---------------|-----------------|",
+      ].join("\n"),
+    );
+    const notes = score.tracks[0]!.staves[0]!.bars.flatMap((bar) =>
+      bar.voices[0]!.beats.flatMap((beat) => beat.notes),
+    );
+    const byFret = (fret: number) => notes.filter((n) => n.fret === fret);
+    expect(byFret(5)[0]!.isHammerPullOrigin).toBe(true); // 5h7
+    expect(byFret(7)[0]!.isHammerPullOrigin).toBe(true); // 7p5
+    expect(byFret(7)[1]!.slideOutType).toBeGreaterThan(0); // 7/9
+    expect(byFret(7)[2]!.hasBend).toBe(true); // 7b
+    expect(byFret(9)[1]!.vibrato).toBeGreaterThan(0); // 9~
+    expect(byFret(5).at(-1)!.isGhost).toBe(true); // (5)
+    expect(byFret(12)[0]!.harmonicType).toBeGreaterThan(0); // <12>
+    expect(warnings.join(" ")).not.toMatch(/technique marks/);
+  });
+
+  it("lists the technique marks it left out", () => {
     const { warnings } = importAsciiTab(
-      ["e|-5h7p5-|", "B|-------|", "G|-------|", "D|-------|", "A|-------|", "E|-------|"].join(
+      ["e|-5b7r5-|", "B|-------|", "G|-------|", "D|-------|", "A|-------|", "E|-------|"].join(
         "\n",
       ),
     );
-    expect(warnings.join(" ")).toMatch(/Hammer-ons, slides, bends/);
+    expect(warnings.join(" ")).toMatch(/technique marks \(releases, taps…\) were left out/);
+  });
+
+  it("guesses each bar's rhythm from its own spacing", () => {
+    // Bar 1: quarter notes 4 apart; bar 2: eighth notes 2 apart, same width.
+    const { score } = importAsciiTab(
+      [
+        "e|0---0---0---0---|0-0-0-0-0-0-0-0-|",
+        "B|----------------|----------------|",
+        "G|----------------|----------------|",
+        "D|----------------|----------------|",
+        "A|----------------|----------------|",
+        "E|----------------|----------------|",
+      ].join("\n"),
+    );
+    const bars = score.tracks[0]!.staves[0]!.bars;
+    expect(bars[0]!.voices[0]!.beats.map((b) => b.duration)).toEqual([4, 4, 4, 4]);
+    expect(bars[1]!.voices[0]!.beats.map((b) => b.duration)).toEqual(Array(8).fill(8));
   });
 
   it("skips text between and around the tab, and blocks that are not 4 to 8 lines", () => {
@@ -175,5 +217,14 @@ describe("importAsciiTab", () => {
       ["2:0", "2:0"],
     ]);
     expect(Array.from(back.tracks[1]!.staves[0]!.tuning)).toEqual([43, 38, 33, 28]);
+  });
+});
+
+describe("guessSteps", () => {
+  it("snaps a near count to a common one and falls back to the system's step", () => {
+    const hits = (...cols: number[]) => cols.map((col) => ({ col }));
+    expect(guessSteps(31, hits(0, 4, 8, 12), 2)).toBe(8); // 7.75 → 8
+    expect(guessSteps(16, hits(0), 2)).toBe(8); // too few notes: the system's step
+    expect(guessSteps(20, hits(0, 4, 8), 4)).toBe(5); // 5 is not common: kept
   });
 });

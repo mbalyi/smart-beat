@@ -6,9 +6,11 @@
  *     B|--1---0---|
  *
  * Text has no rhythm, so the import guesses it from the spacing: the distance
- * between notes sets the note value, and a bar's number of steps sets the time
- * signature. Techniques (hammer-ons, slides, bends...) are left out and listed
- * in the warnings. The notes are written as alphaTex and read by alphaTab.
+ * between notes (in each bar) sets the note value, and a bar's number of steps
+ * sets the time signature. The usual technique marks are taken over: h and p
+ * (hammer-on, pull-off), / \ and s (slides), b (bend), ~ and v (vibrato),
+ * (n) (ghost note) and <n> (natural harmonic); others are listed in the
+ * warnings. The notes are written as alphaTex and read by alphaTab.
  */
 import { importer, Settings } from "@coderline/alphatab";
 
@@ -68,7 +70,24 @@ interface Hit {
   /** A number, or "x" for a dead note. */
   fret: number | "x";
   width: number;
+  /** alphaTex note effects from the marks around the number ("h", "sl", "b (0 4)"…). */
+  effects: string[];
 }
+
+/** The technique a mark right after a fret number stands for (alphaTex note effects). */
+const MARK_AFTER: Record<string, string> = {
+  h: "h",
+  p: "h", // alphaTab plays hammer-ons and pull-offs as one legato effect
+  "/": "sl",
+  "\\": "sl",
+  s: "sl",
+  b: "b (0 4)", // a full bend
+  "~": "v",
+  v: "v",
+};
+
+/** Step counts a bar of equal steps usually has: guesses are snapped to these. */
+const COMMON_STEPS = [2, 3, 4, 6, 8, 12, 16, 24, 32];
 
 interface System {
   /** String names (pitch classes), top line first. */
@@ -101,12 +120,20 @@ function parseSystem(lines: string[]): System {
       } else if (/\d/.test(char)) {
         let width = 1;
         while (/\d/.test(line[col + width] ?? "")) width++;
-        hits.push({ col, string, fret: Number(line.slice(col, col + width)), width });
+        const effects: string[] = [];
+        const before = line[col - 1];
+        const after = line[col + width];
+        if (before === "(" && after === ")") effects.push("g"); // ghost note
+        if (before === "<" && after === ">") effects.push("nh"); // natural harmonic
+        const mark = after === ")" || after === ">" ? line[col + width + 1] : after;
+        const effect = mark ? MARK_AFTER[mark] : undefined;
+        if (effect) effects.push(effect);
+        hits.push({ col, string, fret: Number(line.slice(col, col + width)), width, effects });
         col += width - 1;
       } else if (char === "x" || char === "X") {
-        hits.push({ col, string, fret: "x", width: 1 });
-      } else if (/[hpbrs/\\~^<>*vt]/.test(char)) {
-        techniques = true;
+        hits.push({ col, string, fret: "x", width: 1, effects: [] });
+      } else if (/[r^*t]/.test(char)) {
+        techniques = true; // release, tapping and other marks are not taken over
       }
     }
   });
@@ -167,6 +194,46 @@ function stepOf(columns: number[]): number {
   return best;
 }
 
+/**
+ * How many equal steps a bar of `width` columns has: from the spacing of its
+ * own notes when it has enough of them (else the whole system's step),
+ * snapped to a common count when it is close to one.
+ */
+export function guessSteps(width: number, hits: { col: number }[], systemStep: number): number {
+  const columns = [...new Set(hits.map((h) => h.col))].sort((a, b) => a - b);
+  const step = columns.length >= 3 ? stepOf(columns) : systemStep;
+  const raw = width / Math.max(1, step);
+  const near = COMMON_STEPS.find((n) => Math.abs(n - raw) / n <= 0.15);
+  return Math.max(1, Math.min(MAX_STEPS, near ?? Math.round(raw)));
+}
+
+/**
+ * Puts a bar's notes in `steps` equal slots. If two notes of one string
+ * would share a slot, the bar gets twice as many (shorter) steps, so no
+ * note is lost.
+ */
+function placeInSlots(
+  hits: Hit[],
+  from: number,
+  width: number,
+  guessed: number,
+): { steps: number; slots: Map<number, Hit[]> } {
+  let steps = guessed;
+  for (;;) {
+    const slots = new Map<number, Hit[]>();
+    const size = width / steps;
+    let clash = false;
+    for (const hit of hits) {
+      const slot = Math.min(steps - 1, Math.floor((hit.col - from) / size + 0.0001));
+      const here = slots.get(slot) ?? [];
+      if (here.some((h) => h.string === hit.string)) clash = true;
+      slots.set(slot, [...here, hit]);
+    }
+    if (!clash || steps * 2 > MAX_STEPS) return { steps, slots };
+    steps *= 2;
+  }
+}
+
 /** The note value and time signature for a bar of `steps` equal steps. */
 function meterFor(steps: number): { duration: number; numerator: number; denominator: number } {
   if ([1, 2, 4, 8, 16, 32].includes(steps))
@@ -191,8 +258,7 @@ function trackBars(
   const tex: string[] = [];
   let meter = "";
   for (const system of systems) {
-    if (system.techniques)
-      warnings.add("Hammer-ons, slides, bends and other techniques were left out.");
+    if (system.techniques) warnings.add("Some technique marks (releases, taps…) were left out.");
     // Bar columns: the system's lines start and end at bar lines or at their content.
     const edges = [...new Set([system.start, ...system.bars, system.end + 1])].sort(
       (a, b) => a - b,
@@ -208,12 +274,12 @@ function trackBars(
     for (const [from, to] of ranges) {
       const inBar = system.hits.filter((h) => h.col >= from && h.col < to);
       if (inBar.length === 0 && ranges.length > 1) continue; // text between the bars
-      const steps = Math.max(1, Math.min(MAX_STEPS, Math.round((to - from) / step)));
-      const slots = new Map<number, Hit[]>();
-      for (const hit of inBar) {
-        const slot = Math.min(steps - 1, Math.floor((hit.col - from) / step + 0.0001));
-        slots.set(slot, [...(slots.get(slot) ?? []), hit]);
-      }
+      const { steps, slots } = placeInSlots(
+        inBar,
+        from,
+        to - from,
+        guessSteps(to - from, inBar, step),
+      );
       const { duration, numerator, denominator } = meterFor(steps);
       const bar: string[] = [];
       const ts = `${numerator} ${denominator}`;
@@ -236,7 +302,8 @@ function trackBars(
             warnings.add(`Frets above ${MAX_FRET} were set to ${MAX_FRET}.`);
             fret = MAX_FRET;
           }
-          return `${fret}.${string}`;
+          const effects = h.effects.length > 0 ? `{${h.effects.join(" ")}}` : "";
+          return `${fret}.${string}${effects}`;
         });
         bar.push(notes.length === 1 ? notes[0]! : `(${notes.join(" ")})`);
       }

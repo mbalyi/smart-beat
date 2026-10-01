@@ -59,3 +59,23 @@ Import (`src/lib/import/midi.ts`) is Smart Beat's own. A MIDI file has sounds, n
 ## ASCII tab
 
 Export writes each stringed track as lines of text: a line per string named from the tuning (lowercase for the top string), frets, `x` for dead notes and `(5)` for ghost notes, wrapped at 80 characters. Tracks without strings are listed as left out.
+
+Import guesses the rhythm from the spacing of each bar's own notes (snapped to 2, 3, 4, 6, 8, 12, 16, 24 or 32 steps, and doubled when two notes of a string would share a step) and takes over the usual technique marks: `h` and `p` (hammer-on, pull-off), `/`, `\` and `s` (slides), `b` (bend), `~` and `v` (vibrato), `(5)` (ghost note) and `<12>` (natural harmonic). Releases, taps and other marks are listed as left out.
+
+## Import only
+
+| Format          | Extension        | What is read                                                                                                                                                                                                                      |
+| --------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MuseScore 3 / 4 | `.mscx`, `.mscz` | Parts, staves, up to four voices, notes, chords, rests, dots, tuplets, ties, dynamics, the first verse of lyrics, repeats, time and key signatures, tempo. Not yet: grace notes, voltas, slurs, text, layout                      |
+| Capella         | `.capx`          | Read by alphaTab. alphaTab 1.8.4 failed on every file with a note (it measures a chord before adding it to its voice); `src/lib/score/alphatab-fixes.ts` works around it. Repeat counts are only read from Capella's draw objects |
+| alphaTex        | `.atex`          | Everything alphaTab reads                                                                                                                                                                                                         |
+
+## Not supported yet (needs a format specification)
+
+These are binary formats with no public specification. Smart Beat's code is closed source, so their readers must be written clean-room ([ADR 0001](adr/0001-project-license.md)); the open-source programs that read them are GPL or LGPL and cannot be ported.
+
+| Format    | Extension | What is needed                                                                                                                                                                     |
+| --------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Power Tab | `.ptb`    | A written description of the format. The only reader is Power Tab Editor 2 (GPL-3), which cannot be used as a source                                                               |
+| TuxGuitar | `.tg`     | A written description of the format. TuxGuitar (LGPL-2.1) is its only documentation; reading its code to port it is not allowed                                                    |
+| TablEdit  | `.tef`    | The TablEdit format specification, which its author (Matthieu Leschemelle) shares on request (MuseScore's importer was written that way). Ask for it with commercial use permitted |
