@@ -891,3 +891,172 @@ describe("ScorePlayer: effects alphaTab leaves silent", () => {
     expect(noteOns(file).map((e) => e.noteVelocity)).toEqual(before);
   });
 });
+
+describe("ScorePlayer: cursor in sync with the sound", () => {
+  const position = (api: FakeAlphaTabApi, currentTime: number) =>
+    api.playerPositionChanged.trigger({
+      currentTime,
+      endTime: 12_000,
+      originalTempo: 60,
+      modifiedTempo: 60,
+    });
+
+  afterEach(() => {
+    delete window.__smartBeatOutputLatencyMs;
+    vi.useRealTimers();
+  });
+
+  it("uses its own cursor handler, which delays the cursor by the latency", async () => {
+    const { api } = await setup();
+    expect(api.customCursorHandler).toBeDefined();
+  });
+
+  it("shows the position, bar and notes only once they are audible", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { api, callbacks, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    setPlaying(true);
+
+    position(api, 1_000);
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
+    api.activeBeatsChanged.trigger({ activeBeats: [] });
+    vi.advanceTimersByTime(149);
+    expect(callbacks.onPositionChange).not.toHaveBeenCalled();
+    expect(callbacks.onBarChange).not.toHaveBeenCalled();
+    expect(callbacks.onActiveBeatsChange).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(callbacks.onPositionChange).toHaveBeenCalledWith(
+      expect.objectContaining({ currentMs: 1_000 }),
+    );
+    expect(callbacks.onBarChange).toHaveBeenCalledWith(2);
+    expect(callbacks.onActiveBeatsChange).toHaveBeenCalledWith([]);
+  });
+
+  it("does not delay anything while paused (clicks and seeks show at once)", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { api, callbacks } = await readySetup();
+
+    position(api, 500);
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 1 } } });
+
+    expect(callbacks.onPositionChange).toHaveBeenCalledWith(
+      expect.objectContaining({ currentMs: 500 }),
+    );
+    expect(callbacks.onBarChange).toHaveBeenCalledWith(1);
+  });
+
+  it("drops what is waiting when the user seeks or stops, so the cursor never jumps back", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { api, player, callbacks, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    setPlaying(true);
+
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 3 } } }); // about to be heard
+    player.seekToBar(1);
+    vi.advanceTimersByTime(300);
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1]]);
+
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
+    player.stop();
+    vi.advanceTimersByTime(300);
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1]]);
+  });
+
+  it("keeps showing what is still audible for a moment after a pause, in order", async () => {
+    window.__smartBeatOutputLatencyMs = 100;
+    const { api, callbacks, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    setPlaying(true);
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 1 } } });
+    vi.advanceTimersByTime(40);
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
+
+    vi.advanceTimersByTime(60);
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1]]);
+    vi.advanceTimersByTime(40);
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1], [2]]);
+  });
+
+  it("follows the user's sync offset", async () => {
+    const { storeSyncOffset } = await import("@/lib/score/sync");
+    storeSyncOffset(80);
+    const { api, callbacks, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    setPlaying(true);
+
+    api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
+    vi.advanceTimersByTime(79);
+    expect(callbacks.onBarChange).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(callbacks.onBarChange).toHaveBeenCalledWith(2);
+    storeSyncOffset(0);
+  });
+});
+
+describe("ScorePlayer: audio export", () => {
+  it("renders the song with the mix to sound, chunk by chunk, with progress", async () => {
+    const { player, api, mix } = await readySetup();
+    api.exportChunks = [
+      { samples: new Float32Array([0.1, 0.2]), currentTime: 1_000, endTime: 3_000 },
+      { samples: new Float32Array([0.3, 0.4]), currentTime: 2_000, endTime: 3_000 },
+      { samples: new Float32Array([0.5]), currentTime: 3_000, endTime: 3_000 },
+    ];
+    const progress = vi.fn();
+
+    const audio = await player.renderAudio(progress);
+
+    expect(Array.from(audio.samples)).toEqual([
+      expect.closeTo(0.1),
+      expect.closeTo(0.2),
+      expect.closeTo(0.3),
+      expect.closeTo(0.4),
+      expect.closeTo(0.5),
+    ]);
+    expect(audio).toMatchObject({ sampleRate: 44_100, channels: 2 });
+    expect(progress.mock.calls.map(([p]) => Math.round(p * 100))).toEqual([33, 67, 100, 100]);
+    expect(api.exporterDestroyed).toHaveBeenCalledOnce();
+    expect(api.exportOptions).toMatchObject({
+      sampleRate: 44_100,
+      masterVolume: mix.master,
+      metronomeVolume: 0,
+    });
+  });
+
+  it("uses the mixer: muted tracks and tracks not soloed are silent, the others keep their volume", async () => {
+    const { player, api, mix } = await readySetup();
+    player.setMix({
+      ...mix,
+      tracks: mix.tracks.map((t, i) => ({ ...t, mute: i === 0, solo: i === 1 || i === 2 })),
+    });
+
+    await player.renderAudio();
+
+    const volumes = (api.exportOptions as { trackVolume: Map<number, number> }).trackVolume;
+    expect(volumes.get(0)).toBe(0); // muted
+    expect(volumes.get(1)).toBe(mix.tracks[1]!.volume);
+    expect(volumes.get(2)).toBe(mix.tracks[2]!.volume);
+    expect(volumes.get(3)).toBe(0); // not soloed
+  });
+
+  it("stops playing first, and says when the sounds are not loaded yet", async () => {
+    const { player, api, setPlaying } = await readySetup();
+    setPlaying(true);
+    await player.renderAudio();
+    expect(api.playPause).toHaveBeenCalled(); // paused
+
+    const loading = await setup();
+    await expect(loading.player.renderAudio()).rejects.toThrow("still loading");
+  });
+
+  it("releases the exporter when rendering fails", async () => {
+    const { player, api } = await readySetup();
+    api.exportAudio.mockResolvedValueOnce({
+      render: vi.fn(() => Promise.reject(new Error("out of memory"))),
+      destroy: api.exporterDestroyed,
+    } as never);
+
+    await expect(player.renderAudio()).rejects.toThrow("out of memory");
+    expect(api.exporterDestroyed).toHaveBeenCalledOnce();
+  });
+});

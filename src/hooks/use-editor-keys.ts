@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, type RefObject } from "react";
 
 import type { ScoreEditor } from "@/lib/score/editor";
 import type { NoteEffectId } from "@/lib/score/effects";
+import { NOTE_VALUES } from "@/lib/score/music";
 
 /** ⌘ on macOS, Ctrl elsewhere. */
 const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -99,6 +100,18 @@ export function useEditorKeys(
     }
 
     if (!plain) return;
+    // Shift+1…7: the note value, whole to 64th (the digits alone are frets and drum numbers).
+    const valueKey = /^Digit([1-7])$/.exec(event.code);
+    if (event.shiftKey && valueKey) {
+      handled();
+      editor.setDuration(NOTE_VALUES[Number(valueKey[1]) - 1]!.duration);
+      return;
+    }
+    if (key.toLowerCase() === "r" && event.shiftKey) {
+      handled();
+      editor.fillWithRests();
+      return;
+    }
     if (/^[0-9]$/.test(key)) {
       handled();
       editor.typeDigit(Number(key));
@@ -185,6 +198,14 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
   { keys: ["mod", "←/→"], spoken: "mod+Left or Right arrow", label: "Previous / next bar" },
   { keys: ["⇧", "arrows"], spoken: "Shift+arrows", label: "Select beats" },
   { keys: ["0–9"], spoken: "0 to 9", label: "Type a fret (two quick digits: 10–29)" },
+  {
+    keys: ["0–9"],
+    spoken: "0 to 9",
+    label:
+      "Drum track: type a drum number (46 = open hi-hat, 38 = snare); the same number again removes it",
+  },
+  { keys: ["⇧", "1–7"], spoken: "Shift+1 to 7", label: "Note value: whole, half, … 64th" },
+  { keys: ["⇧", "R"], spoken: "Shift+R", label: "Fill the bar with rests of the note value" },
   { keys: ["A–G"], spoken: "A to G", label: "Type a pitch (nearest octave)" },
   { keys: ["⌥", "↑/↓"], spoken: "Option+Up or Down arrow", label: "Note a semitone up / down" },
   { keys: ["+", "−"], spoken: "Plus or Minus", label: "Shorter / longer note value" },

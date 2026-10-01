@@ -85,7 +85,7 @@ test.describe("note entry and editing (#9)", () => {
     await app.getByRole("option", { name: "Triplet (3:2)" }).click();
     await expect(app.getByRole("combobox", { name: "Tuplet" })).toHaveText("Triplet (3:2)");
 
-    await app.getByRole("button", { name: "Rest" }).click();
+    await app.getByRole("button", { name: "Rest", exact: true }).click();
     await expectTab(app, ["5"]);
     await expect(scoreRegion(app)).toBeFocused(); // typing continues in the score
   });
@@ -143,16 +143,39 @@ test.describe("note entry and editing (#9)", () => {
     await expect(app.getByTestId("edit-cursor-note").first()).toBeVisible();
   });
 
-  test("asks before discarding changes", async ({ app }) => {
+  test("asks before closing a song with changes", async ({ app }) => {
     await newSong(app);
     await app.keyboard.press("4");
     await expect(app.getByText("Edited")).toBeVisible();
 
-    await emitMenuAction(app, "new-song");
+    await app.getByRole("button", { name: /^Close Untitled/ }).click();
     const confirm = app.getByRole("alertdialog", { name: /Discard your changes/ });
     await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "Keep editing" }).click();
+    await expect(confirm).toBeHidden();
+    await expect(app.getByText("Edited")).toBeVisible();
+
+    await app.getByRole("button", { name: /^Close Untitled/ }).click();
     await confirm.getByRole("button", { name: "Discard changes" }).click();
-    await expect(app.getByText("Edited")).toHaveCount(0);
-    await expectTab(app, []);
+    await expect(app.getByRole("button", { name: "Open a file…" })).toBeVisible();
+  });
+
+  test("a song with changes stays open in its tab while another song is opened", async ({
+    app,
+  }) => {
+    await newSong(app);
+    await app.keyboard.press("4");
+    await expectTab(app, ["4"]);
+
+    await openSong(app);
+    await expect(app.getByRole("alertdialog")).toHaveCount(0);
+    const tabs = app.getByRole("navigation", { name: "Open songs" });
+    await expect(tabs.getByRole("listitem")).toHaveCount(2);
+
+    // Back to the edited song: its notes (and undo) are still there.
+    await tabs.getByRole("button", { name: /^Untitled/ }).click();
+    await expect(app.getByRole("heading", { level: 1, name: "Untitled" })).toBeVisible();
+    await expectTab(app, ["4"]);
+    await expect(app.getByRole("button", { name: "Undo Add note" })).toBeEnabled();
   });
 });

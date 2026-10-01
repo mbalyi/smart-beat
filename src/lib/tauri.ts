@@ -99,10 +99,15 @@ export const SCORE_EXTENSIONS = [
   "midi",
   "musicxml",
   "xml",
+  "mscx",
+  "mscz",
+  "atex",
+  "capx",
+  "txt",
 ] as const;
 
 /** Mirrors `WRITE_EXTENSIONS` in `src-tauri/src/score_write.rs`. */
-export const SAVE_EXTENSIONS = ["gp", "gp5", "mid", "midi", "musicxml", "txt"] as const;
+export const SAVE_EXTENSIONS = ["gp", "gp5", "mid", "midi", "musicxml", "txt", "wav"] as const;
 
 /** Mirrors `ErrorKind` in `src-tauri/src/error.rs`. */
 export type CommandErrorKind =
@@ -237,6 +242,9 @@ export async function pickScoreFile(): Promise<string | null> {
       { name: "Guitar Pro files", extensions: ["gp3", "gp4", "gp5", "gpx", "gp"] },
       { name: "MusicXML files", extensions: ["musicxml", "xml"] },
       { name: "MIDI files", extensions: ["mid", "midi"] },
+      { name: "MuseScore files", extensions: ["mscx", "mscz"] },
+      { name: "Text tab and alphaTex", extensions: ["txt", "atex"] },
+      { name: "Capella files", extensions: ["capx"] },
     ],
   });
 }

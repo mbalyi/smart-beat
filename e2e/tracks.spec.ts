@@ -21,12 +21,31 @@ async function addTrack(page: Page, instrument: string) {
   await expect(dialog).toBeHidden();
 }
 
+/** The track list at the bottom: names, in order. */
 const trackNames = (page: Page) =>
   page.evaluate(() =>
-    [...document.querySelectorAll("[role=dialog] ol > li h3")].map((h) =>
-      h.textContent?.replace(/^\d+\.\s*/, "").replace(" (shown)", ""),
-    ),
+    [
+      ...document.querySelectorAll(
+        "[aria-label='Tracks and mixer'] ol > li button[aria-label^='Show ']",
+      ),
+    ].map((b) => b.getAttribute("aria-label")?.replace(/^Show /, "")),
   );
+
+/** What the track list says about each track's instrument (the tooltip of its name). */
+const trackInstruments = (page: Page) =>
+  page.evaluate(() =>
+    [
+      ...document.querySelectorAll(
+        "[aria-label='Tracks and mixer'] ol > li button[aria-label^='Show ']",
+      ),
+    ].map((b) => b.getAttribute("title")),
+  );
+
+/** Picks an action from a track row's "⋮" menu. */
+async function trackAction(page: Page, track: string, action: string) {
+  await page.getByRole("button", { name: `Actions for ${track}` }).click();
+  await page.getByRole("menuitem", { name: action }).click();
+}
 
 test.describe("tracks and instruments (#10)", () => {
   test("adds guitars, basses, banjo and drums, each with its own staff", async ({ app }) => {
@@ -41,14 +60,19 @@ test.describe("tracks and instruments (#10)", () => {
     await expect(scoreRegion(app)).toHaveAccessibleName("Score: Drums");
     await expect(app.getByRole("radio", { name: "Tab", exact: true })).toBeDisabled();
 
-    await app.getByRole("button", { name: "Tracks" }).click();
-    const panel = app.getByRole("dialog", { name: "Tracks" });
-    await expect(panel.getByRole("listitem")).toHaveText([
-      /Guitar.*Acoustic Guitar \(steel\) · Guitar Standard Tuning/,
-      /7-String Guitar.*Distortion Guitar · Guitar 7 strings/,
-      /5-String Bass.*Electric Bass \(finger\) · Bass 5 Strings Tuning/,
-      /Banjo.*Banjo · Banjo Open G Tuning/,
-      /Drums.*Drums/,
+    expect(await trackNames(app)).toEqual([
+      "Guitar",
+      "7-String Guitar",
+      "5-String Bass",
+      "Banjo",
+      "Drums",
+    ]);
+    expect(await trackInstruments(app)).toEqual([
+      "Acoustic Guitar (steel) · Guitar Standard Tuning",
+      "Distortion Guitar · Guitar 7 strings",
+      "Electric Bass (finger) · Bass 5 Strings Tuning",
+      "Banjo · Banjo Open G Tuning",
+      "Drums",
     ]);
   });
 
@@ -67,22 +91,15 @@ test.describe("tracks and instruments (#10)", () => {
 
   test("removes, reorders and duplicates tracks, with undo", async ({ app }) => {
     await openSong(app);
-    await app.getByRole("button", { name: "Tracks" }).click();
-    const panel = app.getByRole("dialog", { name: "Tracks" });
-
-    await panel.getByRole("button", { name: "Move Piano up" }).click();
-    await panel.getByRole("button", { name: "Duplicate Guitar" }).click();
-    await panel.getByRole("button", { name: "Remove Bass" }).click();
+    await trackAction(app, "Piano", "Move up");
+    await trackAction(app, "Guitar", "Duplicate");
+    await trackAction(app, "Bass", "Remove");
     expect(await trackNames(app)).toEqual(["Guitar", "Guitar 2", "Piano", "Drums"]);
 
-    await app.keyboard.press("Escape");
     await emitMenuAction(app, "undo");
-    await app.getByRole("button", { name: "Tracks" }).click();
     expect(await trackNames(app)).toEqual(["Guitar", "Guitar 2", "Bass", "Piano", "Drums"]);
 
     // The mixer follows: the duplicated guitar has its own strip.
-    await app.keyboard.press("Escape");
-    await app.getByRole("button", { name: "Mixer" }).click();
     await expect(app.getByRole("slider", { name: "Volume, Guitar 2" })).toBeVisible();
     await expect(app.getByRole("button", { name: "Mute Piano" })).toHaveAttribute(
       "aria-pressed",
@@ -102,8 +119,7 @@ test.describe("tracks and instruments (#10)", () => {
     await app.getByRole("option", { name: "26. Acoustic Guitar (steel)" }).click();
     await dialog.getByRole("button", { name: "Apply" }).click();
 
-    await app.getByRole("button", { name: "Tracks" }).click();
-    await expect(app.getByRole("dialog", { name: "Tracks" })).toContainText(
+    expect((await trackInstruments(app))[0]).toBe(
       "Acoustic Guitar (steel) · Guitar Dropped D Tuning · Capo 2",
     );
   });

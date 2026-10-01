@@ -91,6 +91,8 @@ describe("InstrumentPanel: keyboard", () => {
     await user.click(screen.getByRole("button", { name: "C sharp4" }));
     expect(props.onPitch).toHaveBeenCalledWith(61);
 
+    // A click keeps the focus in the score; the keys are reached with Tab.
+    screen.getByRole("button", { name: "C sharp4" }).focus();
     await user.keyboard("{ArrowRight}{ArrowRight}");
     expect(screen.getByRole("button", { name: "D sharp4" })).toHaveFocus();
     await user.keyboard("{End}");
@@ -113,7 +115,7 @@ describe("InstrumentPanel: drums", () => {
     const { user, props } = setup({ kind: "drums", tuning: [], editing: true, drumSounds: [81] });
 
     await user.click(screen.getByRole("button", { name: "Crash cymbal" }));
-    await user.click(screen.getByRole("button", { name: "Drum sound 81" }));
+    await user.click(screen.getByRole("button", { name: "Triangle (hit)" }));
 
     expect(vi.mocked(props.onDrum).mock.calls).toEqual([[49], [81]]);
     await expectNoA11yViolations();
@@ -182,5 +184,32 @@ describe("InstrumentPanel: scale tool", () => {
   it("has no scale tool for drums", () => {
     setup({ kind: "drums", tuning: [], onScaleChange: vi.fn(), scale: { root: 0, type: "major" } });
     expect(screen.queryByRole("combobox", { name: "Scale" })).not.toBeInTheDocument();
+  });
+});
+
+describe("InstrumentPanel: keeping the keyboard focus in the score", () => {
+  it("does not take focus when a fret, key or drum pad is clicked while editing", async () => {
+    for (const kind of ["stringed", "pitched", "drums"] as const) {
+      const { user, unmount } = setup({
+        kind,
+        tuning: kind === "stringed" ? GUITAR : [],
+        editing: true,
+        cursorString: 1,
+      });
+      const button = screen.getAllByRole("button").find((b) => b.getAttribute("aria-label"))!;
+      const before = document.activeElement;
+
+      await user.click(button);
+
+      expect(document.activeElement).toBe(before);
+      expect(document.activeElement).not.toBe(button);
+      unmount();
+    }
+  });
+
+  it("keeps the buttons reachable with Tab", async () => {
+    const { user } = setup({ kind: "drums", tuning: [], editing: true });
+    await user.tab();
+    expect(document.activeElement?.tagName).toBe("BUTTON");
   });
 });

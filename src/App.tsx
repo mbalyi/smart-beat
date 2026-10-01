@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { DocumentTabs } from "@/components/shell/document-tabs";
 import { DiscardDialog } from "@/components/discard-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
@@ -12,7 +13,7 @@ import { Welcome } from "@/components/welcome";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { useRecentFiles } from "@/hooks/use-recent-files";
-import { firstScoreFile, useScoreDocument } from "@/hooks/use-score-document";
+import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
 import { errorText } from "@/lib/errors";
 import { baseName } from "@/lib/score/format";
@@ -30,25 +31,56 @@ export function App() {
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const { toggleTheme } = useTheme();
-  const { song, openPath, openFile, newSong, markSaved, recentsVersion } = useScoreDocument();
+  const { songs, song, activate, close, openPath, openFile, newSong, markSaved, recentsVersion } =
+    useScoreDocuments();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Where an open song puts its main controls (the app header's centre). */
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   /**
-   * The open song has changes that would be lost by opening another one. A
-   * ref, updated as soon as the music changes, so a menu command right after
-   * an edit sees it.
+   * Songs with changes that would be lost by closing them. A ref, updated as
+   * soon as the music changes, so a menu command right after an edit sees it.
    */
-  const edited = useRef(false);
-  const setEdited = useCallback((value: boolean) => {
-    edited.current = value;
+  const edited = useRef(new Set<number>());
+  const [editedIds, setEditedIds] = useState<ReadonlySet<number>>(() => new Set());
+  const setEdited = useCallback((id: number, value: boolean) => {
+    if (edited.current.has(id) === value) return;
+    if (value) edited.current.add(id);
+    else edited.current.delete(id);
+    setEditedIds(new Set(edited.current));
   }, []);
-  /** What to do once the user agrees to discard their changes. */
-  const [pending, setPending] = useState<(() => void) | null>(null);
+  /** The song the user is asked about: closing it would lose changes. */
+  const [pendingClose, setPendingClose] = useState<number | null>(null);
 
-  /** Runs `action` (which replaces the song), asking first if it was edited. */
-  const replaceSong = (action: () => void) => {
-    if (song && edited.current) setPending(() => action);
-    else action();
+  const closeSong = (id: number) => {
+    if (edited.current.has(id)) {
+      setPendingClose(id);
+      return;
+    }
+    close(id);
   };
+
+  const discardAndClose = (id: number) => {
+    setPendingClose(null);
+    setEdited(id, false);
+    close(id);
+  };
+
+  const startNewSong = () => void newSong();
+
+  const tabs = (
+    <DocumentTabs
+      tabs={songs.map((s) => ({
+        id: s.id,
+        title: s.summary.title || s.name,
+        edited: editedIds.has(s.id),
+      }))}
+      activeId={song?.id ?? null}
+      onActivate={activate}
+      onClose={closeSong}
+      onNew={startNewSong}
+    />
+  );
+  const closing = songs.find((s) => s.id === pendingClose) ?? null;
 
   const showDialog = (next: AppDialog, returnFocusTo: HTMLElement | null = null) => {
     setReturnFocusTo(returnFocusTo);
@@ -69,19 +101,17 @@ export function App() {
     }
   };
 
-  const open = () => replaceSong(() => void showOpenDialog());
-  const startNewSong = () => replaceSong(() => void newSong());
-
-  const recent = useRecentFiles((path) => replaceSong(() => void openPath(path)), recentsVersion);
+  const open = () => void showOpenDialog();
+  const recent = useRecentFiles((path) => void openPath(path), recentsVersion);
 
   const dragging = useFileDrop({
     onDropPaths: (paths) => {
       const path = firstScoreFile(paths, baseName);
-      if (path) replaceSong(() => void openPath(path));
+      if (path) void openPath(path);
     },
     onDropFiles: (files) => {
       const file = firstScoreFile(files, (f) => f.name);
-      if (file) replaceSong(() => void openFile(file));
+      if (file) void openFile(file);
     },
   });
 
@@ -119,7 +149,7 @@ export function App() {
     <>
       <SkipLink />
       <div className={cn("flex flex-col", song ? "h-svh" : "min-h-svh")}>
-        <AppHeader onShowDialog={showDialog} wide={song !== null} />
+        <AppHeader onShowDialog={showDialog} wide={song !== null} centerRef={setHeaderSlot} />
         <main
           id="main"
           tabIndex={-1}
@@ -133,14 +163,21 @@ export function App() {
                 </p>
               }
             >
-              <ScoreWorkspace
-                key={song.id}
-                song={song}
-                onOpen={open}
-                onEditedChange={setEdited}
-                onSaved={markSaved}
-                startEditing={song.isNew}
-              />
+              <div className="relative min-h-0 flex-1">
+                {songs.map((s) => (
+                  <ScoreWorkspace
+                    key={s.id}
+                    song={s}
+                    active={s.id === song.id}
+                    tabs={tabs}
+                    headerSlot={headerSlot}
+                    onOpen={open}
+                    onEditedChange={(value) => setEdited(s.id, value)}
+                    onSaved={(saved) => markSaved(s.id, saved)}
+                    startEditing={s.isNew}
+                  />
+                ))}
+              </div>
             </Suspense>
           ) : (
             <Welcome
@@ -148,7 +185,7 @@ export function App() {
               onNewSong={startNewSong}
               onShowShortcuts={() => showDialog("shortcuts")}
               recent={recent}
-              onOpenRecent={(path) => replaceSong(() => void openPath(path))}
+              onOpenRecent={(path) => void openPath(path)}
             />
           )}
         </main>
@@ -168,15 +205,10 @@ export function App() {
       />
       <DropOverlay visible={dragging} />
       <DiscardDialog
-        songName={song ? song.summary.title || song.name : ""}
-        open={pending !== null}
-        onCancel={() => setPending(null)}
-        onDiscard={() => {
-          const action = pending;
-          setPending(null);
-          edited.current = false;
-          action?.();
-        }}
+        songName={closing ? closing.summary.title || closing.name : ""}
+        open={closing !== null}
+        onCancel={() => setPendingClose(null)}
+        onDiscard={() => closing && discardAndClose(closing.id)}
       />
       <AppDialogs open={dialog} onOpenChange={setDialog} returnFocusTo={returnFocusTo} />
       <Toaster position="bottom-right" />

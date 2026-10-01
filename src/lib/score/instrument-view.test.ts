@@ -78,7 +78,7 @@ describe("drums", () => {
   it("offers the kit plus any other sound in use", () => {
     expect(drumPads()).toHaveLength(DRUM_KIT.length);
     const pads = drumPads([38, 81, 81]);
-    expect(pads.at(-1)).toEqual({ id: 81, name: "Drum sound 81", short: "81" });
+    expect(pads.at(-1)).toEqual({ id: 81, name: "Triangle (hit)", short: "81" });
     expect(pads).toHaveLength(DRUM_KIT.length + 1);
   });
 

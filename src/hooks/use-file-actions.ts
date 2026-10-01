@@ -10,6 +10,7 @@ import {
   type ExportFormat,
   type ExportResult,
 } from "@/lib/export";
+import { encodeWav, type RenderedAudio } from "@/lib/export/wav";
 import { baseName, fileKey } from "@/lib/score/format";
 import type { ScoreEditor } from "@/lib/score/editor";
 import {
@@ -19,6 +20,11 @@ import {
   type MixerSettings,
   type SaveFilter,
 } from "@/lib/tauri";
+
+/** The audio export: a WAV file of the mix. */
+const AUDIO_EXTENSION = "wav";
+const AUDIO_MIME = "audio/wav";
+const AUDIO_FILTER: SaveFilter = { name: "WAV audio", extensions: [AUDIO_EXTENSION] };
 
 /** Formats "Save" and "Save As" write (a song can be reopened from them). */
 const SONG_FORMATS: ExportFormat[] = ["gp", "gp5"];
@@ -60,12 +66,15 @@ export function useFileActions({
   song,
   editor,
   getMix,
+  renderAudio,
   onSaved,
   onEditedChange,
 }: {
   song: ScoreDocument;
   editor: ScoreEditor;
   getMix: () => MixerSettings;
+  /** Renders the song with the current mix to sound (see `ScorePlayer.renderAudio`). */
+  renderAudio?: (onProgress: (fraction: number) => void) => Promise<RenderedAudio>;
   onSaved: (saved: SavedAs) => void;
   onEditedChange?: (edited: boolean) => void;
 }) {
@@ -154,5 +163,34 @@ export function useFileActions({
       reportWarnings(`“${name}” was exported with limits`, result);
     });
 
-  return { save, saveAs, exportAs };
+  /** Exports the mix as a WAV file: rendered by the synthesizer, which takes a few seconds. */
+  const exportAudio = () =>
+    exclusive(async () => {
+      if (!renderAudio) return;
+      const name = `${stem(song)}.${AUDIO_EXTENSION}`;
+      let path: string | null = null;
+      if (isTauri()) {
+        const dir = song.path?.match(/^(.*[\\/])/)?.[1] ?? "";
+        path = await pickSavePath(`${dir}${name}`, [AUDIO_FILTER], "Export audio");
+        if (!path) return;
+        if (!path.toLowerCase().endsWith(`.${AUDIO_EXTENSION}`))
+          path = `${path}.${AUDIO_EXTENSION}`;
+      }
+      const toastId = toast.loading("Rendering the audio…");
+      try {
+        const audio = await renderAudio((fraction) =>
+          toast.loading(`Rendering the audio… ${Math.round(fraction * 100)}%`, { id: toastId }),
+        );
+        const bytes = encodeWav(audio);
+        if (path) await writeScoreFile(path, bytes);
+        else download(bytes, name, AUDIO_MIME);
+        toast.success(path ? `Exported “${baseName(path)}”` : `Downloaded “${name}”`, {
+          id: toastId,
+        });
+      } catch (error) {
+        toast.error("Couldn't export the audio", { id: toastId, description: errorText(error) });
+      }
+    });
+
+  return { save, saveAs, exportAs, exportAudio };
 }

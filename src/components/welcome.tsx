@@ -59,8 +59,9 @@ export function Welcome({
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          Opens Guitar Pro 3–8 files (.gp3, .gp4, .gp5, .gpx, .gp), MusicXML and MIDI files. You can
-          also drop a file anywhere in this window.
+          Opens Guitar Pro 3–8 files (.gp3, .gp4, .gp5, .gpx, .gp), MusicXML, MIDI, MuseScore
+          (.mscx, .mscz), alphaTex (.atex), Capella (.capx) and text tab (.txt) files. You can also
+          drop a file anywhere in this window.
         </p>
       </section>
 

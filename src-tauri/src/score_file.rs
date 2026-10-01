@@ -1,4 +1,5 @@
-//! Reading Guitar Pro, MusicXML and MIDI files for the score viewer.
+//! Reading Guitar Pro, MusicXML, MIDI, MuseScore, alphaTex, Capella and text tab
+//! files for the score viewer.
 //!
 //! The webview asks for a file by path (picked in the native Open dialog or
 //! dropped on the window). Only files that are music scores are returned,
@@ -12,8 +13,9 @@ use crate::error::{CommandError, ErrorKind};
 
 /// File extensions offered in the Open dialog and accepted on drop.
 /// Mirrored by `SCORE_EXTENSIONS` in `src/lib/tauri.ts`.
-pub const EXTENSIONS: [&str; 9] = [
-    "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml",
+pub const EXTENSIONS: [&str; 14] = [
+    "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml", "mscx", "mscz", "atex",
+    "capx", "txt",
 ];
 
 /// Largest file we load. Guitar Pro 7+ files can embed audio, so this is generous.
@@ -86,6 +88,29 @@ fn is_music_xml(bytes: &[u8]) -> bool {
             .any(|tag| head.windows(tag.len()).any(|w| w == *tag))
 }
 
+/// Whether the bytes are XML whose start declares the `tag` root (after an optional BOM and blanks).
+fn is_xml_with_root(bytes: &[u8], tag: &[u8]) -> bool {
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    let head = &bytes[..bytes.len().min(4096)];
+    head.trim_ascii_start().starts_with(b"<") && head.windows(tag.len()).any(|w| w == tag)
+}
+
+/// Text formats (alphaTex, ASCII tab): no NUL bytes in the start, which a binary file has.
+fn is_text(bytes: &[u8]) -> bool {
+    !bytes.is_empty() && !bytes[..bytes.len().min(4096)].contains(&0)
+}
+
+/// Whether the content fits the file's extension (the formats that are told apart by name).
+fn content_matches(extension: &str, bytes: &[u8]) -> bool {
+    match extension {
+        "atex" | "txt" => is_text(bytes),
+        "mscx" => is_xml_with_root(bytes, b"<museScore"),
+        // MuseScore and Capella archives are ZIP files.
+        "mscz" | "capx" => bytes.starts_with(b"PK\x03\x04"),
+        _ => ScoreFormat::detect(bytes).is_some(),
+    }
+}
+
 /// Whether `path` ends in one of [`EXTENSIONS`] (case-insensitive).
 pub fn has_supported_extension(path: &Path) -> bool {
     path.extension()
@@ -99,7 +124,7 @@ pub fn read(path: &Path) -> Result<Vec<u8>, CommandError> {
     if !has_supported_extension(path) {
         return Err(CommandError::new(
             ErrorKind::UnsupportedType,
-            format!("“{name}” is not a file Smart Beat can open (Guitar Pro, MusicXML or MIDI)."),
+            format!("“{name}” is not a file Smart Beat can open."),
         ));
     }
 
@@ -123,7 +148,12 @@ pub fn read(path: &Path) -> Result<Vec<u8>, CommandError> {
         return Err(too_large(&name));
     }
 
-    if ScoreFormat::detect(&bytes).is_none() {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !content_matches(&extension, &bytes) {
         return Err(CommandError::new(
             ErrorKind::NotAScore,
             format!("“{name}” is not a supported music file, or it is damaged."),
@@ -237,8 +267,50 @@ mod tests {
     }
 
     #[test]
+    fn opens_text_musescore_and_capella_files_by_extension_and_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let tex = write(&dir, "song.atex", b"\\title \"x\"\n\\track \"g\" :4 0.6");
+        assert!(read(&tex).is_ok());
+        let ascii = write(&dir, "tab.TXT", b"e|--0--|\nB|--1--|");
+        assert!(read(&ascii).is_ok());
+        let mscx = write(
+            &dir,
+            "score.mscx",
+            b"<?xml version=\"1.0\"?>\n<museScore version=\"3.02\"><Score/></museScore>",
+        );
+        assert!(read(&mscx).is_ok());
+        let mscz = write(&dir, "score.mscz", b"PK\x03\x04\x14\x00");
+        assert!(read(&mscz).is_ok());
+        let capx = write(&dir, "score.capx", b"PK\x03\x04\x14\x00");
+        assert!(read(&capx).is_ok());
+    }
+
+    #[test]
+    fn refuses_binary_files_named_like_text_and_other_xml_named_mscx() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary = write(&dir, "tab.txt", b"abc\x00\x01\x02");
+        assert_eq!(read(&binary).unwrap_err().kind, ErrorKind::NotAScore);
+        let empty = write(&dir, "empty.atex", b"");
+        assert_eq!(read(&empty).unwrap_err().kind, ErrorKind::NotAScore);
+        let svg = write(&dir, "score.mscx", b"<?xml version=\"1.0\"?><svg/>");
+        assert_eq!(read(&svg).unwrap_err().kind, ErrorKind::NotAScore);
+        let text_as_zip = write(&dir, "score.mscz", b"not a zip");
+        assert_eq!(read(&text_as_zip).unwrap_err().kind, ErrorKind::NotAScore);
+    }
+
+    #[test]
     fn accepts_midi_and_musicxml_extensions() {
-        for name in ["a.mid", "a.MIDI", "a.musicxml", "a.xml"] {
+        for name in [
+            "a.mid",
+            "a.MIDI",
+            "a.musicxml",
+            "a.xml",
+            "a.mscx",
+            "a.MSCZ",
+            "a.atex",
+            "a.capx",
+            "a.txt",
+        ] {
             assert!(has_supported_extension(Path::new(name)), "{name}");
         }
         assert!(!has_supported_extension(Path::new("a.mxl")));
@@ -258,7 +330,7 @@ mod tests {
         ] {
             assert!(has_supported_extension(Path::new(name)), "{name}");
         }
-        for name in ["a.txt", "a.gp6", "a.gpk", "gp5", "a.gp5.zip", ".gp5x"] {
+        for name in ["a.pdf", "a.gp6", "a.gpk", "gp5", "a.gp5.zip", ".gp5x"] {
             assert!(!has_supported_extension(Path::new(name)), "{name}");
         }
     }

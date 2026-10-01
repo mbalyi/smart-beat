@@ -4,6 +4,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent,
   type RefObject,
 } from "react";
 
@@ -35,6 +36,7 @@ import {
   type Scale,
 } from "@/lib/score/scales";
 import { spellPitchClass } from "@/lib/score/keys";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 
 const ACTIVE = "bg-sky-600 text-white dark:bg-sky-500";
@@ -434,24 +436,28 @@ function DrumPads({
           return (
             <span key={pad.id} className={className} aria-hidden="true">
               {pad.short}
+              <span className="text-[0.6rem] tabular-nums opacity-70">{pad.id}</span>
             </span>
           );
         }
         return (
-          <button
-            key={pad.id}
-            type="button"
-            aria-label={pad.name}
-            aria-pressed={on}
-            title={`${pad.name} (MIDI ${pad.id})`}
-            onClick={() => onDrum(pad.id)}
-            className={cn(
-              className,
-              "outline-none hover:bg-sky-100 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-sky-900",
-            )}
-          >
-            {pad.short}
-          </button>
+          <Tip key={pad.id} label={`${pad.name} · ${pad.id}`}>
+            <button
+              type="button"
+              aria-label={pad.name}
+              aria-pressed={on}
+              onClick={() => onDrum(pad.id)}
+              className={cn(
+                className,
+                "outline-none hover:bg-sky-100 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-sky-900",
+              )}
+            >
+              {pad.short}
+              <span aria-hidden="true" className="text-[0.6rem] tabular-nums opacity-70">
+                {pad.id}
+              </span>
+            </button>
+          </Tip>
         );
       })}
     </div>
@@ -498,9 +504,17 @@ export function InstrumentPanel({
 }) {
   const name = instrumentViewName(kind);
   const shownScale = kind === "drums" ? null : scale;
+  /** Clicks on the keys, frets and pads must not move the keyboard focus out of the score (typing and arrows continue there). */
+  const keepFocus = (event: MouseEvent<HTMLElement>) => {
+    if (editing && (event.target as Element).closest("button:not([role=combobox])")) {
+      event.preventDefault();
+    }
+  };
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- only keeps focus where it is; the buttons inside are the interactive elements
     <section
       aria-label={name}
+      onMouseDown={keepFocus}
       className="max-h-[35svh] shrink-0 overflow-auto border-t bg-background px-4 py-2 sm:px-6"
       // Scrollable: keyboard users must be able to reach it even when it has no buttons.
       tabIndex={editing ? undefined : 0}

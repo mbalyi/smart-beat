@@ -176,14 +176,9 @@ export function EffectsToolbar({
   const drums = kind === "drums";
 
   return (
-    <div
-      role="toolbar"
-      aria-label="Effects"
-      onMouseDown={keepFocus}
-      className="border-b bg-sky-50/30 px-4 py-2 sm:px-6 dark:bg-sky-950/10"
-    >
-      <div className="-my-1 flex items-center gap-x-3 gap-y-2 overflow-x-auto py-1 *:shrink-0 sm:flex-wrap">
-        <div className="flex gap-1" role="group" aria-label="Note effects">
+    <div role="toolbar" aria-label="Effects" onMouseDown={keepFocus} className="border-b px-3 py-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Note effects">
           {QUICK_TOGGLES.filter(({ id }) => has(NOTE_EFFECTS[id] as Effect)).map(({ id, key }) => {
             const effect = NOTE_EFFECTS[id] as Effect;
             return (

@@ -16,8 +16,11 @@ export function DropOverlay({ visible }: { visible: boolean }) {
     >
       <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-primary px-10 py-8 text-center">
         <FileMusicIcon className="size-10 text-primary" />
-        <p className="font-heading text-lg font-semibold">Drop a Guitar Pro file to open it</p>
-        <p className="text-sm text-muted-foreground">.gp3, .gp4, .gp5, .gpx or .gp</p>
+        <p className="font-heading text-lg font-semibold">Drop a song to open it</p>
+        <p className="text-sm text-muted-foreground">
+          Guitar Pro (.gp3–.gp), MusicXML, MIDI, MuseScore (.mscx, .mscz), alphaTex (.atex), Capella
+          (.capx) or text tab (.txt)
+        </p>
       </div>
     </div>
   );

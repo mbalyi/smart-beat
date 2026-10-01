@@ -19,13 +19,27 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
-import { approximateSilentEffects } from "@/lib/score/effect-sound";
+import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
+import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
+import {
+  createCursorHandler,
+  Delayer,
+  measureLatency,
+  outputLatencyMs,
+  readSyncOffset,
+  type LatencyInfo,
+} from "@/lib/score/sync";
+import { isAudible } from "@/lib/score/mixer";
 import type { MixerSettings } from "@/lib/tauri";
 
 const { PlayerState, PlaybackRange } = synth;
+
+/** Sample rate of exported audio, and how much sound is rendered at a time (ms). */
+const EXPORT_SAMPLE_RATE = 44_100;
+const EXPORT_CHUNK_MS = 1_000;
 
 /** A rectangle in the score's coordinates (pixels from the top left of the notation). */
 export interface Rect {
@@ -155,6 +169,17 @@ export class ScorePlayer {
    */
   private playing = false;
   private destroyed = false;
+  /** What the audio output reports about its delay (measured when playback first starts). */
+  private latencyInfo: LatencyInfo = {};
+  private latencyMeasured = false;
+  /**
+   * alphaTab's position events come when sound is handed to the audio graph,
+   * not when it is heard: what the UI shows while playing is delayed by the
+   * output latency (see lib/score/sync.ts).
+   */
+  private readonly delayer = new Delayer(() =>
+    this.playing ? outputLatencyMs(this.latencyInfo, readSyncOffset()) : 0,
+  );
   private lastPosition: PlaybackPosition | null = null;
   private lastBar = -1;
   /** Where (and whether) to continue once a new SoundFont is loaded. */
@@ -196,6 +221,7 @@ export class ScorePlayer {
     this.applyView(options.view);
 
     this.api = new AlphaTabApi(options.element, createSettings(options));
+    this.api.customCursorHandler = createCursorHandler(this.delayer, !options.reducedMotion);
     // alphaTab reports clicked beats without the mouse event: remember Shift.
     options.element.addEventListener(
       "pointerdown",
@@ -227,6 +253,12 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
+      if (this.playing && !this.latencyMeasured) {
+        this.latencyMeasured = true;
+        void measureLatency().then((info) => {
+          if (!this.destroyed) this.latencyInfo = info;
+        });
+      }
       callbacks.onPlayingChange?.(this.playing);
       if (!this.playing && this.midiPending) {
         this.midiPending = false;
@@ -237,20 +269,28 @@ export class ScorePlayer {
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
     // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
     api.playerPositionChanged.on((e) =>
-      this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo),
+      this.delayer.run(() =>
+        this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo),
+      ),
     );
     // alphaTab leaves slap, pop, tapping, pick strokes and wah silent: make them
     // audible in the MIDI it just generated (its tick lookup is ready by now).
     api.midiLoad.on((file) => {
       const lookup = api.tickCache;
       if (lookup) approximateSilentEffects(file, lookup);
+      remapSilentDrums(file); // the SoundFont has no sample for some drum numbers
     });
-    api.playedBeatChanged.on((beat) => this.reportBar(beat.voice.bar.index));
+    api.playedBeatChanged.on((beat) =>
+      this.delayer.run(() => this.reportBar(beat.voice.bar.index)),
+    );
     api.activeBeatsChanged.on((e) => {
-      if (this.playing) callbacks.onActiveBeatsChange?.(this.ownBeats(e.activeBeats));
+      if (this.playing) {
+        this.delayer.run(() => callbacks.onActiveBeatsChange?.(this.ownBeats(e.activeBeats)));
+      }
     });
     // playedBeatChanged only fires during playback; a click moves the cursor while paused too.
     api.beatMouseDown.on((beat) => {
+      this.delayer.clear(); // the click moves the cursor: what waits belongs to the old position
       this.reportBar(beat.voice.bar.index);
       if (this.editing) this.seekToBeat(beat);
       if (!this.playing) callbacks.onActiveBeatsChange?.(this.ownBeats([beat]));
@@ -317,7 +357,7 @@ export class ScorePlayer {
     // While new sounds or a regenerated MIDI load, alphaTab reports position 0;
     // the real one comes back once playback is ready again.
     if (this.resume) return;
-    const next = { currentMs, endMs, bpm: Math.round(bpm) };
+    const next = { currentMs, endMs, bpm: Math.round(bpm * 10) / 10 }; // tempos can have decimals
     const last = this.lastPosition;
     // Position events arrive many times a second; the UI shows whole seconds.
     const changed =
@@ -566,6 +606,7 @@ export class ScorePlayer {
   seekToBeat(beat: Beat) {
     const tick = this.api.tickCache?.getBeatStart(beat);
     if (tick === undefined) return;
+    this.delayer.clear();
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick;
     this.reportBar(beat.voice.bar.index);
@@ -609,9 +650,22 @@ export class ScorePlayer {
     this.api.playPause();
   }
 
+  /** Pauses playback (a song whose tab is hidden must not keep playing). */
+  pause() {
+    if (this.ready && this.playing) this.playPause();
+  }
+
+  /** Zooms the notation (1 = 100%). */
+  setZoom(scale: number) {
+    this.api.settings.display.scale = scale;
+    this.api.updateSettings();
+    this.api.render();
+  }
+
   stop() {
     if (this.resume) this.resume = { tick: 0, play: false };
     this.playing = false;
+    this.delayer.clear();
     this.api.stop();
     this.callbacks.onActiveBeatsChange?.([]);
   }
@@ -621,13 +675,54 @@ export class ScorePlayer {
     const masterBar = this.score.masterBars[barIndex];
     if (!masterBar) return;
     const tick = this.api.tickCache?.getMasterBarStart(masterBar) ?? masterBar.start;
+    this.delayer.clear();
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick; // seeking while new sounds load
     this.reportBar(barIndex);
   }
 
+  /**
+   * Renders the whole song with the current mix (volumes, mute and solo, pan,
+   * master) to sound, without playing it: for the WAV export. `onProgress`
+   * gets the fraction done (0…1). Needs the instrument sounds to be loaded.
+   */
+  async renderAudio(onProgress?: (fraction: number) => void): Promise<RenderedAudio> {
+    if (!this.ready)
+      throw new Error("The instrument sounds are still loading. Try again in a moment.");
+    this.pause();
+    const trackVolume = new Map<number, number>();
+    this.score.tracks.forEach((_, index) => {
+      const mix = this.mix.tracks[index];
+      trackVolume.set(index, mix && isAudible(this.mix, index) ? mix.volume : 0);
+    });
+    const options = {
+      sampleRate: EXPORT_SAMPLE_RATE,
+      useSyncPoints: false,
+      masterVolume: this.mix.master,
+      metronomeVolume: 0,
+      trackVolume,
+      trackTranspositionPitches: new Map<number, number>(),
+    } as Parameters<AlphaTabApi["exportAudio"]>[0];
+    const exporter = await this.api.exportAudio(options);
+    const chunks: Float32Array[] = [];
+    try {
+      for (;;) {
+        const chunk = await exporter.render(EXPORT_CHUNK_MS);
+        if (!chunk) break;
+        chunks.push(chunk.samples);
+        if (chunk.endTime > 0) onProgress?.(Math.min(1, chunk.currentTime / chunk.endTime));
+      }
+    } finally {
+      exporter.destroy();
+    }
+    onProgress?.(1);
+    // alphaTab's synthesizer is stereo: interleaved left and right samples.
+    return { samples: concatSamples(chunks), sampleRate: EXPORT_SAMPLE_RATE, channels: 2 };
+  }
+
   destroy() {
     this.destroyed = true;
+    this.delayer.clear();
     this.api.destroy();
   }
 }

@@ -27,8 +27,32 @@ export function isXmlFile(bytes: Uint8Array): boolean {
   return bytes[i] === 0x3c;
 }
 
-/** Turns the bytes of any supported file into a score. Throws `ScoreLoadError` for damaged files. */
-export async function loadSong(bytes: Uint8Array): Promise<LoadedSong> {
+/** The lower-case extension of a file name ("song.GP5" → "gp5"), or "". */
+const extensionOf = (name: string | undefined) =>
+  name?.includes(".") ? (name.split(".").pop() ?? "").toLowerCase() : "";
+
+/**
+ * Turns the bytes of any supported file into a score. `name` (the file name)
+ * tells text formats apart; other files are recognised by their content.
+ * Throws `ScoreLoadError` for damaged files.
+ */
+export async function loadSong(bytes: Uint8Array, name?: string): Promise<LoadedSong> {
+  const extension = extensionOf(name);
+  if (extension === "txt") {
+    // Text tab: the importer is only loaded for these files.
+    const { importAsciiTab } = await import("@/lib/import/ascii-tab");
+    const { score, warnings } = importAsciiTab(new TextDecoder().decode(bytes));
+    return { score, summary: summarizeScore(score), warnings, converted: true };
+  }
+  if (extension === "mscx" || extension === "mscz") {
+    const { importMuseScore } = await import("@/lib/import/musescore");
+    const { score, warnings } = await importMuseScore(bytes);
+    return { score, summary: summarizeScore(score), warnings, converted: true };
+  }
+  if (extension === "atex" || extension === "capx") {
+    // alphaTab reads alphaTex and Capella files itself.
+    return { ...parseScore(bytes), warnings: [], converted: true };
+  }
   if (isMidiFile(bytes)) {
     // The MIDI importer is only loaded for MIDI files: most songs are Guitar Pro files.
     const { importMidi } = await import("@/lib/import/midi");

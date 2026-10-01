@@ -216,7 +216,7 @@ fn read_score_file_reports_structured_errors() {
     let app = app();
     let window = main_window(&app);
     let dir = tempfile::tempdir().unwrap();
-    let text = dir.path().join("notes.txt");
+    let text = dir.path().join("notes.pdf");
     std::fs::write(&text, "hello").unwrap();
     let fake = dir.path().join("fake.gp5");
     std::fs::write(&fake, "hello").unwrap();
@@ -229,6 +229,31 @@ fn read_score_file_reports_structured_errors() {
     assert_eq!(error_kind(&dir.path().join("missing.gp")), "not-found");
     assert_eq!(error_kind(&text), "unsupported-type");
     assert_eq!(error_kind(&fake), "not-a-score");
+
+    // Text tab (.txt) is a song file now, but a binary file named like it is not.
+    let binary = dir.path().join("tab.txt");
+    std::fs::write(&binary, b"abc\x00\x01").unwrap();
+    assert_eq!(error_kind(&binary), "not-a-score");
+}
+
+#[test]
+fn read_score_file_opens_text_tab_and_alphatex_over_ipc() {
+    let app = app();
+    let window = main_window(&app);
+    let dir = tempfile::tempdir().unwrap();
+    for (name, content) in [
+        ("tab.txt", "e|--0--|\nB|--1--|"),
+        ("song.atex", "\\track \"g\" :4 0.6"),
+    ] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, content).unwrap();
+        let body = invoke_with(&window, "read_score_file", json!({ "path": path }))
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let InvokeResponseBody::Raw(bytes) = body else {
+            panic!("expected a raw response for {name}");
+        };
+        assert_eq!(bytes, content.as_bytes());
+    }
 }
 
 #[test]

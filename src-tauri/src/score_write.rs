@@ -14,7 +14,7 @@ use crate::error::{CommandError, ErrorKind};
 use crate::score_file::MAX_SIZE;
 
 /// File extensions Smart Beat writes. Mirrored by `SAVE_EXTENSIONS` in `src/lib/tauri.ts`.
-pub const WRITE_EXTENSIONS: [&str; 6] = ["gp", "gp5", "mid", "midi", "musicxml", "txt"];
+pub const WRITE_EXTENSIONS: [&str; 7] = ["gp", "gp5", "mid", "midi", "musicxml", "txt", "wav"];
 
 /// Whether `path` ends in one of [`WRITE_EXTENSIONS`] (case-insensitive).
 pub fn has_writable_extension(path: &Path) -> bool {
@@ -97,8 +97,17 @@ mod tests {
         assert!(has_writable_extension(Path::new("a.GP5")));
         assert!(has_writable_extension(Path::new("a.MusicXML")));
         assert!(has_writable_extension(Path::new("a.txt")));
+        assert!(has_writable_extension(Path::new("mix.WAV")));
         assert!(!has_writable_extension(Path::new("a.sh")));
         assert!(!has_writable_extension(Path::new("a")));
+    }
+
+    #[test]
+    fn saves_exported_audio_as_a_wav_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mix.wav");
+        write(&path, b"RIFF....WAVE").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"RIFF....WAVE");
     }
 
     #[test]

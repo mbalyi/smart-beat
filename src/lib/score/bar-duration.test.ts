@@ -5,6 +5,7 @@ import {
   beatTicks,
   describeProblem,
   fillDurations,
+  restsFor,
   fixBarDurations,
   fixTargets,
   isShort,
@@ -112,5 +113,27 @@ describe("bar durations", () => {
     expect(fixBarDurations(score, [{ bar: 9, track: 0, voice: 0, actual: 1, expected: 2 }])).toBe(
       0,
     );
+  });
+});
+
+describe("restsFor", () => {
+  it("fills a bar with rests of the note value", () => {
+    expect(restsFor(3840, 32)).toHaveLength(32);
+    expect(restsFor(3840, 4)).toEqual(Array.from({ length: 4 }, () => ({ duration: 4, dots: 0 })));
+  });
+
+  it("uses the longest note values for what is left over", () => {
+    // 3/4 bar of half notes: one half, then a quarter.
+    expect(restsFor(2880, 2)).toEqual([
+      { duration: 2, dots: 0 },
+      { duration: 4, dots: 0 },
+    ]);
+    // 7/8 bar of quarters: three quarters and an eighth.
+    expect(restsFor(3360, 4)).toEqual([
+      { duration: 4, dots: 0 },
+      { duration: 4, dots: 0 },
+      { duration: 4, dots: 0 },
+      { duration: 8, dots: 0 },
+    ]);
   });
 });

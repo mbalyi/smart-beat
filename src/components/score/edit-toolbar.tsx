@@ -1,12 +1,11 @@
 import { useId, type MouseEvent } from "react";
 import {
+  AlignJustifyIcon,
   BetweenVerticalStartIcon,
   Columns3CogIcon,
   LinkIcon,
-  Redo2Icon,
   RemoveFormattingIcon,
   Trash2Icon,
-  Undo2Icon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { BeatInfo } from "@/lib/score/editor";
@@ -31,21 +29,21 @@ export interface EditActions {
   onDots: (dots: 1 | 2) => void;
   onTuplet: (tuplet: Tuplet) => void;
   onRest: () => void;
+  /** Fills the bar (or the selected bars) with rests of the selected note value. */
+  onFillRests: () => void;
   onTie: () => void;
   onInsertBeat: () => void;
   onDeleteBeat: () => void;
   onVoice: (voice: number) => void;
   /** Opens the settings of the bar at the cursor (time, key, repeats...). */
   onBar: () => void;
-  onUndo: () => void;
-  onRedo: () => void;
   /** Gives focus back to the score after a toolbar action. */
   onDone: () => void;
 }
 
 /**
  * Edit mode tools: voice, note value, dots, tuplets, rests, ties, beats, the
- * bar's settings and undo/redo, plus a status line saying where the cursor is. Buttons don't
+ * bar's settings, plus a status line saying where the cursor is. Buttons don't
  * take focus on click, so typing continues in the score.
  */
 export function EditToolbar({
@@ -54,8 +52,6 @@ export function EditToolbar({
   stringed,
   status,
   message,
-  undoLabel,
-  redoLabel,
   actions,
   statusId,
 }: {
@@ -67,8 +63,6 @@ export function EditToolbar({
   status: string;
   /** Feedback on the last command, announced to screen readers. */
   message: string;
-  undoLabel: string | null;
-  redoLabel: string | null;
   actions: EditActions;
   statusId: string;
 }) {
@@ -90,9 +84,9 @@ export function EditToolbar({
       role="toolbar"
       aria-label="Edit"
       onMouseDown={keepFocus}
-      className="flex flex-col gap-2 border-b bg-sky-50/60 px-4 py-2 sm:px-6 dark:bg-sky-950/20"
+      className="flex flex-col gap-2 border-b px-3 py-3"
     >
-      <div className="-my-1 flex items-center gap-x-3 gap-y-2 overflow-x-auto py-1 *:shrink-0 sm:flex-wrap">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
         <ToggleGroup
           type="single"
           variant="outline"
@@ -112,6 +106,7 @@ export function EditToolbar({
           size="sm"
           spacing={0}
           aria-label="Note value"
+          className="flex-wrap"
           value={String(beat.duration)}
           onValueChange={(value) => value && then(actions.onDuration)(Number(value) as Duration)}
         >
@@ -176,7 +171,16 @@ export function EditToolbar({
         <div className="flex gap-1">
           <Button variant="outline" size="sm" onClick={then(actions.onRest)} title="Rest (R)">
             <RemoveFormattingIcon data-icon="inline-start" />
-            Rest
+            <span className="sr-only max-lg:not-sr-only">Rest</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={then(actions.onFillRests)}
+            title="Fill the bar with rests of this note value (Shift+R)"
+          >
+            <AlignJustifyIcon data-icon="inline-start" />
+            <span className="sr-only max-lg:not-sr-only">Fill bar with rests</span>
           </Button>
           <Toggle
             variant="outline"
@@ -186,7 +190,7 @@ export function EditToolbar({
             title={stringed ? "Tie the note on this string (T)" : "Tie (T)"}
           >
             <LinkIcon data-icon="inline-start" />
-            Tie
+            <span className="sr-only max-lg:not-sr-only">Tie</span>
           </Toggle>
         </div>
 
@@ -213,33 +217,8 @@ export function EditToolbar({
 
         <Button variant="outline" size="sm" onClick={actions.onBar} title="Bar settings (⌘B)">
           <Columns3CogIcon data-icon="inline-start" />
-          Bar…
+          <span className="sr-only max-lg:not-sr-only">Bar…</span>
         </Button>
-
-        <Separator orientation="vertical" className="hidden h-6 sm:block" />
-
-        <div className="flex gap-1">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={then(actions.onUndo)}
-            disabled={!undoLabel}
-            aria-label={undoLabel ? `Undo ${undoLabel}` : "Undo"}
-            title={undoLabel ? `Undo ${undoLabel}` : "Nothing to undo"}
-          >
-            <Undo2Icon />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={then(actions.onRedo)}
-            disabled={!redoLabel}
-            aria-label={redoLabel ? `Redo ${redoLabel}` : "Redo"}
-            title={redoLabel ? `Redo ${redoLabel}` : "Nothing to redo"}
-          >
-            <Redo2Icon />
-          </Button>
-        </div>
       </div>
       <p id={statusId} className="text-xs text-muted-foreground tabular-nums">
         {status}

@@ -1,4 +1,13 @@
-import { useEffect, useEffectEvent, useId, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import { BarDialog } from "@/components/score/bar-dialog";
@@ -10,16 +19,18 @@ import { EffectsToolbar, type EffectActions } from "@/components/score/effects-t
 import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
-import { MixerPanel, type MixerChange } from "@/components/score/mixer-panel";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
-import { ScoreToolbar } from "@/components/score/score-toolbar";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
 import { ScoreView, type EditOverlay } from "@/components/score/score-view";
+import { PrintDialog } from "@/components/score/print-dialog";
+import { TempoDialog, type TempoInitial } from "@/components/score/tempo-dialog";
 import { TextDialog } from "@/components/score/text-dialog";
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
-import { TracksPanel, type TrackActions } from "@/components/score/tracks-panel";
-import { TransportBar } from "@/components/score/transport-bar";
+import { Inspector } from "@/components/shell/inspector";
+import { NotePalette } from "@/components/shell/note-palette";
+import { TrackList, type TrackActions } from "@/components/shell/track-list";
+import { WorkspaceToolbar } from "@/components/shell/workspace-toolbar";
 import { useEditorKeys } from "@/hooks/use-editor-keys";
 import { useFileActions } from "@/hooks/use-file-actions";
 import { useMenuActions } from "@/hooks/use-menu-actions";
@@ -28,6 +39,7 @@ import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import { errorText } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
 import {
   barProblems,
@@ -39,7 +51,16 @@ import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
 import { drumKitOf, instrumentViewName, notesOf } from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
-import { mixerReducer } from "@/lib/score/mixer";
+import {
+  printScore,
+  readPrintSettings,
+  storePrintSettings,
+  whenDrawn,
+  type PrintSettings,
+} from "@/lib/print";
+import { applyTempo, tempoScope, type TempoRequest } from "@/lib/score/tempo";
+import { readSyncOffset, storeSyncOffset } from "@/lib/score/sync";
+import { mixerReducer, type MixerChange } from "@/lib/score/mixer";
 import { trackContent, type Beat, type Track } from "@/lib/score/model";
 import {
   ScorePlayer,
@@ -210,12 +231,21 @@ const isNoteMenuEffect = (action: MenuAction): action is keyof typeof NOTE_MENU_
  */
 export function ScoreWorkspace({
   song,
+  active = true,
+  tabs,
+  headerSlot,
   onOpen,
   onEditedChange,
   onSaved,
   startEditing = false,
 }: {
   song: ScoreDocument;
+  /** The song's tab is shown. Other songs stay loaded (edits, undo, playback position) but hidden. */
+  active?: boolean;
+  /** The document tabs, shown under the toolbar. */
+  tabs?: ReactNode;
+  /** The app header's centre, where the main controls are shown. */
+  headerSlot?: HTMLElement | null;
   onOpen: () => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
   onSaved?: (saved: SavedAs) => void;
@@ -232,8 +262,6 @@ export function ScoreWorkspace({
   const viewportRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<ScorePlayer | null>(null);
-  const mixerButtonRef = useRef<HTMLButtonElement>(null);
-  const tracksButtonRef = useRef<HTMLButtonElement>(null);
   const [originalTracks] = useState(() => score.tracks.slice());
 
   const trackIndex = editor.cursor.track;
@@ -274,8 +302,14 @@ export function ScoreWorkspace({
     new Map<Track, TrackMix>(score.tracks.map((t, i) => [t, song.mix.tracks[i]!])),
   );
   const [soundFont, setSoundFont] = useState<SoundFontId>(readSoundFontPreference);
-  const [mixerOpen, setMixerOpen] = useState(false);
-  const [tracksOpen, setTracksOpen] = useState(false);
+  const [mixerOpen, setMixerOpen] = useState(true);
+  // Side panels cover the score in narrow windows: start without the inspector there.
+  const [inspectorOpen, setInspectorOpen] = useState(
+    () => !window.matchMedia?.("(max-width: 1023px)").matches,
+  );
+  const [inspectorTab, setInspectorTab] = useState<"song" | "track">("track");
+  const [zoom, setZoom] = useState(100);
+  const [syncOffset, setSyncOffset] = useState(readSyncOffset);
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
   const [trainerOpen, setTrainerOpen] = useState(false);
   /** The bar dialog's bar and its settings when it opened (kept while it closes). */
@@ -295,6 +329,11 @@ export function ScoreWorkspace({
     track: null,
   });
   const [transposeOpen, setTransposeOpen] = useState(false);
+  const [tempoOpen, setTempoOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printSettings, setPrintSettings] = useState(readPrintSettings);
+  /** Runs once the score has been drawn again (printing needs the page layout). */
+  const afterRender = useRef<(() => void) | null>(null);
   /** Where bars with the wrong length are drawn (shown track). */
   const [problemRects, setProblemRects] = useState<Rect[]>([]);
   const [scale, setScale] = useState<Scale | null>(null);
@@ -316,6 +355,11 @@ export function ScoreWorkspace({
     song,
     editor,
     getMix: () => mixRef.current,
+    renderAudio: (onProgress) => {
+      const player = playerRef.current;
+      if (!player) return Promise.reject(new Error("The score is not ready yet."));
+      return player.renderAudio(onProgress);
+    },
     onSaved: (saved) => onSaved?.(saved),
     onEditedChange,
   });
@@ -427,6 +471,9 @@ export function ScoreWorkspace({
         onRendered: () => {
           updateOverlay();
           refreshProblemRects();
+          const next = afterRender.current;
+          afterRender.current = null;
+          next?.();
         },
         onRangeSelect: (picked) => {
           setPickedRange(picked);
@@ -441,6 +488,11 @@ export function ScoreWorkspace({
       playerRef.current = null;
     };
   }, [song.score]);
+
+  // A song in a hidden tab does not keep playing.
+  useEffect(() => {
+    if (!active) playerRef.current?.pause();
+  }, [active]);
 
   // Practice settings go to the player whenever they change.
   const { loop, range, speed, metronome, countIn } = practice;
@@ -641,6 +693,11 @@ export function ScoreWorkspace({
     playerRef.current?.setView(next);
   };
 
+  const changeZoom = (percent: number) => {
+    setZoom(percent);
+    playerRef.current?.setZoom(percent / 100);
+  };
+
   const changeLayout = (next: Layout) => {
     setLayout(next);
     playerRef.current?.setLayout(next);
@@ -665,7 +722,7 @@ export function ScoreWorkspace({
     });
 
   const playPause = () => playerRef.current?.playPause();
-  useSpaceToPlay(playPause, ready);
+  useSpaceToPlay(playPause, ready && active);
 
   const toggleInstrumentView = () => {
     setInstrumentView((shown) => {
@@ -720,15 +777,12 @@ export function ScoreWorkspace({
       toast(`Removed “${name}”`, { action: { label: "Undo", onClick: () => editor.undo() } });
     },
     onSettings: (index) => {
-      setTracksOpen(false);
       setTrackDialog({ mode: "edit", track: score.tracks[index]! });
     },
     onLyrics: (index) => {
-      setTracksOpen(false);
       openLyrics(score.tracks[index]);
     },
     onAdd: () => {
-      setTracksOpen(false);
       setTrackDialog({ mode: "add" });
     },
   };
@@ -820,6 +874,84 @@ export function ScoreWorkspace({
     });
   };
 
+  // --- Print ----------------------------------------------------------------
+
+  /** Prints the score: in the page layout, which is switched to for the time it takes. */
+  const submitPrint = (settings: PrintSettings) => {
+    setPrintSettings(settings);
+    storePrintSettings(settings);
+    const run = async () => {
+      const surface = surfaceRef.current;
+      try {
+        // After a change of layout the parts of the score arrive a moment after the render.
+        if (!surface || !(await whenDrawn(surface)) || !printScore(surface, settings)) {
+          toast.error("There is nothing to print yet");
+        }
+      } catch (error) {
+        toast.error("Couldn't print", { description: errorText(error) });
+      }
+    };
+    if (layout === "page") {
+      void run();
+      return;
+    }
+    const before = layout;
+    changeLayout("page");
+    window.addEventListener("afterprint", () => changeLayout(before), { once: true });
+    afterRender.current = () => void run();
+  };
+
+  // Ctrl/⌘+P prints the shown song.
+  useEffect(() => {
+    if (!active) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const mod = navigator.platform.includes("Mac") ? event.metaKey : event.ctrlKey;
+      if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        setPrintOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active]);
+
+  // --- Tempo ------------------------------------------------------------------
+
+  const tempoInitial = (): TempoInitial => {
+    const [start, end] = editor.selection
+      ? selectionRange(editor.selection)
+      : [{ bar: cursorBar }, { bar: cursorBar }];
+    return {
+      bpm: tempoAt(score, start.bar),
+      barCount: score.masterBars.length,
+      bar: start.bar + 1,
+      endBar: end.bar + 1,
+      beats: score.masterBars[cursorBar]?.timeSignatureNumerator ?? 4,
+    };
+  };
+
+  const submitTempo = (request: TempoRequest) => {
+    const range = tempoScope(score, request);
+    const what =
+      request.scope === "song"
+        ? "Change the song tempo"
+        : request.scope === "from"
+          ? "Change the tempo"
+          : "Change the tempo of some bars";
+    editor.editBars(
+      what,
+      range,
+      () => applyTempo(score, request),
+      `Tempo ${request.bpm} BPM ${
+        request.scope === "song"
+          ? "for the song"
+          : request.scope === "from"
+            ? `from bar ${request.bar + 1}`
+            : `for bars ${request.from + 1} to ${request.to + 1}`
+      }`,
+    );
+  };
+
   const goToBar = (bar: number) => {
     editor.setCursorTo({ bar, beat: 0, voice: 0 });
     playerRef.current?.seekToBar(bar);
@@ -829,6 +961,7 @@ export function ScoreWorkspace({
   // --- Menu -------------------------------------------------------------------
 
   useMenuActions((action) => {
+    if (!active) return; // the shown song's workspace handles the menu
     if (isNoteMenuEffect(action)) {
       if (editing) editor.toggleNoteEffect(NOTE_MENU_EFFECTS[action]);
       return;
@@ -920,34 +1053,36 @@ export function ScoreWorkspace({
     }
   });
 
-  useMenuState({
-    songOpen: true,
-    undo: editor.undoLabel,
-    redo: editor.redoLabel,
-    canRemoveTrack: score.tracks.length > 1,
-    editMode: editing,
-    fretboard: instrumentView,
-    loop: practice.loop,
-    metronome: practice.metronome,
-    countIn: practice.countIn,
-    repeatStart: score.masterBars[cursorBar]?.isRepeatStart ?? false,
-    repeatEnd: (score.masterBars[cursorBar]?.repeatCount ?? 0) > 0,
-    hasNote: effects.note !== null,
-    noteEffects: noteEffectFlags(effects),
-  });
+  useMenuState(
+    {
+      songOpen: true,
+      undo: editor.undoLabel,
+      redo: editor.redoLabel,
+      canRemoveTrack: score.tracks.length > 1,
+      editMode: editing,
+      fretboard: instrumentView,
+      loop: practice.loop,
+      metronome: practice.metronome,
+      countIn: practice.countIn,
+      repeatStart: score.masterBars[cursorBar]?.isRepeatStart ?? false,
+      repeatEnd: (score.masterBars[cursorBar]?.repeatCount ?? 0) > 0,
+      hasNote: effects.note !== null,
+      noteEffects: noteEffectFlags(effects),
+    },
+    active,
+  );
 
   const editActions: EditActions = {
     onDuration: (d) => editor.setDuration(d),
     onDots: (dots) => editor.toggleDots(dots),
     onTuplet: (t) => editor.setTuplet(t),
     onRest: () => editor.clearNotes(),
+    onFillRests: () => editor.fillWithRests(),
     onTie: () => editor.toggleTie(),
     onInsertBeat: () => editor.insertBeat(),
     onDeleteBeat: () => editor.deleteBeats(),
     onVoice: (v) => editor.switchVoice(v),
     onBar: openBarDialog,
-    onUndo: () => editor.undo(),
-    onRedo: () => editor.redo(),
     onDone: focusScore,
   };
 
@@ -965,92 +1100,62 @@ export function ScoreWorkspace({
   const barDialogIndex = barDialog.index;
   const lyricsTrack = lyricsDialog.track;
 
+  const problemBars = new Set(problems.map((p) => p.bar)).size;
+  const fileActionsMenu = (
+    <>
+      <FileMenu
+        onSave={() => void fileActions.save()}
+        onSaveAs={() => void fileActions.saveAs()}
+        onExport={(format) => void fileActions.exportAs(format)}
+        onExportAudio={() => void fileActions.exportAudio()}
+        onPrint={() => setPrintOpen(true)}
+      />
+      <ToolsMenu
+        onTranspose={() => setTransposeOpen(true)}
+        onFixBars={() => fixBars()}
+        onTempo={() => setTempoOpen(true)}
+      />
+    </>
+  );
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ScoreToolbar
-        name={song.name}
+    <div
+      role="group"
+      aria-label={summary.title || song.name}
+      inert={!active}
+      aria-hidden={active ? undefined : true}
+      // Hidden songs keep their size (alphaTab measures its container), just not their looks.
+      className={cn(
+        "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-background",
+        !active && "pointer-events-none invisible",
+      )}
+    >
+      <WorkspaceToolbar
+        title={summary.title || song.name}
         summary={summary}
         trackIndex={trackIndex}
-        view={view}
-        layout={layout}
-        onOpen={onOpen}
         onTrackChange={changeTrack}
+        view={view}
         onViewChange={changeView}
+        layout={layout}
         onLayoutChange={changeLayout}
-        onToggleMixer={() => setMixerOpen((open) => !open)}
-        mixerOpen={mixerOpen}
-        mixerButtonRef={mixerButtonRef}
+        zoom={zoom}
+        onZoomChange={changeZoom}
+        onOpen={onOpen}
+        actions={fileActionsMenu}
         editing={editing}
         onToggleEditing={toggleEditing}
         edited={editor.edited}
-        onOpenTracks={() => setTracksOpen(true)}
-        tracksButtonRef={tracksButtonRef}
-        instrumentView={instrumentView}
-        instrumentLabel={instrumentViewName(track.kind)}
-        onToggleInstrumentView={toggleInstrumentView}
-        actions={
-          <>
-            <FileMenu
-              onSave={() => void fileActions.save()}
-              onSaveAs={() => void fileActions.saveAs()}
-              onExport={(format) => void fileActions.exportAs(format)}
-            />
-            <ToolsMenu onTranspose={() => setTransposeOpen(true)} onFixBars={() => fixBars()} />
-          </>
-        }
-      />
-      <BarProblems problems={problems} onFix={() => fixBars()} onGoTo={goToBar} />
-      {/* Scrolls as a whole when the window is too short for all of it. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {editing && (
-          <EditToolbar
-            beat={editor.beatInfo}
-            voice={editor.cursor.voice}
-            stringed={track.kind === "stringed"}
-            status={editor.describeCursor()}
-            message={editor.message}
-            undoLabel={editor.undoLabel}
-            redoLabel={editor.redoLabel}
-            actions={editActions}
-            statusId={statusId}
-          />
-        )}
-        {editing && <EffectsToolbar effects={effects} kind={track.kind} actions={effectActions} />}
-        <ScoreView
-          viewportRef={viewportRef}
-          surfaceRef={surfaceRef}
-          label={`Score: ${track.name}`}
-          layout={layout}
-          rendering={rendering}
-          editing={editing}
-          overlay={overlay}
-          problemRects={problemRects}
-          describedBy={editing ? statusId : undefined}
-        />
-        {instrumentView && (
-          <InstrumentPanel
-            kind={track.kind}
-            tuning={track.tuning}
-            capo={track.capo}
-            active={shownNotes}
-            editing={editing}
-            cursorString={track.kind === "stringed" ? editor.cursor.string : null}
-            drumSounds={shownNotes.map((n) => n.pitch)}
-            onFret={(string, fret) => {
-              editor.setString(string);
-              editor.setFret(fret - track.capo);
-            }}
-            onPitch={(pitch) => editor.enterPitch(pitch)}
-            onDrum={(sound) => editor.enterDrum(sound)}
-            scale={scale}
-            defaultScaleRoot={keyTonic(keyBar?.keySignature ?? 0, keyBar?.keySignatureType ?? 0)}
-            scalePickerRef={scalePickerRef}
-            onScaleChange={setScale}
-          />
-        )}
-      </div>
-      {showLyrics && <LyricsStrip lines={lyricLines} current={lyricBeat} />}
-      <TransportBar
+        undoLabel={editor.undoLabel}
+        redoLabel={editor.redoLabel}
+        onUndo={() => {
+          editor.undo();
+          if (editing) focusScore();
+        }}
+        onRedo={() => {
+          editor.redo();
+          if (editing) focusScore();
+        }}
         ready={ready}
         playing={playing}
         position={position}
@@ -1072,29 +1177,130 @@ export function ScoreWorkspace({
             onStopTrainer={() => dispatchPractice({ type: "stop-trainer" })}
           />
         }
+        instrumentView={instrumentView}
+        instrumentLabel={instrumentViewName(track.kind)}
+        onToggleInstrumentView={toggleInstrumentView}
+        inspectorOpen={inspectorOpen}
+        onToggleInspector={() => setInspectorOpen((open) => !open)}
+        mixerOpen={mixerOpen}
+        headerSlot={headerSlot}
+        active={active}
+        onToggleMixer={() => setMixerOpen((open) => !open)}
       />
-      <MixerPanel
-        open={mixerOpen}
-        onOpenChange={setMixerOpen}
-        tracks={summary.tracks}
-        mix={mix}
-        onChange={changeMix}
-        onReset={resetMix}
-        soundFont={soundFont}
-        onSoundFontChange={changeSoundFont}
-        saved={saved}
-        returnFocusTo={mixerButtonRef}
-        soundsReady={ready}
-        playing={playing}
-      />
-      <TracksPanel
-        open={tracksOpen}
-        onOpenChange={setTracksOpen}
-        tracks={summary.tracks}
-        shown={trackIndex}
-        actions={trackActions}
-        returnFocusTo={tracksButtonRef}
-      />
+      {tabs}
+      <BarProblems problems={problems} onFix={() => fixBars()} onGoTo={goToBar} />
+      <div className="relative flex min-h-72 flex-1">
+        <NotePalette editing={editing}>
+          <EditToolbar
+            beat={editor.beatInfo}
+            voice={editor.cursor.voice}
+            stringed={track.kind === "stringed"}
+            status={editor.describeCursor()}
+            message={editor.message}
+            actions={editActions}
+            statusId={statusId}
+          />
+          <EffectsToolbar effects={effects} kind={track.kind} actions={effectActions} />
+        </NotePalette>
+        {/* Scrolls as a whole when the window is too short for all of it. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+          <ScoreView
+            viewportRef={viewportRef}
+            surfaceRef={surfaceRef}
+            label={`Score: ${track.name}`}
+            layout={layout}
+            rendering={rendering}
+            editing={editing}
+            overlay={overlay}
+            problemRects={problemRects}
+            describedBy={editing ? statusId : undefined}
+          />
+          {instrumentView && (
+            <InstrumentPanel
+              kind={track.kind}
+              tuning={track.tuning}
+              capo={track.capo}
+              active={shownNotes}
+              editing={editing}
+              cursorString={track.kind === "stringed" ? editor.cursor.string : null}
+              drumSounds={shownNotes.map((n) => n.pitch)}
+              onFret={(string, fret) => {
+                editor.setString(string);
+                editor.setFret(fret - track.capo);
+                if (editing) focusScore();
+              }}
+              onPitch={(pitch) => {
+                editor.enterPitch(pitch);
+                if (editing) focusScore();
+              }}
+              onDrum={(sound) => {
+                editor.enterDrum(sound);
+                if (editing) focusScore();
+              }}
+              scale={scale}
+              defaultScaleRoot={keyTonic(keyBar?.keySignature ?? 0, keyBar?.keySignatureType ?? 0)}
+              scalePickerRef={scalePickerRef}
+              onScaleChange={setScale}
+            />
+          )}
+          {showLyrics && <LyricsStrip lines={lyricLines} current={lyricBeat} />}
+        </div>
+        {inspectorOpen && (
+          <aside
+            aria-label="Inspector"
+            className="flex min-h-0 w-72 shrink-0 flex-col border-l bg-sidebar text-sidebar-foreground max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 max-lg:shadow-xl"
+          >
+            <h2 className="sr-only">Inspector</h2>
+            <Inspector
+              tab={inspectorTab}
+              onTabChange={setInspectorTab}
+              song={{
+                title: summary.title,
+                artist: summary.artist,
+                file: song.name,
+                bars: score.masterBars.length,
+                tempo: tempoAt(score, bar),
+                problems: problemBars,
+              }}
+              track={track}
+              view={view}
+              onViewChange={changeView}
+              mix={mix.tracks[trackIndex]}
+              soundFont={soundFont}
+              onSoundFontChange={changeSoundFont}
+              soundsReady={ready}
+              syncOffset={syncOffset}
+              onSyncOffsetChange={(ms) => {
+                storeSyncOffset(ms);
+                setSyncOffset(readSyncOffset());
+              }}
+              actions={{
+                onTrackSettings: () => setTrackDialog({ mode: "edit", track: trackObject }),
+                onLyrics: () => openLyrics(trackObject),
+                onTranspose: () => setTransposeOpen(true),
+                onFixBars: () => fixBars(),
+                onTempo: () => setTempoOpen(true),
+              }}
+            />
+          </aside>
+        )}
+      </div>
+      {mixerOpen && (
+        <TrackList
+          score={score}
+          revision={revision}
+          tracks={summary.tracks}
+          shown={trackIndex}
+          mix={mix}
+          onChange={changeMix}
+          onReset={resetMix}
+          actions={trackActions}
+          bar={bar}
+          onSeekBar={(index) => playerRef.current?.seekToBar(index)}
+          saved={saved}
+          playing={playing}
+        />
+      )}
       <TrackDialog
         open={trackDialog !== null}
         onOpenChange={(open) => !open && setTrackDialog(null)}
@@ -1160,6 +1366,21 @@ export function ScoreWorkspace({
         initial={lyricsTrack ? lyricsOf(lyricsTrack) : []}
         barCount={score.masterBars.length}
         onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <PrintDialog
+        open={printOpen}
+        onOpenChange={setPrintOpen}
+        initial={printSettings}
+        trackName={track.name}
+        onSubmit={submitPrint}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <TempoDialog
+        open={tempoOpen}
+        onOpenChange={setTempoOpen}
+        initial={tempoInitial()}
+        onSubmit={submitTempo}
         onCloseAutoFocus={returnFocusToScore}
       />
       <TransposeDialog

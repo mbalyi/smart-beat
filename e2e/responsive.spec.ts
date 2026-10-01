@@ -20,7 +20,7 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
       }));
       expect(overflow.x).toBeLessThanOrEqual(0);
       expect(overflow.y).toBeLessThanOrEqual(0); // the score scrolls inside its region
-      for (const name of ["Mixer", "Play", "Stop"]) {
+      for (const name of ["Play", "Stop"]) {
         await expect(app.getByRole("button", { name })).toBeInViewport();
       }
       const region = await app.getByRole("region", { name: /^Score:/ }).boundingBox();
@@ -41,7 +41,7 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
       }));
       expect(overflow.x).toBeLessThanOrEqual(0); // the fretboard scrolls inside its panel
       expect(overflow.y).toBeLessThanOrEqual(0);
-      for (const name of ["Play", "Edit", "Mixer"]) {
+      for (const name of ["Play", "Edit"]) {
         await expect(app.getByRole("button", { name, exact: true })).toBeInViewport();
       }
     });
@@ -80,13 +80,14 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
       const banner = app.getByRole("status", { name: "Bar lengths" });
       await expect(banner).toBeVisible();
       expect(await overflowX()).toBeLessThanOrEqual(0);
+      await banner.scrollIntoViewIfNeeded(); // a short window scrolls as a whole
       await expect(banner.getByRole("button", { name: "Fix bar" })).toBeInViewport();
 
       for (const [button, item] of [
         ["File", "Save As…"],
         ["Tools", "Transpose…"],
       ] as const) {
-        await app.getByRole("button", { name: button }).click();
+        await app.getByRole("button", { name: button, exact: true }).click();
         await expect(app.getByRole("menuitem", { name: item })).toBeInViewport();
         await app.keyboard.press("Escape");
       }
@@ -132,21 +133,23 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
       }
     });
 
-    test("fits the mixer inside the window", async ({ app }) => {
+    test("fits the track list and the inspector inside the window", async ({ app }) => {
       await openSong(app);
-      await app.getByRole("button", { name: "Mixer" }).click();
 
-      const mixer = app.getByRole("dialog", { name: "Mixer" });
-      // Measure once it has finished sliding in.
-      await expect
-        .poll(async () => {
-          const box = (await mixer.boundingBox())!;
-          return Math.round(box.x + box.width);
-        })
-        .toBeLessThanOrEqual(width);
-      const box = (await mixer.boundingBox())!;
+      const tracks = app.getByRole("region", { name: "Tracks and mixer" });
+      await expect(tracks).toBeVisible();
+      const box = (await tracks.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
-      expect(box.y + box.height).toBeLessThanOrEqual(height);
+      expect(Math.round(box.x + box.width)).toBeLessThanOrEqual(width);
+
+      // Narrow windows start without the inspector; it then covers the score.
+      const inspector = app.getByRole("complementary", { name: "Inspector" });
+      if (!(await inspector.isVisible()))
+        await app.getByRole("button", { name: "Inspector" }).click();
+      await expect(inspector).toBeVisible();
+      const inspectorBox = (await inspector.boundingBox())!;
+      expect(inspectorBox.x).toBeGreaterThanOrEqual(0);
+      expect(Math.round(inspectorBox.x + inspectorBox.width)).toBeLessThanOrEqual(width);
     });
   });
 }

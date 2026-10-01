@@ -40,6 +40,20 @@ export class FakeAlphaTabApi {
     readyForPlayback: new Emitter(),
     soundFontLoadFailed: new Emitter<Error>(),
   };
+  /** The adapter sets its own cursor handler (see lib/score/sync.ts). */
+  customCursorHandler: unknown = undefined;
+  /** The exporter hands out these chunks, then `undefined`. */
+  exportChunks: { samples: Float32Array; currentTime: number; endTime: number }[] = [];
+  exportOptions: unknown = null;
+  exporterDestroyed = vi.fn();
+  exportAudio = vi.fn((options: unknown) => {
+    this.exportOptions = options;
+    const chunks = [...this.exportChunks];
+    return Promise.resolve({
+      render: vi.fn(() => Promise.resolve(chunks.shift())),
+      destroy: this.exporterDestroyed,
+    });
+  });
   playerState: PlayerState = 0; // Paused
   tickPosition = 0;
   masterVolume = 1;

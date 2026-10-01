@@ -1,8 +1,14 @@
 import { model } from "@coderline/alphatab";
 
-import { comparePositions, ScoreEditor, selectionRange, TWO_DIGIT_MS } from "@/lib/score/editor";
+import {
+  comparePositions,
+  DRUM_DIGITS_MS,
+  ScoreEditor,
+  selectionRange,
+  TWO_DIGIT_MS,
+} from "@/lib/score/editor";
 import { parseScore } from "@/lib/score/score";
-import { createSong } from "@/lib/score/tracks";
+import { createSong, createTrack, insertTrack } from "@/lib/score/tracks";
 import { fixtureBytes } from "@/test/score";
 
 const { Duration } = model;
@@ -536,5 +542,139 @@ describe("ScoreEditor: saved state", () => {
     expect(editor.edited).toBe(true);
     editor.undo();
     expect(editor.edited).toBe(false);
+  });
+});
+
+describe("ScoreEditor: drum numbers and rests", () => {
+  /** A new song with an empty drum track, shown. */
+  function drumSong() {
+    const score = createSong();
+    insertTrack(score, createTrack(score, { kind: "drums", name: "Drums", program: 0 }));
+    return new ScoreEditor(score, 1);
+  }
+
+  const hits = (editor: ScoreEditor, bar = 0, beat = 0) =>
+    voice(editor, bar).beats[beat]!.notes.map((n) => n.percussionArticulation);
+
+  it("types a drum number with two digits, e.g. 4 then 6 for the open hi-hat", () => {
+    const editor = drumSong();
+    editor.typeDigit(4, 1_000);
+    expect(hits(editor)).toEqual([]);
+    expect(editor.message).toBe("Drum number 4…");
+
+    editor.typeDigit(6, 1_300);
+
+    expect(hits(editor)).toEqual([46]);
+    expect(editor.message).toBe("Hi-hat (open)");
+  });
+
+  it("types three-digit numbers, with or without leading zeros", () => {
+    const editor = drumSong();
+    editor.typeDigit(9, 1_000);
+    editor.typeDigit(1, 1_100);
+    expect(hits(editor)).toEqual([91]); // snare rim shot
+
+    editor.moveBeat(1);
+    editor.typeDigit(0, 2_000);
+    editor.typeDigit(3, 2_100);
+    editor.typeDigit(8, 2_200);
+    expect(hits(editor, 0, 1)).toEqual([38]);
+  });
+
+  it("starts a new number after a pause, and says when there is no such drum", () => {
+    const editor = drumSong();
+    editor.typeDigit(4, 1_000);
+    editor.typeDigit(9, 1_000 + DRUM_DIGITS_MS + 1); // too late: a new number, "9" so far
+    expect(hits(editor)).toEqual([]);
+    editor.typeDigit(9, 1_000 + DRUM_DIGITS_MS + 100); // 99: a cowbell
+    expect(hits(editor)).toEqual([99]);
+
+    editor.moveBeat(1);
+    editor.typeDigit(8, 5_000);
+    editor.typeDigit(8, 5_100); // 88 is not a drum in the table
+    editor.typeDigit(8, 5_200);
+    expect(editor.message).toBe("No drum sound 888");
+    expect(hits(editor, 0, 1)).toEqual([]);
+  });
+
+  it("adds a second drum to the beat, and a number typed again removes it", () => {
+    const editor = drumSong();
+    editor.typeDigit(4, 1_000);
+    editor.typeDigit(9, 1_100); // crash
+    editor.typeDigit(3, 3_000);
+    editor.typeDigit(6, 3_100); // kick, at the same time
+    expect(hits(editor)).toEqual([49, 36]);
+
+    editor.typeDigit(4, 5_000);
+    editor.typeDigit(9, 5_100); // the crash again: removed
+    expect(hits(editor)).toEqual([36]);
+    expect(editor.message).toBe("Crash high (hit) removed");
+
+    editor.undo();
+    expect(hits(editor)).toEqual([49, 36]);
+  });
+
+  it("does not mix digits typed on different beats", () => {
+    const editor = drumSong();
+    editor.typeDigit(4, 1_000);
+    editor.moveBeat(1);
+    editor.typeDigit(6, 1_100);
+    expect(hits(editor, 0, 0)).toEqual([]);
+    expect(hits(editor, 1, 0)).toEqual([]); // "6" alone is not a drum yet
+  });
+
+  it("still types frets on guitar tracks", () => {
+    const { editor } = newSong();
+    editor.typeDigit(4, 1_000);
+    editor.typeDigit(6, 1_100);
+    expect(frets(editor)).toEqual(["6:6"]); // 46 is no fret: the second digit starts over
+  });
+
+  it("fills the bar with rests of the selected note value, down to 1/32", () => {
+    const editor = drumSong();
+    editor.setDuration(Duration.ThirtySecond);
+
+    editor.fillWithRests();
+
+    const beats = voice(editor).beats;
+    expect(beats).toHaveLength(32);
+    expect(beats.every((b) => b.duration === Duration.ThirtySecond && b.notes.length === 0)).toBe(
+      true,
+    );
+    expect(editor.message).toBe("Bar filled with 32nd rests");
+    expect(editor.cursor).toMatchObject({ bar: 0, beat: 0 });
+
+    // Numbers replace the rests one by one; Right moves to the next.
+    editor.typeDigit(4, 1_000);
+    editor.typeDigit(2, 1_100);
+    editor.moveBeat(1);
+    editor.typeDigit(4, 3_000);
+    editor.typeDigit(2, 3_100);
+    expect(hits(editor, 0, 0)).toEqual([42]);
+    expect(hits(editor, 0, 1)).toEqual([42]);
+    expect(voice(editor).beats).toHaveLength(32);
+  });
+
+  it("fills every selected bar, in the cursor's voice only, and can be undone", () => {
+    const editor = drumSong();
+    const before = voice(editor, 1).beats.length;
+    editor.setCursorTo({ bar: 0, beat: 0, voice: 0 });
+    editor.setCursorTo({ bar: 1, beat: 0, voice: 0 }, true);
+    editor.setDuration(Duration.Sixteenth);
+
+    editor.fillWithRests();
+
+    expect(voice(editor, 0).beats).toHaveLength(16);
+    expect(voice(editor, 1).beats).toHaveLength(16);
+    expect(editor.message).toBe("2 bars filled with 16th rests");
+    editor.undo();
+    expect(voice(editor, 1).beats).toHaveLength(before);
+  });
+
+  it("fills a bar that is not a multiple of the note value with the longest rests that fit", () => {
+    const editor = drumSong();
+    editor.setDuration(Duration.Half);
+    editor.fillWithRests();
+    expect(voice(editor).beats.map((b) => b.duration)).toEqual([Duration.Half, Duration.Half]);
   });
 });

@@ -35,7 +35,22 @@
     },
   ];
 
-  const SCORE_EXTENSIONS = ["gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml"];
+  const SCORE_EXTENSIONS = [
+    "gp3",
+    "gp4",
+    "gp5",
+    "gpx",
+    "gp",
+    "mid",
+    "midi",
+    "musicxml",
+    "xml",
+    "mscx",
+    "mscz",
+    "atex",
+    "capx",
+    "txt",
+  ];
   const MAX_RECENT = 10;
 
   const callbacks = new Map();

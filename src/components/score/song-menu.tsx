@@ -2,6 +2,8 @@ import {
   ArrowUpDownIcon,
   ChevronDownIcon,
   FileDownIcon,
+  GaugeIcon,
+  PrinterIcon,
   RulerIcon,
   SaveAllIcon,
   SaveIcon,
@@ -31,17 +33,23 @@ export function FileMenu({
   onSave,
   onSaveAs,
   onExport,
+  onExportAudio,
+  onPrint,
 }: {
   onSave: () => void;
   onSaveAs: () => void;
   onExport: (format: ExportFormat) => void;
+  /** Renders the mix to a WAV file. */
+  onExportAudio: () => void;
+  /** Opens the print dialog (which also saves a PDF). */
+  onPrint: () => void;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" title="Save and export">
           <FileDownIcon data-icon="inline-start" />
-          <span className="sr-only md:not-sr-only">File</span>
+          <span className="sr-only 2xl:not-sr-only">File</span>
           <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
@@ -62,7 +70,13 @@ export function FileMenu({
               {label}
             </DropdownMenuItem>
           ))}
+          <DropdownMenuItem onSelect={onExportAudio}>Audio (WAV)…</DropdownMenuItem>
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onPrint}>
+          <PrinterIcon />
+          Print / PDF…
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -72,16 +86,18 @@ export function FileMenu({
 export function ToolsMenu({
   onTranspose,
   onFixBars,
+  onTempo,
 }: {
   onTranspose: () => void;
   onFixBars: () => void;
+  onTempo: () => void;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" title="Editing tools">
           <WrenchIcon data-icon="inline-start" />
-          <span className="sr-only md:not-sr-only">Tools</span>
+          <span className="sr-only 2xl:not-sr-only">Tools</span>
           <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
@@ -89,6 +105,10 @@ export function ToolsMenu({
         <DropdownMenuItem onSelect={onTranspose}>
           <ArrowUpDownIcon />
           Transpose…
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onTempo}>
+          <GaugeIcon />
+          Tempo…
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onFixBars}>
           <RulerIcon />

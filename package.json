@@ -28,7 +28,8 @@
     "licenses:check": "node scripts/check-licenses.mjs && cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources",
     "licenses:generate": "node scripts/generate-licenses.mjs",
     "soundfonts:fetch": "node scripts/fetch-soundfonts.mjs",
-    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:fmt && pnpm rust:lint && pnpm rust:test"
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:fmt && pnpm rust:lint && pnpm rust:test",
+    "drums:report": "node scripts/drum-support.mjs && prettier --write docs/drum-midi-support.md"
   },
   "dependencies": {
     "@coderline/alphatab": "1.8.4",

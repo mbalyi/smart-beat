@@ -41,19 +41,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: macOS (universal)
-            os: macos-latest
-            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            tauri-args: --target universal-apple-darwin
-          - name: Windows (x64)
-            os: windows-latest
-            rust-targets: ""
-            tauri-args: ""
-          - name: Linux (x64)
-            os: ubuntu-22.04
-            rust-targets: ""
-            tauri-args: ""
+        # Windows and Linux installers are not built for pull requests that touch the packaging
+        # files: they are built for release tags and when the workflow is started by hand. To build
+        # them for pull requests again, replace this expression by the full list.
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"macOS (universal)","os":"macos-latest","rust-targets":"aarch64-apple-darwin,x86_64-apple-darwin","tauri-args":"--target universal-apple-darwin"}]' || '[{"name":"macOS (universal)","os":"macos-latest","rust-targets":"aarch64-apple-darwin,x86_64-apple-darwin","tauri-args":"--target universal-apple-darwin"},{"name":"Windows (x64)","os":"windows-latest","rust-targets":"","tauri-args":""},{"name":"Linux (x64)","os":"ubuntu-22.04","rust-targets":"","tauri-args":""}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:

@@ -2,6 +2,9 @@
 import type { ScoreSummary } from "@/lib/score/score";
 import { MIXER_SETTINGS_VERSION, type MixerSettings, type TrackMix } from "@/lib/tauri";
 
+/** Pan changes regenerate the MIDI, so they're applied when the user lets go. */
+export type MixerChange = (action: MixerAction, options?: { commit: boolean }) => void;
+
 export type MixerAction =
   | { type: "master"; value: number }
   | { type: "volume"; track: number; value: number }

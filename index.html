@@ -12,6 +12,10 @@
     <title>Smart Beat</title>
     <style>
       /* Startup splash: plays until the app has started (see src/main.tsx). */
+      /* No white flash while the page and the video load. */
+      :root:has(#splash) {
+        background: #000;
+      }
       #splash {
         position: fixed;
         inset: 0;
@@ -55,6 +59,14 @@
           var splash = document.getElementById("splash");
           if (splash) splash.remove();
         };
+        // The animation must be seen once in full: main.tsx counts from here.
+        video.addEventListener(
+          "playing",
+          function () {
+            window.__splashPlayingAt = performance.now();
+          },
+          { once: true },
+        );
         var started = video.play();
         if (started && started.catch) started.catch(skip);
       })();

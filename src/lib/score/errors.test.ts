@@ -4,9 +4,9 @@ describe("describeOpenError", () => {
   it.each([
     [
       "unsupported-type",
-      /opens Guitar Pro, MusicXML and MIDI files \(\.gp3, \.gp4, \.gp5, \.gpx, \.gp, \.mid, \.midi, \.musicxml, \.xml\)/,
+      /opens Guitar Pro, MusicXML, MIDI, MuseScore, alphaTex, Capella and text tab files \(\.gp3, \.gp4, \.gp5, \.gpx, \.gp, \.mid, \.midi, \.musicxml, \.xml, \.mscx, \.mscz, \.atex, \.capx, \.txt\)/,
     ],
-    ["not-a-score", /not a Guitar Pro, MusicXML or MIDI file, or it is damaged/],
+    ["not-a-score", /not a song file Smart Beat can open, or it is damaged/],
     ["too-large", /too large/],
     ["not-found", /could not be found/],
   ])("explains %s errors from the Rust core", (kind, message) => {

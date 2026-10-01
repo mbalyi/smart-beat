@@ -5,12 +5,16 @@ import { type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
 import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui";
 
+import { nameFromTip, Tip } from "@/components/ui/tip";
+
 import { toggleVariants } from "@/components/ui/toggle";
 
 const ToggleGroupContext = React.createContext<
   VariantProps<typeof toggleVariants> & {
     spacing?: number;
     orientation?: "horizontal" | "vertical";
+    /** The group's value, to tell which item is on. */
+    value?: string | string[];
   }
 >({
   size: "default",
@@ -46,7 +50,9 @@ function ToggleGroup({
       )}
       {...props}
     >
-      <ToggleGroupContext.Provider value={{ variant, size, spacing, orientation }}>
+      <ToggleGroupContext.Provider
+        value={{ variant, size, spacing, orientation, value: props.value }}
+      >
         {children}
       </ToggleGroupContext.Provider>
     </ToggleGroupPrimitive.Root>
@@ -58,11 +64,16 @@ function ToggleGroupItem({
   children,
   variant = "default",
   size = "default",
+  title,
   ...props
 }: React.ComponentProps<typeof ToggleGroupPrimitive.Item> & VariantProps<typeof toggleVariants>) {
   const context = React.useContext(ToggleGroupContext);
 
-  return (
+  // A tooltip trigger also sets `data-state` (open/closed), which would replace the
+  // item's on/off state that the styles use: set it again from the group's value.
+  const current = context.value;
+  const on = Array.isArray(current) ? current.includes(props.value) : current === props.value;
+  const item = (
     <ToggleGroupPrimitive.Item
       data-slot="toggle-group-item"
       data-variant={context.variant || variant}
@@ -77,10 +88,14 @@ function ToggleGroupItem({
         className,
       )}
       {...props}
+      {...(title && { "data-state": on ? "on" : "off" })}
+      aria-label={nameFromTip(title, props["aria-label"], children)}
     >
       {children}
     </ToggleGroupPrimitive.Item>
   );
+  // `title` is shown as a tooltip (also on keyboard focus), not as the native one.
+  return title ? <Tip label={title}>{item}</Tip> : item;
 }
 
 export { ToggleGroup, ToggleGroupItem };

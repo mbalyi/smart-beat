@@ -22,13 +22,12 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     onDots: vi.fn(),
     onTuplet: vi.fn(),
     onRest: vi.fn(),
+    onFillRests: vi.fn(),
     onTie: vi.fn(),
     onInsertBeat: vi.fn(),
     onDeleteBeat: vi.fn(),
     onVoice: vi.fn(),
     onBar: vi.fn(),
-    onUndo: vi.fn(),
-    onRedo: vi.fn(),
     onDone: vi.fn(),
   };
   const props = {
@@ -37,8 +36,6 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     stringed: true,
     status: "Bar 1, beat 1 of 4, string 1 (E), fret 3, Quarter",
     message: "Fret 3 on string 1",
-    undoLabel: "Add note",
-    redoLabel: null,
     actions,
     statusId: "status",
     ...overrides,
@@ -58,8 +55,6 @@ describe("EditToolbar", () => {
     expect(screen.getByRole("combobox", { name: "Tuplet" })).toHaveTextContent("None");
     expect(screen.getByText(/fret 3, Quarter/)).toHaveAttribute("id", "status");
     expect(screen.getByRole("status")).toHaveTextContent("Fret 3 on string 1");
-    expect(screen.getByRole("button", { name: "Undo Add note" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
     await expectNoA11yViolations();
   });
 
@@ -72,19 +67,19 @@ describe("EditToolbar", () => {
     await user.click(screen.getByRole("button", { name: "Double dot" }));
     await user.click(screen.getByRole("radio", { name: "Voice 2" }));
     await user.click(screen.getByRole("button", { name: "Rest" }));
+    await user.click(screen.getByRole("button", { name: "Fill bar with rests" }));
     await user.click(screen.getByRole("button", { name: "Tie" }));
     await user.click(screen.getByRole("button", { name: "Insert beat" }));
     await user.click(screen.getByRole("button", { name: "Delete beat" }));
-    await user.click(screen.getByRole("button", { name: "Undo Add note" }));
 
     expect(actions.onDuration).toHaveBeenCalledWith(Duration.Eighth);
     expect(actions.onDots).toHaveBeenCalledWith(2);
     expect(actions.onVoice).toHaveBeenCalledWith(1);
     expect(actions.onRest).toHaveBeenCalledOnce();
+    expect(actions.onFillRests).toHaveBeenCalledOnce();
     expect(actions.onTie).toHaveBeenCalledOnce();
     expect(actions.onInsertBeat).toHaveBeenCalledOnce();
     expect(actions.onDeleteBeat).toHaveBeenCalledOnce();
-    expect(actions.onUndo).toHaveBeenCalledOnce();
     expect(actions.onDone).toHaveBeenCalledTimes(8);
     expect(screen.getByRole("button", { name: "Dot" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Tie" })).toHaveAttribute("aria-pressed", "true");

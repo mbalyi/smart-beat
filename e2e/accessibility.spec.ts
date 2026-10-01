@@ -20,23 +20,27 @@ test.describe("accessibility", () => {
       await expectNoA11yViolations(app);
     });
 
-    test(`song screen and mixer have no WCAG violations in ${colorScheme} mode`, async ({
+    test(`song screen, inspector and mixer have no WCAG violations in ${colorScheme} mode`, async ({
       app,
     }) => {
       await app.emulateMedia({ colorScheme });
       await openSong(app);
       await expectNoA11yViolations(app);
 
-      await app.getByRole("button", { name: "Mixer" }).click();
-      const mixer = app.getByRole("dialog", { name: "Mixer" });
+      const mixer = app.getByRole("region", { name: "Tracks and mixer" });
       await expect(mixer).toBeVisible();
-      // Contrast is only meaningful once the panel has finished fading in.
       // Pressed Mute (the piano, from the file) and Solo must stay readable too.
       await mixer.getByRole("button", { name: "Solo Guitar" }).click();
-      await mixer.evaluate((el) =>
-        Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
-      );
       await expectNoA11yViolations(app);
+
+      // Both tabs of the inspector, and a track's menu.
+      await app.getByRole("tab", { name: "Song" }).click();
+      await expect(app.getByRole("button", { name: "Transpose…" })).toBeVisible();
+      await expectNoA11yViolations(app);
+      await app.getByRole("tab", { name: "Track" }).click();
+      await mixer.getByRole("button", { name: "Actions for Bass" }).click();
+      await expect(app.getByRole("menuitem", { name: "Duplicate" })).toBeVisible();
+      await expectNoA11yViolations(app, { popup: "[role=menu]" });
     });
 
     test(`editing, practice and track screens have no WCAG violations in ${colorScheme} mode`, async ({
@@ -50,10 +54,8 @@ test.describe("accessibility", () => {
       await expect(app.getByRole("region", { name: "Fretboard" })).toBeVisible();
       await expectNoA11yViolations(app);
 
-      await app.getByRole("button", { name: "Tracks" }).click();
-      await expect(app.getByRole("dialog", { name: "Tracks" })).toBeVisible();
+      await expect(app.getByRole("toolbar", { name: "Edit" })).toBeVisible();
       await expectNoA11yViolations(app);
-      await app.keyboard.press("Escape");
 
       await emitMenuAction(app, "add-track");
       const dialog = app.getByRole("dialog", { name: "Add track" });
@@ -149,12 +151,14 @@ test.describe("accessibility", () => {
     await openSong(app);
     const tab = tabKey(browserName);
     const mixerButton = app.getByRole("button", { name: "Mixer" });
+    const mixer = app.getByRole("region", { name: "Tracks and mixer" });
 
+    // The mixer toggle shows and hides the track list.
     await mixerButton.focus();
     await app.keyboard.press("Enter");
-    const mixer = app.getByRole("dialog", { name: "Mixer" });
+    await expect(mixer).toBeHidden();
+    await app.keyboard.press("Enter");
     await expect(mixer).toBeVisible();
-    await expect(mixer.locator(":focus")).toHaveCount(1); // focus moved into the panel
 
     // Sliders respond to the arrow keys.
     const master = mixer.getByRole("slider", { name: "Master volume" });
@@ -162,12 +166,15 @@ test.describe("accessibility", () => {
     await app.keyboard.press("ArrowLeft");
     await expect(master).toHaveAttribute("aria-valuetext", "99%");
 
-    await app.keyboard.press("Escape");
-    await expect(mixer).toBeHidden();
-    await expect(mixerButton).toBeFocused();
+    // The inspector's tabs are reached and switched with the keyboard.
+    const songTab = app.getByRole("tab", { name: "Song" });
+    await app.getByRole("tab", { name: "Track" }).focus();
+    await app.keyboard.press("ArrowLeft");
+    await expect(songTab).toBeFocused();
+    await expect(songTab).toHaveAttribute("aria-selected", "true");
 
     // The score region is focusable so it can be scrolled with the keyboard.
-    await app.getByRole("button", { name: "Fretboard" }).focus(); // last toolbar control
+    await app.getByRole("button", { name: "New song" }).focus(); // last control before the score
     await app.keyboard.press(tab);
     await expect(app.getByRole("region", { name: /^Score:/ })).toBeFocused();
   });

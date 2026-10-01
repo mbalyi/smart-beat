@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
@@ -78,27 +78,45 @@ export function firstScoreFile<T>(items: readonly T[], name: (item: T) => string
   return items.find((item) => hasScoreExtension(name(item))) ?? items[0];
 }
 
-/** Opens songs from a path (desktop) or a `File` (browser) and reports failures. */
-export function useScoreDocument() {
-  const [song, setSong] = useState<ScoreDocument | null>(null);
+/**
+ * The open songs (one tab each) and which one is shown. Opens songs from a
+ * path (desktop) or a `File` (browser) and reports failures.
+ */
+export function useScoreDocuments() {
+  const [songs, setSongs] = useState<ScoreDocument[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
   /** Changes whenever the recent files list was updated by an open. */
   const [recentsVersion, setRecentsVersion] = useState(0);
-  const latest = useRef(0);
+  const counter = useRef(0);
+  const songsRef = useRef<ScoreDocument[]>([]);
+  useEffect(() => {
+    songsRef.current = songs;
+  }, [songs]);
 
-  const open = useCallback(async ({ name, read, path }: Source) => {
-    const id = ++latest.current;
-    const toastId = toast.loading(`Opening “${name}”…`);
-    try {
-      const bytes = await read();
-      // alphaTab is large: load it with the first song, not with the app.
-      const { loadSong } = await import("@/lib/import");
-      const { score, summary, warnings, converted } = await loadSong(bytes);
-      const key = await fileKey(bytes);
-      const saved = await savedMix(key);
-      toast.dismiss(toastId);
-      // Ignore the result if another file was opened meanwhile.
-      if (id === latest.current) {
-        setSong({
+  const add = useCallback((song: ScoreDocument) => {
+    setSongs((list) => [...list, song]);
+    setActiveId(song.id);
+  }, []);
+
+  const open = useCallback(
+    async ({ name, read, path }: Source) => {
+      // Opening a song that is already open shows its tab.
+      const already = path ? songsRef.current.find((s) => s.path === path) : undefined;
+      if (already) {
+        setActiveId(already.id);
+        return;
+      }
+      const id = ++counter.current;
+      const toastId = toast.loading(`Opening “${name}”…`);
+      try {
+        const bytes = await read();
+        // alphaTab is large: load it with the first song, not with the app.
+        const { loadSong } = await import("@/lib/import");
+        const { score, summary, warnings, converted } = await loadSong(bytes, name);
+        const key = await fileKey(bytes);
+        const saved = await savedMix(key);
+        toast.dismiss(toastId);
+        add({
           id,
           name,
           // A MIDI or MusicXML file is never replaced by a save: Save asks for a new file.
@@ -109,26 +127,27 @@ export function useScoreDocument() {
           summary,
           mix: initialMix(summary, saved),
         });
+        if (warnings.length > 0) {
+          // Long enough to read what was left out.
+          toast.warning(`“${name}” was converted`, {
+            description: warnings.join(" "),
+            duration: 12_000,
+          });
+        }
+        if (path) await rememberRecent(path, true, () => setRecentsVersion((v) => v + 1));
+      } catch (error) {
+        // A file that is gone is not worth offering again.
+        if (path && isCommandError(error) && error.kind === "not-found") {
+          await rememberRecent(path, false, () => setRecentsVersion((v) => v + 1));
+        }
+        toast.error(`Couldn't open “${name}”`, {
+          id: toastId,
+          description: describeOpenError(error),
+        });
       }
-      if (warnings.length > 0) {
-        toast.warning(`“${name}” was converted`, { description: warnings.join(" ") });
-      }
-      if (path) await rememberRecent(path, true, () => setRecentsVersion((v) => v + 1));
-    } catch (error) {
-      if (id !== latest.current) {
-        toast.dismiss(toastId);
-        return;
-      }
-      // A file that is gone is not worth offering again.
-      if (path && isCommandError(error) && error.kind === "not-found") {
-        await rememberRecent(path, false, () => setRecentsVersion((v) => v + 1));
-      }
-      toast.error(`Couldn't open “${name}”`, {
-        id: toastId,
-        description: describeOpenError(error),
-      });
-    }
-  }, []);
+    },
+    [add],
+  );
 
   const openPath = useCallback(
     (path: string) => open({ name: baseName(path), path, read: () => readScoreFile(path) }),
@@ -153,7 +172,7 @@ export function useScoreDocument() {
 
   /** Starts a new, empty song (File › New). */
   const newSong = useCallback(async () => {
-    const id = ++latest.current;
+    const id = ++counter.current;
     try {
       const [{ createSong }, { summarizeScore }] = await Promise.all([
         import("@/lib/score/tracks"),
@@ -161,8 +180,7 @@ export function useScoreDocument() {
       ]);
       const score = createSong();
       const summary = summarizeScore(score);
-      if (id !== latest.current) return;
-      setSong({
+      add({
         id,
         name: NEW_SONG_NAME,
         path: null,
@@ -175,16 +193,41 @@ export function useScoreDocument() {
     } catch (error) {
       toast.error("Couldn't create a new song", { description: String(error) });
     }
-  }, []);
+  }, [add]);
 
   /**
    * After a save: the song now lives at `saved.path` (null for a download) and
    * its content hash is `saved.fileKey`. The same document, so the workspace
    * stays open.
    */
-  const markSaved = useCallback((saved: SavedAs) => {
-    setSong((current) => (current ? { ...current, ...saved, isNew: false } : current));
+  const markSaved = useCallback((id: number, saved: SavedAs) => {
+    setSongs((list) =>
+      list.map((song) => (song.id === id ? { ...song, ...saved, isNew: false } : song)),
+    );
   }, []);
 
-  return { song, openPath, openFile, newSong, markSaved, recentsVersion };
+  /** Closes a song's tab; the tab next to it (or none) is shown instead. */
+  const close = useCallback((id: number) => {
+    const list = songsRef.current;
+    const index = list.findIndex((s) => s.id === id);
+    if (index < 0) return;
+    const rest = list.filter((s) => s.id !== id);
+    setSongs(rest);
+    setActiveId((current) =>
+      current === id ? (rest[Math.min(index, rest.length - 1)]?.id ?? null) : current,
+    );
+  }, []);
+
+  const song = songs.find((s) => s.id === activeId) ?? null;
+  return {
+    songs,
+    song,
+    activate: setActiveId,
+    close,
+    openPath,
+    openFile,
+    newSong,
+    markSaved,
+    recentsVersion,
+  };
 }

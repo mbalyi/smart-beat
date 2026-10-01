@@ -55,10 +55,10 @@ describe("EffectsToolbar", () => {
       "aria-pressed",
       "false",
     );
-    expect(within(toolbar).getByRole("button", { name: "Hammer-on / pull-off" })).toHaveAttribute(
-      "title",
-      "Hammer-on / pull-off (H)",
-    );
+    // The key is shown in the tooltip, on hover and on keyboard focus.
+    await user.hover(within(toolbar).getByRole("button", { name: "Hammer-on / pull-off" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Hammer-on / pull-off (H)");
+    await user.unhover(within(toolbar).getByRole("button", { name: "Hammer-on / pull-off" }));
     await expectNoA11yViolations();
 
     await user.click(within(toolbar).getByRole("button", { name: "Let ring" }));
