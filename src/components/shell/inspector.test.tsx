@@ -86,12 +86,20 @@ describe("Inspector: TRACK tab", () => {
     expect(screen.queryByText("Tuning")).not.toBeInTheDocument();
   });
 
-  it("explains why drum tracks have no tab view", () => {
+  it("offers the drum tab for drum tracks and says how it is written", () => {
     setup({
-      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false },
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
       view: { notation: "score", rhythm: false },
     });
-    expect(screen.getByText(/Drum tracks are shown as a score/)).toBeInTheDocument();
+    expect(screen.getByText(/each hit as its drum number/)).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Tablature" })).toBeEnabled();
+  });
+
+  it("keeps the tab switches off for keyboards", () => {
+    setup({
+      track: { ...SUMMARY.tracks[3]!, kind: "pitched", hasTablature: false, canShowTab: false },
+      view: { notation: "score", rhythm: false },
+    });
     expect(screen.getByRole("switch", { name: "Tablature" })).toBeDisabled();
   });
 
@@ -181,7 +189,7 @@ describe("Inspector: effects", () => {
       expect.objectContaining({ type: "gate", enabled: true }),
       expect.objectContaining({ type: "cab", enabled: false }),
     ]);
-    await user.click(screen.getByRole("button", { name: "Edit the track's effects…" }));
+    await user.click(screen.getByRole("button", { name: "Pedalboard…" }));
     expect(actions.onEditEffects).toHaveBeenCalled();
     await expectNoA11yViolations();
   });

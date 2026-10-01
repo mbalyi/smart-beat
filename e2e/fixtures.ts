@@ -76,6 +76,7 @@ declare global {
     __emitMenuAction: (action: MenuAction) => number;
     __emitTauriEvent: (event: string, payload: unknown) => number;
     __dialogResult: string | null;
+    __engineChains?: Record<string, { type: string }[]>;
     __saveResult: string | null;
     __recent: string[];
     __written: Map<string, Uint8Array>;

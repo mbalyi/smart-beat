@@ -74,14 +74,37 @@ describe("applyTrackView", () => {
     expect([staff.showStandardNotation, staff.showTablature]).toEqual([true, true]);
   });
 
-  it("always shows standard notation for drums and keyboards", () => {
+  it("shows drums as a score, a drum tab (mirror staff) or both", () => {
     const { score } = parseScore(fixture("practice-song.gp"));
     const drums = score.tracks[2]!;
 
     applyTrackView(drums, { notation: "tab", rhythm: false });
+    expect(drums.staves).toHaveLength(2);
+    expect(drums.staves[0]!.showStandardNotation).toBe(false);
+    expect(drums.staves[1]!.showTablature).toBe(true);
 
+    applyTrackView(drums, { notation: "score-tab", rhythm: false });
     expect(drums.staves[0]!.showStandardNotation).toBe(true);
+    expect(drums.staves).toHaveLength(2);
+
+    applyTrackView(drums, { notation: "score", rhythm: false });
+    expect(drums.staves).toHaveLength(1);
     expect(drums.staves[0]!.showTablature).toBe(false);
+  });
+
+  it("removes the drum tab when another track is shown", () => {
+    const { score } = parseScore(fixture("practice-song.gp"));
+    applyTrackView(score.tracks[2]!, { notation: "tab", rhythm: false });
+    applyTrackView(score.tracks[0]!, { notation: "tab", rhythm: false });
+    expect(score.tracks[2]!.staves).toHaveLength(1);
+  });
+
+  it("keeps keyboards in standard notation", () => {
+    const { score } = parseScore(fixture("practice-song.gp"));
+    const keys = score.tracks.find((t) => !t.isPercussion && t.staves[0]!.tuning.length === 0);
+    if (!keys) return;
+    applyTrackView(keys, { notation: "tab", rhythm: false });
+    expect(keys.staves[0]!.showStandardNotation).toBe(true);
   });
 });
 

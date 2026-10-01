@@ -10,6 +10,7 @@ import {
   AlphaTabApi,
   LayoutMode,
   LogLevel,
+  NotationElement,
   PlayerMode,
   PlayerOutputMode,
   ScrollMode,
@@ -21,6 +22,14 @@ import {
 
 import { busMixes, NativeEngine, trackChannels } from "@/lib/audio/native-engine";
 import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
+import {
+  mirrorBeatOf,
+  mirrorNoteOf,
+  mirrorOf,
+  realBeatOf,
+  realNoteOf,
+  removeMirrorNotes,
+} from "@/lib/score/drum-tab";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
@@ -276,6 +285,8 @@ export class ScorePlayer {
     // alphaTab ignores SoundFonts sent before its synthesizer is ready.
     this.synthReady = new Promise((resolve) => this.api.player?.ready.on(() => resolve()));
     this.subscribe();
+    this.hasMirror = this.score.tracks.some((t) => mirrorOf(t) !== null);
+    this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !this.hasMirror);
     this.api.renderScore(this.score, [this.trackIndex]);
     void this.setSoundFont(options.soundFontUrl);
   }
@@ -322,6 +333,7 @@ export class ScorePlayer {
       const lookup = api.tickCache;
       if (lookup) approximateSilentEffects(file, lookup);
       remapSilentDrums(file); // the SoundFont has no sample for some drum numbers
+      removeMirrorNotes(file); // the drum tab's mirror staff is silent
       this.engine
         ?.loadSong(file, trackChannels(this.score))
         .catch((error: unknown) => callbacks.onError?.(asError(error)));
@@ -335,7 +347,9 @@ export class ScorePlayer {
       }
     });
     // playedBeatChanged only fires during playback; a click moves the cursor while paused too.
-    api.beatMouseDown.on((beat) => {
+    api.beatMouseDown.on((clicked) => {
+      // A click on the drum tab is a click on the drum beat it shows.
+      const beat = realBeatOf(clicked);
       this.delayer.clear(); // the click moves the cursor: what waits belongs to the old position
       this.reportBar(beat.voice.bar.index);
       if (this.editing) this.seekToBeat(beat);
@@ -346,10 +360,10 @@ export class ScorePlayer {
       queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend }));
     });
     api.noteMouseDown.on((note) => {
-      this.clickedNote = note;
+      this.clickedNote = realNoteOf(note);
     });
     api.beatMouseMove.on((beat) => {
-      if (this.editing) callbacks.onBeatDrag?.(beat);
+      if (this.editing) callbacks.onBeatDrag?.(realBeatOf(beat));
     });
     api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
     api.playerFinished.on(() => {
@@ -391,9 +405,28 @@ export class ScorePlayer {
 
   private clickedNote: Note | null = null;
 
-  /** The beats that belong to the shown track. */
+  /** The beats that belong to the shown track (drum-tab beats as their drum beats). */
   private ownBeats(beats: readonly Beat[]): Beat[] {
-    return beats.filter((beat) => beat.voice.bar.staff.track === this.track);
+    return [...new Set(beats.map(realBeatOf))].filter(
+      (beat) => beat.voice.bar.staff.track === this.track,
+    );
+  }
+
+  /** The drum tab's mirror staff exists (its beats must be in the MIDI's tick lookup). */
+  private hasMirror = false;
+
+  /**
+   * After the view changed: the tuning label means nothing on a drum tab, and
+   * a mirror staff that appeared or went away needs a new MIDI (for the cursor).
+   */
+  private afterViewChange() {
+    const mirror = this.score.tracks.some((t) => mirrorOf(t) !== null);
+    this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !mirror);
+    this.api.updateSettings();
+    if (mirror !== this.hasMirror) {
+      this.hasMirror = mirror;
+      this.regenerateMidi();
+    }
   }
 
   private setReady(ready: boolean) {
@@ -532,16 +565,18 @@ export class ScorePlayer {
     const track = this.score.tracks[trackIndex];
     if (!track) return;
     this.trackIndex = trackIndex;
-    this.setView(view, false);
+    this.applyView(view);
+    this.api.settings.notation.rhythmMode = rhythmMode(view);
+    this.afterViewChange();
     this.api.renderTracks([track]);
   }
 
   /** Changes the notation of the shown track. */
-  setView(view: TrackView, render = true) {
+  setView(view: TrackView) {
     this.applyView(view);
     this.api.settings.notation.rhythmMode = rhythmMode(view);
-    this.api.updateSettings();
-    if (render) this.api.render();
+    this.afterViewChange();
+    this.api.render();
   }
 
   setLayout(layout: Layout) {
@@ -582,6 +617,9 @@ export class ScorePlayer {
     this.mix = mix;
     this.applyPans(mix);
     this.applyView(view);
+    this.hasMirror = this.score.tracks.some((t) => mirrorOf(t) !== null);
+    this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !this.hasMirror);
+    this.api.updateSettings();
     this.quietRender = true;
     this.api.renderTracks([track]);
     this.regenerateMidi();
@@ -697,21 +735,27 @@ export class ScorePlayer {
     return this.engine !== null;
   }
 
-  /** Where a beat is drawn: one rectangle per staff (standard notation, tab). */
+  /** Where a beat is drawn: one rectangle per staff (standard notation, tab, drum tab). */
   beatRects(beat: Beat): Rect[] {
-    return (this.api.boundsLookup?.findBeats(beat) ?? []).map((bounds) => {
-      const bar = bounds.barBounds.visualBounds;
-      return { x: bounds.realBounds.x, y: bar.y, w: bounds.realBounds.w, h: bar.h };
-    });
+    const mirror = mirrorBeatOf(beat);
+    const beats = mirror && mirror !== beat ? [beat, mirror] : [beat];
+    return beats
+      .flatMap((b) => this.api.boundsLookup?.findBeats(b) ?? [])
+      .map((bounds) => {
+        const bar = bounds.barBounds.visualBounds;
+        return { x: bounds.realBounds.x, y: bar.y, w: bounds.realBounds.w, h: bar.h };
+      });
   }
 
   /** Where a note's head (or fret number) is drawn, on each staff. */
   noteRects(note: Note): Rect[] {
-    const beats = this.api.boundsLookup?.findBeats(note.beat) ?? [];
-    return beats.flatMap((bounds) =>
-      (bounds.notes ?? [])
-        .filter((n) => n.note === note)
-        .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
+    const mirror = mirrorNoteOf(note);
+    return [note, ...(mirror ? [mirror] : [])].flatMap((n) =>
+      (this.api.boundsLookup?.findBeats(n.beat) ?? []).flatMap((bounds) =>
+        (bounds.notes ?? [])
+          .filter((drawn) => drawn.note === n)
+          .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
+      ),
     );
   }
 

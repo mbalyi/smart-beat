@@ -111,9 +111,9 @@ function MiniChain({
         <span id={headingId} className="text-sm">
           Effects
         </span>
-        <Button variant="ghost" size="xs" onClick={onEdit} aria-label="Edit the track's effects…">
+        <Button variant="ghost" size="xs" onClick={onEdit}>
           <AudioLinesIcon data-icon="inline-start" />
-          Edit…
+          Pedalboard…
         </Button>
       </div>
       {chain.length === 0 ? (
@@ -142,8 +142,8 @@ function MiniChain({
       {problems > 0 && (
         <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          {problems === 1 ? "One effect cannot play" : `${problems} effects cannot play`} (open Edit
-          for details).
+          {problems === 1 ? "One effect cannot play" : `${problems} effects cannot play`} (see the
+          Pedalboard).
         </p>
       )}
     </div>
@@ -285,19 +285,19 @@ export function Inspector({
           <SwitchRow
             label="Standard notation"
             checked={showsScore}
-            disabled={!track.hasTablature}
+            disabled={!track.canShowTab}
             onChange={(on) => setNotation(on, showsTab)}
           />
           <SwitchRow
             label="Tablature"
             checked={showsTab}
-            disabled={!track.hasTablature}
+            disabled={!track.canShowTab}
             onChange={(on) => setNotation(showsScore, on)}
           />
           {track.kind === "drums" && (
             <p className="text-xs text-muted-foreground">
-              Drum tracks are shown as a score. The notation renderer has no drum tablature, so
-              “Tab” is not available for them.
+              The drum tab writes each hit as its drum number (35 kick, 38 snare, 42 closed
+              hi-hat…), like Guitar Pro.
             </p>
           )}
           {track.kind === "stringed" && (
