@@ -108,8 +108,12 @@ export function EditToolbar({
           value={String(voice)}
           onValueChange={(value) => value && then(actions.onVoice)(Number(value))}
         >
-          <ToggleGroupItem value="0">Voice 1</ToggleGroupItem>
-          <ToggleGroupItem value="1">Voice 2</ToggleGroupItem>
+          <ToggleGroupItem value="0" aria-label="Voice 1" title="Voice 1 (V switches)">
+            1
+          </ToggleGroupItem>
+          <ToggleGroupItem value="1" aria-label="Voice 2" title="Voice 2 (V switches)">
+            2
+          </ToggleGroupItem>
         </ToggleGroup>
 
         <ToggleGroup
@@ -186,7 +190,7 @@ export function EditToolbar({
         <div className="flex gap-1">
           <Button variant="outline" size="sm" onClick={then(actions.onRest)} title="Rest (R)">
             <RemoveFormattingIcon data-icon="inline-start" />
-            <span className="sr-only max-lg:not-sr-only">Rest</span>
+            <span className="sr-only">Rest</span>
           </Button>
           <Button
             variant="outline"
@@ -195,7 +199,7 @@ export function EditToolbar({
             title="Fill the bar with rests of this note value (Shift+R)"
           >
             <AlignJustifyIcon data-icon="inline-start" />
-            <span className="sr-only max-lg:not-sr-only">Fill bar with rests</span>
+            <span className="sr-only">Fill bar with rests</span>
           </Button>
           <Toggle
             variant="outline"
@@ -205,7 +209,7 @@ export function EditToolbar({
             title={stringed ? "Tie the note on this string (T)" : "Tie (T)"}
           >
             <LinkIcon data-icon="inline-start" />
-            <span className="sr-only max-lg:not-sr-only">Tie</span>
+            <span className="sr-only">Tie</span>
           </Toggle>
         </div>
 
@@ -232,7 +236,7 @@ export function EditToolbar({
 
         <Button variant="outline" size="sm" onClick={actions.onBar} title="Bar settings (⌘B)">
           <Columns3CogIcon data-icon="inline-start" />
-          <span className="sr-only max-lg:not-sr-only">Bar…</span>
+          <span className="sr-only">Bar…</span>
         </Button>
       </div>
       <p id={statusId} className="text-xs text-muted-foreground tabular-nums">

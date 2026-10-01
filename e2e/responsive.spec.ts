@@ -195,3 +195,36 @@ for (const { name, width, height, columns } of VIEWPORTS) {
     });
   });
 }
+
+/** Below 1024 px the palette and the inspector must not cover the score (#49). */
+test.describe("narrow window (800px)", () => {
+  test("puts the palette above the score while editing", async ({ app }) => {
+    await app.setViewportSize({ width: 800, height: 900 });
+    await openSong(app);
+    await app.getByRole("button", { name: "Edit" }).click();
+    const palette = (await app.getByRole("complementary", { name: "Note palette" }).boundingBox())!;
+    const score = (await app.getByRole("region", { name: /^Score:/ }).boundingBox())!;
+    expect(palette.y + palette.height).toBeLessThanOrEqual(score.y + 1);
+    expect(score.height).toBeGreaterThan(100);
+    // No sideways scrolling inside the palette.
+    const overflow = await app
+      .getByRole("complementary", { name: "Note palette" })
+      .evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+
+  test("closes the inspector when the window gets narrow, and it can be closed there", async ({
+    app,
+  }) => {
+    await app.setViewportSize({ width: 1280, height: 800 });
+    await openSong(app);
+    const inspector = app.getByRole("complementary", { name: "Inspector" });
+    await expect(inspector).toBeVisible();
+    await app.setViewportSize({ width: 800, height: 800 });
+    await expect(inspector).toHaveCount(0);
+    await app.getByRole("button", { name: "Inspector", exact: true }).click();
+    await expect(inspector).toBeVisible();
+    await inspector.getByRole("button", { name: "Close inspector" }).click();
+    await expect(inspector).toHaveCount(0);
+  });
+});

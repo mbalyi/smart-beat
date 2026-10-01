@@ -58,7 +58,8 @@ test.describe("tracks and instruments (#10)", () => {
     await addTrack(app, "Banjo (5 strings)");
     await addTrack(app, "Drums");
     await expect(scoreRegion(app)).toHaveAccessibleName("Score: Drums");
-    await expect(app.getByRole("radio", { name: "Tab", exact: true })).toBeDisabled();
+    // Drums can be shown as a drum tab (#49).
+    await expect(app.getByRole("radio", { name: "Tab", exact: true })).toBeEnabled();
 
     expect(await trackNames(app)).toEqual([
       "Guitar",

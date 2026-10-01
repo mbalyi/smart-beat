@@ -43,6 +43,13 @@ export class FakeAlphaTabApi {
     output: { handler: undefined as unknown, updatePosition: vi.fn() },
     playOneTimeMidiFile: vi.fn(),
   };
+  /** alphaTab's scrolling (the adapter delays it while playing). */
+  /** Scroll requests that reached alphaTab's facade (after the adapter's delay). */
+  scrolls: unknown[][] = [];
+  uiFacade = {
+    scrollToY: (...args: unknown[]) => void this.scrolls.push(args),
+    scrollToX: (...args: unknown[]) => void this.scrolls.push(args),
+  };
   /** The adapter sets its own cursor handler (see lib/score/sync.ts). */
   customCursorHandler: unknown = undefined;
   /** The exporter hands out these chunks, then `undefined`. */

@@ -8,10 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { PedalboardDialog, type PedalboardTarget } from "@/components/audio/pedalboard-dialog";
 import { SoundLibraryDialog } from "@/components/audio/sound-library-dialog";
+import { Button } from "@/components/ui/button";
 import { BarDialog } from "@/components/score/bar-dialog";
 import { BarProblems } from "@/components/score/bar-problems";
 import { BendDialog, type CurveKind } from "@/components/score/bend-dialog";
@@ -360,6 +362,16 @@ export function ScoreWorkspace({
     () => !window.matchMedia?.("(max-width: 1023px)").matches,
   );
   const [inspectorTab, setInspectorTab] = useState<"song" | "track">("track");
+  // Narrowing the window below 1024 px closes the inspector: it would cover the score.
+  useEffect(() => {
+    const narrow = window.matchMedia?.("(max-width: 1023px)");
+    if (!narrow) return;
+    const onChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setInspectorOpen(false);
+    };
+    narrow.addEventListener("change", onChange);
+    return () => narrow.removeEventListener("change", onChange);
+  }, []);
   const [zoom, setZoom] = useState(100);
   const [syncOffset, setSyncOffset] = useState(readSyncOffset);
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
@@ -1329,7 +1341,8 @@ export function ScoreWorkspace({
       />
       {tabs}
       <BarProblems problems={problems} onFix={() => fixBars()} onGoTo={goToBar} />
-      <div className="relative flex min-h-72 flex-1">
+      {/* Palette | score | inspector; below 1024 px the palette stacks above the score. */}
+      <div className="relative flex min-h-72 flex-1 max-lg:flex-col">
         <NotePalette editing={editing}>
           <EditToolbar
             beat={editor.beatInfo}
@@ -1398,6 +1411,16 @@ export function ScoreWorkspace({
             className="flex min-h-0 w-72 shrink-0 flex-col border-l bg-sidebar text-sidebar-foreground max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 max-lg:shadow-xl"
           >
             <h2 className="sr-only">Inspector</h2>
+            {/* In narrow windows the inspector covers the score: it can be closed from here too. */}
+            <Button
+              variant="ghost"
+              size="xs"
+              className="self-end lg:hidden"
+              onClick={() => setInspectorOpen(false)}
+            >
+              <XIcon data-icon="inline-start" />
+              Close inspector
+            </Button>
             <Inspector
               tab={inspectorTab}
               onTabChange={setInspectorTab}

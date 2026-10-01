@@ -918,6 +918,22 @@ describe("ScorePlayer: cursor in sync with the sound", () => {
     vi.useRealTimers();
   });
 
+  it("delays alphaTab's scrolling by the latency while playing, not while paused", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { api, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+
+    api.uiFacade.scrollToY("view", 200, 0);
+    expect(api.scrolls).toEqual([["view", 200, 0]]); // paused: at once
+
+    setPlaying(true);
+    api.uiFacade.scrollToY("view", 400, 0);
+    vi.advanceTimersByTime(149);
+    expect(api.scrolls).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(api.scrolls.at(-1)).toEqual(["view", 400, 0]);
+  });
+
   it("uses its own cursor handler, which delays the cursor by the latency", async () => {
     const { api } = await setup();
     expect(api.customCursorHandler).toBeDefined();

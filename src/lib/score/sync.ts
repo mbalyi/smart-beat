@@ -140,12 +140,7 @@ interface BeatBoundsLike {
  * alphaTab's own cursor placement (animated to the next beat, or snapping),
  * moved by `delayer` so the cursor is where the music is heard.
  */
-export function createCursorHandler(
-  delayer: Delayer,
-  animated: boolean,
-  /** Called (delayed like the cursor) with the bar the cursor moved into: scroll it into view. */
-  onBar?: (bar: { x: number; y: number; w: number; h: number }) => void,
-) {
+export function createCursorHandler(delayer: Delayer, animated: boolean) {
   const toNextBeat = midi.MidiTickLookupFindBeatResultCursorMode.ToNextBext;
   return {
     onAttach() {},
@@ -154,7 +149,6 @@ export function createCursorHandler(
       delayer.run(() => {
         const bar = beatBounds.barBounds.masterBarBounds.visualBounds;
         barCursor.setBounds(bar.x, bar.y, bar.w, bar.h);
-        onBar?.(bar);
       });
     },
     placeBeatCursor(beatCursor: CursorElement, beatBounds: BeatBoundsLike, startBeatX: number) {
@@ -185,23 +179,4 @@ export function createCursorHandler(
       });
     },
   };
-}
-
-/** Space kept above (or left of) the bar being played when the score scrolls to it (px). */
-export const SCROLL_MARGIN = 40;
-
-/**
- * Where to scroll so `bar` is fully visible: the new scroll position, or null
- * if it is visible already. Vertical for page layout, horizontal otherwise.
- */
-export function scrollTarget(
-  bar: { x: number; y: number; w: number; h: number },
-  view: { scrollTop: number; scrollLeft: number; clientHeight: number; clientWidth: number },
-  horizontal: boolean,
-): number | null {
-  const [start, size, scroll, extent] = horizontal
-    ? [bar.x, bar.w, view.scrollLeft, view.clientWidth]
-    : [bar.y, bar.h, view.scrollTop, view.clientHeight];
-  if (start >= scroll && start + size <= scroll + extent) return null;
-  return Math.max(0, start - SCROLL_MARGIN);
 }
