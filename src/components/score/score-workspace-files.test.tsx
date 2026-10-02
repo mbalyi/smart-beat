@@ -511,3 +511,127 @@ describe("ScoreWorkspace: tuning and pitches", () => {
     expect(song.score.tracks[0]!.staves[0]!.capo).toBe(0);
   });
 });
+
+describe("ScoreWorkspace: settings and the audio track in the song file", () => {
+  it("stores the mix inside a saved .gp file", async () => {
+    const { user, calls } = await setup({ path: "/songs/practice-song.gp" });
+    await edit(user);
+    await menu("save");
+    await waitFor(() => expect(calls.some((c) => c.cmd === "write_project_settings")).toBe(true));
+    const call = calls.find((c) => c.cmd === "write_project_settings")!;
+    expect(call.args).toMatchObject({
+      path: "/songs/practice-song.gp",
+      embedAudio: false,
+      settings: expect.objectContaining({ version: 2 }),
+    });
+  });
+
+  it("does not store settings in Guitar Pro 5 files", async () => {
+    const { user, calls } = await setup({ path: "/songs/practice-song.gp5" });
+    await edit(user);
+    await menu("save");
+    await waitFor(() => expect(backend.written.has("/songs/practice-song.gp5")).toBe(true));
+    expect(calls.some((c) => c.cmd === "write_project_settings")).toBe(false);
+  });
+
+  it("saves the recording as a reference when it cannot be embedded", async () => {
+    const embed: boolean[] = [];
+    mockTauri({
+      write_project_settings: (args) => {
+        const { embedAudio } = args as { embedAudio: boolean };
+        embed.push(embedAudio);
+        if (embedAudio) throw { kind: "audio", message: "The audio track is not loaded." };
+        return null;
+      },
+    });
+    const song = await makeSong("/songs/practice-song.gp");
+    song.mix = {
+      ...song.mix,
+      audioTrack: {
+        name: "take.mp3",
+        embedded: true,
+        enabled: true,
+        volume: 1,
+        pan: 0,
+        mute: false,
+        solo: false,
+        eq: { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 },
+        semitones: 0,
+        cents: 0,
+        filter: "off",
+        sync: [],
+      },
+    };
+    const { user } = renderWithProviders(
+      <>
+        <ScoreWorkspace song={song} onOpen={vi.fn()} />
+        <Toaster />
+      </>,
+    );
+    FakeScorePlayer.last.becomeReady();
+    await edit(user);
+    await menu("save");
+    await waitFor(() => expect(embed).toEqual([true, false]));
+    expect(await toastWith("The recording was not embedded")).toBeInTheDocument();
+  });
+
+  it("adds an audio track from the Track menu and edits it", async () => {
+    const { user } = await setup({ path: "/songs/practice-song.gp" });
+    backend.dialogResult = "/music/take.mp3";
+    await menu("add-audio-track");
+    const row = await screen.findByTestId("audio-track-row");
+    expect(
+      within(row).getByRole("button", { name: "Edit the audio track take.mp3" }),
+    ).toBeInTheDocument();
+    // Without the native engine it waits, and says why.
+    expect(
+      await toastWith("The audio track plays with the native audio engine"),
+    ).toBeInTheDocument();
+    const editor = screen.getByRole("region", { name: "Audio track" });
+    expect(within(editor).getByTitle("/music/take.mp3")).toHaveTextContent("take.mp3");
+    await user.click(within(editor).getByRole("button", { name: "Remove the audio track" }));
+    expect(screen.queryByTestId("audio-track-row")).toBeNull();
+    await expectNoA11yViolations();
+  });
+
+  it("loads the recording when the native engine plays", async () => {
+    mockTauri();
+    localStorage.setItem("smart-beat:audio-engine", "native");
+    const song = await makeSong("/songs/practice-song.gp");
+    renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
+    const player = FakeScorePlayer.last;
+    player.usesNativeEngine = true;
+    player.becomeReady();
+    backend.dialogResult = "/music/take.wav";
+    await menu("add-audio-track");
+    await waitFor(() =>
+      expect(player.loadBacking).toHaveBeenCalledWith({ type: "file", path: "/music/take.wav" }),
+    );
+    expect(await screen.findByTestId("audio-waveform")).toBeInTheDocument();
+  });
+
+  it("refuses files that are not audio", async () => {
+    await setup();
+    backend.dialogResult = "/music/notes.txt";
+    await menu("add-audio-track");
+    expect(
+      await toastWith("“notes.txt” is not an audio file Smart Beat opens"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("audio-track-row")).toBeNull();
+  });
+
+  it("opens the drum mixer and the pedalboard from a track's menu", async () => {
+    const { user } = await setup();
+    await trackAction(user, "Drums", "Drum mixer…");
+    const drums = await screen.findByRole("dialog", { name: "Drum mixer: Drums" });
+    await user.click(within(drums).getByRole("button", { name: "Mute Snare" }));
+    await user.click(within(drums).getByRole("button", { name: "Done" }));
+    await trackAction(user, "Guitar", "Effects (pedalboard)…");
+    const board = await screen.findByRole("dialog", { name: "Pedalboard: Guitar" });
+    await user.click(within(board).getByRole("button", { name: "Add sound" }));
+    expect(within(board).getByRole("combobox", { name: "Sound" })).toHaveTextContent("Sound 2");
+    await user.click(within(board).getByRole("button", { name: "Add Delay" }));
+    expect(within(board).getAllByTestId("effect-block")).toHaveLength(1);
+    expect(within(board).getByRole("region", { name: "Sound automation" })).toBeInTheDocument();
+  });
+});

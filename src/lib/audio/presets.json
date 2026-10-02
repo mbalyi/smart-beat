@@ -26,17 +26,51 @@
           "levelDb": -3,
           "tightHz": 80
         },
-        { "type": "cab", "enabled": true, "ir": "builtin:4x12-vintage" },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:4x12-vintage"
+        },
         {
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 70, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 120, "q": 1, "gainDb": 3 },
-            { "kind": "peak", "freq": 500, "q": 0.9, "gainDb": -5 },
-            { "kind": "peak", "freq": 2000, "q": 1.2, "gainDb": -2 },
-            { "kind": "peak", "freq": 4500, "q": 1.2, "gainDb": 3 },
-            { "kind": "lowPass", "freq": 9000, "q": 0.707, "gainDb": 0 }
+            {
+              "kind": "highPass",
+              "freq": 70,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 120,
+              "q": 1,
+              "gainDb": 3
+            },
+            {
+              "kind": "peak",
+              "freq": 500,
+              "q": 0.9,
+              "gainDb": -5
+            },
+            {
+              "kind": "peak",
+              "freq": 2000,
+              "q": 1.2,
+              "gainDb": -2
+            },
+            {
+              "kind": "peak",
+              "freq": 4500,
+              "q": 1.2,
+              "gainDb": 3
+            },
+            {
+              "kind": "lowPass",
+              "freq": 9000,
+              "q": 0.707,
+              "gainDb": 0
+            }
           ]
         }
       ]
@@ -75,16 +109,45 @@
           "levelDb": -4,
           "tightHz": 110
         },
-        { "type": "cab", "enabled": true, "ir": "builtin:4x12-modern" },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:4x12-modern"
+        },
         {
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 90, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 250, "q": 1, "gainDb": -2 },
-            { "kind": "peak", "freq": 800, "q": 1, "gainDb": 1.5 },
-            { "kind": "peak", "freq": 3000, "q": 1.2, "gainDb": 2 },
-            { "kind": "lowPass", "freq": 8500, "q": 0.707, "gainDb": 0 }
+            {
+              "kind": "highPass",
+              "freq": 90,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 250,
+              "q": 1,
+              "gainDb": -2
+            },
+            {
+              "kind": "peak",
+              "freq": 800,
+              "q": 1,
+              "gainDb": 1.5
+            },
+            {
+              "kind": "peak",
+              "freq": 3000,
+              "q": 1.2,
+              "gainDb": 2
+            },
+            {
+              "kind": "lowPass",
+              "freq": 8500,
+              "q": 0.707,
+              "gainDb": 0
+            }
           ]
         }
       ]
@@ -114,14 +177,33 @@
           "levelDb": -2,
           "tightHz": 100
         },
-        { "type": "cab", "enabled": true, "ir": "builtin:4x12-vintage" },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:4x12-vintage"
+        },
         {
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 80, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 1000, "q": 1, "gainDb": 2 },
-            { "kind": "lowPass", "freq": 7000, "q": 0.707, "gainDb": 0 }
+            {
+              "kind": "highPass",
+              "freq": 80,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 1000,
+              "q": 1,
+              "gainDb": 2
+            },
+            {
+              "kind": "lowPass",
+              "freq": 7000,
+              "q": 0.707,
+              "gainDb": 0
+            }
           ]
         }
       ]
@@ -160,16 +242,45 @@
           "levelDb": -5,
           "tightHz": 120
         },
-        { "type": "cab", "enabled": true, "ir": "builtin:4x12-modern" },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:4x12-modern"
+        },
         {
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 100, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 400, "q": 1, "gainDb": -3 },
-            { "kind": "peak", "freq": 1200, "q": 1, "gainDb": 1 },
-            { "kind": "peak", "freq": 2500, "q": 1.2, "gainDb": 2 },
-            { "kind": "lowPass", "freq": 8000, "q": 0.707, "gainDb": 0 }
+            {
+              "kind": "highPass",
+              "freq": 100,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 400,
+              "q": 1,
+              "gainDb": -3
+            },
+            {
+              "kind": "peak",
+              "freq": 1200,
+              "q": 1,
+              "gainDb": 1
+            },
+            {
+              "kind": "peak",
+              "freq": 2500,
+              "q": 1.2,
+              "gainDb": 2
+            },
+            {
+              "kind": "lowPass",
+              "freq": 8000,
+              "q": 0.707,
+              "gainDb": 0
+            }
           ]
         }
       ]
@@ -219,16 +330,45 @@
           "levelDb": -5,
           "tightHz": 140
         },
-        { "type": "cab", "enabled": true, "ir": "builtin:4x12-modern" },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:4x12-modern"
+        },
         {
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 85, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 200, "q": 1, "gainDb": -3 },
-            { "kind": "peak", "freq": 800, "q": 1, "gainDb": 3 },
-            { "kind": "peak", "freq": 1600, "q": 1.2, "gainDb": 2 },
-            { "kind": "lowPass", "freq": 9000, "q": 0.707, "gainDb": 0 }
+            {
+              "kind": "highPass",
+              "freq": 85,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 200,
+              "q": 1,
+              "gainDb": -3
+            },
+            {
+              "kind": "peak",
+              "freq": 800,
+              "q": 1,
+              "gainDb": 3
+            },
+            {
+              "kind": "peak",
+              "freq": 1600,
+              "q": 1.2,
+              "gainDb": 2
+            },
+            {
+              "kind": "lowPass",
+              "freq": 9000,
+              "q": 0.707,
+              "gainDb": 0
+            }
           ]
         }
       ]
@@ -251,14 +391,33 @@
           "kneeDb": 6,
           "mix": 1
         },
-        { "type": "cab", "enabled": true, "ir": "builtin:2x12-open" },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:2x12-open"
+        },
         {
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 120, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 3000, "q": 1, "gainDb": 2 },
-            { "kind": "highShelf", "freq": 8000, "q": 0.707, "gainDb": 2 }
+            {
+              "kind": "highPass",
+              "freq": 120,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 3000,
+              "q": 1,
+              "gainDb": 2
+            },
+            {
+              "kind": "highShelf",
+              "freq": 8000,
+              "q": 0.707,
+              "gainDb": 2
+            }
           ]
         }
       ]
@@ -290,15 +449,39 @@
           "levelDb": 0,
           "tightHz": 40
         },
-        { "type": "cab", "enabled": true, "ir": "builtin:8x10-bass" },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:8x10-bass"
+        },
         {
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 35, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 100, "q": 1, "gainDb": 2 },
-            { "kind": "peak", "freq": 800, "q": 1, "gainDb": -2 },
-            { "kind": "peak", "freq": 2500, "q": 1, "gainDb": 2 }
+            {
+              "kind": "highPass",
+              "freq": 35,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 100,
+              "q": 1,
+              "gainDb": 2
+            },
+            {
+              "kind": "peak",
+              "freq": 800,
+              "q": 1,
+              "gainDb": -2
+            },
+            {
+              "kind": "peak",
+              "freq": 2500,
+              "q": 1,
+              "gainDb": 2
+            }
           ]
         }
       ]
@@ -330,16 +513,45 @@
           "levelDb": -4,
           "tightHz": 60
         },
-        { "type": "cab", "enabled": true, "ir": "builtin:8x10-bass" },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:8x10-bass"
+        },
         {
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 40, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 80, "q": 1, "gainDb": 3 },
-            { "kind": "peak", "freq": 500, "q": 0.9, "gainDb": -4 },
-            { "kind": "peak", "freq": 2500, "q": 1, "gainDb": 5 },
-            { "kind": "highShelf", "freq": 6000, "q": 0.707, "gainDb": 2 }
+            {
+              "kind": "highPass",
+              "freq": 40,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 80,
+              "q": 1,
+              "gainDb": 3
+            },
+            {
+              "kind": "peak",
+              "freq": 500,
+              "q": 0.9,
+              "gainDb": -4
+            },
+            {
+              "kind": "peak",
+              "freq": 2500,
+              "q": 1,
+              "gainDb": 5
+            },
+            {
+              "kind": "highShelf",
+              "freq": 6000,
+              "q": 0.707,
+              "gainDb": 2
+            }
           ]
         }
       ]
@@ -375,11 +587,36 @@
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 30, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 60, "q": 1, "gainDb": 3 },
-            { "kind": "peak", "freq": 400, "q": 1, "gainDb": -4 },
-            { "kind": "peak", "freq": 4000, "q": 1, "gainDb": 3 },
-            { "kind": "highShelf", "freq": 10000, "q": 0.707, "gainDb": 2 }
+            {
+              "kind": "highPass",
+              "freq": 30,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 60,
+              "q": 1,
+              "gainDb": 3
+            },
+            {
+              "kind": "peak",
+              "freq": 400,
+              "q": 1,
+              "gainDb": -4
+            },
+            {
+              "kind": "peak",
+              "freq": 4000,
+              "q": 1,
+              "gainDb": 3
+            },
+            {
+              "kind": "highShelf",
+              "freq": 10000,
+              "q": 0.707,
+              "gainDb": 2
+            }
           ]
         }
       ]
@@ -406,8 +643,18 @@
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "peak", "freq": 60, "q": 1, "gainDb": 2 },
-            { "kind": "peak", "freq": 5000, "q": 1, "gainDb": 2 }
+            {
+              "kind": "peak",
+              "freq": 60,
+              "q": 1,
+              "gainDb": 2
+            },
+            {
+              "kind": "peak",
+              "freq": 5000,
+              "q": 1,
+              "gainDb": 2
+            }
           ]
         }
       ]
@@ -434,9 +681,24 @@
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "peak", "freq": 100, "q": 1, "gainDb": 2 },
-            { "kind": "peak", "freq": 350, "q": 1, "gainDb": -3 },
-            { "kind": "peak", "freq": 3000, "q": 1, "gainDb": 2 }
+            {
+              "kind": "peak",
+              "freq": 100,
+              "q": 1,
+              "gainDb": 2
+            },
+            {
+              "kind": "peak",
+              "freq": 350,
+              "q": 1,
+              "gainDb": -3
+            },
+            {
+              "kind": "peak",
+              "freq": 3000,
+              "q": 1,
+              "gainDb": 2
+            }
           ]
         }
       ]
@@ -452,10 +714,30 @@
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "highPass", "freq": 30, "q": 0.707, "gainDb": 0 },
-            { "kind": "peak", "freq": 200, "q": 1, "gainDb": -1 },
-            { "kind": "peak", "freq": 3000, "q": 1, "gainDb": 1 },
-            { "kind": "highShelf", "freq": 10000, "q": 0.707, "gainDb": 1.5 }
+            {
+              "kind": "highPass",
+              "freq": 30,
+              "q": 0.707,
+              "gainDb": 0
+            },
+            {
+              "kind": "peak",
+              "freq": 200,
+              "q": 1,
+              "gainDb": -1
+            },
+            {
+              "kind": "peak",
+              "freq": 3000,
+              "q": 1,
+              "gainDb": 1
+            },
+            {
+              "kind": "highShelf",
+              "freq": 10000,
+              "q": 0.707,
+              "gainDb": 1.5
+            }
           ]
         },
         {
@@ -504,9 +786,180 @@
           "type": "eq",
           "enabled": true,
           "bands": [
-            { "kind": "lowShelf", "freq": 100, "q": 0.707, "gainDb": 1 },
-            { "kind": "highShelf", "freq": 8000, "q": 0.707, "gainDb": 1 }
+            {
+              "kind": "lowShelf",
+              "freq": 100,
+              "q": 0.707,
+              "gainDb": 1
+            },
+            {
+              "kind": "highShelf",
+              "freq": 8000,
+              "q": 0.707,
+              "gainDb": 1
+            }
           ]
+        }
+      ]
+    },
+    {
+      "id": "clean-chorus",
+      "name": "Clean chorus",
+      "target": "guitar",
+      "genres": [],
+      "description": "Built-in clean amp with a slow chorus and a touch of room.",
+      "chain": [
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -24,
+          "ratio": 3,
+          "attackMs": 15,
+          "releaseMs": 150,
+          "makeupDb": 4,
+          "kneeDb": 6,
+          "mix": 1
+        },
+        {
+          "type": "ampSim",
+          "enabled": true,
+          "voicing": "clean",
+          "gain": 0.3,
+          "bassDb": -1,
+          "midDb": 0,
+          "trebleDb": 2,
+          "presence": 0.6,
+          "masterDb": 0
+        },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:2x12-open"
+        },
+        {
+          "type": "chorus",
+          "enabled": true,
+          "rateHz": 0.6,
+          "depth": 0.5,
+          "delayMs": 14,
+          "mix": 0.4
+        },
+        {
+          "type": "reverb",
+          "enabled": true,
+          "size": 0.4,
+          "damping": 0.5,
+          "mix": 0.18,
+          "preDelayMs": 12,
+          "width": 1
+        }
+      ]
+    },
+    {
+      "id": "lead-delay",
+      "name": "Lead with delay",
+      "target": "guitar",
+      "genres": ["metalcore", "djent"],
+      "description": "Built-in lead channel, quarter-note delay and a big hall for solos.",
+      "chain": [
+        {
+          "type": "gate",
+          "enabled": true,
+          "thresholdDb": -55,
+          "rangeDb": -60,
+          "attackMs": 0.5,
+          "holdMs": 30,
+          "releaseMs": 120
+        },
+        {
+          "type": "drive",
+          "enabled": true,
+          "mode": "overdrive",
+          "drive": 0.15,
+          "tone": 0.6,
+          "levelDb": 3,
+          "tightHz": 180
+        },
+        {
+          "type": "ampSim",
+          "enabled": true,
+          "voicing": "lead",
+          "gain": 0.7,
+          "bassDb": -2,
+          "midDb": 2,
+          "trebleDb": 1,
+          "presence": 0.6,
+          "masterDb": -3
+        },
+        {
+          "type": "cab",
+          "enabled": true,
+          "ir": "builtin:4x12-modern"
+        },
+        {
+          "type": "delay",
+          "enabled": true,
+          "timeMs": 375,
+          "feedback": 0.35,
+          "mix": 0.25,
+          "highCutHz": 5000,
+          "pingPong": true
+        },
+        {
+          "type": "reverb",
+          "enabled": true,
+          "size": 0.75,
+          "damping": 0.4,
+          "mix": 0.2,
+          "preDelayMs": 25,
+          "width": 1
+        }
+      ]
+    },
+    {
+      "id": "master-room",
+      "name": "Room glue",
+      "target": "master",
+      "genres": [],
+      "description": "Gentle bus compression, a little air and a short room around the whole band.",
+      "chain": [
+        {
+          "type": "compressor",
+          "enabled": true,
+          "thresholdDb": -14,
+          "ratio": 2,
+          "attackMs": 30,
+          "releaseMs": 200,
+          "makeupDb": 2,
+          "kneeDb": 8,
+          "mix": 1
+        },
+        {
+          "type": "eq",
+          "enabled": true,
+          "bands": [
+            {
+              "kind": "lowShelf",
+              "freq": 80,
+              "q": 0.707,
+              "gainDb": 1
+            },
+            {
+              "kind": "highShelf",
+              "freq": 10000,
+              "q": 0.707,
+              "gainDb": 2
+            }
+          ]
+        },
+        {
+          "type": "reverb",
+          "enabled": true,
+          "size": 0.3,
+          "damping": 0.6,
+          "mix": 0.08,
+          "preDelayMs": 8,
+          "width": 0.8
         }
       ]
     }

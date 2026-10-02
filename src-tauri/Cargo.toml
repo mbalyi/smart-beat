@@ -27,6 +27,8 @@ cpal = "0.18"
 realfft = "3.5"
 hound = "3.5"
 nam-rs = "0.4"
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "aiff"] }
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 tauri = { version = "2.12", features = ["test"] }

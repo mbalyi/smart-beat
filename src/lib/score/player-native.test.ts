@@ -114,7 +114,8 @@ describe("ScorePlayer with the native engine", () => {
     await vi.waitFor(() =>
       expect(onEffectProblems).toHaveBeenCalledWith(
         expect.objectContaining({
-          tracks: expect.arrayContaining([[expect.objectContaining({ index: 0 })]]),
+          // Per track, per sound: the blocks that cannot run.
+          tracks: expect.arrayContaining([[[expect.objectContaining({ index: 0 })]]]),
         }),
       ),
     );

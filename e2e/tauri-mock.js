@@ -62,6 +62,14 @@
   window.__mixes = mixes;
   /** Every command the UI sent, for assertions. */
   window.__ipcCalls = [];
+  /** Settings stored inside saved `.gp` files, by path. */
+  window.__projectSettings = {};
+  window.__embeddedAudio = false;
+  /** What the native engine was told besides chains and the mix. */
+  window.__engineConfig = { sounds: {}, automation: {}, eq: {}, drums: {} };
+  window.__engineBacking = null;
+  /** Levels the engine reports while playing. */
+  window.__meters = { tracks: [0.5, 0.5, 0.5, 0.5], master: 0.7, drums: [], backing: 0.4 };
   /** Path the native Open dialog "picks" (`null` = Cancel). Set by tests. */
   window.__dialogResult = null;
   /** The last menu state the UI sent (see `update_menu_state` in src-tauri/src/menu_state.rs). */
@@ -206,6 +214,58 @@
       case "audio_stop":
       case "audio_set_mix":
         return null;
+      case "read_project_settings":
+        return window.__projectSettings[args.path] ?? null;
+      case "write_project_settings":
+        window.__projectSettings[args.path] = args.settings;
+        window.__embeddedAudio = args.embedAudio;
+        return null;
+      case "audio_set_sounds":
+        engine.chains[args.track] = args.sounds[0];
+        window.__engineChains = engine.chains;
+        window.__engineConfig.sounds[args.track] = { sounds: args.sounds, switches: args.switches };
+        return args.sounds.map(() => []);
+      case "audio_set_automation":
+        window.__engineConfig.automation[args.track] = args.automation;
+        return null;
+      case "audio_set_track_eq":
+        window.__engineConfig.eq[args.track] = args.eq;
+        return null;
+      case "audio_set_drum_mix":
+        window.__engineConfig.drums[args.track] = args.drums;
+        return null;
+      case "audio_load_backing": {
+        const source = args.source;
+        const path = source.type === "file" ? source.path : source.name;
+        if (path.includes("missing")) {
+          throw { kind: "not-found", message: `“${path}” does not exist.` };
+        }
+        // A 4 s recording whose level swells and fades once per second.
+        const peaks = Array.from(
+          { length: 400 },
+          (_, i) => 0.2 + 0.7 * Math.abs(Math.sin((i * Math.PI) / 100)),
+        );
+        window.__engineBacking = { source, params: null, sync: [] };
+        return {
+          name: path.split(/[\\/]/).pop(),
+          durationMs: 4000,
+          sampleRate: 44100,
+          channels: 2,
+          peaks,
+          peaksPerSecond: 100,
+        };
+      }
+      case "audio_set_backing":
+        if (!window.__engineBacking) throw { kind: "audio", message: "No audio track is loaded" };
+        window.__engineBacking = {
+          ...window.__engineBacking,
+          params: args.params,
+          sync: args.sync,
+        };
+        return null;
+      case "audio_clear_backing":
+        window.__engineBacking = null;
+        return null;
       case "audio_start":
       case "audio_state":
         return {
@@ -217,7 +277,7 @@
           latencyMs: 10,
           dropouts: 0,
           loadPercent: 1,
-          meters: { tracks: [], master: 0 },
+          meters: engine.playing ? window.__meters : { tracks: [], master: 0 },
         };
       case "audio_load_song":
         // 120 BPM is close enough for the clock in tests.
@@ -225,7 +285,8 @@
         engine.chains = {};
         return null;
       case "audio_set_chain":
-        engine.chains[args.track ?? "master"] = args.slots;
+        engine.chains[args.sound ? `${args.track}:${args.sound}` : (args.track ?? "master")] =
+          args.slots;
         window.__engineChains = engine.chains;
         return [];
       case "audio_transport": {

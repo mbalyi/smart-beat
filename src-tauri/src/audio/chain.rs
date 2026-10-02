@@ -10,11 +10,15 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use super::dsp::amp_sim::{AmpSim, AmpSimParams};
 use super::dsp::compressor::{Compressor, CompressorParams};
 use super::dsp::convolver::{Convolver, IrSpectrum};
+use super::dsp::delay::{Delay, DelayParams};
 use super::dsp::drive::{Drive, DriveParams};
 use super::dsp::eq::{Band, Eq};
 use super::dsp::gate::{Gate, GateParams};
+use super::dsp::modulation::{Chorus, ChorusParams, Phaser, PhaserParams, Tremolo, TremoloParams};
+use super::dsp::reverb::{Reverb, ReverbParams};
 use super::dsp::{Effect, db_to_gain};
 
 pub const MAX_TRACK_EFFECTS: usize = 6;
@@ -32,6 +36,13 @@ pub enum EffectConfig {
         bands: Vec<Band>,
     },
     Drive(DriveParams),
+    /// The built-in amp (no capture file needed).
+    AmpSim(AmpSimParams),
+    Chorus(ChorusParams),
+    Phaser(PhaserParams),
+    Tremolo(TremoloParams),
+    Delay(DelayParams),
+    Reverb(ReverbParams),
     /// A Neural Amp Modeler capture from the user's library (amp or pedal).
     #[serde(rename_all = "camelCase")]
     Amp {
@@ -56,6 +67,12 @@ impl EffectConfig {
             Self::Compressor(_) => "compressor",
             Self::Eq { .. } => "eq",
             Self::Drive(_) => "drive",
+            Self::AmpSim(_) => "ampSim",
+            Self::Chorus(_) => "chorus",
+            Self::Phaser(_) => "phaser",
+            Self::Tremolo(_) => "tremolo",
+            Self::Delay(_) => "delay",
+            Self::Reverb(_) => "reverb",
             Self::Amp { .. } => "amp",
             Self::Cab { .. } => "cab",
         }
@@ -135,6 +152,8 @@ pub struct BlockProblem {
 /// The running processors of a chain.
 pub struct Chain {
     blocks: Vec<Box<dyn Effect>>,
+    /// The configuration each block was built from (same order as `blocks`).
+    layout: Vec<EffectConfig>,
     pub problems: Vec<BlockProblem>,
 }
 
@@ -142,8 +161,40 @@ impl Chain {
     pub fn empty() -> Self {
         Self {
             blocks: Vec::new(),
+            layout: Vec::new(),
             problems: Vec::new(),
         }
+    }
+
+    /// Applies new settings to the running blocks when only parameters changed
+    /// (a knob turn): no rebuild, no crossfade, no allocation. Returns false
+    /// when the chain must be rebuilt instead (blocks added, removed, moved,
+    /// switched, or a different capture or impulse response).
+    pub fn update(&mut self, slots: &[EffectSlot], limit: usize) -> bool {
+        if !self.problems.is_empty() {
+            return false;
+        }
+        let enabled = slots.iter().take(limit).filter(|s| s.enabled);
+        if enabled.clone().count() != self.layout.len() {
+            return false;
+        }
+        let same_kinds = enabled
+            .clone()
+            .zip(&self.layout)
+            .all(|(slot, old)| slot.effect.kind() == old.kind());
+        if !same_kinds {
+            return false;
+        }
+        for ((slot, old), block) in enabled.zip(self.layout.iter_mut()).zip(&mut self.blocks) {
+            if slot.effect == *old {
+                continue;
+            }
+            if !block.update(&slot.effect) {
+                return false;
+            }
+            old.clone_from(&slot.effect);
+        }
+        true
     }
 
     /// Builds the enabled blocks (at most `limit`). Missing or unusable assets
@@ -156,6 +207,7 @@ impl Chain {
         assets: &dyn AssetSource,
     ) -> Self {
         let mut blocks: Vec<Box<dyn Effect>> = Vec::new();
+        let mut layout = Vec::new();
         let mut problems = Vec::new();
         for (index, slot) in slots.iter().take(limit).enumerate() {
             if !slot.enabled {
@@ -166,6 +218,12 @@ impl Chain {
                 EffectConfig::Compressor(p) => Ok(Box::new(Compressor::new(*p, sample_rate))),
                 EffectConfig::Eq { bands } => Ok(Box::new(Eq::new(bands, sample_rate))),
                 EffectConfig::Drive(p) => Ok(Box::new(Drive::new(*p, sample_rate))),
+                EffectConfig::AmpSim(p) => Ok(Box::new(AmpSim::new(*p, sample_rate))),
+                EffectConfig::Chorus(p) => Ok(Box::new(Chorus::new(*p, sample_rate))),
+                EffectConfig::Phaser(p) => Ok(Box::new(Phaser::new(*p, sample_rate))),
+                EffectConfig::Tremolo(p) => Ok(Box::new(Tremolo::new(*p, sample_rate))),
+                EffectConfig::Delay(p) => Ok(Box::new(Delay::new(*p, sample_rate))),
+                EffectConfig::Reverb(p) => Ok(Box::new(Reverb::new(*p, sample_rate))),
                 EffectConfig::Cab { ir } => assets
                     .impulse_response(ir)
                     .map(|spectrum| Box::new(Convolver::new(spectrum)) as Box<dyn Effect>)
@@ -198,11 +256,18 @@ impl Chain {
                 },
             };
             match block {
-                Ok(block) => blocks.push(block),
+                Ok(block) => {
+                    blocks.push(block);
+                    layout.push(slot.effect.clone());
+                }
                 Err(message) => problems.push(BlockProblem { index, message }),
             }
         }
-        Self { blocks, problems }
+        Self {
+            blocks,
+            layout,
+            problems,
+        }
     }
 
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
@@ -259,6 +324,11 @@ impl ChainPlayer {
 
     pub fn current(&self) -> &Chain {
         &self.current
+    }
+
+    /// See [`Chain::update`]; never during a crossfade.
+    pub fn update(&mut self, slots: &[EffectSlot], limit: usize) -> bool {
+        self.previous.is_none() && self.current.update(slots, limit)
     }
 
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
@@ -368,6 +438,101 @@ mod tests {
         };
         assert_eq!(p.ratio, 8.0);
         assert_eq!(p.threshold_db, CompressorParams::default().threshold_db);
+    }
+
+    fn every_kind() -> Vec<EffectSlot> {
+        vec![
+            slot(EffectConfig::AmpSim(AmpSimParams::default())),
+            slot(EffectConfig::Chorus(ChorusParams::default())),
+            slot(EffectConfig::Phaser(PhaserParams::default())),
+            slot(EffectConfig::Tremolo(TremoloParams::default())),
+            slot(EffectConfig::Delay(DelayParams::default())),
+            slot(EffectConfig::Reverb(ReverbParams::default())),
+        ]
+    }
+
+    #[test]
+    fn new_blocks_round_trip_and_build() {
+        let slots = every_kind();
+        let json = serde_json::to_string(&slots).unwrap();
+        for kind in ["ampSim", "chorus", "phaser", "tremolo", "delay", "reverb"] {
+            assert!(json.contains(&format!(r#""type":"{kind}""#)), "{kind}");
+        }
+        assert!(json.contains(r#""pingPong":false"#));
+        let back: Vec<EffectSlot> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, slots);
+        let mut chain = Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        assert!(chain.problems.is_empty());
+        let mut l = sine(220.0, 0.5, 4_800);
+        let mut r = l.clone();
+        for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
+            chain.process(a, b);
+        }
+        assert!(all_finite(&l) && peak(&l) > 0.01);
+    }
+
+    #[test]
+    fn parameter_changes_update_in_place_and_structure_changes_do_not() {
+        let mut slots = every_kind();
+        let mut chain = Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        // A knob turn on every block.
+        slots[0].effect = EffectConfig::AmpSim(AmpSimParams {
+            gain: 0.9,
+            ..Default::default()
+        });
+        slots[4].effect = EffectConfig::Delay(DelayParams {
+            time_ms: 100.0,
+            ..Default::default()
+        });
+        assert!(chain.update(&slots, MAX_TRACK_EFFECTS));
+        assert_eq!(chain.layout[4], slots[4].effect);
+        // Switching a block off, reordering or replacing one needs a rebuild.
+        let mut off = slots.clone();
+        off[1].enabled = false;
+        assert!(!chain.update(&off, MAX_TRACK_EFFECTS));
+        let mut moved = slots.clone();
+        moved.swap(0, 1);
+        assert!(!chain.update(&moved, MAX_TRACK_EFFECTS));
+        // Gate, compressor, EQ and drive update too; cabs never do.
+        let mut basic = vec![
+            slot(EffectConfig::Gate(GateParams::default())),
+            slot(EffectConfig::Compressor(CompressorParams::default())),
+            slot(EffectConfig::Eq {
+                bands: super::super::dsp::eq::graphic_bands(),
+            }),
+            slot(EffectConfig::Drive(DriveParams::default())),
+        ];
+        let mut chain = Chain::build(&basic, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        basic[0].effect = EffectConfig::Gate(GateParams {
+            threshold_db: -30.0,
+            ..Default::default()
+        });
+        basic[1].effect = EffectConfig::Compressor(CompressorParams {
+            ratio: 10.0,
+            ..Default::default()
+        });
+        let mut bands = super::super::dsp::eq::graphic_bands();
+        bands[3].gain_db = 6.0;
+        basic[2].effect = EffectConfig::Eq {
+            bands: bands.clone(),
+        };
+        basic[3].effect = EffectConfig::Drive(DriveParams {
+            drive: 0.9,
+            ..Default::default()
+        });
+        assert!(chain.update(&basic, MAX_TRACK_EFFECTS));
+        bands.pop();
+        basic[2].effect = EffectConfig::Eq { bands };
+        assert!(
+            !chain.update(&basic, MAX_TRACK_EFFECTS),
+            "band count changed"
+        );
+        let cab = [slot(EffectConfig::Cab { ir: "x".into() })];
+        let mut chain = Chain::build(&cab, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        assert!(
+            !chain.update(&cab, MAX_TRACK_EFFECTS),
+            "missing assets rebuild"
+        );
     }
 
     #[test]

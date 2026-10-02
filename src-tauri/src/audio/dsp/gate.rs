@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Effect, db_to_gain, flush_denormal, time_coefficient};
+use crate::audio::chain::EffectConfig;
 
 /// The gate closes this many dB below the threshold, so it does not chatter.
 const HYSTERESIS_DB: f32 = 4.0;
@@ -34,6 +35,7 @@ impl Default for GateParams {
 }
 
 pub struct Gate {
+    rate: f32,
     open_level: f32,
     close_level: f32,
     floor: f32,
@@ -51,6 +53,7 @@ impl Gate {
     pub fn new(params: GateParams, sample_rate: f32) -> Self {
         let threshold = params.threshold_db.clamp(-90.0, 0.0);
         Self {
+            rate: sample_rate,
             open_level: db_to_gain(threshold),
             close_level: db_to_gain(threshold - HYSTERESIS_DB),
             floor: db_to_gain(params.range_db.clamp(-90.0, 0.0)),
@@ -105,6 +108,21 @@ impl Effect for Gate {
         self.gain = 0.0;
         self.held = 0;
         self.open = false;
+    }
+
+    fn update(&mut self, config: &EffectConfig) -> bool {
+        let EffectConfig::Gate(params) = config else {
+            return false;
+        };
+        let next = Self {
+            envelope: self.envelope,
+            gain: self.gain,
+            open: self.open,
+            ..Self::new(*params, self.rate)
+        };
+        let held = self.held.min(next.hold_samples);
+        *self = Self { held, ..next };
+        true
     }
 }
 

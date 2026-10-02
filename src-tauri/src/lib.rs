@@ -6,6 +6,7 @@ pub mod error;
 pub mod menu;
 pub mod menu_state;
 pub mod mixer;
+pub mod project;
 pub mod recent;
 pub mod score_file;
 pub mod score_write;
@@ -48,6 +49,8 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::write_score_file,
             commands::load_mixer_settings,
             commands::save_mixer_settings,
+            commands::read_project_settings,
+            commands::write_project_settings,
             commands::load_recent_files,
             commands::add_recent_file,
             commands::remove_recent_file,
@@ -60,6 +63,13 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::audio_transport,
             audio::audio_set_mix,
             audio::audio_set_chain,
+            audio::audio_set_sounds,
+            audio::audio_set_automation,
+            audio::audio_set_track_eq,
+            audio::audio_set_drum_mix,
+            audio::audio_load_backing,
+            audio::audio_set_backing,
+            audio::audio_clear_backing,
             audio::audio_state,
             audio::audio_render,
             audio::library_list,

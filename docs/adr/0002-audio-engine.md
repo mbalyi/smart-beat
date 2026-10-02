@@ -96,12 +96,18 @@ Not allowed: Guitarix, ChowDSP BYOD, dm-TubeScreamer, AmpForge (GPL-3), LSP (LGP
 ## Consequences
 
 - Effects, the pedalboard (#36), the compressor and mastering chain (#39), NAM and IR import (#41) and genre presets (#42) now have a signal path. This PR ships a first version of each.
-- **Not yet in the native engine:**
-  - count-in;
-  - per-drum-element buses (each drum key needs its own synth voice group; planned for #37);
-  - an audio track (#38: decode with symphonia, play on its own bus, follow sync points);
-  - sound automation;
-  - reverb, delay and modulation blocks.
+- **Added for #36, #37 and #38:**
+  - Effect blocks: chorus, phaser, tremolo, delay, reverb and a built-in amp, all with our own DSP. Knob turns update a running block in place (`Effect::update`); structural changes still rebuild the chain and crossfade.
+  - Several sounds (chains) per track. Automation switches them at bars with a 30 ms crossfade.
+  - Channel EQ (three bands or ten), volume, pan and mute automation with click-free gain ramps, a focus trim, and master pan.
+  - Per-drum-element buses: a drum track can be split into kit pieces. Each piece is its own synthesizer (16 voices), with fader, pan, mute, solo and meter, plus a mono switch.
+  - The audio track:
+    - Symphonia decodes the recording (MPL-2.0, unmodified).
+    - A sync map ties bars to times in the recording, so seeks and loops stay aligned.
+    - A WSOLA time-stretcher with windowed-sinc reads follows the speed trainer without changing pitch, and transposes by semitones and cents.
+    - Filters: bass only, guitar range, centre cut.
+  - Automation, sound switches and sync points are converted from bars to ticks in the UI, along the bars as they are played (repeats included).
+- **Not yet in the native engine:** count-in.
 - Two players must stay in step:
   - The engine reports the position of what is heard (its output latency is subtracted), and alphaTab draws the cursor there.
   - The UI polls every 25 ms, so a loop restart can show the cursor up to one poll late, while the audio itself loops sample-accurately in the engine.

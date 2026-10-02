@@ -38,6 +38,17 @@ export class FakeScorePlayer {
   restoreAfterPrint = vi.fn();
   showForPrint = vi.fn((_tracks: number[], _scale: number) => this.restoreAfterPrint);
   previewDrum = vi.fn();
+  /** Whether the native engine plays (set by tests that need the audio track). */
+  usesNativeEngine = false;
+  loadBacking = vi.fn(async (source: { type: string; path?: string; name?: string }) => ({
+    name: (source.path ?? source.name ?? "take.mp3").split("/").pop()!,
+    durationMs: 8000,
+    sampleRate: 44_100,
+    channels: 2,
+    peaks: Array.from({ length: 800 }, (_, i) => (i % 40) / 40),
+    peaksPerSecond: 100,
+  }));
+  clearBacking = vi.fn(async () => {});
   seekToBar = vi.fn();
   destroy = vi.fn();
   refresh = vi.fn();

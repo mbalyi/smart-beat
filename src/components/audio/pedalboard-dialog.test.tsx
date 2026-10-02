@@ -1,9 +1,13 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { useState } from "react";
 
-import { PedalboardDialog, type PedalboardTarget } from "@/components/audio/pedalboard-dialog";
+import {
+  PedalboardDialog,
+  type PedalboardSounds,
+  type PedalboardTarget,
+} from "@/components/audio/pedalboard-dialog";
 import { defaultEffect, type EffectSlot, type EffectType } from "@/lib/audio/effects";
-import type { BlockProblem, LibraryItem } from "@/lib/tauri";
+import type { BlockProblem, LibraryItem, SongPreset } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 
@@ -40,12 +44,20 @@ function setup({
   problems = [],
   engineOn = true,
   focusType,
+  sounds,
+  songPresets,
+  onSongPresetsChange,
+  onTargetChange,
 }: {
   initial?: EffectSlot[];
   target?: PedalboardTarget;
   problems?: BlockProblem[];
   engineOn?: boolean;
   focusType?: EffectType;
+  sounds?: PedalboardSounds;
+  songPresets?: SongPreset[];
+  onSongPresetsChange?: (presets: SongPreset[]) => void;
+  onTargetChange?: (mastering: boolean) => void;
 } = {}) {
   const onChange = vi.fn();
   const onImport = vi.fn();
@@ -71,98 +83,177 @@ function setup({
         engineOn={engineOn}
         onEnableEngine={onEnableEngine}
         focusType={focusType}
+        sounds={sounds}
+        songPresets={songPresets}
+        onSongPresetsChange={onSongPresetsChange}
+        trackName={onTargetChange ? "Rhythm guitar" : undefined}
+        onTargetChange={onTargetChange}
       />
     );
   }
   const utils = renderWithProviders(<Harness />);
-  const dialog = screen.getByRole("dialog", { name: /Effects: / });
+  const dialog = screen.getByRole("dialog", { name: /Pedalboard: / });
   return { ...utils, dialog, onChange, onImport, onEnableEngine, chain: () => latest };
 }
 
 const types = (chain: EffectSlot[]) => chain.map((s) => s.type);
 
+/** HTML5 drag and drop as jsdom dispatches it. */
+function drag(from: HTMLElement, to: HTMLElement) {
+  fireEvent.dragStart(from);
+  fireEvent.dragOver(to);
+  fireEvent.drop(to);
+  fireEvent.dragEnd(from);
+}
+
+const pedal = (dialog: HTMLElement, name: string) =>
+  within(dialog).getByRole("listitem", { name: new RegExp(`^${name}`) });
+
 describe("PedalboardDialog", () => {
   beforeEach(() => localStorage.clear());
 
-  it("starts empty and adds effects from the categorised library", async () => {
+  it("starts empty and adds effects from the library, filtered by category", async () => {
     const { user, dialog, chain } = setup();
-    expect(within(dialog).getByText("No effects yet.")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Add effect" }));
-    expect(screen.getByText("Dynamics")).toBeInTheDocument();
-    await user.click(screen.getByRole("menuitem", { name: "Noise gate" }));
-    await user.click(within(dialog).getByRole("button", { name: "Add effect" }));
-    await user.click(screen.getByRole("menuitem", { name: "Cabinet" }));
-    expect(types(chain())).toEqual(["gate", "cab"]);
+    expect(within(dialog).getByText(/No effects yet/)).toBeInTheDocument();
+    const library = within(dialog).getByRole("list", { name: "Effects" });
+    expect(within(library).getAllByRole("listitem").length).toBeGreaterThanOrEqual(12);
+    await user.click(within(dialog).getByRole("combobox", { name: "Effect category" }));
+    await user.click(screen.getByRole("option", { name: "Time" }));
+    expect(
+      within(library)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["Delay", "Reverb"]);
+    await user.click(within(dialog).getByRole("button", { name: "Add Reverb" }));
+    await user.click(within(dialog).getByRole("button", { name: "Add Delay" }));
+    expect(types(chain())).toEqual(["reverb", "delay"]);
     expect(within(dialog).getAllByTestId("effect-block")).toHaveLength(2);
     await expectNoA11yViolations();
+  });
+
+  it("drags effects onto the board, between pedals and back to the library", () => {
+    const { dialog, chain } = setup({ initial: [defaultEffect("gate"), defaultEffect("cab")] });
+    const board = within(dialog).getByTestId("pedalboard");
+    const library = within(dialog).getByTestId("effect-library");
+    const item = (name: string) =>
+      within(library)
+        .getAllByTestId("library-effect")
+        .find((li) => li.textContent === name)!;
+    // Onto a pedal: inserted before it.
+    drag(item("Chorus"), pedal(dialog, "Cabinet 2"));
+    expect(types(chain())).toEqual(["gate", "chorus", "cab"]);
+    // Onto the empty part of the board: at the end.
+    drag(item("Reverb"), board);
+    expect(types(chain())).toEqual(["gate", "chorus", "cab", "reverb"]);
+    // A pedal onto another: moved there.
+    drag(pedal(dialog, "Reverb 4"), pedal(dialog, "Noise gate 1"));
+    expect(types(chain())).toEqual(["reverb", "gate", "chorus", "cab"]);
+    // A pedal back to the library: removed.
+    drag(pedal(dialog, "Chorus 3"), library);
+    expect(types(chain())).toEqual(["reverb", "gate", "cab"]);
   });
 
   it("removes with Delete and reorders with Alt+arrows and the buttons", async () => {
     const { user, dialog, chain } = setup({
       initial: [defaultEffect("gate"), defaultEffect("drive"), defaultEffect("cab")],
     });
-    const first = within(dialog).getByRole("button", { name: "1. Noise gate" });
-    first.focus();
-    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
+    pedal(dialog, "Noise gate 1").focus();
+    await user.keyboard("{Alt>}{ArrowRight}{/Alt}");
     expect(types(chain())).toEqual(["drive", "gate", "cab"]);
-    await user.click(within(dialog).getByRole("button", { name: "Move Cabinet up" }));
+    await user.click(within(dialog).getByRole("button", { name: "Move Cabinet 3 left" }));
     expect(types(chain())).toEqual(["drive", "cab", "gate"]);
-    within(dialog).getByRole("button", { name: "1. Drive" }).focus();
+    pedal(dialog, "Drive 1").focus();
     await user.keyboard("{Delete}");
     expect(types(chain())).toEqual(["cab", "gate"]);
-    await user.click(within(dialog).getByRole("button", { name: "Remove Noise gate" }));
+    await user.click(within(dialog).getByRole("button", { name: "Remove Noise gate 2" }));
     expect(types(chain())).toEqual(["cab"]);
   });
 
-  it("switches blocks off and edits their settings", async () => {
-    const { user, dialog, chain } = setup({ initial: [defaultEffect("compressor")] });
-    await user.click(within(dialog).getByRole("switch", { name: "Compressor 1 on" }));
+  it("turns knobs, flips switches and picks options on the pedals", async () => {
+    const { user, dialog, chain } = setup({
+      initial: [defaultEffect("delay"), defaultEffect("drive"), defaultEffect("ampSim")],
+    });
+    await user.click(within(dialog).getByRole("switch", { name: "Delay 1 on" }));
     expect(chain()[0]!.enabled).toBe(false);
-    const ratio = within(dialog).getByRole("slider", { name: "Compressor ratio" });
-    expect(ratio).toHaveAttribute("aria-valuetext", "4.0:1");
-    ratio.focus();
-    await user.keyboard("{ArrowRight}");
-    expect(chain()[0]).toMatchObject({ ratio: 4.1 });
+    const time = within(dialog).getByRole("slider", { name: "Delay 1, Time" });
+    expect(time).toHaveAttribute("aria-valuetext", "375 ms");
+    time.focus();
+    await user.keyboard("{ArrowUp}{ArrowUp}{PageDown}");
+    // Page Down is a tenth of the range, snapped to the 1 ms step.
+    expect(chain()[0]).toMatchObject({ timeMs: 177 });
+    await user.keyboard("{End}");
+    expect(chain()[0]).toMatchObject({ timeMs: 2000 });
+    await user.click(within(dialog).getByRole("switch", { name: "Delay 1: Ping-pong" }));
+    expect(chain()[0]).toMatchObject({ pingPong: true });
+    await user.click(within(dialog).getAllByRole("combobox", { name: "Type" })[0]!);
+    await user.click(screen.getByRole("option", { name: "Fuzz" }));
+    expect(chain()[1]).toMatchObject({ mode: "fuzz" });
+    await user.click(within(dialog).getByRole("combobox", { name: "Channel" }));
+    await user.click(screen.getByRole("option", { name: "Lead" }));
+    expect(chain()[2]).toMatchObject({ voicing: "lead" });
+    const gain = within(dialog).getByRole("slider", { name: "Amp 3, Gain" });
+    fireEvent.doubleClick(gain);
+    expect(chain()[2]).toMatchObject({ gain: 0 });
   });
 
-  it("edits EQ bands and drive types", async () => {
+  it("edits EQ bands with knobs", async () => {
     const { user, dialog, chain } = setup({ initial: [defaultEffect("eq")] });
-    const band = within(dialog).getByRole("slider", { name: "Equalizer 1 kHz" });
+    const band = within(dialog).getByRole("slider", { name: "Equalizer 1, 1 kHz" });
     band.focus();
-    await user.keyboard("{ArrowRight}{ArrowRight}");
+    await user.keyboard("{ArrowUp}{ArrowUp}");
     const eq = chain()[0]!;
     expect(eq.type === "eq" && eq.bands[5]!.gainDb).toBe(1);
   });
 
-  it("loads a genre preset and saves the chain as the user's preset", async () => {
-    const { user, dialog, chain } = setup();
+  it("loads presets, and saves them to the library or into the song", async () => {
+    const onSongPresetsChange = vi.fn();
+    const { user, dialog, chain } = setup({
+      songPresets: [{ name: "Song tone", target: "guitar", effects: [defaultEffect("tremolo")] }],
+      onSongPresetsChange,
+    });
     await user.click(within(dialog).getByRole("combobox", { name: "Genre" }));
     await user.click(screen.getByRole("option", { name: "Djent" }));
     await user.click(within(dialog).getByRole("combobox", { name: "Guitar presets" }));
-    expect(screen.queryByRole("option", { name: /Nu-metal crunch/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("option", { name: /Djent 8-string/ }));
-    expect(types(chain())).toEqual(["gate", "compressor", "drive", "drive", "cab", "eq"]);
-    await user.type(within(dialog).getByRole("textbox", { name: "Save as preset" }), "Mine");
-    await user.click(within(dialog).getByRole("button", { name: "Save the preset" }));
-    expect(JSON.parse(localStorage.getItem("smart-beat:effect-presets")!)[0].name).toBe("Mine");
+    expect(screen.getByText("In this song")).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: /Song tone/ }));
+    expect(types(chain())).toEqual(["tremolo"]);
+    await user.click(within(dialog).getByRole("combobox", { name: "Guitar presets" }));
+    await user.click(
+      screen.getAllByRole("option").find((o) => /djent/i.test(o.textContent ?? ""))!,
+    );
+    expect(chain().length).toBeGreaterThan(1);
+    await user.type(within(dialog).getByLabelText("Save as preset"), "Mine");
+    await user.click(within(dialog).getByRole("button", { name: "Save the preset to my presets" }));
+    expect(localStorage.getItem("smart-beat:effect-presets")).toContain("Mine");
+    await user.type(within(dialog).getByLabelText("Save as preset"), "Ours");
+    await user.click(within(dialog).getByRole("button", { name: "Save in this song" }));
+    expect(onSongPresetsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ name: "Song tone" }),
+      expect.objectContaining({ name: "Ours", target: "guitar", effects: chain() }),
+    ]);
   });
 
-  it("limits the master chain to three effects", async () => {
-    const { dialog } = setup({
+  it("limits the mastering chain to three effects", async () => {
+    const { user, dialog, chain } = setup({
       target: { track: null, name: "Master", presetTarget: "master" },
-      initial: [defaultEffect("eq"), defaultEffect("compressor"), defaultEffect("compressor")],
     });
-    expect(within(dialog).getByRole("button", { name: "Add effect" })).toBeDisabled();
+    for (const name of ["Add Compressor", "Add Equalizer", "Add Reverb"]) {
+      await user.click(within(dialog).getByRole("button", { name }));
+    }
+    expect(types(chain())).toEqual(["compressor", "eq", "reverb"]);
+    expect(within(dialog).getByRole("button", { name: "Add Delay" })).toBeDisabled();
     expect(within(dialog).getByText("The chain is full (3 effects).")).toBeInTheDocument();
   });
 
   it("picks amp captures and cabinets from the library, or imports one", async () => {
-    const { user, dialog, chain, onImport } = setup({ initial: [defaultEffect("amp")] });
+    const { user, dialog, chain, onImport } = setup({
+      initial: [defaultEffect("amp"), defaultEffect("cab")],
+    });
     await user.click(within(dialog).getByRole("combobox", { name: "Amp or pedal capture" }));
     await user.click(screen.getByRole("option", { name: /My 5150/ }));
     expect(chain()[0]).toMatchObject({ model: "abc" });
-    await user.click(within(dialog).getByRole("button", { name: "Import…" }));
-    expect(onImport).toHaveBeenCalledWith("amp");
+    await user.click(within(dialog).getAllByRole("button", { name: "Import…" })[1]!);
+    expect(onImport).toHaveBeenCalledWith("cab");
   });
 
   it("shows why a block cannot play and offers to turn on the engine", async () => {
@@ -176,14 +267,61 @@ describe("PedalboardDialog", () => {
     expect(onEnableEngine).toHaveBeenCalled();
   });
 
-  it("opens at the block the EQ button asks for", () => {
+  it("opens at the block asked for", () => {
     const { dialog } = setup({
       initial: [defaultEffect("gate"), defaultEffect("eq")],
       focusType: "eq",
     });
-    expect(within(dialog).getByRole("button", { name: "2. Equalizer" })).toHaveAttribute(
-      "aria-current",
-      "true",
+    expect(pedal(dialog, "Equalizer 2")).toHaveAttribute("aria-current", "true");
+  });
+
+  it("switches between the track and the mastering chain", async () => {
+    const onTargetChange = vi.fn();
+    const { user, dialog } = setup({ onTargetChange });
+    await user.click(within(dialog).getByRole("radio", { name: "Mastering" }));
+    expect(onTargetChange).toHaveBeenCalledWith(true);
+  });
+
+  it("manages a track's sounds and where they switch", async () => {
+    const sounds: PedalboardSounds = {
+      names: ["Clean", "Lead"],
+      current: 0,
+      switches: [{ bar: 8, sound: 1 }],
+      barCount: 16,
+      onSelect: vi.fn(),
+      onAdd: vi.fn(),
+      onRename: vi.fn(),
+      onRemove: vi.fn(),
+      onSwitchesChange: vi.fn(),
+    };
+    const { user, dialog } = setup({ sounds });
+    await user.click(within(dialog).getByRole("combobox", { name: "Sound" }));
+    await user.click(screen.getByRole("option", { name: "Lead" }));
+    expect(sounds.onSelect).toHaveBeenCalledWith(1);
+    await user.click(within(dialog).getByRole("button", { name: "Add sound" }));
+    expect(sounds.onAdd).toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Rename the sound" }));
+    const name = within(dialog).getByRole("textbox", { name: "Sound" });
+    await user.clear(name);
+    await user.type(name, "Verse{Enter}");
+    expect(sounds.onRename).toHaveBeenCalledWith(0, "Verse");
+    await user.click(within(dialog).getByRole("button", { name: "Remove the sound" }));
+    expect(sounds.onRemove).toHaveBeenCalledWith(0);
+
+    const automation = within(dialog).getByRole("region", { name: "Sound automation" });
+    const bar = within(automation).getByLabelText("From bar");
+    expect(bar).toHaveValue(9);
+    fireEvent.change(bar, { target: { value: "5" } });
+    expect(sounds.onSwitchesChange).toHaveBeenLastCalledWith([{ bar: 4, sound: 1 }]);
+    await user.click(within(automation).getByRole("button", { name: "Add a switch" }));
+    expect(sounds.onSwitchesChange).toHaveBeenLastCalledWith([
+      { bar: 8, sound: 1 },
+      { bar: 9, sound: 1 },
+    ]);
+    await user.click(
+      within(automation).getByRole("button", { name: "Remove the switch at bar 9" }),
     );
+    expect(sounds.onSwitchesChange).toHaveBeenLastCalledWith([]);
+    await expectNoA11yViolations();
   });
 });

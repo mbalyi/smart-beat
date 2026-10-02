@@ -1,14 +1,30 @@
 import { defaultEffect } from "@/lib/audio/effects";
 import {
+  addSound,
   allTrackEffects,
+  describeDb,
   describePan,
   describeVolume,
+  FLAT_EQ,
+  focusTrims,
+  FOCUS_BOOST_DB,
+  FOCUS_CUT_DB,
   initialMix,
   isAudible,
   mixerReducer,
   mixFromScore,
+  removeSound,
+  shortPan,
+  soundChains,
+  soundEffects,
+  soundNames,
+  trackAutomation,
   trackEffects,
+  trackEq,
   trackInterpretation,
+  trackSoundsOf,
+  trackStates,
+  withTrackStates,
 } from "@/lib/score/mixer";
 import { DEFAULT_INTERPRETATION } from "@/lib/score/interpretation";
 import { MIXER_SETTINGS_VERSION, type MixerSettings } from "@/lib/tauri";
@@ -33,15 +49,17 @@ describe("mixFromScore", () => {
 });
 
 describe("initialMix", () => {
-  it("prefers the saved mix", () => {
+  it("prefers the saved mix, upgrading older versions", () => {
     const saved = { ...mixFromScore(SUMMARY), master: 0.3 };
-    expect(initialMix(SUMMARY, saved)).toBe(saved);
+    expect(initialMix(SUMMARY, saved)).toEqual(saved);
+    const v1 = { ...saved, version: 1 };
+    expect(initialMix(SUMMARY, v1)).toEqual({ ...saved, version: MIXER_SETTINGS_VERSION });
   });
 
   it("falls back to the file when nothing is saved or it does not fit", () => {
     expect(initialMix(SUMMARY, null)).toEqual(mixFromScore(SUMMARY));
     expect(initialMix(SUMMARY, mix([{}]))).toEqual(mixFromScore(SUMMARY));
-    const outdated = { ...mixFromScore(SUMMARY), version: 2 } as unknown as MixerSettings;
+    const outdated = { ...mixFromScore(SUMMARY), version: 99 } as unknown as MixerSettings;
     expect(initialMix(SUMMARY, outdated)).toEqual(mixFromScore(SUMMARY));
   });
 });
@@ -145,5 +163,174 @@ describe("interpretation", () => {
     expect(mixerReducer(next, { type: "reset", mix: two }).interpretation).toBe(
       next.interpretation,
     );
+  });
+});
+
+describe("mixer v2 settings", () => {
+  const two = mix([{}, {}]);
+  const DELAY = defaultEffect("delay");
+
+  it("adds, edits, switches and removes sounds; sound 1 stays the track's chain", () => {
+    let m = mixerReducer(two, { type: "effects", track: 0, slots: [GATE] });
+    expect(soundNames(m, 0)).toEqual(["Sound 1"]);
+    m = mixerReducer(m, { type: "sounds", track: 0, sounds: addSound(m, 0) });
+    expect(soundNames(m, 0)).toEqual(["Sound 1", "Sound 2"]);
+    expect(soundEffects(m, 0, 1)).toEqual([GATE]);
+    m = mixerReducer(m, { type: "sound-effects", track: 0, sound: 1, slots: [DELAY] });
+    expect(soundChains(m, 0)).toEqual([[GATE], [DELAY]]);
+    m = mixerReducer(m, { type: "sound-effects", track: 0, sound: 0, slots: [] });
+    expect(trackEffects(m, 0)).toEqual([]);
+    const own = trackSoundsOf(m, 0)!;
+    m = mixerReducer(m, {
+      type: "sounds",
+      track: 0,
+      sounds: {
+        ...own,
+        switches: [
+          { bar: 4, sound: 1 },
+          { bar: 2, sound: 0 },
+          { bar: 4, sound: 0 },
+          { bar: 1, sound: 9 },
+        ],
+      },
+    });
+    // Sorted, one per bar (the last wins), and only existing sounds.
+    expect(trackSoundsOf(m, 0)!.switches).toEqual([
+      { bar: 2, sound: 0 },
+      { bar: 4, sound: 0 },
+    ]);
+    m = mixerReducer(m, { type: "sounds", track: 0, sounds: removeSound(m, 0, 1) });
+    expect(m.sounds).toBeUndefined();
+    expect(soundNames(m, 0)).toEqual(["Sound 1"]);
+  });
+
+  it("removing a sound drops its switches and renumbers later ones", () => {
+    let m = mixerReducer(two, { type: "sounds", track: 1, sounds: addSound(two, 1) });
+    m = mixerReducer(m, { type: "sounds", track: 1, sounds: addSound(m, 1) });
+    m = mixerReducer(m, {
+      type: "sounds",
+      track: 1,
+      sounds: {
+        ...trackSoundsOf(m, 1)!,
+        switches: [
+          { bar: 1, sound: 1 },
+          { bar: 3, sound: 2 },
+        ],
+      },
+    });
+    expect(removeSound(m, 1, 1)!.switches).toEqual([{ bar: 3, sound: 1 }]);
+  });
+
+  it("stores EQ, automation, focus, drums, master pan, the audio track and presets", () => {
+    let m = mixerReducer(two, {
+      type: "eq",
+      track: 1,
+      eq: { lowDb: 40, midDb: -3, midHz: 50, highDb: Number.NaN },
+    });
+    expect(trackEq(m, 1)).toEqual({ lowDb: 15, midDb: -3, midHz: 200, highDb: 0 });
+    expect(trackEq(m, 0)).toBe(FLAT_EQ);
+    m = mixerReducer(m, {
+      type: "automation",
+      track: 0,
+      automation: {
+        enabled: true,
+        volume: [
+          { bar: 2, value: 3 },
+          { bar: 0, value: 0.5 },
+        ],
+        pan: [{ bar: -1, value: -2 }],
+        mute: [{ bar: 1, value: 0.7 }],
+      },
+    });
+    expect(trackAutomation(m, 0)).toEqual({
+      enabled: true,
+      volume: [
+        { bar: 0, value: 0.5 },
+        { bar: 2, value: 1 },
+      ],
+      pan: [{ bar: 0, value: -1 }],
+      mute: [{ bar: 1, value: 1 }],
+    });
+    m = mixerReducer(m, { type: "focus", track: 1 });
+    expect(focusTrims(m)).toEqual([FOCUS_CUT_DB, FOCUS_BOOST_DB]);
+    m = mixerReducer(m, { type: "focus", track: null });
+    expect(m.focus).toBeUndefined();
+    expect(focusTrims(m)).toEqual([0, 0]);
+    m = mixerReducer(m, { type: "master-pan", value: -4 });
+    expect(m.masterPan).toBe(-1);
+    m = mixerReducer(m, { type: "drums", track: 1, drums: { stereo: false, elements: [] } });
+    expect(m.drums).toEqual([null, { stereo: false, elements: [] }]);
+    const audio = {
+      name: "take.mp3",
+      path: "/take.mp3",
+      embedded: false,
+      enabled: true,
+      volume: 2,
+      pan: 0,
+      mute: false,
+      solo: true,
+      eq: FLAT_EQ,
+      semitones: 40,
+      cents: 7.6,
+      filter: "off" as const,
+      sync: [
+        { bar: 4, ms: 9000 },
+        { bar: 0, ms: 500 },
+        { bar: 2, ms: -1 },
+      ],
+    };
+    m = mixerReducer(m, { type: "audio-track", value: audio });
+    expect(m.audioTrack).toMatchObject({
+      volume: 1,
+      semitones: 24,
+      cents: 8,
+      sync: [
+        { bar: 0, ms: 500 },
+        { bar: 4, ms: 9000 },
+      ],
+    });
+    // A soloed audio track silences the score's tracks.
+    expect(isAudible(m, 0)).toBe(false);
+    m = mixerReducer(m, {
+      type: "presets",
+      presets: [{ name: "P", target: "guitar", effects: [] }],
+    });
+    expect(m.presets).toHaveLength(1);
+    // Reset keeps all of it apart from focus and master pan.
+    const reset = mixerReducer(
+      { ...m, focus: 0 },
+      { type: "reset", mix: mix([{ volume: 0.2 }, {}]) },
+    );
+    expect(reset.focus).toBeUndefined();
+    expect(reset.masterPan).toBeUndefined();
+    expect(reset.audioTrack).toEqual(m.audioTrack);
+    expect(reset.tracks[0]!.volume).toBe(0.2);
+    m = mixerReducer(m, { type: "audio-track", value: null });
+    expect(m.audioTrack).toBeUndefined();
+  });
+
+  it("track states follow the tracks when they move", () => {
+    let m = mixerReducer(two, { type: "eq", track: 0, eq: { ...FLAT_EQ, lowDb: 6 } });
+    m = mixerReducer(m, { type: "focus", track: 0 });
+    m = mixerReducer(m, { type: "drums", track: 1, drums: { stereo: true, elements: [] } });
+    const [a, b] = trackStates(m);
+    const swapped = withTrackStates(m, [b!, a!]);
+    expect(trackEq(swapped, 1).lowDb).toBe(6);
+    expect(swapped.focus).toBe(1);
+    expect(swapped.drums).toEqual([{ stereo: true, elements: [] }, null]);
+    // Nothing special: the optional lists stay out of the settings.
+    const plain = withTrackStates(two, trackStates(two));
+    expect(plain.eq).toBeUndefined();
+    expect(plain.automation).toBeUndefined();
+    expect(plain.sounds).toBeUndefined();
+  });
+
+  it("describes dB and short pans", () => {
+    expect(describeDb(1)).toBe("0.0 dB");
+    expect(describeDb(0.5)).toBe("-6.0 dB");
+    expect(describeDb(0)).toBe("-∞ dB");
+    expect(shortPan(0)).toBe("C");
+    expect(shortPan(-0.3)).toBe("30L");
+    expect(shortPan(1)).toBe("100R");
   });
 });

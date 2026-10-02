@@ -70,6 +70,7 @@ describe("presetsFor", () => {
     expect(presetsFor("guitar", "djent").map((p) => p.id)).toEqual([
       "djent-8-string",
       "ambient-clean-layer",
+      "lead-delay",
     ]);
     expect(presetsFor("bass", "nu-metal").map((p) => p.id)).toEqual(["nu-metal-clanky-bass"]);
   });

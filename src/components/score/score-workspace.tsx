@@ -11,7 +11,13 @@ import {
 import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { PedalboardDialog, type PedalboardTarget } from "@/components/audio/pedalboard-dialog";
+import { AudioTrackPanel } from "@/components/audio/audio-track-panel";
+import { DrumMixerDialog } from "@/components/audio/drum-mixer-dialog";
+import {
+  PedalboardDialog,
+  type PedalboardSounds,
+  type PedalboardTarget,
+} from "@/components/audio/pedalboard-dialog";
 import { SoundLibraryDialog } from "@/components/audio/sound-library-dialog";
 import { Button } from "@/components/ui/button";
 import { BarDialog } from "@/components/score/bar-dialog";
@@ -50,6 +56,14 @@ import {
   type EffectType,
 } from "@/lib/audio/effects";
 import {
+  barOccurrences,
+  barTimeline,
+  syncPointsFromTempo,
+  type BarOccurrence,
+} from "@/lib/audio/engine-config";
+import { meters } from "@/lib/audio/meter-store";
+import type { EffectProblems } from "@/lib/audio/native-engine";
+import {
   nativeEngineAvailable,
   readAudioEnginePreference,
   storeAudioEnginePreference,
@@ -84,12 +98,22 @@ import {
 } from "@/lib/print";
 import { applyTempo, tempoScope, type TempoRequest } from "@/lib/score/tempo";
 import { readSyncOffset, storeSyncOffset } from "@/lib/score/sync";
-import { DEFAULT_INTERPRETATION, type Interpretation } from "@/lib/score/interpretation";
+import { DEFAULT_INTERPRETATION } from "@/lib/score/interpretation";
 import {
+  addSound,
+  EMPTY_AUTOMATION,
+  FLAT_EQ,
   mixerReducer,
+  removeSound,
+  soundEffects,
+  soundNames,
   trackEffects,
   trackInterpretation,
+  trackSoundsOf,
+  trackStates,
+  withTrackStates,
   type MixerChange,
+  type TrackState,
 } from "@/lib/score/mixer";
 import { trackContent, type Beat, type Track } from "@/lib/score/model";
 import {
@@ -146,14 +170,18 @@ import {
   uniqueTrackName,
 } from "@/lib/score/tracks";
 import {
+  AUDIO_EXTENSIONS,
+  isCommandError,
   isTauri,
   MIXER_SETTINGS_VERSION,
+  pickAudioFile,
   saveMixerSettings,
-  type BlockProblem,
+  type AudioTrackSettings,
+  type BackingInfo,
+  type BackingSource,
   type MenuAction,
   type MixerSettings,
   type NoteEffectFlags,
-  type TrackMix,
 } from "@/lib/tauri";
 
 /** Mixer changes are saved this long after the last one. */
@@ -269,6 +297,7 @@ export function ScoreWorkspace({
   onEditedChange,
   onSaved,
   startEditing = false,
+  droppedAudio = null,
 }: {
   song: ScoreDocument;
   /** The song's tab is shown. Other songs stay loaded (edits, undo, playback position) but hidden. */
@@ -284,6 +313,8 @@ export function ScoreWorkspace({
   onEditedChange?: (edited: boolean) => void;
   /** Open in edit mode (new songs). */
   startEditing?: boolean;
+  /** An audio file dropped on the window while this song is shown (`nonce` changes per drop). */
+  droppedAudio?: { path: string; nonce: number } | null;
 }) {
   const score = song.score;
   const editor = useScoreEditor(score);
@@ -329,31 +360,38 @@ export function ScoreWorkspace({
   // The mix follows the tracks (not their positions) through reordering and undo.
   const [mix, setMix] = useState(song.mix);
   const mixRef = useRef(song.mix);
-  const mixByTrack = useRef(
-    new Map<Track, TrackMix>(score.tracks.map((t, i) => [t, song.mix.tracks[i]!])),
-  );
-  // Effect chains follow their tracks too.
-  const effectsByTrack = useRef(
-    new Map<Track, EffectSlot[]>(score.tracks.map((t, i) => [t, trackEffects(song.mix, i)])),
-  );
-  const interpretationByTrack = useRef(
-    new Map<Track, Interpretation>(
-      score.tracks.map((t, i) => [t, trackInterpretation(song.mix, i)]),
-    ),
+  // Everything the mixer knows about a track (effects, sounds, EQ, automation,
+  // drum mixer, focus) follows it too.
+  const stateByTrack = useRef(
+    new Map<Track, TrackState>(trackStates(song.mix).map((s, i) => [score.tracks[i]!, s])),
   );
   const [soundFont, setSoundFont] = useState<SoundFontId>(readSoundFontPreference);
   const [audioEngine, setAudioEngine] = useState(readAudioEnginePreference);
-  const [effectProblems, setEffectProblems] = useState<{
-    tracks: BlockProblem[][];
-    master: BlockProblem[];
-  }>({ tracks: [], master: [] });
+  const [effectProblems, setEffectProblems] = useState<EffectProblems>({
+    tracks: [],
+    master: [],
+  });
   const [pedalboard, setPedalboard] = useState<{
     open: boolean;
     track: number | null;
     focus?: EffectType;
+    /** The sound of the track being edited. */
+    sound: number;
     /** Changes with every opening, so the dialog starts fresh. */
     session: number;
-  }>({ open: false, track: null, session: 0 });
+  }>({ open: false, track: null, sound: 0, session: 0 });
+  const [drumMixer, setDrumMixer] = useState<{ open: boolean; track: number }>({
+    open: false,
+    track: 0,
+  });
+  /** The loaded recording of the audio track (waveform), or null. */
+  const [backingInfo, setBackingInfo] = useState<BackingInfo | null>(null);
+  const [audioEditorOpen, setAudioEditorOpen] = useState(false);
+  const [audioZoom, setAudioZoom] = useState(40);
+  // Bars in playback order (repeats included), as the engine plays them.
+  const [playedBars, setPlayedBars] = useState<BarOccurrence[] | null>(null);
+  /** Which recording is loaded in the engine ("" for none). */
+  const loadedAudio = useRef("");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const library = useSoundLibrary();
   const [mixerOpen, setMixerOpen] = useState(true);
@@ -561,6 +599,8 @@ export function ScoreWorkspace({
         },
         onLoopRestart: () => dispatchPractice({ type: "loop-completed" }),
         onEffectProblems: setEffectProblems,
+        onMeters: (m) => meters.set(m),
+        onOccurrences: setPlayedBars,
       },
     );
     playerRef.current = player;
@@ -569,6 +609,10 @@ export function ScoreWorkspace({
     return () => {
       player.destroy();
       playerRef.current = null;
+      // The next player (engine switched) has no recording loaded yet.
+      loadedAudio.current = "";
+      setBackingInfo(null);
+      setPlayedBars(null);
     };
   }, [song.score, audioEngine]);
 
@@ -592,29 +636,39 @@ export function ScoreWorkspace({
 
   /** After every change to the music: new mix order, re-render, new MIDI. */
   const onModelChange = useEffectEvent(() => {
-    const tracks = score.tracks.map((t) => {
-      const known = mixByTrack.current.get(t);
+    const states = score.tracks.map((t) => {
+      const known = stateByTrack.current.get(t);
       if (known) return known;
-      const fresh = { ...trackMix(t) };
-      mixByTrack.current.set(t, fresh);
+      const fresh: TrackState = {
+        mix: { ...trackMix(t) },
+        effects: [],
+        interpretation: DEFAULT_INTERPRETATION,
+        sounds: null,
+        eq: FLAT_EQ,
+        automation: EMPTY_AUTOMATION,
+        drums: null,
+        focused: false,
+      };
+      stateByTrack.current.set(t, fresh);
       return fresh;
     });
-    const effects = score.tracks.map((t) => effectsByTrack.current.get(t) ?? []);
-    const interpretation = score.tracks.map(
-      (t) => interpretationByTrack.current.get(t) ?? DEFAULT_INTERPRETATION,
-    );
-    const next: MixerSettings = {
-      ...mixRef.current,
-      version: MIXER_SETTINGS_VERSION,
-      tracks,
-      effects,
-      interpretation,
-    };
+    const before = trackStates(mixRef.current);
+    const next = withTrackStates(mixRef.current, states);
     const changedOrder =
-      tracks.length !== mixRef.current.tracks.length ||
-      tracks.some((t, i) => t !== mixRef.current.tracks[i]) ||
-      effects.some((e, i) => e !== trackEffects(mixRef.current, i)) ||
-      interpretation.some((v, i) => v !== trackInterpretation(mixRef.current, i));
+      states.length !== before.length ||
+      states.some((s, i) => {
+        const b = before[i]!;
+        return (
+          s.mix !== b.mix ||
+          s.effects !== trackEffects(mixRef.current, i) ||
+          s.interpretation !== trackInterpretation(mixRef.current, i) ||
+          s.sounds !== b.sounds ||
+          s.eq !== b.eq ||
+          s.automation !== b.automation ||
+          s.drums !== b.drums ||
+          s.focused !== b.focused
+        );
+      });
     if (changedOrder) {
       mixRef.current = next;
       setMix(next);
@@ -801,10 +855,9 @@ export function ScoreWorkspace({
   const changeMix: MixerChange = (action, { commit } = { commit: true }) => {
     const next = mixerReducer(mixRef.current, action);
     mixRef.current = next;
-    score.tracks.forEach((t, i) => {
-      mixByTrack.current.set(t, next.tracks[i]!);
-      effectsByTrack.current.set(t, trackEffects(next, i));
-      interpretationByTrack.current.set(t, trackInterpretation(next, i));
+    trackStates(next).forEach((state, i) => {
+      const t = score.tracks[i];
+      if (t) stateByTrack.current.set(t, state);
     });
     setMix(next);
     if (commit) playerRef.current?.setMix(next);
@@ -839,7 +892,7 @@ export function ScoreWorkspace({
         changeMix({ type: "effects", track, slots: chain });
       }
     }
-    setPedalboard((p) => ({ open: true, track, focus, session: p.session + 1 }));
+    setPedalboard((p) => ({ open: true, track, focus, sound: 0, session: p.session + 1 }));
   };
   const pedalboardTarget: PedalboardTarget =
     pedalboard.track === null
@@ -856,13 +909,188 @@ export function ScoreWorkspace({
     [trackObject, track.kind, revision],
   );
   const pedalboardChain =
-    pedalboard.track === null ? (mix.masterEffects ?? []) : trackEffects(mix, pedalboard.track);
+    pedalboard.track === null
+      ? (mix.masterEffects ?? [])
+      : soundEffects(mix, pedalboard.track, pedalboard.sound);
   const changePedalboardChain = (slots: EffectSlot[]) =>
     changeMix(
       pedalboard.track === null
         ? { type: "master-effects", slots }
-        : { type: "effects", track: pedalboard.track, slots },
+        : { type: "sound-effects", track: pedalboard.track, sound: pedalboard.sound, slots },
     );
+  const pedalboardSounds: PedalboardSounds | undefined = (() => {
+    const t = pedalboard.track;
+    if (t === null) return undefined;
+    const own = trackSoundsOf(mix, t);
+    const select = (sound: number) => setPedalboard((p) => ({ ...p, sound }));
+    return {
+      names: soundNames(mix, t),
+      current: Math.min(pedalboard.sound, soundNames(mix, t).length - 1),
+      switches: own?.switches ?? [],
+      barCount: score.masterBars.length,
+      onSelect: select,
+      onAdd: () => {
+        const sounds = addSound(mixRef.current, t, pedalboard.sound);
+        changeMix({ type: "sounds", track: t, sounds });
+        select(sounds.sounds.length - 1);
+      },
+      onRename: (sound, name) => {
+        const current = trackSoundsOf(mixRef.current, t);
+        if (!current) {
+          // A single sound gets its name once there are two: keep it for then.
+          const sounds = addSound(mixRef.current, t, 0);
+          sounds.sounds[0] = { ...sounds.sounds[0]!, name };
+          changeMix({
+            type: "sounds",
+            track: t,
+            sounds: { ...sounds, sounds: [sounds.sounds[0]!] },
+          });
+          return;
+        }
+        changeMix({
+          type: "sounds",
+          track: t,
+          sounds: {
+            ...current,
+            sounds: current.sounds.map((s, i) => (i === sound ? { ...s, name } : s)),
+          },
+        });
+      },
+      onRemove: (sound) => {
+        changeMix({ type: "sounds", track: t, sounds: removeSound(mixRef.current, t, sound) });
+        select(0);
+      },
+      onSwitchesChange: (switches) => {
+        const current = trackSoundsOf(mixRef.current, t);
+        if (current) changeMix({ type: "sounds", track: t, sounds: { ...current, switches } });
+      },
+    };
+  })();
+
+  // --- Audio track ---------------------------------------------------------------
+
+  const occurrences = useMemo(() => {
+    void revision;
+    return playedBars ?? barOccurrences(score, null);
+  }, [score, revision, playedBars]);
+  const barTimes = useMemo(() => barTimeline(score, occurrences), [score, occurrences]);
+  const audio = mix.audioTrack;
+  const engineOn = audioEngine === "native";
+  const audioKey = audio ? `${audio.name}\n${audio.path ?? ""}` : "";
+
+  const newAudioTrack = (name: string, path: string): AudioTrackSettings => ({
+    name,
+    path,
+    embedded: false,
+    enabled: true,
+    volume: 0.8,
+    pan: 0,
+    mute: false,
+    solo: false,
+    eq: { ...FLAT_EQ },
+    semitones: 0,
+    cents: 0,
+    filter: "off",
+    sync: [],
+  });
+
+  /** Loads the recording into the engine: from its file, or from the song file. */
+  const loadRecording = async (settings: AudioTrackSettings) => {
+    const player = playerRef.current;
+    if (!player?.usesNativeEngine) return;
+    const sources: BackingSource[] = [];
+    if (settings.path) sources.push({ type: "file", path: settings.path });
+    if (settings.embedded && song.path?.toLowerCase().endsWith(".gp")) {
+      sources.push({ type: "embedded", scorePath: song.path, name: settings.name });
+    }
+    let lastError: unknown = new Error(`“${settings.name}” has no file to load.`);
+    for (const source of sources) {
+      try {
+        const info = await player.loadBacking(source);
+        loadedAudio.current = `${settings.name}\n${settings.path ?? ""}`;
+        setBackingInfo(info);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (!isCommandError(error) || error.kind !== "not-found") break;
+      }
+    }
+    setBackingInfo(null);
+    toast.error(`Couldn't open the recording “${settings.name}”`, {
+      description: errorText(lastError),
+    });
+  };
+
+  // Loads the recording when the song opens, the engine starts or the file changes.
+  useEffect(() => {
+    if (!audio || !engineOn || !ready) return;
+    if (loadedAudio.current === audioKey) return;
+    void loadRecording(audio);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioKey, engineOn, ready]);
+
+  /** Opens a recording as the audio track (replacing the current one). */
+  const addAudioTrack = async (path?: string) => {
+    let file = path ?? null;
+    if (!file) {
+      try {
+        file = await pickAudioFile();
+      } catch (error) {
+        toast.error("Couldn't show the Open dialog", { description: errorText(error) });
+        return;
+      }
+    }
+    if (!file) return;
+    const name = file.split(/[\\/]/).pop() ?? file;
+    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    if (!(AUDIO_EXTENSIONS as readonly string[]).includes(ext)) {
+      toast.error(`“${name}” is not an audio file Smart Beat opens`, {
+        description: "Use an mp3, wav, flac, ogg or aiff file.",
+      });
+      return;
+    }
+    const settings = newAudioTrack(name, file);
+    changeMix({ type: "audio-track", value: settings });
+    setAudioEditorOpen(true);
+    if (!engineOn) {
+      toast.info("The audio track plays with the native audio engine", {
+        action: nativeEngineAvailable()
+          ? { label: "Turn it on", onClick: () => changeAudioEngine("native") }
+          : undefined,
+      });
+      return;
+    }
+    await loadRecording(settings);
+  };
+  const removeAudioTrack = () => {
+    changeMix({ type: "audio-track", value: null });
+    loadedAudio.current = "";
+    setBackingInfo(null);
+    setAudioEditorOpen(false);
+    void playerRef.current?.clearBacking();
+  };
+  const locateRecording = async () => {
+    if (!audio) return;
+    let file: string | null;
+    try {
+      file = await pickAudioFile();
+    } catch (error) {
+      toast.error("Couldn't show the Open dialog", { description: errorText(error) });
+      return;
+    }
+    if (!file) return;
+    const name = file.split(/[\\/]/).pop() ?? file;
+    const next = { ...audio, name, path: file };
+    changeMix({ type: "audio-track", value: next });
+    await loadRecording(next);
+  };
+  const lastDrop = useRef<number | null>(null);
+  useEffect(() => {
+    if (!droppedAudio || droppedAudio.nonce === lastDrop.current) return;
+    lastDrop.current = droppedAudio.nonce;
+    void addAudioTrack(droppedAudio.path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [droppedAudio]);
 
   const toggleInstrumentView = () => {
     setInstrumentView((shown) => {
@@ -925,6 +1153,8 @@ export function ScoreWorkspace({
     onAdd: () => {
       setTrackDialog({ mode: "add" });
     },
+    onEffects: (index) => openPedalboard(index),
+    onDrumMixer: (index) => setDrumMixer({ open: true, track: index }),
   };
 
   const submitTrack = (settings: TrackSettings) => {
@@ -1127,6 +1357,9 @@ export function ScoreWorkspace({
         break;
       case "add-track":
         setTrackDialog({ mode: "add" });
+        break;
+      case "add-audio-track":
+        void addAudioTrack();
         break;
       case "duplicate-track":
         trackActions.onDuplicate(trackIndex);
@@ -1455,7 +1688,7 @@ export function ScoreWorkspace({
               audioEngine={audioEngine}
               onAudioEngineChange={nativeEngineAvailable() ? changeAudioEngine : undefined}
               effects={trackEffects(mix, trackIndex)}
-              effectProblems={effectProblems.tracks[trackIndex]?.length ?? 0}
+              effectProblems={effectProblems.tracks[trackIndex]?.flat().length ?? 0}
               onEffectsChange={(slots) => changeMix({ type: "effects", track: trackIndex, slots })}
               interpretation={trackInterpretation(mix, trackIndex)}
               onInterpretationChange={(value) =>
@@ -1479,8 +1712,37 @@ export function ScoreWorkspace({
           onSeekBar={(index) => playerRef.current?.seekToBar(index)}
           saved={saved}
           playing={playing}
-          onEqualizer={(index) => openPedalboard(index, "eq")}
           onMasterEffects={() => openPedalboard(null)}
+          audio={
+            isTauri()
+              ? {
+                  info: backingInfo,
+                  barTimes,
+                  onAdd: () => void addAudioTrack(),
+                  onEdit: () => setAudioEditorOpen((open) => !open),
+                }
+              : undefined
+          }
+        />
+      )}
+      {mixerOpen && audio && audioEditorOpen && (
+        <AudioTrackPanel
+          audio={audio}
+          info={backingInfo}
+          barTimes={barTimes}
+          barWidth={audioZoom}
+          onBarWidthChange={setAudioZoom}
+          onChange={(value) => changeMix({ type: "audio-track", value })}
+          onRemove={removeAudioTrack}
+          onLocate={() => void locateRecording()}
+          onImportTempo={() =>
+            changeMix({
+              type: "audio-track",
+              value: { ...audio, sync: syncPointsFromTempo(score, audio.sync, barTimes) },
+            })
+          }
+          onClose={() => setAudioEditorOpen(false)}
+          canEmbed={isTauri()}
         />
       )}
       <PedalboardDialog
@@ -1495,14 +1757,31 @@ export function ScoreWorkspace({
             ? []
             : pedalboard.track === null
               ? effectProblems.master
-              : (effectProblems.tracks[pedalboard.track] ?? [])
+              : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
         }
+        trackName={track.name}
+        onTargetChange={(mastering) =>
+          setPedalboard((p) => ({ ...p, track: mastering ? null : trackIndex, sound: 0 }))
+        }
+        sounds={pedalboardSounds}
+        songPresets={mix.presets}
+        onSongPresetsChange={(presets) => changeMix({ type: "presets", presets })}
         library={library.items}
         onImport={(kind) => void library.importFile(kind)}
         onManageLibrary={() => setLibraryOpen(true)}
         engineOn={audioEngine === "native"}
         onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
         focusType={pedalboard.focus}
+      />
+      <DrumMixerDialog
+        open={drumMixer.open}
+        onOpenChange={(open) => setDrumMixer((d) => ({ ...d, open }))}
+        trackIndex={drumMixer.track}
+        trackName={summary.tracks[drumMixer.track]?.name ?? "Drums"}
+        mixer={mix.drums?.[drumMixer.track] ?? null}
+        onChange={(drums) => changeMix({ type: "drums", track: drumMixer.track, drums })}
+        engineOn={engineOn}
+        onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
       />
       <SoundLibraryDialog
         open={libraryOpen}

@@ -22,6 +22,7 @@ type MenuAction =
   | "toggle-theme"
   | "toggle-fretboard"
   | "add-track"
+  | "add-audio-track"
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
@@ -79,6 +80,20 @@ declare global {
     __emitTauriEvent: (event: string, payload: unknown) => number;
     __dialogResult: string | null;
     __engineChains?: Record<string, { type: string }[]>;
+    __engineConfig: {
+      sounds: Record<string, { sounds: unknown[][]; switches: [number, number][] }>;
+      automation: Record<string, { enabled: boolean; volume: [number, number][] }>;
+      eq: Record<string, { lowDb: number; graphic?: number[] }>;
+      drums: Record<string, { stereo: boolean; elements: { mix: { mute: boolean } }[] } | null>;
+    };
+    __engineBacking: {
+      source: { type: string; path?: string };
+      params: { semitones: number; filter: string } | null;
+      sync: { tick: number; ms: number }[];
+    } | null;
+    __projectSettings: Record<string, { audioTrack?: { name: string; sync: unknown[] } }>;
+    __embeddedAudio: boolean;
+    __meters: { tracks: number[]; master: number; drums?: number[][]; backing?: number };
     __saveResult: string | null;
     __recent: string[];
     __written: Map<string, Uint8Array>;

@@ -14,8 +14,11 @@ import { encodeWav, type RenderedAudio } from "@/lib/export/wav";
 import { baseName, fileKey } from "@/lib/score/format";
 import type { ScoreEditor } from "@/lib/score/editor";
 import {
+  isCommandError,
   isTauri,
   pickSavePath,
+  readScoreFile,
+  writeProjectSettings,
   writeScoreFile,
   type MixerSettings,
   type SaveFilter,
@@ -103,10 +106,35 @@ export function useFileActions({
     return name;
   }
 
+  /**
+   * Puts the mix (effects, sounds, EQ, automation, drum mixer, audio track,
+   * presets) inside a saved `.gp` file, with the recording when the audio
+   * track says so. Returns the file's final content key.
+   */
+  async function storeSettings(path: string, bytes: Uint8Array): Promise<string> {
+    const mix = getMix();
+    try {
+      await writeProjectSettings(path, mix, !!mix.audioTrack?.embedded);
+    } catch (error) {
+      if (!(isCommandError(error) && error.kind === "audio")) throw error;
+      // The recording is not loaded: save it as a reference only.
+      await writeProjectSettings(path, mix, false);
+      toast.warning("The recording was not embedded", { description: errorText(error) });
+    }
+    try {
+      return await fileKey(await readScoreFile(path));
+    } catch {
+      return fileKey(bytes);
+    }
+  }
+
   async function saveTo(format: ExportFormat, path: string | null) {
     const result = build(format);
     const name = await deliver(format, path, result);
-    const key = await fileKey(result.bytes);
+    const key =
+      path && format === "gp" && isTauri()
+        ? await storeSettings(path, result.bytes)
+        : await fileKey(result.bytes);
     editor.markSaved();
     onEditedChange?.(false);
     onSaved({ name, path, fileKey: key });

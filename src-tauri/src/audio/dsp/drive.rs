@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::biquad::{Biquad, Coefficients, FilterKind};
 use super::{Effect, db_to_gain};
+use crate::audio::chain::EffectConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +44,7 @@ impl Default for DriveParams {
 }
 
 pub struct Drive {
+    rate: f32,
     mode: DriveMode,
     pre_gain: f32,
     out_gain: f32,
@@ -84,6 +86,7 @@ impl Drive {
         chain[1].set(mid);
         chain[2].set(tone);
         Self {
+            rate: sample_rate,
             mode: params.mode,
             pre_gain: db_to_gain(pre_db),
             out_gain: db_to_gain(params.level_db.clamp(-40.0, 24.0) + compensation),
@@ -124,6 +127,28 @@ impl Effect for Drive {
         for f in self.filters.iter_mut().flatten() {
             f.reset();
         }
+    }
+
+    fn update(&mut self, config: &EffectConfig) -> bool {
+        let EffectConfig::Drive(params) = config else {
+            return false;
+        };
+        let next = Self::new(*params, self.rate);
+        for (old, new) in self
+            .filters
+            .iter_mut()
+            .flatten()
+            .zip(next.filters.iter().flatten())
+        {
+            // Keep the filter state, take the new coefficients.
+            let mut updated = *new;
+            updated.copy_state(old);
+            *old = updated;
+        }
+        self.mode = next.mode;
+        self.pre_gain = next.pre_gain;
+        self.out_gain = next.out_gain;
+        true
     }
 }
 

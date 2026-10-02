@@ -150,25 +150,148 @@ describe("TrackList", () => {
     expect(markers).toHaveTextContent("♩120");
   });
 
-  it("keeps automation off until it works", () => {
-    setup();
-    expect(screen.getByRole("button", { name: /^Automation for Guitar/ })).toBeDisabled();
+  it("switches automation on", async () => {
+    const onChange = vi.fn();
+    const { user } = setup({ onChange });
+    await user.click(screen.getByRole("button", { name: "Automation for Guitar" }));
+    expect(onChange).toHaveBeenCalledWith({
+      type: "automation",
+      track: 0,
+      automation: { enabled: true, volume: [], pan: [], mute: [] },
+    });
   });
 
-  it("opens a track's equaliser and the master effects", async () => {
-    const onEqualizer = vi.fn();
+  it("edits the automation lane under the track", async () => {
+    const onChange = vi.fn();
+    const { summary } = parseScore(fixtureBytes("practice-song.gp"));
+    const on = {
+      ...mixFromScore(summary),
+      automation: [{ enabled: true, volume: [{ bar: 1, value: 0.5 }], pan: [], mute: [] }],
+    };
+    const { user, container } = setup({ mix: on, onChange });
+    const lane = within(container).getByRole("group", { name: "Volume automation, Guitar" });
+    const point = within(lane).getByRole("slider", { name: "Volume point at bar 2" });
+    expect(point).toHaveAttribute("aria-valuetext", "50%");
+    point.focus();
+    await user.keyboard("{ArrowUp}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: "automation",
+      track: 0,
+      automation: expect.objectContaining({ volume: [{ bar: 1, value: 0.55 }] }),
+    });
+    await user.keyboard("{Delete}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: "automation",
+      track: 0,
+      automation: expect.objectContaining({ volume: [] }),
+    });
+    await user.click(within(container).getByRole("combobox", { name: "Automation lane, Guitar" }));
+    await user.click(screen.getByRole("option", { name: "Mute" }));
+    expect(
+      within(container).getByRole("group", { name: "Mute automation, Guitar" }),
+    ).toBeInTheDocument();
+    await expectNoA11yViolations();
+  });
+
+  it("edits a track's channel EQ in a popover", async () => {
+    const onChange = vi.fn();
+    const { user } = setup({ onChange });
+    await user.click(screen.getByRole("button", { name: "EQ for Bass" }));
+    const low = await screen.findByRole("slider", { name: "EQ low, Bass" });
+    low.focus();
+    await user.keyboard("{ArrowUp}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: "eq",
+      track: 1,
+      eq: { lowDb: 0.5, midDb: 0, midHz: 1000, highDb: 0 },
+    });
+    await user.click(screen.getByRole("switch", { name: "10-band EQ, Bass" }));
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: "eq",
+      track: 1,
+      eq: expect.objectContaining({ graphic: Array(10).fill(0) }),
+    });
+  });
+
+  it("opens the pedalboard, the drum mixer and the focus from the row menu", async () => {
+    const onChange = vi.fn();
+    const onEffects = vi.fn();
+    const onDrumMixer = vi.fn();
+    const actions: TrackActions = {
+      onShow: vi.fn(),
+      onMove: vi.fn(),
+      onDuplicate: vi.fn(),
+      onRemove: vi.fn(),
+      onSettings: vi.fn(),
+      onLyrics: vi.fn(),
+      onAdd: vi.fn(),
+      onEffects,
+      onDrumMixer,
+    };
+    const { user: u2 } = setup({ onChange, actions });
+    await trackAction(u2, "Drums", "Drum mixer…");
+    expect(onDrumMixer).toHaveBeenCalledWith(2);
+    await trackAction(u2, "Guitar", "Effects (pedalboard)…");
+    expect(onEffects).toHaveBeenCalledWith(0);
+    await trackAction(u2, "Bass", "Focus (turn the others down)");
+    expect(onChange).toHaveBeenCalledWith({ type: "focus", track: 1 });
+  });
+
+  it("has a master strip with pan, a meter and the mastering effects", async () => {
+    const onChange = vi.fn();
     const onMasterEffects = vi.fn();
-    const { user } = setup({ onEqualizer, onMasterEffects });
-    await user.click(screen.getByRole("button", { name: "Equaliser and effects for Guitar" }));
-    expect(onEqualizer).toHaveBeenCalledWith(0);
-    await user.click(screen.getByRole("button", { name: "Master effects" }));
+    const { user } = setup({ onChange, onMasterEffects });
+    await user.click(screen.getByRole("button", { name: "Mastering effects" }));
     expect(onMasterEffects).toHaveBeenCalled();
+    const pan = screen.getByRole("slider", { name: "Master pan" });
+    pan.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(onChange).toHaveBeenLastCalledWith({ type: "master-pan", value: -0.125 });
+    expect(screen.getByRole("meter", { name: "Level, master" })).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "Level, Guitar" })).toBeInTheDocument();
   });
 
-  it("disables the effect buttons where effects cannot be edited", () => {
+  it("disables the mastering effects where effects cannot be edited", () => {
     setup();
-    expect(screen.getByRole("button", { name: "Equaliser and effects for Guitar" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Master effects" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Mastering effects" })).toBeDisabled();
+  });
+
+  it("adds an audio track, then mixes it like a track", async () => {
+    const onChange = vi.fn();
+    const onAdd = vi.fn();
+    const onEdit = vi.fn();
+    const audio = { info: null, barTimes: [0, 2000, 4000], onAdd, onEdit };
+    const first = setup({ onChange, audio });
+    await first.user.click(screen.getByRole("button", { name: "Add audio track" }));
+    expect(onAdd).toHaveBeenCalled();
+    first.unmount();
+    const mix = first.mix;
+    const audioTrack = {
+      name: "take.mp3",
+      path: "/take.mp3",
+      embedded: false,
+      enabled: true,
+      volume: 0.8,
+      pan: 0,
+      mute: false,
+      solo: false,
+      eq: { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 },
+      semitones: 0,
+      cents: 0,
+      filter: "off" as const,
+      sync: [],
+    };
+    const { user, container } = setup({ onChange, audio, mix: { ...mix, audioTrack } });
+    const row = within(container).getByTestId("audio-track-row");
+    expect(within(row).getByText("Recording not loaded")).toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "Mute the audio track" }));
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: "audio-track",
+      value: { ...audioTrack, mute: true },
+    });
+    await user.click(within(row).getByRole("button", { name: "Edit the audio track take.mp3" }));
+    expect(onEdit).toHaveBeenCalled();
+    expect(within(container).queryByRole("button", { name: "Add audio track" })).toBeNull();
   });
 
   it("says whether the mix is saved and when pan waits for a pause", () => {

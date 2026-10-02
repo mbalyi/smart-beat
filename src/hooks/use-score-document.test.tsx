@@ -299,3 +299,32 @@ describe("useScoreDocuments: recent files and saving", () => {
     });
   });
 });
+
+describe("useScoreDocuments: settings inside .gp files", () => {
+  it("prefers the settings stored in the song file", async () => {
+    mockTauri();
+    const bytes = fixtureBytes("practice-song.gp");
+    backend.files.set(SONG, bytes);
+    backend.mixes.set(await fileKey(bytes), { ...mixFromScore(SUMMARY), master: 0.25 });
+    const inFile = { ...mixFromScore(SUMMARY), master: 0.6, masterPan: -0.5 };
+    backend.projectSettings.set(SONG, inFile);
+    const { result } = setup();
+    await act(() => result.current.openPath(SONG));
+    expect(result.current.song?.mix).toEqual(inFile);
+  });
+
+  it("falls back to the app's settings when the file has none or can't be read", async () => {
+    mockTauri({
+      read_project_settings: () => {
+        throw { kind: "io", message: "broken" };
+      },
+    });
+    const bytes = fixtureBytes("practice-song.gp");
+    backend.files.set(SONG, bytes);
+    const saved = { ...mixFromScore(SUMMARY), master: 0.25 };
+    backend.mixes.set(await fileKey(bytes), saved);
+    const { result } = setup();
+    await act(() => result.current.openPath(SONG));
+    expect(result.current.song?.mix).toEqual(saved);
+  });
+});

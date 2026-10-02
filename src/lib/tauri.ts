@@ -35,6 +35,7 @@ export type MenuAction =
   | "zoom-reset"
   | "toggle-fullscreen"
   | "add-track"
+  | "add-audio-track"
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
@@ -111,6 +112,9 @@ export const SCORE_EXTENSIONS = [
   "txt",
 ] as const;
 
+/** Mirrors `AUDIO_EXTENSIONS` in `src-tauri/src/audio/backing.rs`: audio track files. */
+export const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "oga", "aif", "aiff"] as const;
+
 /** Mirrors `WRITE_EXTENSIONS` in `src-tauri/src/score_write.rs`. */
 export const SAVE_EXTENSIONS = ["gp", "gp5", "mid", "midi", "musicxml", "txt", "wav"] as const;
 
@@ -152,11 +156,111 @@ export interface TrackMix {
 }
 
 /** Mirrors `mixer::VERSION` in `src-tauri/src/mixer.rs`. */
-export const MIXER_SETTINGS_VERSION = 1;
+export const MIXER_SETTINGS_VERSION = 2;
+/** Mirrors `mixer::MIN_VERSION`: older settings files that still load. */
+export const MIXER_SETTINGS_MIN_VERSION = 1;
+
+/** Mirrors `TrackEq` in `src-tauri/src/audio/mixing.rs`: the mixer's channel EQ. */
+export interface TrackEq {
+  lowDb: number;
+  midDb: number;
+  midHz: number;
+  highDb: number;
+  /** Ten gains (31 Hz … 16 kHz) for the graphic EQ; absent or empty for three bands. */
+  graphic?: number[];
+}
+
+/** Mirrors `Sound` in `src-tauri/src/mixer.rs`: a named effect chain. */
+export interface Sound {
+  name: string;
+  effects: EffectSlot[];
+}
+
+/** Mirrors `SoundSwitch`: from bar `bar` (0-based) on, play sound `sound`. */
+export interface SoundSwitch {
+  bar: number;
+  sound: number;
+}
+
+/** Mirrors `TrackSounds`. */
+export interface TrackSounds {
+  sounds: Sound[];
+  switches: SoundSwitch[];
+}
+
+/** Mirrors `AutomationPoint`: a position in bars (0-based, fractional) and a value. */
+export interface AutomationPoint {
+  bar: number;
+  value: number;
+}
+
+export type AutomationLaneKind = "volume" | "pan" | "mute";
+
+/** Mirrors `TrackAutomation`. */
+export interface TrackAutomation {
+  enabled: boolean;
+  volume: AutomationPoint[];
+  pan: AutomationPoint[];
+  mute: AutomationPoint[];
+}
+
+/** Mirrors `DrumElementMix`. */
+export interface DrumElementMix {
+  id: string;
+  volume: number;
+  pan: number;
+  mute: boolean;
+  solo: boolean;
+}
+
+/** Mirrors `DrumMixer`. */
+export interface DrumMixer {
+  stereo: boolean;
+  elements: DrumElementMix[];
+}
+
+/** Mirrors `BackingFilter` in `src-tauri/src/audio/backing.rs`. */
+export type BackingFilter = "off" | "bassIsolate" | "guitarBand" | "centreCut";
+
+/** Mirrors `BackingParams`: how the audio track plays. */
+export interface BackingParams {
+  enabled: boolean;
+  volume: number;
+  pan: number;
+  mute: boolean;
+  solo: boolean;
+  eq: TrackEq;
+  semitones: number;
+  cents: number;
+  filter: BackingFilter;
+}
+
+/** Mirrors `SyncPoint`: bar `bar` (0-based) starts at `ms` in the recording. */
+export interface SyncPoint {
+  bar: number;
+  ms: number;
+}
+
+/** Mirrors `AudioTrack` in `src-tauri/src/mixer.rs`. */
+export interface AudioTrackSettings extends BackingParams {
+  name: string;
+  /** Where the recording is on disk (when it is not embedded). */
+  path?: string;
+  /** Stored inside the song file. */
+  embedded: boolean;
+  sync: SyncPoint[];
+}
+
+/** Mirrors `ChainPreset`: an effect chain preset saved with the song. */
+export interface SongPreset {
+  name: string;
+  target: string;
+  effects: EffectSlot[];
+}
 
 /** Mirrors `MixerSettings` in `src-tauri/src/mixer.rs`. */
 export interface MixerSettings {
-  version: typeof MIXER_SETTINGS_VERSION;
+  version: number;
   /** Master volume, 0 to 1. */
   master: number;
   tracks: TrackMix[];
@@ -166,6 +270,21 @@ export interface MixerSettings {
   masterEffects?: EffectSlot[];
   /** How each track is played back, in score order. */
   interpretation?: Interpretation[];
+  /** Master pan, -1 … 1. */
+  masterPan?: number;
+  /** Sounds of each track (several chains switched along the song). */
+  sounds?: TrackSounds[];
+  /** Channel EQ of each track. */
+  eq?: TrackEq[];
+  /** Volume, pan and mute automation of each track. */
+  automation?: TrackAutomation[];
+  /** The track in focus (the others are turned down). */
+  focus?: number;
+  /** The drum mixer of each track (null when not split). */
+  drums?: (DrumMixer | null)[];
+  audioTrack?: AudioTrackSettings;
+  /** Effect chain presets saved with the song. */
+  presets?: SongPreset[];
 }
 
 /** Mirrors `MenuState` in `src-tauri/src/menu_state.rs`: what the menu bar reflects. */
@@ -337,6 +456,17 @@ export const loadMixerSettings = (fileKey: string) =>
 export const saveMixerSettings = (fileKey: string, settings: MixerSettings) =>
   call<void>("save_mixer_settings", { fileKey, settings });
 
+/** Mixer settings stored inside a `.gp` file (null for other files, or none). */
+export const readProjectSettings = (path: string) =>
+  call<MixerSettings | null>("read_project_settings", { path });
+
+/**
+ * Stores mixer settings inside a `.gp` file that was just written. With
+ * `embedAudio`, the loaded audio track's recording goes in too.
+ */
+export const writeProjectSettings = (path: string, settings: MixerSettings, embedAudio: boolean) =>
+  call<void>("write_project_settings", { path, settings, embedAudio });
+
 /** Updates the native menu bar (labels, check marks, enabled items). No-op in a browser. */
 export async function updateMenuState(state: MenuState): Promise<void> {
   if (!isTauri()) return;
@@ -402,12 +532,48 @@ export interface BusMix {
   pan: number;
   mute: boolean;
   solo: boolean;
+  /** Extra gain in dB (the focus switch). */
+  trimDb?: number;
 }
 
 /** Mirrors `Meters` in `src-tauri/src/audio/engine.rs` (peak levels, 0…1). */
 export interface EngineMeters {
   tracks: number[];
   master: number;
+  /** Per track: the levels of its drum elements (empty unless split). */
+  drums?: number[][];
+  /** The audio track. */
+  backing?: number;
+}
+
+/** Mirrors `AutomationData` in `src-tauri/src/audio/mixing.rs`: lanes in ticks. */
+export interface EngineAutomation {
+  enabled: boolean;
+  volume: [number, number][];
+  pan: [number, number][];
+  mute: [number, number][];
+}
+
+/** Mirrors `DrumMixData` in `src-tauri/src/audio/mod.rs`. */
+export interface EngineDrumMix {
+  stereo: boolean;
+  elements: { keys: number[]; mix: BusMix }[];
+  other: BusMix;
+}
+
+/** Mirrors `BackingSource`: where the audio track comes from. */
+export type BackingSource =
+  { type: "file"; path: string } | { type: "embedded"; scorePath: string; name: string };
+
+/** Mirrors `BackingInfo`: what the engine learnt about a recording. */
+export interface BackingInfo {
+  name: string;
+  durationMs: number;
+  sampleRate: number;
+  channels: number;
+  /** Loudest sample per 1/`peaksPerSecond` s (0…1). */
+  peaks: number[];
+  peaksPerSecond: number;
 }
 
 /** Mirrors `EngineStatus` in `src-tauri/src/audio/mod.rs`. */
@@ -443,6 +609,7 @@ export type TransportCommand =
   | { type: "loop"; startTick: number | null; endTick: number | null }
   | { type: "metronome"; volume: number }
   | { type: "masterVolume"; value: number }
+  | { type: "masterPan"; value: number }
   | { type: "preview"; channel: number; key: number; velocity: number };
 
 /** Mirrors `BlockProblem` in `src-tauri/src/audio/chain.rs`. */
@@ -485,8 +652,49 @@ export const engineState = () => call<EngineStatus>("audio_state");
  * Sets the effect chain of a track (`track: null` for the master bus).
  * Resolves to the blocks that cannot run (missing library items and so on).
  */
-export const setEngineChain = (track: number | null, slots: EffectSlot[]) =>
-  call<BlockProblem[]>("audio_set_chain", { track, slots });
+export const setEngineChain = (track: number | null, slots: EffectSlot[], sound = 0) =>
+  call<BlockProblem[]>("audio_set_chain", { track, slots, sound });
+
+/**
+ * Every sound (effect chain) of a track and where it switches: `switches` are
+ * `[tick, sound]`. Resolves to the problems of each sound's chain.
+ */
+export const setEngineSounds = (
+  track: number,
+  sounds: EffectSlot[][],
+  switches: [number, number][],
+) => call<BlockProblem[][]>("audio_set_sounds", { track, sounds, switches });
+
+export const setEngineAutomation = (track: number, automation: EngineAutomation) =>
+  call<void>("audio_set_automation", { track, automation });
+
+export const setEngineTrackEq = (track: number, eq: TrackEq) =>
+  call<void>("audio_set_track_eq", { track, eq });
+
+/** Splits a drum track into elements with their own mix (`null` joins it back). */
+export const setEngineDrumMix = (track: number, drums: EngineDrumMix | null) =>
+  call<void>("audio_set_drum_mix", { track, drums });
+
+/** Opens a recording as the audio track. */
+export const loadEngineBacking = (source: BackingSource) =>
+  call<BackingInfo>("audio_load_backing", { source });
+
+/** Audio track settings and sync points (`tick`: start of the synced bar). */
+export const setEngineBacking = (params: BackingParams, sync: { tick: number; ms: number }[]) =>
+  call<void>("audio_set_backing", { params, sync });
+
+export const clearEngineBacking = () => call<void>("audio_clear_backing");
+
+/** Native Open dialog for an audio track recording. */
+export async function pickAudioFile(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: "Add an audio track",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Audio files", extensions: [...AUDIO_EXTENSIONS] }],
+  });
+}
 
 /** Interleaved stereo float samples of the whole song, with effects. */
 export async function renderEngineAudio(sampleRate: number): Promise<Float32Array> {

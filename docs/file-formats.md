@@ -17,7 +17,18 @@ Songs opened from MIDI or MusicXML are _converted_: Save never overwrites the or
 
 The native format is a Guitar Pro 7 file. It is an open container (a ZIP archive holding an XML score and small configuration files), it is written by alphaTab's exporter (MPL-2.0, the library Smart Beat already uses to read and render scores), and Guitar Pro 7 and 8 open it. Choosing it over a format of our own means files are not locked to Smart Beat, and everything alphaTab can write (techniques, chords, sections, repeats, tempo changes, lyrics) survives.
 
-The mixer (volume, pan, mute, solo of each track) is written into the file. The master volume is not: a `.gp` file has no place for it.
+The mixer (volume, pan, mute, solo of each track) is written into the file, where Guitar Pro reads it.
+
+Everything Guitar Pro has no place for goes into a `SmartBeat/settings.json` entry in the file's ZIP archive (`src-tauri/src/project.rs`):
+
+- master volume and pan;
+- effect chains, sounds and sound switches;
+- channel EQ, automation, focus and the drum mixer;
+- the audio track and chain presets saved with the song.
+
+It is the same JSON as the app's own mixer settings (`MixerSettings`, version 2; version 1 files still load). When the user asks for it, the audio track's recording is stored too, as `SmartBeat/audio/<file name>`, uncompressed.
+
+Guitar Pro and alphaTab ignore entries they do not know, so the file opens everywhere. On open, these settings take priority over the app's settings for the file. For other formats, the app's settings (keyed by the file's content hash) are used.
 
 ## Guitar Pro 5 (`.gp5`)
 
