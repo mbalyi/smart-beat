@@ -15,13 +15,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Glyph,
-  MarkText,
-  PaletteButton,
-  PaletteSection,
-  type SmuflName,
-} from "@/components/score/palette-button";
+import { Glyph, MarkText, PaletteButton, PaletteSection } from "@/components/score/palette-button";
+import type { SmuflName } from "@/lib/score/smufl";
 import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import type { EffectsInfo, ToggleState } from "@/lib/score/editor";
