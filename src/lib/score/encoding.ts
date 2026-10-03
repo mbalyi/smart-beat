@@ -49,7 +49,10 @@ const utf8 = new TextEncoder();
  * The bytes of `text` in `encoding`. Characters the code page lacks become
  * "?" and are counted in `lost`.
  */
-export function encodeText(text: string, encoding: TextEncodingId): { bytes: Uint8Array; lost: number } {
+export function encodeText(
+  text: string,
+  encoding: TextEncodingId,
+): { bytes: Uint8Array; lost: number } {
   if (encoding === "utf-8") return { bytes: utf8.encode(text), lost: 0 };
   const map = reverseTable(encoding);
   const bytes: number[] = [];
@@ -82,7 +85,8 @@ function score(page: CodePage, bytes: Uint8Array): number {
   for (const byte of bytes) {
     if (byte < 0x80 || own[byte] === other[byte]) continue;
     const char = own[byte]!;
-    if (!/\p{L}/u.test(char)) points -= 1; // a symbol inside a name is unlikely
+    if (!/\p{L}/u.test(char))
+      points -= 1; // a symbol inside a name is unlikely
     else if (page === "windows-1250") points += CENTRAL.has(char) ? 2 : 1;
     else points += RARE_WESTERN.has(char) ? 0.5 : 2;
   }
@@ -102,7 +106,10 @@ function isUtf8(bytes: Uint8Array): boolean {
  * Picks the encoding of a GP3–5 file from its strings, each given as the bytes
  * it was stored as. Plain ASCII files keep Windows-1252.
  */
-export function detectEncoding(strings: Uint8Array[], language = defaultLanguage()): TextEncodingId {
+export function detectEncoding(
+  strings: Uint8Array[],
+  language = defaultLanguage(),
+): TextEncodingId {
   const nonAscii = strings.filter((s) => s.some((b) => b >= 0x80));
   if (nonAscii.length === 0) return "windows-1252";
   if (nonAscii.every(isUtf8)) return "utf-8";
@@ -112,7 +119,8 @@ export function detectEncoding(strings: Uint8Array[], language = defaultLanguage
     central += score("windows-1250", s);
     western += score("windows-1252", s);
   }
-  if (central === western) return CENTRAL_LANGUAGES.test(language) ? "windows-1250" : "windows-1252";
+  if (central === western)
+    return CENTRAL_LANGUAGES.test(language) ? "windows-1250" : "windows-1252";
   return central > western ? "windows-1250" : "windows-1252";
 }
 

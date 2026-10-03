@@ -13,8 +13,8 @@
     <style>
       /* Startup splash (#53): black from the first frame, the animated logo on top
          until the app is ready (see src/lib/splash.ts). */
-      html,
-      body {
+      html:has(#splash),
+      html:has(#splash) body {
         background: #000;
       }
       #splash {

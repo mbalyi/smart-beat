@@ -8,6 +8,7 @@ import {
   scoreRegion,
   tabNumbers,
   test,
+  waitForAnimations,
 } from "./fixtures";
 
 /**
@@ -123,6 +124,7 @@ test.describe("note entry and editing (#9)", () => {
   test("places the cursor by clicking a note in the score", async ({ app }) => {
     await openSong(app);
     await app.getByRole("button", { name: "Edit" }).click();
+    await waitForAnimations(app); // the palette slides in and moves the score
     await expect(scoreRegion(app)).toBeFocused();
     const before = await tabNumbers(app);
 

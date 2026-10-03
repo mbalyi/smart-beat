@@ -1,6 +1,5 @@
 import { screen, within } from "@testing-library/react";
 
-
 import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { DRUM_MIDI_MAP } from "@/lib/score/drum-map";
 import type { NoteInfo } from "@/lib/score/editor";
@@ -129,9 +128,7 @@ describe("InstrumentPanel: drums", () => {
   it("shows which drums are hit", async () => {
     setup({ kind: "drums", tuning: [], active: [note(null, null, 38), note(null, null, 42)] });
     expect(screen.getByRole("region", { name: "Drum pads" })).toBeInTheDocument();
-    expect(screen.getByRole("img")).toHaveAccessibleName(
-      "Drum pads. Snare (hit), Hi-Hat (closed)",
-    );
+    expect(screen.getByRole("img")).toHaveAccessibleName("Drum pads. Snare (hit), Hi-Hat (closed)");
     await expectNoA11yViolations();
   });
 
@@ -153,13 +150,13 @@ describe("InstrumentPanel: drums", () => {
       expect(within(pad).getByTestId("drum-pad-number")).toHaveTextContent(key);
     }
     // The main kit comes first, in Guitar Pro's order, then the percussion.
-    const kit = within(screen.getByRole("region", { name: "Drum kit" })).getAllByRole("button");
+    const kit = within(screen.getByRole("group", { name: "Drum kit" })).getAllByRole("button");
     expect(kit.slice(0, 3).map((b) => b.getAttribute("aria-label"))).toEqual([
       "38 Snare (hit)",
       "37 Snare (side stick)",
       "91 Snare (rim shot)",
     ]);
-    expect(screen.getByRole("region", { name: "Percussion" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Percussion" })).toBeInTheDocument();
     // A number outside the map gets its own pad.
     expect(screen.getByRole("button", { name: "130 Drum sound 130" })).toBeInTheDocument();
   });

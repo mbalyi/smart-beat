@@ -33,7 +33,8 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
   const props = {
     beat: BEAT,
     voice: 0,
-    stringed: true,
+    dots: () => "off" as const,
+    tie: "off" as const,
     status: "Bar 1, beat 1 of 4, string 1 (E), fret 3, Quarter",
     message: "Fret 3 on string 1",
     actions,
@@ -61,6 +62,8 @@ describe("EditToolbar", () => {
   it("changes the rhythm and gives focus back to the score", async () => {
     const { user, actions } = setup({
       beat: { ...BEAT, dots: 1, notes: [{ ...BEAT.notes[0]!, tied: true }] },
+      dots: (count) => (count === 1 ? "on" : "off"),
+      tie: "on",
     });
 
     await user.click(screen.getByRole("radio", { name: "Eighth" }));
@@ -108,9 +111,35 @@ describe("EditToolbar", () => {
     expect(fireEvent.mouseDown(screen.getByRole("combobox", { name: "Tuplet" }))).toBe(true);
   });
 
-  it("explains the dot and tuplet controls in tooltips", async () => {
+  it("names every button and shows its shortcut in a tooltip", async () => {
     const { user } = setup();
     await user.hover(screen.getByRole("button", { name: "Dot" }));
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("half as long again");
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Dot (.)");
+  });
+
+  it("draws notation icons with Bravura, every button the same size (#53)", () => {
+    setup();
+    expect(
+      screen.getByRole("radio", { name: "Quarter" }).querySelector("[data-glyph]"),
+    ).toHaveAttribute("data-glyph", "noteQuarterUp");
+    expect(
+      screen.getByRole("button", { name: "Rest" }).querySelector("[data-glyph]"),
+    ).toHaveAttribute("data-glyph", "restQuarter");
+    for (const button of screen
+      .getAllByRole("button")
+      .filter((b) => b.dataset.slot === "palette-button")) {
+      expect(button.className).toContain("size-8");
+      expect(button).toHaveAccessibleName();
+    }
+  });
+
+  it("shows a selection where only some beats are dotted as mixed (#53)", () => {
+    setup({ dots: (count) => (count === 1 ? "mixed" : "off"), tie: "mixed" });
+    expect(screen.getByRole("button", { name: "Dot" })).toHaveAttribute("aria-pressed", "mixed");
+    expect(screen.getByRole("button", { name: "Tie" })).toHaveAttribute("aria-pressed", "mixed");
+    expect(screen.getByRole("button", { name: "Double dot" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 });

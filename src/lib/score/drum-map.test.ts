@@ -101,7 +101,9 @@ describe("drum numbers and the keys they play (#53)", () => {
   });
 
   it("has an output key below 88 for every articulation above 87", () => {
-    for (const id of Object.keys(DRUM_MIDI_MAP).map(Number).filter((n) => n > 87)) {
+    for (const id of Object.keys(DRUM_MIDI_MAP)
+      .map(Number)
+      .filter((n) => n > 87)) {
       expect(drumOutputKey(id), String(id)).toBeLessThanOrEqual(87);
     }
   });

@@ -1,9 +1,4 @@
-import {
-  defaultEncoding,
-  detectEncoding,
-  encodeText,
-  encodingFor,
-} from "@/lib/score/encoding";
+import { defaultEncoding, detectEncoding, encodeText, encodingFor } from "@/lib/score/encoding";
 
 const bytes = (text: string, encoding: "windows-1250" | "windows-1252" | "utf-8") =>
   encodeText(text, encoding).bytes;

@@ -10,6 +10,8 @@ declare global {
   interface Window {
     /** Set by index.html when the splash appears. */
     __splashShownAt?: number;
+    /** Tests that are not about the splash shorten it (set before the page loads). */
+    __splashMinMs?: number;
   }
 }
 
@@ -21,7 +23,11 @@ function hideSplash() {
   if (image) fallBackToStill(image, "/splash.png");
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   requestAnimationFrame(() =>
-    hideSplashWhenReady(splash, { shownAt: window.__splashShownAt ?? 0, reducedMotion }),
+    hideSplashWhenReady(splash, {
+      shownAt: window.__splashShownAt ?? 0,
+      reducedMotion,
+      minimumMs: window.__splashMinMs,
+    }),
   );
 }
 

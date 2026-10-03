@@ -117,7 +117,13 @@ export function ShortcutsDialog({ open, onOpenChange, onCloseAutoFocus }: AppDia
             Shortcuts for the menu bar on this computer, and for writing music in the score.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody>
+        {/* Focusable, so the list can be scrolled with the keyboard. */}
+        <DialogBody
+          tabIndex={0}
+          role="region"
+          aria-label="Shortcuts list"
+          className="outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
           <div className="flex flex-col gap-5">
             <ShortcutList />
             <EditorShortcuts />

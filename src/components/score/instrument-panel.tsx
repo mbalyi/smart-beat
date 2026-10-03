@@ -443,10 +443,17 @@ function DrumPads({
       className="flex flex-col gap-2"
     >
       {groups.map((group) => (
-        <section key={group.label} aria-label={editing ? group.label : undefined}>
-          <h3 className="mb-1 text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase">
+        <div
+          key={group.label}
+          role={editing ? "group" : undefined}
+          aria-label={editing ? group.label : undefined}
+        >
+          <div
+            aria-hidden="true"
+            className="mb-1 text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase"
+          >
             {group.label}
-          </h3>
+          </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-1">
             {group.pads.map((pad) => {
               const on = hits.includes(pad.id);
@@ -491,7 +498,7 @@ function DrumPads({
               );
             })}
           </div>
-        </section>
+        </div>
       ))}
     </div>
   );

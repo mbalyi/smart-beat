@@ -12,7 +12,11 @@ export class ByteWriter {
    * Guitar Pro 5 reads text in the computer's code page: Windows-1252 or
    * Windows-1250 for most users (#53). UTF-8 is for files read as UTF-8.
    */
-  constructor(readonly encoding: TextEncodingId = "windows-1252") {}
+  readonly encoding: TextEncodingId;
+
+  constructor(encoding: TextEncodingId = "windows-1252") {
+    this.encoding = encoding;
+  }
 
   private encode(text: string, max = Infinity): Uint8Array {
     const { bytes, lost } = encodeText(text, this.encoding);

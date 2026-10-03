@@ -14,6 +14,8 @@ export interface SplashOptions {
   shownAt: number;
   now?: () => number;
   reducedMotion?: boolean;
+  /** Shortest time on screen (default {@link SPLASH_MIN_MS}). */
+  minimumMs?: number;
   schedule?: (fn: () => void, ms: number) => unknown;
 }
 
@@ -21,7 +23,7 @@ export interface SplashOptions {
 export function hideSplashWhenReady(splash: HTMLElement, options: SplashOptions) {
   const now = options.now ?? (() => performance.now());
   const schedule = options.schedule ?? ((fn, ms) => window.setTimeout(fn, ms));
-  const wait = Math.max(0, options.shownAt + SPLASH_MIN_MS - now());
+  const wait = Math.max(0, options.shownAt + (options.minimumMs ?? SPLASH_MIN_MS) - now());
   schedule(() => {
     const remove = () => splash.remove();
     splash.classList.add("done");

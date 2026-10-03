@@ -25,7 +25,11 @@ import { BarProblems } from "@/components/score/bar-problems";
 import { BendDialog, type CurveKind } from "@/components/score/bend-dialog";
 import { ChordDialog } from "@/components/score/chord-dialog";
 import { EditToolbar, type EditActions } from "@/components/score/edit-toolbar";
-import { EffectsToolbar, type EffectActions } from "@/components/score/effects-toolbar";
+import {
+  EffectsToolbar,
+  type EffectActions,
+  type PaletteState,
+} from "@/components/score/effects-toolbar";
 import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
@@ -787,9 +791,18 @@ export function ScoreWorkspace({
     onGrace: (type) => editor.setGrace(type),
     onBend: () => openCurve("bend"),
     onWhammy: () => openCurve("whammy"),
+    onFermata: () => editor.toggleFermata(),
+    onRepeat: (side) => editor.toggleRepeat(side),
     onText: () => setTextDialogOpen(true),
     onChord: () => setChordDialogOpen(true),
+    onLyrics: () => openLyrics(trackObject),
     onDone: () => focusScore(),
+  };
+  const paletteState: PaletteState = {
+    effect: (scope, id, value) => editor.effectState(scope, id, value),
+    fermata: editor.fermataState,
+    repeatStart: editor.repeatState("start"),
+    repeatEnd: editor.repeatState("end"),
   };
 
   /** Chord names for the selected notes (or the cursor's), in the key's spelling. */
@@ -1614,13 +1627,19 @@ export function ScoreWorkspace({
           <EditToolbar
             beat={editor.beatInfo}
             voice={editor.cursor.voice}
-            stringed={track.kind === "stringed"}
+            dots={(count) => editor.beatsState((b) => b.dots === count)}
+            tie={editor.beatsState((b) => b.notes.some((n) => n.isTieDestination))}
             status={editor.describeCursor()}
             message={editor.message}
             actions={editActions}
             statusId={statusId}
           />
-          <EffectsToolbar effects={effects} kind={track.kind} actions={effectActions} />
+          <EffectsToolbar
+            effects={effects}
+            state={paletteState}
+            kind={track.kind}
+            actions={effectActions}
+          />
         </NotePalette>
         {/* Scrolls as a whole when the window is too short for all of it. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">

@@ -1,8 +1,12 @@
 import { model } from "@coderline/alphatab";
 import { screen, within } from "@testing-library/react";
 
-import { EffectsToolbar, type EffectActions } from "@/components/score/effects-toolbar";
-import { ScoreEditor, type EffectsInfo } from "@/lib/score/editor";
+import {
+  EffectsToolbar,
+  type EffectActions,
+  type PaletteState,
+} from "@/components/score/effects-toolbar";
+import { ScoreEditor } from "@/lib/score/editor";
 import type { TrackKind } from "@/lib/score/music";
 import { createSong } from "@/lib/score/tracks";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -10,33 +14,52 @@ import { renderWithProviders } from "@/test/render";
 
 const { GraceType, HarmonicType, SlideOutType, VibratoType } = model;
 
-/** The effects of a note: fret 5 with palm mute and wide vibrato (or of an empty beat). */
-function effectsOf({ note = true } = {}): EffectsInfo {
+/** An editor on a note: fret 5 with palm mute and wide vibrato (or on an empty beat). */
+function editorOf({ note = true } = {}): ScoreEditor {
   const editor = new ScoreEditor(createSong());
-  if (!note) return editor.effects;
+  if (!note) return editor;
   editor.typeDigit(5);
   editor.toggleNoteEffect("palmMute");
   editor.setNoteEffect("vibrato", VibratoType.Wide);
-  return editor.effects;
+  return editor;
 }
 
-function setup({ effects = effectsOf(), kind = "stringed" as TrackKind } = {}) {
+const stateOf = (editor: ScoreEditor): PaletteState => ({
+  effect: (scope, id, value) => editor.effectState(scope, id, value),
+  fermata: editor.fermataState,
+  repeatStart: editor.repeatState("start"),
+  repeatEnd: editor.repeatState("end"),
+});
+
+function setup({
+  editor = editorOf(),
+  kind = "stringed" as TrackKind,
+  state,
+}: { editor?: ScoreEditor; kind?: TrackKind; state?: Partial<PaletteState> } = {}) {
   const actions: EffectActions = {
     onToggleNote: vi.fn(),
     onNoteEffect: vi.fn(),
     onToggleBeat: vi.fn(),
     onBeatEffect: vi.fn(),
     onGrace: vi.fn(),
+    onFermata: vi.fn(),
+    onRepeat: vi.fn(),
     onBend: vi.fn(),
     onWhammy: vi.fn(),
     onText: vi.fn(),
     onChord: vi.fn(),
+    onLyrics: vi.fn(),
     onDone: vi.fn(),
   };
   const utils = renderWithProviders(
-    <EffectsToolbar effects={effects} kind={kind} actions={actions} />,
+    <EffectsToolbar
+      effects={editor.effects}
+      state={{ ...stateOf(editor), ...state }}
+      kind={kind}
+      actions={actions}
+    />,
   );
-  return { ...utils, actions };
+  return { ...utils, actions, editor };
 }
 
 describe("EffectsToolbar", () => {
@@ -138,7 +161,7 @@ describe("EffectsToolbar", () => {
   });
 
   it("disables note effects without a note", () => {
-    setup({ effects: effectsOf({ note: false }) });
+    setup({ editor: editorOf({ note: false }) });
     expect(screen.getByRole("button", { name: "Palm mute" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Bend…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Whammy…" })).toBeDisabled();
@@ -161,6 +184,96 @@ describe("EffectsToolbar", () => {
     expect(screen.queryByRole("button", { name: "Staccato" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Picking" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Vibrato and trill" })).not.toBeInTheDocument();
+    await expectNoA11yViolations();
+  });
+
+  it("gives every modifier an icon button with a name (#53)", () => {
+    setup();
+    const buttons = screen
+      .getAllByRole("button")
+      .filter((b) => b.dataset.slot === "palette-button");
+    expect(buttons.length).toBeGreaterThan(30);
+    for (const button of buttons) {
+      expect(button).toHaveAccessibleName();
+      expect(button.className).toContain("size-8");
+      // An icon: a Bravura glyph, a Lucide icon or a short text mark.
+      expect(button.querySelector("[data-glyph], svg, span[aria-hidden]")).not.toBeNull();
+    }
+    for (const name of [
+      "Accent",
+      "Heavy accent",
+      "Tenuto",
+      "Staccato",
+      "Fermata",
+      "Piano (p)",
+      "Fortissimo (ff)",
+      "Crescendo",
+      "Decrescendo",
+      "Sharp",
+      "Flat",
+      "Natural",
+      "8va (an octave higher)",
+      "Grace note",
+      "Trill",
+      "Downstroke",
+      "Upstroke",
+      "Arpeggio up",
+      "Tremolo picking",
+      "Fade in",
+      "Repeat start",
+      "Repeat end",
+      "Lyrics…",
+    ]) {
+      expect(screen.getByRole("button", { name }), name).toBeInTheDocument();
+    }
+    expect(
+      screen.getByRole("button", { name: "Fermata" }).querySelector("[data-glyph]"),
+    ).toHaveAttribute("data-glyph", "fermataAbove");
+  });
+
+  it("shows dynamics as an exclusive group with one pressed button (#53)", async () => {
+    const editor = editorOf();
+    editor.setBeatEffect("dynamics", model.DynamicValue.PP);
+    const { user, actions } = setup({ editor });
+    const group = screen.getByRole("group", { name: "Dynamics" });
+    const pressed = within(group)
+      .getAllByRole("button")
+      .filter((b) => b.getAttribute("aria-pressed") === "true");
+    expect(pressed.map((b) => b.getAttribute("aria-label"))).toEqual(["Pianissimo (pp)"]);
+    await user.click(within(group).getByRole("button", { name: "Fortissimo (ff)" }));
+    expect(actions.onBeatEffect).toHaveBeenCalledWith("dynamics", model.DynamicValue.FF);
+  });
+
+  it("follows the selection: pressed, mixed or not (#53)", () => {
+    const editor = editorOf();
+    editor.typeDigit(5); // no: stays on the same beat; add a second beat
+    editor.moveBeat(1);
+    editor.typeDigit(7);
+    editor.moveBeat(-1, true); // select both: palm mute only on the first
+    setup({ editor });
+    expect(screen.getByRole("button", { name: "Palm mute" })).toHaveAttribute(
+      "aria-pressed",
+      "mixed",
+    );
+    expect(screen.getByRole("button", { name: "Let ring" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("puts fermatas and repeats on and opens the lyrics", async () => {
+    const { user, actions } = setup({ state: { repeatStart: true, fermata: "on" } });
+    expect(screen.getByRole("button", { name: "Repeat start" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Fermata" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Fermata" }));
+    await user.click(screen.getByRole("button", { name: "Repeat end" }));
+    await user.click(screen.getByRole("button", { name: "Lyrics…" }));
+    expect(actions.onFermata).toHaveBeenCalled();
+    expect(actions.onRepeat).toHaveBeenCalledWith("end");
+    expect(actions.onLyrics).toHaveBeenCalled();
     await expectNoA11yViolations();
   });
 });

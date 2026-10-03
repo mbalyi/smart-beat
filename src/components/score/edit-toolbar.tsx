@@ -4,11 +4,15 @@ import {
   BetweenVerticalStartIcon,
   Columns3CogIcon,
   LinkIcon,
-  RemoveFormattingIcon,
   Trash2Icon,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import {
+  Glyph,
+  PaletteButton,
+  PaletteSection,
+  type SmuflName,
+} from "@/components/score/palette-button";
 import {
   Select,
   SelectContent,
@@ -17,24 +21,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tip } from "@/components/ui/tip";
-import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { BeatInfo } from "@/lib/score/editor";
+import type { BeatInfo, ToggleState } from "@/lib/score/editor";
 import { NOTE_VALUES, TUPLETS, tupletKey, type Duration, type Tuplet } from "@/lib/score/music";
 
-/** One or two augmentation dots, drawn (music symbols are missing from many system fonts). */
-function Dots({ count }: { count: 1 | 2 }) {
-  return (
-    <span aria-hidden="true" className="inline-flex items-center gap-1">
-      {Array.from({ length: count }, (_, i) => (
-        <span key={i} className="size-1.5 rounded-full bg-current" />
-      ))}
-    </span>
-  );
-}
+/** Radio items in the palette: the size of every other palette button, GP blue when chosen. */
+const CHOICE =
+  "size-8 min-w-8 overflow-hidden p-0 border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground data-[state=on]:border-sky-500 data-[state=on]:bg-sky-700 data-[state=on]:text-white";
 
-/** Note values as fractions (music symbols are missing from many system fonts). */
-const fraction = (duration: number) => (duration === 1 ? "1" : `1/${duration}`);
+/** The note value glyph of each duration. */
+const NOTE_GLYPHS: Record<number, SmuflName> = {
+  1: "noteWhole",
+  2: "noteHalfUp",
+  4: "noteQuarterUp",
+  8: "note8thUp",
+  16: "note16thUp",
+  32: "note32ndUp",
+  64: "note64thUp",
+};
 
 export interface EditActions {
   onDuration: (duration: Duration) => void;
@@ -61,16 +65,19 @@ export interface EditActions {
 export function EditToolbar({
   beat,
   voice,
-  stringed,
   status,
   message,
   actions,
   statusId,
+  dots,
+  tie,
 }: {
   beat: BeatInfo;
+  /** Dotted / double-dotted on the selection (or the cursor's beat). */
+  dots: (count: 1 | 2) => ToggleState;
+  /** Tied notes on the selection (or the cursor's beat). */
+  tie: ToggleState;
   voice: number;
-  /** Tab track: ties apply to the note on the cursor's string. */
-  stringed: boolean;
   /** Where the cursor is ("Bar 3, beat 2 of 4, string 1 (E), fret 5, Quarter"). */
   status: string;
   /** Feedback on the last command, announced to screen readers. */
@@ -89,16 +96,15 @@ export function EditToolbar({
       action(...args);
       actions.onDone();
     };
-  const tied = beat.notes.some((note) => note.tied);
 
   return (
     <div
       role="toolbar"
       aria-label="Edit"
       onMouseDown={keepFocus}
-      className="flex flex-col gap-2 border-b px-3 py-3"
+      className="flex flex-col gap-3 border-b px-3 py-3"
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+      <PaletteSection title="Voice and note value">
         <ToggleGroup
           type="single"
           variant="outline"
@@ -108,62 +114,78 @@ export function EditToolbar({
           value={String(voice)}
           onValueChange={(value) => value && then(actions.onVoice)(Number(value))}
         >
-          <ToggleGroupItem value="0" aria-label="Voice 1" title="Voice 1 (V switches)">
+          <ToggleGroupItem
+            value="0"
+            aria-label="Voice 1"
+            title="Voice 1 (V switches)"
+            className={CHOICE}
+          >
             1
           </ToggleGroupItem>
-          <ToggleGroupItem value="1" aria-label="Voice 2" title="Voice 2 (V switches)">
+          <ToggleGroupItem
+            value="1"
+            aria-label="Voice 2"
+            title="Voice 2 (V switches)"
+            className={CHOICE}
+          >
             2
           </ToggleGroupItem>
         </ToggleGroup>
-
         <ToggleGroup
           type="single"
           variant="outline"
           size="sm"
-          spacing={0}
+          spacing={1}
           aria-label="Note value"
           className="flex-wrap"
           value={String(beat.duration)}
           onValueChange={(value) => value && then(actions.onDuration)(Number(value) as Duration)}
         >
-          {NOTE_VALUES.map(({ duration, label }) => (
+          {NOTE_VALUES.map(({ duration, label }, i) => (
             <ToggleGroupItem
               key={duration}
               value={String(duration)}
               aria-label={label}
-              title={label}
-              className="min-w-9 tabular-nums"
+              title={`${label} (${i + 1})`}
+              className={CHOICE}
             >
-              <span aria-hidden="true">{fraction(duration)}</span>
+              <Glyph
+                name={NOTE_GLYPHS[duration] ?? "noteQuarterUp"}
+                className={duration === 1 ? "[translate:0_-0.05em]" : undefined}
+              />
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+      </PaletteSection>
 
-        <div className="flex gap-1">
-          <Toggle
-            variant="outline"
-            size="sm"
-            pressed={beat.dots === 1}
-            onPressedChange={then(() => actions.onDots(1))}
-            aria-label="Dot"
-            title="Dotted: half as long again (.)"
-            className="min-w-8"
-          >
-            <Dots count={1} />
-          </Toggle>
-          <Toggle
-            variant="outline"
-            size="sm"
-            pressed={beat.dots === 2}
-            onPressedChange={then(() => actions.onDots(2))}
-            aria-label="Double dot"
-            title="Double dotted: three quarters as long again"
-            className="min-w-8"
-          >
-            <Dots count={2} />
-          </Toggle>
-        </div>
-
+      <PaletteSection title="Rhythm">
+        <PaletteButton
+          label="Dot"
+          shortcut="."
+          state={dots(1)}
+          onClick={then(() => actions.onDots(1))}
+        >
+          <Glyph name="augmentationDot" className="[translate:0_-0.05em] text-[2.2rem]" />
+        </PaletteButton>
+        <PaletteButton label="Double dot" state={dots(2)} onClick={then(() => actions.onDots(2))}>
+          <span className="flex gap-0.5">
+            <Glyph name="augmentationDot" className="[translate:0_-0.05em] text-[2.2rem]" />
+            <Glyph name="augmentationDot" className="[translate:0_-0.05em] text-[2.2rem]" />
+          </span>
+        </PaletteButton>
+        <PaletteButton label="Tie" shortcut="T" state={tie} onClick={then(actions.onTie)}>
+          <LinkIcon className="size-4" aria-hidden="true" />
+        </PaletteButton>
+        <PaletteButton label="Rest" shortcut="R" onClick={then(actions.onRest)}>
+          <Glyph name="restQuarter" />
+        </PaletteButton>
+        <PaletteButton
+          label="Fill bar with rests"
+          shortcut="Shift+R"
+          onClick={then(actions.onFillRests)}
+        >
+          <AlignJustifyIcon className="size-4" aria-hidden="true" />
+        </PaletteButton>
         <Tip label="Tuplet: play 3, 5, 6… notes in the time of 2, 4 or 8">
           <span className="inline-flex" id={tupletLabelId}>
             <Select
@@ -173,7 +195,7 @@ export function EditToolbar({
                 if (tuplet) then(actions.onTuplet)(tuplet);
               }}
             >
-              <SelectTrigger size="sm" aria-label="Tuplet" className="w-32">
+              <SelectTrigger size="sm" aria-label="Tuplet" className="h-8 w-[6.5rem] px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -186,59 +208,23 @@ export function EditToolbar({
             </Select>
           </span>
         </Tip>
+      </PaletteSection>
 
-        <div className="flex gap-1">
-          <Button variant="outline" size="sm" onClick={then(actions.onRest)} title="Rest (R)">
-            <RemoveFormattingIcon data-icon="inline-start" />
-            <span className="sr-only">Rest</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={then(actions.onFillRests)}
-            title="Fill the bar with rests of this note value (Shift+R)"
-          >
-            <AlignJustifyIcon data-icon="inline-start" />
-            <span className="sr-only">Fill bar with rests</span>
-          </Button>
-          <Toggle
-            variant="outline"
-            size="sm"
-            pressed={tied}
-            onPressedChange={then(actions.onTie)}
-            title={stringed ? "Tie the note on this string (T)" : "Tie (T)"}
-          >
-            <LinkIcon data-icon="inline-start" />
-            <span className="sr-only">Tie</span>
-          </Toggle>
-        </div>
-
-        <div className="flex gap-1">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={then(actions.onInsertBeat)}
-            aria-label="Insert beat"
-            title="Insert beat (I)"
-          >
-            <BetweenVerticalStartIcon />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={then(actions.onDeleteBeat)}
-            aria-label="Delete beat"
-            title="Delete beat (Shift+Delete)"
-          >
-            <Trash2Icon />
-          </Button>
-        </div>
-
-        <Button variant="outline" size="sm" onClick={actions.onBar} title="Bar settings (⌘B)">
-          <Columns3CogIcon data-icon="inline-start" />
-          <span className="sr-only">Bar…</span>
-        </Button>
-      </div>
+      <PaletteSection title="Beats and bars">
+        <PaletteButton label="Insert beat" shortcut="I" onClick={then(actions.onInsertBeat)}>
+          <BetweenVerticalStartIcon className="size-4" aria-hidden="true" />
+        </PaletteButton>
+        <PaletteButton
+          label="Delete beat"
+          shortcut="Shift+Delete"
+          onClick={then(actions.onDeleteBeat)}
+        >
+          <Trash2Icon className="size-4" aria-hidden="true" />
+        </PaletteButton>
+        <PaletteButton label="Bar…" shortcut="⌘B" onClick={actions.onBar}>
+          <Columns3CogIcon className="size-4" aria-hidden="true" />
+        </PaletteButton>
+      </PaletteSection>
       <p id={statusId} className="text-xs text-muted-foreground tabular-nums">
         {status}
       </p>

@@ -15,11 +15,15 @@ import type { TrackKind } from "@/lib/score/music";
 const {
   AccentuationType,
   BendPoint,
+  CrescendoType,
+  DynamicValue,
   BendType,
   BrushType,
   Duration,
   FadeType,
   HarmonicType,
+  NoteAccidentalMode,
+  Ottavia,
   PickStroke,
   Rasgueado,
   SlideInType,
@@ -300,6 +304,7 @@ export const NOTE_EFFECTS = {
       { value: AccentuationType.None, label: "No accent" },
       { value: AccentuationType.Normal, label: "Accent" },
       { value: AccentuationType.Heavy, label: "Heavy accent" },
+      { value: AccentuationType.Tenuto, label: "Tenuto" },
     ],
     get: (n) => n.accentuated,
     set: (n, value) => {
@@ -316,6 +321,26 @@ export const NOTE_EFFECTS = {
       n.isStaccato = on;
     },
   ),
+  accidental: {
+    id: "accidental",
+    label: "Accidental",
+    short: "♯/♭",
+    kinds: MELODIC,
+    scope: "note",
+    on: NoteAccidentalMode.ForceSharp,
+    choices: [
+      { value: NoteAccidentalMode.Default, label: "Automatic accidental" },
+      { value: NoteAccidentalMode.ForceSharp, label: "Sharp" },
+      { value: NoteAccidentalMode.ForceFlat, label: "Flat" },
+      { value: NoteAccidentalMode.ForceNatural, label: "Natural" },
+      { value: NoteAccidentalMode.ForceDoubleSharp, label: "Double sharp" },
+      { value: NoteAccidentalMode.ForceDoubleFlat, label: "Double flat" },
+    ],
+    get: (n) => n.accidentalMode,
+    set: (n, value) => {
+      n.accidentalMode = value;
+    },
+  },
   leftHandTap: noteFlag(
     "leftHandTap",
     "Left-hand tapping",
@@ -485,6 +510,66 @@ export const BEAT_EFFECTS = {
     get: (b) => b.wahPedal,
     set: (b, value) => {
       b.wahPedal = value;
+    },
+  },
+  dynamics: {
+    id: "dynamics",
+    label: "Dynamics",
+    short: "dyn.",
+    kinds: ALL,
+    scope: "beat",
+    // Forte is how alphaTab writes a beat without a marking: it counts as "off".
+    on: DynamicValue.MF,
+    choices: [
+      { value: DynamicValue.F, label: "Forte (f)" },
+      { value: DynamicValue.PPP, label: "Pianississimo (ppp)" },
+      { value: DynamicValue.PP, label: "Pianissimo (pp)" },
+      { value: DynamicValue.P, label: "Piano (p)" },
+      { value: DynamicValue.MP, label: "Mezzo-piano (mp)" },
+      { value: DynamicValue.MF, label: "Mezzo-forte (mf)" },
+      { value: DynamicValue.FF, label: "Fortissimo (ff)" },
+      { value: DynamicValue.FFF, label: "Fortississimo (fff)" },
+    ],
+    get: (b) => b.dynamics,
+    set: (b, value) => {
+      b.dynamics = value;
+      for (const note of b.notes) note.dynamics = value;
+    },
+  },
+  crescendo: {
+    id: "crescendo",
+    label: "Crescendo / decrescendo",
+    short: "cresc.",
+    kinds: ALL,
+    scope: "beat",
+    on: CrescendoType.Crescendo,
+    choices: [
+      { value: CrescendoType.None, label: "No hairpin" },
+      { value: CrescendoType.Crescendo, label: "Crescendo" },
+      { value: CrescendoType.Decrescendo, label: "Decrescendo" },
+    ],
+    get: (b) => b.crescendo,
+    set: (b, value) => {
+      b.crescendo = value;
+    },
+  },
+  ottava: {
+    id: "ottava",
+    label: "Ottava",
+    short: "8va",
+    kinds: MELODIC,
+    scope: "beat",
+    on: Ottavia._8va,
+    choices: [
+      { value: Ottavia.Regular, label: "No ottava" },
+      { value: Ottavia._8va, label: "8va (an octave higher)" },
+      { value: Ottavia._8vb, label: "8vb (an octave lower)" },
+      { value: Ottavia._15ma, label: "15ma (two octaves higher)" },
+      { value: Ottavia._15mb, label: "15mb (two octaves lower)" },
+    ],
+    get: (b) => b.ottava,
+    set: (b, value) => {
+      b.ottava = value;
     },
   },
 } satisfies Record<string, BeatEffect>;
