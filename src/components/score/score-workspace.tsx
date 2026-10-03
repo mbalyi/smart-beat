@@ -54,6 +54,7 @@ import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import {
+  MAX_MASTER_EFFECTS,
   MAX_TRACK_EFFECTS,
   withFocusBlock,
   type EffectSlot,
@@ -72,7 +73,14 @@ import {
   readAudioEnginePreference,
   storeAudioEnginePreference,
 } from "@/lib/audio/engine-preference";
-import { presetTargetOf } from "@/lib/audio/presets";
+import {
+  chainOf,
+  drumsOf,
+  presetTargetOf,
+  type Preset,
+  type PresetTarget,
+} from "@/lib/audio/presets";
+import { PresetBrowserDialog } from "@/components/audio/preset-browser-dialog";
 import { errorText } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
@@ -434,6 +442,14 @@ export function ScoreWorkspace({
   });
   const [textDialogOpen, setTextDialogOpen] = useState(false);
   const [chordDialogOpen, setChordDialogOpen] = useState(false);
+  /** The preset browser (#42): what it was opened for. */
+  const [presetBrowser, setPresetBrowser] = useState<{
+    open: boolean;
+    target: PresetTarget;
+    track: number | null;
+    sound: number;
+    targets?: PresetTarget[];
+  }>({ open: false, target: "guitar", track: null, sound: 0 });
   const [lyricsDialog, setLyricsDialog] = useState<{ open: boolean; track: Track | null }>({
     open: false,
     track: null,
@@ -945,6 +961,26 @@ export function ScoreWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [trackObject, track.kind, revision],
   );
+  /** Applies a preset from the browser to what it was opened for (#42). */
+  const applyPreset = (preset: Preset) => {
+    const { track, sound } = presetBrowser;
+    if (preset.kind === "drumMix") {
+      if (track === null) return;
+      changeMix({ type: "drums", track, drums: drumsOf(preset) });
+      changeMix({ type: "sound-effects", track, sound: 0, slots: chainOf(preset) });
+    } else if (preset.target === "master" || track === null) {
+      changeMix({ type: "master-effects", slots: chainOf(preset).slice(0, MAX_MASTER_EFFECTS) });
+    } else {
+      changeMix({
+        type: "sound-effects",
+        track,
+        sound,
+        slots: chainOf(preset).slice(0, MAX_TRACK_EFFECTS),
+      });
+    }
+    toast(`“${preset.name}” applied`);
+  };
+
   const pedalboardChain =
     pedalboard.track === null
       ? (mix.masterEffects ?? [])
@@ -1806,6 +1842,20 @@ export function ScoreWorkspace({
         target={pedalboardTarget}
         chain={pedalboardChain}
         onChange={changePedalboardChain}
+        onBrowsePresets={() =>
+          setPresetBrowser({
+            open: true,
+            target: pedalboardTarget.presetTarget,
+            track: pedalboard.track,
+            sound: pedalboard.sound,
+            targets:
+              pedalboard.track === null
+                ? ["master"]
+                : ([pedalboardTarget.presetTarget, "master"].filter(
+                    (t, i, all) => all.indexOf(t) === i,
+                  ) as PresetTarget[]),
+          })
+        }
         problems={
           audioEngine !== "native"
             ? []
@@ -1837,9 +1887,25 @@ export function ScoreWorkspace({
         engineOn={engineOn}
         onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
         busChain={soundEffects(mix, drumMixer.track, 0)}
+        onBrowsePresets={() =>
+          setPresetBrowser({
+            open: true,
+            target: "drums",
+            track: drumMixer.track,
+            sound: 0,
+            targets: ["drums"],
+          })
+        }
         onBusChainChange={(slots) =>
           changeMix({ type: "sound-effects", track: drumMixer.track, sound: 0, slots })
         }
+      />
+      <PresetBrowserDialog
+        open={presetBrowser.open}
+        onOpenChange={(open) => setPresetBrowser((b) => ({ ...b, open }))}
+        target={presetBrowser.target}
+        targets={presetBrowser.targets}
+        onApply={applyPreset}
       />
       <SoundLibraryDialog
         open={libraryOpen}

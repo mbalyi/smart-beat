@@ -1,9 +1,11 @@
 /**
- * Effect-chain presets: the bundled ones (a data file, `presets.json`, with
- * our own settings: no third-party presets or recordings) and the user's own,
- * kept in this browser's storage.
+ * Presets: the bundled ones (a data file, `presets.json`, with our own
+ * settings: no third-party presets or recordings) and the user's own, kept in
+ * this browser's storage. Two kinds (#42): an effect chain for a track or the
+ * master, and a drum mix (kit piece levels and pans plus the drum bus chain).
  */
 import type { TrackSummary } from "@/lib/score/score";
+import type { DrumMixer } from "@/lib/tauri";
 
 import { MAX_MASTER_EFFECTS, MAX_TRACK_EFFECTS, type EffectSlot } from "@/lib/audio/effects";
 import data from "@/lib/audio/presets.json";
@@ -28,13 +30,19 @@ export const TARGET_LABELS: Record<PresetTarget, string> = {
   master: "Master",
 };
 
+/** "chain": an effect chain; "drumMix": a drum mixer setting plus the drum bus chain. */
+export type PresetKind = "chain" | "drumMix";
+
 export interface Preset {
   id: string;
+  kind: PresetKind;
   name: string;
   target: PresetTarget;
   genres: Genre[];
   description: string;
   chain: EffectSlot[];
+  /** Drum mixes: the kit pieces' levels, pans and mono/stereo. */
+  drums?: DrumMixer;
   /** Saved by the user (can be deleted). */
   user?: boolean;
 }
@@ -55,7 +63,8 @@ export function readUserPresets(): Preset[] {
     return Array.isArray(parsed)
       ? (parsed as Preset[])
           .filter((p) => typeof p?.id === "string" && Array.isArray(p.chain))
-          .map((p) => ({ ...p, user: true }))
+          // Presets saved before drum mixes existed are chains.
+          .map((p) => ({ ...p, kind: p.kind ?? "chain", user: true }))
       : [];
   } catch {
     return [];
@@ -75,6 +84,7 @@ export function saveUserPreset(name: string, target: PresetTarget, chain: Effect
   const limit = target === "master" ? MAX_MASTER_EFFECTS : MAX_TRACK_EFFECTS;
   const preset: Preset = {
     id: `user:${target}:${name.trim().toLowerCase()}`,
+    kind: "chain",
     name: name.trim(),
     target,
     genres: [],
@@ -91,12 +101,42 @@ export function deleteUserPreset(id: string) {
   storeUserPresets(readUserPresets().filter((p) => p.id !== id));
 }
 
-/** Presets for a target, optionally of one genre (user presets always match). */
+/** Chain presets for a target, optionally of one genre (user presets always match). */
 export function presetsFor(target: PresetTarget, genre: Genre | null = null): Preset[] {
-  return [...BUILTIN_PRESETS, ...readUserPresets()].filter(
-    (p) => p.target === target && (genre === null || p.user || p.genres.includes(genre)),
+  return allPresets().filter(
+    (p) =>
+      p.kind === "chain" &&
+      p.target === target &&
+      (genre === null || p.user || p.genres.includes(genre)),
   );
 }
+
+/** Every preset, bundled and the user's. */
+export const allPresets = (): Preset[] => [...BUILTIN_PRESETS, ...readUserPresets()];
+
+export interface PresetFilter {
+  target?: PresetTarget | null;
+  genre?: Genre | null;
+  kind?: PresetKind | null;
+  /** Matches the name or the description. */
+  query?: string;
+}
+
+/** The preset browser's filter (#42). */
+export function filterPresets(presets: readonly Preset[], filter: PresetFilter): Preset[] {
+  const query = filter.query?.trim().toLowerCase() ?? "";
+  return presets.filter(
+    (p) =>
+      (!filter.target || p.target === filter.target) &&
+      (!filter.kind || p.kind === filter.kind) &&
+      (!filter.genre || p.user || p.genres.includes(filter.genre)) &&
+      (!query || `${p.name} ${p.description}`.toLowerCase().includes(query)),
+  );
+}
+
+/** A deep copy of a drum mix preset's kit settings. */
+export const drumsOf = (preset: Preset): DrumMixer | null =>
+  preset.drums ? structuredClone(preset.drums) : null;
 
 /** A deep copy of a preset's chain, ready to put on a track. */
 export const chainOf = (preset: Preset): EffectSlot[] => structuredClone(preset.chain);

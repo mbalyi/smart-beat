@@ -10,6 +10,7 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
   XIcon,
+  LibraryBigIcon,
 } from "lucide-react";
 
 import { GainReductionMeter } from "@/components/audio/level-meter";
@@ -503,7 +504,10 @@ export function PedalboardDialog({
   sounds,
   songPresets = [],
   onSongPresetsChange,
+  onBrowsePresets,
 }: {
+  /** Opens the preset browser (#42). */
+  onBrowsePresets?: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   target: PedalboardTarget;
@@ -730,6 +734,12 @@ export function PedalboardDialog({
                 </SelectContent>
               </Select>
             </div>
+            {onBrowsePresets && (
+              <Button variant="outline" size="sm" onClick={onBrowsePresets}>
+                <LibraryBigIcon data-icon="inline-start" />
+                Browse presets…
+              </Button>
+            )}
             <form
               className="flex items-end gap-1"
               onSubmit={(event) => {

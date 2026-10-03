@@ -239,6 +239,15 @@ fn every_bundled_preset_builds_and_sounds() {
             "{id}: unbounded"
         );
         assert!(rms(&out[out.len() / 2..]) > 0.001, "{id}: silent");
+        // Mastering presets end in a limiter (#42): nothing gets past its ceiling.
+        if let Some(ceiling) = slots.last().and_then(|s| match &s.effect {
+            EffectConfig::Limiter(p) => Some(p.ceiling_db),
+            _ => None,
+        }) {
+            let ceiling = 10f32.powf(ceiling / 20.0);
+            let peak = out.iter().fold(0.0f32, |a, s| a.max(s.abs()));
+            assert!(peak <= ceiling + 1e-5, "{id}: peak {peak} over {ceiling}");
+        }
     }
 }
 

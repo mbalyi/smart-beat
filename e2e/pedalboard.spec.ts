@@ -224,3 +224,90 @@ test.describe("compressor and mastering (#39)", () => {
     await expectNoA11yViolations(app);
   });
 });
+
+/** Heavy-genre presets and the preset browser (#42). */
+test.describe("preset browser (#42)", () => {
+  async function withEngine(app: Page) {
+    await openSong(app);
+    await app.getByRole("switch", { name: "Native engine with effects" }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+  }
+
+  test("filters by genre and applies a guitar tone", async ({ app }) => {
+    await withEngine(app);
+    const dialog = await openPedalboard(app);
+    await dialog.getByRole("button", { name: "Browse presets…" }).click();
+    const browser = app.getByRole("dialog", { name: "Presets" });
+    await browser
+      .getByRole("radiogroup", { name: "Genre" })
+      .getByRole("radio", { name: "Djent" })
+      .click();
+    await expect(browser.getByTestId("preset").first()).toContainText("Djent");
+    await browser.getByTestId("preset").filter({ hasText: "Djent 8-string" }).click();
+    await expectNoA11yViolations(app);
+    await browser.getByRole("button", { name: /^Apply/ }).click();
+    await expect(browser).toBeHidden();
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          (window.__engineChains?.[0] as { type: string }[] | undefined)?.map((s) => s.type),
+        ),
+      )
+      .toEqual(["gate", "compressor", "drive", "ampSim", "cab", "eq"]);
+  });
+
+  test("applies a drum mix: kit levels and the drum bus", async ({ app }) => {
+    await app.emulateMedia({ colorScheme: "dark" });
+    await withEngine(app);
+    await app.getByRole("combobox", { name: "Track" }).click();
+    await app.getByRole("option", { name: "Drums" }).click();
+    await app.getByRole("button", { name: "Drum mixer…" }).click();
+    await app.getByRole("button", { name: "Drum mix presets…" }).click();
+    const browser = app.getByRole("dialog", { name: "Presets" });
+    await browser.getByTestId("preset").filter({ hasText: "Deathcore blast" }).click();
+    await expectNoA11yViolations(app);
+    await browser.getByRole("button", { name: /^Apply/ }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(() => {
+          const drums = window.__engineConfig.drums[2];
+          return drums ? drums.elements.length : 0;
+        }),
+      )
+      .toBeGreaterThan(10);
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          (window.__engineChains?.[2] as { type: string }[] | undefined)?.map((s) => s.type),
+        ),
+      )
+      .toEqual(["gate", "compressor", "eq"]);
+    // The drum mixer shows the new levels.
+    const mixer = app.getByRole("dialog", { name: "Drum mixer: Drums" });
+    await expect(mixer.getByRole("slider", { name: "Volume, Hi-Hat" })).toHaveAttribute(
+      "aria-valuetext",
+      "-8.0 dB",
+    );
+  });
+
+  test("applies a mastering preset that ends in the limiter", async ({ app }) => {
+    await withEngine(app);
+    const dialog = await openPedalboard(app);
+    await dialog.getByRole("radio", { name: "Mastering" }).click();
+    await app.getByRole("button", { name: "Browse presets…" }).click();
+    const browser = app.getByRole("dialog", { name: "Presets" });
+    await browser
+      .getByRole("radiogroup", { name: "Genre" })
+      .getByRole("radio", { name: "Metalcore" })
+      .click();
+    await browser.getByTestId("preset").filter({ hasText: "Metalcore master" }).click();
+    await browser.getByRole("button", { name: /^Apply/ }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          (window.__engineChains?.master as { type: string }[] | undefined)?.map((s) => s.type),
+        ),
+      )
+      .toEqual(["eq", "compressor", "limiter"]);
+  });
+});

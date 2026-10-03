@@ -71,7 +71,10 @@ export function DrumMixerDialog({
   onEnableEngine,
   busChain,
   onBusChainChange,
+  onBrowsePresets,
 }: {
+  /** Opens the preset browser on the drum mixes (#42). */
+  onBrowsePresets?: () => void;
   /**
    * The drum track's effect chain: its drum bus, after the kit pieces are
    * mixed (#39). Its compressor is edited here too.
@@ -220,6 +223,11 @@ export function DrumMixerDialog({
         </DialogBody>
 
         <DialogFooter>
+          {onBrowsePresets && (
+            <Button variant="outline" className="sm:mr-auto" onClick={onBrowsePresets}>
+              Drum mix presets…
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onChange(null)} disabled={!mixer}>
             Reset the kit
           </Button>
