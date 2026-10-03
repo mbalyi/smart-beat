@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -160,227 +161,228 @@ function BarForm({
   );
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>Bar {barNumber}</DialogTitle>
         <DialogDescription>
           Time and key signatures and the triplet feel last until the next bar that changes them.
         </DialogDescription>
       </DialogHeader>
-
-      <Fieldset legend="Time and key">
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Beats per bar" id={ids.numerator}>
-            <Input
-              id={ids.numerator}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={MAX_NUMERATOR}
-              value={numeratorText}
-              onChange={(e) => setNumeratorText(e.target.value)}
-            />
-          </Field>
-          <Field label="Beat unit" id={ids.denominator}>
+      <DialogBody>
+        <Fieldset legend="Time and key">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Beats per bar" id={ids.numerator}>
+              <Input
+                id={ids.numerator}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={MAX_NUMERATOR}
+                value={numeratorText}
+                onChange={(e) => setNumeratorText(e.target.value)}
+              />
+            </Field>
+            <Field label="Beat unit" id={ids.denominator}>
+              <Select
+                value={String(draft.timeSignature.denominator)}
+                onValueChange={(value) =>
+                  set({ timeSignature: { ...draft.timeSignature, denominator: Number(value) } })
+                }
+              >
+                <SelectTrigger id={ids.denominator} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DENOMINATORS.map((d) => (
+                    <SelectItem key={d} value={String(d)}>
+                      {d === 1 ? "Whole notes (1)" : `1/${d} notes`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+          <Field label="Key signature" id={ids.key}>
             <Select
-              value={String(draft.timeSignature.denominator)}
-              onValueChange={(value) =>
-                set({ timeSignature: { ...draft.timeSignature, denominator: Number(value) } })
-              }
+              value={String(draft.keySignature)}
+              onValueChange={(value) => set({ keySignature: Number(value) })}
             >
-              <SelectTrigger id={ids.denominator} className="w-full">
+              <SelectTrigger id={ids.key} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {DENOMINATORS.map((d) => (
-                  <SelectItem key={d} value={String(d)}>
-                    {d === 1 ? "Whole notes (1)" : `1/${d} notes`}
+                {KEY_SIGNATURES.map((k) => (
+                  <SelectItem key={k.signature} value={String(k.signature)}>
+                    {`${k.major} major / ${k.minor} minor · ${describeAccidentals(k.signature)}`}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-        </div>
-        <Field label="Key signature" id={ids.key}>
-          <Select
-            value={String(draft.keySignature)}
-            onValueChange={(value) => set({ keySignature: Number(value) })}
-          >
-            <SelectTrigger id={ids.key} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {KEY_SIGNATURES.map((k) => (
-                <SelectItem key={k.signature} value={String(k.signature)}>
-                  {`${k.major} major / ${k.minor} minor · ${describeAccidentals(k.signature)}`}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          spacing={0}
-          aria-label="Mode"
-          value={String(draft.keyType)}
-          onValueChange={(value) => value && set({ keyType: Number(value) })}
-          className="self-start"
-        >
-          <ToggleGroupItem value={String(MAJOR)}>Major</ToggleGroupItem>
-          <ToggleGroupItem value={String(MINOR)}>Minor</ToggleGroupItem>
-        </ToggleGroup>
-        <Field label="Triplet feel" id={ids.tripletFeel}>
-          <Select
-            value={String(draft.tripletFeel)}
-            onValueChange={(value) => set({ tripletFeel: Number(value) })}
-          >
-            <SelectTrigger id={ids.tripletFeel} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TRIPLET_FEELS.map((t) => (
-                <SelectItem key={t.value} value={String(t.value)}>
-                  {t.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      </Fieldset>
-
-      <Fieldset legend="Tempo and section">
-        <CheckboxField
-          label={firstBar ? "Song tempo (bar 1)" : "Tempo change at this bar"}
-          checked={firstBar || draft.tempo !== null}
-          disabled={firstBar}
-          onChange={(on) =>
-            set({ tempo: on ? { bpm: Number(tempoText) || currentTempo, label: "" } : null })
-          }
-        />
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Beats per minute" id={ids.bpm}>
-            <Input
-              id={ids.bpm}
-              type="number"
-              inputMode="numeric"
-              min={MIN_TEMPO}
-              max={MAX_TEMPO}
-              disabled={!firstBar && draft.tempo === null}
-              value={tempoText}
-              onChange={(e) => setTempoText(e.target.value)}
-            />
-          </Field>
-          <Field label="Tempo text (optional)" id={ids.tempoLabel}>
-            <Input
-              id={ids.tempoLabel}
-              placeholder="e.g. Allegro"
-              maxLength={40}
-              disabled={!firstBar && draft.tempo === null}
-              value={draft.tempo?.label ?? ""}
-              onChange={(e) =>
-                set({
-                  tempo: {
-                    bpm: draft.tempo?.bpm ?? currentTempo,
-                    label: e.target.value,
-                  },
-                })
-              }
-            />
-          </Field>
-        </div>
-        <Field label="Section name" id={ids.section}>
-          <Input
-            id={ids.section}
-            placeholder="e.g. Chorus"
-            maxLength={60}
-            value={draft.section}
-            onChange={(e) => set({ section: e.target.value })}
-          />
-        </Field>
-      </Fieldset>
-
-      <Fieldset legend="Repeats and endings">
-        <CheckboxField
-          label="Repeat starts here"
-          checked={draft.repeatStart}
-          onChange={(on) => set({ repeatStart: on })}
-        />
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <CheckboxField
-            label="Repeat ends here"
-            checked={draft.repeatEnd > 0}
-            onChange={(on) => set({ repeatEnd: on ? Number(repeatText) || 2 : 0 })}
-          />
-          <div className="flex items-center gap-2">
-            <label htmlFor={ids.repeatCount} className="text-sm">
-              Play
-            </label>
-            <Input
-              id={ids.repeatCount}
-              type="number"
-              inputMode="numeric"
-              min={2}
-              max={MAX_REPEAT_COUNT}
-              className="w-20"
-              disabled={draft.repeatEnd === 0}
-              value={repeatText}
-              onChange={(e) => setRepeatText(e.target.value)}
-              aria-describedby={`${ids.repeatCount}-unit`}
-            />
-            <span id={`${ids.repeatCount}-unit`} className="text-sm">
-              times
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium" id={ids.endings}>
-            Alternate ending: played on pass
-          </span>
           <ToggleGroup
-            type="multiple"
+            type="single"
             variant="outline"
             size="sm"
             spacing={0}
-            aria-labelledby={ids.endings}
-            value={Array.from({ length: MAX_ENDINGS }, (_, i) => i)
-              .filter((i) => (draft.endings & (1 << i)) !== 0)
-              .map(String)}
-            onValueChange={(values) =>
-              set({ endings: values.reduce((mask, v) => mask | (1 << Number(v)), 0) })
-            }
+            aria-label="Mode"
+            value={String(draft.keyType)}
+            onValueChange={(value) => value && set({ keyType: Number(value) })}
             className="self-start"
           >
-            {Array.from({ length: MAX_ENDINGS }, (_, i) => (
-              <ToggleGroupItem
-                key={i}
-                value={String(i)}
-                aria-label={`Pass ${i + 1}`}
-                className="min-w-8 tabular-nums"
-              >
-                {i + 1}
-              </ToggleGroupItem>
-            ))}
+            <ToggleGroupItem value={String(MAJOR)}>Major</ToggleGroupItem>
+            <ToggleGroupItem value={String(MINOR)}>Minor</ToggleGroupItem>
           </ToggleGroup>
+          <Field label="Triplet feel" id={ids.tripletFeel}>
+            <Select
+              value={String(draft.tripletFeel)}
+              onValueChange={(value) => set({ tripletFeel: Number(value) })}
+            >
+              <SelectTrigger id={ids.tripletFeel} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TRIPLET_FEELS.map((t) => (
+                  <SelectItem key={t.value} value={String(t.value)}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </Fieldset>
+
+        <Fieldset legend="Tempo and section">
+          <CheckboxField
+            label={firstBar ? "Song tempo (bar 1)" : "Tempo change at this bar"}
+            checked={firstBar || draft.tempo !== null}
+            disabled={firstBar}
+            onChange={(on) =>
+              set({ tempo: on ? { bpm: Number(tempoText) || currentTempo, label: "" } : null })
+            }
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Beats per minute" id={ids.bpm}>
+              <Input
+                id={ids.bpm}
+                type="number"
+                inputMode="numeric"
+                min={MIN_TEMPO}
+                max={MAX_TEMPO}
+                disabled={!firstBar && draft.tempo === null}
+                value={tempoText}
+                onChange={(e) => setTempoText(e.target.value)}
+              />
+            </Field>
+            <Field label="Tempo text (optional)" id={ids.tempoLabel}>
+              <Input
+                id={ids.tempoLabel}
+                placeholder="e.g. Allegro"
+                maxLength={40}
+                disabled={!firstBar && draft.tempo === null}
+                value={draft.tempo?.label ?? ""}
+                onChange={(e) =>
+                  set({
+                    tempo: {
+                      bpm: draft.tempo?.bpm ?? currentTempo,
+                      label: e.target.value,
+                    },
+                  })
+                }
+              />
+            </Field>
+          </div>
+          <Field label="Section name" id={ids.section}>
+            <Input
+              id={ids.section}
+              placeholder="e.g. Chorus"
+              maxLength={60}
+              value={draft.section}
+              onChange={(e) => set({ section: e.target.value })}
+            />
+          </Field>
+        </Fieldset>
+
+        <Fieldset legend="Repeats and endings">
+          <CheckboxField
+            label="Repeat starts here"
+            checked={draft.repeatStart}
+            onChange={(on) => set({ repeatStart: on })}
+          />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <CheckboxField
+              label="Repeat ends here"
+              checked={draft.repeatEnd > 0}
+              onChange={(on) => set({ repeatEnd: on ? Number(repeatText) || 2 : 0 })}
+            />
+            <div className="flex items-center gap-2">
+              <label htmlFor={ids.repeatCount} className="text-sm">
+                Play
+              </label>
+              <Input
+                id={ids.repeatCount}
+                type="number"
+                inputMode="numeric"
+                min={2}
+                max={MAX_REPEAT_COUNT}
+                className="w-20"
+                disabled={draft.repeatEnd === 0}
+                value={repeatText}
+                onChange={(e) => setRepeatText(e.target.value)}
+                aria-describedby={`${ids.repeatCount}-unit`}
+              />
+              <span id={`${ids.repeatCount}-unit`} className="text-sm">
+                times
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium" id={ids.endings}>
+              Alternate ending: played on pass
+            </span>
+            <ToggleGroup
+              type="multiple"
+              variant="outline"
+              size="sm"
+              spacing={0}
+              aria-labelledby={ids.endings}
+              value={Array.from({ length: MAX_ENDINGS }, (_, i) => i)
+                .filter((i) => (draft.endings & (1 << i)) !== 0)
+                .map(String)}
+              onValueChange={(values) =>
+                set({ endings: values.reduce((mask, v) => mask | (1 << Number(v)), 0) })
+              }
+              className="self-start"
+            >
+              {Array.from({ length: MAX_ENDINGS }, (_, i) => (
+                <ToggleGroupItem
+                  key={i}
+                  value={String(i)}
+                  aria-label={`Pass ${i + 1}`}
+                  className="min-w-8 tabular-nums"
+                >
+                  {i + 1}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        </Fieldset>
+
+        <Fieldset legend="Signs (where jumps go)">{directionBoxes("target")}</Fieldset>
+        <Fieldset legend="Jumps">{directionBoxes("jump")}</Fieldset>
+
+        <div role="status" aria-live="polite">
+          {warnings.length > 0 && (
+            <ul className="flex flex-col gap-1 rounded-lg border border-amber-500/50 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+              {warnings.map((warning) => (
+                <li key={warning} className="flex gap-2">
+                  <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      </Fieldset>
-
-      <Fieldset legend="Signs (where jumps go)">{directionBoxes("target")}</Fieldset>
-      <Fieldset legend="Jumps">{directionBoxes("jump")}</Fieldset>
-
-      <div role="status" aria-live="polite">
-        {warnings.length > 0 && (
-          <ul className="flex flex-col gap-1 rounded-lg border border-amber-500/50 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
-            {warnings.map((warning) => (
-              <li key={warning} className="flex gap-2">
-                <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                {warning}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      </DialogBody>
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -420,10 +422,7 @@ export function BarDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      <DialogContent size="lg" onCloseAutoFocus={onCloseAutoFocus}>
         {initial && (
           <BarForm
             barNumber={barNumber}

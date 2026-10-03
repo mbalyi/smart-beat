@@ -28,7 +28,12 @@ function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-10" aria-hidden="true">
       {overlay.selection.map((rect, i) => (
-        <div key={i} className="absolute bg-sky-500/20" style={box(rect)} />
+        <div
+          key={i}
+          data-testid="edit-selection"
+          className="absolute bg-sky-500/20"
+          style={box(rect)}
+        />
       ))}
       {cursor && (
         <div

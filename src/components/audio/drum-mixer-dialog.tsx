@@ -5,6 +5,7 @@ import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -59,123 +60,128 @@ export function DrumMixerDialog({
   const anySolo = current.elements.some((e) => e.solo);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>Drum mixer: {trackName}</DialogTitle>
           <DialogDescription>
             Each piece of the kit has its own level, pan, mute and solo.
           </DialogDescription>
         </DialogHeader>
+        <DialogBody>
+          {!engineOn && (
+            <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+              <TriangleAlertIcon
+                className="mt-0.5 size-4 shrink-0 text-amber-600"
+                aria-hidden="true"
+              />
+              <span className="flex-1">
+                The drum mixer is heard with the native audio engine.{" "}
+                {onEnableEngine
+                  ? "It is saved either way."
+                  : "It is available in the Smart Beat desktop app."}
+              </span>
+              {onEnableEngine && (
+                <Button size="xs" variant="outline" onClick={onEnableEngine}>
+                  Turn it on
+                </Button>
+              )}
+            </p>
+          )}
 
-        {!engineOn && (
-          <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-            <TriangleAlertIcon
-              className="mt-0.5 size-4 shrink-0 text-amber-600"
-              aria-hidden="true"
-            />
-            <span className="flex-1">
-              The drum mixer is heard with the native audio engine.{" "}
-              {onEnableEngine
-                ? "It is saved either way."
-                : "It is available in the Smart Beat desktop app."}
-            </span>
-            {onEnableEngine && (
-              <Button size="xs" variant="outline" onClick={onEnableEngine}>
-                Turn it on
-              </Button>
-            )}
-          </p>
-        )}
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={current.stereo ? "stereo" : "mono"}
+            onValueChange={(v) => v && onChange({ ...current, stereo: v === "stereo" })}
+            aria-label="Kit output"
+            className="self-start"
+          >
+            <ToggleGroupItem value="mono">Mono</ToggleGroupItem>
+            <ToggleGroupItem value="stereo">Stereo</ToggleGroupItem>
+          </ToggleGroup>
 
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          value={current.stereo ? "stereo" : "mono"}
-          onValueChange={(v) => v && onChange({ ...current, stereo: v === "stereo" })}
-          aria-label="Kit output"
-          className="self-start"
-        >
-          <ToggleGroupItem value="mono">Mono</ToggleGroupItem>
-          <ToggleGroupItem value="stereo">Stereo</ToggleGroupItem>
-        </ToggleGroup>
-
-        <ol className="flex flex-col divide-y rounded-md border" aria-label="Kit pieces">
-          {DRUM_ELEMENTS.map((element, i) => {
-            const mix = elementMix(current, element.id);
-            const set = (change: Partial<typeof mix>) =>
-              onChange(withElementMix(current, { ...mix, ...change }));
-            const silent = mix.mute || (anySolo && !mix.solo);
-            return (
-              <li
-                key={element.id}
-                data-testid="drum-element"
-                className={cn(
-                  "grid grid-cols-[7.5rem_3.5rem_minmax(6rem,1fr)_3.75rem_2.5rem_4rem] items-center gap-2 px-2 py-1 text-sm",
-                  silent && "text-muted-foreground",
-                )}
-              >
-                <span className="truncate">{element.label}</span>
-                <span className="flex gap-0.5">
-                  <Toggle
-                    size="sm"
-                    variant="outline"
-                    pressed={mix.mute}
-                    onPressedChange={(mute) => set({ mute })}
-                    aria-label={`Mute ${element.label}`}
-                    className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
-                  >
-                    M
-                  </Toggle>
-                  <Toggle
-                    size="sm"
-                    variant="outline"
-                    pressed={mix.solo}
-                    onPressedChange={(solo) => set({ solo })}
-                    aria-label={`Solo ${element.label}`}
-                    className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
-                  >
-                    S
-                  </Toggle>
-                </span>
-                <span title={describeDb(mix.volume)}>
-                  <LabeledSlider
-                    label={`Volume, ${element.label}`}
-                    valueText={describeDb(mix.volume)}
-                    value={mix.volume}
-                    onValueChange={(volume) => set({ volume })}
-                  />
-                </span>
-                <span className="text-right text-xs text-muted-foreground tabular-nums">
-                  {describeDb(mix.volume)}
-                </span>
-                <Knob
-                  size="sm"
-                  showLabel={false}
-                  label={`Pan, ${element.label}`}
-                  valueText={current.stereo ? describePan(mix.pan) : "Centre (mono)"}
-                  value={mix.pan}
-                  min={-1}
-                  max={1}
-                  step={0.05}
-                  disabled={!current.stereo}
-                  onValueChange={(pan) => set({ pan })}
-                />
-                <span className="flex items-center gap-1">
-                  <span className="w-7 text-xs text-muted-foreground tabular-nums">
-                    {shortPan(current.stereo ? mix.pan : 0)}
+          <ol className="flex flex-col divide-y rounded-md border" aria-label="Kit pieces">
+            {DRUM_ELEMENTS.map((element, i) => {
+              const mix = elementMix(current, element.id);
+              const set = (change: Partial<typeof mix>) =>
+                onChange(withElementMix(current, { ...mix, ...change }));
+              const silent = mix.mute || (anySolo && !mix.solo);
+              return (
+                <li
+                  key={element.id}
+                  data-testid="drum-element"
+                  className={cn(
+                    // Narrow windows: the fader and its level go on a second line.
+                    "grid grid-cols-[minmax(0,1fr)_3.5rem_2.5rem_4rem] items-center gap-2 px-2 py-1 text-sm sm:grid-cols-[7.5rem_3.5rem_minmax(6rem,1fr)_3.75rem_2.5rem_4rem]",
+                    silent && "text-muted-foreground",
+                  )}
+                >
+                  <span className="truncate">{element.label}</span>
+                  <span className="flex gap-0.5">
+                    <Toggle
+                      size="sm"
+                      variant="outline"
+                      pressed={mix.mute}
+                      onPressedChange={(mute) => set({ mute })}
+                      aria-label={`Mute ${element.label}`}
+                      className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
+                    >
+                      M
+                    </Toggle>
+                    <Toggle
+                      size="sm"
+                      variant="outline"
+                      pressed={mix.solo}
+                      onPressedChange={(solo) => set({ solo })}
+                      aria-label={`Solo ${element.label}`}
+                      className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
+                    >
+                      S
+                    </Toggle>
                   </span>
-                  <LevelMeter
-                    orientation="vertical"
-                    className="h-5"
-                    label={`Level, ${element.label}`}
-                    select={(m) => m.drums?.[trackIndex]?.[i] ?? 0}
+                  <span
+                    title={describeDb(mix.volume)}
+                    className="max-sm:order-last max-sm:col-span-3"
+                  >
+                    <LabeledSlider
+                      label={`Volume, ${element.label}`}
+                      valueText={describeDb(mix.volume)}
+                      value={mix.volume}
+                      onValueChange={(volume) => set({ volume })}
+                    />
+                  </span>
+                  <span className="text-right text-xs text-muted-foreground tabular-nums max-sm:order-last">
+                    {describeDb(mix.volume)}
+                  </span>
+                  <Knob
+                    size="sm"
+                    showLabel={false}
+                    label={`Pan, ${element.label}`}
+                    valueText={current.stereo ? describePan(mix.pan) : "Centre (mono)"}
+                    value={mix.pan}
+                    min={-1}
+                    max={1}
+                    step={0.05}
+                    disabled={!current.stereo}
+                    onValueChange={(pan) => set({ pan })}
                   />
-                </span>
-              </li>
-            );
-          })}
-        </ol>
+                  <span className="flex items-center gap-1">
+                    <span className="w-7 text-xs text-muted-foreground tabular-nums">
+                      {shortPan(current.stereo ? mix.pan : 0)}
+                    </span>
+                    <LevelMeter
+                      orientation="vertical"
+                      className="h-5"
+                      label={`Level, ${element.label}`}
+                      select={(m) => m.drums?.[trackIndex]?.[i] ?? 0}
+                    />
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onChange(null)} disabled={!mixer}>

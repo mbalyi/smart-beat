@@ -4,6 +4,7 @@ import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -48,7 +49,9 @@ export function AboutDialog({ open, onOpenChange, onCloseAutoFocus }: AppDialogP
           </DialogTitle>
           <DialogDescription>Tablature editor with self-hosted AI accompaniment.</DialogDescription>
         </DialogHeader>
-        <AppDetails />
+        <DialogBody>
+          <AppDetails />
+        </DialogBody>
         <DialogFooter showCloseButton>
           <p className="mr-auto self-center text-xs text-muted-foreground">
             © {new Date().getFullYear()} Smart Beat. All rights reserved.

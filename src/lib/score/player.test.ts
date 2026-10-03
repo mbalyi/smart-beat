@@ -774,10 +774,27 @@ describe("ScorePlayer", () => {
       expect(callbacks.onBeatDrag).toHaveBeenCalledWith(beat);
     });
 
-    it("only reports drags in edit mode", async () => {
+    it("reports drags outside edit mode too, so the selection follows them (#53)", async () => {
       const { api, score, callbacks } = await readySetup();
-      api.beatMouseMove.trigger(score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]);
-      expect(callbacks.onBeatDrag).not.toHaveBeenCalled();
+      const beat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+      api.beatMouseMove.trigger(beat);
+      expect(callbacks.onBeatDrag).toHaveBeenCalledWith(beat);
+    });
+
+    it("keeps a dragged range selected when there is no loop to turn off (#53)", async () => {
+      const { player, api, callbacks } = await readySetup();
+      const range = { startTick: 4000, endTick: 9000 };
+      api.playbackRange = range as never;
+      api.playbackRangeChanged.trigger({ playbackRange: range });
+      // The practice state takes the range and turns the (already off) loop off.
+      player.setLoop(null);
+      expect(api.playbackRange).toBe(range);
+      expect(api.clearPlaybackRangeHighlight).not.toHaveBeenCalled();
+
+      player.clearSelection();
+      expect(api.playbackRange).toBeNull();
+      expect(api.clearPlaybackRangeHighlight).toHaveBeenCalled();
+      expect(callbacks.onRangeSelect).toHaveBeenLastCalledWith(null);
     });
 
     it("reports the shown track's beats being played", async () => {

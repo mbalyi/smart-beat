@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import {
   expect,
@@ -12,6 +12,12 @@ import {
 
 const STRUCTURE_SONG = "/Users/me/Music/structure-song.gp";
 
+/** Waits until an element's enter/exit animations have finished. */
+async function settled(locator: Locator) {
+  await expect(locator).toBeVisible();
+  await locator.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+}
+
 /** The Guitar Pro 8 style layout (#35): palette, score and inspector side by side, track list below. */
 test.describe("song layout (#35)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
@@ -20,6 +26,8 @@ test.describe("song layout (#35)", () => {
     app,
   }) => {
     await openSong(app);
+    await app.getByRole("button", { name: "Edit" }).click();
+    await settled(app.getByRole("complementary", { name: "Note palette" }));
 
     const palette = await app.getByRole("complementary", { name: "Note palette" }).boundingBox();
     const score = await scoreRegion(app).boundingBox();
@@ -30,6 +38,50 @@ test.describe("song layout (#35)", () => {
     expect(tracks!.y).toBeGreaterThanOrEqual(score!.y + score!.height - 1);
     // The score gets the room that is left.
     expect(score!.width).toBeGreaterThan(palette!.width + inspector!.width);
+  });
+
+  test("shows the palette only in edit mode, so the score gets the full width otherwise (#53)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    const palette = app.getByRole("complementary", { name: "Note palette" });
+    await expect(palette).toHaveCount(0);
+    await expect(app.getByText(/Turn on edit mode/)).toHaveCount(0);
+    const wide = (await scoreRegion(app).boundingBox())!.width;
+
+    await app.getByRole("button", { name: "Edit" }).click();
+    await settled(palette);
+    const narrow = (await scoreRegion(app).boundingBox())!.width;
+    expect(narrow).toBeLessThan(wide - 200);
+
+    await app.getByRole("button", { name: "Edit" }).click();
+    await expect(palette).toHaveCount(0);
+    await expect
+      .poll(async () => (await scoreRegion(app).boundingBox())!.width)
+      .toBeCloseTo(wide, 0);
+  });
+
+  test("gives every header toolbar button the same height (#53)", async ({ app }) => {
+    await openSong(app);
+    const sizes = await app
+      .getByRole("banner")
+      .getByRole("button")
+      .evaluateAll((buttons) =>
+        buttons
+          // The LCD display has its own small controls.
+          .filter(
+            (b) => (b as HTMLElement).offsetParent !== null && !b.closest("[aria-label=Display]"),
+          )
+          .map((b) => ({
+            name: b.getAttribute("aria-label") ?? b.textContent?.trim() ?? "",
+            height: Math.round(b.getBoundingClientRect().height),
+          })),
+      );
+    const toolbar = sizes.filter((s) => !["Theme", "Help"].includes(s.name) && s.name !== "Track");
+    for (const name of ["Open…", "File", "Tools", "Undo", "Play", "Stop", "Edit", "Mixer"]) {
+      expect(toolbar.map((s) => s.name)).toContain(name);
+    }
+    expect(new Set(toolbar.map((s) => s.height)), JSON.stringify(toolbar)).toEqual(new Set([28]));
   });
 
   test("puts the main controls in the app header, between the logo and the icons", async ({
@@ -233,4 +285,31 @@ test.describe("song layout (#35)", () => {
     await expect(app.getByRole("menuitem", { name: "Settings…" })).toBeVisible();
     await app.keyboard.press("Escape");
   });
+});
+
+/** The track row's menu is wide enough for its items (#53). */
+test.describe("track menu (#53)", () => {
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 800 },
+  ]) {
+    test(`keeps every item on one line at ${viewport.width}px`, async ({ app }) => {
+      await app.setViewportSize(viewport);
+      await openSong(app);
+      await app.getByRole("button", { name: "Actions for Guitar" }).click();
+      const menu = app.getByRole("menu");
+      await expect(menu).toBeVisible();
+      const items = menu.getByRole("menuitem");
+      expect(await items.count()).toBeGreaterThan(5);
+      const heights = await items.evaluateAll((els) =>
+        els.map((e) => e.getBoundingClientRect().height),
+      );
+      // One line of text is about 28 px; a wrapped item is twice that.
+      expect(Math.max(...heights)).toBeLessThan(40);
+      const box = (await menu.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      await expect(menu.getByRole("menuitem", { name: /Focus/ })).toBeVisible();
+    });
+  }
 });

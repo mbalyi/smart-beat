@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -205,7 +206,7 @@ function TrackForm({
   };
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>{adding ? "Add track" : "Track settings"}</DialogTitle>
         <DialogDescription>
@@ -218,134 +219,135 @@ function TrackForm({
                 : "Written on a staff, in any General MIDI sound."}
         </DialogDescription>
       </DialogHeader>
-
-      {adding && (
-        <Field label="Instrument" id={ids.preset}>
-          <Select
-            value={settings.presetId}
-            onValueChange={(presetId) => setSettings(settingsFromPreset(presetId))}
-          >
-            <SelectTrigger id={ids.preset} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {INSTRUMENT_PRESETS.map((preset) => (
-                <SelectItem key={preset.id} value={preset.id}>
-                  {preset.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      )}
-
-      <Field label="Name" id={ids.name}>
-        <Input
-          id={ids.name}
-          value={settings.name}
-          maxLength={60}
-          onChange={(event) => set({ name: event.target.value })}
-        />
-      </Field>
-
-      {kind !== "drums" && (
-        <Field label="Sound (General MIDI)" id={ids.program}>
-          <Select
-            value={String(settings.program)}
-            onValueChange={(value) => set({ program: Number(value) })}
-          >
-            <SelectTrigger id={ids.program} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {GM_FAMILIES.map((family, f) => (
-                <SelectGroup key={family}>
-                  <SelectLabel>{family}</SelectLabel>
-                  {GM_INSTRUMENTS.slice(f * 8, f * 8 + 8).map((name, i) => (
-                    <SelectItem key={name} value={String(f * 8 + i)}>
-                      {f * 8 + i + 1}. {name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      )}
-
-      {kind === "stringed" && (
-        <>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Strings" id={ids.strings}>
-              <Select
-                value={String(tuning.length)}
-                onValueChange={(value) => set({ tuning: resizeTuning(tuning, Number(value)) })}
-              >
-                <SelectTrigger id={ids.strings} className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STRING_COUNTS.map((count) => (
-                    <SelectItem key={count} value={String(count)}>
-                      {count} strings
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Capo" id={ids.capo}>
-              <Input
-                id={ids.capo}
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={MAX_CAPO}
-                value={settings.capo}
-                onChange={(event) =>
-                  set({ capo: Math.min(MAX_CAPO, Math.max(0, event.target.valueAsNumber || 0)) })
-                }
-              />
-            </Field>
-          </div>
-          <Field label="Tuning" id={ids.tuning}>
+      <DialogBody>
+        {adding && (
+          <Field label="Instrument" id={ids.preset}>
             <Select
-              value={presetName ?? CUSTOM}
-              onValueChange={(name) => {
-                const preset = tuningPresets(tuning.length).find((p) => p.name === name);
-                if (preset) set({ tuning: [...preset.tuning] });
-              }}
+              value={settings.presetId}
+              onValueChange={(presetId) => setSettings(settingsFromPreset(presetId))}
             >
-              <SelectTrigger id={ids.tuning} className="w-full">
+              <SelectTrigger id={ids.preset} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {tuningPresets(tuning.length).map((preset) => (
-                  <SelectItem key={preset.name} value={preset.name}>
-                    {preset.name} (
-                    {preset.tuning.map((p) => pitchName(p, { octave: false })).join(" ")})
+                {INSTRUMENT_PRESETS.map((preset) => (
+                  <SelectItem key={preset.id} value={preset.id}>
+                    {preset.label}
                   </SelectItem>
                 ))}
-                {!presetName && <SelectItem value={CUSTOM}>Custom</SelectItem>}
               </SelectContent>
             </Select>
           </Field>
-          <TuningEditor tuning={tuning} onChange={(next) => set({ tuning: next })} />
-          {!adding && (
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id={ids.keep}
-                checked={settings.keepPitches ?? true}
-                onCheckedChange={(checked) => set({ keepPitches: checked === true })}
-              />
-              <label htmlFor={ids.keep} className="text-sm">
-                Keep the pitches of existing notes (move them to other frets)
-              </label>
-            </div>
-          )}
-        </>
-      )}
+        )}
 
-      {kind === "drums" && <DrumKitTable kit={drumKit} />}
+        <Field label="Name" id={ids.name}>
+          <Input
+            id={ids.name}
+            value={settings.name}
+            maxLength={60}
+            onChange={(event) => set({ name: event.target.value })}
+          />
+        </Field>
+
+        {kind !== "drums" && (
+          <Field label="Sound (General MIDI)" id={ids.program}>
+            <Select
+              value={String(settings.program)}
+              onValueChange={(value) => set({ program: Number(value) })}
+            >
+              <SelectTrigger id={ids.program} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {GM_FAMILIES.map((family, f) => (
+                  <SelectGroup key={family}>
+                    <SelectLabel>{family}</SelectLabel>
+                    {GM_INSTRUMENTS.slice(f * 8, f * 8 + 8).map((name, i) => (
+                      <SelectItem key={name} value={String(f * 8 + i)}>
+                        {f * 8 + i + 1}. {name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
+
+        {kind === "stringed" && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Strings" id={ids.strings}>
+                <Select
+                  value={String(tuning.length)}
+                  onValueChange={(value) => set({ tuning: resizeTuning(tuning, Number(value)) })}
+                >
+                  <SelectTrigger id={ids.strings} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STRING_COUNTS.map((count) => (
+                      <SelectItem key={count} value={String(count)}>
+                        {count} strings
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Capo" id={ids.capo}>
+                <Input
+                  id={ids.capo}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={MAX_CAPO}
+                  value={settings.capo}
+                  onChange={(event) =>
+                    set({ capo: Math.min(MAX_CAPO, Math.max(0, event.target.valueAsNumber || 0)) })
+                  }
+                />
+              </Field>
+            </div>
+            <Field label="Tuning" id={ids.tuning}>
+              <Select
+                value={presetName ?? CUSTOM}
+                onValueChange={(name) => {
+                  const preset = tuningPresets(tuning.length).find((p) => p.name === name);
+                  if (preset) set({ tuning: [...preset.tuning] });
+                }}
+              >
+                <SelectTrigger id={ids.tuning} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {tuningPresets(tuning.length).map((preset) => (
+                    <SelectItem key={preset.name} value={preset.name}>
+                      {preset.name} (
+                      {preset.tuning.map((p) => pitchName(p, { octave: false })).join(" ")})
+                    </SelectItem>
+                  ))}
+                  {!presetName && <SelectItem value={CUSTOM}>Custom</SelectItem>}
+                </SelectContent>
+              </Select>
+            </Field>
+            <TuningEditor tuning={tuning} onChange={(next) => set({ tuning: next })} />
+            {!adding && (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id={ids.keep}
+                  checked={settings.keepPitches ?? true}
+                  onCheckedChange={(checked) => set({ keepPitches: checked === true })}
+                />
+                <label htmlFor={ids.keep} className="text-sm">
+                  Keep the pitches of existing notes (move them to other frets)
+                </label>
+              </div>
+            )}
+          </>
+        )}
+
+        {kind === "drums" && <DrumKitTable kit={drumKit} />}
+      </DialogBody>
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -385,10 +387,7 @@ export function TrackDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      <DialogContent size="lg" onCloseAutoFocus={onCloseAutoFocus}>
         <TrackForm
           initial={initial}
           drumKit={drumKit}

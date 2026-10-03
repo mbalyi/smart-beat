@@ -402,9 +402,8 @@ export class ScorePlayer {
     api.noteMouseDown.on((note) => {
       this.clickedNote = realNoteOf(note);
     });
-    api.beatMouseMove.on((beat) => {
-      if (this.editing) callbacks.onBeatDrag?.(realBeatOf(beat));
-    });
+    // Dragging selects beats in both modes (alphaTab also highlights the range outside edit mode).
+    api.beatMouseMove.on((beat) => callbacks.onBeatDrag?.(realBeatOf(beat)));
     api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
     api.playerFinished.on(() => {
       if (this.loop) callbacks.onLoopRestart?.();
@@ -652,6 +651,19 @@ export class ScorePlayer {
     this.api.updateSettings();
   }
 
+  /** Clears a range selected with the mouse outside edit mode (a loop stays). */
+  clearSelection() {
+    if (this.loop) return;
+    this.settingRange = true;
+    try {
+      this.api.playbackRange = null;
+      this.api.clearPlaybackRangeHighlight();
+    } finally {
+      this.settingRange = false;
+    }
+    this.callbacks.onRangeSelect?.(null);
+  }
+
   /** Loops `range` (whole bars), or stops looping with null. */
   setLoop(range: LoopRange | null) {
     this.loop = range;
@@ -665,6 +677,8 @@ export class ScorePlayer {
     try {
       if (!loop) {
         this.engine?.setLoop(null);
+        // Without a loop to take off, a range the user just dragged stays selected (#53).
+        if (!this.appliedRange) return;
         this.appliedRange = null;
         api.isLooping = false;
         api.playbackRange = null;

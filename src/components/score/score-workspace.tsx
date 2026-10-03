@@ -519,7 +519,8 @@ export function ScoreWorkspace({
 
   const onBeatClick = useEffectEvent(
     ({ beat, note, extend }: Parameters<NonNullable<ScorePlayerCallbacks["onBeatClick"]>>[0]) => {
-      if (!editing || beat.voice.bar.staff.track !== trackObject) return;
+      // Outside edit mode too, so a selection made there is kept for edit mode (#53).
+      if (beat.voice.bar.staff.track !== trackObject) return;
       editor.setCursorTo(
         { bar: beat.voice.bar.index, beat: beat.index, voice: beat.voice.index, note },
         extend,
@@ -806,6 +807,25 @@ export function ScoreWorkspace({
     menuHandlesUndo: isTauri(),
     onBend: () => openCurve("bend"),
   });
+
+  // Outside edit mode Escape clears a range dragged in the score (#53).
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (editing || !viewport) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      playerRef.current?.clearSelection();
+      editor.clearSelection();
+    };
+    // alphaTab keeps the mouse down from focusing the score: focus it for Escape.
+    const onPointer = () => viewport.focus({ preventScroll: true });
+    viewport.addEventListener("keydown", onKey);
+    viewport.addEventListener("pointerdown", onPointer);
+    return () => {
+      viewport.removeEventListener("keydown", onKey);
+      viewport.removeEventListener("pointerdown", onPointer);
+    };
+  }, [editing, editor]);
 
   function focusScore() {
     viewportRef.current?.focus({ preventScroll: true });

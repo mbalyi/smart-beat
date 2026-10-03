@@ -2,6 +2,7 @@ import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -109,20 +110,19 @@ function EditorShortcuts() {
 export function ShortcutsDialog({ open, onOpenChange, onCloseAutoFocus }: AppDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-md"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      <DialogContent size="md" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>
             Shortcuts for the menu bar on this computer, and for writing music in the score.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-5">
-          <ShortcutList />
-          <EditorShortcuts />
-        </div>
+        <DialogBody>
+          <div className="flex flex-col gap-5">
+            <ShortcutList />
+            <EditorShortcuts />
+          </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   );

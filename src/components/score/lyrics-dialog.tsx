@@ -3,6 +3,7 @@ import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -101,7 +102,7 @@ function LyricsForm({
     );
   };
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>Lyrics: {trackName}</DialogTitle>
         <DialogDescription>
@@ -110,15 +111,17 @@ function LyricsForm({
           with an extra space, and put comments in [brackets].
         </DialogDescription>
       </DialogHeader>
-      {lines.map((line, i) => (
-        <LineFields
-          key={i}
-          index={i}
-          line={line}
-          barCount={barCount}
-          onChange={(next) => setLines((all) => all.map((l, j) => (j === i ? next : l)))}
-        />
-      ))}
+      <DialogBody>
+        {lines.map((line, i) => (
+          <LineFields
+            key={i}
+            index={i}
+            line={line}
+            barCount={barCount}
+            onChange={(next) => setLines((all) => all.map((l, j) => (j === i ? next : l)))}
+          />
+        ))}
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
@@ -149,10 +152,7 @@ export function LyricsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      <DialogContent size="lg" onCloseAutoFocus={onCloseAutoFocus}>
         <LyricsForm
           trackName={trackName}
           initial={initial}

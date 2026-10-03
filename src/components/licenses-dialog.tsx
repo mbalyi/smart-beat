@@ -2,6 +2,7 @@ import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -27,9 +28,11 @@ function LicenseText() {
           aria-label="License notices"
           // Focusable so keyboard users can scroll the notices.
           tabIndex={0}
-          className="max-h-[55svh] overflow-auto rounded-lg border bg-muted/40 p-3 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="max-h-[55svh] overflow-x-hidden overflow-y-auto rounded-lg border bg-muted/40 p-3 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
-          <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap">{text}</pre>
+          <pre className="font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
+            {text}
+          </pre>
         </div>
       )}
     </AsyncContent>
@@ -39,7 +42,7 @@ function LicenseText() {
 export function LicensesDialog({ open, onOpenChange, onCloseAutoFocus }: AppDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl" onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogContent size="xl" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Open-source licenses</DialogTitle>
           <DialogDescription>
@@ -47,7 +50,9 @@ export function LicensesDialog({ open, onOpenChange, onCloseAutoFocus }: AppDial
             components included in this app.
           </DialogDescription>
         </DialogHeader>
-        <LicenseText />
+        <DialogBody>
+          <LicenseText />
+        </DialogBody>
       </DialogContent>
     </Dialog>
   );

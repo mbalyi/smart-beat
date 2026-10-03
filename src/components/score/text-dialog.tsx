@@ -3,6 +3,7 @@ import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -29,23 +30,25 @@ function TextForm({
     onSubmit(text.trim() || null);
   };
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>Text</DialogTitle>
         <DialogDescription>Shown above the beat at the edit cursor.</DialogDescription>
       </DialogHeader>
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor={id} className="text-sm font-medium">
-          Text
-        </label>
-        <Input
-          id={id}
-          value={text}
-          maxLength={MAX_TEXT_LENGTH}
-          placeholder="e.g. let ring, solo, fade out"
-          onChange={(e) => setText(e.target.value)}
-        />
-      </div>
+      <DialogBody>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={id} className="text-sm font-medium">
+            Text
+          </label>
+          <Input
+            id={id}
+            value={text}
+            maxLength={MAX_TEXT_LENGTH}
+            placeholder="e.g. let ring, solo, fade out"
+            onChange={(e) => setText(e.target.value)}
+          />
+        </div>
+      </DialogBody>
       <DialogFooter>
         {initial && (
           <Button
@@ -83,7 +86,7 @@ export function TextDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogContent size="md" onCloseAutoFocus={onCloseAutoFocus}>
         <TextForm
           initial={initial}
           onSubmit={(text) => {

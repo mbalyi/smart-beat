@@ -4,6 +4,7 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -200,7 +201,7 @@ function CurveForm({
   };
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>{kind === "bend" ? "Bend" : "Whammy bar"}</DialogTitle>
         <DialogDescription>
@@ -208,116 +209,117 @@ function CurveForm({
           {CURVE_LENGTH}) of the note.
         </DialogDescription>
       </DialogHeader>
-
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        spacing={0}
-        aria-label="Shape"
-        value={preset}
-        onValueChange={(id) => id && choose(id)}
-        className="flex-wrap justify-start"
-      >
-        {presets.map((p) => (
-          <ToggleGroupItem key={p.id} value={p.id}>
-            {p.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-
-      <div className="flex items-center gap-2">
-        <label htmlFor={amountId} className="text-sm font-medium">
-          {kind === "bend" ? "Bend by" : "Dive by"}
-        </label>
-        <Select
-          value={String(amount)}
-          onValueChange={(value) => {
-            setAmount(Number(value));
-            if (preset) choose(preset, Number(value));
-          }}
-        >
-          <SelectTrigger id={amountId} size="sm" className="w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {BEND_AMOUNTS.map((a) => (
-              <SelectItem key={a.value} value={String(a.value)}>
-                {a.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <CurveGraph kind={kind} points={points} onChange={edit} />
-
-      <div className="flex flex-col gap-2">
-        <span id={tableId} className="text-sm font-medium">
-          Points
-        </span>
-        <ol aria-labelledby={tableId} className="flex flex-col gap-1">
-          {points.map((p, i) => (
-            <li key={i} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="w-14 text-muted-foreground">Point {i + 1}</span>
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={CURVE_LENGTH}
-                className="h-8 w-20"
-                aria-label={`Point ${i + 1} position`}
-                value={p.offset}
-                onChange={(e) =>
-                  change(i, {
-                    offset: Math.min(CURVE_LENGTH, Math.max(0, Number(e.target.value) || 0)),
-                  })
-                }
-              />
-              <Select
-                value={String(p.value)}
-                onValueChange={(value) => change(i, { value: Number(value) })}
-              >
-                <SelectTrigger size="sm" className="w-36" aria-label={`Point ${i + 1} pitch`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {values.map((value) => (
-                    <SelectItem key={value} value={String(value)}>
-                      {pitchLabel(value, kind)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                aria-label={`Remove point ${i + 1}`}
-                disabled={points.length <= 2}
-                onClick={() => edit(points.filter((_, j) => j !== i))}
-              >
-                <Trash2Icon />
-              </Button>
-            </li>
-          ))}
-        </ol>
-        <Button
-          type="button"
+      <DialogBody>
+        <ToggleGroup
+          type="single"
           variant="outline"
           size="sm"
-          className="self-start"
-          onClick={() => {
-            const last = points.at(-1)!;
-            const offset = Math.min(CURVE_LENGTH, last.offset + STEP);
-            edit([...points, { offset, value: last.value }]);
-          }}
-          disabled={points.at(-1)!.offset >= CURVE_LENGTH}
+          spacing={0}
+          aria-label="Shape"
+          value={preset}
+          onValueChange={(id) => id && choose(id)}
+          className="flex-wrap justify-start"
         >
-          <PlusIcon data-icon="inline-start" />
-          Add point
-        </Button>
-      </div>
+          {presets.map((p) => (
+            <ToggleGroupItem key={p.id} value={p.id}>
+              {p.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+
+        <div className="flex items-center gap-2">
+          <label htmlFor={amountId} className="text-sm font-medium">
+            {kind === "bend" ? "Bend by" : "Dive by"}
+          </label>
+          <Select
+            value={String(amount)}
+            onValueChange={(value) => {
+              setAmount(Number(value));
+              if (preset) choose(preset, Number(value));
+            }}
+          >
+            <SelectTrigger id={amountId} size="sm" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BEND_AMOUNTS.map((a) => (
+                <SelectItem key={a.value} value={String(a.value)}>
+                  {a.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <CurveGraph kind={kind} points={points} onChange={edit} />
+
+        <div className="flex flex-col gap-2">
+          <span id={tableId} className="text-sm font-medium">
+            Points
+          </span>
+          <ol aria-labelledby={tableId} className="flex flex-col gap-1">
+            {points.map((p, i) => (
+              <li key={i} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="w-14 text-muted-foreground">Point {i + 1}</span>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={CURVE_LENGTH}
+                  className="h-8 w-20"
+                  aria-label={`Point ${i + 1} position`}
+                  value={p.offset}
+                  onChange={(e) =>
+                    change(i, {
+                      offset: Math.min(CURVE_LENGTH, Math.max(0, Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+                <Select
+                  value={String(p.value)}
+                  onValueChange={(value) => change(i, { value: Number(value) })}
+                >
+                  <SelectTrigger size="sm" className="w-36" aria-label={`Point ${i + 1} pitch`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {values.map((value) => (
+                      <SelectItem key={value} value={String(value)}>
+                        {pitchLabel(value, kind)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={`Remove point ${i + 1}`}
+                  disabled={points.length <= 2}
+                  onClick={() => edit(points.filter((_, j) => j !== i))}
+                >
+                  <Trash2Icon />
+                </Button>
+              </li>
+            ))}
+          </ol>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => {
+              const last = points.at(-1)!;
+              const offset = Math.min(CURVE_LENGTH, last.offset + STEP);
+              edit([...points, { offset, value: last.value }]);
+            }}
+            disabled={points.at(-1)!.offset >= CURVE_LENGTH}
+          >
+            <PlusIcon data-icon="inline-start" />
+            Add point
+          </Button>
+        </div>
+      </DialogBody>
 
       <DialogFooter>
         {initial && (
@@ -362,10 +364,7 @@ export function BendDialog({
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      <DialogContent size="lg" onCloseAutoFocus={onCloseAutoFocus}>
         <CurveForm
           kind={kind}
           initial={initial}
