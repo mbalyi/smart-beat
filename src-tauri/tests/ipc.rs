@@ -726,6 +726,7 @@ fn project_settings() -> Value {
         "eq": [{ "lowDb": 3.0, "midDb": 0.0, "midHz": 800.0, "highDb": -2.0 }],
         "automation": [{ "enabled": true, "volume": [{ "bar": 0.0, "value": 1.0 }], "pan": [], "mute": [] }],
         "focus": 0,
+        "drumLines": [{ "track": 0, "bar": 1, "voice": 0, "beat": 0, "note": 2, "line": 5 }],
         "audioTrack": {
             "name": "take.wav", "embedded": true, "enabled": true, "volume": 0.7, "pan": 0.0,
             "mute": false, "solo": false, "semitones": 2, "cents": 0, "filter": "off",
@@ -783,6 +784,9 @@ fn project_settings_and_the_recording_travel_inside_gp_files() {
     assert_eq!(back["masterPan"], 0.25);
     assert_eq!(back["audioTrack"]["semitones"], 2);
     assert_eq!(back["eq"][0]["lowDb"], 3.0);
+    // Drum notes placed on a chosen line of the drum tab (#53).
+    assert_eq!(back["drumLines"][0]["line"], 5);
+    assert_eq!(back["drumLines"][0]["note"], 2);
 
     // The embedded recording opens from the song file.
     std::fs::remove_file(&wav).unwrap();
@@ -797,6 +801,16 @@ fn project_settings_and_the_recording_travel_inside_gp_files() {
     assert_eq!(info["name"], "take.wav");
 
     // Out-of-range settings are refused and leave the file alone.
+    let mut bad_line = project_settings();
+    bad_line["drumLines"][0]["line"] = json!(9);
+    let error = invoke_with(
+        &window,
+        "write_project_settings",
+        json!({ "path": song, "settings": bad_line, "embedAudio": false }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "invalid-settings");
+
     let mut bad = project_settings();
     bad["masterPan"] = json!(5.0);
     let error = invoke_with(

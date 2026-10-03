@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import {
-  ENCODING_LABELS,
-  type EncodingChoice,
-  type TextEncodingId,
-} from "@/lib/score/encoding";
+import { ENCODING_LABELS, type EncodingChoice, type TextEncodingId } from "@/lib/score/encoding";
 import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
 import { baseName, fileKey } from "@/lib/score/format";
 import { initialMix, mixFromScore } from "@/lib/score/mixer";
@@ -148,8 +144,7 @@ export function useScoreDocuments() {
     async (source: Source, replace?: { id: number; encoding: EncodingChoice }) => {
       const { name, read, path } = source;
       // Opening a song that is already open shows its tab.
-      const already =
-        path && !replace ? songsRef.current.find((s) => s.path === path) : undefined;
+      const already = path && !replace ? songsRef.current.find((s) => s.path === path) : undefined;
       if (already) {
         setActiveId(already.id);
         return;
@@ -169,6 +164,10 @@ export function useScoreDocuments() {
         );
         if (replace) storeEncoding(key, choice);
         const saved = await savedMix(key, path);
+        if (saved?.drumLines) {
+          const { applyDrumLines } = await import("@/lib/score/drum-lines");
+          applyDrumLines(score, saved.drumLines);
+        }
         toast.dismiss(toastId);
         sources.current.set(id, source);
         const song: ScoreDocument = {

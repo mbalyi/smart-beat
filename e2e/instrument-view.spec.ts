@@ -103,10 +103,10 @@ test.describe("fretboard and keyboard (#8)", () => {
     await app.getByRole("button", { name: "Edit" }).click();
 
     const pads = app.getByRole("group", { name: /^Drum pads/ });
-    const crash = pads.getByRole("button", { name: "Crash cymbal", exact: true });
+    const crash = pads.getByRole("button", { name: "49 Crash high (hit)", exact: true });
     await crash.click();
 
-    await expect.poll(() => editorStatus(app)).toMatch(/Crash cymbal/);
+    await expect.poll(() => editorStatus(app)).toMatch(/Crash high \(hit\)/);
     await expect(crash).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -137,7 +137,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await dialog.getByRole("button", { name: "Add track" }).click();
     await app.getByRole("button", { name: "Drum pads" }).click();
 
-    await app.getByRole("button", { name: "Kick drum", exact: true }).click();
+    await app.getByRole("button", { name: "36 Kick (hit)", exact: true }).click();
 
     await expect(scoreRegion(app)).toBeFocused();
     const before = await editorStatus(app);
@@ -157,7 +157,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await dialog.getByRole("button", { name: "Add track" }).click();
     await app.getByRole("button", { name: "Drum pads" }).click();
     // The pads show their MIDI numbers.
-    await expect(app.getByRole("button", { name: "Hi-hat (open)", exact: true })).toContainText(
+    await expect(app.getByRole("button", { name: "46 Hi-Hat (open)", exact: true })).toContainText(
       "46",
     );
 
@@ -167,18 +167,17 @@ test.describe("fretboard and keyboard (#8)", () => {
     await expect.poll(() => editorStatus(app)).toMatch(/beat 1 of 32/);
 
     await app.keyboard.type("42"); // closed hi-hat
-    await expect.poll(() => editorStatus(app)).toMatch(/Hi-hat \(closed\)/);
+    await expect.poll(() => editorStatus(app)).toMatch(/Hi-Hat \(closed\)/);
     await app.keyboard.press("ArrowRight");
     await app.keyboard.type("46"); // open hi-hat on the next beat
-    await expect.poll(() => editorStatus(app)).toMatch(/beat 2 of 32.*Hi-hat \(open\)/);
+    await expect.poll(() => editorStatus(app)).toMatch(/beat 2 of 32.*Hi-Hat \(open\)/);
     await app.keyboard.type("36"); // and a kick at the same time
-    await expect.poll(() => editorStatus(app)).toMatch(/Kick drum/);
+    await expect.poll(() => editorStatus(app)).toMatch(/Kick \(hit\)/);
 
     await app.keyboard.press("ArrowLeft");
-    await expect(app.getByRole("button", { name: "Hi-hat (closed)", exact: true })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    await expect(
+      app.getByRole("button", { name: "42 Hi-Hat (closed)", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect(scoreRegion(app)).toBeFocused();
   });
 });

@@ -51,7 +51,7 @@ export const SUMMARY: ScoreSummary = {
       program: 0,
       tuning: [],
       capo: 0,
-      defaultView: { notation: "score", rhythm: false },
+      defaultView: { notation: "score-tab", rhythm: false },
       mix: { volume: 15 / 16, pan: 0, mute: false, solo: false },
     },
     {

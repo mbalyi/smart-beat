@@ -9,12 +9,8 @@
 import { model } from "@coderline/alphatab";
 
 import { ByteWriter } from "@/lib/export/gp5/bytes";
-import {
-  defaultEncoding,
-  encodingFor,
-  scoreStrings,
-  sourceEncoding,
-} from "@/lib/score/encoding";
+import { DRUM_TAB_STRINGS, placeDrums } from "@/lib/score/drum-tab";
+import { defaultEncoding, encodingFor, scoreStrings, sourceEncoding } from "@/lib/score/encoding";
 import { beatTicks } from "@/lib/score/bar-duration";
 import { lyricsOf, MAX_LYRIC_LINES } from "@/lib/score/lyrics";
 import {
@@ -451,7 +447,8 @@ class Gp5Writer {
     out.i32(MAX_GP5_FRET);
     out.i32(plan.kind === "stringed" ? staff.capo : 0);
     out.zeros(4); // colour
-    const showTab = plan.kind === "stringed" && staff.showTablature;
+    // Drum tracks are shown with their drum tab (score + tab), as Guitar Pro does.
+    const showTab = plan.kind === "drums" || (plan.kind === "stringed" && staff.showTablature);
     const showScore = plan.kind !== "stringed" || staff.showStandardNotation || !showTab;
     out.u8((showTab ? 1 : 0) | (showScore ? 2 : 0));
     out.u8(0).u8(0); // auto let ring, auto brush
@@ -535,7 +532,11 @@ class Gp5Writer {
     const chord = beat.chordId ? beat.chord : null;
     const mix = this.mixChange(beat, tempo);
     const effects = this.beatEffects(beat);
-    const tupleted = beat.tupletNumerator !== 1 || beat.tupletDenominator !== 1;
+    // Files read from Guitar Pro 3–5 mark "no tuplet" with -1.
+    const tupleted =
+      beat.tupletNumerator > 1 &&
+      beat.tupletDenominator > 0 &&
+      beat.tupletNumerator !== beat.tupletDenominator;
     const writeTuplet = tupleted && TUPLET_NUMERATORS.has(beat.tupletNumerator);
     if (beat.dots > 1) {
       this.warnings.add(
@@ -584,14 +585,13 @@ class Gp5Writer {
     const placed: PlacedNote[] = [];
     const used = new Set<number>();
     if (plan.kind === "drums") {
-      for (const note of beat.notes) {
-        const fileString = [0, 1, 2, 3, 4, 5].find((s) => !used.has(s));
-        if (fileString === undefined) {
-          this.warnings.add("More than six drums at once: extra drum notes are left out.");
-          continue;
-        }
-        used.add(fileString);
-        placed.push({ note, fileString, fret: note.isPercussion ? drumNumber(note) : note.fret });
+      // Each drum on its line of the drum tab (#53): line 6 (top) is file string 0.
+      const lines = placeDrums(beat.notes.filter((n) => n.isPercussion));
+      if (lines.size < beat.notes.length) {
+        this.warnings.add("More than six drums at once: extra drum notes are left out.");
+      }
+      for (const [note, line] of lines) {
+        placed.push({ note, fileString: DRUM_TAB_STRINGS - line, fret: drumNumber(note) });
       }
       return placed;
     }

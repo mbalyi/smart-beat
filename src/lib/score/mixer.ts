@@ -89,7 +89,10 @@ export function initialMix(summary: ScoreSummary, saved: MixerSettings | null): 
   ) {
     return fromFile;
   }
-  return { ...saved, version: MIXER_SETTINGS_VERSION };
+  // Drum-tab lines belong to the score: they are put on its notes when it opens (#53).
+  const mix: MixerSettings = { ...saved, version: MIXER_SETTINGS_VERSION };
+  delete mix.drumLines;
+  return mix;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));

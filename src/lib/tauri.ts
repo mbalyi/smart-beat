@@ -285,6 +285,18 @@ export interface MixerSettings {
   audioTrack?: AudioTrackSettings;
   /** Effect chain presets saved with the song. */
   presets?: SongPreset[];
+  /** Drum notes on a chosen line of the drum tab (#53). Mirrors `DrumLine` in `mixer.rs`. */
+  drumLines?: DrumLine[];
+}
+
+/** The drum-tab line (1 bottom … 6 top) of the drum note at a position (0-based indices). */
+export interface DrumLine {
+  track: number;
+  bar: number;
+  voice: number;
+  beat: number;
+  note: number;
+  line: number;
 }
 
 /** Mirrors `MenuState` in `src-tauri/src/menu_state.rs`: what the menu bar reflects. */

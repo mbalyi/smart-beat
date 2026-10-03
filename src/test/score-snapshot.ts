@@ -4,7 +4,7 @@
  * bars, rhythms, notes and the main effects, but not alphaTab's internal ids.
  */
 import type { Beat, Note, Score } from "@/lib/score/model";
-import { drumKey } from "@/lib/score/model";
+import { drumNumber } from "@/lib/score/model";
 import { tempoAt } from "@/lib/score/structure";
 
 export interface NoteShot {
@@ -57,7 +57,7 @@ export interface Shot {
 
 function noteShot(note: Note, pitchOnly: boolean): NoteShot {
   const at = note.isPercussion
-    ? `drum:${drumKey(note)}`
+    ? `drum:${drumNumber(note)}`
     : note.isStringed && !pitchOnly
       ? `${note.string}/${note.fret}`
       : `${note.realValueWithoutHarmonic}`;

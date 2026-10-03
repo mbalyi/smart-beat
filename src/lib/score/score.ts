@@ -4,6 +4,7 @@
  */
 import { AlphaTabError, importer, Settings, type model } from "@coderline/alphatab";
 
+import { keepGp5DrumStrings } from "@/lib/score/drum-lines";
 import { ScoreLoadError } from "@/lib/score/errors";
 import {
   detectEncoding,
@@ -161,7 +162,15 @@ function summarizeTrack(track: model.Track): TrackSummary {
     tuning: hasTablature ? [...staff!.tuning] : [],
     capo: staff?.capo ?? 0,
     defaultView: {
-      notation: showsTab && showsScore ? "score-tab" : showsTab ? "tab" : "score",
+      // Drum tracks open with their drum tab under the score, as in Guitar Pro (#53).
+      notation:
+        trackKindOf(track, hasTablature) === "drums"
+          ? "score-tab"
+          : showsTab && showsScore
+            ? "score-tab"
+            : showsTab
+              ? "tab"
+              : "score",
       rhythm: false,
     },
     mix: { ...trackMix(track) },
@@ -188,6 +197,7 @@ export function summarizeScore(score: Score): ScoreSummary {
 export function parseScore(bytes: Uint8Array, choice: EncodingChoice = "auto"): LoadedScore {
   let score: Score;
   let encoding: TextEncodingId | undefined;
+  keepGp5DrumStrings();
   try {
     ({ score, encoding } = loadScore(bytes, choice));
   } catch (error) {

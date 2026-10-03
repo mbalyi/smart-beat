@@ -24,7 +24,8 @@ describe("parseScore", () => {
     expect(drums).toMatchObject({
       isPercussion: true,
       hasTablature: false,
-      defaultView: { notation: "score" },
+      // Drums open with their drum tab (#53).
+      defaultView: { notation: "score-tab" },
     });
     expect(piano).toMatchObject({ hasTablature: false, defaultView: { notation: "score" } });
   });

@@ -192,7 +192,7 @@ describe("ScoreWorkspace: instrument view", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Track" }));
     await user.click(await screen.findByRole("option", { name: "Drums" }));
-    await user.click(await screen.findByRole("button", { name: "Crash cymbal" }));
+    await user.click(await screen.findByRole("button", { name: "49 Crash high (hit)" }));
     expect(screen.getByRole("region", { name: /^Score:/ })).toHaveFocus();
     await user.keyboard("{ArrowRight}");
     expect(screen.getByRole("region", { name: /^Score:/ })).toHaveFocus();

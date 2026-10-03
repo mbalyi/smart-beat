@@ -57,9 +57,9 @@ import {
   type Voice,
 } from "@/lib/score/model";
 import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
-import { drumTabString } from "@/lib/score/drum-tab";
+import { DRUM_TAB_LINES, drumLine, setDrumLine } from "@/lib/score/drum-lines";
+import { drumTabString, placeDrums } from "@/lib/score/drum-tab";
 import {
-  drumSound,
   MAX_FRET,
   NO_TUPLET,
   noteValueLabel,
@@ -519,10 +519,41 @@ export class ScoreEditor {
     this.moved();
   }
 
-  /** The drums of the cursor's beat, top line of the drum tab first (cymbals … kick). */
+  /**
+   * The drums of the cursor's beat, top line of the drum tab first (cymbals …
+   * kick), on the lines they were placed on (#53).
+   */
   private drumsTopDown(): number[] {
-    return [...new Set(this.beatInfo.notes.map((n) => n.pitch))].sort(
-      (a, b) => drumTabString(b) - drumTabString(a) || b - a,
+    const beat = this.beatAt();
+    if (!beat) return [];
+    const lines = placeDrums(beat.notes);
+    const line = (note: Note) => lines.get(note) ?? drumTabString(pitchOf(note));
+    return [
+      ...new Set(
+        [...beat.notes].sort((a, b) => line(b) - line(a) || pitchOf(b) - pitchOf(a)).map(pitchOf),
+      ),
+    ];
+  }
+
+  /** Alt+Up/Down on a drum: moves it to the line above or below in the drum tab (#53). */
+  private moveDrumToLine(step: 1 | -1) {
+    const beat = this.beatAt();
+    const note = this.noteAtCursor();
+    if (!beat || !note) return;
+    const now = placeDrums(beat.notes).get(note) ?? drumLine(note) ?? 1;
+    const line = now + step;
+    if (line < 1 || line > DRUM_TAB_LINES) {
+      this.announce(step > 0 ? "Already on the top line" : "Already on the bottom line");
+      return;
+    }
+    this.run(
+      "Move drum to another line",
+      this.cursorTargets,
+      () => {
+        const target = this.noteAtCursor();
+        if (target) setDrumLine(target, line);
+      },
+      `${drumNumberName(pitchOf(note))} on line ${DRUM_TAB_LINES + 1 - line} of the drum tab`,
     );
   }
 
@@ -686,9 +717,7 @@ export class ScoreEditor {
       if (note) parts.push(`fret ${note.fret}${note.tied ? ", tied" : ""}`);
     } else if (c.pitch !== null && info.notes.some((n) => n.pitch === c.pitch)) {
       parts.push(
-        this.kind === "drums"
-          ? (drumSound(c.pitch)?.name ?? drumNumberName(c.pitch))
-          : pitchName(c.pitch, { spoken: true }),
+        this.kind === "drums" ? drumNumberName(c.pitch) : pitchName(c.pitch, { spoken: true }),
       );
     }
     parts.push(...this.effectNames());
@@ -1035,14 +1064,18 @@ export class ScoreEditor {
         target.addNote(note);
         this._cursor.pitch = sound;
       },
-      drumSound(sound)?.name ?? drumNumberName(sound),
+      drumNumberName(sound),
     );
   }
 
   /** Moves the note under the cursor up or down a semitone. */
   transpose(step: 1 | -1) {
+    if (this.kind === "drums") {
+      this.moveDrumToLine(step);
+      return;
+    }
     const note = this.noteAtCursor();
-    if (!note || this.kind === "drums") return;
+    if (!note) return;
     if (this.kind === "stringed") {
       const fret = note.fret + step;
       if (fret < 0 || fret > MAX_FRET) return;
