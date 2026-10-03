@@ -7,12 +7,8 @@ import {
   Trash2Icon,
 } from "lucide-react";
 
-import {
-  Glyph,
-  PaletteButton,
-  PaletteSection,
-  type SmuflName,
-} from "@/components/score/palette-button";
+import { Glyph, PaletteButton, PaletteSection } from "@/components/score/palette-button";
+import type { SmuflName } from "@/lib/score/smufl";
 import {
   Select,
   SelectContent,
