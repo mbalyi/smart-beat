@@ -5,9 +5,11 @@ import {
   DRUM_FALLBACK,
   DRUM_MIDI_MAP,
   drumNumberName,
+  drumOutputKey,
   LAST_PLAYABLE_DRUM,
   playableDrumKey,
 } from "@/lib/score/drum-map";
+import { drumKey, drumNumber, type Note } from "@/lib/score/model";
 import { DRUM_KIT, DRUM_NOTATION } from "@/lib/score/music";
 import { percussionKeys } from "@/lib/score/sf2-keys";
 
@@ -73,4 +75,34 @@ describe("the drum map", () => {
       expect(Math.max(...keys)).toBe(LAST_PLAYABLE_DRUM);
     },
   );
+});
+
+describe("drum numbers and the keys they play (#53)", () => {
+  /** A note of a track without its own drum map, using a default articulation id. */
+  const drumNote = (id: number, own: { outputMidiNumber: number }[] = []) =>
+    ({
+      percussionArticulation: id,
+      isPercussion: true,
+      beat: { voice: { bar: { staff: { track: { percussionArticulations: own } } } } },
+    }) as unknown as Note;
+
+  it("plays a Guitar Pro articulation through its output key, but shows its number", () => {
+    // Regression: 92 "Hi-Hat (half)" was treated as key 92 while alphaTab plays 46.
+    expect(drumKey(drumNote(92))).toBe(46);
+    expect(drumNumber(drumNote(92))).toBe(92);
+    expect(drumKey(drumNote(91))).toBe(38);
+    expect(drumKey(drumNote(38))).toBe(38);
+  });
+
+  it("uses a track's own articulations as they are", () => {
+    const note = drumNote(0, [{ outputMidiNumber: 42 }]);
+    expect(drumKey(note)).toBe(42);
+    expect(drumNumber(note)).toBe(42);
+  });
+
+  it("has an output key below 88 for every articulation above 87", () => {
+    for (const id of Object.keys(DRUM_MIDI_MAP).map(Number).filter((n) => n > 87)) {
+      expect(drumOutputKey(id), String(id)).toBeLessThanOrEqual(87);
+    }
+  });
 });

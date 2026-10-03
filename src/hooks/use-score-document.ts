@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  ENCODING_LABELS,
+  type EncodingChoice,
+  type TextEncodingId,
+} from "@/lib/score/encoding";
 import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
 import { baseName, fileKey } from "@/lib/score/format";
 import { initialMix, mixFromScore } from "@/lib/score/mixer";
@@ -35,6 +40,31 @@ export interface ScoreDocument {
   mix: MixerSettings;
   /** Created with File › New rather than opened. */
   isNew?: boolean;
+  /** Guitar Pro 3–5 files: the encoding the text was read with (#53). */
+  encoding?: TextEncodingId;
+  /** The encoding the user picked for this file, or "auto". */
+  encodingChoice?: EncodingChoice;
+}
+
+const ENCODING_KEY = "smart-beat:encoding:";
+
+/** The encoding the user picked for a file (by content), or "auto". */
+function storedEncoding(key: string): EncodingChoice {
+  try {
+    const value = localStorage.getItem(ENCODING_KEY + key);
+    return value && value in ENCODING_LABELS ? (value as EncodingChoice) : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+function storeEncoding(key: string, choice: EncodingChoice) {
+  try {
+    if (choice === "auto") localStorage.removeItem(ENCODING_KEY + key);
+    else localStorage.setItem(ENCODING_KEY + key, choice);
+  } catch {
+    // Not remembered; the file still opens with the choice now.
+  }
 }
 
 /** Name of a song created with File › New. */
@@ -111,10 +141,15 @@ export function useScoreDocuments() {
     setActiveId(song.id);
   }, []);
 
+  /** Where each open song was read from, to read it again (Reopen with encoding). */
+  const sources = useRef(new Map<number, Source>());
+
   const open = useCallback(
-    async ({ name, read, path }: Source) => {
+    async (source: Source, replace?: { id: number; encoding: EncodingChoice }) => {
+      const { name, read, path } = source;
       // Opening a song that is already open shows its tab.
-      const already = path ? songsRef.current.find((s) => s.path === path) : undefined;
+      const already =
+        path && !replace ? songsRef.current.find((s) => s.path === path) : undefined;
       if (already) {
         setActiveId(already.id);
         return;
@@ -123,13 +158,20 @@ export function useScoreDocuments() {
       const toastId = toast.loading(`Opening “${name}”…`);
       try {
         const bytes = await read();
+        const key = await fileKey(bytes);
+        const choice = replace?.encoding ?? storedEncoding(key);
         // alphaTab is large: load it with the first song, not with the app.
         const { loadSong } = await import("@/lib/import");
-        const { score, summary, warnings, converted } = await loadSong(bytes, name);
-        const key = await fileKey(bytes);
+        const { score, summary, warnings, converted, encoding } = await loadSong(
+          bytes,
+          name,
+          choice,
+        );
+        if (replace) storeEncoding(key, choice);
         const saved = await savedMix(key, path);
         toast.dismiss(toastId);
-        add({
+        sources.current.set(id, source);
+        const song: ScoreDocument = {
           id,
           name,
           // A MIDI or MusicXML file is never replaced by a save: Save asks for a new file.
@@ -139,7 +181,14 @@ export function useScoreDocuments() {
           score,
           summary,
           mix: initialMix(summary, saved),
-        });
+          ...(encoding && { encoding, encodingChoice: choice }),
+        };
+        if (replace) {
+          // The same tab, read again.
+          sources.current.delete(replace.id);
+          setSongs((list) => list.map((s) => (s.id === replace.id ? song : s)));
+          setActiveId(id);
+        } else add(song);
         if (warnings.length > 0) {
           // Long enough to read what was left out.
           toast.warning(`“${name}” was converted`, {
@@ -214,10 +263,22 @@ export function useScoreDocuments() {
    * stays open.
    */
   const markSaved = useCallback((id: number, saved: SavedAs) => {
+    // Read again from where it was saved.
+    const { path } = saved;
+    if (path) sources.current.set(id, { name: saved.name, path, read: () => readScoreFile(path) });
     setSongs((list) =>
       list.map((song) => (song.id === id ? { ...song, ...saved, isNew: false } : song)),
     );
   }, []);
+
+  /** Reads an open Guitar Pro 3–5 song again with another text encoding (#53). */
+  const reopenWithEncoding = useCallback(
+    (id: number, encoding: EncodingChoice) => {
+      const source = sources.current.get(id);
+      if (source) void open(source, { id, encoding });
+    },
+    [open],
+  );
 
   /** Closes a song's tab; the tab next to it (or none) is shown instead. */
   const close = useCallback((id: number) => {
@@ -226,6 +287,7 @@ export function useScoreDocuments() {
     if (index < 0) return;
     const rest = list.filter((s) => s.id !== id);
     setSongs(rest);
+    sources.current.delete(id);
     setActiveId((current) =>
       current === id ? (rest[Math.min(index, rest.length - 1)]?.id ?? null) : current,
     );
@@ -241,6 +303,7 @@ export function useScoreDocuments() {
     openFile,
     newSong,
     markSaved,
+    reopenWithEncoding,
     recentsVersion,
   };
 }

@@ -41,8 +41,18 @@ export function App() {
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const { toggleTheme } = useTheme();
-  const { songs, song, activate, close, openPath, openFile, newSong, markSaved, recentsVersion } =
-    useScoreDocuments();
+  const {
+    songs,
+    song,
+    activate,
+    close,
+    openPath,
+    openFile,
+    newSong,
+    markSaved,
+    reopenWithEncoding,
+    recentsVersion,
+  } = useScoreDocuments();
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Where an open song puts its main controls (the app header's centre). */
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
@@ -191,6 +201,7 @@ export function App() {
                     onOpen={open}
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}
+                    onReopenWithEncoding={(choice) => reopenWithEncoding(s.id, choice)}
                     startEditing={s.isNew}
                     droppedAudio={s.id === song.id ? droppedAudio : null}
                   />

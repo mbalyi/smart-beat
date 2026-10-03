@@ -43,8 +43,8 @@ export const DRUM_MIDI_MAP: Readonly<Record<number, string>> = {
   57: "Crash medium (hit)",
   58: "Vibraslap (hit)",
   59: "Ride (edge)",
-  60: "Hand (hit)",
-  61: "Hand (hit)",
+  60: "Bongo High (hit)",
+  61: "Bongo Low (hit)",
   62: "Conga high (mute)",
   63: "Conga high (hit)",
   64: "Conga low (hit)",
@@ -66,7 +66,7 @@ export const DRUM_MIDI_MAP: Readonly<Record<number, string>> = {
   80: "Triangle (mute)",
   81: "Triangle (hit)",
   82: "Shaker (hit)",
-  83: "Jingle Bell (hit)",
+  83: "Jingle / Tinkle Bell (hit)",
   84: "Bell Tree (hit)",
   85: "Castanets (hit)",
   86: "Surdo (hit)",
@@ -84,10 +84,10 @@ export const DRUM_MIDI_MAP: Readonly<Record<number, string>> = {
   101: "Cowbell medium (tip)",
   102: "Cowbell high (hit)",
   103: "Cowbell high (tip)",
-  104: "Hand (mute)",
-  105: "Hand (slap)",
-  106: "Hand (mute)",
-  107: "Hand (slap)",
+  104: "Bongo High (mute)",
+  105: "Bongo High (slap)",
+  106: "Bongo Low (mute)",
+  107: "Bongo Low (slap)",
   108: "Conga low (slap)",
   109: "Conga low (mute)",
   110: "Conga high (slap)",
@@ -180,6 +180,73 @@ export const DRUM_FALLBACK: Readonly<Record<number, number>> = {
   126: 51, // ride middle / bell (second copies) → ride
   127: 53,
 };
+
+/**
+ * The MIDI note a Guitar Pro drum articulation plays, where it is not the
+ * number itself: the numbers above 87 (and a few below) are articulation
+ * ids, e.g. 92 "Hi-Hat (half)" plays the open hi-hat (46). The standard
+ * Guitar Pro drum map, which alphaTab's default articulations follow.
+ */
+export const DRUM_OUTPUT: Readonly<Record<number, number>> = {
+  29: 59, // ride choke
+  30: 49, // reverse cymbal
+  31: 40, // sticks
+  33: 37, // metronome
+  34: 38,
+  83: 53, // jingle / tinkle bell
+  84: 53, // bell tree
+  91: 38, // snare rim shot
+  92: 46, // hi-hat half
+  93: 51, // ride edge
+  94: 51, // ride choke
+  95: 55, // splash choke
+  96: 52, // china choke
+  97: 49, // crash high choke
+  98: 57, // crash medium choke
+  99: 56, // cowbells
+  100: 56,
+  101: 56,
+  102: 56,
+  103: 56,
+  104: 60, // bongos
+  105: 60,
+  106: 61,
+  107: 61,
+  108: 64, // congas
+  109: 64,
+  110: 63,
+  111: 54, // tambourine
+  112: 54,
+  113: 54,
+  114: 43, // grancassa
+  115: 49, // piatti
+  116: 49,
+  117: 69, // cabasa
+  118: 70, // maracas
+  119: 70,
+  120: 70,
+  122: 82, // shaker
+  123: 53, // bell tree
+  124: 62, // golpe
+  125: 62,
+  126: 59, // ride cymbal 2
+  127: 59,
+};
+
+/** The MIDI note a drum number (an articulation of the default kit) sounds. */
+export const drumOutputKey = (id: number): number => DRUM_OUTPUT[id] ?? id;
+
+/**
+ * The drum pads, as Guitar Pro groups them: the main kit in the order of its
+ * drum picker, then every other articulation by number (#53).
+ */
+export const MAIN_KIT: readonly number[] = [
+  38, 37, 91, 42, 92, 46, 44, 35, 36, 50, 48, 47, 45, 43, 93, 51, 53, 55, 52, 49, 57, 99, 56, 102,
+];
+
+export const PERCUSSION: readonly number[] = Object.keys(DRUM_MIDI_MAP)
+  .map(Number)
+  .filter((id) => !MAIN_KIT.includes(id));
 
 /** The key to play for a drum number: itself, or its fallback where the SoundFont is silent. */
 export const playableDrumKey = (key: number): number => DRUM_FALLBACK[key] ?? key;

@@ -79,6 +79,7 @@ import {
   type BarProblem,
 } from "@/lib/score/bar-duration";
 import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
+import type { EncodingChoice } from "@/lib/score/encoding";
 import {
   drumKitOf,
   instrumentViewName,
@@ -296,6 +297,7 @@ export function ScoreWorkspace({
   onOpen,
   onEditedChange,
   onSaved,
+  onReopenWithEncoding,
   startEditing = false,
   droppedAudio = null,
 }: {
@@ -309,6 +311,8 @@ export function ScoreWorkspace({
   onOpen: () => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
   onSaved?: (saved: SavedAs) => void;
+  /** Guitar Pro 3–5 songs: read the file again with another text encoding (#53). */
+  onReopenWithEncoding?: (choice: EncodingChoice) => void;
   /** Called when the song gets (or loses, by undoing everything) unsaved changes. */
   onEditedChange?: (edited: boolean) => void;
   /** Open in edit mode (new songs). */
@@ -1513,6 +1517,16 @@ export function ScoreWorkspace({
         onExport={(format) => void fileActions.exportAs(format)}
         onExportAudio={() => void fileActions.exportAudio()}
         onPrint={() => setPrintOpen(true)}
+        encoding={
+          song.encoding && onReopenWithEncoding
+            ? {
+                current: song.encoding,
+                choice: song.encodingChoice ?? "auto",
+                edited: editor.edited,
+                onChange: onReopenWithEncoding,
+              }
+            : undefined
+        }
       />
       <ToolsMenu
         onTranspose={() => setTransposeOpen(true)}

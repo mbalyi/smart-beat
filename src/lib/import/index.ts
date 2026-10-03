@@ -1,5 +1,6 @@
 /** Opening songs: Guitar Pro and MusicXML go through alphaTab, MIDI files through our own import. */
 import { parseScore, summarizeScore, type LoadedScore } from "@/lib/score/score";
+import type { EncodingChoice } from "@/lib/score/encoding";
 
 export interface LoadedSong extends LoadedScore {
   /** What could not be taken over exactly, for the user. Empty for Guitar Pro files. */
@@ -36,7 +37,11 @@ const extensionOf = (name: string | undefined) =>
  * tells text formats apart; other files are recognised by their content.
  * Throws `ScoreLoadError` for damaged files.
  */
-export async function loadSong(bytes: Uint8Array, name?: string): Promise<LoadedSong> {
+export async function loadSong(
+  bytes: Uint8Array,
+  name?: string,
+  encoding: EncodingChoice = "auto",
+): Promise<LoadedSong> {
   const extension = extensionOf(name);
   if (extension === "txt") {
     // Text tab: the importer is only loaded for these files.
@@ -59,6 +64,6 @@ export async function loadSong(bytes: Uint8Array, name?: string): Promise<Loaded
     const { score, warnings } = importMidi(bytes);
     return { score, summary: summarizeScore(score), warnings, converted: true };
   }
-  const loaded = parseScore(bytes);
+  const loaded = parseScore(bytes, encoding);
   return { ...loaded, warnings: [], converted: isXmlFile(bytes) };
 }

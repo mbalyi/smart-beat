@@ -45,7 +45,7 @@ import {
   newBeat,
   placeholderBeats,
   refinish,
-  soundOf,
+  drumNumber,
   staffContent,
   tuningOf,
   type Bar,
@@ -180,7 +180,8 @@ function isPlaceholder(beat: Beat): boolean {
 }
 
 /** Which note of a chord is "under the cursor" on a pitched or drum track. */
-const pitchOf = soundOf;
+/** A note's pitch, or a drum note's number as Guitar Pro shows it (92, not the 46 it plays). */
+const pitchOf = (note: Note): number => (note.isPercussion ? drumNumber(note) : note.realValue);
 
 const graceText = (type: model.GraceType) =>
   type === GraceType.OnBeat ? "Grace note on the beat" : "Grace note before the beat";

@@ -5,6 +5,14 @@
 import { AlphaTabError, importer, Settings, type model } from "@coderline/alphatab";
 
 import { ScoreLoadError } from "@/lib/score/errors";
+import {
+  detectEncoding,
+  encodeText,
+  scoreStrings,
+  setSourceEncoding,
+  type EncodingChoice,
+  type TextEncodingId,
+} from "@/lib/score/encoding";
 import { adoptLyrics } from "@/lib/score/lyrics";
 import type { TrackKind } from "@/lib/score/music";
 import type { TrackMix } from "@/lib/tauri";
@@ -53,6 +61,43 @@ export interface ScoreSummary {
 export interface LoadedScore {
   score: Score;
   summary: ScoreSummary;
+  /** Guitar Pro 3–5 files: the encoding their text was read with. */
+  encoding?: TextEncodingId;
+}
+
+/** Guitar Pro 3–5 files start with "FICHIER GUITAR PRO v…" (or "CLIPBOARD"). */
+function isLegacyGuitarPro(bytes: Uint8Array): boolean {
+  const head = String.fromCharCode(...bytes.subarray(1, 20));
+  return head.startsWith("FICHIER GUITAR PRO") || head.startsWith("CLIPBOARD");
+}
+
+function loadWith(bytes: Uint8Array, encoding: TextEncodingId): Score {
+  const settings = new Settings();
+  settings.importer.encoding = encoding;
+  return importer.ScoreLoader.loadScoreFromBytes(bytes, settings);
+}
+
+/**
+ * Reads a file; Guitar Pro 3–5 text is decoded with `choice`, or with the
+ * encoding detected from the file's own strings (#53).
+ */
+function loadScore(
+  bytes: Uint8Array,
+  choice: EncodingChoice,
+): { score: Score; encoding?: TextEncodingId } {
+  if (!isLegacyGuitarPro(bytes)) {
+    return { score: importer.ScoreLoader.loadScoreFromBytes(bytes, new Settings()) };
+  }
+  if (choice !== "auto") return { score: loadWith(bytes, choice), encoding: choice };
+  // Windows-1252 keeps every byte: the stored strings can be rebuilt to look at them.
+  const western = loadWith(bytes, "windows-1252");
+  const encoding = detectEncoding(
+    scoreStrings(western).map((text) => encodeText(text, "windows-1252").bytes),
+  );
+  return {
+    score: encoding === "windows-1252" ? western : loadWith(bytes, encoding),
+    encoding,
+  };
 }
 
 /** Guitar Pro stores volume and balance as 0–16 (balance 8 = centre). */
@@ -140,10 +185,11 @@ export function summarizeScore(score: Score): ScoreSummary {
  * then set to full volume in the model: the mixer applies the level on top, so
  * it can range from silent to full whatever the file says.
  */
-export function parseScore(bytes: Uint8Array): LoadedScore {
+export function parseScore(bytes: Uint8Array, choice: EncodingChoice = "auto"): LoadedScore {
   let score: Score;
+  let encoding: TextEncodingId | undefined;
   try {
-    score = importer.ScoreLoader.loadScoreFromBytes(bytes, new Settings());
+    ({ score, encoding } = loadScore(bytes, choice));
   } catch (error) {
     const reason =
       error instanceof AlphaTabError ? "it is damaged or in an unsupported format" : String(error);
@@ -157,7 +203,8 @@ export function parseScore(bytes: Uint8Array): LoadedScore {
     adoptTrack(track);
     adoptLyrics(track);
   }
-  return { score, summary: summarizeScore(score) };
+  if (encoding) setSourceEncoding(score, encoding);
+  return { score, summary: summarizeScore(score), ...(encoding && { encoding }) };
 }
 
 /**

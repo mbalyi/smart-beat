@@ -9,10 +9,16 @@
 import { model } from "@coderline/alphatab";
 
 import { ByteWriter } from "@/lib/export/gp5/bytes";
+import {
+  defaultEncoding,
+  encodingFor,
+  scoreStrings,
+  sourceEncoding,
+} from "@/lib/score/encoding";
 import { beatTicks } from "@/lib/score/bar-duration";
 import { lyricsOf, MAX_LYRIC_LINES } from "@/lib/score/lyrics";
 import {
-  drumKey,
+  drumNumber,
   type Bar,
   type Beat,
   type MasterBar,
@@ -244,7 +250,7 @@ function writeCurve(out: ByteWriter, points: readonly model.BendPoint[]) {
 // --- The writer ---------------------------------------------------------------------------
 
 class Gp5Writer {
-  private readonly out = new ByteWriter();
+  private readonly out: ByteWriter;
   private readonly warnings = new Warnings();
   private readonly plans: TrackPlan[];
   /** Tempo changes after the start, by `bar:beat` (beat of the first track's first voice). */
@@ -254,6 +260,10 @@ class Gp5Writer {
 
   constructor(score: Score) {
     this.score = score;
+    // The text is saved the way it was read (Guitar Pro 3–5 files), in a code page it fits in.
+    this.out = new ByteWriter(
+      encodingFor(scoreStrings(score), sourceEncoding(score) ?? defaultEncoding()),
+    );
     this.plans = score.tracks.map((track) => planTrack(track, this.warnings));
     this.collectTempoChanges();
   }
@@ -275,6 +285,11 @@ class Gp5Writer {
     this.writeMasterBars();
     for (const plan of this.plans) this.writeTrack(plan);
     this.writeBars();
+    if (out.lost > 0) {
+      this.warnings.add(
+        `${out.lost} character${out.lost === 1 ? "" : "s"} could not be saved in the ${out.encoding} text encoding and became “?”.`,
+      );
+    }
     return { bytes: out.toBytes(), warnings: this.warnings.list };
   }
 
@@ -576,7 +591,7 @@ class Gp5Writer {
           continue;
         }
         used.add(fileString);
-        placed.push({ note, fileString, fret: note.isPercussion ? drumKey(note) : note.fret });
+        placed.push({ note, fileString, fret: note.isPercussion ? drumNumber(note) : note.fret });
       }
       return placed;
     }
