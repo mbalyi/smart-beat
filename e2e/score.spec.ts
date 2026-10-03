@@ -106,7 +106,8 @@ test.describe("opening Guitar Pro files (#4)", () => {
     await app.getByRole("combobox", { name: "Track" }).click();
     await app.getByRole("option", { name: "Drums" }).click();
     await expect(app.getByRole("region", { name: "Score: Drums" })).toBeVisible();
-    await expect(app.getByRole("radio", { name: "Score", exact: true })).toBeChecked();
+    // Drums open with score and drum tab, as in Guitar Pro (#53).
+    await expect(app.getByRole("radio", { name: "Score + tab", exact: true })).toBeChecked();
     // Drums can be shown as a drum tab too (#49).
     await expect(app.getByRole("radio", { name: "Tab", exact: true })).toBeEnabled();
 

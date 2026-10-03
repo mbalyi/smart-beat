@@ -16,7 +16,7 @@ use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 use serde::{Deserialize, Serialize};
 
 use super::backing::Backing;
-use super::chain::{Chain, ChainPlayer, EffectSlot};
+use super::chain::{Chain, ChainPlayer, EffectSlot, MAX_MASTER_EFFECTS};
 use super::dsp::Effect;
 use super::dsp::db_to_gain;
 use super::dsp::eq::Eq;
@@ -303,6 +303,17 @@ pub struct Meters {
     pub drums: Vec<Vec<f32>>,
     /// The audio track.
     pub backing: f32,
+    /// Gain reduction of compressors and limiters (#39).
+    pub reduction: Reduction,
+}
+
+/// Gain reduction (dB, ≥ 0) of every pedalboard slot since the meters were
+/// last read: per track (its playing sound's chain) and the master chain.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reduction {
+    pub tracks: Vec<Vec<f32>>,
+    pub master: Vec<f32>,
 }
 
 pub struct Engine {
@@ -856,10 +867,24 @@ impl Engine {
                 })
             })
             .collect();
+        let reduction = Reduction {
+            tracks: self
+                .tracks
+                .iter_mut()
+                .map(|t| {
+                    let active = t.active.min(t.sounds.len().saturating_sub(1));
+                    t.sounds
+                        .get_mut(active)
+                        .map_or_else(Vec::new, |s| s.take_reduction().to_vec())
+                })
+                .collect(),
+            master: self.master.take_reduction()[..MAX_MASTER_EFFECTS].to_vec(),
+        };
         Meters {
             tracks,
             master: std::mem::take(&mut self.master_peak),
             drums,
+            reduction,
             backing: self
                 .backing
                 .as_mut()

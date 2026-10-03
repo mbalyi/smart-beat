@@ -30,6 +30,14 @@ export function smoothMeters(next: EngineMeters, previous: EngineMeters): Engine
     master: fall(next.master, previous.master),
     drums: (next.drums ?? []).map((row, t) => row.map((v, e) => fall(v, previous.drums?.[t]?.[e]))),
     backing: fall(next.backing, previous.backing),
+    ...(next.reduction && {
+      reduction: {
+        tracks: next.reduction.tracks.map((row, t) =>
+          row.map((v, i) => fall(v, previous.reduction?.tracks[t]?.[i])),
+        ),
+        master: next.reduction.master.map((v, i) => fall(v, previous.reduction?.master[i])),
+      },
+    }),
   };
 }
 
@@ -67,3 +75,7 @@ export function meterPosition(peak: number): number {
   const db = 20 * Math.log10(peak);
   return Math.min(1, Math.max(0, (db + 60) / 60));
 }
+
+/** "-4.5 dB" of gain reduction (#39), or "No reduction". */
+export const describeReduction = (db: number) =>
+  db > 0.05 ? `-${db.toFixed(1)} dB` : "No reduction";

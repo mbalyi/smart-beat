@@ -147,3 +147,80 @@ test.describe("pedalboard (#36)", () => {
     await app.getByRole("button", { name: "Stop" }).click();
   });
 });
+
+/** Compressor settings and the mastering chain (#39). */
+test.describe("compressor and mastering (#39)", () => {
+  async function withEngine(app: Page) {
+    await openSong(app);
+    await app.getByRole("switch", { name: "Native engine with effects" }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+  }
+
+  test("a mastering chain of EQ, compressor and limiter reaches the engine", async ({ app }) => {
+    await withEngine(app);
+    // Playing first: the pedalboard is modal, and its meters move while playing.
+    await app.getByRole("button", { name: "Play" }).click();
+    const dialog = await openPedalboard(app);
+    await dialog.getByRole("radio", { name: "Mastering" }).click();
+    const master = app.getByRole("dialog", { name: "Pedalboard: Master" });
+    for (const name of ["Equalizer", "Compressor", "Limiter"]) {
+      await master.getByRole("button", { name: `Add ${name}` }).click();
+    }
+    await expect(master.getByRole("button", { name: "Add Reverb" })).toBeDisabled();
+    await master.getByRole("combobox", { name: "Limiter 3: preset" }).click();
+    await app.getByRole("option", { name: "Master loud" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          (
+            window.__engineChains?.master as { type: string; ceilingDb?: number }[] | undefined
+          )?.map((s) => [s.type, s.ceilingDb ?? null]),
+        ),
+      )
+      .toEqual([
+        ["eq", null],
+        ["compressor", null],
+        ["limiter", -0.8],
+      ]);
+
+    // While playing, the compressor and the limiter show how hard they work.
+    await expect(
+      master.getByRole("meter", { name: "Limiter 3: gain reduction" }),
+    ).not.toHaveAttribute("aria-valuetext", "No reduction");
+    await expectNoA11yViolations(app);
+  });
+
+  test("a compressor preset reaches the engine", async ({ app }) => {
+    await withEngine(app);
+    const dialog = await openPedalboard(app);
+    await dialog.getByRole("button", { name: "Add Compressor" }).click();
+    await dialog.getByRole("combobox", { name: "Compressor 1: preset" }).click();
+    await app.getByRole("option", { name: "Guitar and bass glue" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () => (window.__engineChains?.[0] as { ratio?: number }[] | undefined)?.[0]?.ratio,
+        ),
+      )
+      .toBe(3);
+  });
+
+  test("the drum mixer's bus compressor squeezes the whole kit", async ({ app }) => {
+    await app.emulateMedia({ colorScheme: "dark" });
+    await withEngine(app);
+    await app.getByRole("combobox", { name: "Track" }).click();
+    await app.getByRole("option", { name: "Drums" }).click();
+    await app.getByRole("button", { name: "Drum mixer…" }).click();
+    const mixer = app.getByRole("dialog", { name: "Drum mixer: Drums" });
+    await mixer.getByRole("button", { name: "Add a bus compressor" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          (window.__engineChains?.[2] as { type: string }[] | undefined)?.map((s) => s.type),
+        ),
+      )
+      .toEqual(["compressor"]);
+    await expect(mixer.getByRole("combobox", { name: "Preset" })).toHaveText("Parallel drum bus");
+    await expectNoA11yViolations(app);
+  });
+});

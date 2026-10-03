@@ -24,6 +24,7 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     onFixBars: vi.fn(),
     onTempo: vi.fn(),
     onEditEffects: vi.fn(),
+    onDrumMixer: vi.fn(),
   };
   const props = {
     tab: "track" as const,
@@ -250,5 +251,18 @@ describe("Inspector: interpretation", () => {
     });
     expect(screen.getByText(/Drums play as written/)).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Playing style" })).not.toBeInTheDocument();
+  });
+
+  it("opens the drum mixer of a drum track, as Guitar Pro does (#39)", async () => {
+    const { user, actions } = setup({
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
+    });
+    await user.click(screen.getByRole("button", { name: "Drum mixer…" }));
+    expect(actions.onDrumMixer).toHaveBeenCalled();
+  });
+
+  it("has no drum mixer button on other tracks", () => {
+    setup();
+    expect(screen.queryByRole("button", { name: "Drum mixer…" })).not.toBeInTheDocument();
   });
 });

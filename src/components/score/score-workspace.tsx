@@ -1737,6 +1737,7 @@ export function ScoreWorkspace({
                 onFixBars: () => fixBars(),
                 onTempo: () => setTempoOpen(true),
                 onEditEffects: () => openPedalboard(trackIndex),
+                onDrumMixer: () => setDrumMixer({ open: true, track: trackIndex }),
               }}
               audioEngine={audioEngine}
               onAudioEngineChange={nativeEngineAvailable() ? changeAudioEngine : undefined}
@@ -1835,6 +1836,10 @@ export function ScoreWorkspace({
         onChange={(drums) => changeMix({ type: "drums", track: drumMixer.track, drums })}
         engineOn={engineOn}
         onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
+        busChain={soundEffects(mix, drumMixer.track, 0)}
+        onBusChainChange={(slots) =>
+          changeMix({ type: "sound-effects", track: drumMixer.track, sound: 0, slots })
+        }
       />
       <SoundLibraryDialog
         open={libraryOpen}

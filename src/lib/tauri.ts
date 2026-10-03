@@ -556,6 +556,8 @@ export interface EngineMeters {
   drums?: number[][];
   /** The audio track. */
   backing?: number;
+  /** Gain reduction (dB) of each pedalboard slot's compressor or limiter (#39). */
+  reduction?: { tracks: number[][]; master: number[] };
 }
 
 /** Mirrors `AutomationData` in `src-tauri/src/audio/mixing.rs`: lanes in ticks. */

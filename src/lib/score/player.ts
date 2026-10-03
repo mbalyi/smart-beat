@@ -570,9 +570,10 @@ export class ScorePlayer {
     // SoundFont switch already knows where to continue. Whether to play is our
     // own flag: alphaTab reports a pause late, so right after one (an edit
     // straight after pausing) it would still say "playing".
-    this.resume ??= { tick: api.tickPosition, play: this.playing };
+    // Kept locally: loading the MIDI can finish (and clear `resume`) at once.
+    const resume = (this.resume ??= { tick: api.tickPosition, play: this.playing });
     api.loadMidiForScore();
-    api.tickPosition = this.resume.tick;
+    api.tickPosition = resume.tick;
   }
 
   showTrack(trackIndex: number, view: TrackView) {

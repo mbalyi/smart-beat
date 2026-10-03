@@ -1,5 +1,11 @@
 import { useId, type ReactNode } from "react";
-import { AudioLinesIcon, MicVocalIcon, Settings2Icon, TriangleAlertIcon } from "lucide-react";
+import {
+  AudioLinesIcon,
+  MicVocalIcon,
+  Settings2Icon,
+  TriangleAlertIcon,
+  SlidersVerticalIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -161,6 +167,8 @@ export interface InspectorActions {
   onTempo: () => void;
   /** Opens the pedalboard of the shown track. */
   onEditEffects: () => void;
+  /** Opens the drum mixer of the shown (drum) track, as Guitar Pro does from its sound row. */
+  onDrumMixer?: () => void;
 }
 
 /** The track's effects as a compact list (GP8's mini effect chain). */
@@ -446,6 +454,17 @@ export function Inspector({
               </p>
             </>
           )}
+          {track.kind === "drums" && actions.onDrumMixer && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-start"
+              onClick={actions.onDrumMixer}
+            >
+              <SlidersVerticalIcon data-icon="inline-start" />
+              Drum mixer…
+            </Button>
+          )}
           <MiniChain
             chain={effects}
             problems={audioEngine === "native" ? effectProblems : 0}
@@ -457,7 +476,7 @@ export function Inspector({
         <Section title="Interpretation">
           {track.kind === "drums" ? (
             <p className="text-xs text-muted-foreground">
-              Drums play as written. Mix them in the track list.
+              Drums play as written. Mix the kit pieces in the drum mixer.
             </p>
           ) : (
             <InterpretationControls value={interpretation} onChange={onInterpretationChange} />

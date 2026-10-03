@@ -17,6 +17,7 @@ use super::dsp::delay::{Delay, DelayParams};
 use super::dsp::drive::{Drive, DriveParams};
 use super::dsp::eq::{Band, Eq};
 use super::dsp::gate::{Gate, GateParams};
+use super::dsp::limiter::{Limiter, LimiterParams};
 use super::dsp::modulation::{Chorus, ChorusParams, Phaser, PhaserParams, Tremolo, TremoloParams};
 use super::dsp::reverb::{Reverb, ReverbParams};
 use super::dsp::{Effect, db_to_gain};
@@ -43,6 +44,8 @@ pub enum EffectConfig {
     Tremolo(TremoloParams),
     Delay(DelayParams),
     Reverb(ReverbParams),
+    /// Lookahead brickwall limiter (mastering, #39).
+    Limiter(LimiterParams),
     /// A Neural Amp Modeler capture from the user's library (amp or pedal).
     #[serde(rename_all = "camelCase")]
     Amp {
@@ -73,6 +76,7 @@ impl EffectConfig {
             Self::Tremolo(_) => "tremolo",
             Self::Delay(_) => "delay",
             Self::Reverb(_) => "reverb",
+            Self::Limiter(_) => "limiter",
             Self::Amp { .. } => "amp",
             Self::Cab { .. } => "cab",
         }
@@ -154,6 +158,11 @@ pub struct Chain {
     blocks: Vec<Box<dyn Effect>>,
     /// The configuration each block was built from (same order as `blocks`).
     layout: Vec<EffectConfig>,
+    /// The slot (position on the pedalboard) of each block.
+    slots: Vec<usize>,
+    /// Gain reduction of each slot's compressor or limiter since the meters
+    /// were last read (dB, ≥ 0).
+    reduction: [f32; MAX_TRACK_EFFECTS],
     pub problems: Vec<BlockProblem>,
 }
 
@@ -162,8 +171,15 @@ impl Chain {
         Self {
             blocks: Vec::new(),
             layout: Vec::new(),
+            slots: Vec::new(),
+            reduction: [0.0; MAX_TRACK_EFFECTS],
             problems: Vec::new(),
         }
+    }
+
+    /// Gain reduction of each slot (dB) since the last call, then starts over.
+    pub fn take_reduction(&mut self) -> [f32; MAX_TRACK_EFFECTS] {
+        std::mem::take(&mut self.reduction)
     }
 
     /// Applies new settings to the running blocks when only parameters changed
@@ -208,6 +224,7 @@ impl Chain {
     ) -> Self {
         let mut blocks: Vec<Box<dyn Effect>> = Vec::new();
         let mut layout = Vec::new();
+        let mut slot_indexes = Vec::new();
         let mut problems = Vec::new();
         for (index, slot) in slots.iter().take(limit).enumerate() {
             if !slot.enabled {
@@ -224,6 +241,7 @@ impl Chain {
                 EffectConfig::Tremolo(p) => Ok(Box::new(Tremolo::new(*p, sample_rate))),
                 EffectConfig::Delay(p) => Ok(Box::new(Delay::new(*p, sample_rate))),
                 EffectConfig::Reverb(p) => Ok(Box::new(Reverb::new(*p, sample_rate))),
+                EffectConfig::Limiter(p) => Ok(Box::new(Limiter::new(*p, sample_rate))),
                 EffectConfig::Cab { ir } => assets
                     .impulse_response(ir)
                     .map(|spectrum| Box::new(Convolver::new(spectrum)) as Box<dyn Effect>)
@@ -259,6 +277,7 @@ impl Chain {
                 Ok(block) => {
                     blocks.push(block);
                     layout.push(slot.effect.clone());
+                    slot_indexes.push(index);
                 }
                 Err(message) => problems.push(BlockProblem { index, message }),
             }
@@ -266,13 +285,18 @@ impl Chain {
         Self {
             blocks,
             layout,
+            slots: slot_indexes,
+            reduction: [0.0; MAX_TRACK_EFFECTS],
             problems,
         }
     }
 
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        for block in &mut self.blocks {
+        for (block, &slot) in self.blocks.iter_mut().zip(&self.slots) {
             block.process(left, right);
+            if let (Some(db), Some(held)) = (block.meter_db(), self.reduction.get_mut(slot)) {
+                *held = held.max(db);
+            }
         }
         // Last line of defence: a broken block must never send NaN or huge
         // values to the speakers.
@@ -324,6 +348,11 @@ impl ChainPlayer {
 
     pub fn current(&self) -> &Chain {
         &self.current
+    }
+
+    /// See [`Chain::take_reduction`] (of the chain that is playing).
+    pub fn take_reduction(&mut self) -> [f32; MAX_TRACK_EFFECTS] {
+        self.current.take_reduction()
     }
 
     /// See [`Chain::update`]; never during a crossfade.
@@ -567,5 +596,101 @@ mod tests {
             .fold(0.0, f32::max);
         assert!(max_step < 0.01, "step {max_step}");
         assert!((out.last().unwrap() - 0.25 * db_to_gain(12.0)).abs() < 1e-3);
+    }
+
+    /// Bypassing a compressor that is reducing hard (#39) must not click.
+    #[test]
+    fn bypassing_a_compressor_in_heavy_reduction_is_continuous() {
+        let squash = EffectSlot {
+            enabled: true,
+            effect: EffectConfig::Compressor(CompressorParams {
+                threshold_db: -30.0,
+                ratio: 10.0,
+                attack_ms: 1.0,
+                ..Default::default()
+            }),
+        };
+        let bypassed = EffectSlot {
+            enabled: false,
+            ..squash.clone()
+        };
+        let build = |slot: &EffectSlot| {
+            Chain::build(
+                std::slice::from_ref(slot),
+                MAX_TRACK_EFFECTS,
+                RATE,
+                64,
+                &NoAssets,
+            )
+        };
+        let mut player = ChainPlayer::new(build(&squash), RATE, 64);
+        let mut out = Vec::new();
+        for block in 0..60 {
+            if block == 30 {
+                player.replace(build(&bypassed));
+            }
+            // A slow 50 Hz tone: any jump bigger than its own steps is a click.
+            let (mut l, mut r): (Vec<f32>, Vec<f32>) = (0..64)
+                .map(|i| {
+                    let t = (block * 64 + i) as f32 / RATE;
+                    let v = 0.8 * (std::f32::consts::TAU * 50.0 * t).sin();
+                    (v, v)
+                })
+                .unzip();
+            player.process(&mut l, &mut r);
+            out.extend(l);
+        }
+        let max_step = out
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max);
+        // The tone itself moves at most 2π·50/48000·0.8 ≈ 0.005 per sample.
+        assert!(max_step < 0.02, "step {max_step}");
+        assert!(out.iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn reports_the_gain_reduction_of_each_slot() {
+        let slots = [
+            EffectSlot {
+                enabled: false,
+                effect: EffectConfig::Reverb(ReverbParams::default()),
+            },
+            slot(EffectConfig::Compressor(CompressorParams {
+                threshold_db: -20.0,
+                ratio: 4.0,
+                knee_db: 0.0,
+                ..Default::default()
+            })),
+            slot(EffectConfig::Limiter(LimiterParams {
+                ceiling_db: -1.0,
+                ..Default::default()
+            })),
+        ];
+        let mut chain = Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, 4_800, &NoAssets);
+        let (mut l, mut r) = (vec![1.0f32; 4_800], vec![1.0f32; 4_800]);
+        chain.process(&mut l, &mut r);
+        let meters = chain.take_reduction();
+        assert_eq!(meters[0], 0.0, "the bypassed reverb has no meter");
+        assert!(meters[1] > 10.0, "compressor: {}", meters[1]);
+        // The limiter only catches the compressor's attack transient.
+        assert!((0.0..3.0).contains(&meters[2]), "limiter: {}", meters[2]);
+        assert_eq!(
+            chain.take_reduction(),
+            [0.0; MAX_TRACK_EFFECTS],
+            "read once"
+        );
+    }
+
+    #[test]
+    fn limiter_blocks_round_trip_through_json() {
+        let json = r#"{"enabled":true,"type":"limiter","ceilingDb":-0.3,"inputDb":6}"#;
+        let slot: EffectSlot = serde_json::from_str(json).unwrap();
+        let EffectConfig::Limiter(p) = slot.effect else {
+            panic!("not a limiter")
+        };
+        assert_eq!(p.ceiling_db, -0.3);
+        assert_eq!(p.input_db, 6.0);
+        assert_eq!(p.lookahead_ms, LimiterParams::default().lookahead_ms);
     }
 }

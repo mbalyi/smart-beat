@@ -1,5 +1,5 @@
 import { fireEvent, screen, within } from "@testing-library/react";
-import { useState } from "react";
+import { act, useState } from "react";
 
 import {
   PedalboardDialog,
@@ -7,6 +7,7 @@ import {
   type PedalboardTarget,
 } from "@/components/audio/pedalboard-dialog";
 import { defaultEffect, type EffectSlot, type EffectType } from "@/lib/audio/effects";
+import { meters } from "@/lib/audio/meter-store";
 import type { BlockProblem, LibraryItem, SongPreset } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -323,5 +324,47 @@ describe("PedalboardDialog", () => {
     );
     expect(sounds.onSwitchesChange).toHaveBeenLastCalledWith([]);
     await expectNoA11yViolations();
+  });
+});
+
+describe("PedalboardDialog: compressor, limiter and mastering (#39)", () => {
+  it("offers drum and mastering presets on compressors, with a gain-reduction meter", async () => {
+    const { user, dialog, chain } = setup({ initial: [defaultEffect("compressor")] });
+    const compressor = pedal(dialog, "Compressor 1");
+    await user.click(within(compressor).getByRole("combobox", { name: "Compressor 1: preset" }));
+    await user.click(await screen.findByRole("option", { name: "Tight kick and snare" }));
+    expect(chain()[0]).toMatchObject({ type: "compressor", ratio: 6, attackMs: 3, enabled: true });
+    expect(
+      within(compressor).getByRole("combobox", { name: "Compressor 1: preset" }),
+    ).toHaveTextContent("Tight kick and snare");
+
+    act(() => meters.set({ tracks: [], master: 0, reduction: { tracks: [[7.25]], master: [] } }));
+    expect(
+      within(compressor).getByRole("meter", { name: "Compressor 1: gain reduction" }),
+    ).toHaveAttribute("aria-valuetext", "-7.3 dB");
+    await expectNoA11yViolations();
+  });
+
+  it("builds a mastering chain of EQ, compressor and limiter, three blocks at most", async () => {
+    const { user, dialog, chain } = setup({
+      target: { track: null, name: "Master", presetTarget: "master" },
+    });
+    for (const name of ["Equalizer", "Compressor", "Limiter"]) {
+      await user.click(within(dialog).getByRole("button", { name: `Add ${name}` }));
+    }
+    expect(types(chain())).toEqual(["eq", "compressor", "limiter"]);
+    expect(within(dialog).getByRole("button", { name: "Add Reverb" })).toBeDisabled();
+    const limiter = pedal(dialog, "Limiter 3");
+    expect(within(limiter).getByRole("slider", { name: "Limiter 3, Ceiling" })).toHaveAttribute(
+      "aria-valuetext",
+      "-1.0 dB",
+    );
+    await user.click(within(limiter).getByRole("combobox", { name: "Limiter 3: preset" }));
+    await user.click(await screen.findByRole("option", { name: "Master loud" }));
+    expect(chain()[2]).toMatchObject({ inputDb: 8, ceilingDb: -0.8 });
+    act(() => meters.set({ tracks: [], master: 0, reduction: { tracks: [], master: [0, 0, 3] } }));
+    expect(
+      within(limiter).getByRole("meter", { name: "Limiter 3: gain reduction" }),
+    ).toHaveAttribute("aria-valuetext", "-3.0 dB");
   });
 });

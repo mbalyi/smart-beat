@@ -69,7 +69,14 @@
   window.__engineConfig = { sounds: {}, automation: {}, eq: {}, drums: {} };
   window.__engineBacking = null;
   /** Levels the engine reports while playing. */
-  window.__meters = { tracks: [0.5, 0.5, 0.5, 0.5], master: 0.7, drums: [], backing: 0.4 };
+  window.__meters = {
+    tracks: [0.5, 0.5, 0.5, 0.5],
+    master: 0.7,
+    drums: [],
+    backing: 0.4,
+    // Gain reduction (dB) per pedalboard slot (#39).
+    reduction: { tracks: [[4.5], [], [3, 3, 3, 3, 3, 3], []], master: [0, 2.5, 1.5] },
+  };
   /** Path the native Open dialog "picks" (`null` = Cancel). Set by tests. */
   window.__dialogResult = null;
   /** The last menu state the UI sent (see `update_menu_state` in src-tauri/src/menu_state.rs). */

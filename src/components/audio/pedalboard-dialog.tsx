@@ -12,6 +12,7 @@ import {
   XIcon,
 } from "lucide-react";
 
+import { GainReductionMeter } from "@/components/audio/level-meter";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -66,7 +67,19 @@ import {
   type PresetTarget,
 } from "@/lib/audio/presets";
 import { MAX_SOUNDS } from "@/lib/score/mixer";
-import type { AssetKind, BlockProblem, LibraryItem, SongPreset, SoundSwitch } from "@/lib/tauri";
+import {
+  applyDynamicsPreset,
+  dynamicsPresetsFor,
+  matchingDynamicsPreset,
+} from "@/lib/audio/dynamics-presets";
+import type {
+  AssetKind,
+  BlockProblem,
+  EngineMeters,
+  LibraryItem,
+  SongPreset,
+  SoundSwitch,
+} from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 const formatFreq = (hz: number) => (hz >= 1000 ? `${hz / 1000} kHz` : `${hz} Hz`);
@@ -131,7 +144,10 @@ function PedalControls({
   library,
   onChange,
   onImport,
+  reduction,
 }: {
+  /** Reads this pedal's gain reduction from the engine's meters (compressor, limiter). */
+  reduction?: (meters: EngineMeters) => number;
   slot: EffectSlot;
   /** "Drive 2", used in the controls' accessible names. */
   name: string;
@@ -140,9 +156,45 @@ function PedalControls({
   onImport: (kind: AssetKind) => void;
 }) {
   const choiceId = useId();
+  const presetId = useId();
   const values = slot as unknown as Record<string, number | string | boolean>;
+  const presets = dynamicsPresetsFor(slot.type);
+  const preset = matchingDynamicsPreset(slot);
   return (
     <div className="flex flex-col gap-2">
+      {presets.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor={presetId} className="text-xs">
+            Preset
+          </label>
+          <Select
+            value={preset?.id ?? ""}
+            onValueChange={(id) => {
+              const chosen = presets.find((p) => p.id === id);
+              if (chosen) onChange(applyDynamicsPreset(slot, chosen));
+            }}
+          >
+            <SelectTrigger
+              id={presetId}
+              size="sm"
+              className="w-full"
+              aria-label={`${name}: preset`}
+            >
+              <SelectValue placeholder="Custom" />
+            </SelectTrigger>
+            <SelectContent>
+              {presets.map((p) => (
+                <SelectItem key={p.id} value={p.id} title={p.description}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {reduction && (slot.type === "compressor" || slot.type === "limiter") && (
+        <GainReductionMeter select={reduction} label={`${name}: gain reduction`} />
+      )}
       {CHOICES[slot.type]?.map((choice) => (
         <div key={choice.key} className="flex flex-col gap-1">
           <label htmlFor={`${choiceId}-${choice.key}`} className="text-xs">
@@ -903,6 +955,11 @@ export function PedalboardDialog({
                       <PedalControls
                         slot={slot}
                         name={name}
+                        reduction={(m) =>
+                          (target.track === null
+                            ? m.reduction?.master[i]
+                            : m.reduction?.tracks[target.track]?.[i]) ?? 0
+                        }
                         library={library}
                         onChange={(next) => onChange(replaceEffect(chain, i, next))}
                         onImport={onImport}

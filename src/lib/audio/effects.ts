@@ -26,6 +26,14 @@ export interface GateParams {
   releaseMs: number;
 }
 
+/** Mirrors `LimiterParams` in `dsp/limiter.rs` (#39). */
+export interface LimiterParams {
+  ceilingDb: number;
+  releaseMs: number;
+  lookaheadMs: number;
+  inputDb: number;
+}
+
 export interface CompressorParams {
   thresholdDb: number;
   ratio: number;
@@ -110,6 +118,7 @@ export type EffectConfig =
   | ({ type: "tremolo" } & TremoloParams)
   | ({ type: "delay" } & DelayParams)
   | ({ type: "reverb" } & ReverbParams)
+  | ({ type: "limiter" } & LimiterParams)
   | { type: "amp"; model: string; inputDb: number; outputDb: number }
   | { type: "cab"; ir: string };
 
@@ -138,6 +147,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   tremolo: "Tremolo",
   delay: "Delay",
   reverb: "Reverb",
+  limiter: "Limiter",
   amp: "Amp (capture)",
   cab: "Cabinet",
 };
@@ -153,6 +163,7 @@ export const EFFECT_DESCRIPTIONS: Record<EffectType, string> = {
   tremolo: "Pulses the volume, or pans side to side.",
   delay: "Echoes, with darker repeats and an optional ping-pong.",
   reverb: "Room ambience, from a small room to a hall.",
+  limiter: "Makes the mix loud and keeps its peaks under a ceiling (mastering).",
   amp: "A Neural Amp Modeler capture from your library.",
   cab: "A speaker cabinet (impulse response).",
 };
@@ -217,6 +228,12 @@ export const PARAMS: Partial<Record<EffectType, ParamSpec[]>> = {
     { key: "mix", label: "Mix", min: 0, max: 1, step: 0.01, unit: "" },
     { key: "preDelayMs", label: "Pre-delay", min: 0, max: 200, step: 1, unit: "ms" },
     { key: "width", label: "Width", min: 0, max: 1, step: 0.01, unit: "" },
+  ],
+  limiter: [
+    { key: "inputDb", label: "Input", min: 0, max: 24, step: 0.5, unit: "dB" },
+    { key: "ceilingDb", label: "Ceiling", min: -24, max: 0, step: 0.1, unit: "dB" },
+    { key: "releaseMs", label: "Release", min: 1, max: 2000, step: 1, unit: "ms" },
+    { key: "lookaheadMs", label: "Lookahead", min: 0.1, max: 5, step: 0.1, unit: "ms" },
   ],
   amp: [
     { key: "inputDb", label: "Input", min: -24, max: 24, step: 0.5, unit: "dB" },
@@ -341,6 +358,8 @@ export function defaultEffect(type: EffectType): EffectSlot {
       };
     case "reverb":
       return { type, enabled: true, size: 0.5, damping: 0.5, mix: 0.25, preDelayMs: 10, width: 1 };
+    case "limiter":
+      return { type, enabled: true, ceilingDb: -1, releaseMs: 80, lookaheadMs: 1.5, inputDb: 0 };
     case "amp":
       return { type, enabled: true, model: "", inputDb: 0, outputDb: 0 };
     case "cab":
@@ -423,7 +442,7 @@ export function describeChain(chain: readonly EffectSlot[]): string {
 
 /** The effect categories of the pedalboard library (GP8 pedalboard style). */
 export const EFFECT_CATEGORIES: { label: string; types: EffectType[] }[] = [
-  { label: "Dynamics", types: ["gate", "compressor"] },
+  { label: "Dynamics", types: ["gate", "compressor", "limiter"] },
   { label: "Drive and amp", types: ["drive", "ampSim", "amp"] },
   { label: "Cabinet", types: ["cab"] },
   { label: "Equalizer", types: ["eq"] },

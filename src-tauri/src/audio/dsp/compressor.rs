@@ -64,12 +64,20 @@ impl CompressorParams {
     }
 }
 
+/// Makeup gain and mix glide over about this long after a knob turn.
+const GLIDE_MS: f32 = 10.0;
+
 pub struct Compressor {
     rate: f32,
     params: CompressorParams,
     attack: f32,
     release: f32,
     makeup: f32,
+    /// Makeup gain and mix as heard (they glide to the knob values, no zipper noise).
+    makeup_now: f32,
+    mix_now: f32,
+    /// Glide coefficient for makeup and mix.
+    glide: f32,
     /// Smoothed gain reduction in dB.
     reduction: f32,
     /// Largest reduction in the last block (for the meter).
@@ -85,6 +93,9 @@ impl Compressor {
             attack: time_coefficient(params.attack_ms, sample_rate),
             release: time_coefficient(params.release_ms, sample_rate),
             makeup: db_to_gain(params.makeup_db),
+            makeup_now: db_to_gain(params.makeup_db),
+            mix_now: params.mix,
+            glide: time_coefficient(GLIDE_MS, sample_rate),
             reduction: 0.0,
             meter_db: 0.0,
         }
@@ -96,7 +107,9 @@ impl Effect for Compressor {
         let p = self.params;
         let mut max_reduction = 0.0f32;
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            let level = gain_to_db(l.abs().max(r.abs()));
+            let peak = l.abs().max(r.abs());
+            // NaN or infinity must not stick in the envelope.
+            let level = gain_to_db(if peak.is_finite() { peak } else { 0.0 });
             let target = p.reduction_db(level);
             let coeff = if target > self.reduction {
                 self.attack
@@ -105,8 +118,10 @@ impl Effect for Compressor {
             };
             self.reduction = flush_denormal(target + coeff * (self.reduction - target));
             max_reduction = max_reduction.max(self.reduction);
-            let gain = db_to_gain(-self.reduction) * self.makeup;
-            let wet = p.mix;
+            self.makeup_now = self.makeup + self.glide * (self.makeup_now - self.makeup);
+            self.mix_now = p.mix + self.glide * (self.mix_now - p.mix);
+            let gain = db_to_gain(-self.reduction) * self.makeup_now;
+            let wet = self.mix_now;
             *l *= wet * gain + (1.0 - wet);
             *r *= wet * gain + (1.0 - wet);
         }
@@ -124,9 +139,15 @@ impl Effect for Compressor {
         };
         *self = Self {
             reduction: self.reduction,
+            makeup_now: self.makeup_now,
+            mix_now: self.mix_now,
             ..Self::new(*params, self.rate)
         };
         true
+    }
+
+    fn meter_db(&self) -> Option<f32> {
+        Some(self.meter_db)
     }
 }
 
@@ -211,5 +232,53 @@ mod tests {
         let (out, _) = run(params, 0.0);
         assert!(all_finite(&out));
         assert!(out.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn makeup_gain_glides_after_a_knob_turn() {
+        let mut c = Compressor::new(
+            CompressorParams {
+                ratio: 1.0,
+                ..Default::default()
+            },
+            RATE,
+        );
+        let (mut l, mut r) = (vec![0.25f32; 480], vec![0.25f32; 480]);
+        c.process(&mut l, &mut r);
+        assert!(c.update(&EffectConfig::Compressor(CompressorParams {
+            ratio: 1.0,
+            makeup_db: 12.0,
+            ..Default::default()
+        })));
+        let (mut l, mut r) = (vec![0.25f32; 4_800], vec![0.25f32; 4_800]);
+        c.process(&mut l, &mut r);
+        let step = l
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max);
+        assert!(step < 0.01, "zipper step {step}");
+        assert!((l.last().unwrap() - 0.25 * db_to_gain(12.0)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn survives_nan_and_infinity() {
+        let mut c = Compressor::new(CompressorParams::default(), RATE);
+        let mut l = vec![f32::NAN, f32::INFINITY, 0.5, 0.5];
+        let mut r = l.clone();
+        c.process(&mut l, &mut r);
+        assert!(c.meter_db.is_finite());
+        let (mut l, mut r) = (sine(100.0, 0.5, 4_800), sine(100.0, 0.5, 4_800));
+        c.process(&mut l, &mut r);
+        assert!(all_finite(&l) && all_finite(&r), "the envelope recovered");
+    }
+
+    #[test]
+    fn its_state_settles_to_zero_in_silence() {
+        let mut c = Compressor::new(CompressorParams::default(), RATE);
+        let (mut l, mut r) = (vec![1.0f32; 4_800], vec![1.0f32; 4_800]);
+        c.process(&mut l, &mut r);
+        let (mut l, mut r) = (vec![0.0f32; 480_000], vec![0.0f32; 480_000]);
+        c.process(&mut l, &mut r);
+        assert_eq!(c.reduction, 0.0, "no denormals left behind");
     }
 }
