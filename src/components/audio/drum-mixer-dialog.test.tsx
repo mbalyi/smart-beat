@@ -3,6 +3,7 @@ import { act, useState } from "react";
 
 import { DrumMixerDialog } from "@/components/audio/drum-mixer-dialog";
 import { DRUM_ELEMENTS } from "@/lib/audio/drum-elements";
+import { defaultEffect, type EffectSlot } from "@/lib/audio/effects";
 import { meters } from "@/lib/audio/meter-store";
 import type { DrumMixer } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -96,5 +97,75 @@ describe("DrumMixerDialog", () => {
     const { user, dialog, onEnableEngine } = setup(false);
     await user.click(within(dialog).getByRole("button", { name: "Turn it on" }));
     expect(onEnableEngine).toHaveBeenCalled();
+  });
+});
+
+describe("DrumMixerDialog: bus compressor (#39)", () => {
+  function busSetup(initial: EffectSlot[] = []) {
+    let chain = initial;
+    const onBusChainChange = vi.fn((next: EffectSlot[]) => {
+      chain = next;
+    });
+    function Harness() {
+      const [slots, setSlots] = useState(initial);
+      return (
+        <DrumMixerDialog
+          open
+          onOpenChange={vi.fn()}
+          trackIndex={2}
+          trackName="Drums"
+          mixer={null}
+          onChange={vi.fn()}
+          engineOn
+          busChain={slots}
+          onBusChainChange={(next) => {
+            onBusChainChange(next);
+            setSlots(next);
+          }}
+        />
+      );
+    }
+    const utils = renderWithProviders(<Harness />);
+    return { ...utils, chain: () => chain, onBusChainChange };
+  }
+
+  it("adds a compressor to the drum bus with the parallel bus preset", async () => {
+    const { user, chain } = busSetup([defaultEffect("eq")]);
+    await user.click(screen.getByRole("button", { name: "Add a bus compressor" }));
+    expect(chain().map((s) => s.type)).toEqual(["eq", "compressor"]);
+    expect(chain()[1]).toMatchObject({ mix: 0.45, ratio: 10 });
+    expect(screen.getByRole("combobox", { name: "Preset" })).toHaveTextContent("Parallel drum bus");
+    await expectNoA11yViolations();
+  });
+
+  it("edits the compressor that is there, switches it off and meters it", async () => {
+    const { user, chain } = busSetup([defaultEffect("gate"), defaultEffect("compressor")]);
+    await user.click(screen.getByRole("combobox", { name: "Preset" }));
+    await user.click(await screen.findByRole("option", { name: "Metal drums" }));
+    expect(chain()[1]).toMatchObject({ attackMs: 12, releaseMs: 50 });
+    const ratio = screen.getByRole("slider", { name: "Bus compressor, Ratio" });
+    ratio.focus();
+    await user.keyboard("{ArrowUp}");
+    expect((chain()[1] as { ratio: number }).ratio).toBeCloseTo(5.1);
+    await user.click(screen.getByRole("switch", { name: "Bus compressor on" }));
+    expect(chain()[1]!.enabled).toBe(false);
+
+    act(() =>
+      meters.set({
+        tracks: [],
+        master: 0,
+        reduction: { tracks: [[], [], [0, 6.5]], master: [] },
+      }),
+    );
+    expect(screen.getByRole("meter", { name: "Bus compressor: gain reduction" })).toHaveAttribute(
+      "aria-valuetext",
+      "-6.5 dB",
+    );
+  });
+
+  it("says when the drum chain is full", () => {
+    busSetup(Array.from({ length: 6 }, () => defaultEffect("eq")));
+    expect(screen.getByRole("button", { name: "Add a bus compressor" })).toBeDisabled();
+    expect(screen.getByText(/chain is full/)).toBeInTheDocument();
   });
 });

@@ -24,6 +24,7 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     onFixBars: vi.fn(),
     onTempo: vi.fn(),
     onEditEffects: vi.fn(),
+    onDrumMixer: vi.fn(),
   };
   const props = {
     tab: "track" as const,
@@ -250,5 +251,51 @@ describe("Inspector: interpretation", () => {
     });
     expect(screen.getByText(/Drums play as written/)).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Playing style" })).not.toBeInTheDocument();
+  });
+
+  it("opens the drum mixer of a drum track, as Guitar Pro does (#39)", async () => {
+    const { user, actions } = setup({
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
+    });
+    await user.click(screen.getByRole("button", { name: "Drum mixer…" }));
+    expect(actions.onDrumMixer).toHaveBeenCalled();
+  });
+
+  it("has no drum mixer button on other tracks", () => {
+    setup();
+    expect(screen.queryByRole("button", { name: "Drum mixer…" })).not.toBeInTheDocument();
+  });
+
+  it("picks an imported drum kit for a drum track (#40)", async () => {
+    const onChange = vi.fn();
+    const onManage = vi.fn();
+    const { user } = setup({
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
+      drumKit: {
+        kits: [
+          {
+            id: "free-kit",
+            name: "Free Kit",
+            format: "sfz",
+            licence: { kind: "cc0" },
+            pieces: [],
+            missing: [],
+            sizeBytes: 1,
+            warnings: [],
+          },
+        ],
+        current: null,
+        onChange,
+        onManage,
+        available: true,
+      },
+    });
+    const picker = screen.getByRole("combobox", { name: "Drum kit" });
+    expect(picker).toHaveTextContent("Instrument sounds (built in)");
+    await user.click(picker);
+    await user.click(await screen.findByRole("option", { name: "Free Kit" }));
+    expect(onChange).toHaveBeenCalledWith("free-kit");
+    await user.click(screen.getByRole("button", { name: "Kits…" }));
+    expect(onManage).toHaveBeenCalled();
   });
 });

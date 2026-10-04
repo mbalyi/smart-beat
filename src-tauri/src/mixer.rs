@@ -27,6 +27,10 @@ pub const MIN_VERSION: u32 = 1;
 pub const MAX_AUTOMATION_POINTS: usize = 4_096;
 pub const MAX_PRESETS: usize = 200;
 pub const MAX_DRUM_ELEMENTS: usize = 24;
+/// Drum notes whose drum-tab line is saved (one per note of a long drum track).
+pub const MAX_DRUM_LINES: usize = 500_000;
+/// Lines of the drum tab (Guitar Pro 5 drum tracks have six strings).
+pub const DRUM_TAB_LINES: u8 = 6;
 const MAX_NAME: usize = 120;
 
 /// Upper bound on tracks per song, well above what Guitar Pro allows.
@@ -74,6 +78,26 @@ pub struct MixerSettings {
     /// Effect chain presets saved with the song.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub presets: Vec<ChainPreset>,
+    /// The imported drum kit each track plays (#40), by kit id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drum_kits: Vec<Option<String>>,
+    /// Drum notes placed on a chosen line of the drum tab (#53). Guitar Pro 7+
+    /// files have no place for it, so it travels in Smart Beat's settings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drum_lines: Vec<DrumLine>,
+}
+
+/// The drum-tab line of one drum note, by its position in the score (0-based
+/// indices) and the line, 1 (bottom) to 6 (top).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrumLine {
+    pub track: u32,
+    pub bar: u32,
+    pub voice: u8,
+    pub beat: u32,
+    pub note: u32,
+    pub line: u8,
 }
 
 fn is_zero(value: &f64) -> bool {
@@ -353,6 +377,22 @@ impl MixerSettings {
                 return Err("a preset has too many effects".into());
             }
         }
+        if self.drum_kits.len() > self.tracks.len() {
+            return Err("more drum kits than tracks".into());
+        }
+        for kit in self.drum_kits.iter().flatten() {
+            check_name(kit, "drum kit")?;
+        }
+        if self.drum_lines.len() > MAX_DRUM_LINES {
+            return Err(format!("more than {MAX_DRUM_LINES} drum lines"));
+        }
+        if self
+            .drum_lines
+            .iter()
+            .any(|d| d.track as usize >= MAX_TRACKS || !(1..=DRUM_TAB_LINES).contains(&d.line))
+        {
+            return Err("a drum line is out of range".into());
+        }
         Ok(())
     }
 }
@@ -492,6 +532,8 @@ mod tests {
             drums: Vec::new(),
             audio_track: None,
             presets: Vec::new(),
+            drum_kits: Vec::new(),
+            drum_lines: Vec::new(),
         }
     }
 
@@ -660,8 +702,39 @@ mod tests {
                 target: "guitar".into(),
                 effects: vec![delay],
             }],
+            drum_kits: vec![None],
+            drum_lines: vec![DrumLine {
+                track: 2,
+                bar: 1,
+                voice: 0,
+                beat: 0,
+                note: 1,
+                line: 6,
+            }],
             ..settings()
         }
+    }
+
+    #[test]
+    fn rejects_drum_lines_out_of_range() {
+        let line = DrumLine {
+            track: 0,
+            bar: 0,
+            voice: 0,
+            beat: 0,
+            note: 0,
+            line: 7,
+        };
+        let bad = MixerSettings {
+            drum_lines: vec![line],
+            ..settings()
+        };
+        assert!(bad.validate().unwrap_err().contains("drum line"));
+        let good = MixerSettings {
+            drum_lines: vec![DrumLine { line: 1, ..line }],
+            ..settings()
+        };
+        assert!(good.validate().is_ok());
     }
 
     #[test]

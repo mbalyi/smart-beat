@@ -239,6 +239,15 @@ fn every_bundled_preset_builds_and_sounds() {
             "{id}: unbounded"
         );
         assert!(rms(&out[out.len() / 2..]) > 0.001, "{id}: silent");
+        // Mastering presets end in a limiter (#42): nothing gets past its ceiling.
+        if let Some(ceiling) = slots.last().and_then(|s| match &s.effect {
+            EffectConfig::Limiter(p) => Some(p.ceiling_db),
+            _ => None,
+        }) {
+            let ceiling = 10f32.powf(ceiling / 20.0);
+            let peak = out.iter().fold(0.0f32, |a, s| a.max(s.abs()));
+            assert!(peak <= ceiling + 1e-5, "{id}: peak {peak} over {ceiling}");
+        }
     }
 }
 
@@ -523,4 +532,97 @@ fn the_audio_track_follows_sync_points_and_solo() {
     let map = SyncMap::new(vec![(0.0, 0.5)]);
     assert_eq!(map.audio_at(1.0), 1.5);
     let _ = BackingParams::default();
+}
+
+/// The mastering chain (#39): EQ, compressor and limiter keep the song under
+/// the ceiling, and the meters show the compressor and limiter working.
+#[test]
+fn mastering_chain_limits_the_song_and_meters_the_reduction() {
+    use smart_beat_lib::audio::dsp::limiter::LimiterParams;
+    let mut engine = playing_engine(|engine| {
+        engine.set_master_volume(1.0);
+        engine.set_master_chain(chain_of(vec![
+            EffectConfig::Eq {
+                bands: graphic_bands(),
+            },
+            EffectConfig::Compressor(CompressorParams {
+                threshold_db: -30.0,
+                ratio: 4.0,
+                makeup_db: 12.0,
+                ..Default::default()
+            }),
+            EffectConfig::Limiter(LimiterParams {
+                ceiling_db: -3.0,
+                input_db: 12.0,
+                ..Default::default()
+            }),
+        ]));
+    });
+    let (l, r) = render(&mut engine, 2.0);
+    let ceiling = 10f32.powf(-3.0 / 20.0);
+    let peak = l.iter().chain(&r).fold(0.0f32, |a, s| a.max(s.abs()));
+    assert!(l.iter().chain(&r).all(|s| s.is_finite()));
+    assert!(peak <= ceiling + 1e-4, "peak {peak}");
+    assert!(rms(&l) > 0.05, "loud, not silent");
+    let meters = engine.take_meters();
+    assert_eq!(meters.reduction.master.len(), 3);
+    assert!(
+        meters.reduction.master[1] > 1.0,
+        "compressor: {:?}",
+        meters.reduction.master
+    );
+    assert!(
+        meters.reduction.master[2] > 0.1,
+        "limiter: {:?}",
+        meters.reduction.master
+    );
+    assert_eq!(meters.reduction.tracks.len(), 2);
+    // Read once: the next read starts from zero.
+    assert!(
+        engine
+            .take_meters()
+            .reduction
+            .master
+            .iter()
+            .all(|&m| m == 0.0)
+    );
+}
+
+/// Every compressor and limiter preset of the pedals (#39) builds and keeps the
+/// audio finite and bounded.
+#[test]
+fn every_dynamics_preset_builds_and_sounds() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src/lib/audio/dynamics-presets.json");
+    let data: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    for preset in data["presets"].as_array().unwrap() {
+        let id = preset["id"].as_str().unwrap();
+        let mut slot = preset["params"].clone();
+        slot["type"] = preset["type"].clone();
+        slot["enabled"] = true.into();
+        let slot: EffectSlot = serde_json::from_value(slot).unwrap_or_else(|e| panic!("{id}: {e}"));
+        let mut chain = Chain::build(&[slot], MAX_TRACK_EFFECTS, RATE, BLOCK, &NoAssets);
+        assert!(chain.problems.is_empty() && !chain.is_empty(), "{id}");
+        let mut out = Vec::new();
+        for block in 0..400 {
+            let mut l: Vec<f32> = (0..BLOCK)
+                .map(|i| 0.9 * (((block * BLOCK + i) as f32) * 0.03).sin())
+                .collect();
+            let mut r = l.clone();
+            chain.process(&mut l, &mut r);
+            out.extend(l);
+        }
+        assert!(
+            out.iter().all(|s| s.is_finite() && s.abs() < 8.0),
+            "{id}: unbounded"
+        );
+        assert!(rms(&out[out.len() / 2..]) > 0.01, "{id}: silent");
+        if preset["type"] == "limiter" {
+            let ceiling = 10f32.powf(preset["params"]["ceilingDb"].as_f64().unwrap() as f32 / 20.0);
+            assert!(
+                out.iter().all(|s| s.abs() <= ceiling + 1e-5),
+                "{id}: over the ceiling"
+            );
+        }
+    }
 }

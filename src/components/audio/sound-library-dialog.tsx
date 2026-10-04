@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -135,7 +136,7 @@ export function SoundLibraryDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>Sound library</DialogTitle>
           <DialogDescription>
@@ -143,31 +144,37 @@ export function SoundLibraryDialog({
             bundled with the app or uploaded.
           </DialogDescription>
         </DialogHeader>
-        {SECTIONS.map((section) => {
-          const own = items.filter((item) => item.kind === section.kind);
-          return (
-            <section key={section.kind} aria-label={section.title} className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-xs font-semibold tracking-wide uppercase">{section.title}</h3>
-                <Button size="sm" variant="outline" onClick={() => onImport(section.kind)}>
-                  Import {section.kind === "amp" ? ".nam" : ".wav"}…
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">{section.help}</p>
-              {own.length === 0 ? (
-                <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
-                  Nothing imported yet.
-                </p>
-              ) : (
-                <ul className="rounded-md border px-3">
-                  {own.map((item) => (
-                    <ItemRow key={item.id} item={item} onRename={onRename} onRemove={onRemove} />
-                  ))}
-                </ul>
-              )}
-            </section>
-          );
-        })}
+        <DialogBody>
+          {SECTIONS.map((section) => {
+            const own = items.filter((item) => item.kind === section.kind);
+            return (
+              <section
+                key={section.kind}
+                aria-label={section.title}
+                className="flex flex-col gap-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold tracking-wide uppercase">{section.title}</h3>
+                  <Button size="sm" variant="outline" onClick={() => onImport(section.kind)}>
+                    Import {section.kind === "amp" ? ".nam" : ".wav"}…
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">{section.help}</p>
+                {own.length === 0 ? (
+                  <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                    Nothing imported yet.
+                  </p>
+                ) : (
+                  <ul className="rounded-md border px-3">
+                    {own.map((item) => (
+                      <ItemRow key={item.id} item={item} onRename={onRename} onRemove={onRemove} />
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
+        </DialogBody>
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)}>Done</Button>
         </DialogFooter>

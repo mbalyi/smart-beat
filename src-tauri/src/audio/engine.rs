@@ -13,10 +13,13 @@
 use std::sync::Arc;
 
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
+
+use super::kits::LoadedKit;
+use super::kits::sampler::SfzSampler;
 use serde::{Deserialize, Serialize};
 
 use super::backing::Backing;
-use super::chain::{Chain, ChainPlayer, EffectSlot};
+use super::chain::{Chain, ChainPlayer, EffectSlot, MAX_MASTER_EFFECTS};
 use super::dsp::Effect;
 use super::dsp::db_to_gain;
 use super::dsp::eq::Eq;
@@ -26,7 +29,7 @@ use super::song::Song;
 /// Frames rendered at a time; events are placed with this precision.
 pub const BLOCK: usize = 64;
 /// Synth voices per track.
-const POLYPHONY: usize = 64;
+pub const POLYPHONY: usize = 64;
 /// Voices per drum element (a kit piece rarely rings more than a few at once).
 const ELEMENT_POLYPHONY: usize = 16;
 /// How long playback continues after the last bar (release tails).
@@ -82,21 +85,95 @@ impl BusMix {
     }
 }
 
+/// What plays a track or a drum piece: the SoundFont synthesizer, or the
+/// sampler of an imported SFZ kit (#40).
+pub trait Instrument: Send {
+    fn midi(&mut self, channel: i32, command: i32, data1: i32, data2: i32);
+    fn render(&mut self, left: &mut [f32], right: &mut [f32]);
+    fn reset(&mut self);
+    fn note_off_all(&mut self, immediate: bool);
+}
+
+impl Instrument for Synthesizer {
+    fn midi(&mut self, channel: i32, command: i32, data1: i32, data2: i32) {
+        self.process_midi_message(channel, command, data1, data2);
+    }
+    fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
+        Synthesizer::render(self, left, right);
+    }
+    fn reset(&mut self) {
+        Synthesizer::reset(self);
+    }
+    fn note_off_all(&mut self, immediate: bool) {
+        Synthesizer::note_off_all(self, immediate);
+    }
+}
+
+impl Instrument for SfzSampler {
+    fn midi(&mut self, _channel: i32, command: i32, data1: i32, data2: i32) {
+        match command {
+            0x90 => self.note_on(data1.clamp(0, 127) as u8, data2.clamp(0, 127) as u8),
+            // All sound off / all notes off.
+            0xb0 if data1 == 120 => SfzSampler::note_off_all(self, true),
+            0xb0 if data1 == 123 => SfzSampler::note_off_all(self, false),
+            _ => {}
+        }
+    }
+    fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
+        SfzSampler::render(self, left, right);
+    }
+    fn reset(&mut self) {
+        SfzSampler::reset(self);
+    }
+    fn note_off_all(&mut self, immediate: bool) {
+        SfzSampler::note_off_all(self, immediate);
+    }
+}
+
 /// Creates synthesizers off the audio thread (the engine lock is not needed).
 #[derive(Clone)]
 pub struct SynthSource {
     sound_font: Arc<SoundFont>,
     sample_rate: f32,
+    /// The drum kit the track plays (none: the SoundFont's own kit).
+    kit: Option<Arc<LoadedKit>>,
 }
 
 impl SynthSource {
-    fn synth(&self, polyphony: usize) -> Result<Synthesizer, String> {
-        let mut settings = SynthesizerSettings::new(self.sample_rate as i32);
+    /// The same source, playing `kit` (an imported drum kit, #40).
+    pub fn with_kit(mut self, kit: Option<Arc<LoadedKit>>) -> Self {
+        self.kit = kit;
+        self
+    }
+
+    /// What plays a track or a drum piece.
+    pub fn instrument(&self, polyphony: usize) -> Result<Box<dyn Instrument>, String> {
+        Ok(match self.kit.as_deref() {
+            Some(LoadedKit::Sfz(kit)) => {
+                Box::new(SfzSampler::new(kit.clone(), self.sample_rate, polyphony))
+            }
+            Some(LoadedKit::SoundFont(font)) => {
+                Box::new(Self::synth_from(font, self.sample_rate, polyphony)?)
+            }
+            None => Box::new(self.synth(polyphony)?),
+        })
+    }
+
+    fn synth_from(
+        font: &Arc<SoundFont>,
+        rate: f32,
+        polyphony: usize,
+    ) -> Result<Synthesizer, String> {
+        let mut settings = SynthesizerSettings::new(rate as i32);
         settings.block_size = BLOCK;
         settings.maximum_polyphony = polyphony;
         // Reverb and chorus are left to the effect chains.
         settings.enable_reverb_and_chorus = false;
-        Synthesizer::new(&self.sound_font, &settings).map_err(|e| e.to_string())
+        Synthesizer::new(font, &settings).map_err(|e| e.to_string())
+    }
+
+    fn synth(&self, polyphony: usize) -> Result<Synthesizer, String> {
+        Self::synth_from(&self.sound_font, self.sample_rate, polyphony)
     }
 
     /// A drum kit split into element groups: `groups[i]` lists the MIDI keys
@@ -119,7 +196,7 @@ impl SynthSource {
         let elements = (0..=groups.len())
             .map(|_| {
                 Ok(DrumElement {
-                    synth: self.synth(ELEMENT_POLYPHONY)?,
+                    synth: self.instrument(ELEMENT_POLYPHONY)?,
                     mix: BusMix::default(),
                     left: vec![0.0; BLOCK],
                     right: vec![0.0; BLOCK],
@@ -138,7 +215,7 @@ impl SynthSource {
 }
 
 struct DrumElement {
-    synth: Synthesizer,
+    synth: Box<dyn Instrument>,
     mix: BusMix,
     left: Vec<f32>,
     right: Vec<f32>,
@@ -167,13 +244,11 @@ impl DrumSplit {
         if matches!(command, 0x80 | 0x90) {
             let element = self.route[(data1 & 0x7f) as usize] as usize;
             if let Some(e) = self.elements.get_mut(element) {
-                e.synth
-                    .process_midi_message(channel, command, data1 as i32, data2 as i32);
+                e.synth.midi(channel, command, data1 as i32, data2 as i32);
             }
         } else {
             for e in &mut self.elements {
-                e.synth
-                    .process_midi_message(channel, command, data1 as i32, data2 as i32);
+                e.synth.midi(channel, command, data1 as i32, data2 as i32);
             }
         }
     }
@@ -227,7 +302,9 @@ impl DrumSplit {
 }
 
 struct TrackBus {
-    synth: Synthesizer,
+    synth: Box<dyn Instrument>,
+    /// The imported drum kit the track plays, if any (#40).
+    kit: Option<Arc<LoadedKit>>,
     drums: Option<DrumSplit>,
     /// One chain per sound; `sounds[active]` plays.
     sounds: Vec<ChainPlayer>,
@@ -303,6 +380,17 @@ pub struct Meters {
     pub drums: Vec<Vec<f32>>,
     /// The audio track.
     pub backing: f32,
+    /// Gain reduction of compressors and limiters (#39).
+    pub reduction: Reduction,
+}
+
+/// Gain reduction (dB, ≥ 0) of every pedalboard slot since the meters were
+/// last read: per track (its playing sound's chain) and the master chain.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reduction {
+    pub tracks: Vec<Vec<f32>>,
+    pub master: Vec<f32>,
 }
 
 pub struct Engine {
@@ -385,7 +473,57 @@ impl Engine {
         SynthSource {
             sound_font: self.sound_font.clone(),
             sample_rate: self.sample_rate,
+            kit: None,
         }
+    }
+
+    /// The source of a track's instruments: with the drum kit it plays.
+    pub fn synth_source_for(&self, track: usize) -> SynthSource {
+        self.synth_source()
+            .with_kit(self.tracks.get(track).and_then(|t| t.kit.clone()))
+    }
+
+    /// The drum groups of a track's drum mixer, if it has one.
+    pub fn drum_groups(&self, track: usize) -> Option<Vec<Vec<u8>>> {
+        self.tracks
+            .get(track)?
+            .drums
+            .as_ref()
+            .map(|d| d.groups.clone())
+    }
+
+    /// Switches a track to another drum kit (#40), with its instrument (and
+    /// drum mixer) built for that kit off the audio thread. Returns what it
+    /// replaced, to be dropped outside the lock.
+    pub fn set_track_kit(
+        &mut self,
+        track: usize,
+        kit: Option<Arc<LoadedKit>>,
+        instrument: Box<dyn Instrument>,
+        split: Option<DrumSplit>,
+    ) -> Option<(Box<dyn Instrument>, Option<DrumSplit>)> {
+        let song = self.song.clone();
+        let next_event = self.next_event;
+        let bus = self.tracks.get_mut(track)?;
+        bus.kit = kit;
+        let mut old_synth = std::mem::replace(&mut bus.synth, instrument);
+        old_synth.note_off_all(true);
+        // A new drum mixer for the kit replaces the old one (none: keep it for now).
+        let old_split = split.and_then(|s| bus.drums.replace(s));
+        // Program and controller changes so far go to the new instruments.
+        if let Some(song) = song {
+            for event in &song.events[..next_event.min(song.events.len())] {
+                if event.track as usize == track && !event.is_note() {
+                    let (ch, cmd) = ((event.status & 0x0f) as i32, (event.status & 0xf0) as i32);
+                    bus.synth
+                        .midi(ch, cmd, event.data1 as i32, event.data2 as i32);
+                    if let Some(drums) = &mut bus.drums {
+                        drums.dispatch(event.status, event.data1, event.data2);
+                    }
+                }
+            }
+        }
+        Some((old_synth, old_split))
     }
 
     pub fn song(&self) -> Option<&Arc<Song>> {
@@ -398,7 +536,8 @@ impl Engine {
         let mut tracks = Vec::with_capacity(song.track_channels.len());
         for _ in &song.track_channels {
             tracks.push(TrackBus {
-                synth: source.synth(POLYPHONY)?,
+                synth: source.instrument(POLYPHONY)?,
+                kit: None,
                 drums: None,
                 sounds: vec![ChainPlayer::new(Chain::empty(), self.sample_rate, BLOCK)],
                 active: 0,
@@ -670,7 +809,7 @@ impl Engine {
                 return;
             }
         }
-        bus.synth.process_midi_message(
+        bus.synth.midi(
             (status & 0x0f) as i32,
             (status & 0xf0) as i32,
             data1 as i32,
@@ -856,10 +995,24 @@ impl Engine {
                 })
             })
             .collect();
+        let reduction = Reduction {
+            tracks: self
+                .tracks
+                .iter_mut()
+                .map(|t| {
+                    let active = t.active.min(t.sounds.len().saturating_sub(1));
+                    t.sounds
+                        .get_mut(active)
+                        .map_or_else(Vec::new, |s| s.take_reduction().to_vec())
+                })
+                .collect(),
+            master: self.master.take_reduction()[..MAX_MASTER_EFFECTS].to_vec(),
+        };
         Meters {
             tracks,
             master: std::mem::take(&mut self.master_peak),
             drums,
+            reduction,
             backing: self
                 .backing
                 .as_mut()

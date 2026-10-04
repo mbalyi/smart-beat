@@ -9,9 +9,11 @@ import {
   DRUM_MIDI_MAP,
   drumCategory,
   drumNumberName,
+  MAIN_KIT,
+  PERCUSSION,
   type DrumCategory,
 } from "@/lib/score/drum-map";
-import { soundOf, type Beat, type Track } from "@/lib/score/model";
+import { drumNumber, type Beat, type Track } from "@/lib/score/model";
 import {
   DRUM_KIT,
   DRUM_NOTATION,
@@ -68,7 +70,8 @@ export function notesOf(beats: readonly Beat[]): NoteInfo[] {
       : beat.notes.map((note) => ({
           string: note.isStringed ? note.string : null,
           fret: note.isStringed ? note.fret : null,
-          pitch: soundOf(note),
+          // Drums: the number Guitar Pro shows (the pads are keyed by it).
+          pitch: note.isPercussion ? drumNumber(note) : note.realValue,
           tied: note.isTieDestination,
         })),
   );
@@ -90,16 +93,31 @@ export function keyboardRange(pitches: readonly number[]): { low: number; high: 
   return { low: Math.max(21, low), high: Math.min(108, high) };
 }
 
-/** Drum pads: the standard kit, plus any other sound the track uses. */
-export function drumPads(
-  extra: readonly number[] = [],
-): { id: number; name: string; short: string }[] {
-  const known = new Set(DRUM_KIT.map((d) => d.id));
-  const others = [...new Set(extra)]
-    .filter((id) => !known.has(id))
-    .sort((a, b) => a - b)
-    .map((id) => ({ id, name: drumNumberName(id), short: String(id) }));
-  return [...DRUM_KIT, ...others];
+export interface DrumPad {
+  /** The drum number Guitar Pro shows (an articulation id). */
+  id: number;
+  name: string;
+}
+
+export interface DrumPadGroup {
+  label: string;
+  pads: DrumPad[];
+}
+
+/**
+ * Every Guitar Pro drum articulation as a pad, with its number (#53): the main
+ * kit in the order of Guitar Pro's drum picker, then the percussion, then any
+ * other number the track uses.
+ */
+export function drumPads(extra: readonly number[] = []): DrumPadGroup[] {
+  const pad = (id: number): DrumPad => ({ id, name: drumNumberName(id) });
+  const known = new Set([...MAIN_KIT, ...PERCUSSION]);
+  const others = [...new Set(extra)].filter((id) => !known.has(id)).sort((a, b) => a - b);
+  return [
+    { label: "Drum kit", pads: MAIN_KIT.map(pad) },
+    { label: "Percussion", pads: PERCUSSION.map(pad) },
+    ...(others.length > 0 ? [{ label: "Other sounds in this track", pads: others.map(pad) }] : []),
+  ];
 }
 
 /** One row of a drum track's notation map (see the Track settings dialog). */

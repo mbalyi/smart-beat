@@ -18,7 +18,7 @@
 import { midi, model } from "@coderline/alphatab";
 
 import {
-  drumKey,
+  drumNumber,
   refinish,
   type Beat,
   type Note,
@@ -26,6 +26,7 @@ import {
   type Staff,
   type Track,
 } from "@/lib/score/model";
+import { drumLine } from "@/lib/score/drum-lines";
 
 /** Lines of the drum tab (alphaTab strings, 1 = bottom line). */
 export const DRUM_TAB_STRINGS = 6;
@@ -73,7 +74,7 @@ function freeString(wanted: number, taken: Set<number>): number | null {
 function mirrorNote(source: Note, string: number): Note {
   const note = new model.Note();
   note.string = string;
-  note.fret = drumKey(source);
+  note.fret = drumNumber(source);
   note.isGhost = source.isGhost;
   note.isDead = false;
   note.accentuated = source.accentuated;
@@ -91,18 +92,30 @@ function mirrorBeat(source: Beat): Beat {
   beat.isEmpty = source.isEmpty;
   beat.graceType = source.graceType;
   beat.dynamics = source.dynamics;
-  // Hits go top to bottom so that cymbals keep the top line.
+  for (const [note, string] of placeDrums(source.notes)) beat.addNote(mirrorNote(note, string));
+  return beat;
+}
+
+/**
+ * The drum-tab line of each hit of a beat: the line it was placed on (#53),
+ * else its usual line, top to bottom so that cymbals keep the top line. A hit
+ * whose line is taken goes to the nearest free one; past six hits the rest
+ * are left out.
+ */
+export function placeDrums(notes: readonly Note[]): Map<Note, number> {
+  const placed = new Map<Note, number>();
   const taken = new Set<number>();
-  const notes = [...source.notes].sort(
-    (a, b) => drumTabString(drumKey(b)) - drumTabString(drumKey(a)),
+  const wanted = (note: Note) => drumLine(note) ?? drumTabString(drumNumber(note));
+  const order = [...notes].sort(
+    (a, b) => Number(drumLine(b) !== null) - Number(drumLine(a) !== null) || wanted(b) - wanted(a),
   );
-  for (const note of notes) {
-    const string = freeString(drumTabString(drumKey(note)), taken);
+  for (const note of order) {
+    const string = freeString(wanted(note), taken);
     if (string === null) continue; // more than six hits at once
     taken.add(string);
-    beat.addNote(mirrorNote(note, string));
+    placed.set(note, string);
   }
-  return beat;
+  return placed;
 }
 
 /** The tab staff mirroring a drum staff (not yet added to the track). */
@@ -200,7 +213,7 @@ export const realBeatOf = (beat: Beat): Beat => {
 export function realNoteOf(note: Note): Note {
   if (!isMirrorStaff(note.beat.voice.bar.staff)) return note;
   const beat = realBeatOf(note.beat);
-  return beat.notes.find((n) => drumKey(n) === note.fret) ?? note;
+  return beat.notes.find((n) => drumNumber(n) === note.fret) ?? note;
 }
 
 /** The mirror's note for a drum note. */
@@ -208,7 +221,7 @@ export function mirrorNoteOf(note: Note): Note | null {
   if (!note.beat) return null;
   const beat = mirrorBeatOf(note.beat);
   if (beat === note.beat) return null;
-  return beat?.notes.find((n) => n.fret === drumKey(note)) ?? null;
+  return beat?.notes.find((n) => n.fret === drumNumber(note)) ?? null;
 }
 
 /**

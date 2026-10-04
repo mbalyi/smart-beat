@@ -45,7 +45,7 @@ import {
   newBeat,
   placeholderBeats,
   refinish,
-  soundOf,
+  drumNumber,
   staffContent,
   tuningOf,
   type Bar,
@@ -57,9 +57,9 @@ import {
   type Voice,
 } from "@/lib/score/model";
 import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
-import { drumTabString } from "@/lib/score/drum-tab";
+import { DRUM_TAB_LINES, drumLine, setDrumLine } from "@/lib/score/drum-lines";
+import { drumTabString, placeDrums } from "@/lib/score/drum-tab";
 import {
-  drumSound,
   MAX_FRET,
   NO_TUPLET,
   noteValueLabel,
@@ -180,7 +180,8 @@ function isPlaceholder(beat: Beat): boolean {
 }
 
 /** Which note of a chord is "under the cursor" on a pitched or drum track. */
-const pitchOf = soundOf;
+/** A note's pitch, or a drum note's number as Guitar Pro shows it (92, not the 46 it plays). */
+const pitchOf = (note: Note): number => (note.isPercussion ? drumNumber(note) : note.realValue);
 
 const graceText = (type: model.GraceType) =>
   type === GraceType.OnBeat ? "Grace note on the beat" : "Grace note before the beat";
@@ -189,6 +190,14 @@ const graceText = (type: model.GraceType) =>
 function setNoteFret(note: Note, fret: number) {
   note.fret = fret;
   if (note.harmonicType === model.HarmonicType.Natural) note.harmonicValue = harmonicValue(fret);
+}
+
+/** A palette button's state: set on every target, on some, or on none (#53). */
+export type ToggleState = "on" | "off" | "mixed";
+
+export function stateOf(flags: readonly boolean[]): ToggleState {
+  if (flags.length === 0 || flags.every((f) => !f)) return "off";
+  return flags.every(Boolean) ? "on" : "mixed";
 }
 
 /** A new note at the same place (string and fret, pitch or drum sound), without effects. */
@@ -518,10 +527,41 @@ export class ScoreEditor {
     this.moved();
   }
 
-  /** The drums of the cursor's beat, top line of the drum tab first (cymbals … kick). */
+  /**
+   * The drums of the cursor's beat, top line of the drum tab first (cymbals …
+   * kick), on the lines they were placed on (#53).
+   */
   private drumsTopDown(): number[] {
-    return [...new Set(this.beatInfo.notes.map((n) => n.pitch))].sort(
-      (a, b) => drumTabString(b) - drumTabString(a) || b - a,
+    const beat = this.beatAt();
+    if (!beat) return [];
+    const lines = placeDrums(beat.notes);
+    const line = (note: Note) => lines.get(note) ?? drumTabString(pitchOf(note));
+    return [
+      ...new Set(
+        [...beat.notes].sort((a, b) => line(b) - line(a) || pitchOf(b) - pitchOf(a)).map(pitchOf),
+      ),
+    ];
+  }
+
+  /** Alt+Up/Down on a drum: moves it to the line above or below in the drum tab (#53). */
+  private moveDrumToLine(step: 1 | -1) {
+    const beat = this.beatAt();
+    const note = this.noteAtCursor();
+    if (!beat || !note) return;
+    const now = placeDrums(beat.notes).get(note) ?? drumLine(note) ?? 1;
+    const line = now + step;
+    if (line < 1 || line > DRUM_TAB_LINES) {
+      this.announce(step > 0 ? "Already on the top line" : "Already on the bottom line");
+      return;
+    }
+    this.run(
+      "Move drum to another line",
+      this.cursorTargets,
+      () => {
+        const target = this.noteAtCursor();
+        if (target) setDrumLine(target, line);
+      },
+      `${drumNumberName(pitchOf(note))} on line ${DRUM_TAB_LINES + 1 - line} of the drum tab`,
     );
   }
 
@@ -685,9 +725,7 @@ export class ScoreEditor {
       if (note) parts.push(`fret ${note.fret}${note.tied ? ", tied" : ""}`);
     } else if (c.pitch !== null && info.notes.some((n) => n.pitch === c.pitch)) {
       parts.push(
-        this.kind === "drums"
-          ? (drumSound(c.pitch)?.name ?? drumNumberName(c.pitch))
-          : pitchName(c.pitch, { spoken: true }),
+        this.kind === "drums" ? drumNumberName(c.pitch) : pitchName(c.pitch, { spoken: true }),
       );
     }
     parts.push(...this.effectNames());
@@ -1034,14 +1072,18 @@ export class ScoreEditor {
         target.addNote(note);
         this._cursor.pitch = sound;
       },
-      drumSound(sound)?.name ?? drumNumberName(sound),
+      drumNumberName(sound),
     );
   }
 
   /** Moves the note under the cursor up or down a semitone. */
   transpose(step: 1 | -1) {
+    if (this.kind === "drums") {
+      this.moveDrumToLine(step);
+      return;
+    }
     const note = this.noteAtCursor();
-    if (!note || this.kind === "drums") return;
+    if (!note) return;
     if (this.kind === "stringed") {
       const fret = note.fret + step;
       if (fret < 0 || fret > MAX_FRET) return;
@@ -1276,7 +1318,8 @@ export class ScoreEditor {
     const names: string[] = [];
     if (note) {
       for (const effect of Object.values(NOTE_EFFECTS) as Effect[]) {
-        if (effect.id === "trillSpeed") continue;
+        // Accidentals are part of the pitch the status already names.
+        if (effect.id === "trillSpeed" || effect.id === "accidental") continue;
         const value = (effect as (typeof NOTE_EFFECTS)[NoteEffectId]).get(note);
         if (value !== effectOff(effect)) names.push(activeEffectName(effect, value));
       }
@@ -1427,6 +1470,98 @@ export class ScoreEditor {
     const on =
       beats.length > 0 && beats.every((b) => BEAT_EFFECTS[id].get(b) !== effectOff(effect));
     this.setBeatEffect(id, on ? effectOff(effect) : effect.on);
+  }
+
+  // --- Palette state (#53) ----------------------------------------------------
+
+  /**
+   * Whether an effect is set on the selection (or the cursor's note or beat):
+   * on every target, on some of them ("mixed"), or on none. With `value`,
+   * whether it has that value; without, whether it is anything but off.
+   */
+  effectState(scope: "note" | "beat", id: string, value?: number): ToggleState {
+    const effect = (scope === "note" ? NOTE_EFFECTS : BEAT_EFFECTS)[
+      id as keyof typeof NOTE_EFFECTS & keyof typeof BEAT_EFFECTS
+    ] as Effect | undefined;
+    if (!effect) return "off";
+    const read = (target: Note | Beat) =>
+      (effect as unknown as { get(t: Note | Beat): number }).get(target);
+    const targets: (Note | Beat)[] = scope === "note" ? this.effectNotes() : this.effectBeats();
+    const on = (target: Note | Beat) =>
+      value === undefined ? read(target) !== effectOff(effect) : read(target) === value;
+    return stateOf(targets.map(on));
+  }
+
+  /** Whether `test` holds for the selected beats (or the cursor's beat): all, some or none. */
+  beatsState(test: (beat: Beat) => boolean): ToggleState {
+    const beats = this._selection ? this.selectedBeats() : [this.beatAt()];
+    return stateOf(beats.filter((b): b is Beat => !!b && !isPlaceholder(b)).map(test));
+  }
+
+  /** The value an exclusive group shows (one pressed button): the cursor's note or beat. */
+  effectValue(scope: "note" | "beat", id: string): number | null {
+    const info = this.effects;
+    const values = (scope === "note" ? info.note : info.beat) as Record<string, number> | null;
+    return values?.[id] ?? null;
+  }
+
+  /** Fermata on the selected beats (or the cursor's beat). */
+  get fermataState(): ToggleState {
+    return stateOf(this.effectBeats().map((beat) => beat.fermata !== null));
+  }
+
+  /** Puts a fermata on the selected beats (or the cursor's beat), or takes it off them all. */
+  toggleFermata() {
+    const beats = this.effectBeats();
+    if (beats.length === 0) return this.refuse("No notes on this beat");
+    const off = beats.every((beat) => beat.fermata !== null);
+    const bars = beats.map((beat) => beat.voice.bar.index);
+    this.run(
+      off ? "Remove fermata" : "Add fermata",
+      () => masterBarContent(this.score, Math.min(...bars), Math.max(...bars)),
+      () => {
+        for (const beat of this.effectBeats()) {
+          const masterBar = beat.voice.bar.masterBar;
+          // alphaTab keeps a beat's fermata on the beat and in its master bar.
+          if (off) {
+            beat.fermata = null;
+            masterBar.fermata?.delete(beat.playbackStart);
+            if (masterBar.fermata?.size === 0) masterBar.fermata = null;
+          } else if (!beat.fermata) {
+            const fermata = new model.Fermata();
+            fermata.type = model.FermataType.Medium;
+            fermata.length = 1;
+            beat.fermata = fermata;
+            masterBar.addFermata(beat.playbackStart, fermata);
+          }
+        }
+      },
+      off ? "Fermata off" : "Fermata",
+    );
+  }
+
+  /** Whether the cursor's bar starts or ends a repeat. */
+  repeatState(side: "start" | "end"): boolean {
+    const masterBar = this.score.masterBars[this._cursor.bar];
+    if (!masterBar) return false;
+    return side === "start" ? masterBar.isRepeatStart : masterBar.repeatCount > 0;
+  }
+
+  /** Opens or closes a repeat at the cursor's bar (a closing repeat plays twice). */
+  toggleRepeat(side: "start" | "end") {
+    const index = this._cursor.bar;
+    const on = !this.repeatState(side);
+    const what = side === "start" ? "repeat start" : "repeat end";
+    this.run(
+      on ? `Add ${what}` : `Remove ${what}`,
+      () => masterBarContent(this.score, index),
+      () => {
+        const masterBar = this.score.masterBars[index]!;
+        if (side === "start") masterBar.isRepeatStart = on;
+        else masterBar.repeatCount = on ? 2 : 0;
+      },
+      on ? `${what[0]!.toUpperCase()}${what.slice(1)}` : `No ${what}`,
+    );
   }
 
   /** Bends the cursor's note (or every selected note); null removes the bend. */

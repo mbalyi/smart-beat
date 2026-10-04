@@ -426,11 +426,12 @@ function DrumPads({
   onDrum: (sound: number) => void;
 }) {
   const hits = active.map((n) => n.pitch);
-  const pads = drumPads(used);
+  const groups = drumPads(used);
+  const all = groups.flatMap((g) => g.pads);
   const summary =
     hits.length === 0
       ? "No notes"
-      : pads
+      : all
           .filter((p) => hits.includes(p.id))
           .map((p) => p.name)
           .join(", ");
@@ -439,42 +440,66 @@ function DrumPads({
     <div
       role={editing ? "group" : "img"}
       aria-label={editing ? "Drum pads: click a pad to enter it" : `Drum pads. ${summary}`}
-      className="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-1"
+      className="flex flex-col gap-2"
     >
-      {pads.map((pad) => {
-        const on = hits.includes(pad.id);
-        const className = cn(
-          "flex h-10 flex-col items-center justify-center rounded-md border px-1 text-xs leading-tight",
-          on ? ACTIVE : "bg-background",
-        );
-        if (!editing) {
-          return (
-            <span key={pad.id} className={className} aria-hidden="true">
-              {pad.short}
-              <span className="text-[0.6rem] tabular-nums opacity-70">{pad.id}</span>
-            </span>
-          );
-        }
-        return (
-          <Tip key={pad.id} label={`${pad.name} · ${pad.id}`}>
-            <button
-              type="button"
-              aria-label={pad.name}
-              aria-pressed={on}
-              onClick={() => onDrum(pad.id)}
-              className={cn(
-                className,
-                "outline-none hover:bg-sky-100 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-sky-900",
-              )}
-            >
-              {pad.short}
-              <span aria-hidden="true" className="text-[0.6rem] tabular-nums opacity-70">
-                {pad.id}
-              </span>
-            </button>
-          </Tip>
-        );
-      })}
+      {groups.map((group) => (
+        <div
+          key={group.label}
+          role={editing ? "group" : undefined}
+          aria-label={editing ? group.label : undefined}
+        >
+          <div
+            aria-hidden="true"
+            className="mb-1 text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase"
+          >
+            {group.label}
+          </div>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-1">
+            {group.pads.map((pad) => {
+              const on = hits.includes(pad.id);
+              const className = cn(
+                "flex h-11 items-center gap-1.5 rounded-md border px-1.5 text-left text-xs leading-tight",
+                on ? ACTIVE : "bg-background",
+              );
+              const content = (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="w-6 shrink-0 text-right font-mono text-[0.7rem] font-semibold tabular-nums opacity-80"
+                    data-testid="drum-pad-number"
+                  >
+                    {pad.id}
+                  </span>
+                  <span className="line-clamp-2 min-w-0">{pad.name}</span>
+                </>
+              );
+              if (!editing) {
+                return (
+                  <span key={pad.id} className={className} aria-hidden="true">
+                    {content}
+                  </span>
+                );
+              }
+              return (
+                <Tip key={pad.id} label={`${pad.id} · ${pad.name}`}>
+                  <button
+                    type="button"
+                    aria-label={`${pad.id} ${pad.name}`}
+                    aria-pressed={on}
+                    onClick={() => onDrum(pad.id)}
+                    className={cn(
+                      className,
+                      "outline-none hover:bg-sky-100 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-sky-900",
+                    )}
+                  >
+                    {content}
+                  </button>
+                </Tip>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

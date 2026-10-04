@@ -3,6 +3,7 @@ import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -119,7 +120,7 @@ function TempoForm({
   );
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>Tempo</DialogTitle>
         <DialogDescription>
@@ -127,52 +128,65 @@ function TempoForm({
           undone.
         </DialogDescription>
       </DialogHeader>
-
-      <NumberField
-        label="Tempo"
-        value={bpm}
-        onChange={setBpm}
-        min={MIN_TEMPO}
-        max={MAX_TEMPO}
-        step={0.5}
-        suffix="BPM"
-      />
-      {!valid && (
-        <p role="alert" className="-mt-2 text-xs text-destructive">
-          Enter a tempo from {MIN_TEMPO} to {MAX_TEMPO} BPM.
-        </p>
-      )}
-
-      <fieldset className="flex flex-col gap-2.5">
-        <legend className="mb-1 text-sm font-medium">Applies to</legend>
-        {choice("song", "The whole song (the tempo of bar 1)")}
-        {choice("from", "From a bar and beat, until the next tempo change")}
-        {scope === "from" && (
-          <div className="ml-6 flex flex-col gap-2">
-            <NumberField label="Bar" value={bar} onChange={setBar} min={1} max={initial.barCount} />
-            <NumberField label="Beat" value={beat} onChange={setBeat} min={1} max={initial.beats} />
-          </div>
+      <DialogBody>
+        <NumberField
+          label="Tempo"
+          value={bpm}
+          onChange={setBpm}
+          min={MIN_TEMPO}
+          max={MAX_TEMPO}
+          step={0.5}
+          suffix="BPM"
+        />
+        {!valid && (
+          <p role="alert" className="-mt-2 text-xs text-destructive">
+            Enter a tempo from {MIN_TEMPO} to {MAX_TEMPO} BPM.
+          </p>
         )}
-        {choice("range", "Only some bars (the tempo returns afterwards)")}
-        {scope === "range" && (
-          <div className="ml-6 flex flex-col gap-2">
-            <NumberField
-              label="From bar"
-              value={from}
-              onChange={setFrom}
-              min={1}
-              max={initial.barCount}
-            />
-            <NumberField
-              label="To bar"
-              value={to}
-              onChange={setTo}
-              min={1}
-              max={initial.barCount}
-            />
-          </div>
-        )}
-      </fieldset>
+
+        <fieldset className="flex flex-col gap-2.5">
+          <legend className="mb-1 text-sm font-medium">Applies to</legend>
+          {choice("song", "The whole song (the tempo of bar 1)")}
+          {choice("from", "From a bar and beat, until the next tempo change")}
+          {scope === "from" && (
+            <div className="ml-6 flex flex-col gap-2">
+              <NumberField
+                label="Bar"
+                value={bar}
+                onChange={setBar}
+                min={1}
+                max={initial.barCount}
+              />
+              <NumberField
+                label="Beat"
+                value={beat}
+                onChange={setBeat}
+                min={1}
+                max={initial.beats}
+              />
+            </div>
+          )}
+          {choice("range", "Only some bars (the tempo returns afterwards)")}
+          {scope === "range" && (
+            <div className="ml-6 flex flex-col gap-2">
+              <NumberField
+                label="From bar"
+                value={from}
+                onChange={setFrom}
+                min={1}
+                max={initial.barCount}
+              />
+              <NumberField
+                label="To bar"
+                value={to}
+                onChange={setTo}
+                min={1}
+                max={initial.barCount}
+              />
+            </div>
+          )}
+        </fieldset>
+      </DialogBody>
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -202,7 +216,7 @@ export function TempoDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogContent size="md" onCloseAutoFocus={onCloseAutoFocus}>
         {open && (
           <TempoForm
             initial={initial}

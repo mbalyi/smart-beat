@@ -1,10 +1,28 @@
 /** A growing little-endian byte buffer with the string encodings of Guitar Pro 5 files. */
 
-const encoder = new TextEncoder();
+import { encodeText, type TextEncodingId } from "@/lib/score/encoding";
 
 export class ByteWriter {
   private buffer = new Uint8Array(4096);
   private length = 0;
+  /** Characters the encoding could not hold (written as "?"). */
+  lost = 0;
+
+  /**
+   * Guitar Pro 5 reads text in the computer's code page: Windows-1252 or
+   * Windows-1250 for most users (#53). UTF-8 is for files read as UTF-8.
+   */
+  readonly encoding: TextEncodingId;
+
+  constructor(encoding: TextEncodingId = "windows-1252") {
+    this.encoding = encoding;
+  }
+
+  private encode(text: string, max = Infinity): Uint8Array {
+    const { bytes, lost } = encodeText(text, this.encoding);
+    this.lost += lost;
+    return this.encoding === "utf-8" ? cutUtf8(bytes, max) : bytes.slice(0, max);
+  }
 
   private ensure(extra: number) {
     if (this.length + extra <= this.buffer.length) return;
@@ -75,7 +93,7 @@ export class ByteWriter {
 
   /** A length byte followed by the text padded with zeros to `field` bytes (longer text is cut). */
   fixedString(text: string, field: number): this {
-    const data = encodeCut(text, Math.min(field, 255));
+    const data = this.encode(text, Math.min(field, 255));
     this.u8(data.length);
     this.bytes(data);
     return this.zeros(field - data.length);
@@ -83,7 +101,7 @@ export class ByteWriter {
 
   /** Int length (text + 1), byte length, text: how most strings are stored. */
   intByteString(text: string): this {
-    const data = encodeCut(text, 254);
+    const data = this.encode(text, 254);
     this.i32(data.length + 1);
     this.u8(data.length);
     return this.bytes(data);
@@ -91,15 +109,14 @@ export class ByteWriter {
 
   /** Int length, text (lyrics). */
   intString(text: string): this {
-    const data = encoder.encode(text);
+    const data = this.encode(text);
     this.i32(data.length);
     return this.bytes(data);
   }
 }
 
-/** UTF-8 bytes of `text`, cut to at most `max` bytes without splitting a character. */
-export function encodeCut(text: string, max: number): Uint8Array {
-  const data = encoder.encode(text);
+/** UTF-8 bytes cut to at most `max` bytes without splitting a character. */
+function cutUtf8(data: Uint8Array, max: number): Uint8Array {
   if (data.length <= max) return data;
   let end = max;
   while (end > 0 && (data[end]! & 0xc0) === 0x80) end--;

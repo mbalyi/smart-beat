@@ -163,6 +163,12 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         // The sound library starts empty; the native engine is never started here.
         case "library_list":
           return [];
+        // No drum kits imported (#40); tests override these to have some.
+        case "kits_list":
+          return [];
+        case "kits_remove":
+        case "audio_set_track_kit":
+          return null;
         case "audio_set_chain":
           return [];
         case "audio_set_sounds":

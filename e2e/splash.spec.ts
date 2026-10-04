@@ -2,46 +2,50 @@ import { expect, test } from "@playwright/test";
 
 declare global {
   interface Window {
-    __splashPlayingAt?: number;
+    __splashShownAt?: number;
   }
 }
-/** The startup animation must play by itself (WebKit blocks autoplay unless it is started muted). */
-test("the startup animation plays without a click", async ({ page, browserName }) => {
-  // Playwright's WebKit has no H.264 decoder: there the splash is skipped (by design).
-  test.skip(browserName === "webkit", "Playwright's WebKit cannot play mp4");
+
+/** The startup splash (#53): the animated logo on black, at least 3 s, never a white frame. */
+test("shows the animated logo, then the app, after at least three seconds", async ({ page }) => {
   await page.goto("/");
-  const video = page.locator("#splash video");
-  await expect(video).toBeVisible();
+  const image = page.locator("#splash img");
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute("src", "/splash.webp");
+  // The animation decodes and plays without a click (an image, not a video).
   await expect
-    .poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0))
-    .toBe(true);
-  expect(await video.evaluate((v: HTMLVideoElement) => v.controls)).toBe(false);
-  // It goes away once the app has started.
+    .poll(() => image.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth))
+    .toBe(512);
+  const shownAt = await page.evaluate(() => window.__splashShownAt!);
+
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 10_000 });
+  const removedAt = await page.evaluate(() => performance.now());
+  expect(removedAt - shownAt).toBeGreaterThanOrEqual(3000);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });
 
-test("the animation plays in full at least once before the app shows", async ({
-  page,
-  browserName,
-}) => {
-  test.skip(browserName === "webkit", "Playwright's WebKit cannot play mp4");
-  await page.goto("/");
-  await expect.poll(() => page.evaluate(() => window.__splashPlayingAt !== undefined)).toBe(true);
-  const playingAt = await page.evaluate(() => window.__splashPlayingAt!);
-
-  await expect(page.locator("#splash")).toHaveCount(0, { timeout: 10_000 });
-
-  const removedAt = await page.evaluate(() => performance.now());
-  expect(removedAt - playingAt).toBeGreaterThanOrEqual(2300); // one loop is 2.3 s
-});
-
-test("the page is black, not white, while the animation loads", async ({ page, browserName }) => {
-  test.skip(browserName === "webkit", "Playwright's WebKit skips the splash (it cannot play mp4)");
+test("the page is black, not white, from the first frame", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#splash")).toHaveCount(1);
-  const background = await page.evaluate(
-    () => getComputedStyle(document.documentElement).backgroundColor,
-  );
-  expect(background).toBe("rgb(0, 0, 0)");
+  for (const element of ["documentElement", "body"] as const) {
+    const background = await page.evaluate(
+      (name) => getComputedStyle(document[name]).backgroundColor,
+      element,
+    );
+    expect(background).toBe("rgb(0, 0, 0)");
+  }
+});
+
+test("shows the still logo when the animation cannot load", async ({ page }) => {
+  await page.route("**/splash.webp", (route) => route.fulfill({ status: 404 }));
+  await page.goto("/");
+  const image = page.locator("#splash img");
+  await expect(image).toHaveAttribute("src", "/splash.png");
+  await expect.poll(() => image.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(512);
+});
+
+test("does not fade with reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await expect(page.locator("#splash")).toHaveCount(0, { timeout: 10_000 });
 });

@@ -9,12 +9,15 @@ import {
   BUILTIN_PRESETS,
   chainOf,
   deleteUserPreset,
+  drumsOf,
+  filterPresets,
   GENRES,
   presetsFor,
   presetTargetOf,
   readUserPresets,
   saveUserPreset,
 } from "@/lib/audio/presets";
+import { DRUM_ELEMENTS } from "@/lib/audio/drum-elements";
 
 const BUILTIN_CABS = ["4x12-modern", "4x12-vintage", "2x12-open", "8x10-bass"];
 
@@ -105,5 +108,102 @@ describe("presetTargetOf", () => {
     expect(presetTargetOf({ kind: "drums", program: 0 })).toBe("drums");
     expect(presetTargetOf({ kind: "stringed", program: 33 })).toBe("bass");
     expect(presetTargetOf({ kind: "stringed", program: 30 })).toBe("guitar");
+  });
+});
+
+describe("heavy-genre presets (#42)", () => {
+  const heavy = [
+    "nu-metal-crunch",
+    "metalcore-tight",
+    "hardcore-crunch",
+    "deathcore-chug",
+    "djent-8-string",
+  ];
+
+  it("builds the guitar chains as gate › compressor › boost › amp › cab › EQ", () => {
+    for (const id of heavy) {
+      const preset = BUILTIN_PRESETS.find((p) => p.id === id)!;
+      expect(
+        preset.chain.map((s) => s.type),
+        id,
+      ).toEqual(["gate", "compressor", "drive", "ampSim", "cab", "eq"]);
+      expect(preset.chain[2]).toMatchObject({ mode: "overdrive" }); // the boost
+    }
+    expect(BUILTIN_PRESETS.find((p) => p.id === "ambient-clean-layer")).toBeDefined();
+  });
+
+  it("has bass, drum mix and mastering presets for every genre", () => {
+    for (const genre of GENRES) {
+      for (const [target, kind] of [
+        ["bass", "chain"],
+        ["drums", "drumMix"],
+        ["master", "chain"],
+      ] as const) {
+        expect(
+          filterPresets(BUILTIN_PRESETS, { genre, target, kind }).length,
+          `${genre} ${target} ${kind}`,
+        ).toBeGreaterThan(0);
+      }
+    }
+    // Every mastering preset of a genre ends in the limiter.
+    for (const genre of GENRES) {
+      const masters = filterPresets(BUILTIN_PRESETS, { genre, target: "master" });
+      expect(
+        masters.some((p) => p.chain.at(-1)?.type === "limiter"),
+        genre,
+      ).toBe(true);
+    }
+  });
+
+  it("gives drum mixes a level and pan for every kit piece, plus a bus chain", () => {
+    const ids = DRUM_ELEMENTS.map((e) => e.id).sort();
+    const mixes = BUILTIN_PRESETS.filter((p) => p.kind === "drumMix");
+    expect(mixes.map((p) => p.id)).toContain("drummix-double-kick");
+    for (const preset of mixes) {
+      expect(preset.target).toBe("drums");
+      expect(preset.drums!.elements.map((e) => e.id).sort(), preset.id).toEqual(ids);
+      for (const element of preset.drums!.elements) {
+        expect(element.volume).toBeGreaterThan(0);
+        expect(element.volume).toBeLessThanOrEqual(1);
+        expect(Math.abs(element.pan)).toBeLessThanOrEqual(1);
+      }
+      expect(
+        preset.chain.some((s) => s.type === "compressor"),
+        preset.id,
+      ).toBe(true);
+    }
+    // The double-kick default keeps the kick the loudest piece.
+    const kick = BUILTIN_PRESETS.find((p) => p.id === "drummix-double-kick")!.drums!;
+    const level = (id: string) => kick.elements.find((e) => e.id === id)!.volume;
+    expect(level("kick")).toBe(Math.max(...kick.elements.map((e) => e.volume)));
+    expect(drumsOf(BUILTIN_PRESETS.find((p) => p.id === "drummix-double-kick")!)).not.toBe(kick);
+  });
+
+  it("filters by genre, target, kind and text", () => {
+    expect(filterPresets(BUILTIN_PRESETS, { query: "sub-kick" }).map((p) => p.id)).toEqual([
+      "drummix-djent-sub",
+    ]);
+    expect(
+      filterPresets(BUILTIN_PRESETS, { kind: "drumMix" }).every((p) => p.kind === "drumMix"),
+    ).toBe(true);
+    expect(presetsFor("drums").every((p) => p.kind === "chain")).toBe(true);
+  });
+
+  it("reads presets the user saved before drum mixes existed as chains", () => {
+    localStorage.setItem(
+      "smart-beat:effect-presets",
+      JSON.stringify([
+        {
+          id: "user:guitar:old",
+          name: "Old",
+          target: "guitar",
+          genres: [],
+          description: "",
+          chain: [],
+        },
+      ]),
+    );
+    expect(readUserPresets()[0]).toMatchObject({ kind: "chain", user: true });
+    localStorage.removeItem("smart-beat:effect-presets");
   });
 });

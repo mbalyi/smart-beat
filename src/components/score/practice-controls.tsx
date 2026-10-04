@@ -4,6 +4,7 @@ import { GaugeIcon, Repeat2Icon, SquareIcon, TimerIcon, TimerResetIcon } from "l
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -260,60 +261,62 @@ function SpeedTrainerForm({
   };
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>Speed Trainer</DialogTitle>
         <DialogDescription>
           Loops the bars, starting slowly and speeding up after each loop until the target speed.
         </DialogDescription>
       </DialogHeader>
-      <div className="grid grid-cols-2 gap-4">
-        <NumberField
-          label="From bar"
-          value={range.start + 1}
-          min={1}
-          max={barCount}
-          onChange={(bar) => setRange((r) => ({ ...r, start: bar - 1 }))}
-        />
-        <NumberField
-          label="To bar"
-          value={range.end + 1}
-          min={1}
-          max={barCount}
-          onChange={(bar) => setRange((r) => ({ ...r, end: bar - 1 }))}
-        />
-        <NumberField
-          label="Start speed"
-          value={trainer.from}
-          min={MIN_SPEED}
-          max={MAX_SPEED}
-          suffix="%"
-          onChange={(from) => set({ from })}
-        />
-        <NumberField
-          label="Target speed"
-          value={trainer.to}
-          min={MIN_SPEED}
-          max={MAX_SPEED}
-          suffix="%"
-          onChange={(to) => set({ to })}
-        />
-        <NumberField
-          label="Increase by"
-          value={trainer.step}
-          min={1}
-          max={MAX_SPEED}
-          suffix="%"
-          onChange={(step) => set({ step })}
-        />
-        <NumberField
-          label="Loops at each speed"
-          value={trainer.loopsPerStep}
-          min={1}
-          max={20}
-          onChange={(loopsPerStep) => set({ loopsPerStep })}
-        />
-      </div>
+      <DialogBody>
+        <div className="grid grid-cols-2 gap-4">
+          <NumberField
+            label="From bar"
+            value={range.start + 1}
+            min={1}
+            max={barCount}
+            onChange={(bar) => setRange((r) => ({ ...r, start: bar - 1 }))}
+          />
+          <NumberField
+            label="To bar"
+            value={range.end + 1}
+            min={1}
+            max={barCount}
+            onChange={(bar) => setRange((r) => ({ ...r, end: bar - 1 }))}
+          />
+          <NumberField
+            label="Start speed"
+            value={trainer.from}
+            min={MIN_SPEED}
+            max={MAX_SPEED}
+            suffix="%"
+            onChange={(from) => set({ from })}
+          />
+          <NumberField
+            label="Target speed"
+            value={trainer.to}
+            min={MIN_SPEED}
+            max={MAX_SPEED}
+            suffix="%"
+            onChange={(to) => set({ to })}
+          />
+          <NumberField
+            label="Increase by"
+            value={trainer.step}
+            min={1}
+            max={MAX_SPEED}
+            suffix="%"
+            onChange={(step) => set({ step })}
+          />
+          <NumberField
+            label="Loops at each speed"
+            value={trainer.loopsPerStep}
+            min={1}
+            max={20}
+            onChange={(loopsPerStep) => set({ loopsPerStep })}
+          />
+        </div>
+      </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
@@ -346,7 +349,7 @@ export function SpeedTrainerDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogContent size="md" onCloseAutoFocus={onCloseAutoFocus}>
         <SpeedTrainerForm
           barCount={barCount}
           initialRange={initialRange}

@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "comp-tight-kick-snare",
+      "type": "compressor",
+      "name": "Tight kick and snare",
+      "description": "Fast attack and release: punchy, controlled hits.",
+      "params": {
+        "thresholdDb": -20,
+        "ratio": 6,
+        "attackMs": 3,
+        "releaseMs": 60,
+        "makeupDb": 5,
+        "kneeDb": 3,
+        "mix": 1
+      }
+    },
+    {
+      "id": "comp-parallel-drum-bus",
+      "type": "compressor",
+      "name": "Parallel drum bus",
+      "description": "Heavy squash blended under the dry kit (New York compression).",
+      "params": {
+        "thresholdDb": -32,
+        "ratio": 10,
+        "attackMs": 1,
+        "releaseMs": 120,
+        "makeupDb": 10,
+        "kneeDb": 6,
+        "mix": 0.45
+      }
+    },
+    {
+      "id": "comp-metal-drums",
+      "type": "compressor",
+      "name": "Metal drums",
+      "description": "Slower attack keeps the beater click; fast release for double kick.",
+      "params": {
+        "thresholdDb": -24,
+        "ratio": 5,
+        "attackMs": 12,
+        "releaseMs": 50,
+        "makeupDb": 6,
+        "kneeDb": 4,
+        "mix": 1
+      }
+    },
+    {
+      "id": "comp-guitar-glue",
+      "type": "compressor",
+      "name": "Guitar and bass glue",
+      "description": "Gentle levelling of a part.",
+      "params": {
+        "thresholdDb": -18,
+        "ratio": 3,
+        "attackMs": 15,
+        "releaseMs": 150,
+        "makeupDb": 3,
+        "kneeDb": 8,
+        "mix": 1
+      }
+    },
+    {
+      "id": "comp-master-glue",
+      "type": "compressor",
+      "name": "Master glue",
+      "description": "Low ratio, slow attack: the mix sits together.",
+      "params": {
+        "thresholdDb": -14,
+        "ratio": 2,
+        "attackMs": 30,
+        "releaseMs": 200,
+        "makeupDb": 2,
+        "kneeDb": 10,
+        "mix": 1
+      }
+    },
+    {
+      "id": "lim-master-loud",
+      "type": "limiter",
+      "name": "Master loud",
+      "description": "Loud modern master; a little aggressive.",
+      "params": { "inputDb": 8, "ceilingDb": -0.8, "releaseMs": 60, "lookaheadMs": 1.5 }
+    },
+    {
+      "id": "lim-master-safe",
+      "type": "limiter",
+      "name": "Master safe",
+      "description": "Only catches stray peaks.",
+      "params": { "inputDb": 2, "ceilingDb": -1, "releaseMs": 120, "lookaheadMs": 2 }
+    }
+  ]
+}

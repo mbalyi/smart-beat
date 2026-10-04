@@ -85,6 +85,8 @@ declare global {
       automation: Record<string, { enabled: boolean; volume: [number, number][] }>;
       eq: Record<string, { lowDb: number; graphic?: number[] }>;
       drums: Record<string, { stereo: boolean; elements: { mix: { mute: boolean } }[] } | null>;
+      /** The imported drum kit of each track (#40). */
+      kits: Record<string, string | null>;
     };
     __engineBacking: {
       source: { type: string; path?: string };
@@ -129,6 +131,10 @@ export async function serveFixtures(page: Page) {
 export const test = base.extend<{ app: Page }>({
   app: async ({ page }, use) => {
     await page.addInitScript({ path: TAURI_MOCK });
+    // The 3 s startup splash is tested in splash.spec.ts; elsewhere it would only slow tests down.
+    await page.addInitScript(() => {
+      (window as unknown as { __splashMinMs: number }).__splashMinMs = 0;
+    });
     await serveFixtures(page);
     // The notice file is generated at package time; serve a stand-in.
     await page.route("**/third-party-licenses.txt", (route) =>
@@ -186,6 +192,7 @@ export const scoreRegion = (page: Page) => page.getByRole("region", { name: /^Sc
 export async function newSong(page: Page) {
   await emitMenuAction(page, "new-song");
   await waitForScore(page);
+  await waitForAnimations(page); // the palette slides in
   await expect(page.getByRole("toolbar", { name: "Edit" })).toBeVisible();
   await expect(scoreRegion(page)).toBeFocused();
 }

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -218,7 +219,7 @@ function ChordForm({
   };
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>Chord</DialogTitle>
         <DialogDescription>
@@ -227,120 +228,121 @@ function ChordForm({
             : "The chord name is shown above the beat."}
         </DialogDescription>
       </DialogHeader>
-
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor={ids.name} className="text-sm font-medium">
-          Name
-        </label>
-        <Input
-          id={ids.name}
-          value={name}
-          maxLength={20}
-          required
-          placeholder="e.g. Am7"
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Suggestions label="Selected notes:" names={suggestions} onPick={setName} />
-        <Suggestions label="Diagram:" names={fromDiagram} onPick={setName} />
-      </div>
-
-      {diagram && strings && (
-        <fieldset className="flex flex-col gap-3 rounded-lg border p-3">
-          <legend className="px-1 text-sm font-semibold">Diagram</legend>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id={ids.show}
-              checked={showDiagram}
-              onCheckedChange={(value) => setShowDiagram(value === true)}
-            />
-            <label htmlFor={ids.show} className="text-sm">
-              Show the diagram
-            </label>
-          </div>
-          <DiagramGrid
-            diagram={diagram}
-            onChange={(next) =>
-              setDiagram({
-                ...next,
-                firstFret: next.strings.some(
-                  (f) => f > 0 && (f < next.firstFret || f >= next.firstFret + DIAGRAM_FRETS),
-                )
-                  ? autoFirstFret(next.strings)
-                  : next.firstFret,
-              })
-            }
+      <DialogBody>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={ids.name} className="text-sm font-medium">
+            Name
+          </label>
+          <Input
+            id={ids.name}
+            value={name}
+            maxLength={20}
+            required
+            placeholder="e.g. Am7"
+            onChange={(e) => setName(e.target.value)}
           />
-          <div className="flex items-center gap-2">
-            <label htmlFor={ids.firstFret} className="text-sm">
-              First fret shown
-            </label>
-            <Input
-              id={ids.firstFret}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={MAX_FRET}
-              className="h-8 w-20"
-              value={diagram.firstFret}
-              onChange={(e) =>
+          <Suggestions label="Selected notes:" names={suggestions} onPick={setName} />
+          <Suggestions label="Diagram:" names={fromDiagram} onPick={setName} />
+        </div>
+
+        {diagram && strings && (
+          <fieldset className="flex flex-col gap-3 rounded-lg border p-3">
+            <legend className="px-1 text-sm font-semibold">Diagram</legend>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={ids.show}
+                checked={showDiagram}
+                onCheckedChange={(value) => setShowDiagram(value === true)}
+              />
+              <label htmlFor={ids.show} className="text-sm">
+                Show the diagram
+              </label>
+            </div>
+            <DiagramGrid
+              diagram={diagram}
+              onChange={(next) =>
                 setDiagram({
-                  ...diagram,
-                  firstFret: Math.min(MAX_FRET, Math.max(1, Number(e.target.value) || 1)),
+                  ...next,
+                  firstFret: next.strings.some(
+                    (f) => f > 0 && (f < next.firstFret || f >= next.firstFret + DIAGRAM_FRETS),
+                  )
+                    ? autoFirstFret(next.strings)
+                    : next.firstFret,
                 })
               }
             />
-          </div>
-          <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Strings">
-            {diagram.strings.map((fret, index) => {
-              const open = strings.tuning[index]!;
-              const label = `String ${index + 1} (${pitchName(open, { octave: false, spoken: true })})`;
-              return (
-                <li key={index} className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground" aria-hidden="true">
-                    {index + 1}: {pitchName(open, { octave: false })}
-                  </span>
-                  <Select
-                    value={String(fret)}
-                    onValueChange={(value) => setFret(index, Number(value))}
-                  >
-                    <SelectTrigger size="sm" className="w-full" aria-label={label}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={String(MUTED)}>Not played</SelectItem>
-                      {FRETS.map((f) => (
-                        <SelectItem key={f} value={String(f)}>
-                          {f === 0 ? "Open" : `Fret ${f}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </li>
-              );
-            })}
-          </ol>
-          <div className="flex flex-wrap gap-2">
-            {notesDiagram && (
+            <div className="flex items-center gap-2">
+              <label htmlFor={ids.firstFret} className="text-sm">
+                First fret shown
+              </label>
+              <Input
+                id={ids.firstFret}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={MAX_FRET}
+                className="h-8 w-20"
+                value={diagram.firstFret}
+                onChange={(e) =>
+                  setDiagram({
+                    ...diagram,
+                    firstFret: Math.min(MAX_FRET, Math.max(1, Number(e.target.value) || 1)),
+                  })
+                }
+              />
+            </div>
+            <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Strings">
+              {diagram.strings.map((fret, index) => {
+                const open = strings.tuning[index]!;
+                const label = `String ${index + 1} (${pitchName(open, { octave: false, spoken: true })})`;
+                return (
+                  <li key={index} className="flex flex-col gap-1">
+                    <span className="text-xs text-muted-foreground" aria-hidden="true">
+                      {index + 1}: {pitchName(open, { octave: false })}
+                    </span>
+                    <Select
+                      value={String(fret)}
+                      onValueChange={(value) => setFret(index, Number(value))}
+                    >
+                      <SelectTrigger size="sm" className="w-full" aria-label={label}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={String(MUTED)}>Not played</SelectItem>
+                        {FRETS.map((f) => (
+                          <SelectItem key={f} value={String(f)}>
+                            {f === 0 ? "Open" : `Fret ${f}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="flex flex-wrap gap-2">
+              {notesDiagram && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDiagram(notesDiagram)}
+                >
+                  Use the notes at the cursor
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setDiagram(notesDiagram)}
+                onClick={() => setDiagram(emptyDiagram())}
               >
-                Use the notes at the cursor
+                Clear
               </Button>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDiagram(emptyDiagram())}
-            >
-              Clear
-            </Button>
-          </div>
-        </fieldset>
-      )}
+            </div>
+          </fieldset>
+        )}
+      </DialogBody>
 
       <DialogFooter>
         {initial && (
@@ -396,10 +398,7 @@ export function ChordDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      <DialogContent size="lg" onCloseAutoFocus={onCloseAutoFocus}>
         <ChordForm
           initial={initial}
           strings={strings}

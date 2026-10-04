@@ -268,6 +268,7 @@ export function engineExtras(
       const drums = mix.drums?.[i];
       return drums ? engineDrumMix(drums) : null;
     }),
+    kits: mix.tracks.map((_, i) => mix.drumKits?.[i] ?? null),
     masterPan: mix.masterPan ?? 0,
     backing: mix.audioTrack
       ? { params: backingParams(mix.audioTrack), sync: syncTicks(mix.audioTrack.sync, occurrences) }

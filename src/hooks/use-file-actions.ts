@@ -11,6 +11,7 @@ import {
   type ExportResult,
 } from "@/lib/export";
 import { encodeWav, type RenderedAudio } from "@/lib/export/wav";
+import { collectDrumLines } from "@/lib/score/drum-lines";
 import { baseName, fileKey } from "@/lib/score/format";
 import type { ScoreEditor } from "@/lib/score/editor";
 import {
@@ -112,7 +113,9 @@ export function useFileActions({
    * track says so. Returns the file's final content key.
    */
   async function storeSettings(path: string, bytes: Uint8Array): Promise<string> {
-    const mix = getMix();
+    // Drum-tab lines have no place in Guitar Pro 7+ files: they go with the settings (#53).
+    const drumLines = collectDrumLines(editor.score);
+    const mix = { ...getMix(), ...(drumLines.length > 0 && { drumLines }) };
     try {
       await writeProjectSettings(path, mix, !!mix.audioTrack?.embedded);
     } catch (error) {

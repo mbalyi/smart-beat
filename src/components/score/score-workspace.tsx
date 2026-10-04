@@ -25,7 +25,11 @@ import { BarProblems } from "@/components/score/bar-problems";
 import { BendDialog, type CurveKind } from "@/components/score/bend-dialog";
 import { ChordDialog } from "@/components/score/chord-dialog";
 import { EditToolbar, type EditActions } from "@/components/score/edit-toolbar";
-import { EffectsToolbar, type EffectActions } from "@/components/score/effects-toolbar";
+import {
+  EffectsToolbar,
+  type EffectActions,
+  type PaletteState,
+} from "@/components/score/effects-toolbar";
 import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
@@ -50,6 +54,7 @@ import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import {
+  MAX_MASTER_EFFECTS,
   MAX_TRACK_EFFECTS,
   withFocusBlock,
   type EffectSlot,
@@ -68,7 +73,16 @@ import {
   readAudioEnginePreference,
   storeAudioEnginePreference,
 } from "@/lib/audio/engine-preference";
-import { presetTargetOf } from "@/lib/audio/presets";
+import {
+  chainOf,
+  drumsOf,
+  presetTargetOf,
+  type Preset,
+  type PresetTarget,
+} from "@/lib/audio/presets";
+import { PresetBrowserDialog } from "@/components/audio/preset-browser-dialog";
+import { DrumKitDialog } from "@/components/audio/drum-kit-dialog";
+import { useDrumKits } from "@/hooks/use-drum-kits";
 import { errorText } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
@@ -79,6 +93,7 @@ import {
   type BarProblem,
 } from "@/lib/score/bar-duration";
 import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
+import type { EncodingChoice } from "@/lib/score/encoding";
 import {
   drumKitOf,
   instrumentViewName,
@@ -296,6 +311,7 @@ export function ScoreWorkspace({
   onOpen,
   onEditedChange,
   onSaved,
+  onReopenWithEncoding,
   startEditing = false,
   droppedAudio = null,
 }: {
@@ -309,6 +325,8 @@ export function ScoreWorkspace({
   onOpen: () => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
   onSaved?: (saved: SavedAs) => void;
+  /** Guitar Pro 3–5 songs: read the file again with another text encoding (#53). */
+  onReopenWithEncoding?: (choice: EncodingChoice) => void;
   /** Called when the song gets (or loses, by undoing everything) unsaved changes. */
   onEditedChange?: (edited: boolean) => void;
   /** Open in edit mode (new songs). */
@@ -394,6 +412,8 @@ export function ScoreWorkspace({
   const loadedAudio = useRef("");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const library = useSoundLibrary();
+  const drumKits = useDrumKits();
+  const [kitsOpen, setKitsOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
   // Side panels cover the score in narrow windows: start without the inspector there.
   const [inspectorOpen, setInspectorOpen] = useState(
@@ -426,6 +446,14 @@ export function ScoreWorkspace({
   });
   const [textDialogOpen, setTextDialogOpen] = useState(false);
   const [chordDialogOpen, setChordDialogOpen] = useState(false);
+  /** The preset browser (#42): what it was opened for. */
+  const [presetBrowser, setPresetBrowser] = useState<{
+    open: boolean;
+    target: PresetTarget;
+    track: number | null;
+    sound: number;
+    targets?: PresetTarget[];
+  }>({ open: false, target: "guitar", track: null, sound: 0 });
   const [lyricsDialog, setLyricsDialog] = useState<{ open: boolean; track: Track | null }>({
     open: false,
     track: null,
@@ -519,7 +547,8 @@ export function ScoreWorkspace({
 
   const onBeatClick = useEffectEvent(
     ({ beat, note, extend }: Parameters<NonNullable<ScorePlayerCallbacks["onBeatClick"]>>[0]) => {
-      if (!editing || beat.voice.bar.staff.track !== trackObject) return;
+      // Outside edit mode too, so a selection made there is kept for edit mode (#53).
+      if (beat.voice.bar.staff.track !== trackObject) return;
       editor.setCursorTo(
         { bar: beat.voice.bar.index, beat: beat.index, voice: beat.voice.index, note },
         extend,
@@ -647,6 +676,7 @@ export function ScoreWorkspace({
         eq: FLAT_EQ,
         automation: EMPTY_AUTOMATION,
         drums: null,
+        kit: null,
         focused: false,
       };
       stateByTrack.current.set(t, fresh);
@@ -666,6 +696,7 @@ export function ScoreWorkspace({
           s.eq !== b.eq ||
           s.automation !== b.automation ||
           s.drums !== b.drums ||
+          s.kit !== b.kit ||
           s.focused !== b.focused
         );
       });
@@ -782,9 +813,18 @@ export function ScoreWorkspace({
     onGrace: (type) => editor.setGrace(type),
     onBend: () => openCurve("bend"),
     onWhammy: () => openCurve("whammy"),
+    onFermata: () => editor.toggleFermata(),
+    onRepeat: (side) => editor.toggleRepeat(side),
     onText: () => setTextDialogOpen(true),
     onChord: () => setChordDialogOpen(true),
+    onLyrics: () => openLyrics(trackObject),
     onDone: () => focusScore(),
+  };
+  const paletteState: PaletteState = {
+    effect: (scope, id, value) => editor.effectState(scope, id, value),
+    fermata: editor.fermataState,
+    repeatStart: editor.repeatState("start"),
+    repeatEnd: editor.repeatState("end"),
   };
 
   /** Chord names for the selected notes (or the cursor's), in the key's spelling. */
@@ -806,6 +846,25 @@ export function ScoreWorkspace({
     menuHandlesUndo: isTauri(),
     onBend: () => openCurve("bend"),
   });
+
+  // Outside edit mode Escape clears a range dragged in the score (#53).
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (editing || !viewport) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      playerRef.current?.clearSelection();
+      editor.clearSelection();
+    };
+    // alphaTab keeps the mouse down from focusing the score: focus it for Escape.
+    const onPointer = () => viewport.focus({ preventScroll: true });
+    viewport.addEventListener("keydown", onKey);
+    viewport.addEventListener("pointerdown", onPointer);
+    return () => {
+      viewport.removeEventListener("keydown", onKey);
+      viewport.removeEventListener("pointerdown", onPointer);
+    };
+  }, [editing, editor]);
 
   function focusScore() {
     viewportRef.current?.focus({ preventScroll: true });
@@ -908,6 +967,26 @@ export function ScoreWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [trackObject, track.kind, revision],
   );
+  /** Applies a preset from the browser to what it was opened for (#42). */
+  const applyPreset = (preset: Preset) => {
+    const { track, sound } = presetBrowser;
+    if (preset.kind === "drumMix") {
+      if (track === null) return;
+      changeMix({ type: "drums", track, drums: drumsOf(preset) });
+      changeMix({ type: "sound-effects", track, sound: 0, slots: chainOf(preset) });
+    } else if (preset.target === "master" || track === null) {
+      changeMix({ type: "master-effects", slots: chainOf(preset).slice(0, MAX_MASTER_EFFECTS) });
+    } else {
+      changeMix({
+        type: "sound-effects",
+        track,
+        sound,
+        slots: chainOf(preset).slice(0, MAX_TRACK_EFFECTS),
+      });
+    }
+    toast(`“${preset.name}” applied`);
+  };
+
   const pedalboardChain =
     pedalboard.track === null
       ? (mix.masterEffects ?? [])
@@ -1493,6 +1572,16 @@ export function ScoreWorkspace({
         onExport={(format) => void fileActions.exportAs(format)}
         onExportAudio={() => void fileActions.exportAudio()}
         onPrint={() => setPrintOpen(true)}
+        encoding={
+          song.encoding && onReopenWithEncoding
+            ? {
+                current: song.encoding,
+                choice: song.encodingChoice ?? "auto",
+                edited: editor.edited,
+                onChange: onReopenWithEncoding,
+              }
+            : undefined
+        }
       />
       <ToolsMenu
         onTranspose={() => setTransposeOpen(true)}
@@ -1580,13 +1669,19 @@ export function ScoreWorkspace({
           <EditToolbar
             beat={editor.beatInfo}
             voice={editor.cursor.voice}
-            stringed={track.kind === "stringed"}
+            dots={(count) => editor.beatsState((b) => b.dots === count)}
+            tie={editor.beatsState((b) => b.notes.some((n) => n.isTieDestination))}
             status={editor.describeCursor()}
             message={editor.message}
             actions={editActions}
             statusId={statusId}
           />
-          <EffectsToolbar effects={effects} kind={track.kind} actions={effectActions} />
+          <EffectsToolbar
+            effects={effects}
+            state={paletteState}
+            kind={track.kind}
+            actions={effectActions}
+          />
         </NotePalette>
         {/* Scrolls as a whole when the window is too short for all of it. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
@@ -1684,6 +1779,7 @@ export function ScoreWorkspace({
                 onFixBars: () => fixBars(),
                 onTempo: () => setTempoOpen(true),
                 onEditEffects: () => openPedalboard(trackIndex),
+                onDrumMixer: () => setDrumMixer({ open: true, track: trackIndex }),
               }}
               audioEngine={audioEngine}
               onAudioEngineChange={nativeEngineAvailable() ? changeAudioEngine : undefined}
@@ -1694,6 +1790,20 @@ export function ScoreWorkspace({
               onInterpretationChange={(value) =>
                 changeMix({ type: "interpretation", track: trackIndex, value })
               }
+              drumKit={{
+                kits: drumKits.kits,
+                current: mix.drumKits?.[trackIndex] ?? null,
+                available: drumKits.available,
+                onManage: () => setKitsOpen(true),
+                onChange: (kit) => {
+                  changeMix({ type: "drum-kit", track: trackIndex, kit });
+                  if (kit && audioEngine !== "native" && nativeEngineAvailable()) {
+                    toast("Imported kits play with the native engine", {
+                      action: { label: "Turn it on", onClick: () => changeAudioEngine("native") },
+                    });
+                  }
+                },
+              }}
             />
           </aside>
         )}
@@ -1752,6 +1862,20 @@ export function ScoreWorkspace({
         target={pedalboardTarget}
         chain={pedalboardChain}
         onChange={changePedalboardChain}
+        onBrowsePresets={() =>
+          setPresetBrowser({
+            open: true,
+            target: pedalboardTarget.presetTarget,
+            track: pedalboard.track,
+            sound: pedalboard.sound,
+            targets:
+              pedalboard.track === null
+                ? ["master"]
+                : ([pedalboardTarget.presetTarget, "master"].filter(
+                    (t, i, all) => all.indexOf(t) === i,
+                  ) as PresetTarget[]),
+          })
+        }
         problems={
           audioEngine !== "native"
             ? []
@@ -1782,6 +1906,41 @@ export function ScoreWorkspace({
         onChange={(drums) => changeMix({ type: "drums", track: drumMixer.track, drums })}
         engineOn={engineOn}
         onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
+        busChain={soundEffects(mix, drumMixer.track, 0)}
+        onBrowsePresets={() =>
+          setPresetBrowser({
+            open: true,
+            target: "drums",
+            track: drumMixer.track,
+            sound: 0,
+            targets: ["drums"],
+          })
+        }
+        onBusChainChange={(slots) =>
+          changeMix({ type: "sound-effects", track: drumMixer.track, sound: 0, slots })
+        }
+      />
+      <DrumKitDialog
+        open={kitsOpen}
+        onOpenChange={setKitsOpen}
+        kits={drumKits.kits}
+        available={drumKits.available}
+        onPick={drumKits.pick}
+        onImport={drumKits.importFrom}
+        onRemove={(id) => {
+          // Tracks playing the kit go back to the built-in sounds.
+          for (const [i, kit] of (mix.drumKits ?? []).entries()) {
+            if (kit === id) changeMix({ type: "drum-kit", track: i, kit: null });
+          }
+          void drumKits.remove(id);
+        }}
+      />
+      <PresetBrowserDialog
+        open={presetBrowser.open}
+        onOpenChange={(open) => setPresetBrowser((b) => ({ ...b, open }))}
+        target={presetBrowser.target}
+        targets={presetBrowser.targets}
+        onApply={applyPreset}
       />
       <SoundLibraryDialog
         open={libraryOpen}

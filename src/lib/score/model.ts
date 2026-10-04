@@ -9,6 +9,7 @@
  */
 import { model, Settings } from "@coderline/alphatab";
 
+import { drumOutputKey } from "@/lib/score/drum-map";
 import { reflowLyrics } from "@/lib/score/lyrics";
 import { barRests, NO_TUPLET, type Duration, type Tuplet } from "@/lib/score/music";
 
@@ -226,14 +227,23 @@ export function ensureVoices(staff: Staff, count: number): void {
 export const tuningOf = (staff: Staff): number[] => staff.stringTuning.tunings;
 
 /**
- * The General MIDI key of a drum note. Its articulation is either one of the
- * track's own (Guitar Pro 6+ files) or one of alphaTab's defaults, whose ids
- * are the General MIDI keys.
+ * The drum number of a note, as Guitar Pro shows it: the output key of one of
+ * the track's own articulations (Guitar Pro 6+ files), or the id of one of the
+ * default ones (e.g. 92 "Hi-Hat (half)").
  */
-export function drumKey(note: Note): number {
+export function drumNumber(note: Note): number {
   const articulations = note.beat.voice.bar.staff.track.percussionArticulations;
   return (
     articulations[note.percussionArticulation]?.outputMidiNumber ?? note.percussionArticulation
+  );
+}
+
+/** The MIDI key a drum note sounds (92 "Hi-Hat (half)" plays 46, as alphaTab does). */
+export function drumKey(note: Note): number {
+  const articulations = note.beat.voice.bar.staff.track.percussionArticulations;
+  return (
+    articulations[note.percussionArticulation]?.outputMidiNumber ??
+    drumOutputKey(note.percussionArticulation)
   );
 }
 

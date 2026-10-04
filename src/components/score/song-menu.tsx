@@ -3,6 +3,7 @@ import {
   ChevronDownIcon,
   FileDownIcon,
   GaugeIcon,
+  LanguagesIcon,
   PrinterIcon,
   RulerIcon,
   SaveAllIcon,
@@ -17,10 +18,26 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ExportFormat } from "@/lib/export";
+import { ENCODING_LABELS, type EncodingChoice, type TextEncodingId } from "@/lib/score/encoding";
+
+/** Guitar Pro 3–5 songs: read the text again with another encoding (#53). */
+export interface EncodingMenu {
+  /** The encoding the text was read with. */
+  current: TextEncodingId;
+  choice: EncodingChoice;
+  /** The song has unsaved changes (reading it again would lose them). */
+  edited: boolean;
+  onChange: (choice: EncodingChoice) => void;
+}
 
 const EXPORTS: { format: ExportFormat; label: string }[] = [
   { format: "musicxml", label: "MusicXML…" },
@@ -35,7 +52,9 @@ export function FileMenu({
   onExport,
   onExportAudio,
   onPrint,
+  encoding,
 }: {
+  encoding?: EncodingMenu;
   onSave: () => void;
   onSaveAs: () => void;
   onExport: (format: ExportFormat) => void;
@@ -47,9 +66,9 @@ export function FileMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" title="Save and export">
+        <Button variant="outline" size="sm" title="Save and export">
           <FileDownIcon data-icon="inline-start" />
-          <span className="sr-only 2xl:not-sr-only">File</span>
+          <span className="max-2xl:sr-only">File</span>
           <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
@@ -77,6 +96,32 @@ export function FileMenu({
           <PrinterIcon />
           Print / PDF…
         </DropdownMenuItem>
+        {encoding && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={encoding.edited}>
+                <LanguagesIcon />
+                Reopen with encoding
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  Read as {ENCODING_LABELS[encoding.current]}
+                </DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={encoding.choice}
+                  onValueChange={(value) => encoding.onChange(value as EncodingChoice)}
+                >
+                  {(Object.keys(ENCODING_LABELS) as EncodingChoice[]).map((choice) => (
+                    <DropdownMenuRadioItem key={choice} value={choice}>
+                      {ENCODING_LABELS[choice]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -95,9 +140,9 @@ export function ToolsMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" title="Editing tools">
+        <Button variant="outline" size="sm" title="Editing tools">
           <WrenchIcon data-icon="inline-start" />
-          <span className="sr-only 2xl:not-sr-only">Tools</span>
+          <span className="max-2xl:sr-only">Tools</span>
           <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>

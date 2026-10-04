@@ -1,8 +1,7 @@
 import type { MouseEvent, ReactNode } from "react";
-import { ChevronDownIcon, Grid3x3Icon, GuitarIcon, SplineIcon, TypeIcon } from "lucide-react";
+import { Grid3x3Icon, GuitarIcon, MicVocalIcon, SplineIcon, TypeIcon } from "lucide-react";
 import { model } from "@coderline/alphatab";
 
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -16,9 +15,11 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Toggle } from "@/components/ui/toggle";
+import { Glyph, MarkText, PaletteButton, PaletteSection } from "@/components/score/palette-button";
+import type { SmuflName } from "@/lib/score/smufl";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
-import type { EffectsInfo } from "@/lib/score/editor";
+import type { EffectsInfo, ToggleState } from "@/lib/score/editor";
 import {
   BEAT_EFFECTS,
   effectAvailable,
@@ -30,7 +31,17 @@ import {
 } from "@/lib/score/effects";
 import type { TrackKind } from "@/lib/score/music";
 
-const { GraceType } = model;
+const {
+  AccentuationType,
+  BrushType,
+  CrescendoType,
+  DynamicValue,
+  FadeType,
+  GraceType,
+  NoteAccidentalMode,
+  Ottavia,
+  PickStroke,
+} = model;
 
 export interface EffectActions {
   onToggleNote: (id: NoteEffectId) => void;
@@ -39,25 +50,26 @@ export interface EffectActions {
   onBeatEffect: (id: BeatEffectId, value: number) => void;
   /** Grace note before or on the beat, or none (alphaTab's GraceType). */
   onGrace: (type: number) => void;
+  onFermata: () => void;
+  onRepeat: (side: "start" | "end") => void;
   onBend: () => void;
   onWhammy: () => void;
   onText: () => void;
   onChord: () => void;
+  onLyrics: () => void;
   /** Gives focus back to the score after an action. */
   onDone: () => void;
 }
 
-/** The effects with a toggle button, and their key in the score. */
-const QUICK_TOGGLES: { id: NoteEffectId; key: string }[] = [
-  { id: "hammerPull", key: "H" },
-  { id: "palmMute", key: "P" },
-  { id: "letRing", key: "L" },
-  { id: "dead", key: "X" },
-  { id: "ghost", key: "O" },
-  { id: "vibrato", key: "W" },
-  { id: "accent", key: ">" },
-  { id: "staccato", key: "" },
-];
+/** What the palette shows as pressed: computed from the selection (or the cursor). */
+export interface PaletteState {
+  effect: (scope: "note" | "beat", id: string, value?: number) => ToggleState;
+  fermata: ToggleState;
+  repeatStart: boolean;
+  repeatEnd: boolean;
+}
+
+const onOff = (on: boolean): ToggleState => (on ? "on" : "off");
 
 const GRACE_CHOICES = [
   { value: GraceType.None, label: "No grace note" },
@@ -100,23 +112,16 @@ function EffectRadios({
   );
 }
 
-/** A toolbar button opening a menu of effects. */
-/** Short text of each menu's button in the compact palette (the full name is its label). */
-const MENU_SHORT: Record<string, string> = {
-  Slide: "sl",
-  Harmonic: "harm",
-  "Vibrato and trill": "vib",
-  Picking: "pick",
-  More: "•••",
-};
-
+/** A palette button opening a menu with every variant of some effects. */
 function EffectMenu({
   label,
+  icon,
   active,
   onDone,
   children,
 }: {
   label: string;
+  icon: ReactNode;
   /** An effect of the menu is on at the cursor. */
   active: boolean;
   onDone: () => void;
@@ -124,21 +129,23 @@ function EffectMenu({
 }) {
   return (
     <DropdownMenu modal={false}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(
-            "min-w-9 px-1.5 italic",
-            active && "border-sky-600 bg-sky-100 dark:bg-sky-900",
-          )}
+      <Tip label={label}>
+        <DropdownMenuTrigger
           aria-label={active ? `${label} (on)` : label}
-          title={label}
+          data-slot="palette-button"
+          className={cn(
+            "relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring",
+            active && "border-sky-500 bg-sky-700 text-white hover:bg-sky-600",
+          )}
         >
-          <span aria-hidden="true">{MENU_SHORT[label] ?? label}</span>
-          <ChevronDownIcon data-icon="inline-end" className="size-3" />
-        </Button>
-      </DropdownMenuTrigger>
+          {icon}
+          {/* A corner mark says the button opens a menu of variants. */}
+          <span
+            aria-hidden="true"
+            className="absolute right-0.5 bottom-0.5 size-1.5 bg-current opacity-70 [clip-path:polygon(100%_0,100%_100%,0_100%)]"
+          />
+        </DropdownMenuTrigger>
+      </Tip>
       <DropdownMenuContent
         className="w-auto min-w-56"
         // Typing continues in the score after a choice.
@@ -153,18 +160,73 @@ function EffectMenu({
   );
 }
 
+/** An exclusive choice of one effect as one button per value (dynamics, accidentals…). */
+interface ChoiceButton {
+  value: number;
+  label: string;
+  icon: ReactNode;
+  shortcut?: string;
+}
+
+/** Articulations are small glyphs drawn above the note: bigger, and moved down to the middle. */
+const ARTIC = "text-[2.2rem] [translate:0_0.27em]";
+
+const glyph = (name: SmuflName | SmuflName[], className?: string) => (
+  <Glyph name={name} className={className} />
+);
+
+const DYNAMICS: ChoiceButton[] = [
+  { value: DynamicValue.PPP, label: "Pianississimo (ppp)", icon: glyph("dynamicPPP") },
+  { value: DynamicValue.PP, label: "Pianissimo (pp)", icon: glyph("dynamicPP") },
+  { value: DynamicValue.P, label: "Piano (p)", icon: glyph("dynamicPiano") },
+  { value: DynamicValue.MP, label: "Mezzo-piano (mp)", icon: glyph("dynamicMP") },
+  { value: DynamicValue.MF, label: "Mezzo-forte (mf)", icon: glyph("dynamicMF") },
+  { value: DynamicValue.F, label: "Forte (f)", icon: glyph("dynamicForte") },
+  { value: DynamicValue.FF, label: "Fortissimo (ff)", icon: glyph("dynamicFF") },
+  { value: DynamicValue.FFF, label: "Fortississimo (fff)", icon: glyph("dynamicFFF") },
+];
+
+const ACCIDENTALS: ChoiceButton[] = [
+  { value: NoteAccidentalMode.ForceSharp, label: "Sharp", icon: glyph("accidentalSharp") },
+  { value: NoteAccidentalMode.ForceFlat, label: "Flat", icon: glyph("accidentalFlat") },
+  { value: NoteAccidentalMode.ForceNatural, label: "Natural", icon: glyph("accidentalNatural") },
+];
+
+const OTTAVAS: ChoiceButton[] = [
+  { value: Ottavia._8va, label: "8va (an octave higher)", icon: glyph("ottavaAlta", "text-base") },
+  {
+    value: Ottavia._8vb,
+    label: "8vb (an octave lower)",
+    icon: glyph("ottavaBassaVb", "text-base"),
+  },
+  {
+    value: Ottavia._15ma,
+    label: "15ma (two octaves higher)",
+    icon: glyph("quindicesimaAlta", "text-base"),
+  },
+  {
+    value: Ottavia._15mb,
+    label: "15mb (two octaves lower)",
+    icon: glyph("quindicesimaBassaMb", "text-base"),
+  },
+];
+
 /**
- * Guitar techniques and other effects for the note (or beat) at the edit
- * cursor, or everything selected: common ones as toggles, the rest in menus,
- * plus bends, the whammy bar, text and chords. Effects that don't suit the
+ * The edit palette's modifiers, as Guitar Pro 8 shows them: a dense grid of
+ * icon buttons in sections (articulations, dynamics, accidentals, techniques,
+ * picking, octaves, structure). A button is pressed when the modifier is set
+ * on the selected notes or beats, half-pressed ("mixed") when only some have
+ * it. Variants with many values sit in menus. Modifiers that don't suit the
  * track (e.g. bends on a piano) are left out.
  */
 export function EffectsToolbar({
   effects,
+  state,
   kind,
   actions,
 }: {
   effects: EffectsInfo;
+  state: PaletteState;
   kind: TrackKind;
   actions: EffectActions;
 }) {
@@ -189,33 +251,175 @@ export function EffectsToolbar({
   const stringed = kind === "stringed";
   const drums = kind === "drums";
 
-  return (
-    <div role="toolbar" aria-label="Effects" onMouseDown={keepFocus} className="border-b px-3 py-3">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Note effects">
-          {QUICK_TOGGLES.filter(({ id }) => has(NOTE_EFFECTS[id] as Effect)).map(({ id, key }) => {
-            const effect = NOTE_EFFECTS[id] as Effect;
-            return (
-              <Toggle
-                key={id}
-                variant="outline"
-                size="sm"
-                disabled={note === null}
-                pressed={noteOn(id)}
-                onPressedChange={then(() => actions.onToggleNote(id))}
-                aria-label={effect.label}
-                title={key ? `${effect.label} (${key})` : effect.label}
-                className="min-w-9"
-              >
-                <span aria-hidden="true">{effect.short}</span>
-              </Toggle>
-            );
-          })}
-        </div>
+  /** A toggle for a note effect (its usual value, or `value`). */
+  const noteToggle = (
+    id: NoteEffectId,
+    icon: ReactNode,
+    opts: { label?: string; value?: number; shortcut?: string } = {},
+  ) => {
+    const effect = NOTE_EFFECTS[id] as Effect;
+    if (!has(effect)) return null;
+    const value = opts.value;
+    return (
+      <PaletteButton
+        key={`${id}:${value ?? "on"}`}
+        label={opts.label ?? effect.label}
+        shortcut={opts.shortcut}
+        state={state.effect("note", id, value)}
+        disabled={note === null}
+        onClick={then(() =>
+          value === undefined
+            ? actions.onToggleNote(id)
+            : actions.onNoteEffect(
+                id,
+                state.effect("note", id, value) === "on" ? effectOff(effect) : value,
+              ),
+        )}
+      >
+        {icon}
+      </PaletteButton>
+    );
+  };
 
+  /** A toggle for a beat effect (its usual value, or `value`). */
+  const beatToggle = (
+    id: BeatEffectId,
+    icon: ReactNode,
+    opts: { label?: string; value?: number; shortcut?: string } = {},
+  ) => {
+    const effect = BEAT_EFFECTS[id] as Effect;
+    if (!has(effect)) return null;
+    const value = opts.value;
+    return (
+      <PaletteButton
+        key={`${id}:${value ?? "on"}`}
+        label={opts.label ?? effect.label}
+        shortcut={opts.shortcut}
+        state={state.effect("beat", id, value)}
+        disabled={beat === null}
+        onClick={then(() =>
+          value === undefined
+            ? actions.onToggleBeat(id)
+            : actions.onBeatEffect(
+                id,
+                state.effect("beat", id, value) === "on" ? effectOff(effect) : value,
+              ),
+        )}
+      >
+        {icon}
+      </PaletteButton>
+    );
+  };
+
+  /** Exclusive buttons for the values of one effect: exactly one pressed (the cursor's). */
+  const exclusive = (scope: "note" | "beat", id: string, choices: ChoiceButton[]) => {
+    const effect = (scope === "note" ? NOTE_EFFECTS : BEAT_EFFECTS)[id as never] as Effect;
+    if (!has(effect)) return null;
+    const current = (scope === "note" ? note : beat)?.[id as never] as number | undefined;
+    const set = (value: number) =>
+      scope === "note"
+        ? actions.onNoteEffect(id as NoteEffectId, value)
+        : actions.onBeatEffect(id as BeatEffectId, value);
+    return choices.map((choice) => (
+      <PaletteButton
+        key={`${id}:${choice.value}`}
+        label={choice.label}
+        shortcut={choice.shortcut}
+        state={onOff(current === choice.value)}
+        disabled={current === undefined}
+        onClick={then(() => set(current === choice.value ? effectOff(effect) : choice.value))}
+      >
+        {choice.icon}
+      </PaletteButton>
+    ));
+  };
+
+  return (
+    <div
+      role="toolbar"
+      aria-label="Effects"
+      onMouseDown={keepFocus}
+      className="flex flex-col gap-3 border-b px-3 py-3"
+    >
+      <PaletteSection title="Articulations">
+        {noteToggle("accent", glyph("articAccentAbove", ARTIC), { shortcut: ">" })}
+        {noteToggle("accent", glyph("articMarcatoAbove", ARTIC), {
+          label: "Heavy accent",
+          value: AccentuationType.Heavy,
+        })}
+        {noteToggle("accent", glyph("articTenutoAbove", ARTIC), {
+          label: "Tenuto",
+          value: AccentuationType.Tenuto,
+        })}
+        {noteToggle("staccato", glyph("articStaccatoAbove", ARTIC))}
+        <PaletteButton
+          label="Fermata"
+          state={state.fermata}
+          disabled={beat === null}
+          onClick={then(actions.onFermata)}
+        >
+          {glyph("fermataAbove")}
+        </PaletteButton>
+        {noteToggle("dead", glyph("noteheadXBlack", "text-2xl [translate:0_0.05em]"), {
+          shortcut: "X",
+        })}
+        {noteToggle(
+          "ghost",
+          glyph(
+            ["noteheadParenthesisLeft", "noteheadBlack", "noteheadParenthesisRight"],
+            "text-2xl [translate:0_0.05em]",
+          ),
+          {
+            shortcut: "O",
+          },
+        )}
+      </PaletteSection>
+
+      {!drums && (
+        <PaletteSection title="Dynamics">
+          {exclusive("beat", "dynamics", DYNAMICS)}
+          {beatToggle("crescendo", glyph("dynamicCrescendoHairpin", "text-base"), {
+            label: "Crescendo",
+            value: CrescendoType.Crescendo,
+          })}
+          {beatToggle("crescendo", glyph("dynamicDiminuendoHairpin", "text-base"), {
+            label: "Decrescendo",
+            value: CrescendoType.Decrescendo,
+          })}
+        </PaletteSection>
+      )}
+
+      {!drums && (
+        <PaletteSection title="Accidentals and octaves">
+          {exclusive("note", "accidental", ACCIDENTALS)}
+          {exclusive("beat", "ottava", OTTAVAS)}
+        </PaletteSection>
+      )}
+
+      <PaletteSection title="Techniques">
+        {noteToggle("hammerPull", <MarkText>H/P</MarkText>, { shortcut: "H" })}
+        {noteToggle("palmMute", <MarkText>P.M.</MarkText>, { shortcut: "P" })}
+        {noteToggle("letRing", <MarkText>let r.</MarkText>, { shortcut: "L" })}
+        {noteToggle("vibrato", glyph(["wiggleTrill", "wiggleTrill", "wiggleTrill"], "text-base"), {
+          shortcut: "W",
+        })}
+        {noteToggle("trill", glyph("ornamentTrill"))}
+        <PaletteButton
+          label="Grace note"
+          state={onOff(effects.grace !== GraceType.None)}
+          disabled={beat === null}
+          onClick={then(() =>
+            actions.onGrace(
+              effects.grace === GraceType.None ? GraceType.BeforeBeat : GraceType.None,
+            ),
+          )}
+        >
+          {glyph("graceNoteAcciaccaturaStemUp")}
+        </PaletteButton>
         {stringed && (
           <EffectMenu
             label="Slide"
+            icon={<MarkText>sl.</MarkText>}
             active={noteOn("slideOut") || noteOn("slideIn")}
             onDone={actions.onDone}
           >
@@ -235,9 +439,13 @@ export function EffectsToolbar({
             />
           </EffectMenu>
         )}
-
         {stringed && (
-          <EffectMenu label="Harmonic" active={noteOn("harmonic")} onDone={actions.onDone}>
+          <EffectMenu
+            label="Harmonic"
+            icon={glyph("noteheadDiamondWhite")}
+            active={noteOn("harmonic")}
+            onDone={actions.onDone}
+          >
             <EffectRadios
               effect={NOTE_EFFECTS.harmonic}
               label="Harmonic (N: natural)"
@@ -247,10 +455,10 @@ export function EffectsToolbar({
             />
           </EffectMenu>
         )}
-
         {!drums && (
           <EffectMenu
             label="Vibrato and trill"
+            icon={<MarkText>vib.</MarkText>}
             active={noteOn("vibrato") || noteOn("trill")}
             onDone={actions.onDone}
           >
@@ -275,10 +483,60 @@ export function EffectsToolbar({
             />
           </EffectMenu>
         )}
+        {stringed && (
+          <>
+            {beatToggle("tap", <MarkText>T</MarkText>, { label: "Tapping" })}
+            {beatToggle("slap", <MarkText>S</MarkText>)}
+            {beatToggle("pop", <MarkText>P</MarkText>)}
+            {noteToggle("leftHandTap", <MarkText>LH</MarkText>)}
+            <PaletteButton
+              label="Bend…"
+              shortcut="Shift+B"
+              state={onOff(effects.bend !== null)}
+              disabled={note === null}
+              onClick={actions.onBend}
+            >
+              <SplineIcon className="size-4" aria-hidden="true" />
+            </PaletteButton>
+            <PaletteButton
+              label="Whammy…"
+              state={onOff(effects.whammy !== null)}
+              disabled={beat === null}
+              onClick={actions.onWhammy}
+            >
+              <GuitarIcon className="size-4" aria-hidden="true" />
+            </PaletteButton>
+          </>
+        )}
+      </PaletteSection>
 
-        {!drums && (
+      {!drums && (
+        <PaletteSection title="Picking">
+          {beatToggle("pickStroke", glyph("stringsDownBow"), {
+            label: "Downstroke",
+            value: PickStroke.Down,
+          })}
+          {beatToggle("pickStroke", glyph("stringsUpBow"), {
+            label: "Upstroke",
+            value: PickStroke.Up,
+          })}
+          {beatToggle("brush", glyph("arpeggiatoDown"), {
+            label: "Arpeggio down",
+            value: BrushType.ArpeggioDown,
+          })}
+          {beatToggle("brush", glyph("arpeggiatoUp"), {
+            label: "Arpeggio up",
+            value: BrushType.ArpeggioUp,
+          })}
+          {beatToggle("tremolo", glyph("tremolo3"), { label: "Tremolo picking" })}
+          {beatToggle("fade", glyph("guitarFadeIn"), { label: "Fade in", value: FadeType.FadeIn })}
+          {beatToggle("fade", glyph("guitarFadeOut"), {
+            label: "Fade out",
+            value: FadeType.FadeOut,
+          })}
           <EffectMenu
             label="Picking"
+            icon={<MarkText>pick</MarkText>}
             active={
               beatOn("brush") || beatOn("tremolo") || beatOn("pickStroke") || beatOn("rasgueado")
             }
@@ -327,10 +585,42 @@ export function EffectsToolbar({
               </>
             )}
           </EffectMenu>
-        )}
+        </PaletteSection>
+      )}
 
+      <PaletteSection title="Structure and text">
+        <PaletteButton
+          label="Repeat start"
+          state={onOff(state.repeatStart)}
+          onClick={then(() => actions.onRepeat("start"))}
+        >
+          {glyph("repeatLeft")}
+        </PaletteButton>
+        <PaletteButton
+          label="Repeat end"
+          state={onOff(state.repeatEnd)}
+          onClick={then(() => actions.onRepeat("end"))}
+        >
+          {glyph("repeatRight")}
+        </PaletteButton>
+        <PaletteButton label="Text…" state={onOff(effects.text !== null)} onClick={actions.onText}>
+          <TypeIcon className="size-4" aria-hidden="true" />
+        </PaletteButton>
+        <PaletteButton
+          label="Chord…"
+          state={onOff(effects.chord !== null)}
+          onClick={actions.onChord}
+        >
+          <Grid3x3Icon className="size-4" aria-hidden="true" />
+        </PaletteButton>
+        {!drums && (
+          <PaletteButton label="Lyrics…" onClick={actions.onLyrics}>
+            <MicVocalIcon className="size-4" aria-hidden="true" />
+          </PaletteButton>
+        )}
         <EffectMenu
           label="More"
+          icon={<MarkText>•••</MarkText>}
           active={
             effects.grace !== GraceType.None ||
             noteOn("accent") ||
@@ -407,44 +697,7 @@ export function EffectsToolbar({
             </>
           )}
         </EffectMenu>
-
-        <div className="flex flex-wrap gap-1">
-          {stringed && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={note === null}
-                onClick={actions.onBend}
-                title="Bend (Shift+B)"
-                className={effects.bend ? "border-sky-600 bg-sky-100 dark:bg-sky-900" : undefined}
-              >
-                <SplineIcon data-icon="inline-start" />
-                <span className="sr-only">Bend…</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={beat === null}
-                onClick={actions.onWhammy}
-                title="Whammy bar"
-                className={effects.whammy ? "border-sky-600 bg-sky-100 dark:bg-sky-900" : undefined}
-              >
-                <GuitarIcon data-icon="inline-start" />
-                <span className="sr-only">Whammy…</span>
-              </Button>
-            </>
-          )}
-          <Button variant="outline" size="sm" onClick={actions.onText} title="Text">
-            <TypeIcon data-icon="inline-start" />
-            <span className="sr-only">Text…</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={actions.onChord} title="Chord">
-            <Grid3x3Icon data-icon="inline-start" />
-            <span className="sr-only">Chord…</span>
-          </Button>
-        </div>
-      </div>
+      </PaletteSection>
     </div>
   );
 }

@@ -565,7 +565,7 @@ describe("ScoreEditor: drum numbers and rests", () => {
     editor.typeDigit(6, 1_300);
 
     expect(hits(editor)).toEqual([46]);
-    expect(editor.message).toBe("Hi-hat (open)");
+    expect(editor.message).toBe("Hi-Hat (open)");
   });
 
   it("types three-digit numbers, with or without leading zeros", () => {

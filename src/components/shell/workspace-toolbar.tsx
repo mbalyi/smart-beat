@@ -212,7 +212,7 @@ export function WorkspaceToolbar({
             <ChevronsLeftIcon />
           </Button>
           <Button
-            size="icon-lg"
+            size="icon-sm"
             onClick={onPlayPause}
             disabled={!ready}
             aria-label={playing ? "Pause" : "Play"}

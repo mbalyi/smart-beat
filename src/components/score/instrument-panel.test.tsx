@@ -1,6 +1,7 @@
 import { screen, within } from "@testing-library/react";
 
 import { InstrumentPanel } from "@/components/score/instrument-panel";
+import { DRUM_MIDI_MAP } from "@/lib/score/drum-map";
 import type { NoteInfo } from "@/lib/score/editor";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -127,18 +128,37 @@ describe("InstrumentPanel: drums", () => {
   it("shows which drums are hit", async () => {
     setup({ kind: "drums", tuning: [], active: [note(null, null, 38), note(null, null, 42)] });
     expect(screen.getByRole("region", { name: "Drum pads" })).toBeInTheDocument();
-    expect(screen.getByRole("img")).toHaveAccessibleName("Drum pads. Snare, Hi-hat (closed)");
+    expect(screen.getByRole("img")).toHaveAccessibleName("Drum pads. Snare (hit), Hi-Hat (closed)");
     await expectNoA11yViolations();
   });
 
   it("enters drum sounds by clicking pads, including unusual ones the track uses", async () => {
     const { user, props } = setup({ kind: "drums", tuning: [], editing: true, drumSounds: [81] });
 
-    await user.click(screen.getByRole("button", { name: "Crash cymbal" }));
-    await user.click(screen.getByRole("button", { name: "Triangle (hit)" }));
+    await user.click(screen.getByRole("button", { name: "49 Crash high (hit)" }));
+    await user.click(screen.getByRole("button", { name: "81 Triangle (hit)" }));
+    await user.click(screen.getByRole("button", { name: "92 Hi-Hat (half)" }));
 
-    expect(vi.mocked(props.onDrum).mock.calls).toEqual([[49], [81]]);
+    expect(vi.mocked(props.onDrum).mock.calls).toEqual([[49], [81], [92]]);
     await expectNoA11yViolations();
+  });
+
+  it("offers every Guitar Pro drum articulation as a pad labelled with its number (#53)", () => {
+    setup({ kind: "drums", tuning: [], editing: true, drumSounds: [130] });
+    for (const [key, name] of Object.entries(DRUM_MIDI_MAP)) {
+      const pad = screen.getByRole("button", { name: `${key} ${name}` });
+      expect(within(pad).getByTestId("drum-pad-number")).toHaveTextContent(key);
+    }
+    // The main kit comes first, in Guitar Pro's order, then the percussion.
+    const kit = within(screen.getByRole("group", { name: "Drum kit" })).getAllByRole("button");
+    expect(kit.slice(0, 3).map((b) => b.getAttribute("aria-label"))).toEqual([
+      "38 Snare (hit)",
+      "37 Snare (side stick)",
+      "91 Snare (rim shot)",
+    ]);
+    expect(screen.getByRole("group", { name: "Percussion" })).toBeInTheDocument();
+    // A number outside the map gets its own pad.
+    expect(screen.getByRole("button", { name: "130 Drum sound 130" })).toBeInTheDocument();
   });
 });
 

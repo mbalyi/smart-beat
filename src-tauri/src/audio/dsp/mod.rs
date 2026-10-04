@@ -1,5 +1,5 @@
 //! Effect DSP written for Smart Beat (no third-party DSP code): noise gate,
-//! compressor, EQ, drive, a built-in amp, modulation, delay and reverb. Every effect is stereo-linked, processes blocks of
+//! compressor, limiter, EQ, drive, a built-in amp, modulation, delay and reverb. Every effect is stereo-linked, processes blocks of
 //! samples in place and never allocates while processing.
 
 pub mod amp_sim;
@@ -10,6 +10,7 @@ pub mod delay;
 pub mod drive;
 pub mod eq;
 pub mod gate;
+pub mod limiter;
 pub mod modulation;
 pub mod reverb;
 
@@ -56,6 +57,11 @@ pub trait Effect: Send {
     /// a change that needs the block to be rebuilt.
     fn update(&mut self, _config: &crate::audio::chain::EffectConfig) -> bool {
         false
+    }
+    /// Gain reduction in the last block (dB, ≥ 0) of dynamics blocks
+    /// (compressor, limiter), for their meter; None for the others.
+    fn meter_db(&self) -> Option<f32> {
+        None
     }
 }
 

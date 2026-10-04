@@ -41,7 +41,17 @@ What Guitar Pro 5 cannot hold is reported after saving ("saved with limits"):
 - double-dotted notes (saved with one dot), tuplets other than 3, 5-7, 9-13, notes shorter than a 64th;
 - lyrics of more than one track, dotted and Scottish triplet feels, feedback harmonics.
 
-Text is written as UTF-8. Guitar Pro 5 itself expects Windows-1252, so accented characters in titles may look wrong there.
+Text is written in a Windows code page, as Guitar Pro 5 expects: the one the song was read with (see below), else the user's (Windows-1250 for Central European languages, otherwise Windows-1252). If the text does not fit that code page but fits the other one, the other is used; characters that fit neither become "?" and the save warns about them.
+
+Drum notes are written on the string of the drum tab they sit on in Smart Beat, so the placement a Guitar Pro 5 user chose survives a round trip (#53).
+
+### Text encoding when reading (#53)
+
+Guitar Pro 3–5 files store text in the code page of the computer that wrote them and do not say which. Smart Beat reads such a file with Windows-1252 first (which keeps every byte), then picks the encoding from the file's own strings: valid UTF-8 (older Smart Beat versions) stays UTF-8; otherwise Windows-1250 and Windows-1252 are scored by the letters each would produce (ő, ű, č, ł … versus õ, û …), with the user's language breaking ties. File › Reopen with encoding overrides the choice, and the choice is remembered per file. Guitar Pro 7+ files are UTF-8 XML and are not affected.
+
+### Drum strings (#53)
+
+alphaTab's Guitar Pro 3–5 reader drops the string a drum note was written on. Smart Beat wraps that reader at run time (alphaTab's files are not changed) to keep the string, stores it in the note's otherwise unused `fret`, draws the drum tab with it and writes it back to GP5. Guitar Pro 7+ files have no place for it, so `.gp` files carry it in `SmartBeat/settings.json` (`drumLines`).
 
 ### How the writer was made (clean-room notes)
 

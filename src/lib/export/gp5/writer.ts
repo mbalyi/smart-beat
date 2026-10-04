@@ -9,10 +9,12 @@
 import { model } from "@coderline/alphatab";
 
 import { ByteWriter } from "@/lib/export/gp5/bytes";
+import { DRUM_TAB_STRINGS, placeDrums } from "@/lib/score/drum-tab";
+import { defaultEncoding, encodingFor, scoreStrings, sourceEncoding } from "@/lib/score/encoding";
 import { beatTicks } from "@/lib/score/bar-duration";
 import { lyricsOf, MAX_LYRIC_LINES } from "@/lib/score/lyrics";
 import {
-  drumKey,
+  drumNumber,
   type Bar,
   type Beat,
   type MasterBar,
@@ -244,7 +246,7 @@ function writeCurve(out: ByteWriter, points: readonly model.BendPoint[]) {
 // --- The writer ---------------------------------------------------------------------------
 
 class Gp5Writer {
-  private readonly out = new ByteWriter();
+  private readonly out: ByteWriter;
   private readonly warnings = new Warnings();
   private readonly plans: TrackPlan[];
   /** Tempo changes after the start, by `bar:beat` (beat of the first track's first voice). */
@@ -254,6 +256,10 @@ class Gp5Writer {
 
   constructor(score: Score) {
     this.score = score;
+    // The text is saved the way it was read (Guitar Pro 3–5 files), in a code page it fits in.
+    this.out = new ByteWriter(
+      encodingFor(scoreStrings(score), sourceEncoding(score) ?? defaultEncoding()),
+    );
     this.plans = score.tracks.map((track) => planTrack(track, this.warnings));
     this.collectTempoChanges();
   }
@@ -275,6 +281,11 @@ class Gp5Writer {
     this.writeMasterBars();
     for (const plan of this.plans) this.writeTrack(plan);
     this.writeBars();
+    if (out.lost > 0) {
+      this.warnings.add(
+        `${out.lost} character${out.lost === 1 ? "" : "s"} could not be saved in the ${out.encoding} text encoding and became “?”.`,
+      );
+    }
     return { bytes: out.toBytes(), warnings: this.warnings.list };
   }
 
@@ -436,7 +447,8 @@ class Gp5Writer {
     out.i32(MAX_GP5_FRET);
     out.i32(plan.kind === "stringed" ? staff.capo : 0);
     out.zeros(4); // colour
-    const showTab = plan.kind === "stringed" && staff.showTablature;
+    // Drum tracks are shown with their drum tab (score + tab), as Guitar Pro does.
+    const showTab = plan.kind === "drums" || (plan.kind === "stringed" && staff.showTablature);
     const showScore = plan.kind !== "stringed" || staff.showStandardNotation || !showTab;
     out.u8((showTab ? 1 : 0) | (showScore ? 2 : 0));
     out.u8(0).u8(0); // auto let ring, auto brush
@@ -520,7 +532,11 @@ class Gp5Writer {
     const chord = beat.chordId ? beat.chord : null;
     const mix = this.mixChange(beat, tempo);
     const effects = this.beatEffects(beat);
-    const tupleted = beat.tupletNumerator !== 1 || beat.tupletDenominator !== 1;
+    // Files read from Guitar Pro 3–5 mark "no tuplet" with -1.
+    const tupleted =
+      beat.tupletNumerator > 1 &&
+      beat.tupletDenominator > 0 &&
+      beat.tupletNumerator !== beat.tupletDenominator;
     const writeTuplet = tupleted && TUPLET_NUMERATORS.has(beat.tupletNumerator);
     if (beat.dots > 1) {
       this.warnings.add(
@@ -569,14 +585,13 @@ class Gp5Writer {
     const placed: PlacedNote[] = [];
     const used = new Set<number>();
     if (plan.kind === "drums") {
-      for (const note of beat.notes) {
-        const fileString = [0, 1, 2, 3, 4, 5].find((s) => !used.has(s));
-        if (fileString === undefined) {
-          this.warnings.add("More than six drums at once: extra drum notes are left out.");
-          continue;
-        }
-        used.add(fileString);
-        placed.push({ note, fileString, fret: note.isPercussion ? drumKey(note) : note.fret });
+      // Each drum on its line of the drum tab (#53): line 6 (top) is file string 0.
+      const lines = placeDrums(beat.notes.filter((n) => n.isPercussion));
+      if (lines.size < beat.notes.length) {
+        this.warnings.add("More than six drums at once: extra drum notes are left out.");
+      }
+      for (const [note, line] of lines) {
+        placed.push({ note, fileString: DRUM_TAB_STRINGS - line, fret: drumNumber(note) });
       }
       return placed;
     }

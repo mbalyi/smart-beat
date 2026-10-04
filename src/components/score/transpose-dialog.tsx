@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -78,7 +79,7 @@ function TransposeForm({
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <DialogHeader>
         <DialogTitle>Transpose</DialogTitle>
         <DialogDescription>
@@ -86,80 +87,81 @@ function TransposeForm({
           to another string when the fret would run out.
         </DialogDescription>
       </DialogHeader>
-
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor={ids.amount} className="text-sm font-medium">
-          Semitones (negative moves down)
-        </label>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label="One semitone down"
-            onClick={() => step(-1)}
-          >
-            <MinusIcon />
-          </Button>
-          <Input
-            id={ids.amount}
-            type="number"
-            inputMode="numeric"
-            min={-MAX_TRANSPOSE}
-            max={MAX_TRANSPOSE}
-            value={Number.isNaN(semitones) ? "" : semitones}
-            onChange={(event) => setSemitones(event.target.valueAsNumber)}
-            className="w-24 text-center"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label="One semitone up"
-            onClick={() => step(1)}
-          >
-            <PlusIcon />
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor={ids.scope} className="text-sm font-medium">
-          Transpose
-        </label>
-        <Select value={scope} onValueChange={(value) => isScope(value) && setScope(value)}>
-          <SelectTrigger id={ids.scope} className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SCOPES.map((s) => (
-              <SelectItem key={s.value} value={s.value}>
-                {s.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {scope !== "selection" && (
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id={ids.keys}
-            checked={keySignatures}
-            onCheckedChange={(checked) => setKeySignatures(checked === true)}
-          />
-          <label htmlFor={ids.keys} className="text-sm">
-            Also move the key signatures
+      <DialogBody>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={ids.amount} className="text-sm font-medium">
+            Semitones (negative moves down)
           </label>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="One semitone down"
+              onClick={() => step(-1)}
+            >
+              <MinusIcon />
+            </Button>
+            <Input
+              id={ids.amount}
+              type="number"
+              inputMode="numeric"
+              min={-MAX_TRANSPOSE}
+              max={MAX_TRANSPOSE}
+              value={Number.isNaN(semitones) ? "" : semitones}
+              onChange={(event) => setSemitones(event.target.valueAsNumber)}
+              className="w-24 text-center"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="One semitone up"
+              onClick={() => step(1)}
+            >
+              <PlusIcon />
+            </Button>
+          </div>
         </div>
-      )}
 
-      <p
-        role="status"
-        className={blocked ? "text-sm text-destructive" : "text-sm text-muted-foreground"}
-      >
-        {status}
-      </p>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={ids.scope} className="text-sm font-medium">
+            Transpose
+          </label>
+          <Select value={scope} onValueChange={(value) => isScope(value) && setScope(value)}>
+            <SelectTrigger id={ids.scope} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SCOPES.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {scope !== "selection" && (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={ids.keys}
+              checked={keySignatures}
+              onCheckedChange={(checked) => setKeySignatures(checked === true)}
+            />
+            <label htmlFor={ids.keys} className="text-sm">
+              Also move the key signatures
+            </label>
+          </div>
+        )}
+
+        <p
+          role="status"
+          className={blocked ? "text-sm text-destructive" : "text-sm text-muted-foreground"}
+        >
+          {status}
+        </p>
+      </DialogBody>
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -191,10 +193,7 @@ export function TransposeDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-md"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      <DialogContent size="md" onCloseAutoFocus={onCloseAutoFocus}>
         <TransposeForm
           hasSelection={hasSelection}
           preview={preview}

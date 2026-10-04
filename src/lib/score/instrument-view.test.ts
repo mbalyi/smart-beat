@@ -1,3 +1,4 @@
+import { DRUM_MIDI_MAP } from "@/lib/score/drum-map";
 import {
   describeInstrument,
   drumKitOf,
@@ -9,7 +10,6 @@ import {
   keyboardRange,
   notesOf,
 } from "@/lib/score/instrument-view";
-import { DRUM_KIT } from "@/lib/score/music";
 import { parseScore } from "@/lib/score/score";
 import { fixtureBytes, SUMMARY } from "@/test/score";
 
@@ -75,11 +75,17 @@ describe("keyboard", () => {
 });
 
 describe("drums", () => {
-  it("offers the kit plus any other sound in use", () => {
-    expect(drumPads()).toHaveLength(DRUM_KIT.length);
-    const pads = drumPads([38, 81, 81]);
-    expect(pads.at(-1)).toEqual({ id: 81, name: "Triangle (hit)", short: "81" });
-    expect(pads).toHaveLength(DRUM_KIT.length + 1);
+  it("offers every articulation once, plus any other sound in use (#53)", () => {
+    const groups = drumPads();
+    expect(groups.map((g) => g.label)).toEqual(["Drum kit", "Percussion"]);
+    const ids = groups.flatMap((g) => g.pads.map((p) => p.id));
+    expect(new Set(ids).size).toBe(ids.length); // no duplicate keys
+    expect(ids.sort((a, b) => a - b)).toEqual(Object.keys(DRUM_MIDI_MAP).map(Number));
+    expect(groups[0]!.pads).toHaveLength(24);
+    expect(drumPads([38, 130, 130]).at(-1)).toEqual({
+      label: "Other sounds in this track",
+      pads: [{ id: 130, name: "Drum sound 130" }],
+    });
   });
 
   it("maps drum sounds to the staff", () => {

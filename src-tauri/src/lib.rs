@@ -10,6 +10,7 @@ pub mod project;
 pub mod recent;
 pub mod score_file;
 pub mod score_write;
+pub mod startup;
 pub mod zoom;
 
 pub use commands::AppInfo;
@@ -40,8 +41,10 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 app.manage(audio::AudioState::new(dir));
             }
             recent::ensure_store(app.handle())?;
+            startup::show_later(app.handle());
             Ok(())
         })
+        .on_page_load(startup::on_page_load)
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::menu_shortcuts,
@@ -76,6 +79,10 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::library_import,
             audio::library_update,
             audio::library_remove,
+            audio::kits_list,
+            audio::kits_import,
+            audio::kits_remove,
+            audio::audio_set_track_kit,
         ])
         .on_menu_event(menu::handle_event)
 }

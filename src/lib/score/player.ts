@@ -402,9 +402,8 @@ export class ScorePlayer {
     api.noteMouseDown.on((note) => {
       this.clickedNote = realNoteOf(note);
     });
-    api.beatMouseMove.on((beat) => {
-      if (this.editing) callbacks.onBeatDrag?.(realBeatOf(beat));
-    });
+    // Dragging selects beats in both modes (alphaTab also highlights the range outside edit mode).
+    api.beatMouseMove.on((beat) => callbacks.onBeatDrag?.(realBeatOf(beat)));
     api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
     api.playerFinished.on(() => {
       if (this.loop) callbacks.onLoopRestart?.();
@@ -571,19 +570,26 @@ export class ScorePlayer {
     // SoundFont switch already knows where to continue. Whether to play is our
     // own flag: alphaTab reports a pause late, so right after one (an edit
     // straight after pausing) it would still say "playing".
-    this.resume ??= { tick: api.tickPosition, play: this.playing };
+    // Kept locally: loading the MIDI can finish (and clear `resume`) at once.
+    const resume = (this.resume ??= { tick: api.tickPosition, play: this.playing });
     api.loadMidiForScore();
-    api.tickPosition = this.resume.tick;
+    api.tickPosition = resume.tick;
   }
 
   showTrack(trackIndex: number, view: TrackView) {
     const track = this.score.tracks[trackIndex];
     if (!track) return;
     this.trackIndex = trackIndex;
-    this.applyView(view);
-    this.api.settings.notation.rhythmMode = rhythmMode(view);
+    // alphaTab draws the previous track's tuning over a drum tab shown straight
+    // from another track (seen in 1.8.4). Showing the drum track's score first,
+    // then its drum tab, draws it correctly (#53).
+    const drumTab = (track.staves[0]?.isPercussion ?? false) && view.notation !== "score";
+    const first = drumTab ? { ...view, notation: "score" as const } : view;
+    this.applyView(first);
+    this.api.settings.notation.rhythmMode = rhythmMode(first);
     this.afterViewChange();
     this.api.renderTracks([track]);
+    if (drumTab) this.setView(view);
   }
 
   /** Changes the notation of the shown track. */
@@ -652,6 +658,19 @@ export class ScorePlayer {
     this.api.updateSettings();
   }
 
+  /** Clears a range selected with the mouse outside edit mode (a loop stays). */
+  clearSelection() {
+    if (this.loop) return;
+    this.settingRange = true;
+    try {
+      this.api.playbackRange = null;
+      this.api.clearPlaybackRangeHighlight();
+    } finally {
+      this.settingRange = false;
+    }
+    this.callbacks.onRangeSelect?.(null);
+  }
+
   /** Loops `range` (whole bars), or stops looping with null. */
   setLoop(range: LoopRange | null) {
     this.loop = range;
@@ -665,6 +684,8 @@ export class ScorePlayer {
     try {
       if (!loop) {
         this.engine?.setLoop(null);
+        // Without a loop to take off, a range the user just dragged stays selected (#53).
+        if (!this.appliedRange) return;
         this.appliedRange = null;
         api.isLooping = false;
         api.playbackRange = null;
