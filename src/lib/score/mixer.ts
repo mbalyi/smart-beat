@@ -48,6 +48,8 @@ export type MixerAction =
   /** Focus one track (null: none). */
   | { type: "focus"; track: number | null }
   | { type: "drums"; track: number; drums: DrumMixer | null }
+  /** Plays a drum track with an imported kit (#40; null: the SoundFont's own). */
+  | { type: "drum-kit"; track: number; kit: string | null }
   | { type: "audio-track"; value: AudioTrackSettings | null }
   | { type: "presets"; presets: SongPreset[] }
   /** Volumes, pans, mute and solo back to the file's; effects and the rest stay. */
@@ -126,6 +128,8 @@ export interface TrackState {
   eq: TrackEq;
   automation: TrackAutomation;
   drums: DrumMixer | null;
+  /** The imported drum kit it plays (#40). */
+  kit: string | null;
   focused: boolean;
 }
 
@@ -138,6 +142,7 @@ export function trackStates(mix: MixerSettings): TrackState[] {
     eq: trackEq(mix, i),
     automation: trackAutomation(mix, i),
     drums: mix.drums?.[i] ?? null,
+    kit: mix.drumKits?.[i] ?? null,
     focused: mix.focus === i,
   }));
 }
@@ -163,6 +168,7 @@ export function withTrackStates(mix: MixerSettings, states: readonly TrackState[
   next.eq = someEq ? states.map((s) => s.eq) : undefined;
   next.automation = someAutomation ? states.map((s) => s.automation) : undefined;
   next.drums = someDrums ? states.map((s) => s.drums) : undefined;
+  next.drumKits = states.some((s) => s.kit) ? states.map((s) => s.kit) : undefined;
   const focus = states.findIndex((s) => s.focused);
   next.focus = focus >= 0 ? focus : undefined;
   return stripUndefined(next);
@@ -269,6 +275,13 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
     case "drums": {
       if (!mix.tracks[action.track]) return mix;
       return { ...mix, drums: perTrack(mix, mix.drums, action.track, action.drums, () => null) };
+    }
+    case "drum-kit": {
+      if (!mix.tracks[action.track]) return mix;
+      return {
+        ...mix,
+        drumKits: perTrack(mix, mix.drumKits, action.track, action.kit, () => null),
+      };
     }
     case "audio-track": {
       if (!action.value) return without(mix, "audioTrack");

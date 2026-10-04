@@ -36,6 +36,7 @@ import {
   type EngineStatus,
   type TrackEq,
   type TransportCommand,
+  setEngineTrackKit,
 } from "@/lib/tauri";
 
 /** A track's sounds as the engine plays them: a chain each, and `[tick, sound]` switches. */
@@ -51,6 +52,8 @@ export interface EngineExtras {
   automation: EngineAutomation[];
   eq: TrackEq[];
   drums: (EngineDrumMix | null)[];
+  /** The imported drum kit of each track (#40; null: the SoundFont's kit). */
+  kits?: (string | null)[];
   masterPan: number;
   /** Audio track settings and sync points (null: none loaded). */
   backing: { params: BackingParams; sync: { tick: number; ms: number }[] } | null;
@@ -300,6 +303,11 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     for (const [i, eq] of next.eq.entries()) {
       const before = prev?.eq[i] ?? FLAT;
       if (!same(before, eq)) await setEngineTrackEq(i, eq);
+    }
+    // Kits first: a drum mixer is built for the kit the track plays.
+    for (const [i, kit] of (next.kits ?? []).entries()) {
+      const before = prev?.kits?.[i] ?? null;
+      if (before !== kit) await setEngineTrackKit(i, kit);
     }
     for (const [i, drums] of next.drums.entries()) {
       const before = prev?.drums[i] ?? null;

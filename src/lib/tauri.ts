@@ -282,6 +282,8 @@ export interface MixerSettings {
   focus?: number;
   /** The drum mixer of each track (null when not split). */
   drums?: (DrumMixer | null)[];
+  /** The imported drum kit (#40) each track plays (null: the SoundFont's own kit). */
+  drumKits?: (string | null)[];
   audioTrack?: AudioTrackSettings;
   /** Effect chain presets saved with the song. */
   presets?: SongPreset[];
@@ -734,5 +736,52 @@ export async function pickLibraryFile(kind: AssetKind): Promise<string | null> {
       kind === "amp"
         ? [{ name: "Neural Amp Modeler captures", extensions: ["nam"] }]
         : [{ name: "Impulse responses (WAV)", extensions: ["wav"] }],
+  });
+}
+
+// --- Drum kits (#40) ---------------------------------------------------------
+
+/** Mirrors `LicenceKind` in `src-tauri/src/audio/kits/mod.rs`. */
+export type KitLicenceKind =
+  "cc0" | "public-domain" | "cc-by" | "cc-by-sa" | "other-commercial" | "unknown";
+
+/** Mirrors `KitInfo` in `src-tauri/src/audio/kits/mod.rs`. */
+export interface DrumKit {
+  id: string;
+  name: string;
+  format: "sfz" | "sf2" | "sf3";
+  licence: { kind: KitLicenceKind; text?: string; attribution?: string };
+  /** Drum mixer pieces the kit has samples for, and their keys. */
+  pieces: { element: string; keys: number[] }[];
+  /** Drum mixer pieces it has nothing for. */
+  missing: string[];
+  sizeBytes: number;
+  warnings: string[];
+}
+
+/** How the user answered the licence question when importing. */
+export interface KitImportOptions {
+  licence?: Exclude<KitLicenceKind, "unknown">;
+  acceptUnknown?: boolean;
+  attribution?: string;
+  name?: string;
+}
+
+export const listKits = () => call<DrumKit[]>("kits_list");
+export const importKit = (path: string, options: KitImportOptions = {}) =>
+  call<DrumKit>("kits_import", { path, options });
+export const removeKit = (id: string) => call<void>("kits_remove", { id });
+/** Plays a drum track with an imported kit (null: the SoundFont's own kit). */
+export const setEngineTrackKit = (track: number, kit: string | null) =>
+  call<void>("audio_set_track_kit", { track, kit });
+
+/** Native Open dialog for a drum kit. */
+export async function pickKitFile(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: "Import a drum kit",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Drum kits (SFZ, SoundFont)", extensions: ["sfz", "sf2", "sf3"] }],
   });
 }

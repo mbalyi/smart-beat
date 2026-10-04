@@ -88,6 +88,16 @@ Weights are licensed separately from the code that runs them. The paid tier may 
 | Geist font (`@fontsource-variable/geist`)                                        | OFL-1.1                                                                                                 | ✅ Embedded, notice included                      |
 | Dev-only tools (Vite, Vitest, ESLint, Playwright, TypeScript, ...)               | MIT, Apache-2.0, BSD                                                                                    | ✅ Not shipped. Not subject to the runtime policy |
 
+## Drum kits the user imports (#40)
+
+Smart Beat bundles no sampled drum kits. Users import free kits themselves (SFZ, SF2, SF3); they are copied into the app data folder (`kits/`) and never uploaded or redistributed by us. The import reads `LICENSE*`, `COPYING*`, `README*` and similar files next to the kit:
+
+- any non-commercial marker (NonCommercial, BY-NC, "not for commercial use") refuses the import, even if the user picks another licence;
+- CC0, public domain, CC BY and CC BY-SA kits are accepted; CC BY / BY-SA kits are credited (name, licence, author) in Help › Open-Source Licenses;
+- when no licence is found, the user picks one or confirms they have the right to use the kit.
+
+The SFZ reader, the sampler and the kit library are our own code (`src-tauri/src/audio/kits`); tests use tiny synthetic kits generated in the tests, never a real third-party kit.
+
 ## Must NOT copy code from
 
 | Project                                                            | License             | Why                                                                                   |

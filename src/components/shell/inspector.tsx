@@ -29,7 +29,7 @@ import type { NotationView, TrackSummary, TrackView } from "@/lib/score/score";
 import { isSoundFontId, SOUNDFONTS, type SoundFontId } from "@/lib/score/soundfonts";
 import { MAX_SYNC_OFFSET_MS, MIN_SYNC_OFFSET_MS } from "@/lib/score/sync";
 import { trackColor } from "@/lib/score/track-colors";
-import type { TrackMix } from "@/lib/tauri";
+import type { DrumKit, TrackMix } from "@/lib/tauri";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
@@ -234,6 +234,55 @@ function MiniChain({
  * information, musical notation, sounds and interpretation). Changes that need
  * a form open the same dialogs as the Track menu, so they stay undoable.
  */
+/** The drum kit picker of a drum track (#40). */
+export interface DrumKitChoice {
+  kits: DrumKit[];
+  /** The kit the track plays (null: the SoundFont's own kit). */
+  current: string | null;
+  onChange: (kit: string | null) => void;
+  /** Opens the drum kit library (import, remove). */
+  onManage: () => void;
+  /** False in a browser: imported kits need the desktop app. */
+  available: boolean;
+}
+
+const BUNDLED_KIT = "bundled";
+
+function DrumKitPicker({ kits, current, onChange, onManage, available }: DrumKitChoice) {
+  const id = useId();
+  const value = current && kits.some((k) => k.id === current) ? current : BUNDLED_KIT;
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-sm">
+        Drum kit
+      </label>
+      <div className="flex gap-1">
+        <Select value={value} onValueChange={(v) => onChange(v === BUNDLED_KIT ? null : v)}>
+          <SelectTrigger id={id} size="sm" className="min-w-0 flex-1">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={BUNDLED_KIT}>Instrument sounds (built in)</SelectItem>
+            {kits.map((kit) => (
+              <SelectItem key={kit.id} value={kit.id}>
+                {kit.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="outline" size="sm" onClick={onManage}>
+          Kits…
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {available
+          ? "Imported kits play with the native engine; a large kit takes a moment to load the first time."
+          : "Imported drum kits are available in the Smart Beat desktop app."}
+      </p>
+    </div>
+  );
+}
+
 export function Inspector({
   tab,
   onTabChange,
@@ -255,7 +304,10 @@ export function Inspector({
   onEffectsChange,
   interpretation,
   onInterpretationChange,
+  drumKit,
 }: {
+  /** Drum tracks: which imported kit plays (#40). */
+  drumKit?: DrumKitChoice;
   tab: "song" | "track";
   onTabChange: (tab: "song" | "track") => void;
   song: SongInfo;
@@ -454,6 +506,7 @@ export function Inspector({
               </p>
             </>
           )}
+          {track.kind === "drums" && drumKit && <DrumKitPicker {...drumKit} />}
           {track.kind === "drums" && actions.onDrumMixer && (
             <Button
               variant="outline"

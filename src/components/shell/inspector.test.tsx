@@ -265,4 +265,37 @@ describe("Inspector: interpretation", () => {
     setup();
     expect(screen.queryByRole("button", { name: "Drum mixer…" })).not.toBeInTheDocument();
   });
+
+  it("picks an imported drum kit for a drum track (#40)", async () => {
+    const onChange = vi.fn();
+    const onManage = vi.fn();
+    const { user } = setup({
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
+      drumKit: {
+        kits: [
+          {
+            id: "free-kit",
+            name: "Free Kit",
+            format: "sfz",
+            licence: { kind: "cc0" },
+            pieces: [],
+            missing: [],
+            sizeBytes: 1,
+            warnings: [],
+          },
+        ],
+        current: null,
+        onChange,
+        onManage,
+        available: true,
+      },
+    });
+    const picker = screen.getByRole("combobox", { name: "Drum kit" });
+    expect(picker).toHaveTextContent("Instrument sounds (built in)");
+    await user.click(picker);
+    await user.click(await screen.findByRole("option", { name: "Free Kit" }));
+    expect(onChange).toHaveBeenCalledWith("free-kit");
+    await user.click(screen.getByRole("button", { name: "Kits…" }));
+    expect(onManage).toHaveBeenCalled();
+  });
 });

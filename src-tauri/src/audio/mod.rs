@@ -8,6 +8,7 @@ pub mod backing;
 pub mod chain;
 pub mod dsp;
 pub mod engine;
+pub mod kits;
 pub mod library;
 pub mod mixing;
 pub mod output;
@@ -138,6 +139,8 @@ struct Inner {
     automation: HashMap<usize, AutomationData>,
     eqs: HashMap<usize, TrackEq>,
     drums: HashMap<usize, DrumMixData>,
+    /// The imported drum kit each track plays (#40), by kit id.
+    track_kits: HashMap<usize, String>,
     backing: Option<LoadedBacking>,
 }
 
@@ -176,13 +179,19 @@ impl Inner {
 pub struct AudioState {
     inner: Mutex<Inner>,
     pub library: Arc<Library>,
+    /// Imported drum kits (#40), next to the sound library.
+    pub kits: Arc<kits::KitLibrary>,
 }
 
 impl AudioState {
     pub fn new(library_dir: PathBuf) -> Self {
+        let kits_dir = library_dir
+            .parent()
+            .map_or_else(|| library_dir.join("kits"), |p| p.join("kits"));
         Self {
             inner: Mutex::new(Inner::default()),
             library: Arc::new(Library::new(library_dir)),
+            kits: Arc::new(kits::KitLibrary::new(kits_dir)),
         }
     }
 
@@ -264,6 +273,8 @@ fn build_chain(state: &AudioState, rate: u32, slots: &[EffectSlot], limit: usize
 
 /// Everything an engine needs besides the song, built without its lock.
 struct Prepared {
+    /// Tracks playing an imported drum kit (#40), with their instrument for it.
+    kits: Vec<(usize, Arc<kits::LoadedKit>, Box<dyn engine::Instrument>)>,
     master: Chain,
     sounds: Vec<(usize, Vec<Chain>)>,
     drums: Vec<(usize, Option<DrumSplit>)>,
@@ -289,12 +300,35 @@ fn prepare(
             (track, chains)
         })
         .collect();
+    // Kits are decoded the first time a track uses them (then cached).
+    let loaded: HashMap<usize, Arc<kits::LoadedKit>> = inner
+        .track_kits
+        .iter()
+        .filter_map(|(&track, id)| match state.kits.load(id) {
+            Ok(kit) => Some((track, kit)),
+            Err(e) => {
+                eprintln!("drum kit {id}: {e}");
+                None
+            }
+        })
+        .collect();
+    let source_for = |track: usize| synths.clone().with_kit(loaded.get(&track).cloned());
+    let kits = loaded
+        .iter()
+        .filter_map(|(&track, kit)| {
+            let instrument = source_for(track)
+                .instrument(engine::POLYPHONY)
+                .map_err(|e| eprintln!("drum kit: {e}"))
+                .ok()?;
+            Some((track, kit.clone(), instrument))
+        })
+        .collect();
     let drums = inner
         .drums
         .iter()
         .filter(|(track, d)| !current.is_some_and(|e| e.has_drum_split(**track, &d.groups())))
         .map(|(&track, d)| {
-            let split = synths
+            let split = source_for(track)
                 .drum_split(&d.groups())
                 .map_err(|e| eprintln!("drum split: {e}"))
                 .ok();
@@ -307,6 +341,7 @@ fn prepare(
         backing
     });
     Prepared {
+        kits,
         master,
         sounds,
         drums,
@@ -347,6 +382,14 @@ fn install(
     }
     for (&track, eq) in &inner.eqs {
         engine.set_track_eq(track, eq);
+    }
+    for (track, kit, instrument) in prepared.kits {
+        if let Some((synth, split)) = engine.set_track_kit(track, Some(kit), instrument, None) {
+            old.push(Box::new(synth));
+            if let Some(split) = split {
+                old.push(Box::new(split));
+            }
+        }
     }
     for (track, split) in prepared.drums {
         if let Some(s) = engine.set_drum_split(track, split) {
@@ -482,6 +525,7 @@ pub fn audio_load_song(song: SongData, state: State<'_, AudioState>) -> Result<(
     inner.automation.clear();
     inner.eqs.clear();
     inner.drums.clear();
+    inner.track_kits.clear();
     if inner.engine.is_some() {
         with_engine(&inner, |engine| engine.load(song))?.map_err(audio_error)?;
         configure_running(&state, &inner)?;
@@ -747,7 +791,7 @@ pub fn audio_set_drum_mix(
         let groups = drums.as_ref().map(DrumMixData::groups);
         (
             groups.as_ref().is_some_and(|g| e.has_drum_split(track, g)),
-            e.synth_source(),
+            e.synth_source_for(track),
         )
     };
     let split = match (&drums, exists) {
@@ -976,4 +1020,78 @@ pub fn render_offline(engine: &mut Engine, max_frames: usize) -> Vec<u8> {
         frames += l.len();
     }
     out
+}
+
+// --- Drum kits (#40) -----------------------------------------------------------
+
+#[tauri::command(async)]
+pub fn kits_list(state: State<'_, AudioState>) -> Vec<kits::KitInfo> {
+    state.kits.list()
+}
+
+/// Imports an `.sfz`, `.sf2` or `.sf3` drum kit into the kit library.
+#[tauri::command(async)]
+pub fn kits_import(
+    path: PathBuf,
+    options: Option<kits::ImportOptions>,
+    state: State<'_, AudioState>,
+) -> Result<kits::KitInfo, CommandError> {
+    state
+        .kits
+        .import(&path, &options.unwrap_or_default())
+        .map_err(audio_error)
+}
+
+#[tauri::command(async)]
+pub fn kits_remove(id: String, state: State<'_, AudioState>) -> Result<(), CommandError> {
+    let mut inner = state.inner.lock().unwrap();
+    inner.track_kits.retain(|_, kit| *kit != id);
+    drop(inner);
+    state.kits.remove(&id).map_err(audio_error)
+}
+
+/// Plays a drum track with an imported kit (`null`: the SoundFont's kit).
+/// The kit is decoded here the first time (off the audio thread).
+#[tauri::command(async)]
+pub fn audio_set_track_kit(
+    track: usize,
+    kit: Option<String>,
+    state: State<'_, AudioState>,
+) -> Result<(), CommandError> {
+    check_track(track)?;
+    let loaded = match &kit {
+        Some(id) => Some(state.kits.load(id).map_err(audio_error)?),
+        None => None,
+    };
+    let mut inner = state.inner.lock().unwrap();
+    match &kit {
+        Some(id) => inner.track_kits.insert(track, id.clone()),
+        None => inner.track_kits.remove(&track),
+    };
+    let Some(engine) = inner.engine.clone() else {
+        return Ok(());
+    };
+    let (source, groups) = {
+        let e = engine.lock().unwrap();
+        (
+            e.synth_source().with_kit(loaded.clone()),
+            e.drum_groups(track),
+        )
+    };
+    let instrument = source.instrument(engine::POLYPHONY).map_err(audio_error)?;
+    let split = match groups {
+        Some(groups) => Some(source.drum_split(&groups).map_err(audio_error)?),
+        None => None,
+    };
+    let old = {
+        let mut e = engine.lock().unwrap();
+        let old = e.set_track_kit(track, loaded, instrument, split);
+        if let Some(d) = inner.drums.get(&track) {
+            e.set_drum_mix(track, &d.mixes(), d.stereo);
+        }
+        old
+    };
+    drop(inner);
+    drop(old);
+    Ok(())
 }

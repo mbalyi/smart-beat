@@ -81,6 +81,8 @@ import {
   type PresetTarget,
 } from "@/lib/audio/presets";
 import { PresetBrowserDialog } from "@/components/audio/preset-browser-dialog";
+import { DrumKitDialog } from "@/components/audio/drum-kit-dialog";
+import { useDrumKits } from "@/hooks/use-drum-kits";
 import { errorText } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
@@ -410,6 +412,8 @@ export function ScoreWorkspace({
   const loadedAudio = useRef("");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const library = useSoundLibrary();
+  const drumKits = useDrumKits();
+  const [kitsOpen, setKitsOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
   // Side panels cover the score in narrow windows: start without the inspector there.
   const [inspectorOpen, setInspectorOpen] = useState(
@@ -672,6 +676,7 @@ export function ScoreWorkspace({
         eq: FLAT_EQ,
         automation: EMPTY_AUTOMATION,
         drums: null,
+        kit: null,
         focused: false,
       };
       stateByTrack.current.set(t, fresh);
@@ -691,6 +696,7 @@ export function ScoreWorkspace({
           s.eq !== b.eq ||
           s.automation !== b.automation ||
           s.drums !== b.drums ||
+          s.kit !== b.kit ||
           s.focused !== b.focused
         );
       });
@@ -1784,6 +1790,20 @@ export function ScoreWorkspace({
               onInterpretationChange={(value) =>
                 changeMix({ type: "interpretation", track: trackIndex, value })
               }
+              drumKit={{
+                kits: drumKits.kits,
+                current: mix.drumKits?.[trackIndex] ?? null,
+                available: drumKits.available,
+                onManage: () => setKitsOpen(true),
+                onChange: (kit) => {
+                  changeMix({ type: "drum-kit", track: trackIndex, kit });
+                  if (kit && audioEngine !== "native" && nativeEngineAvailable()) {
+                    toast("Imported kits play with the native engine", {
+                      action: { label: "Turn it on", onClick: () => changeAudioEngine("native") },
+                    });
+                  }
+                },
+              }}
             />
           </aside>
         )}
@@ -1899,6 +1919,21 @@ export function ScoreWorkspace({
         onBusChainChange={(slots) =>
           changeMix({ type: "sound-effects", track: drumMixer.track, sound: 0, slots })
         }
+      />
+      <DrumKitDialog
+        open={kitsOpen}
+        onOpenChange={setKitsOpen}
+        kits={drumKits.kits}
+        available={drumKits.available}
+        onPick={drumKits.pick}
+        onImport={drumKits.importFrom}
+        onRemove={(id) => {
+          // Tracks playing the kit go back to the built-in sounds.
+          for (const [i, kit] of (mix.drumKits ?? []).entries()) {
+            if (kit === id) changeMix({ type: "drum-kit", track: i, kit: null });
+          }
+          void drumKits.remove(id);
+        }}
       />
       <PresetBrowserDialog
         open={presetBrowser.open}

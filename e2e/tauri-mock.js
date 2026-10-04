@@ -66,7 +66,9 @@
   window.__projectSettings = {};
   window.__embeddedAudio = false;
   /** What the native engine was told besides chains and the mix. */
-  window.__engineConfig = { sounds: {}, automation: {}, eq: {}, drums: {} };
+  window.__engineConfig = { sounds: {}, automation: {}, eq: {}, drums: {}, kits: {} };
+  /** Imported drum kits (#40). */
+  window.__kits = [];
   window.__engineBacking = null;
   /** Levels the engine reports while playing. */
   window.__meters = {
@@ -216,6 +218,62 @@
       }
       case "library_remove":
         window.__library = window.__library.filter((i) => i.id !== args.id);
+        return null;
+      case "kits_list":
+        return window.__kits;
+      case "kits_import": {
+        // Like the Rust side: a path with "nc" in its folder has a non-commercial
+        // licence, "cc-by" one with a CC BY licence, anything else none.
+        const options = args.options ?? {};
+        // Named after the file, or its folder for a generic "kit.sfz" (as in Rust).
+        const parts = args.path.split("/");
+        const stem = parts.at(-1).replace(/\.[^.]+$/, "");
+        const name =
+          options.name ||
+          (["kit", "drumkit", "drums", "main", "default"].includes(stem.toLowerCase())
+            ? parts.at(-2)
+            : stem);
+        if (args.path.includes("/nc/")) {
+          throw {
+            kind: "audio",
+            message:
+              "This kit cannot be imported. Its licence does not allow commercial use (non-commercial).",
+          };
+        }
+        const found = args.path.includes("/cc-by/");
+        if (!found && !options.licence && !options.acceptUnknown) {
+          throw {
+            kind: "audio",
+            message: "The kit's licence could not be found: confirm that you may use it.",
+          };
+        }
+        const kit = {
+          id: `kit-${window.__kits.length + 1}`,
+          name,
+          format: args.path.endsWith(".sfz") ? "sfz" : "sf2",
+          licence: {
+            kind: options.licence ?? (found ? "cc-by" : "unknown"),
+            ...((options.attribution || found) && {
+              attribution: options.attribution ?? "Recorded by Test Drummer",
+            }),
+          },
+          pieces: [
+            { element: "snare", keys: [38] },
+            { element: "hihat", keys: [42, 46] },
+            { element: "kick", keys: [36] },
+          ],
+          missing: ["tom1", "ride"],
+          sizeBytes: 3 * 1024 * 1024,
+          warnings: [],
+        };
+        window.__kits = [...window.__kits, kit];
+        return kit;
+      }
+      case "kits_remove":
+        window.__kits = window.__kits.filter((k) => k.id !== args.id);
+        return null;
+      case "audio_set_track_kit":
+        window.__engineConfig.kits[args.track] = args.kit;
         return null;
       case "audio_load_soundfont":
       case "audio_stop":

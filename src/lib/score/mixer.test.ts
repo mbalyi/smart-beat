@@ -334,3 +334,22 @@ describe("mixer v2 settings", () => {
     expect(shortPan(1)).toBe("100R");
   });
 });
+
+describe("drum kits per track (#40)", () => {
+  it("remembers a kit per track and moves it with its track", () => {
+    const mix = mixFromScore(SUMMARY);
+    const next = mixerReducer(mix, { type: "drum-kit", track: 2, kit: "free-kit" });
+    expect(next.drumKits).toEqual([null, null, "free-kit", null]);
+    const states = trackStates(next);
+    const moved = withTrackStates(next, [states[2]!, states[0]!, states[1]!, states[3]!]);
+    expect(moved.drumKits).toEqual(["free-kit", null, null, null]);
+    const cleared = mixerReducer(next, { type: "drum-kit", track: 2, kit: null });
+    expect(withTrackStates(cleared, trackStates(cleared)).drumKits).toBeUndefined();
+    expect(mixerReducer(mix, { type: "drum-kit", track: 9, kit: "x" })).toBe(mix);
+  });
+
+  it("does not take drum kits over when the settings are loaded as a mix", () => {
+    const saved = { ...mixFromScore(SUMMARY), drumKits: [null, null, "free-kit", null] };
+    expect(initialMix(SUMMARY, saved).drumKits).toEqual([null, null, "free-kit", null]);
+  });
+});

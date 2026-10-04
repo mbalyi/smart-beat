@@ -85,6 +85,8 @@ declare global {
       automation: Record<string, { enabled: boolean; volume: [number, number][] }>;
       eq: Record<string, { lowDb: number; graphic?: number[] }>;
       drums: Record<string, { stereo: boolean; elements: { mix: { mute: boolean } }[] } | null>;
+      /** The imported drum kit of each track (#40). */
+      kits: Record<string, string | null>;
     };
     __engineBacking: {
       source: { type: string; path?: string };

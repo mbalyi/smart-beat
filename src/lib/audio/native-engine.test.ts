@@ -39,6 +39,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
     setEngineAutomation: vi.fn(() => Promise.resolve()),
     setEngineTrackEq: vi.fn(() => Promise.resolve()),
     setEngineDrumMix: vi.fn(() => Promise.resolve()),
+    setEngineTrackKit: vi.fn(() => Promise.resolve()),
     setEngineBacking: vi.fn(() => Promise.resolve()),
     loadEngineBacking: vi.fn(() =>
       Promise.resolve({
@@ -171,6 +172,26 @@ describe("NativeEngine", () => {
     masterPan: 0,
     backing: null,
     ...over,
+  });
+
+  it("sends a track's drum kit before its drum mixer, and only when it changes (#40)", async () => {
+    const engine = new NativeEngine();
+    const order: string[] = [];
+    mocked.setEngineTrackKit.mockImplementation(async () => void order.push("kit"));
+    mocked.setEngineDrumMix.mockImplementation(async () => void order.push("drums"));
+    const drums = {
+      stereo: true,
+      elements: [],
+      other: { volume: 1, pan: 0, mute: false, solo: false, trimDb: 0 },
+    };
+    await engine.configure(extras({ kits: [null, "free-kit"], drums: [null, drums as never] }));
+    expect(mocked.setEngineTrackKit.mock.calls).toEqual([[1, "free-kit"]]);
+    expect(order).toEqual(["kit", "drums"]);
+    mocked.setEngineTrackKit.mockClear();
+    await engine.configure(extras({ kits: [null, "free-kit"], drums: [null, drums as never] }));
+    expect(mocked.setEngineTrackKit).not.toHaveBeenCalled();
+    await engine.configure(extras({ kits: [null, null], drums: [null, drums as never] }));
+    expect(mocked.setEngineTrackKit.mock.calls).toEqual([[1, null]]);
   });
 
   it("sends everything again with every song", async () => {

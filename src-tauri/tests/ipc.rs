@@ -978,3 +978,96 @@ fn sounds_automation_eq_and_drum_mixes_are_validated() {
         .is_err()
     );
 }
+
+/// Drum kit commands (#40): import a tiny synthetic SFZ kit, list it, pick it
+/// for a track (before the engine runs it is remembered), remove it.
+#[test]
+fn drum_kit_commands_import_list_assign_and_remove() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_audio(dir.path());
+    let window = main_window(&app);
+    let list = || {
+        invoke_with(&window, "kits_list", json!({}))
+            .unwrap()
+            .deserialize::<Value>()
+            .unwrap()
+    };
+    assert_eq!(list(), json!([]));
+
+    let kit_dir = dir.path().join("Free Kit");
+    std::fs::create_dir_all(&kit_dir).unwrap();
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 44_100,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut wav = hound::WavWriter::create(kit_dir.join("kick.wav"), spec).unwrap();
+    for i in 0..4_410 {
+        wav.write_sample(((i as f32 * 0.01).sin() * 20_000.0) as i16)
+            .unwrap();
+    }
+    wav.finalize().unwrap();
+    std::fs::write(kit_dir.join("kit.sfz"), "<region> sample=kick.wav key=36").unwrap();
+
+    // No licence file: the user must confirm.
+    let error = invoke_with(
+        &window,
+        "kits_import",
+        json!({ "path": kit_dir.join("kit.sfz") }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "audio");
+    assert!(error["message"].as_str().unwrap().contains("confirm"));
+
+    let info = invoke_with(
+        &window,
+        "kits_import",
+        json!({
+            "path": kit_dir.join("kit.sfz"),
+            "options": { "licence": "cc-by", "attribution": "Test drummer", "name": "Free Kit" }
+        }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(info["name"], "Free Kit");
+    assert_eq!(info["licence"]["kind"], "cc-by");
+    assert_eq!(info["licence"]["attribution"], "Test drummer");
+    assert_eq!(info["pieces"][0]["element"], "kick");
+    assert_eq!(list().as_array().unwrap().len(), 1);
+    let id = info["id"].as_str().unwrap().to_string();
+
+    invoke_with(
+        &window,
+        "audio_set_track_kit",
+        json!({ "track": 2, "kit": id }),
+    )
+    .unwrap();
+    invoke_with(
+        &window,
+        "audio_set_track_kit",
+        json!({ "track": 2, "kit": null }),
+    )
+    .unwrap();
+    let error = invoke_with(
+        &window,
+        "audio_set_track_kit",
+        json!({ "track": 2, "kit": "nope" }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "audio");
+    let error = invoke_with(
+        &window,
+        "audio_set_track_kit",
+        json!({ "track": 100_000, "kit": null }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "audio");
+
+    invoke_with(&window, "kits_remove", json!({ "id": id })).unwrap();
+    assert_eq!(list(), json!([]));
+    assert!(invoke_with(&window, "kits_remove", json!({ "id": "gone" })).is_err());
+    // The kits live next to the sound library in the app data folder.
+    assert!(dir.path().join("kits/kits.json").exists());
+}

@@ -79,6 +79,10 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::library_import,
             audio::library_update,
             audio::library_remove,
+            audio::kits_list,
+            audio::kits_import,
+            audio::kits_remove,
+            audio::audio_set_track_kit,
         ])
         .on_menu_event(menu::handle_event)
 }

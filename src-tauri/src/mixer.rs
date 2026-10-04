@@ -78,6 +78,9 @@ pub struct MixerSettings {
     /// Effect chain presets saved with the song.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub presets: Vec<ChainPreset>,
+    /// The imported drum kit each track plays (#40), by kit id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drum_kits: Vec<Option<String>>,
     /// Drum notes placed on a chosen line of the drum tab (#53). Guitar Pro 7+
     /// files have no place for it, so it travels in Smart Beat's settings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -374,6 +377,12 @@ impl MixerSettings {
                 return Err("a preset has too many effects".into());
             }
         }
+        if self.drum_kits.len() > self.tracks.len() {
+            return Err("more drum kits than tracks".into());
+        }
+        for kit in self.drum_kits.iter().flatten() {
+            check_name(kit, "drum kit")?;
+        }
         if self.drum_lines.len() > MAX_DRUM_LINES {
             return Err(format!("more than {MAX_DRUM_LINES} drum lines"));
         }
@@ -523,6 +532,7 @@ mod tests {
             drums: Vec::new(),
             audio_track: None,
             presets: Vec::new(),
+            drum_kits: Vec::new(),
             drum_lines: Vec::new(),
         }
     }
@@ -692,6 +702,7 @@ mod tests {
                 target: "guitar".into(),
                 effects: vec![delay],
             }],
+            drum_kits: vec![None],
             drum_lines: vec![DrumLine {
                 track: 2,
                 bar: 1,

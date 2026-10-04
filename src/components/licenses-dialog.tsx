@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
 import {
@@ -9,7 +11,48 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { usePromise } from "@/hooks/use-promise";
+import { LICENCE_LABELS } from "@/lib/audio/kit-licences";
 import { fetchLicenses } from "@/lib/licenses";
+import { isTauri, listKits, type DrumKit } from "@/lib/tauri";
+
+/** Licences that ask for a credit (CC BY and the like). */
+const CREDITED = new Set(["cc-by", "cc-by-sa", "other-commercial"]);
+
+/**
+ * The drum kits the user imported (#40), with their licence and the credit
+ * CC BY kits ask for. Read from the kit library each time the dialog opens.
+ */
+function ImportedKits() {
+  const [kits, setKits] = useState<DrumKit[]>([]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let current = true;
+    listKits()
+      .then((list) => current && setKits(list))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, []);
+  if (kits.length === 0) return null;
+  return (
+    <section aria-labelledby="imported-kits-title" className="flex flex-col gap-2">
+      <h3 id="imported-kits-title" className="text-sm font-medium">
+        Imported drum kits
+      </h3>
+      <ul className="flex flex-col gap-1 text-sm">
+        {kits.map((kit) => (
+          <li key={kit.id} data-testid="kit-credit">
+            <span className="font-medium">{kit.name}</span> — {LICENCE_LABELS[kit.licence.kind]}
+            {CREDITED.has(kit.licence.kind) && kit.licence.attribution && (
+              <>. {kit.licence.attribution}</>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 function LicenseText() {
   const state = usePromise(fetchLicenses);
@@ -51,6 +94,7 @@ export function LicensesDialog({ open, onOpenChange, onCloseAutoFocus }: AppDial
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
+          <ImportedKits />
           <LicenseText />
         </DialogBody>
       </DialogContent>
