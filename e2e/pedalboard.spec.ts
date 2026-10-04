@@ -62,8 +62,9 @@ test.describe("pedalboard (#36)", () => {
     await app.getByRole("option", { name: "Metalcore" }).click();
     await dialog.getByRole("combobox", { name: "Guitar presets" }).click();
     await app.getByRole("option", { name: /Metalcore tight/ }).click();
-    await expect(dialog.getByTestId("effect-block")).toHaveCount(5);
-    await expect(dialog.getByRole("listitem", { name: "Cabinet 4" })).toBeVisible();
+    // Gate › compressor › boost › amp › cab › EQ (#42).
+    await expect(dialog.getByTestId("effect-block")).toHaveCount(6);
+    await expect(dialog.getByRole("listitem", { name: "Cabinet 5" })).toBeVisible();
   });
 
   test("the mastering chain holds three effects and is one switch away", async ({ app }) => {
@@ -159,7 +160,13 @@ test.describe("compressor and mastering (#39)", () => {
   test("a mastering chain of EQ, compressor and limiter reaches the engine", async ({ app }) => {
     await withEngine(app);
     // Playing first: the pedalboard is modal, and its meters move while playing.
-    await app.getByRole("button", { name: "Play" }).click();
+    // Right after the engine starts a click can come too early: try until it plays.
+    await expect(async () => {
+      if (await app.getByRole("button", { name: "Play" }).isVisible()) {
+        await app.getByRole("button", { name: "Play" }).click();
+      }
+      await expect(app.getByRole("button", { name: "Pause" })).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
     const dialog = await openPedalboard(app);
     await dialog.getByRole("radio", { name: "Mastering" }).click();
     const master = app.getByRole("dialog", { name: "Pedalboard: Master" });
