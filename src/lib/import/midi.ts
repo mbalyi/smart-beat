@@ -354,6 +354,50 @@ function largestFit(ticks: number): { duration: Duration; dots: number } | null 
 const isGuitarProgram = (program: number) => program >= 24 && program <= 31;
 const isBassProgram = (program: number) => program >= 32 && program <= 39;
 
+// --- Lead lines over chords ---------------------------------------------------------------
+
+/** A top note this far above the rest of its chord, and at least this high, is a lead line. */
+const LEAD_GAP = 7;
+const LEAD_MIN_PITCH = 67;
+/** A part is split only when it has this many lead notes, and they are this share of its beats. */
+const LEAD_MIN_COUNT = 8;
+const LEAD_MIN_SHARE = 0.05;
+
+/**
+ * A MIDI file keeps every instrument of a channel in one track, so a rhythm
+ * guitar and a lead guitar playing together arrive as one: chords with a high
+ * melody note on top. When such top notes keep coming, they are moved to a
+ * track of their own. Returns the part as it is when it has no clear lead.
+ */
+function splitLead(part: Part): Part[] {
+  if (part.channel === 9 || isBassProgram(part.program)) return [part];
+  const beats = new Map<number, RawNote[]>();
+  for (const note of part.notes) {
+    const key = Math.round(note.start / GRID);
+    const list = beats.get(key);
+    if (list) list.push(note);
+    else beats.set(key, [note]);
+  }
+  const lead = new Set<RawNote>();
+  let leadBeats = 0;
+  for (const notes of beats.values()) {
+    const pitches = [...new Set(notes.map((n) => n.pitch))].sort((a, b) => b - a);
+    const top = pitches[0]!;
+    if (pitches.length < 2 || top < LEAD_MIN_PITCH || top - pitches[1]! < LEAD_GAP) continue;
+    leadBeats++;
+    for (const note of notes) if (note.pitch === top) lead.add(note);
+  }
+  if (leadBeats < LEAD_MIN_COUNT || leadBeats < beats.size * LEAD_MIN_SHARE) return [part];
+  // Where the melody plays alone, it belongs to the lead too.
+  for (const notes of beats.values()) {
+    if (notes.length === 1 && notes[0]!.pitch >= LEAD_MIN_PITCH) lead.add(notes[0]!);
+  }
+  return [
+    { ...part, notes: part.notes.filter((n) => !lead.has(n)) },
+    { ...part, trackName: `${part.trackName || "Track"} (lead)`, notes: [...lead] },
+  ].filter((p) => p.notes.length > 0);
+}
+
 function trackSpec(part: Part, name: string): NewTrack {
   if (part.channel === 9) return { kind: "drums", name, program: 0 };
   if (isGuitarProgram(part.program)) {
@@ -528,7 +572,13 @@ export function importMidi(bytes: Uint8Array): MidiImport {
   if (tempos.length > bars.length)
     warnings.add("Tempo changes inside a bar start at the beginning of the bar.");
 
-  for (const part of parsed.parts) {
+  const parts = parsed.parts.flatMap(splitLead);
+  if (parts.length > parsed.parts.length) {
+    warnings.add(
+      "Chords with a lead line on top were split into two tracks (rhythm and lead), as a MIDI file keeps them in one track.",
+    );
+  }
+  for (const part of parts) {
     const base = part.trackName || (part.channel === 9 ? "Drums" : `Track ${score.tracks.length}`);
     const name = uniqueTrackName(score, base);
     const track = createTrack(score, trackSpec(part, name));

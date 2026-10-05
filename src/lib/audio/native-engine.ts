@@ -80,6 +80,21 @@ const {
   TempoChangeEvent,
 } = midi;
 
+/**
+ * The Rust engine is one per app, but every open song has its own
+ * `NativeEngine`. The one that loaded its song last owns the engine; another
+ * one takes it over (loads its song again) before it plays.
+ */
+let owner: NativeEngine | null = null;
+
+/** For tests: no song owns the engine. */
+export const forgetEngineOwner = () => {
+  owner = null;
+};
+const takeEngine = (engine: NativeEngine) => {
+  owner = engine;
+};
+
 /** How often the position is read while playing (ms). */
 export const POLL_MS = 25;
 
@@ -163,6 +178,12 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   private desired: EngineExtras | null = null;
   private sent: EngineExtras | null = null;
   private problems: EffectProblems = { tracks: [], master: [] };
+  /** What this song put in the engine, to put it back after another song used it. */
+  private song: EngineSong | null = null;
+  private mixes: BusMix[] | null = null;
+  private loop: { startTick: number; endTick: number } | null = null;
+  private metronomeVolume: number | null = null;
+  private backing: BackingSource | null = null;
 
   constructor(callbacks: NativeEngineCallbacks = {}) {
     this.callbacks = callbacks;
@@ -192,7 +213,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   set playbackRate(value: number) {
     this.rate = value;
-    this.send({ type: "rate", value });
+    if (this.ownsOrFree) this.send({ type: "rate", value });
   }
 
   get masterVolume() {
@@ -201,22 +222,57 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   set masterVolume(value: number) {
     this.volume = value;
-    this.send({ type: "masterVolume", value });
+    if (this.ownsOrFree) this.send({ type: "masterVolume", value });
   }
 
   seekTo(time: number) {
+    this.claim();
     this.send({ type: "seek", ms: Math.max(0, time) });
     // Report it at once: the cursor should move even while paused.
     this.output?.updatePosition(Math.max(0, time));
   }
 
+  /**
+   * Makes sure the engine holds this song, not the one of another tab (which
+   * would play the wrong music, or nothing).
+   */
+  private get ownsOrFree() {
+    return owner === null || owner === this;
+  }
+
+  private claim() {
+    if (owner === this || !this.song) return;
+    takeEngine(this);
+    const song = this.song;
+    this.enqueue(async () => {
+      await loadEngineSong(song);
+      this.sent = null;
+      if (this.backing) await loadEngineBacking(this.backing);
+      else await clearEngineBacking();
+      await this.sendExtras();
+      await engineTransport({ type: "rate", value: this.rate });
+      await engineTransport({ type: "masterVolume", value: this.volume });
+      if (this.mixes) await setEngineMix(this.mixes);
+      await engineTransport({
+        type: "loop",
+        startTick: this.loop?.startTick ?? null,
+        endTick: this.loop?.endTick ?? null,
+      });
+      if (this.metronomeVolume !== null) {
+        await engineTransport({ type: "metronome", volume: this.metronomeVolume });
+      }
+    }).catch((error) => this.callbacks.onError?.(asError(error)));
+  }
+
   play() {
+    this.claim();
     this.send({ type: "play" });
     this.startPolling();
   }
 
   pause() {
-    this.send({ type: "pause" });
+    // A song in a hidden tab must not pause the one that is playing.
+    if (this.ownsOrFree) this.send({ type: "pause" });
     this.stopPolling();
   }
 
@@ -236,6 +292,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   async loadSong(file: midi.MidiFile, channels: number[][]): Promise<void> {
     const song = songFromMidi(file, channels);
+    this.song = song;
+    takeEngine(this);
     const status = await this.enqueue(async () => {
       await loadEngineSong(song);
       // Loading a song clears the engine's chains, sounds, automation, EQ and
@@ -326,6 +384,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   /** Opens a recording as the audio track; its settings follow with {@link configure}. */
   loadBacking(source: BackingSource): Promise<BackingInfo> {
+    this.backing = source;
     return this.enqueue(async () => {
       const info = await loadEngineBacking(source);
       // The engine starts it with default settings: send ours again.
@@ -336,6 +395,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   }
 
   clearBacking(): Promise<void> {
+    this.backing = null;
     return this.enqueue(async () => {
       await clearEngineBacking();
       if (this.sent) this.sent = { ...this.sent, backing: null };
@@ -343,12 +403,16 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   }
 
   setMix(mixes: BusMix[]) {
+    this.mixes = mixes;
+    if (!this.ownsOrFree) return;
     this.enqueue(() => setEngineMix(mixes)).catch((error) =>
       this.callbacks.onError?.(asError(error)),
     );
   }
 
   setLoop(range: { startTick: number; endTick: number } | null) {
+    this.loop = range;
+    if (!this.ownsOrFree) return;
     this.send({
       type: "loop",
       startTick: range?.startTick ?? null,
@@ -358,10 +422,13 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   /** Plays one note now (a drum picked in the kit). */
   preview(channel: number, key: number, velocity = 100) {
+    this.claim();
     this.send({ type: "preview", channel, key, velocity });
   }
 
   setMetronome(volume: number) {
+    this.metronomeVolume = volume;
+    if (!this.ownsOrFree) return;
     this.send({ type: "metronome", volume });
   }
 
@@ -393,8 +460,10 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   destroy() {
     this.destroyed = true;
+    const wasOwner = owner === this;
+    if (wasOwner) owner = null;
     this.stopPolling();
-    engineTransport({ type: "pause" }).catch(() => {});
+    if (wasOwner) engineTransport({ type: "pause" }).catch(() => {});
     if (this.output?.handler === this) this.output.handler = undefined;
     this.output = null;
   }

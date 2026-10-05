@@ -1,47 +1,67 @@
 import { useEffect, useEffectEvent } from "react";
 
-/** Elements where Space already means something (activate, type, toggle…). */
-const INTERACTIVE = [
-  "a[href]",
-  "button",
-  "input",
-  "select",
+/** Where Space types a space (or picks from an open list): it never plays there. */
+const TEXT_ENTRY = [
   "textarea",
-  "summary",
+  "select",
   "[contenteditable]:not([contenteditable='false'])",
-  "[role=button]",
-  "[role=checkbox]",
-  "[role=combobox]",
-  "[role=link]",
-  "[role=menuitem]",
-  "[role=option]",
-  "[role=radio]",
-  "[role=slider]",
-  "[role=switch]",
-  "[role=tab]",
+  "[role=textbox]",
+  "[role=menu]",
+  "[role=listbox]",
+  "[role=dialog]",
+  "[role=alertdialog]",
 ].join(",");
+const NON_TEXT_INPUTS = new Set([
+  "button",
+  "checkbox",
+  "radio",
+  "range",
+  "color",
+  "file",
+  "image",
+  "reset",
+  "submit",
+]);
 
 export function isInteractiveTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(INTERACTIVE) !== null;
+  if (!(target instanceof Element)) return false;
+  if (target.closest(TEXT_ENTRY) !== null) return true;
+  return target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(target.type);
 }
 
+const dialogOpen = () => document.querySelector("[role=dialog], [role=alertdialog]") !== null;
+
 /**
- * Space plays and pauses, as in Guitar Pro, but only when focus is not on a
- * control, so it never takes Space away from buttons or text fields.
+ * Space plays and pauses, as in Guitar Pro, wherever focus is on the page:
+ * also on buttons, toggles and sliders (they do not keep Space for
+ * themselves). It leaves Space alone in text fields and while a dialog or
+ * menu is open.
  */
 export function useSpaceToPlay(onToggle: () => void, enabled = true): void {
   const toggle = useEffectEvent(onToggle);
 
   useEffect(() => {
     if (!enabled) return;
+    const handles = (event: KeyboardEvent) =>
+      event.key === " " &&
+      !event.defaultPrevented &&
+      !(event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) &&
+      !isInteractiveTarget(event.target) &&
+      !dialogOpen();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== " " || event.repeat || event.defaultPrevented) return;
-      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-      if (isInteractiveTarget(event.target)) return;
-      event.preventDefault(); // don't scroll the page
-      toggle();
+      if (!handles(event)) return;
+      event.preventDefault(); // don't scroll the page or press the focused button
+      if (!event.repeat) toggle();
+    };
+    // A focused button presses itself when Space is released: stop that too.
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (handles(event)) event.preventDefault();
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   }, [enabled]);
 }

@@ -3,6 +3,7 @@ import { midi, type synth } from "@coderline/alphatab";
 import { defaultEffect } from "@/lib/audio/effects";
 import {
   busMixes,
+  forgetEngineOwner,
   NativeEngine,
   POLL_MS,
   songFromMidi,
@@ -110,7 +111,10 @@ describe("busMixes", () => {
 });
 
 describe("NativeEngine", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    forgetEngineOwner();
+  });
   afterEach(() => vi.useRealTimers());
 
   function output() {
@@ -144,6 +148,34 @@ describe("NativeEngine", () => {
       { type: "pause" },
     ]);
     expect(engine.backingTrackDuration).toBe(8_000);
+  });
+
+  it("puts a song back into the engine when another song used it (two tabs)", async () => {
+    const first = new NativeEngine();
+    const second = new NativeEngine();
+    first.attach(output());
+    second.attach(output());
+    await first.loadSong(file(), [[1], [9]]);
+    first.setMix([{ volume: 0.5, pan: 0, mute: false, solo: false, trimDb: 0 }]);
+    await second.loadSong(file(), [[1]]);
+    mocked.loadEngineSong.mockClear();
+    mocked.engineTransport.mockClear();
+
+    // The hidden first tab does not pause the second one's playback...
+    first.pause();
+    await Promise.resolve();
+    expect(mocked.engineTransport).not.toHaveBeenCalled();
+
+    // ...and when it plays again, it first gets its own song back.
+    first.play();
+    await vi.waitFor(() =>
+      expect(mocked.engineTransport).toHaveBeenLastCalledWith({ type: "play" }),
+    );
+    expect(mocked.loadEngineSong).toHaveBeenCalledOnce();
+    expect(mocked.loadEngineSong.mock.calls[0]![0].tracks).toEqual([[1], [9]]);
+    expect(mocked.setEngineMix).toHaveBeenCalledWith([expect.objectContaining({ volume: 0.5 })]);
+    first.destroy();
+    second.destroy();
   });
 
   it("reports the engine's position and meters while playing", async () => {

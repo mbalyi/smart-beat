@@ -345,7 +345,7 @@ export function TrackList({
             return (
               <li
                 key={`${i}-${track.name}`}
-                className={cn("flex flex-col border-b", isShown && "bg-muted/70")}
+                className={cn("flex flex-col border-b bg-card", isShown && "bg-muted")}
                 aria-current={isShown ? "true" : undefined}
               >
                 <div className="flex">
