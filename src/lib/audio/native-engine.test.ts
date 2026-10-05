@@ -178,6 +178,30 @@ describe("NativeEngine", () => {
     second.destroy();
   });
 
+  it("counts in inside the engine, so the song starts on the last click (Play = count-in)", async () => {
+    const engine = new NativeEngine();
+    engine.attach(output());
+    await engine.loadSong(file(), [[1]]);
+    mocked.engineTransport.mockClear();
+
+    engine.play();
+    await vi.waitFor(() => expect(mocked.engineTransport).toHaveBeenCalledOnce());
+    expect(mocked.engineTransport).toHaveBeenLastCalledWith({ type: "play" });
+
+    engine.countIn = () => ({ beats: 4, beatSeconds: 0.5 });
+    engine.playbackRate = 0.5; // half speed: the beats are twice as long
+    mocked.engineTransport.mockClear();
+    engine.play();
+    await vi.waitFor(() =>
+      expect(mocked.engineTransport).toHaveBeenLastCalledWith({
+        type: "countIn",
+        beats: 4,
+        beatSeconds: 1,
+      }),
+    );
+    engine.destroy();
+  });
+
   it("reports the engine's position and meters while playing", async () => {
     vi.useFakeTimers();
     const onMeters = vi.fn();

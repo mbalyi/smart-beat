@@ -36,7 +36,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { filledBars } from "@/lib/score/bar-grid";
-import { tempoMarkers } from "@/lib/score/tempo";
+import { barTexts, tempoMarkers } from "@/lib/score/tempo";
 import { describeInstrument } from "@/lib/score/instrument-view";
 import {
   describePan,
@@ -254,6 +254,10 @@ export function TrackList({
     return score.tracks.map((t) => filledBars(t, barCount));
   }, [score, barCount, revision]);
   const numbers = Array.from({ length: barCount }, (_, i) => i + 1);
+  const texts = useMemo(() => {
+    void revision;
+    return barTexts(score);
+  }, [score, revision]);
   const tempos = useMemo(() => {
     void revision;
     return new Map(tempoMarkers(score).map((m) => [m.bar, m]));
@@ -329,6 +333,28 @@ export function TrackList({
                 <span key={n}>{n === 1 || n % 4 === 0 ? n : ""}</span>
               ))}
             </div>
+            {texts.size > 0 && (
+              // Texts written on the beats of any track, above all the tracks.
+              <ul
+                aria-label="Texts in the song"
+                data-testid="bar-texts"
+                className="grid h-4 items-center gap-px text-[10px] leading-none whitespace-nowrap text-foreground"
+                style={{ gridTemplateColumns: `repeat(${barCount}, ${BAR_WIDTH})` }}
+              >
+                {numbers.map((n) => {
+                  const list = texts.get(n - 1);
+                  return list ? (
+                    <li key={n} className="overflow-visible" title={`Bar ${n}: ${list.join(", ")}`}>
+                      <span className="rounded-sm bg-muted px-1 py-0.5 italic">
+                        {list.join(", ")}
+                      </span>
+                    </li>
+                  ) : (
+                    <li key={n} aria-hidden="true" />
+                  );
+                })}
+              </ul>
+            )}
           </div>
         </div>
 

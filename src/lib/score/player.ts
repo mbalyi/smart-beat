@@ -42,6 +42,7 @@ import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-s
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
+import { tempoAt } from "@/lib/score/structure";
 import {
   createCursorHandler,
   Delayer,
@@ -763,9 +764,27 @@ export class ScorePlayer {
     this.engine?.setMetronome(on ? 1 : 0);
   }
 
-  /** Count-in (alphaTab's synthesizer only; the native engine has none yet). */
+  /**
+   * Count-in: one bar of clicks before the song. alphaTab's own count-in
+   * only exists in its synthesizer; the native engine plays and times its own
+   * (the song starts right after the last click, and so does the cursor).
+   */
   setCountIn(on: boolean) {
-    this.api.countInVolume = on ? 1 : 0;
+    if (!this.engine) {
+      this.api.countInVolume = on ? 1 : 0;
+      return;
+    }
+    this.api.countInVolume = 0;
+    this.engine.countIn = on
+      ? () => {
+          const index = Math.max(0, Math.min(this.lastBar, this.score.masterBars.length - 1));
+          const bar = this.score.masterBars[index];
+          if (!bar) return null;
+          const beatSeconds =
+            (60 / tempoAt(this.score, index)) * (4 / bar.timeSignatureDenominator);
+          return { beats: bar.timeSignatureNumerator, beatSeconds };
+        }
+      : null;
   }
 
   /**

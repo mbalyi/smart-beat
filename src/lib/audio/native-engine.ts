@@ -185,6 +185,12 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   private metronomeVolume: number | null = null;
   private backing: BackingSource | null = null;
 
+  /**
+   * The clicks to play before the song when it starts (null: none). The engine
+   * counts them in real time and starts the song right after the last one.
+   */
+  countIn: (() => { beats: number; beatSeconds: number } | null) | null = null;
+
   constructor(callbacks: NativeEngineCallbacks = {}) {
     this.callbacks = callbacks;
   }
@@ -266,7 +272,12 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   play() {
     this.claim();
-    this.send({ type: "play" });
+    const clicks = this.countIn?.();
+    this.send(
+      clicks
+        ? { type: "countIn", beats: clicks.beats, beatSeconds: clicks.beatSeconds / this.rate }
+        : { type: "play" },
+    );
     this.startPolling();
   }
 

@@ -414,12 +414,25 @@ pub struct Engine {
     click_phase: f64,
     click_left: f64,
     click_accent: bool,
+    /// A count-in click sounds even with the metronome off: its own volume.
+    click_forced: Option<f32>,
+    /// Clicks before the song starts (see [`Engine::start_count_in`]).
+    count_in: Option<CountIn>,
     master_peak: f32,
     sound_fade: usize,
     /// Plays single notes the user picks (drum kit preview), on the master bus.
     preview: Option<Synthesizer>,
     preview_buf: [Vec<f32>; 2],
     master_buf: [Vec<f32>; 2],
+}
+
+/// The clicks played before the song starts.
+struct CountIn {
+    clicks_left: u32,
+    total: u32,
+    /// Seconds until the next click (or, after the last one, until the song).
+    until_next: f64,
+    beat: f64,
 }
 
 impl Engine {
@@ -444,6 +457,8 @@ impl Engine {
             click_phase: 0.0,
             click_left: 0.0,
             click_accent: false,
+            click_forced: None,
+            count_in: None,
             master_peak: 0.0,
             sound_fade: ((SOUND_FADE_MS * 0.001 * sample_rate) as usize).max(1),
             preview: None,
@@ -578,7 +593,32 @@ impl Engine {
         }
     }
 
+    /// Clicks `beats` times, `beat_seconds` apart (real time), then plays. The
+    /// song starts exactly one beat after the last click.
+    pub fn start_count_in(&mut self, beats: u32, beat_seconds: f64) {
+        if self.song.is_none() {
+            return;
+        }
+        if beats == 0 || !beat_seconds.is_finite() || beat_seconds <= 0.0 {
+            self.play();
+            return;
+        }
+        self.playing = false;
+        self.count_in = Some(CountIn {
+            clicks_left: beats,
+            total: beats,
+            until_next: 0.0,
+            beat: beat_seconds,
+        });
+    }
+
+    /// True while the song plays or its count-in clicks.
+    pub fn is_active(&self) -> bool {
+        self.playing || self.count_in.is_some()
+    }
+
     pub fn pause(&mut self) {
+        self.count_in = None;
         self.playing = false;
         for track in &mut self.tracks {
             track.synth.note_off_all(false);
@@ -794,6 +834,7 @@ impl Engine {
         self.next_click = song.clicks.partition_point(|c| c.0 < seconds);
         self.position = seconds;
         self.click_left = 0.0;
+        self.count_in = None;
     }
 
     fn dispatch(&mut self, track: usize, status: u8, data1: u8, data2: u8) {
@@ -836,6 +877,21 @@ impl Engine {
         let n = out_l.len();
         let step = n as f64 / self.sample_rate as f64 * self.rate;
         let block_start = self.position;
+        if let Some(count_in) = self.count_in.as_mut() {
+            if count_in.until_next <= 0.0 && count_in.clicks_left > 0 {
+                self.click_accent = count_in.clicks_left == count_in.total;
+                count_in.clicks_left -= 1;
+                count_in.until_next += count_in.beat;
+                self.click_left = CLICK_SECONDS;
+                self.click_phase = 0.0;
+                self.click_forced = Some(1.0);
+            }
+            count_in.until_next -= n as f64 / self.sample_rate as f64;
+            if count_in.clicks_left == 0 && count_in.until_next <= 0.0 {
+                self.count_in = None;
+                self.playing = true;
+            }
+        }
         if self.playing
             && let Some(song) = self.song.clone()
         {
@@ -854,6 +910,7 @@ impl Engine {
                 self.click_left = CLICK_SECONDS;
                 self.click_phase = 0.0;
                 self.click_accent = accent;
+                self.click_forced = None;
             }
         }
 
@@ -922,7 +979,8 @@ impl Engine {
             }
         }
 
-        if self.click_left > 0.0 && self.metronome_volume > 0.0 {
+        let click_volume = self.click_forced.unwrap_or(self.metronome_volume);
+        if self.click_left > 0.0 && click_volume > 0.0 {
             let freq = if self.click_accent { 1_760.0 } else { 1_320.0 };
             let dt = 1.0 / self.sample_rate as f64;
             for i in 0..n {
@@ -933,7 +991,7 @@ impl Engine {
                 let s = (self.click_phase * std::f64::consts::TAU).sin() as f32
                     * 0.3
                     * envelope
-                    * self.metronome_volume;
+                    * click_volume;
                 out_l[i] += s;
                 out_r[i] += s;
                 self.click_phase += freq * dt;

@@ -150,6 +150,20 @@ describe("TrackList", () => {
     expect(markers).toHaveTextContent("♩120");
   });
 
+  it("shows the texts of the bars above all the tracks", () => {
+    const { score } = parseScore(fixtureBytes("practice-song.gp"));
+    score.tracks[1]!.staves[0]!.bars[2]!.voices[0]!.beats[0]!.text = "Valami";
+    setup({ score });
+    const texts = screen.getByTestId("bar-texts");
+    expect(texts).toHaveTextContent("Valami");
+    expect(within(texts).getByTitle("Bar 3: Valami")).toBeInTheDocument();
+  });
+
+  it("has no text row without texts", () => {
+    setup();
+    expect(screen.queryByTestId("bar-texts")).not.toBeInTheDocument();
+  });
+
   it("switches automation on", async () => {
     const onChange = vi.fn();
     const { user } = setup({ onChange });
