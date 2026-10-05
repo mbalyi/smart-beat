@@ -73,7 +73,8 @@ Import (`src/lib/import/midi.ts`) is Smart Beat's own. A MIDI file has sounds, n
 
 - every MIDI channel with notes becomes a track (channel 10 is drums); the track name, sound (program change), volume and pan are taken over;
 - time signature changes become bars; tempo changes start at the beginning of the bar they fall in;
-- notes are snapped to sixteenth notes; a note that lasts past the next note is cut (no ties are made) and triplets are not detected;
+- many files made from a recording or an audio conversion say one tempo (often 120 BPM) while the music runs at another. When a file has one tempo and one time signature and its notes do not fit its own sixteenth grid, the real sixteenth is measured from the note onsets (within 15% of the file's tempo), small drift is followed, and the bar lines are placed where the music has its downbeats (kick on 1, snare on 2 and 4, chords on the beats). The measured tempo goes into the song and the import says so (`src/lib/import/midi-grid.ts`);
+- notes are snapped to sixteenth notes (a note played just before a bar line goes on the next bar's first beat); a note that lasts past the next note is cut (no ties are made) and triplets are not detected;
 - guitar (programs 25-32) and bass (33-40) sounds are written as tablature in standard tuning, with notes moved by an octave when they do not fit; other sounds as a staff.
 - SMPTE time division is not supported.
 
