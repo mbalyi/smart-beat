@@ -202,6 +202,9 @@ function createSettings(options: ScorePlayerOptions): Settings {
   return settings;
 }
 
+/** Edits closer together than this share one MIDI regeneration (ms). */
+const MIDI_DEBOUNCE_MS = 250;
+
 export class ScorePlayer {
   private readonly api: AlphaTabApi;
   private readonly score: Score;
@@ -253,6 +256,7 @@ export class ScorePlayer {
   private appliedRange: { startTick: number; endTick: number } | null = null;
   /** Suppresses "Rendering…" for re-renders after edits. */
   private quietRender = false;
+  private renderStartedAt = 0;
   private editing = false;
   /** Shift was held on the last pointer press in the score. */
   private shiftDown = false;
@@ -320,6 +324,7 @@ export class ScorePlayer {
   private subscribe() {
     const { api, callbacks } = this;
     api.renderStarted.on(() => {
+      this.renderStartedAt = performance.now();
       if (!this.quietRender) callbacks.onRenderingChange?.(true);
     });
     api.renderFinished.on(() => {
@@ -327,6 +332,8 @@ export class ScorePlayer {
       this.quietRender = false;
     });
     api.postRenderFinished.on(() => {
+      const took = performance.now() - this.renderStartedAt;
+      if (took > 500) console.info(`[perf] render took ${Math.round(took)} ms`);
       // alphaTab only redraws the loop highlight when clicks select ranges.
       if (this.loop && this.editing) this.highlightLoop();
       callbacks.onRendered?.();
@@ -646,6 +653,28 @@ export class ScorePlayer {
     this.api.updateSettings();
     this.quietRender = true;
     this.api.renderTracks([track]);
+    this.regenerateMidiSoon();
+  }
+
+  private midiTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Typing sends an edit per key: the MIDI (and the engine's song) is made
+   * once the edits pause, not for every key.
+   */
+  private regenerateMidiSoon() {
+    if (this.midiTimer) clearTimeout(this.midiTimer);
+    this.midiTimer = setTimeout(() => {
+      this.midiTimer = null;
+      if (!this.destroyed) this.regenerateMidi();
+    }, MIDI_DEBOUNCE_MS);
+  }
+
+  /** Makes any waiting MIDI now (before playing). */
+  private flushMidi() {
+    if (!this.midiTimer) return;
+    clearTimeout(this.midiTimer);
+    this.midiTimer = null;
     this.regenerateMidi();
   }
 
@@ -944,6 +973,7 @@ export class ScorePlayer {
 
   playPause() {
     if (!this.ready) return;
+    this.flushMidi();
     this.playing = !this.playing;
     this.api.playPause();
   }
@@ -1027,6 +1057,7 @@ export class ScorePlayer {
 
   destroy() {
     this.destroyed = true;
+    if (this.midiTimer) clearTimeout(this.midiTimer);
     this.engine?.destroy();
     this.delayer.clear();
     this.api.destroy();

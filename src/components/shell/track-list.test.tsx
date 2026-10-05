@@ -1,6 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 
 import { TrackList, type TrackActions } from "@/components/shell/track-list";
+import { shortText } from "@/lib/score/tempo";
 import { mixFromScore } from "@/lib/score/mixer";
 import { parseScore } from "@/lib/score/score";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -157,6 +158,11 @@ describe("TrackList", () => {
     const texts = screen.getByTestId("bar-texts");
     expect(texts).toHaveTextContent("Valami");
     expect(within(texts).getByTitle("Bar 3: Valami")).toBeInTheDocument();
+  });
+
+  it("shortens long texts to a few words", () => {
+    expect(shortText("one two three")).toBe("one two three");
+    expect(shortText("a b c d e f g h")).toBe("a b c d e f…");
   });
 
   it("has no text row without texts", () => {

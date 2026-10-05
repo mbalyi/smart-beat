@@ -153,3 +153,11 @@ export function barTexts(score: Score): Map<number, string[]> {
   }
   return texts;
 }
+
+const SHORT_WORDS = 6;
+
+/** The first few words of a text, for the crowded bar row. */
+export function shortText(text: string): string {
+  const words = text.split(/\s+/);
+  return words.length > SHORT_WORDS ? `${words.slice(0, SHORT_WORDS).join(" ")}…` : text;
+}

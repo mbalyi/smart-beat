@@ -91,7 +91,7 @@ export function DrumMixerDialog({
   const anySolo = current.elements.some((e) => e.solo);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl">
+      <DialogContent size="full" className="sm:max-w-[min(calc(100%-2rem),78rem)]">
         <DialogHeader>
           <DialogTitle>Drum mixer: {trackName}</DialogTitle>
           <DialogDescription>
@@ -143,7 +143,7 @@ export function DrumMixerDialog({
                   key={element.id}
                   data-testid="drum-element"
                   className={cn(
-                    "flex w-14 shrink-0 flex-col items-center gap-2 rounded-md bg-muted/30 px-1 py-2 text-sm",
+                    "flex min-w-14 flex-1 basis-14 flex-col items-center gap-2 rounded-md bg-muted/30 px-1 py-2 text-sm",
                     silent && "text-muted-foreground",
                   )}
                 >

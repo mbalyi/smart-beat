@@ -95,6 +95,9 @@ const takeEngine = (engine: NativeEngine) => {
   owner = engine;
 };
 
+/** Loads slower than this are logged (ms). */
+const SLOW_MS = 300;
+
 /** How often the position is read while playing (ms). */
 export const POLL_MS = 25;
 
@@ -180,6 +183,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   private problems: EffectProblems = { tracks: [], master: [] };
   /** What this song put in the engine, to put it back after another song used it. */
   private song: EngineSong | null = null;
+  /** The newest song handed to {@link loadSong} (older ones still queued are skipped). */
+  private latestSong: EngineSong | null = null;
   private mixes: BusMix[] | null = null;
   private loop: { startTick: number; endTick: number } | null = null;
   private metronomeVolume: number | null = null;
@@ -302,10 +307,14 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   }
 
   async loadSong(file: midi.MidiFile, channels: number[][]): Promise<void> {
+    const started = performance.now();
     const song = songFromMidi(file, channels);
     this.song = song;
     takeEngine(this);
+    this.latestSong = song;
     const status = await this.enqueue(async () => {
+      // While typing, every edit sends a song: only the newest one is loaded.
+      if (this.latestSong !== song) return null;
       await loadEngineSong(song);
       // Loading a song clears the engine's chains, sounds, automation, EQ and
       // drum mixes: send them all again.
@@ -313,7 +322,11 @@ export class NativeEngine implements synth.IExternalMediaHandler {
       await this.sendExtras();
       return engineState();
     });
-    this.backingTrackDuration = status.durationMs;
+    if (status) this.backingTrackDuration = status.durationMs;
+    const took = performance.now() - started;
+    if (took > SLOW_MS) {
+      console.info(`[perf] song load took ${Math.round(took)} ms (${song.events.length} events)`);
+    }
   }
 
   /** What to send with the next song (without sending anything now). */

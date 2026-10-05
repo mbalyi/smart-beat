@@ -36,7 +36,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { filledBars } from "@/lib/score/bar-grid";
-import { barTexts, tempoMarkers } from "@/lib/score/tempo";
+import { barTexts, shortText, tempoMarkers } from "@/lib/score/tempo";
 import { describeInstrument } from "@/lib/score/instrument-view";
 import {
   describePan,
@@ -343,14 +343,25 @@ export function TrackList({
               >
                 {numbers.map((n) => {
                   const list = texts.get(n - 1);
-                  return list ? (
-                    <li key={n} className="overflow-visible" title={`Bar ${n}: ${list.join(", ")}`}>
-                      <span className="rounded-sm bg-muted px-1 py-0.5 italic">
-                        {list.join(", ")}
+                  if (!list) return <li key={n} aria-hidden="true" />;
+                  const full = list.join(", ");
+                  return (
+                    <li
+                      key={n}
+                      title={`Bar ${n}: ${full}`}
+                      // The current bar's text is on top; the text under the pointer is above that, in full.
+                      className={cn("group/text relative hover:z-30", n - 1 === bar && "z-20")}
+                    >
+                      <span
+                        className={cn(
+                          "block w-max rounded-sm bg-muted px-1 py-0.5 italic",
+                          n - 1 === bar && "ring-1 ring-foreground",
+                        )}
+                      >
+                        <span className="group-hover/text:hidden">{shortText(full)}</span>
+                        <span className="hidden group-hover/text:inline">{full}</span>
                       </span>
                     </li>
-                  ) : (
-                    <li key={n} aria-hidden="true" />
                   );
                 })}
               </ul>
@@ -368,6 +379,8 @@ export function TrackList({
             const automation = trackAutomation(mix, i);
             const lane = lanes[i] ?? "volume";
             const focused = mix.focus === i;
+            // Opaque, so bars scrolled under the sticky name column stay hidden.
+            const rowBackground = isShown ? "bg-muted" : "bg-card";
             return (
               <li
                 key={`${i}-${track.name}`}
@@ -375,7 +388,12 @@ export function TrackList({
                 aria-current={isShown ? "true" : undefined}
               >
                 <div className="flex">
-                  <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r [background-color:inherit] bg-inherit px-2 py-1">
+                  <div
+                    className={cn(
+                      "sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r px-2 py-1",
+                      rowBackground,
+                    )}
+                  >
                     <div className={cn(CONTROLS, "w-full")}>
                       <div className="flex min-w-0 items-center gap-1.5">
                         <span
@@ -507,7 +525,12 @@ export function TrackList({
                 </div>
                 {automation.enabled && (
                   <div className="flex border-t border-dashed">
-                    <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center justify-end gap-2 border-r [background-color:inherit] bg-inherit px-2 py-1 text-xs">
+                    <div
+                      className={cn(
+                        "sticky left-0 z-10 flex w-[30rem] shrink-0 items-center justify-end gap-2 border-r px-2 py-1 text-xs",
+                        rowBackground,
+                      )}
+                    >
                       <span>Automation</span>
                       <LaneKindSelect
                         name={track.name}

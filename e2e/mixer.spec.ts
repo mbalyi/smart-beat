@@ -1,5 +1,5 @@
 import { expect, expectNoA11yViolations, openSong, test } from "./fixtures";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /**
  * Mixing (#37): channel EQ, meters, volume / pan / mute automation, the
@@ -75,6 +75,48 @@ test.describe("mixer (#37)", () => {
       .poll(() => app.getByRole("meter", { name: "Level, master" }).getAttribute("aria-valuenow"))
       .not.toBe("0");
     await app.getByRole("button", { name: "Stop" }).click();
+  });
+
+  test("pressed Mute is red and Solo green in the dark theme too (mixer and practice bar)", async ({
+    app,
+  }) => {
+    await app.emulateMedia({ colorScheme: "dark" });
+    await openSong(app);
+    const background = (button: Locator) =>
+      button.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const mute = app.getByRole("button", { name: /^Mute / }).first();
+    const solo = app.getByRole("button", { name: /^Solo / }).first();
+    const countIn = app.getByRole("button", { name: "Count-in" });
+    const idle = await background(mute);
+    for (const button of [mute, solo, countIn]) await button.click();
+    await app.mouse.move(0, 0);
+    // The colours fade in: wait for the end.
+    await expect.poll(() => background(mute)).toContain("oklch(0.505 0.213 27"); // red-700
+    await expect.poll(() => background(solo)).toContain("oklch(0.527 0.154 150"); // green-700
+    await expect.poll(() => background(countIn)).toContain("oklch(0.527 0.154 150");
+    await mute.click();
+    await app.mouse.move(0, 0);
+    await expect.poll(() => background(mute)).toBe(idle);
+  });
+
+  test("the name column hides the bars scrolled under it", async ({ app }) => {
+    await app.emulateMedia({ colorScheme: "dark" });
+    await openSong(app);
+    const cells = app.locator("section[aria-label='Tracks and mixer'] ol li > div > div.sticky");
+    for (const cell of await cells.all()) {
+      const colour = await cell.evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(colour).not.toBe("rgba(0, 0, 0, 0)");
+    }
+  });
+
+  test("the drum mixer shows the whole kit when the window is wide enough", async ({ app }) => {
+    await withEngine(app);
+    await app.getByRole("button", { name: "Actions for Drums" }).click();
+    await app.getByRole("menuitem", { name: "Drum mixer…" }).click();
+    const dialog = app.getByRole("dialog", { name: "Drum mixer: Drums" });
+    const strips = dialog.getByRole("list", { name: "Kit pieces" });
+    await expect(strips).toBeVisible();
+    expect(await strips.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   });
 
   test("the drum mixer splits the kit into pieces", async ({ app }) => {

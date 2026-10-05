@@ -202,6 +202,17 @@ describe("NativeEngine", () => {
     engine.destroy();
   });
 
+  it("loads only the newest of the songs sent while typing", async () => {
+    const engine = new NativeEngine();
+    engine.attach(output());
+    const first = engine.loadSong(file(), [[1]]);
+    const second = engine.loadSong(file(), [[1], [9]]);
+    const third = engine.loadSong(file(), [[1], [9], [2]]);
+    await Promise.all([first, second, third]);
+    expect(mocked.loadEngineSong).toHaveBeenCalledOnce();
+    expect(mocked.loadEngineSong.mock.calls[0]![0].tracks).toEqual([[1], [9], [2]]);
+  });
+
   it("reports the engine's position and meters while playing", async () => {
     vi.useFakeTimers();
     const onMeters = vi.fn();

@@ -826,6 +826,7 @@ describe("ScorePlayer", () => {
 
     it("re-renders quietly after edits and regenerates the MIDI", async () => {
       const { player, api, score, mix, callbacks, setPlaying } = await readySetup();
+      vi.useFakeTimers();
 
       player.refresh({ trackIndex: 1, view: { notation: "tab", rhythm: true }, mix });
       api.renderStarted.trigger(false);
@@ -834,11 +835,15 @@ describe("ScorePlayer", () => {
       expect(api.renderTracks).toHaveBeenCalledWith([score.tracks[1]]);
       expect(score.tracks[1]!.staves[0]!.showStandardNotation).toBe(false);
       expect(callbacks.onRenderingChange).not.toHaveBeenCalled();
+      // The MIDI follows once the edits pause (not for every key).
+      expect(api.loadMidiForScore).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(300);
       expect(api.loadMidiForScore).toHaveBeenCalledOnce();
 
       // During playback, the MIDI waits for the next pause.
       setPlaying(true);
       player.refresh({ trackIndex: 1, view: { notation: "tab", rhythm: true }, mix });
+      vi.advanceTimersByTime(300);
       expect(api.loadMidiForScore).toHaveBeenCalledOnce();
       setPlaying(false);
       expect(api.loadMidiForScore).toHaveBeenCalledTimes(2);
@@ -847,15 +852,36 @@ describe("ScorePlayer", () => {
       // Other renders still show "Rendering…".
       api.renderStarted.trigger(false);
       expect(callbacks.onRenderingChange).toHaveBeenCalledWith(true);
+      vi.useRealTimers();
+    });
+
+    it("makes the MIDI once for a burst of edits, and before playing", async () => {
+      const { player, api, mix } = await readySetup();
+      vi.useFakeTimers();
+      for (let i = 0; i < 5; i++) {
+        player.refresh({ trackIndex: 0, view: { notation: "score-tab", rhythm: false }, mix });
+        vi.advanceTimersByTime(50);
+      }
+      expect(api.loadMidiForScore).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(300);
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+
+      player.refresh({ trackIndex: 0, view: { notation: "score-tab", rhythm: false }, mix });
+      player.playPause(); // Space right after typing: the new music plays
+      expect(api.loadMidiForScore).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
     });
 
     it("doesn't start playing again when the music changes right after a pause", async () => {
       const { player, api, mix, becomeReady, setPlaying } = await readySetup();
+      vi.useFakeTimers();
       setPlaying(true);
 
       player.playPause(); // alphaTab reports the pause a moment later
       player.refresh({ trackIndex: 0, view: { notation: "score-tab", rhythm: false }, mix });
+      vi.advanceTimersByTime(300);
       becomeReady();
+      vi.useRealTimers();
 
       expect(api.loadMidiForScore).toHaveBeenCalledOnce();
       expect(api.play).not.toHaveBeenCalled();
