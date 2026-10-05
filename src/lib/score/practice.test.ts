@@ -97,8 +97,8 @@ describe("practice", () => {
     expect(practiceReducer(training, { type: "loop", value: false }).trainer).toBeNull();
     expect(practiceReducer(training, { type: "stop-trainer" })).toMatchObject({
       trainer: null,
-      loop: true,
-      speed: 50,
+      loop: false,
+      speed: 100,
     });
     // Without a trainer, loops don't change the speed.
     expect(practiceReducer(start({ loop: true }), { type: "loop-completed" }).speed).toBe(100);

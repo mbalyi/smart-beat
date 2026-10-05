@@ -51,17 +51,8 @@ import type { Score } from "@/lib/score/model";
 import type { TrackSummary } from "@/lib/score/score";
 import { trackColor } from "@/lib/score/track-colors";
 import type { AutomationLaneKind, BackingInfo, MixerSettings } from "@/lib/tauri";
+import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { cn } from "@/lib/utils";
-
-/**
- * Pressed Mute (red) and Solo (yellow) use mixing-desk colours, fixed in both
- * themes, so they stand out from the strip background. Radix sets both
- * `data-state=on` and `aria-pressed`, so both are overridden.
- */
-const MUTE_PRESSED =
-  "data-[state=on]:border-red-700 data-[state=on]:bg-red-700 aria-pressed:bg-red-700 data-[state=on]:text-white data-[state=on]:hover:bg-red-800 data-[state=on]:hover:text-white";
-const SOLO_PRESSED =
-  "data-[state=on]:border-amber-400 data-[state=on]:bg-amber-400 aria-pressed:bg-amber-400 data-[state=on]:text-black data-[state=on]:hover:bg-amber-300 data-[state=on]:hover:text-black";
 
 export interface TrackActions {
   onShow: (index: number) => void;

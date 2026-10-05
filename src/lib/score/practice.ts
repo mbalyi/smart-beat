@@ -111,8 +111,9 @@ export function practiceReducer(state: PracticeState, action: PracticeAction): P
         trainer: { ...trainer, loopsAtSpeed: 0 },
       };
     }
+    // Stopping ends the practice run: no loop and the normal tempo again.
     case "stop-trainer":
-      return { ...state, trainer: null };
+      return { ...state, trainer: null, loop: false, speed: 100 };
     case "loop-completed": {
       const trainer = state.trainer;
       if (!trainer || !state.loop) return state;

@@ -300,6 +300,8 @@ describe("ScoreWorkspace: practice", () => {
 
     await user.click(screen.getByRole("button", { name: "Stop the Speed Trainer" }));
     expect(screen.queryByText(/^Trainer/)).not.toBeInTheDocument();
+    expect(player.setSpeed).toHaveBeenLastCalledWith(100);
+    expect(player.setLoop).toHaveBeenLastCalledWith(null);
   });
 });
 

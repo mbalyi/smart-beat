@@ -17,6 +17,7 @@ export function LabeledSlider({
   onValueChange,
   onValueCommit,
   disabled,
+  orientation = "horizontal",
   className,
 }: {
   /** Accessible name, e.g. "Volume, Bass". */
@@ -31,6 +32,8 @@ export function LabeledSlider({
   /** Called when the user finishes a change (pointer up or key press). */
   onValueCommit?: (value: number) => void;
   disabled?: boolean;
+  /** Vertical: a fader that goes up to raise the value, as on a mixing desk. */
+  orientation?: "horizontal" | "vertical";
   className?: string;
 }) {
   return (
@@ -41,15 +44,16 @@ export function LabeledSlider({
       max={max}
       step={step}
       disabled={disabled}
+      orientation={orientation}
       onValueChange={([next]) => next !== undefined && onValueChange(next)}
       onValueCommit={([next]) => next !== undefined && onValueCommit?.(next)}
       className={cn(
-        "relative flex h-5 w-full touch-none items-center select-none data-disabled:opacity-50",
+        "relative flex touch-none items-center select-none data-[orientation=horizontal]:h-5 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-24 data-[orientation=vertical]:w-6 data-[orientation=vertical]:flex-col data-disabled:opacity-50",
         className,
       )}
     >
-      <SliderPrimitive.Track className="relative h-1 grow overflow-hidden rounded-full bg-muted">
-        <SliderPrimitive.Range className="absolute h-full bg-primary" />
+      <SliderPrimitive.Track className="relative grow overflow-hidden rounded-full bg-muted data-[orientation=horizontal]:h-1 data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1">
+        <SliderPrimitive.Range className="absolute bg-primary data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full" />
       </SliderPrimitive.Track>
       <SliderPrimitive.Thumb
         aria-label={label}
