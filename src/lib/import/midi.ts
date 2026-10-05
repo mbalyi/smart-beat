@@ -4,12 +4,14 @@
  * A MIDI file has sounds, not notation, so the import makes choices: every
  * MIDI channel that plays notes becomes a track (drums on channel 10), time
  * signatures and tempo changes become bars, and notes are snapped to a grid of
- * sixteenth notes. Guitar and bass sounds are written as tablature in standard
+ * sixteenth notes. When the notes do not follow the file's tempo (a recording or an
+ * audio conversion), the real tempo and bar lines are found first (see `midi-grid`). Guitar and bass sounds are written as tablature in standard
  * tuning; everything else as a staff. What is lost (triplets, dynamics, notes
  * longer than their gap) is listed in the warnings.
  */
 import { importer, model, Settings } from "@coderline/alphatab";
 
+import { findGrid } from "@/lib/import/midi-grid";
 import { fillDurations } from "@/lib/score/bar-duration";
 import { ScoreLoadError } from "@/lib/score/errors";
 import { newBeat, refinish, type Score, type Track } from "@/lib/score/model";
@@ -311,6 +313,38 @@ function planBars(parsed: Parsed): BarPlan[] {
   return bars;
 }
 
+/**
+ * Moves the notes onto the real grid when they do not follow the file's own tempo.
+ * Only files with one tempo and one time signature are checked: files with changes
+ * were written to a grid on purpose. Returns the detected tempo, or null.
+ */
+function regrid(parsed: Parsed): number | null {
+  const bpms = new Set(parsed.tempos.map((t) => Math.round(t.bpm * 1000)));
+  const signatures = new Set(parsed.timeSignatures.map((t) => `${t.numerator}/${t.denominator}`));
+  if (bpms.size > 1 || signatures.size > 1) return null;
+  const signature = parsed.timeSignatures[0] ?? { numerator: 4, denominator: 4 };
+  if (![2, 4, 8, 16].includes(signature.denominator)) return null;
+  const onsets = parsed.parts.flatMap((part) =>
+    part.notes.map((note) => ({ tick: note.start, pitch: note.pitch, drum: part.channel === 9 })),
+  );
+  const beatSteps = 16 / signature.denominator;
+  const grid = findGrid(onsets, GRID, signature.numerator * beatSteps, beatSteps);
+  if (!grid) return null;
+  let endTick = 0;
+  for (const part of parsed.parts) {
+    for (const note of part.notes) {
+      note.start = Math.round(grid.map(note.start));
+      note.end = Math.max(note.start + 1, Math.round(grid.map(note.end)));
+      endTick = Math.max(endTick, note.end);
+    }
+  }
+  parsed.endTick = endTick;
+  const bpm = Math.round((parsed.tempos[0]?.bpm ?? 120) * grid.speed);
+  parsed.tempos = [{ tick: 0, bpm }];
+  parsed.timeSignatures = parsed.timeSignatures.slice(0, 1).map((t) => ({ ...t, tick: 0 }));
+  return bpm;
+}
+
 /** The largest single note value (dotted or not) that fits in `ticks`. */
 function largestFit(ticks: number): { duration: Duration; dots: number } | null {
   const first = fillDurations(ticks)[0];
@@ -359,9 +393,12 @@ function fillTrack(track: Track, part: Part, bars: BarPlan[], warnings: Set<stri
   const perBar: Group[][] = bars.map(() => []);
   let barIndex = 0;
   for (const note of [...part.notes].sort((a, b) => a.start - b.start || a.pitch - b.pitch)) {
-    while (barIndex + 1 < bars.length && note.start >= bars[barIndex + 1]!.start) barIndex++;
+    // A note played just before a bar line belongs on that bar's first beat.
+    while (barIndex + 1 < bars.length && note.start + GRID / 2 >= bars[barIndex + 1]!.start) {
+      barIndex++;
+    }
     const bar = bars[barIndex]!;
-    let start = Math.round((note.start - bar.start) / GRID) * GRID;
+    let start = Math.max(0, Math.round((note.start - bar.start) / GRID) * GRID);
     if (start >= bar.length) start = bar.length - GRID;
     const length = Math.max(GRID, Math.round((note.end - note.start) / GRID) * GRID);
     const groups = perBar[barIndex]!;
@@ -445,6 +482,13 @@ export function importMidi(bytes: Uint8Array): MidiImport {
   const parsed = parse(bytes);
   if (parsed.parts.length === 0) throw new ScoreLoadError("The MIDI file has no notes.");
   const warnings = new Set<string>();
+  const fileBpm = Math.round(parsed.tempos[0]?.bpm ?? 120);
+  const detected = regrid(parsed);
+  if (detected !== null) {
+    warnings.add(
+      `The notes did not follow the file's tempo (${fileBpm} BPM): the tempo was measured as ${detected} BPM and the bars were lined up with the music.`,
+    );
+  }
   const bars = planBars(parsed);
   if (parsed.endTick > bars.at(-1)!.start + bars.at(-1)!.length) {
     warnings.add("The file is very long: the end was cut off.");

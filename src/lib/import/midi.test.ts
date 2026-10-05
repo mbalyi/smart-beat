@@ -4,6 +4,8 @@ import { exportScore } from "@/lib/export";
 import { loadSong } from "@/lib/import";
 import { importMidi } from "@/lib/import/midi";
 import { ScoreLoadError } from "@/lib/score/errors";
+import type { Score } from "@/lib/score/model";
+import { durationTicks } from "@/lib/score/music";
 import { tempoAt } from "@/lib/score/structure";
 import { texScore } from "@/test/playback";
 import { shotOf } from "@/test/score-snapshot";
@@ -53,6 +55,63 @@ const off = (delta: number, pitch: number, channel = 0): [number, number[]] => [
   delta,
   [0x80 | channel, pitch, 0],
 ];
+
+/**
+ * A recording-like file: the header says 120 BPM but the music is played at `bpm`, with
+ * a little timing jitter and `lead` sixteenths of silence. Each bar (16 sixteenths): a
+ * kick on 1 and 3, a snare on 2 and 4, eighth-note hi-hats, and a guitar power chord
+ * on sixteenths 0, 3, 6 and 10.
+ */
+function recording(bpm: number, bars: number, lead: number) {
+  const sixteenth = (480 * 120) / bpm / 4;
+  let seed = 7;
+  const jitter = () => {
+    seed = (seed * 16807) % 2147483647;
+    return Math.round(((seed % 1000) / 1000 - 0.5) * 16); // ±8 ticks
+  };
+  const hits: [number, number, number][] = []; // [tick, pitch, channel]
+  for (let bar = 0; bar < bars; bar++) {
+    for (let step = 0; step < 16; step++) {
+      const at = (lead + bar * 16 + step) * sixteenth;
+      const drums: number[] = [];
+      if (step % 8 === 0) drums.push(36);
+      if (step % 8 === 4) drums.push(38);
+      if (step % 2 === 0) drums.push(42);
+      for (const pitch of drums) hits.push([Math.round(at + jitter()), pitch, 9]);
+      if ([0, 3, 6, 10].includes(step)) {
+        const tick = Math.round(at + jitter());
+        hits.push([tick, 40, 0], [tick + 2, 47, 0]);
+      }
+    }
+  }
+  const events: [number, number[]][] = [];
+  for (const [tick, pitch, channel] of hits) {
+    events.push([tick, [0x90 | channel, pitch, 100]]);
+    events.push([tick + Math.round(sixteenth * 0.8), [0x80 | channel, pitch, 0]]);
+  }
+  events.sort((a, b) => a[0] - b[0]);
+  let last = 0;
+  return smf([
+    tempo(120),
+    [0, [0xc0, 30]], // distortion guitar
+    ...events.map(([tick, bytes]): [number, number[]] => {
+      const delta = tick - last;
+      last = tick;
+      return [delta, bytes];
+    }),
+  ]);
+}
+
+/** The sixteenths of a bar that have notes, as a pattern like "x..x..x...x.....". */
+function pattern(score: Score, track: number, bar: number) {
+  const cells = Array<string>(16).fill(".");
+  let position = 0;
+  for (const beat of score.tracks[track]!.staves[0]!.bars[bar]!.voices[0]!.beats) {
+    if (beat.notes.length > 0) cells[position / 240] = "x";
+    position += durationTicks(beat.duration, beat.dots);
+  }
+  return cells.join("");
+}
 
 describe("MIDI import", () => {
   it("reads the tempo, time signature, name and sound of a file", () => {
@@ -135,6 +194,14 @@ describe("MIDI import", () => {
     expect(shotOf(score).tracks[0]!.bars[0]!.voices[0]![0]!.notes[0]!.at).toBe("72");
   });
 
+  it("puts a note played just before a bar line on the next bar's first beat", () => {
+    // Regression (#55): it stayed in the earlier bar, squeezed onto its last sixteenth.
+    const { score } = importMidi(smf([on(1910, 60), off(240, 60)]));
+    const bars = shotOf(score, { pitchOnly: [0] }).tracks[0]!.bars;
+    expect(bars[0]!.voices).toEqual([]); // only rests
+    expect(bars[1]!.voices[0]![0]!.notes[0]!.at).toBe("60");
+  });
+
   it("snaps notes to sixteenths and fills gaps with rests so bars stay complete", () => {
     const { score } = importMidi(
       smf([on(130, 60), off(100, 60), on(200, 62), off(200, 62)]), // slightly off the grid
@@ -174,6 +241,34 @@ describe("MIDI import", () => {
     expect(shotOf(score, { pitchOnly: [0] }).tracks[0]!.bars[0]!.voices[0]![0]!.notes[0]!.at).toBe(
       "60",
     );
+  });
+
+  it("finds the real tempo and bar lines when the notes do not follow the file's tempo", () => {
+    // Regression (#55): snapping to the file's own 120 BPM grid drifted a sixteenth
+    // every ~30 sixteenths, so notes moved and bars seemed to start with rests.
+    const { score, warnings } = importMidi(recording(122, 24, 37));
+    expect(warnings.some((w) => w.includes("measured as 122 BPM"))).toBe(true);
+    expect(shotOf(score).bars[0]!.tempo).toBe(122);
+    const guitar = score.tracks.findIndex((t) => !t.isPercussion);
+    const drums = score.tracks.findIndex((t) => t.isPercussion);
+    // 37 sixteenths of silence: the first bar line goes on the music's downbeat.
+    const firstBar = score.tracks[drums]!.staves[0]!.bars.findIndex((bar) =>
+      bar.voices[0]!.beats.some((b) => b.notes.length > 0),
+    );
+    for (let bar = firstBar; bar < firstBar + 24; bar++) {
+      expect(pattern(score, guitar, bar), `guitar bar ${bar + 1}`).toBe("x..x..x...x.....");
+      expect(pattern(score, drums, bar), `drum bar ${bar + 1}`).toBe("x.x.x.x.x.x.x.x.");
+      const first = score.tracks[drums]!.staves[0]!.bars[bar]!.voices[0]!.beats[0]!;
+      expect(first.notes.map((n) => n.percussionArticulation).sort()).toEqual([36, 42]);
+    }
+  });
+
+  it("keeps files whose notes follow their tempo on the file's own grid", () => {
+    const { score, warnings } = importMidi(recording(120, 8, 16));
+    expect(warnings.some((w) => w.includes("measured as"))).toBe(false);
+    expect(shotOf(score).bars[0]!.tempo).toBe(120);
+    const guitar = score.tracks.findIndex((t) => !t.isPercussion);
+    for (let bar = 1; bar <= 8; bar++) expect(pattern(score, guitar, bar)).toBe("x..x..x...x.....");
   });
 
   it("opens our own MIDI export as the same tracks, pitches and rhythm", async () => {
