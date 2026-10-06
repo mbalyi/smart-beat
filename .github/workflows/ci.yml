@@ -155,9 +155,6 @@ jobs:
 
   licenses:
     name: License policy
-    # Not run automatically (pull requests and pushes): start it by hand (Actions > CI > Run
-    # workflow), or run `pnpm licenses:check` locally. Remove this line to switch it on again.
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ fromJSON('["self-hosted","macOS","ARM64"]') }}
     timeout-minutes: 10
     steps:
@@ -176,7 +173,5 @@ jobs:
         run: node scripts/check-licenses.mjs
 
       - name: Rust crates (licenses, bans, sources, advisories)
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          manifest-path: src-tauri/Cargo.toml
-          command: check licenses bans sources advisories
+        # cargo-deny-action is a Docker action and cannot run on the macOS runner.
+        run: cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources advisories
