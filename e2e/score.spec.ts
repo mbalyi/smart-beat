@@ -431,11 +431,9 @@ test.describe("mixer (#6)", () => {
     await app.getByRole("button", { name: "Solo Bass" }).click();
     await app.mouse.move(0, 0); // not the hover shade
 
-    // Tailwind's red-700 and amber-400 (browsers report oklch or rgb).
+    // Tailwind's red-700 and green-700 (browsers report oklch or rgb).
     await expect.poll(() => background("Mute Piano")).toMatch(/oklch\(0\.50|rgb\(1[89]\d, 0, /);
-    await expect
-      .poll(() => background("Solo Bass"))
-      .toMatch(/oklch\(0\.82|rgb\(2[45]\d, 1[6-9]\d, /);
+    await expect.poll(() => background("Solo Bass")).toMatch(/oklch\(0\.52|rgb\(0, 1[0-4]\d, /);
     const idle = await background("Mute Guitar");
     expect(idle).not.toBe(await background("Mute Piano"));
     expect(idle).not.toBe(await background("Solo Bass"));

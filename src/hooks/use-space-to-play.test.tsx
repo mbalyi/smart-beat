@@ -34,6 +34,29 @@ describe("useSpaceToPlay", () => {
     expect(toggle).toHaveBeenCalledTimes(3);
   });
 
+  it("leaves Space to a control reached with the keyboard (it presses it), not after a click", () => {
+    const toggle = vi.fn();
+    renderHook(() => useSpaceToPlay(toggle));
+    document.body.innerHTML = "<button>Mute</button>";
+    const button = document.querySelector("button")!;
+    const matches = button.matches.bind(button);
+    const focusVisible = (on: boolean) =>
+      vi
+        .spyOn(button, "matches")
+        .mockImplementation((selector: string) =>
+          selector === ":focus-visible" ? on : matches(selector),
+        );
+
+    focusVisible(true);
+    press(button);
+    expect(toggle).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+    focusVisible(false);
+    press(button);
+    expect(toggle).toHaveBeenCalledOnce();
+  });
+
   it("leaves Space to text fields, open lists and dialogs", () => {
     const toggle = vi.fn();
     renderHook(() => useSpaceToPlay(toggle));

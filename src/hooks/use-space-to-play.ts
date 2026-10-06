@@ -26,8 +26,22 @@ const NON_TEXT_INPUTS = new Set([
 export function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   if (target.closest(TEXT_ENTRY) !== null) return true;
-  return target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(target.type);
+  if (target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(target.type)) return true;
+  // A control reached with the keyboard keeps Space (it presses it). One that
+  // keeps focus after a mouse click does not: Space plays.
+  return target.matches(CONTROLS) && focusVisible(target);
 }
+
+function focusVisible(element: Element): boolean {
+  try {
+    return element.matches(":focus-visible");
+  } catch {
+    return false; // not supported (old engines, jsdom): Space plays
+  }
+}
+
+const CONTROLS =
+  "button, [role=button], [role=switch], [role=checkbox], [role=radio], [role=tab], [role=menuitem], [role=combobox], summary, a[href], input";
 
 const dialogOpen = () => document.querySelector("[role=dialog], [role=alertdialog]") !== null;
 
