@@ -502,7 +502,7 @@ export function Inspector({
                 onChange={(on) => onAudioEngineChange(on ? "native" : "alphatab")}
               />
               <p className="text-xs text-muted-foreground">
-                Experimental: plays through effect chains and your sound library. No count-in yet.
+                Experimental: plays through effect chains and your sound library.
               </p>
             </>
           )}

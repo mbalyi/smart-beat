@@ -2,16 +2,23 @@
 
 What Smart Beat opens, saves and exports, and what each format cannot hold.
 
-| Format              | Extensions           | Open               | Save / export                           |
-| ------------------- | -------------------- | ------------------ | --------------------------------------- |
-| Guitar Pro 7/8      | `.gp`                | Yes                | **Native format**: File › Save, Save As |
-| Guitar Pro 5        | `.gp5`               | Yes                | File › Save As (limits below)           |
-| Guitar Pro 3, 4, 6  | `.gp3` `.gp4` `.gpx` | Yes                | No: Save asks for a new `.gp` file      |
-| MusicXML (partwise) | `.musicxml` `.xml`   | Yes (via alphaTab) | File › Export › MusicXML                |
-| Standard MIDI       | `.mid` `.midi`       | Yes (own importer) | File › Export › MIDI                    |
-| ASCII tab           | `.txt`               | No                 | File › Export › ASCII tab               |
+| Format              | Extensions                | Open                                     | Save / export                                                  |
+| ------------------- | ------------------------- | ---------------------------------------- | -------------------------------------------------------------- |
+| Guitar Pro 7/8      | `.gp`                     | Yes                                      | **Native format**: File › Save, Save As                        |
+| Guitar Pro 5        | `.gp5`                    | Yes                                      | File › Save, Save As (limits below)                            |
+| Guitar Pro 4        | `.gp4`                    | Yes                                      | File › Save As (limits below)                                  |
+| Guitar Pro 3        | `.gp3`                    | Yes                                      | File › Save As (limits below)                                  |
+| Guitar Pro 6        | `.gpx`                    | Yes                                      | No (see [below](#guitar-pro-6-gpx-open-only))                  |
+| MuseScore 3 / 4     | `.mscz` `.mscx`           | Yes (own importer)                       | File › Save As (limits below)                                  |
+| MusicXML (partwise) | `.musicxml` `.xml` `.mxl` | Yes (via alphaTab)                       | File › Export › MusicXML (type `.mxl` for the compressed form) |
+| Standard MIDI       | `.mid` `.midi`            | Yes (own importer)                       | File › Export › MIDI                                           |
+| alphaTex            | `.atex`                   | Yes (via alphaTab)                       | File › Export › alphaTex                                       |
+| ASCII tab           | `.txt`                    | Yes (own importer)                       | File › Export › ASCII tab                                      |
+| Audio               | `.wav` `.m4a`             | (audio track: mp3, wav, flac, ogg, aiff) | File › Export › Audio (WAV), Audio (M4A, macOS only)           |
 
-Songs opened from MIDI or MusicXML are _converted_: Save never overwrites the original file, it asks for a new `.gp` file.
+**Save** writes back into the file the song came from only for `.gp` and `.gp5`. A `.gp3`, `.gp4`, `.mscz` or `.mscx` file opened from disk is never overwritten by Save: it asks for a new file, and Save As offers every format above. The writers for these are checked by reading the files back with alphaTab and with Smart Beat's own importer, not in Guitar Pro 3/4 or MuseScore themselves (see [manual-checks.md](manual-checks.md)), so they should not replace an original unasked.
+
+Songs opened from MIDI, MusicXML, MuseScore or text are _converted_: Save never overwrites the original file, it asks for a new `.gp` file.
 
 ## Native format: Guitar Pro 7 (`.gp`)
 
@@ -32,7 +39,7 @@ Guitar Pro and alphaTab ignore entries they do not know, so the file opens every
 
 ## Guitar Pro 5 (`.gp5`)
 
-The writer (`src/lib/export/gp5/writer.ts`) produces version 5.00 files. Everything Guitar Pro 5 has is saved: notes, rests, dots, tuplets, ties, bends, slides, harmonics, trills, tremolo picking, grace notes, vibrato, palm mute, let ring, hammer-ons and pull-offs, dynamics, accents, brushes, pick strokes, text, chords, lyrics (one track), repeats, alternate endings, sections, jumps (Coda, Segno, D.C., D.S.), key and time signatures, tempo changes, tunings, capos and each track's sound and mix.
+The writer (`src/lib/export/gp/writer.ts`) produces version 5.00 files. Everything Guitar Pro 5 has is saved: notes, rests, dots, tuplets, ties, bends, slides, harmonics, trills, tremolo picking, grace notes, vibrato, palm mute, let ring, hammer-ons and pull-offs, dynamics, accents, brushes, pick strokes, text, chords, lyrics (one track), repeats, alternate endings, sections, jumps (Coda, Segno, D.C., D.S.), key and time signatures, tempo changes, tunings, capos and each track's sound and mix.
 
 What Guitar Pro 5 cannot hold is reported after saving ("saved with limits"):
 
@@ -59,6 +66,44 @@ The rules in [licensing.md](licensing.md) apply: nothing was copied or ported fr
 
 Verification is by round trip (`writer.test.ts`): songs are saved and read back with alphaTab, and the music (notes, strings and frets, durations, tuplets, tempo, repeats, endings, sections, lyrics, chords, techniques) must be identical. **Still to do by hand:** open files written by Smart Beat in Guitar Pro 5 (Windows or macOS) and TuxGuitar, as the licensing doc requires. Only alphaTab was available for the automated tests.
 
+## Guitar Pro 4 and 3 (`.gp4`, `.gp3`)
+
+The same writer as for GP5 (`src/lib/export/gp/writer.ts`) writes version 4.06 and 3.00 files. Most of the layout is shared; what differs from GP5 is written per version:
+
+- the credits have one field for the words and the music (GP3 and GP4);
+- the triplet feel is one setting for the whole song, and there are no page setup, tempo names, jumps (Coda, Segno, D.C., D.S.), realistic-sound-engine data or beaming groups;
+- lyrics exist from GP4 on (GP3 has none);
+- a repeat stores how many times the bars are repeated (one less than GP5's count of plays), and the alternate endings are stored as a number: "ending N" stands for the endings 1 to N that no earlier bar of the repeat has;
+- one voice per bar (GP5 has two);
+- a track ends after its colour: both staves are always shown;
+- chord diagrams, beat effects, note effects, the mix table change and grace notes have their older forms. GP3 has the fewest effects: no rasgueado, pick strokes, whammy bar, palm mute, staccato, note vibrato, tremolo picking or trills, and its harmonics are one natural or artificial harmonic for the whole beat.
+
+What a version cannot hold is listed after saving ("saved with limits"): everything the GP5 section lists, plus tempo names, jumps, the notes of other voices, grace notes that GP5 plays on the beat (GP4 and GP3 play them before it), per-bar triplet feels, alternate endings that skip a number, artificial harmonics other than 5, 7 and 12 frets (GP4), and for GP3 also lyrics, slides other than "to the next note", and the effects above.
+
+Clean-room notes are as for GP5 (below): the field order comes from community descriptions and was confirmed against alphaTab's GP3–GP5 importer (MPL-2.0); nothing was taken from TuxGuitar or PyGuitarPro. Tests (`writer.test.ts`) read the files back with alphaTab. **Still to do by hand:** open them in Guitar Pro 3 and 4 and in TuxGuitar.
+
+## MuseScore (`.mscz`, `.mscx`)
+
+Export (`src/lib/export/musescore.ts`) is the mirror of the importer. It writes the MuseScore 3 XML format (MuseScore 3 and 4 read it), as `.mscx`, or zipped with its container description as `.mscz`. It was written from the file format only, with no MuseScore code or assets (GPL-3.0, see [licensing.md](licensing.md)).
+
+Saved: parts with their name, instrument sound and mix (volume, pan, mute), up to four voices, notes, chords, rests, dots, tuplets, ties, dynamics, the first verse of lyrics, repeats with their counts, time and key signatures, and tempo (also inside a bar). Guitar parts keep their strings in the instrument; drum parts use MuseScore's standard drum set (the notes are the General MIDI drum numbers).
+
+Left out, and listed after saving: bends, slides, hammer-ons and pull-offs, palm mute, let ring, harmonics, vibrato, staccato, accents, ghost and dead notes, trills, tremolo picking, brushes, tap, slap, pop and whammy bar; grace notes; volta endings; jumps; text, chord diagrams and section names; every voice after the fourth; and notes shorter than a 64th (saved as 64ths). Staves are standard notation, not tablature (the strings stay in the instrument, so a tablature staff can be added in MuseScore). The repeat count and the tempo come back when the file is opened again.
+
+## alphaTex and compressed MusicXML
+
+alphaTex export uses alphaTab's own exporter (`src/lib/export/alphatex.ts`). Compressed MusicXML (`.mxl`, `src/lib/export/mxl.ts`) is the MusicXML below inside a ZIP archive with `META-INF/container.xml`, as MusicXML readers expect; its ZIP writer (`src/lib/export/zip.ts`) stores the entries uncompressed. Pick it by typing the `.mxl` extension in the MusicXML export dialog. Smart Beat opens both again.
+
+## Audio export (WAV, M4A)
+
+WAV is 16-bit PCM of the song rendered with the current mix. **M4A** is AAC in an MP4 file (192 kbit/s stereo, 128 kbit/s mono), made by the **operating system's own encoder**: on macOS the AVFoundation `AVAudioFile` (`src-tauri/src/m4a.rs`); the UI renders the same WAV and hands it over. The menu item only exists on macOS. A Windows version through Windows Media Foundation (and Linux) is future work; until then the other platforms answer with a clear error.
+
+**No MP3.** Every usable MP3 encoder is LGPL (LAME, shine, lamejs), and Smart Beat is closed-source freeware that links statically, so none can be bundled ([licensing.md](licensing.md)). The system encoders are the way to get a compressed file without a licence problem (the operating system vendor holds the codec licence); the other option, asking the user to install an encoder, was not taken.
+
+## Guitar Pro 6 (`.gpx`, open only)
+
+Guitar Pro 6 files are opened (alphaTab reads them) but not written. A `.gpx` file is a small file system around Guitar Pro's XML score (`score.gpif`). The only writer in alphaTab makes the Guitar Pro 8 flavour of that XML (`GPVersion` 8.1.3) and keeps it in a ZIP for `.gp` files; Guitar Pro 6 needs its own flavour, and nothing here can open a file in Guitar Pro 6 to check one. A `.gpx` menu item that probably produces files Guitar Pro 6 cannot read would be misleading, so it was left out. It can come back when someone with Guitar Pro 6 can test a GP6-flavoured writer (the container, `BCFZ`, is simple: a 4096-byte sector file system, stored without compression, as alphaTab's reader shows).
+
 ## MusicXML
 
 Export (`src/lib/export/musicxml.ts`) writes score-partwise 3.1 with one part per track: pitches (as they sound; guitars get a treble clef an octave down), rhythms, dots, tuplets, ties, rests, tab positions (`<string>` counted from the highest string, `<fret>`), tunings and capo, key and time signatures, tempo, repeats and endings, rehearsal marks, drum notes and lyrics. Bends, slides, palm mute and similar techniques have no standard element and are not exported (Guitar Pro files keep them).
@@ -84,13 +129,15 @@ Export writes each stringed track as lines of text: a line per string named from
 
 Import guesses the rhythm from the spacing of each bar's own notes (snapped to 2, 3, 4, 6, 8, 12, 16, 24 or 32 steps, and doubled when two notes of a string would share a step) and takes over the usual technique marks: `h` and `p` (hammer-on, pull-off), `/`, `\` and `s` (slides), `b` (bend), `~` and `v` (vibrato), `(5)` (ghost note) and `<12>` (natural harmonic). Releases, taps and other marks are listed as left out.
 
+## Opening MuseScore files
+
+The importer (`src/lib/import/musescore.ts`) reads parts, staves, up to four voices, notes, chords, rests, dots, tuplets, ties, dynamics, the first verse of lyrics, repeats, time and key signatures and tempo. Not yet: grace notes, voltas, slurs, text, layout. Saving back to MuseScore is described above.
+
 ## Import only
 
-| Format          | Extension        | What is read                                                                                                                                                                                                                      |
-| --------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MuseScore 3 / 4 | `.mscx`, `.mscz` | Parts, staves, up to four voices, notes, chords, rests, dots, tuplets, ties, dynamics, the first verse of lyrics, repeats, time and key signatures, tempo. Not yet: grace notes, voltas, slurs, text, layout                      |
-| Capella         | `.capx`          | Read by alphaTab. alphaTab 1.8.4 failed on every file with a note (it measures a chord before adding it to its voice); `src/lib/score/alphatab-fixes.ts` works around it. Repeat counts are only read from Capella's draw objects |
-| alphaTex        | `.atex`          | Everything alphaTab reads                                                                                                                                                                                                         |
+| Format  | Extension | What is read                                                                                                                                                                                                                                                                                              |
+| ------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Capella | `.capx`   | Read by alphaTab. alphaTab 1.8.4 failed on every file with a note (it measures a chord before adding it to its voice); `src/lib/score/alphatab-fixes.ts` works around it. Repeat counts are only read from Capella's draw objects. There is no writer: no specification, and nothing to check one against |
 
 ## Not supported yet (needs a format specification)
 

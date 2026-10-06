@@ -114,6 +114,54 @@ test.describe("saving and exporting (#15, #16)", () => {
     await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
   });
 
+  for (const [extension, product] of [
+    ["gp4", "Guitar Pro 4"],
+    ["gp3", "Guitar Pro 3"],
+  ] as const) {
+    test(`saves ${product}, lists what the format cannot keep and opens the file again`, async ({
+      app,
+    }) => {
+      await openSong(app);
+      const path = `/Users/me/Music/old.${extension}`;
+      await app.evaluate((p) => (window.__saveResult = p), path);
+      await emitMenuAction(app, "save-as");
+      await expect.poll(() => written(app, path)).toBeGreaterThan(500);
+      await expect(app.getByText(/was saved with limits/).first()).toBeVisible();
+      await expect(
+        app.getByText(new RegExp(`${product} has no keyboard staff`)).first(),
+      ).toBeVisible();
+
+      await app.evaluate((p) => (window.__dialogResult = p), path);
+      await emitMenuAction(app, "open");
+      await waitForScore(app);
+      await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
+      await app.getByRole("combobox", { name: "Track" }).click();
+      await expect(app.getByRole("option")).toHaveCount(4);
+      await app.keyboard.press("Escape");
+    });
+  }
+
+  for (const extension of ["mscz", "mscx"] as const) {
+    test(`saves MuseScore (.${extension}), lists what it does not carry and opens the file again`, async ({
+      app,
+    }) => {
+      await openSong(app);
+      const path = `/Users/me/Music/mine.${extension}`;
+      await app.evaluate((p) => (window.__saveResult = p), path);
+      await emitMenuAction(app, "save-as");
+      await expect.poll(() => written(app, path)).toBeGreaterThan(500);
+      await expect(app.getByText(/was saved with limits/).first()).toBeVisible();
+
+      await app.evaluate((p) => (window.__dialogResult = p), path);
+      await emitMenuAction(app, "open");
+      await waitForScore(app);
+      await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
+      await app.getByRole("combobox", { name: "Track" }).click();
+      await expect(app.getByRole("option")).toHaveCount(4);
+      await app.keyboard.press("Escape");
+    });
+  }
+
   test("exports MusicXML, MIDI and ASCII tab, and opens the MIDI and MusicXML files again", async ({
     app,
   }) => {
@@ -144,6 +192,34 @@ test.describe("saving and exporting (#15, #16)", () => {
     await emitMenuAction(app, "open");
     await waitForScore(app);
     await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
+  });
+
+  test("exports alphaTex and compressed MusicXML, and opens both files again", async ({ app }) => {
+    await openSong(app);
+    for (const [action, path] of [
+      ["export-alphatex", "/Users/me/Music/out.atex"],
+      ["export-musicxml", "/Users/me/Music/out.mxl"],
+    ] as const) {
+      await app.evaluate((p) => (window.__saveResult = p), path);
+      await emitMenuAction(app, action);
+      await expect.poll(() => written(app, path)).toBeGreaterThan(100);
+    }
+    // The .mxl name is kept, and the file is a ZIP archive.
+    expect(await written(app, "/Users/me/Music/out.mxl.musicxml")).toBe(0);
+    const zip = await app.evaluate(() =>
+      Array.from(window.__written.get("/Users/me/Music/out.mxl")!.slice(0, 2)),
+    );
+    expect(zip).toEqual([0x50, 0x4b]);
+
+    for (const path of ["/Users/me/Music/out.atex", "/Users/me/Music/out.mxl"]) {
+      await app.evaluate((p) => (window.__dialogResult = p), path);
+      await emitMenuAction(app, "open");
+      await waitForScore(app);
+      await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
+      await app.getByRole("combobox", { name: "Track" }).click();
+      await expect(app.getByRole("option")).toHaveCount(4);
+      await app.keyboard.press("Escape");
+    }
   });
 
   for (const colorScheme of ["light", "dark"] as const) {

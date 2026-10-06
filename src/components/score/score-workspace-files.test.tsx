@@ -17,7 +17,7 @@ import { FakeScorePlayer } from "@/test/fake-score-player";
 import { renderWithProviders } from "@/test/render";
 import { trackAction } from "@/test/track-actions";
 import { fixtureBytes } from "@/test/score";
-import { backend, emitMenuAction, mockTauri } from "@/test/tauri";
+import { APP_INFO, backend, emitMenuAction, mockTauri } from "@/test/tauri";
 
 vi.mock("@/lib/score/player", async () => ({
   ScorePlayer: (await import("@/test/fake-score-player")).FakeScorePlayer,
@@ -111,6 +111,10 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
         filters: [
           { name: "Guitar Pro 7 (Smart Beat native)", extensions: ["gp"] },
           { name: "Guitar Pro 5", extensions: ["gp5"] },
+          { name: "Guitar Pro 4", extensions: ["gp4"] },
+          { name: "Guitar Pro 3", extensions: ["gp3"] },
+          { name: "MuseScore", extensions: ["mscz"] },
+          { name: "MuseScore, uncompressed", extensions: ["mscx"] },
         ],
       },
     });
@@ -170,6 +174,57 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     await menu("save-as");
     await waitFor(() => expect(backend.written.has("/songs/mine.GP5")).toBe(true));
     expect(text(bytesOf("/songs/mine.GP5").slice(1, 25))).toBe("FICHIER GUITAR PRO v5.00");
+  });
+
+  it("saves as Guitar Pro 4 or 3 when that file type is chosen, and lists what they cannot keep", async () => {
+    await setup();
+    backend.saveResult = "/songs/mine.gp4";
+    await menu("save-as");
+    await waitFor(() => expect(backend.written.has("/songs/mine.gp4")).toBe(true));
+    expect(text(bytesOf("/songs/mine.gp4").slice(1, 25))).toBe("FICHIER GUITAR PRO v4.06");
+    expect((await screen.findAllByText("“mine.gp4” was saved with limits")).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText(/Guitar Pro 4 has no keyboard staff/).length).toBeGreaterThan(0);
+
+    backend.saveResult = "/songs/mine.gp3";
+    await menu("save-as");
+    await waitFor(() => expect(backend.written.has("/songs/mine.gp3")).toBe(true));
+    expect(text(bytesOf("/songs/mine.gp3").slice(1, 25))).toBe("FICHIER GUITAR PRO v3.00");
+    expect(parseScore(bytesOf("/songs/mine.gp3")).score.tracks).toHaveLength(4);
+  });
+
+  it("saves as MuseScore (.mscz and .mscx) and lists what MuseScore files do not carry", async () => {
+    await setup();
+    backend.saveResult = "/songs/mine.mscz";
+    await menu("save-as");
+    await waitFor(() => expect(backend.written.has("/songs/mine.mscz")).toBe(true));
+    expect(isZip(bytesOf("/songs/mine.mscz"))).toBe(true);
+    expect(
+      (await screen.findAllByText("“mine.mscz” was saved with limits")).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Tablature is saved as standard notation/).length).toBeGreaterThan(
+      0,
+    );
+
+    backend.saveResult = "/songs/mine.mscx";
+    await menu("save-as");
+    await waitFor(() => expect(backend.written.has("/songs/mine.mscx")).toBe(true));
+    expect(text(bytesOf("/songs/mine.mscx"))).toContain("<museScore");
+  });
+
+  it("does not save over a Guitar Pro 4 file it was opened from, but asks (the writer is checked with alphaTab only)", async () => {
+    const { onSaved } = await setup({ path: "/songs/old.gp4" });
+    backend.saveResult = "/songs/old.gp4";
+
+    await menu("save");
+
+    // Save As is asked for, and the song is saved as the file the user picked.
+    await waitFor(() => expect(backend.written.has("/songs/old.gp4")).toBe(true));
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ path: "/songs/old.gp4" }));
+    expect((await screen.findAllByText("“old.gp4” was saved with limits")).length).toBeGreaterThan(
+      0,
+    );
   });
 
   it("does nothing when the Save dialog is cancelled", async () => {
@@ -239,6 +294,53 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     expect((await screen.findAllByText(/tab.*left out|has no strings/)).length).toBeGreaterThan(0);
   });
 
+  it("exports alphaTex from the File menu and from the native menu", async () => {
+    const { user, onSaved } = await setup();
+    backend.saveResult = "/out/song";
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "alphaTex…" }));
+    await waitFor(() => expect(backend.written.has("/out/song.atex")).toBe(true));
+    expect(text(bytesOf("/out/song.atex"))).toContain('\\title "Practice Song"');
+
+    backend.saveResult = "/out/native.atex";
+    await menu("export-alphatex");
+    await waitFor(() => expect(backend.written.has("/out/native.atex")).toBe(true));
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("exports compressed MusicXML when the file name ends in .mxl", async () => {
+    const { calls } = await setup();
+    backend.saveResult = "/out/song.mxl";
+    await menu("export-musicxml");
+    await waitFor(() => expect(backend.written.has("/out/song.mxl")).toBe(true));
+    expect(isZip(bytesOf("/out/song.mxl"))).toBe(true);
+    // The name is kept: no ".musicxml" is added.
+    expect(backend.written.has("/out/song.mxl.musicxml")).toBe(false);
+    const dialog = calls.find((c) => c.cmd === "plugin:dialog|save")!;
+    expect(dialog.args).toMatchObject({
+      options: {
+        title: "Export MusicXML (.musicxml)",
+        filters: [
+          { name: "MusicXML", extensions: ["musicxml"] },
+          { name: "Compressed MusicXML", extensions: ["mxl"] },
+        ],
+      },
+    });
+
+    // Plain MusicXML as before.
+    backend.saveResult = "/out/plain.musicxml";
+    await menu("export-musicxml");
+    await waitFor(() => expect(backend.written.has("/out/plain.musicxml")).toBe(true));
+    expect(text(bytesOf("/out/plain.musicxml"))).toContain("<score-partwise");
+  });
+
+  it("adds .musicxml when the name has another extension", async () => {
+    await setup();
+    backend.saveResult = "/out/song.xml";
+    await menu("export-musicxml");
+    await waitFor(() => expect(backend.written.has("/out/song.xml.musicxml")).toBe(true));
+  });
+
   it("exports the mix as a WAV file, named after the song, with progress", async () => {
     const { user, player, onSaved } = await setup();
     backend.saveResult = "/out/mix";
@@ -254,6 +356,82 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     expect(player.renderAudio).toHaveBeenCalledOnce();
     expect(onSaved).not.toHaveBeenCalled(); // the song's file is unchanged
     expect((await screen.findAllByText("Exported “mix.wav”")).length).toBeGreaterThan(0);
+  });
+
+  it("exports the mix as an M4A file through the system encoder", async () => {
+    const { user, player, onSaved, calls } = await setup();
+    backend.saveResult = "/out/mix";
+
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (M4A)…" }));
+
+    await waitFor(() => expect(backend.written.has("/out/mix.m4a")).toBe(true));
+    // The WAV the song rendered goes to the encoder (the mock keeps it as it is).
+    const sent = bytesOf("/out/mix.m4a");
+    expect(text(sent.slice(0, 4))).toBe("RIFF");
+    expect(calls.map((c) => c.cmd)).toContain("export_m4a");
+    expect(calls.map((c) => c.cmd)).not.toContain("write_score_file");
+    const dialog = calls.find((c) => c.cmd === "plugin:dialog|save")!;
+    expect(dialog.args).toMatchObject({
+      options: {
+        title: "Export audio",
+        filters: [{ name: "M4A audio (AAC)", extensions: ["m4a"] }],
+      },
+    });
+    expect(player.renderAudio).toHaveBeenCalledOnce();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect((await screen.findAllByText("Exported “mix.m4a”")).length).toBeGreaterThan(0);
+  });
+
+  it("exports M4A from the native menu too", async () => {
+    await setup();
+    backend.saveResult = "/out/native.m4a";
+    await menu("export-audio-m4a");
+    await waitFor(() => expect(backend.written.has("/out/native.m4a")).toBe(true));
+  });
+
+  it("offers M4A only where the desktop app can encode it", async () => {
+    const { user } = await setup();
+    mockTauri({ app_info: () => ({ ...APP_INFO, os: "windows" }) });
+    // A new window of the same app on Windows: no M4A item.
+    const song = await makeSong();
+    renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} onSaved={vi.fn()} />);
+    FakeScorePlayer.last.becomeReady();
+    const fileButtons = screen.getAllByRole("button", { name: "File" });
+    await user.click(fileButtons[fileButtons.length - 1]!);
+    await screen.findByRole("menuitem", { name: "Audio (WAV)…" });
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: "Audio (M4A)…" })).toBeNull(),
+    );
+  });
+
+  it("does not offer M4A in a plain browser", async () => {
+    const { user } = await setup({ desktop: false });
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await screen.findByRole("menuitem", { name: "Audio (WAV)…" });
+    expect(screen.queryByRole("menuitem", { name: "Audio (M4A)…" })).not.toBeInTheDocument();
+  });
+
+  it("reports an encoder that failed", async () => {
+    mockTauri({
+      export_m4a: () => {
+        throw { kind: "audio", message: "The system's AAC encoder could not start: disk full" };
+      },
+    });
+    const song = await makeSong();
+    renderWithProviders(
+      <>
+        <ScoreWorkspace song={song} onOpen={vi.fn()} onSaved={vi.fn()} />
+        <Toaster />
+      </>,
+    );
+    FakeScorePlayer.last.becomeReady();
+    backend.saveResult = "/out/mix.m4a";
+
+    await menu("export-audio-m4a");
+
+    expect((await screen.findAllByText("Couldn't export the audio")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/AAC encoder could not start/).length).toBeGreaterThan(0);
   });
 
   it("starts the WAV export's Save dialog next to the song, and does nothing when cancelled", async () => {

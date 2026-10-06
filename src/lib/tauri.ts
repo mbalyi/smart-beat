@@ -20,8 +20,10 @@ export type MenuAction =
   | "save-as"
   | "export-musicxml"
   | "export-midi"
+  | "export-alphatex"
   | "export-ascii-tab"
   | "export-audio"
+  | "export-audio-m4a"
   | "print"
   | "close-window"
   | "quit"
@@ -104,6 +106,7 @@ export const SCORE_EXTENSIONS = [
   "mid",
   "midi",
   "musicxml",
+  "mxl",
   "xml",
   "mscx",
   "mscz",
@@ -116,7 +119,21 @@ export const SCORE_EXTENSIONS = [
 export const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "oga", "aif", "aiff"] as const;
 
 /** Mirrors `WRITE_EXTENSIONS` in `src-tauri/src/score_write.rs`. */
-export const SAVE_EXTENSIONS = ["gp", "gp5", "mid", "midi", "musicxml", "txt", "wav"] as const;
+export const SAVE_EXTENSIONS = [
+  "gp",
+  "gp5",
+  "gp4",
+  "gp3",
+  "mid",
+  "midi",
+  "musicxml",
+  "mxl",
+  "mscx",
+  "mscz",
+  "atex",
+  "txt",
+  "wav",
+] as const;
 
 /** Mirrors `ErrorKind` in `src-tauri/src/error.rs`. */
 export type CommandErrorKind =
@@ -385,7 +402,7 @@ export async function pickScoreFile(): Promise<string | null> {
     filters: [
       { name: "Songs", extensions: [...SCORE_EXTENSIONS] },
       { name: "Guitar Pro files", extensions: ["gp3", "gp4", "gp5", "gpx", "gp"] },
-      { name: "MusicXML files", extensions: ["musicxml", "xml"] },
+      { name: "MusicXML files", extensions: ["musicxml", "mxl", "xml"] },
       { name: "MIDI files", extensions: ["mid", "midi"] },
       { name: "MuseScore files", extensions: ["mscx", "mscz"] },
       { name: "Text tab and alphaTex", extensions: ["txt", "atex"] },
@@ -421,6 +438,19 @@ export async function writeScoreFile(path: string, bytes: Uint8Array): Promise<v
     headers: { path: encodeURIComponent(path) },
   });
 }
+
+/**
+ * Encodes rendered audio (the bytes of a 16-bit WAV file) as AAC and writes it
+ * to the `.m4a` file `path`, with the operating system's own encoder. Rejects
+ * with a {@link CommandError}; only macOS has one so far (see {@link canExportM4a}).
+ */
+export async function writeM4aFile(path: string, wav: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  await invoke<void>("export_m4a", wav, { headers: { path: encodeURIComponent(path) } });
+}
+
+/** Whether this platform can export `.m4a` files (mirrors `m4a::SUPPORTED` in `src-tauri/src/m4a.rs`). */
+export const canExportM4a = ({ os }: Pick<AppInfo, "os">) => os === "macos";
 
 /** The recently opened songs, most recent first. Empty in a browser. */
 export async function loadRecentFiles(): Promise<string[]> {

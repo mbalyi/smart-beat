@@ -1,0 +1,70 @@
+# Checks by hand
+
+What the automated tests cannot do: they run in a browser engine without a sound card, and the only program that reads our files back is alphaTab or Smart Beat's own importers. These checks need your ears, your hardware or another program. Tick a box here (or in [issue #50](https://github.com/mbalyi/smart-beat/issues/50)) when you have done it, and write down what you found.
+
+The build to test is the one installed in `/Applications/Smart Beat.app`. Open a song with a clear pulse (a drum or bass part helps) before each check.
+
+## Sound and timing (needs real devices)
+
+### 1. The cursor follows the sound
+
+Headless WebKit reports `baseLatency` 2.7 ms and `outputLatency` 0 ms, so the cursor offset can only be judged in the desktop app.
+
+For **each output**: the built-in speakers, wired headphones and a Bluetooth speaker or headphones. For **each engine**: Inspector › "Native engine with effects" off (alphaTab's synthesizer), then on.
+
+1. Play from the first bar at 100 % speed.
+2. Listen to a note that lands on the first beat of a bar and watch the cursor. It should reach the note when you hear it.
+3. If the cursor is early (typical for Bluetooth), raise Inspector › Sync offset (ms) until it lines up; if late, lower it. Write the value that works for each output.
+
+Expected: no offset needed on the built-in speakers and wired headphones; a Bluetooth output needs a positive offset, and the value stays after closing and reopening the song.
+
+### 2. The native audio engine
+
+With "Native engine with effects" on:
+
+- start, pause and stop with the Play button and with Space;
+- click a bar to seek, also while playing;
+- loop a few bars (drag across them in the score, then Loop);
+- change the speed (50 %, 75 %, 125 %), check the pitch does not change;
+- switch the Metronome and the Count-in on and off (the count-in plays a bar of clicks, then the song and the cursor start together);
+- add an effect chain on a guitar track (the pedalboard) and listen to it; mute, solo and change the volume of a track;
+- import your own amp capture (`.nam`) and cabinet impulse response (`.wav`) from the sound library and use them in a chain.
+
+Expected: no clicks, dropouts or stuck notes; stopping is immediate; the sound after seeking and looping comes from the right place.
+
+### 3. The right drum for every drum number
+
+[drum-midi-support.md](drum-midi-support.md) says which numbers sound, not whether the sample is the right instrument. Judge by ear:
+
+1. Open a song with a drum track and the drum kit picker (the virtual drumkit under the tab) or the pads.
+2. For every number in the table, play it and ask: is that the instrument the name says (kick, snare, hi-hat open, ride bell…)?
+3. Write down the numbers that are wrong or missing under "By ear" in `drum-midi-support.md`, for each bundled SoundFont (Sonivox and FluidR3).
+
+## Printing
+
+### 4. Print and Save as PDF in the macOS window
+
+WebKit may ignore the `@page` paper size. Check with a song of several tracks and with a larger notation size:
+
+1. File › Print / PDF…, choose the tracks and the size, then Print.
+2. In the macOS print panel, choose PDF › Save as PDF.
+3. Open the PDF: paper size (A4 or Letter as chosen), margins, no cut-off bars, every chosen track present.
+
+## Files we write
+
+### 5. Open Smart Beat's files in the real programs
+
+Save a song (try `practice-song.gp` from `e2e/fixtures`, and a song of your own that is not a commercial transcription) with File › Save As in every format below, and open each file in the program named. The "saved with limits" message after saving lists what the format cannot hold: check that exactly that is missing, and that the rest sounds and looks the same.
+
+| File            | Open it in                           | Look for                                                                                                                                    |
+| --------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.gp5`          | Guitar Pro 5 (also TuxGuitar)        | tempo names, repeats and endings, drums on the right drum lines, lyrics, chords                                                             |
+| `.gp4`          | Guitar Pro 4 (also TuxGuitar)        | the same, plus the single triplet feel and the numbered endings                                                                             |
+| `.gp3`          | Guitar Pro 3 (also TuxGuitar)        | the same; no lyrics, fewer effects                                                                                                          |
+| `.gp`           | Guitar Pro 7 or 8                    | everything; the mix                                                                                                                         |
+| `.mscz` `.mscx` | MuseScore 3 and MuseScore 4          | opens without an error; notes, ties, tuplets, dynamics, lyrics, repeats, tempo; the guitar is standard notation; the drums use the drum set |
+| `.mxl`          | MuseScore, or any MusicXML reader    | opens; same notes                                                                                                                           |
+| `.atex`         | alphaTab's playground (alphatab.net) | renders the same song                                                                                                                       |
+| `.m4a`          | QuickTime Player, Music, a phone     | plays; length matches the song; no clipping                                                                                                 |
+
+Write down which version of each program you used.

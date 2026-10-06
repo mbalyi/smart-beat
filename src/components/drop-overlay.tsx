@@ -18,8 +18,8 @@ export function DropOverlay({ visible }: { visible: boolean }) {
         <FileMusicIcon className="size-10 text-primary" />
         <p className="font-heading text-lg font-semibold">Drop a song to open it</p>
         <p className="text-sm text-muted-foreground">
-          Guitar Pro (.gp3–.gp), MusicXML, MIDI, MuseScore (.mscx, .mscz), alphaTex (.atex), Capella
-          (.capx) or text tab (.txt)
+          Guitar Pro (.gp3–.gp), MusicXML (.musicxml, .mxl), MIDI, MuseScore (.mscx, .mscz),
+          alphaTex (.atex), Capella (.capx) or text tab (.txt)
         </p>
       </div>
     </div>

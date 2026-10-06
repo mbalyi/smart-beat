@@ -3,6 +3,7 @@
 pub mod audio;
 mod commands;
 pub mod error;
+pub mod m4a;
 pub mod menu;
 pub mod menu_state;
 pub mod mixer;
@@ -50,6 +51,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::menu_shortcuts,
             commands::read_score_file,
             commands::write_score_file,
+            commands::export_m4a,
             commands::load_mixer_settings,
             commands::save_mixer_settings,
             commands::read_project_settings,

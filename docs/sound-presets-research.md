@@ -50,15 +50,15 @@ These need plugin hosting (VST3 or CLAP, out of process, opt-in), which is a lat
 
 ## 4. Not allowed (copyleft, and our code is closed)
 
-| Project                                                                 | Licence                                                                               |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [Chow BYOD](https://github.com/Chowdhury-DSP/BYOD), ChowTapeModel       | GPL-3                                                                                 |
-| Guitarix, Kapitonov KPP                                                 | GPL                                                                                   |
-| [dm-TubeScreamer](https://github.com/davemollen/dm-TubeScreamer) (Rust) | GPL-3                                                                                 |
-| [AmpForge](https://github.com/Loursy/AmpForge)                          | GPL-3                                                                                 |
-| Schrammel OJD                                                           | GPL-3                                                                                 |
-| LSP plugins, Calf                                                       | LGPL (only as separate, unmodified, dynamically loaded binaries, which we do not use) |
-| lamejs, LAME, shine (MP3 encoders)                                      | LGPL. This is why MP3 export is deferred (#17)                                        |
+| Project                                                                 | Licence                                                                                                                                                              |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Chow BYOD](https://github.com/Chowdhury-DSP/BYOD), ChowTapeModel       | GPL-3                                                                                                                                                                |
+| Guitarix, Kapitonov KPP                                                 | GPL                                                                                                                                                                  |
+| [dm-TubeScreamer](https://github.com/davemollen/dm-TubeScreamer) (Rust) | GPL-3                                                                                                                                                                |
+| [AmpForge](https://github.com/Loursy/AmpForge)                          | GPL-3                                                                                                                                                                |
+| Schrammel OJD                                                           | GPL-3                                                                                                                                                                |
+| LSP plugins, Calf                                                       | LGPL (only as separate, unmodified, dynamically loaded binaries, which we do not use)                                                                                |
+| lamejs, LAME, shine (MP3 encoders)                                      | LGPL. MP3 export is not offered: M4A (AAC) comes from the operating system's encoder instead, see [file-formats.md](file-formats.md#audio-export-wav-m4a) (#17, #50) |
 
 We may read such projects' documentation and listen to them as references. We never copy their code (ADR 0001).
 

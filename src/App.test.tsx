@@ -359,7 +359,7 @@ describe("App", () => {
     const click = vi.spyOn(input, "click");
     expect(input).toHaveAttribute(
       "accept",
-      ".gp3,.gp4,.gp5,.gpx,.gp,.mid,.midi,.musicxml,.xml,.mscx,.mscz,.atex,.capx,.txt",
+      ".gp3,.gp4,.gp5,.gpx,.gp,.mid,.midi,.musicxml,.mxl,.xml,.mscx,.mscz,.atex,.capx,.txt",
     );
 
     await user.click(screen.getByRole("button", { name: "Open a file…" }));

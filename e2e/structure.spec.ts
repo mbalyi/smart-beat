@@ -20,9 +20,10 @@ const STRUCTURE_SONG = "/Users/me/Music/structure-song.gp";
 test.describe("song structure (#11)", () => {
   test("opens a song with sections, repeats and jumps, and plays it in order", async ({ app }) => {
     await openSong(app, STRUCTURE_SONG);
+    // alphaTab draws a long score in pieces: wait until the last one (the Coda) is there.
+    await expect.poll(() => scoreText(app)).toContain("D.S. al Coda");
     const text = await scoreText(app);
     for (const section of ["Intro", "Verse", "Coda"]) expect(text).toContain(section);
-    expect(text).toContain("D.S. al Coda");
     // 1 2 1 3 4 5 6 4 5 7: nine bars of 2.4 s at 100 BPM, and the Coda at 150 BPM.
     await expect(app.getByRole("timer")).toHaveText("0:00 / 0:23");
   });

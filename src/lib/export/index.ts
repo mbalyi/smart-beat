@@ -3,16 +3,30 @@
  * bytes of a file, plus what could not be saved exactly.
  */
 import { withMix } from "@/lib/export/mix";
+import { writeAlphaTex } from "@/lib/export/alphatex";
 import { writeAsciiTab } from "@/lib/export/ascii-tab";
-import { writeGp5 } from "@/lib/export/gp5/writer";
+import { writeGp3, writeGp4, writeGp5 } from "@/lib/export/gp/writer";
 import { writeGp7 } from "@/lib/export/gp7";
 import { writeMidi } from "@/lib/export/midi";
 import { writeMusicXml } from "@/lib/export/musicxml";
+import { writeMscx, writeMscz } from "@/lib/export/musescore";
+import { writeMxl } from "@/lib/export/mxl";
 import type { Score } from "@/lib/score/model";
 import type { MixerSettings } from "@/lib/tauri";
 import { withoutDrumTabs } from "@/lib/score/drum-tab";
 
-export type ExportFormat = "gp" | "gp5" | "musicxml" | "midi" | "ascii-tab";
+export type ExportFormat =
+  | "gp"
+  | "gp5"
+  | "gp4"
+  | "gp3"
+  | "mscz"
+  | "mscx"
+  | "musicxml"
+  | "mxl"
+  | "midi"
+  | "atex"
+  | "ascii-tab";
 
 export interface FormatInfo {
   label: string;
@@ -35,17 +49,53 @@ export const FORMATS: Record<ExportFormat, FormatInfo> = {
     mime: "application/octet-stream",
     filter: "Guitar Pro 5",
   },
+  gp4: {
+    label: "Guitar Pro 4 (.gp4)",
+    extension: "gp4",
+    mime: "application/octet-stream",
+    filter: "Guitar Pro 4",
+  },
+  gp3: {
+    label: "Guitar Pro 3 (.gp3)",
+    extension: "gp3",
+    mime: "application/octet-stream",
+    filter: "Guitar Pro 3",
+  },
+  mscz: {
+    label: "MuseScore (.mscz)",
+    extension: "mscz",
+    mime: "application/x-musescore+xml",
+    filter: "MuseScore",
+  },
+  mscx: {
+    label: "MuseScore, uncompressed (.mscx)",
+    extension: "mscx",
+    mime: "application/x-musescore+xml",
+    filter: "MuseScore, uncompressed",
+  },
   musicxml: {
     label: "MusicXML (.musicxml)",
     extension: "musicxml",
     mime: "application/vnd.recordare.musicxml+xml",
     filter: "MusicXML",
   },
+  mxl: {
+    label: "Compressed MusicXML (.mxl)",
+    extension: "mxl",
+    mime: "application/vnd.recordare.musicxml",
+    filter: "Compressed MusicXML",
+  },
   midi: {
     label: "MIDI (.mid)",
     extension: "mid",
     mime: "audio/midi",
     filter: "MIDI",
+  },
+  atex: {
+    label: "alphaTex (.atex)",
+    extension: "atex",
+    mime: "text/plain",
+    filter: "alphaTex",
   },
   "ascii-tab": {
     label: "ASCII tab (.txt)",
@@ -89,10 +139,22 @@ function buildFile(score: Score, format: ExportFormat, mix: MixerSettings | null
         return { bytes: writeGp7(score), warnings: [] };
       case "gp5":
         return writeGp5(score);
+      case "gp4":
+        return writeGp4(score);
+      case "gp3":
+        return writeGp3(score);
+      case "mscz":
+        return writeMscz(score);
+      case "mscx":
+        return writeMscx(score);
       case "midi":
         return { bytes: writeMidi(score), warnings: [] };
       case "musicxml":
         return { bytes: textEncoder.encode(writeMusicXml(score)), warnings: [] };
+      case "mxl":
+        return { bytes: writeMxl(score), warnings: [] };
+      case "atex":
+        return { bytes: textEncoder.encode(writeAlphaTex(score)), warnings: [] };
       case "ascii-tab": {
         const { text, warnings } = writeAsciiTab(score);
         return { bytes: textEncoder.encode(text), warnings };

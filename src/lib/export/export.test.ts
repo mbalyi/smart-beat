@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { exportScore, formatFromName } from "@/lib/export";
+import { listZip, readZipEntry } from "@/lib/import/zip";
 import { parseScore } from "@/lib/score/score";
 import { mixFromScore } from "@/lib/score/mixer";
 import { texScore } from "@/test/playback";
@@ -18,14 +19,38 @@ const TAB = String.raw`
   :8 5.3 5.3 x.2 7.1 :4 (3.6 5.5 5.4) r
 `;
 
+/**
+ * The music of two scores is the same: pitches, rhythm and bar structure (tab
+ * positions come with the pitches). alphaTab reads an "x" note head from
+ * MusicXML as a normal note, so dead notes are not compared.
+ */
+function expectSameMusic(again: ReturnType<typeof texScore>, score: ReturnType<typeof texScore>) {
+  const music = (shot: ReturnType<typeof shotOf>) =>
+    JSON.parse(
+      JSON.stringify(
+        shot.tracks[0]!.bars.map((b) => b.voices),
+        (key, value: unknown) => (key === "dead" ? undefined : value),
+      ),
+    ) as unknown;
+  const original = shotOf(score, { pitchOnly: [0] });
+  const back = shotOf(again, { pitchOnly: [0] });
+  expect(music(back)).toEqual(music(original));
+  expect(back.bars.map((b) => b.time)).toEqual(original.bars.map((b) => b.time));
+  expect(back.bars[0]!.tempo).toBe(120);
+}
+
 describe("export formats", () => {
   it("finds the format of a file name", () => {
     expect(formatFromName("song.gp5")).toBe("gp5");
+    expect(formatFromName("song.GP4")).toBe("gp4");
+    expect(formatFromName("song.gp3")).toBe("gp3");
     expect(formatFromName("Song.MID")).toBe("midi");
     expect(formatFromName("song.midi")).toBe("midi");
     expect(formatFromName("song.musicxml")).toBe("musicxml");
     expect(formatFromName("song.txt")).toBe("ascii-tab");
     expect(formatFromName("song.gp")).toBe("gp");
+    expect(formatFromName("song.MXL")).toBe("mxl");
+    expect(formatFromName("song.atex")).toBe("atex");
     expect(formatFromName("song.exe")).toBeNull();
     expect(formatFromName("song")).toBeNull();
   });
@@ -91,20 +116,31 @@ describe("export formats", () => {
     expect(xml).toContain("<score-partwise");
     expect(xml).toContain("<work-title>Tab Test</work-title>");
     expect(xml).toContain("<string>6</string>"); // alphaTab string 1 (low E) is MusicXML string 6
+    expectSameMusic(parseScore(bytes).score, score);
+  });
+
+  it("writes compressed MusicXML: a ZIP naming the score in its container", async () => {
+    const score = texScore(TAB);
+    const { bytes, warnings } = exportScore(score, "mxl");
+    expect(warnings).toEqual([]);
+    const entries = listZip(bytes);
+    expect(entries.map((e) => e.name)).toEqual(["META-INF/container.xml", "score.xml"]);
+    const container = new TextDecoder().decode(await readZipEntry(bytes, entries[0]!));
+    expect(container).toContain('full-path="score.xml"');
+    const xml = new TextDecoder().decode(await readZipEntry(bytes, entries[1]!));
+    expect(xml).toContain("<score-partwise");
+    // The same music as the uncompressed file, read back by alphaTab.
+    expectSameMusic(parseScore(bytes).score, score);
+  });
+
+  it("writes alphaTex that opens as the same song", () => {
+    const score = texScore(TAB);
+    const { bytes, warnings } = exportScore(score, "atex");
+    expect(warnings).toEqual([]);
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toContain('\\title "Tab Test"');
+    expect(text).toContain('\\artist "Nobody"');
     const again = parseScore(bytes).score;
-    // Pitches, rhythm and bar structure survive (tab positions come with the pitches).
-    // (alphaTab reads an "x" note head as a normal note, so dead notes are not compared.)
-    const music = (shot: ReturnType<typeof shotOf>) =>
-      JSON.parse(
-        JSON.stringify(
-          shot.tracks[0]!.bars.map((b) => b.voices),
-          (key, value: unknown) => (key === "dead" ? undefined : value),
-        ),
-      ) as unknown;
-    const original = shotOf(score, { pitchOnly: [0] });
-    const back = shotOf(again, { pitchOnly: [0] });
-    expect(music(back)).toEqual(music(original));
-    expect(back.bars.map((b) => b.time)).toEqual(original.bars.map((b) => b.time));
-    expect(back.bars[0]!.tempo).toBe(120);
+    expect(shotOf(again)).toEqual(shotOf(score));
   });
 });

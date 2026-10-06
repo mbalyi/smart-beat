@@ -6,7 +6,7 @@
  */
 import { importer, Settings, type model } from "@coderline/alphatab";
 
-import { writeGp5 } from "@/lib/export/gp5/writer";
+import { writeGp5 } from "@/lib/export/gp/writer";
 import { setDrumLine } from "@/lib/score/drum-lines";
 import { setSourceEncoding } from "@/lib/score/encoding";
 import { drumNumber, refinish } from "@/lib/score/model";

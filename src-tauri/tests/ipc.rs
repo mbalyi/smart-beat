@@ -617,6 +617,16 @@ fn write_request(
     path: &str,
     bytes: Vec<u8>,
 ) -> Result<InvokeResponseBody, Value> {
+    raw_request(window, "write_score_file", path, bytes)
+}
+
+/// Calls a command that takes a raw body and a URL-encoded `path` header.
+fn raw_request(
+    window: &WebviewWindow<MockRuntime>,
+    cmd: &str,
+    path: &str,
+    bytes: Vec<u8>,
+) -> Result<InvokeResponseBody, Value> {
     let url = if cfg!(windows) {
         "http://tauri.localhost"
     } else {
@@ -627,7 +637,7 @@ fn write_request(
     get_ipc_response(
         window,
         InvokeRequest {
-            cmd: "write_score_file".into(),
+            cmd: cmd.into(),
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: url.parse().unwrap(),
@@ -677,6 +687,65 @@ fn write_score_file_reports_structured_errors() {
     assert_eq!(missing["kind"], "not-found");
     let json_body = invoke_with(&window, "write_score_file", json!({})).unwrap_err();
     assert_eq!(json_body["kind"], "io");
+}
+
+/// A short 16-bit stereo WAV file with some sound in it.
+fn wav_bytes() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 44_100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::new(std::io::Cursor::new(&mut bytes), spec).unwrap();
+        for frame in 0..22_050 {
+            let value = (f64::from(frame) * 0.06).sin() * 12_000.0;
+            writer.write_sample(value as i16).unwrap();
+            writer.write_sample(value as i16).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+    bytes
+}
+
+#[test]
+fn export_m4a_writes_an_aac_file_where_the_system_has_an_encoder() {
+    let app = app();
+    let window = main_window(&app);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("my mix é.m4a");
+
+    let result = raw_request(&window, "export_m4a", &encode(&path), wav_bytes());
+
+    if cfg!(target_os = "macos") {
+        result.expect("export failed");
+        assert_eq!(&std::fs::read(&path).unwrap()[4..8], b"ftyp");
+    } else {
+        // No system encoder wired in yet: a clear error, and no file.
+        assert_eq!(result.unwrap_err()["kind"], "audio");
+        assert!(!path.exists());
+    }
+}
+
+#[test]
+fn export_m4a_reports_structured_errors() {
+    let app = app();
+    let window = main_window(&app);
+    let dir = tempfile::tempdir().unwrap();
+
+    let bad_type = raw_request(
+        &window,
+        "export_m4a",
+        &encode(&dir.path().join("mix.wav")),
+        wav_bytes(),
+    )
+    .unwrap_err();
+    assert_eq!(bad_type["kind"], "unsupported-type");
+    let no_path = invoke_with(&window, "export_m4a", json!({})).unwrap_err();
+    assert_eq!(no_path["kind"], "io");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
 /// An app whose sound library lives in `dir`.
