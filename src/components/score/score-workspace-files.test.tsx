@@ -111,6 +111,8 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
         filters: [
           { name: "Guitar Pro 7 (Smart Beat native)", extensions: ["gp"] },
           { name: "Guitar Pro 5", extensions: ["gp5"] },
+          { name: "Guitar Pro 4", extensions: ["gp4"] },
+          { name: "Guitar Pro 3", extensions: ["gp3"] },
         ],
       },
     });
@@ -170,6 +172,38 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     await menu("save-as");
     await waitFor(() => expect(backend.written.has("/songs/mine.GP5")).toBe(true));
     expect(text(bytesOf("/songs/mine.GP5").slice(1, 25))).toBe("FICHIER GUITAR PRO v5.00");
+  });
+
+  it("saves as Guitar Pro 4 or 3 when that file type is chosen, and lists what they cannot keep", async () => {
+    await setup();
+    backend.saveResult = "/songs/mine.gp4";
+    await menu("save-as");
+    await waitFor(() => expect(backend.written.has("/songs/mine.gp4")).toBe(true));
+    expect(text(bytesOf("/songs/mine.gp4").slice(1, 25))).toBe("FICHIER GUITAR PRO v4.06");
+    expect((await screen.findAllByText("“mine.gp4” was saved with limits")).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText(/Guitar Pro 4 has no keyboard staff/).length).toBeGreaterThan(0);
+
+    backend.saveResult = "/songs/mine.gp3";
+    await menu("save-as");
+    await waitFor(() => expect(backend.written.has("/songs/mine.gp3")).toBe(true));
+    expect(text(bytesOf("/songs/mine.gp3").slice(1, 25))).toBe("FICHIER GUITAR PRO v3.00");
+    expect(parseScore(bytesOf("/songs/mine.gp3")).score.tracks).toHaveLength(4);
+  });
+
+  it("does not save over a Guitar Pro 4 file it was opened from, but asks (the writer is checked with alphaTab only)", async () => {
+    const { onSaved } = await setup({ path: "/songs/old.gp4" });
+    backend.saveResult = "/songs/old.gp4";
+
+    await menu("save");
+
+    // Save As is asked for, and the song is saved as the file the user picked.
+    await waitFor(() => expect(backend.written.has("/songs/old.gp4")).toBe(true));
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ path: "/songs/old.gp4" }));
+    expect((await screen.findAllByText("“old.gp4” was saved with limits")).length).toBeGreaterThan(
+      0,
+    );
   });
 
   it("does nothing when the Save dialog is cancelled", async () => {

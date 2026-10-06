@@ -32,7 +32,7 @@ Guitar Pro and alphaTab ignore entries they do not know, so the file opens every
 
 ## Guitar Pro 5 (`.gp5`)
 
-The writer (`src/lib/export/gp5/writer.ts`) produces version 5.00 files. Everything Guitar Pro 5 has is saved: notes, rests, dots, tuplets, ties, bends, slides, harmonics, trills, tremolo picking, grace notes, vibrato, palm mute, let ring, hammer-ons and pull-offs, dynamics, accents, brushes, pick strokes, text, chords, lyrics (one track), repeats, alternate endings, sections, jumps (Coda, Segno, D.C., D.S.), key and time signatures, tempo changes, tunings, capos and each track's sound and mix.
+The writer (`src/lib/export/gp/writer.ts`) produces version 5.00 files. Everything Guitar Pro 5 has is saved: notes, rests, dots, tuplets, ties, bends, slides, harmonics, trills, tremolo picking, grace notes, vibrato, palm mute, let ring, hammer-ons and pull-offs, dynamics, accents, brushes, pick strokes, text, chords, lyrics (one track), repeats, alternate endings, sections, jumps (Coda, Segno, D.C., D.S.), key and time signatures, tempo changes, tunings, capos and each track's sound and mix.
 
 What Guitar Pro 5 cannot hold is reported after saving ("saved with limits"):
 

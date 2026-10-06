@@ -42,6 +42,8 @@ function expectSameMusic(again: ReturnType<typeof texScore>, score: ReturnType<t
 describe("export formats", () => {
   it("finds the format of a file name", () => {
     expect(formatFromName("song.gp5")).toBe("gp5");
+    expect(formatFromName("song.GP4")).toBe("gp4");
+    expect(formatFromName("song.gp3")).toBe("gp3");
     expect(formatFromName("Song.MID")).toBe("midi");
     expect(formatFromName("song.midi")).toBe("midi");
     expect(formatFromName("song.musicxml")).toBe("musicxml");

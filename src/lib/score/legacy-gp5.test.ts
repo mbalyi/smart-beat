@@ -1,4 +1,4 @@
-import { writeGp5 } from "@/lib/export/gp5/writer";
+import { writeGp5 } from "@/lib/export/gp/writer";
 import { applyDrumLines, collectDrumLines, drumLine } from "@/lib/score/drum-lines";
 import { placeDrums } from "@/lib/score/drum-tab";
 import { encodeText, sourceEncoding } from "@/lib/score/encoding";

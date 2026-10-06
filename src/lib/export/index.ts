@@ -5,7 +5,7 @@
 import { withMix } from "@/lib/export/mix";
 import { writeAlphaTex } from "@/lib/export/alphatex";
 import { writeAsciiTab } from "@/lib/export/ascii-tab";
-import { writeGp5 } from "@/lib/export/gp5/writer";
+import { writeGp3, writeGp4, writeGp5 } from "@/lib/export/gp/writer";
 import { writeGp7 } from "@/lib/export/gp7";
 import { writeMidi } from "@/lib/export/midi";
 import { writeMusicXml } from "@/lib/export/musicxml";
@@ -14,7 +14,8 @@ import type { Score } from "@/lib/score/model";
 import type { MixerSettings } from "@/lib/tauri";
 import { withoutDrumTabs } from "@/lib/score/drum-tab";
 
-export type ExportFormat = "gp" | "gp5" | "musicxml" | "mxl" | "midi" | "atex" | "ascii-tab";
+export type ExportFormat =
+  "gp" | "gp5" | "gp4" | "gp3" | "musicxml" | "mxl" | "midi" | "atex" | "ascii-tab";
 
 export interface FormatInfo {
   label: string;
@@ -36,6 +37,18 @@ export const FORMATS: Record<ExportFormat, FormatInfo> = {
     extension: "gp5",
     mime: "application/octet-stream",
     filter: "Guitar Pro 5",
+  },
+  gp4: {
+    label: "Guitar Pro 4 (.gp4)",
+    extension: "gp4",
+    mime: "application/octet-stream",
+    filter: "Guitar Pro 4",
+  },
+  gp3: {
+    label: "Guitar Pro 3 (.gp3)",
+    extension: "gp3",
+    mime: "application/octet-stream",
+    filter: "Guitar Pro 3",
   },
   musicxml: {
     label: "MusicXML (.musicxml)",
@@ -103,6 +116,10 @@ function buildFile(score: Score, format: ExportFormat, mix: MixerSettings | null
         return { bytes: writeGp7(score), warnings: [] };
       case "gp5":
         return writeGp5(score);
+      case "gp4":
+        return writeGp4(score);
+      case "gp3":
+        return writeGp3(score);
       case "midi":
         return { bytes: writeMidi(score), warnings: [] };
       case "musicxml":
