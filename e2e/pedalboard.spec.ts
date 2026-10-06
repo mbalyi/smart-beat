@@ -1,4 +1,11 @@
-import { expect, expectNoA11yViolations, openSong, playedSeconds, test } from "./fixtures";
+import {
+  dropFiles,
+  expect,
+  expectNoA11yViolations,
+  openSong,
+  playedSeconds,
+  test,
+} from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
 /**
@@ -118,6 +125,108 @@ test.describe("pedalboard (#36)", () => {
     await expect(library.getByText("Mesa 4×12", { exact: true })).toBeVisible();
     await library.getByRole("button", { name: "Remove Mesa 4×12" }).click();
     await expect(library.getByText("Mesa 4×12", { exact: true })).toHaveCount(0);
+  });
+
+  test("imports an amp capture and a cabinet, then drags them onto the board (#41)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    const dialog = await openPedalboard(app);
+    await dialog.getByRole("button", { name: "Sounds…" }).click();
+    const library = app.getByRole("dialog", { name: "Sound library" });
+    await app.evaluate(() => (window.__dialogResult = "/captures/Plexi crunch.nam"));
+    await library.getByRole("button", { name: "Import .nam…" }).click();
+    await expect(library.getByText("Plexi crunch", { exact: true })).toBeVisible();
+    await app.evaluate(() => (window.__dialogResult = "/irs/Greenback.wav"));
+    await library.getByRole("button", { name: "Import .wav…" }).click();
+    await expect(library.getByText("Greenback", { exact: true })).toBeVisible();
+    // Tags, then the filter.
+    await library.getByRole("button", { name: "Rename Greenback" }).click();
+    await library.getByRole("textbox", { name: "Tags of Greenback" }).fill("rock, vintage");
+    await library.getByRole("button", { name: "Save the name and tags" }).click();
+    await library.getByRole("button", { name: "vintage" }).click();
+    await expect(library.getByTestId("library-item")).toHaveCount(1);
+    await library.getByRole("button", { name: "vintage" }).click();
+    await expectNoA11yViolations(app);
+    await library.getByRole("button", { name: "Done" }).click();
+
+    // Both are in "My sounds" now: drag them onto the board.
+    const mine = dialog.getByRole("list", { name: "Your amps and cabinets" });
+    await mine
+      .getByTestId("library-asset")
+      .filter({ hasText: "Plexi crunch" })
+      .dragTo(dialog.getByTestId("pedalboard"));
+    await mine
+      .getByTestId("library-asset")
+      .filter({ hasText: "Greenback" })
+      .dragTo(dialog.getByTestId("pedalboard"));
+    await expect(dialog.getByTestId("effect-block")).toHaveCount(2);
+    // (A pedal dropped on the middle of the board may land before another.)
+    await expect(dialog.getByRole("listitem", { name: /^Amp \(capture\) \d/ })).toBeVisible();
+    await expect(dialog.getByRole("listitem", { name: /^Cabinet \d/ })).toBeVisible();
+    // The capture is selected in its block, and loudness matching is a switch.
+    await expect(dialog.getByRole("combobox", { name: "Amp or pedal capture" })).toContainText(
+      "Plexi crunch",
+    );
+    const matching = dialog.getByRole("switch", { name: /Amp \(capture\) \d: Match loudness/ });
+    await matching.click();
+    await expect(matching).toBeChecked();
+    await expectNoA11yViolations(app);
+  });
+
+  test("a broken or wrong file gives a clear error and adds nothing (#41)", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("button", { name: "Pedalboard…" }).click();
+    await app.getByRole("button", { name: "Sounds…" }).click();
+    const library = app.getByRole("dialog", { name: "Sound library" });
+    const before = await library.getByTestId("library-item").count();
+    await app.evaluate(() => (window.__dialogResult = "/captures/broken.nam"));
+    await library.getByRole("button", { name: "Import .nam…" }).click();
+    await expect(app.getByText("The file could not be imported")).toBeVisible();
+    await expect(app.getByText(/not a Neural Amp Modeler file/)).toBeVisible();
+    // A WAV file given to the capture importer.
+    await app.evaluate(() => (window.__dialogResult = "/irs/cab.wav"));
+    await library.getByRole("button", { name: "Import .nam…" }).click();
+    await expect(app.getByText("This is not a Neural Amp Modeler (.nam) file")).toBeVisible();
+    await expect(library.getByTestId("library-item")).toHaveCount(before);
+    // A long impulse response imports, with a note about it.
+    await app.evaluate(() => (window.__dialogResult = "/irs/Big hall.wav"));
+    await library.getByRole("button", { name: "Import .wav…" }).click();
+    await expect(library.getByText(/Only the first 1.4 s/)).toBeVisible();
+  });
+
+  test("dropping a .nam file on the window imports it into the library (#41)", async ({ app }) => {
+    await openSong(app);
+    await dropFiles(app, ["/captures/Dropped amp.nam"]);
+    await expect(app.getByText("Imported “Dropped amp”")).toBeVisible();
+    await app.getByRole("button", { name: "Pedalboard…" }).click();
+    const dialog = app.getByRole("dialog", { name: "Pedalboard: Guitar" });
+    await expect(
+      dialog.getByRole("list", { name: "Your amps and cabinets" }).getByText("Dropped amp"),
+    ).toBeVisible();
+  });
+
+  test("the sound library and the pedalboard with imported sounds pass the accessibility checks in dark mode (#41)", async ({
+    app,
+  }) => {
+    await app.emulateMedia({ colorScheme: "dark" });
+    await openSong(app);
+    const dialog = await openPedalboard(app);
+    await dialog.getByRole("button", { name: "Sounds…" }).click();
+    const library = app.getByRole("dialog", { name: "Sound library" });
+    await app.evaluate(() => (window.__dialogResult = "/captures/Plexi crunch.nam"));
+    await library.getByRole("button", { name: "Import .nam…" }).click();
+    await app.evaluate(() => (window.__dialogResult = "/irs/Big hall.wav"));
+    await library.getByRole("button", { name: "Import .wav…" }).click();
+    await library.getByRole("button", { name: "Rename Plexi crunch" }).click();
+    await library.getByRole("textbox", { name: "Tags of Plexi crunch" }).fill("metal");
+    await library.getByRole("button", { name: "Save the name and tags" }).click();
+    await expect(library.getByRole("group", { name: "Filter by tag" })).toBeVisible();
+    await expect(library.getByText(/Only the first 1.4 s/)).toBeVisible();
+    await expectNoA11yViolations(app);
+    await library.getByRole("button", { name: "Done" }).click();
+    await expect(dialog.getByTestId("library-asset").first()).toBeVisible();
+    await expectNoA11yViolations(app);
   });
 
   test("the pedalboard passes the accessibility checks in dark mode", async ({ app }) => {

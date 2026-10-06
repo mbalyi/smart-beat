@@ -1,4 +1,11 @@
-import { emitMenuAction, expect, expectNoA11yViolations, openSong, test } from "./fixtures";
+import {
+  dropFiles,
+  emitMenuAction,
+  expect,
+  expectNoA11yViolations,
+  openSong,
+  test,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
 
 /**
@@ -19,6 +26,18 @@ async function addRecording(app: Page, file = "/Users/me/Music/take.mp3") {
 }
 
 test.describe("audio track (#38)", () => {
+  // Regression (found while testing #41): any dropped file was opened as a
+  // song, so a recording dropped on an open song was never added.
+  test("a recording dropped on the window becomes the audio track", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("switch", { name: "Native engine with effects" }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+    await dropFiles(app, ["/Users/me/Music/take.mp3"]);
+    const editor = app.getByRole("region", { name: "Audio track" });
+    await expect(editor.getByTestId("audio-waveform")).toBeVisible();
+    await expect(app.getByText(/is not a Guitar Pro file/)).toHaveCount(0);
+  });
+
   test("adds a recording, shows its waveform and mixes it", async ({ app }) => {
     const editor = await addRecording(app);
     await expect(editor.getByText(/take\.mp3 · 0:04\.00/)).toBeVisible();

@@ -630,6 +630,11 @@ export function ScoreWorkspace({
         },
         onLoopRestart: () => dispatchPractice({ type: "loop-completed" }),
         onEffectProblems: setEffectProblems,
+        onEngineFault: () =>
+          toast.error("A sound stopped working", {
+            description:
+              "Smart Beat switched all effects off so the song can go on. Remove the amp or cabinet you added last, or reopen the song.",
+          }),
         onMeters: (m) => meters.set(m),
         onOccurrences: setPlayedBars,
       },
@@ -1165,11 +1170,21 @@ export function ScoreWorkspace({
     changeMix({ type: "audio-track", value: next });
     await loadRecording(next);
   };
+  /**
+   * A file dropped on the window: a capture is always for the sound library; a
+   * WAV is a cabinet while the library is open, and the song's audio track
+   * otherwise.
+   */
+  const routeDroppedFile = (path: string) => {
+    if (/\.nam$/i.test(path)) void library.importPath(path, "amp");
+    else if (libraryOpen && /\.wav$/i.test(path)) void library.importPath(path, "cab");
+    else void addAudioTrack(path);
+  };
   const lastDrop = useRef<number | null>(null);
   useEffect(() => {
     if (!droppedAudio || droppedAudio.nonce === lastDrop.current) return;
     lastDrop.current = droppedAudio.nonce;
-    void addAudioTrack(droppedAudio.path);
+    routeDroppedFile(droppedAudio.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [droppedAudio]);
 

@@ -16,6 +16,7 @@ import { useRecentFiles } from "@/hooks/use-recent-files";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
 import { errorText } from "@/lib/errors";
+import { hasScoreExtension } from "@/lib/score/errors";
 import { baseName } from "@/lib/score/format";
 import {
   AUDIO_EXTENSIONS,
@@ -127,14 +128,20 @@ export function App() {
   const [droppedAudio, setDroppedAudio] = useState<{ path: string; nonce: number } | null>(null);
   const dragging = useFileDrop({
     onDropPaths: (paths) => {
-      const path = firstScoreFile(paths, baseName);
-      if (path) {
-        void openPath(path);
+      const score = paths.find((p) => hasScoreExtension(baseName(p)));
+      if (score) {
+        void openPath(score);
         return;
       }
-      // An mp3, wav… dropped on an open song becomes its audio track.
-      const audio = paths.find((p) => isAudioFile(p));
-      if (audio && song) setDroppedAudio((d) => ({ path: audio, nonce: (d?.nonce ?? 0) + 1 }));
+      // An mp3, wav… dropped on an open song becomes its audio track; an amp
+      // capture (.nam) goes to the sound library (the workspace decides).
+      const sound = song ? paths.find((p) => isAudioFile(p) || /\.nam$/i.test(p)) : undefined;
+      if (sound) {
+        setDroppedAudio((d) => ({ path: sound, nonce: (d?.nonce ?? 0) + 1 }));
+        return;
+      }
+      // Anything else: opening it reports why it is not a song.
+      if (paths[0]) void openPath(paths[0]);
     },
     onDropFiles: (files) => {
       const file = firstScoreFile(files, (f) => f.name);

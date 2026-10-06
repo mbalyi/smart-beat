@@ -1034,6 +1034,35 @@ impl Engine {
         }
     }
 
+    /// Switches every effect chain off (after a block panicked), so the song
+    /// can go on dry instead of the whole engine going silent for good.
+    pub fn quarantine(&mut self) {
+        for bus in &mut self.tracks {
+            for sound in &mut bus.sounds {
+                sound.bypass();
+            }
+        }
+        self.master.bypass();
+    }
+
+    /// [`Engine::render`] for the audio callback: a panic inside (a broken
+    /// effect, an unexpected capture) is caught instead of killing the audio
+    /// thread. The buffer is silent, playback stops and every chain is
+    /// bypassed. Returns false when that happened.
+    pub fn render_guarded(&mut self, left: &mut [f32], right: &mut [f32]) -> bool {
+        let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.render(left, right);
+        }));
+        if rendered.is_ok() {
+            return true;
+        }
+        self.quarantine();
+        self.playing = false;
+        left.fill(0.0);
+        right.fill(0.0);
+        false
+    }
+
     /// Peak levels since the last call (then resets them).
     pub fn take_meters(&mut self) -> Meters {
         let tracks = self

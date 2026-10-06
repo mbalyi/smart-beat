@@ -43,6 +43,7 @@ import {
   EFFECT_DESCRIPTIONS,
   EFFECT_LABELS,
   formatParam,
+  insertAsset,
   insertEffect,
   MAX_MASTER_EFFECTS,
   MAX_TRACK_EFFECTS,
@@ -86,8 +87,14 @@ import { cn } from "@/lib/utils";
 const formatFreq = (hz: number) => (hz >= 1000 ? `${hz / 1000} kHz` : `${hz} Hz`);
 const formatGain = (db: number) => `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
 
-/** What is being dragged: a new effect from the library, or a pedal of the board. */
-type Dragged = { kind: "new"; type: EffectType } | { kind: "move"; from: number };
+/**
+ * What is being dragged: a new effect from the library, an amp or cabinet
+ * from the user's sound library, or a pedal of the board.
+ */
+type Dragged =
+  | { kind: "new"; type: EffectType }
+  | { kind: "asset"; asset: { kind: AssetKind; id: string } }
+  | { kind: "move"; from: number };
 
 function LibrarySelect({
   kind,
@@ -548,6 +555,8 @@ export function PedalboardDialog({
   const problemOf = (index: number) => problems.find((p) => p.index === index)?.message;
   const presets = presetsFor(target.presetTarget, genre === "all" ? null : genre);
   const ownPresets = songPresets.filter((p) => p.target === target.presetTarget);
+  // The user's own amps and cabinets, and the generated cabinets, to drag onto the board.
+  const mySounds = library.filter((item) => item.kind === "amp" || item.kind === "cab");
   const libraryTypes =
     category === "all"
       ? EFFECT_CATEGORIES.flatMap((c) => c.types)
@@ -581,11 +590,19 @@ export function PedalboardDialog({
     onChange(insertEffect(chain, type, at, limit));
     setSelected(Math.min(at, chain.length));
   };
+  const addAsset = (asset: { kind: AssetKind; id: string }, at = chain.length) => {
+    if (full) return;
+    onChange(insertAsset(chain, asset, at, limit));
+    setSelected(Math.min(at, chain.length));
+  };
 
   const startDrag = (event: DragEvent, item: Dragged) => {
     dragged.current = item;
     setDragging(item);
-    event.dataTransfer?.setData("text/plain", item.kind === "new" ? item.type : `#${item.from}`);
+    event.dataTransfer?.setData(
+      "text/plain",
+      item.kind === "new" ? item.type : item.kind === "asset" ? item.asset.id : `#${item.from}`,
+    );
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
   };
   const endDrag = () => {
@@ -598,6 +615,7 @@ export function PedalboardDialog({
     event.preventDefault();
     const item = dragged.current;
     if (item?.kind === "new") add(item.type, index);
+    else if (item?.kind === "asset") addAsset(item.asset, index);
     else if (item?.kind === "move") move(item.from, item.from < index ? index - 1 : index);
     endDrag();
   };
@@ -822,6 +840,54 @@ export function PedalboardDialog({
                   Sounds…
                 </Button>
               </div>
+              <h4 className="text-xs font-semibold tracking-wide uppercase">My sounds</h4>
+              {mySounds.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Import amp captures (.nam) and cabinets (.wav) with Sounds…, then drag them here.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-1" aria-label="Your amps and cabinets">
+                  {mySounds.map((item) => {
+                    const asset = { kind: item.kind, id: item.id };
+                    const label = `${item.kind === "amp" ? "amp" : "cabinet"} ${item.name}`;
+                    return (
+                      // Dragging is a mouse shortcut; the Add button does the same.
+                      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+                      <li
+                        key={item.id}
+                        draggable={!full}
+                        onDragStart={(e) => startDrag(e, { kind: "asset", asset })}
+                        onDragEnd={endDrag}
+                        data-testid="library-asset"
+                        className={cn(
+                          "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
+                          !full && "cursor-grab",
+                        )}
+                        title={item.tags.length > 0 ? item.tags.join(", ") : undefined}
+                      >
+                        <GripVerticalIcon
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {item.kind === "amp" ? "Amp" : "Cab"}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          disabled={full}
+                          aria-label={`Add ${label}`}
+                          onClick={() => addAsset(asset)}
+                        >
+                          <PlusIcon />
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <h4 className="mt-1 text-xs font-semibold tracking-wide uppercase">Effects</h4>
               <Select value={category} onValueChange={setCategory}>
                 <SelectTrigger size="sm" aria-label="Effect category" className="w-full">
                   <SelectValue />

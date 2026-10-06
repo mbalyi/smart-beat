@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use smart_beat_lib::audio::chain::{Chain, EffectConfig, EffectSlot, MAX_TRACK_EFFECTS, NoAssets};
+use smart_beat_lib::audio::dsp::Effect;
 use smart_beat_lib::audio::dsp::compressor::CompressorParams;
 use smart_beat_lib::audio::dsp::drive::DriveParams;
 use smart_beat_lib::audio::dsp::eq::graphic_bands;
@@ -658,4 +659,69 @@ fn pausing_or_seeking_cancels_the_count_in() {
     engine.start_count_in(4, 0.5);
     engine.seek(1.0);
     assert!(!engine.is_active());
+}
+
+/// An effect that crashes, like a broken capture or a bug in a block would.
+struct Crashes;
+
+impl Effect for Crashes {
+    fn process(&mut self, _: &mut [f32], _: &mut [f32]) {
+        panic!("test: this block always crashes");
+    }
+    fn reset(&mut self) {}
+}
+
+/// A crash inside a block must not take the audio thread (or the engine lock)
+/// with it: that buffer is silent, playback stops, every chain is switched
+/// off, and the engine can play again straight away (#41).
+#[test]
+fn a_crashing_block_is_caught_and_the_engine_recovers() {
+    let mut engine = playing_engine(|e| {
+        e.set_track_chain(0, Chain::from_effects(vec![Box::new(Crashes)]));
+    });
+    let (mut l, mut r) = (vec![0.5; 512], vec![0.5; 512]);
+    assert!(
+        !engine.render_guarded(&mut l, &mut r),
+        "the crash is reported"
+    );
+    assert!(l.iter().chain(&r).all(|s| *s == 0.0), "silent buffer");
+    assert!(!engine.is_playing(), "playback stopped");
+    // The same engine, the same song: now without the broken block.
+    engine.seek(0.0);
+    engine.play();
+    let (mut l, mut r) = (vec![0.0; 24_000], vec![0.0; 24_000]);
+    assert!(
+        engine.render_guarded(&mut l, &mut r),
+        "no crash the second time"
+    );
+    assert!(l.iter().all(|s| s.is_finite()));
+    assert!(rms(&l) > 0.001, "the song is audible again");
+}
+
+/// Eight, nine and ten string guitars reach very low pitches: the engine must
+/// sound on every key a tuning can ask for (F#1 and lower), not just on the
+/// usual guitar range (#43).
+#[test]
+fn very_low_notes_still_sound_and_stay_finite() {
+    let q = 960;
+    for key in [30u32, 28, 25, 20, 18] {
+        let mut events = vec![[0, 0xC0, 30, 0]];
+        events.push([0, 0x90, key, 110]);
+        events.push([q * 2, 0x80, key, 0]);
+        let song = Song::from_data(&SongData {
+            division: q,
+            events,
+            tempos: vec![(0, 120.0)],
+            metronome: vec![],
+            tracks: vec![vec![0]],
+            end_tick: q * 4,
+        })
+        .unwrap();
+        let mut engine = Engine::new(sonivox(), RATE);
+        engine.load(Arc::new(song)).unwrap();
+        engine.play();
+        let (l, r) = render(&mut engine, 1.0);
+        assert!(l.iter().chain(&r).all(|s| s.is_finite()), "key {key}");
+        assert!(rms(&l) > 0.0005, "key {key} is silent (rms {})", rms(&l));
+    }
 }

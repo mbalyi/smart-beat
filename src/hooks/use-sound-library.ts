@@ -43,17 +43,19 @@ export function useSoundLibrary() {
     };
   }, []);
 
-  const importFile = useCallback(
-    async (kind: AssetKind): Promise<LibraryItem | null> => {
+  /** Imports a file the user already chose (a dropped file, or the Open dialog's result). */
+  const importPath = useCallback(
+    async (path: string, kind: AssetKind): Promise<LibraryItem | null> => {
       if (!isTauri()) {
         toast.error("Importing sounds is only available in the Smart Beat desktop app.");
         return null;
       }
       try {
-        const path = await pickLibraryFile(kind);
-        if (!path) return null;
         const item = await importLibraryFile(path, kind);
-        toast.success(`Imported “${item.name}”`);
+        toast.success(
+          `Imported “${item.name}”`,
+          item.note ? { description: item.note } : undefined,
+        );
         await refresh();
         return item;
       } catch (error) {
@@ -62,6 +64,23 @@ export function useSoundLibrary() {
       }
     },
     [refresh],
+  );
+
+  const importFile = useCallback(
+    async (kind: AssetKind): Promise<LibraryItem | null> => {
+      if (!isTauri()) {
+        toast.error("Importing sounds is only available in the Smart Beat desktop app.");
+        return null;
+      }
+      try {
+        const path = await pickLibraryFile(kind);
+        return path ? await importPath(path, kind) : null;
+      } catch (error) {
+        toast.error("The file could not be imported", { description: errorText(error) });
+        return null;
+      }
+    },
+    [importPath],
   );
 
   const rename = useCallback(
@@ -88,5 +107,5 @@ export function useSoundLibrary() {
     [refresh],
   );
 
-  return { items, importFile, rename, remove };
+  return { items, importFile, importPath, rename, remove };
 }

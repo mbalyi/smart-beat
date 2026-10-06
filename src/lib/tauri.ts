@@ -631,6 +631,8 @@ export interface EngineStatus {
   playing: boolean;
   latencyMs: number;
   dropouts: number;
+  /** Times a sound crashed in the audio callback (effects were switched off, playback stopped). */
+  faults: number;
   loadPercent: number;
   meters: EngineMeters;
 }
@@ -680,6 +682,8 @@ export interface LibraryItem {
   source: string;
   builtin: boolean;
   includesCab: boolean;
+  /** Something to tell the user about this file (empty when nothing). */
+  note: string;
 }
 
 /** Sends a SoundFont (SF2 or SF3) to the native engine. */

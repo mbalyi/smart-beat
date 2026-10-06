@@ -12,6 +12,7 @@ pub mod eq;
 pub mod gate;
 pub mod limiter;
 pub mod modulation;
+pub mod resample;
 pub mod reverb;
 
 /// Smallest level treated as sound; anything below is flushed to zero so the

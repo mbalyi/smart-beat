@@ -151,6 +151,8 @@ export function songFromMidi(file: midi.MidiFile, channels: number[][]): EngineS
 export interface NativeEngineCallbacks {
   onMeters?: (meters: EngineMeters) => void;
   onStatus?: (status: EngineStatus) => void;
+  /** A sound crashed in the audio callback: the engine switched every effect off and stopped. */
+  onFault?: () => void;
   onError?: (error: Error) => void;
 }
 
@@ -466,6 +468,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
           this.output?.updatePosition(status.positionMs);
           this.callbacks.onMeters?.(status.meters);
           this.callbacks.onStatus?.(status);
+          if (status.faults > 0) this.callbacks.onFault?.();
           // The engine stopped by itself at the end of the song.
           if (wasPlaying && !status.playing) this.stopPolling();
           wasPlaying = status.playing;

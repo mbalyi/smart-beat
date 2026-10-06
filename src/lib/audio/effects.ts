@@ -119,12 +119,14 @@ export type EffectConfig =
   | ({ type: "delay" } & DelayParams)
   | ({ type: "reverb" } & ReverbParams)
   | ({ type: "limiter" } & LimiterParams)
-  | { type: "amp"; model: string; inputDb: number; outputDb: number }
+  | { type: "amp"; model: string; inputDb: number; outputDb: number; matchLoudness: boolean }
   | { type: "cab"; ir: string };
 
 export type EffectType = EffectConfig["type"];
 
 export type EffectSlot = EffectConfig & { enabled: boolean };
+type AmpBlock = Extract<EffectSlot, { type: "amp" }>;
+type CabBlock = Extract<EffectSlot, { type: "cab" }>;
 
 /** A numeric parameter as a knob shows it. */
 export interface ParamSpec {
@@ -283,6 +285,7 @@ export interface ToggleSpec {
 export const TOGGLES: Partial<Record<EffectType, ToggleSpec[]>> = {
   tremolo: [{ key: "stereo", label: "Stereo (auto-pan)" }],
   delay: [{ key: "pingPong", label: "Ping-pong" }],
+  amp: [{ key: "matchLoudness", label: "Match loudness" }],
 };
 
 export const GRAPHIC_EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const;
@@ -361,7 +364,7 @@ export function defaultEffect(type: EffectType): EffectSlot {
     case "limiter":
       return { type, enabled: true, ceilingDb: -1, releaseMs: 80, lookaheadMs: 1.5, inputDb: 0 };
     case "amp":
-      return { type, enabled: true, model: "", inputDb: 0, outputDb: 0 };
+      return { type, enabled: true, model: "", inputDb: 0, outputDb: 0, matchLoudness: false };
     case "cab":
       return { type, enabled: true, ir: "builtin:4x12-modern" };
   }
@@ -460,6 +463,26 @@ export function insertEffect(
   if (chain.length >= limit) return [...chain];
   const next = [...chain];
   next.splice(Math.max(0, Math.min(index, chain.length)), 0, defaultEffect(type));
+  return next;
+}
+
+/**
+ * Inserts a block that uses a file from the user's sound library: an amp
+ * capture (`kind` "amp") or a cabinet (`kind` "cab").
+ */
+export function insertAsset(
+  chain: readonly EffectSlot[],
+  asset: { kind: "amp" | "cab"; id: string },
+  index: number,
+  limit: number,
+): EffectSlot[] {
+  if (chain.length >= limit) return [...chain];
+  const block: EffectSlot =
+    asset.kind === "amp"
+      ? { ...(defaultEffect("amp") as AmpBlock), model: asset.id }
+      : { ...(defaultEffect("cab") as CabBlock), ir: asset.id };
+  const next = [...chain];
+  next.splice(Math.max(0, Math.min(index, chain.length)), 0, block);
   return next;
 }
 

@@ -15,6 +15,32 @@ pub mod output;
 pub mod sf3;
 pub mod song;
 
+/// Synthetic assets for the unit tests (the integration tests build their own).
+#[cfg(test)]
+pub(crate) mod test_fixtures {
+    /// A tiny but valid Neural Amp Modeler file: one WaveNet layer with eight
+    /// weights, no memory (kernel 1), so its output follows its input sample by
+    /// sample. Made up for the tests; no real capture is involved.
+    pub fn tiny_nam(sample_rate: Option<f64>, loudness: Option<f32>) -> String {
+        let rate = sample_rate.map_or(String::new(), |r| format!(r#""sample_rate": {r},"#));
+        let metadata = loudness.map_or(String::new(), |l| {
+            format!(r#""metadata": {{ "name": "Tiny test amp", "loudness": {l} }},"#)
+        });
+        format!(
+            r#"{{
+                "version": "0.5.4", "architecture": "WaveNet",
+                {rate} {metadata}
+                "config": {{ "layers": [{{
+                    "input_size": 1, "condition_size": 1, "channels": 1, "head_size": 1,
+                    "kernel_size": 1, "dilations": [1], "activation": "ReLU",
+                    "gated": false, "head_bias": false
+                }}], "head": null, "head_scale": 10.0 }},
+                "weights": [1.0, 2.0, 0.5, 1.0, 3.0, 0.1, 0.5, 10.0]
+            }}"#
+        )
+    }
+}
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -213,6 +239,9 @@ pub struct EngineStatus {
     pub latency_ms: f64,
     /// Buffers dropped since the last report.
     pub dropouts: u32,
+    /// Times a sound crashed in the audio callback since the last report: the
+    /// effects were switched off and playback stopped.
+    pub faults: u32,
     /// Peak time spent in the audio callback since the last report (% of the buffer).
     pub load_percent: f64,
     pub meters: Meters,
@@ -513,6 +542,7 @@ fn status(inner: &Inner) -> Result<EngineStatus, CommandError> {
         playing: published.playing.load(Ordering::Relaxed),
         latency_ms: published.latency_us.load(Ordering::Relaxed) as f64 / 1000.0,
         dropouts: published.dropouts.swap(0, Ordering::Relaxed),
+        faults: published.faults.swap(0, Ordering::Relaxed),
         load_percent: published.load_permille.swap(0, Ordering::Relaxed) as f64 / 10.0,
         meters,
     })
