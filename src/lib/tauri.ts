@@ -124,7 +124,6 @@ export const SAVE_EXTENSIONS = [
   "gp5",
   "gp4",
   "gp3",
-  "gpx",
   "mid",
   "midi",
   "musicxml",

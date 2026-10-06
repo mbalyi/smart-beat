@@ -14,9 +14,9 @@ use crate::error::{CommandError, ErrorKind};
 use crate::score_file::MAX_SIZE;
 
 /// File extensions Smart Beat writes. Mirrored by `SAVE_EXTENSIONS` in `src/lib/tauri.ts`.
-pub const WRITE_EXTENSIONS: [&str; 14] = [
-    "gp", "gp5", "gp4", "gp3", "gpx", "mid", "midi", "musicxml", "mxl", "mscx", "mscz", "atex",
-    "txt", "wav",
+pub const WRITE_EXTENSIONS: [&str; 13] = [
+    "gp", "gp5", "gp4", "gp3", "mid", "midi", "musicxml", "mxl", "mscx", "mscz", "atex", "txt",
+    "wav",
 ];
 
 /// Whether `path` ends in one of [`WRITE_EXTENSIONS`] (case-insensitive).
@@ -103,13 +103,13 @@ mod tests {
         assert!(has_writable_extension(Path::new("mix.WAV")));
         // Every format Smart Beat saves or exports.
         for name in [
-            "a.gp", "a.gp4", "a.gp3", "a.GPX", "a.mid", "a.midi", "a.mxl", "a.mscx", "a.MSCZ",
-            "a.atex",
+            "a.gp", "a.gp4", "a.gp3", "a.mid", "a.midi", "a.mxl", "a.mscx", "a.MSCZ", "a.atex",
         ] {
             assert!(has_writable_extension(Path::new(name)), "{name}");
         }
         assert!(!has_writable_extension(Path::new("a.sh")));
-        // Guitar Pro 6 and later `.gp` containers are not written under other names.
+        // Guitar Pro 6 (`.gpx`) is opened but not written: alphaTab's writer makes Guitar Pro 8 data.
+        assert!(!has_writable_extension(Path::new("a.gpx")));
         assert!(!has_writable_extension(Path::new("a.gp6")));
         assert!(!has_writable_extension(Path::new("a")));
     }
