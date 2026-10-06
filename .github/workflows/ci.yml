@@ -20,7 +20,9 @@ env:
 jobs:
   web:
     name: Web (lint, types, unit + integration)
-    runs-on: ubuntu-latest
+    # Self-hosted on the maintainer's Mac while the repo is private (GitHub-hosted minutes ran out).
+    # Switch back to GitHub-hosted runners (ubuntu-latest / macos-latest) when the repo goes public.
+    runs-on: ${{ fromJSON('["self-hosted","macOS","ARM64"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -59,7 +61,7 @@ jobs:
     # and two browsers sharing a 2-core runner starve each other (see
     # playwright.config.ts).
     name: Browser (${{ matrix.browser }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON('["self-hosted","macOS","ARM64"]') }}
     timeout-minutes: 50
     strategy:
       fail-fast: false
@@ -100,7 +102,7 @@ jobs:
         # started by hand (Actions > CI > Run workflow). To switch them on again, replace this
         # expression by the full list.
         include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"name":"macOS","os":"macos-latest"},{"name":"Windows","os":"windows-latest"},{"name":"Linux","os":"ubuntu-22.04"}]' || '[{"name":"macOS","os":"macos-latest"}]') }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'macos-latest' && fromJSON('["self-hosted","macOS","ARM64"]') || matrix.os }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -116,10 +118,12 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: src-tauri -> target
 
       - uses: taiki-e/install-action@v2
+        if: runner.environment == 'github-hosted'
         with:
           tool: cargo-about
 
@@ -154,7 +158,7 @@ jobs:
     # Not run automatically (pull requests and pushes): start it by hand (Actions > CI > Run
     # workflow), or run `pnpm licenses:check` locally. Remove this line to switch it on again.
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON('["self-hosted","macOS","ARM64"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7

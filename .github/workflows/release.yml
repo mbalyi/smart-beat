@@ -45,7 +45,9 @@ jobs:
         # files: they are built for release tags and when the workflow is started by hand. To build
         # them for pull requests again, replace this expression by the full list.
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"macOS (universal)","os":"macos-latest","rust-targets":"aarch64-apple-darwin,x86_64-apple-darwin","tauri-args":"--target universal-apple-darwin"}]' || '[{"name":"macOS (universal)","os":"macos-latest","rust-targets":"aarch64-apple-darwin,x86_64-apple-darwin","tauri-args":"--target universal-apple-darwin"},{"name":"Windows (x64)","os":"windows-latest","rust-targets":"","tauri-args":""},{"name":"Linux (x64)","os":"ubuntu-22.04","rust-targets":"","tauri-args":""}]') }}
-    runs-on: ${{ matrix.os }}
+    # Self-hosted on the maintainer's Mac while the repo is private (GitHub-hosted minutes ran out).
+    # Switch back to GitHub-hosted runners (ubuntu-latest / macos-latest) when the repo goes public.
+    runs-on: ${{ matrix.os == 'macos-latest' && fromJSON('["self-hosted","macOS","ARM64"]') || matrix.os }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -61,10 +63,12 @@ jobs:
           targets: ${{ matrix.rust-targets }}
 
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: src-tauri -> target
 
       - uses: taiki-e/install-action@v2
+        if: runner.environment == 'github-hosted'
         with:
           tool: cargo-about
 
