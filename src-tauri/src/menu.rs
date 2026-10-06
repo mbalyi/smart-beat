@@ -41,6 +41,7 @@ pub enum MenuAction {
     ExportAlphaTex,
     ExportAsciiTab,
     ExportAudio,
+    ExportAudioM4a,
     Print,
     CloseWindow,
     Quit,
@@ -88,7 +89,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 54] = [
+    pub const ALL: [Self; 55] = [
         Self::NewSong,
         Self::Open,
         Self::ClearRecent,
@@ -99,6 +100,7 @@ impl MenuAction {
         Self::ExportAlphaTex,
         Self::ExportAsciiTab,
         Self::ExportAudio,
+        Self::ExportAudioM4a,
         Self::Print,
         Self::CloseWindow,
         Self::Quit,
@@ -158,6 +160,7 @@ impl MenuAction {
             Self::ExportAlphaTex => "file.export-alphatex",
             Self::ExportAsciiTab => "file.export-ascii-tab",
             Self::ExportAudio => "file.export-audio",
+            Self::ExportAudioM4a => "file.export-audio-m4a",
             Self::Print => "file.print",
             Self::CloseWindow => "file.close-window",
             Self::Quit => "file.quit",
@@ -222,6 +225,7 @@ impl MenuAction {
             | Self::ExportAlphaTex
             | Self::ExportAsciiTab
             | Self::ExportAudio
+            | Self::ExportAudioM4a
             | Self::Print
             | Self::CloseWindow
             | Self::Quit => "File",
@@ -276,6 +280,7 @@ impl MenuAction {
             Self::ExportAlphaTex => "alphaTex…",
             Self::ExportAsciiTab => "ASCII Tab…",
             Self::ExportAudio => "Audio (WAV)…",
+            Self::ExportAudioM4a => "Audio (M4A)…",
             Self::Print => "Print or Save as PDF…",
             Self::CloseWindow => "Close Window",
             Self::Quit => "Quit Smart Beat",
@@ -381,6 +386,7 @@ impl MenuAction {
             | Self::ExportAlphaTex
             | Self::ExportAsciiTab
             | Self::ExportAudio
+            | Self::ExportAudioM4a
             | Self::Transpose
             | Self::FixBarDurations
             | Self::About => None,
@@ -460,6 +466,7 @@ impl MenuAction {
                 | Self::ExportAlphaTex
                 | Self::ExportAsciiTab
                 | Self::ExportAudio
+                | Self::ExportAudioM4a
                 | Self::Print
                 | Self::Transpose
                 | Self::ToggleEditMode
@@ -632,14 +639,18 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let recent = Submenu::with_id(app, RECENT_MENU_ID, "Open Recent", true)?;
     fill_recent_menu(app, &recent, &app.state::<RecentStore>().load())?;
     app.manage(RecentMenu(recent.clone()));
-    let export = SubmenuBuilder::new(app, "Export")
+    let mut export = SubmenuBuilder::new(app, "Export")
         .item(&item(app, ExportMusicXml)?)
         .item(&item(app, ExportMidi)?)
         .item(&item(app, ExportAlphaTex)?)
         .item(&item(app, ExportAsciiTab)?)
         .separator()
-        .item(&item(app, ExportAudio)?)
-        .build()?;
+        .item(&item(app, ExportAudio)?);
+    // AAC comes from the system's encoder, which only macOS has wired in so far.
+    if crate::m4a::SUPPORTED {
+        export = export.item(&item(app, ExportAudioM4a)?);
+    }
+    let export = export.build()?;
 
     let mut menu = MenuBuilder::new(app);
 
@@ -1095,6 +1106,7 @@ mod tests {
             MenuAction::ExportAlphaTex,
             MenuAction::ExportAsciiTab,
             MenuAction::ExportAudio,
+            MenuAction::ExportAudioM4a,
             MenuAction::Print,
             MenuAction::Transpose,
             MenuAction::FixBarDurations,

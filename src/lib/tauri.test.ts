@@ -21,7 +21,9 @@ import {
   saveMixerSettings,
   setNativeTheme,
   setWindowTitle,
+  writeM4aFile,
   writeScoreFile,
+  canExportM4a,
   type FileDragEvent,
   type MenuAction,
   type MixerSettings,
@@ -296,6 +298,38 @@ describe("saving files", () => {
     await expect(writeScoreFile("/a.gp", new Uint8Array())).rejects.toBeInstanceOf(
       NotInDesktopAppError,
     );
+    await expect(writeM4aFile("/a.m4a", new Uint8Array())).rejects.toBeInstanceOf(
+      NotInDesktopAppError,
+    );
+  });
+});
+
+describe("M4A export", () => {
+  it("sends the WAV as the request body and the path (URL-encoded) in a header", async () => {
+    const calls = mockTauri();
+
+    await writeM4aFile("/songs/my mix é.m4a", new Uint8Array([1, 2, 3]));
+
+    expect(calls.map((c) => c.cmd)).toEqual(["export_m4a"]);
+    expect(backend.written.get("/songs/my mix é.m4a")).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("rejects with the encoder's error", async () => {
+    mockTauri({
+      export_m4a: () => {
+        throw { kind: "audio", message: "M4A export needs macOS for now." };
+      },
+    });
+
+    await expect(writeM4aFile("/a.m4a", new Uint8Array([1]))).rejects.toMatchObject({
+      kind: "audio",
+    });
+  });
+
+  it("is offered on macOS only (where the system has an AAC encoder)", () => {
+    expect(canExportM4a({ os: "macos" })).toBe(true);
+    expect(canExportM4a({ os: "windows" })).toBe(false);
+    expect(canExportM4a({ os: "linux" })).toBe(false);
   });
 });
 

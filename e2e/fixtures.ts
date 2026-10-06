@@ -14,6 +14,7 @@ type MenuAction =
   | "export-alphatex"
   | "export-ascii-tab"
   | "export-audio"
+  | "export-audio-m4a"
   | "print"
   | "transpose"
   | "fix-bar-durations"

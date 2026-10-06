@@ -47,6 +47,7 @@ import { TrackList, type TrackActions } from "@/components/shell/track-list";
 import { WorkspaceToolbar } from "@/components/shell/workspace-toolbar";
 import { useEditorKeys } from "@/hooks/use-editor-keys";
 import { useFileActions } from "@/hooks/use-file-actions";
+import { useM4aSupport } from "@/hooks/use-m4a-support";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
@@ -481,6 +482,7 @@ export function ScoreWorkspace({
   const saved = isTauri() && song.fileKey !== null && sameTracks;
   useSavedMix(song, mix, saved);
 
+  const m4aSupported = useM4aSupport();
   const fileActions = useFileActions({
     song,
     editor,
@@ -1485,6 +1487,9 @@ export function ScoreWorkspace({
       case "export-audio":
         void fileActions.exportAudio();
         break;
+      case "export-audio-m4a":
+        void fileActions.exportAudio("m4a");
+        break;
       case "print":
         setPrintOpen(true);
         break;
@@ -1574,6 +1579,7 @@ export function ScoreWorkspace({
         onSaveAs={() => void fileActions.saveAs()}
         onExport={(format) => void fileActions.exportAs(format)}
         onExportAudio={() => void fileActions.exportAudio()}
+        onExportM4a={m4aSupported ? () => void fileActions.exportAudio("m4a") : undefined}
         onPrint={() => setPrintOpen(true)}
         encoding={
           song.encoding && onReopenWithEncoding

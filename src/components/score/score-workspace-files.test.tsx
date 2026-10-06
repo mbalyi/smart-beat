@@ -17,7 +17,7 @@ import { FakeScorePlayer } from "@/test/fake-score-player";
 import { renderWithProviders } from "@/test/render";
 import { trackAction } from "@/test/track-actions";
 import { fixtureBytes } from "@/test/score";
-import { backend, emitMenuAction, mockTauri } from "@/test/tauri";
+import { APP_INFO, backend, emitMenuAction, mockTauri } from "@/test/tauri";
 
 vi.mock("@/lib/score/player", async () => ({
   ScorePlayer: (await import("@/test/fake-score-player")).FakeScorePlayer,
@@ -301,6 +301,82 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     expect(player.renderAudio).toHaveBeenCalledOnce();
     expect(onSaved).not.toHaveBeenCalled(); // the song's file is unchanged
     expect((await screen.findAllByText("Exported “mix.wav”")).length).toBeGreaterThan(0);
+  });
+
+  it("exports the mix as an M4A file through the system encoder", async () => {
+    const { user, player, onSaved, calls } = await setup();
+    backend.saveResult = "/out/mix";
+
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (M4A)…" }));
+
+    await waitFor(() => expect(backend.written.has("/out/mix.m4a")).toBe(true));
+    // The WAV the song rendered goes to the encoder (the mock keeps it as it is).
+    const sent = bytesOf("/out/mix.m4a");
+    expect(text(sent.slice(0, 4))).toBe("RIFF");
+    expect(calls.map((c) => c.cmd)).toContain("export_m4a");
+    expect(calls.map((c) => c.cmd)).not.toContain("write_score_file");
+    const dialog = calls.find((c) => c.cmd === "plugin:dialog|save")!;
+    expect(dialog.args).toMatchObject({
+      options: {
+        title: "Export audio",
+        filters: [{ name: "M4A audio (AAC)", extensions: ["m4a"] }],
+      },
+    });
+    expect(player.renderAudio).toHaveBeenCalledOnce();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect((await screen.findAllByText("Exported “mix.m4a”")).length).toBeGreaterThan(0);
+  });
+
+  it("exports M4A from the native menu too", async () => {
+    await setup();
+    backend.saveResult = "/out/native.m4a";
+    await menu("export-audio-m4a");
+    await waitFor(() => expect(backend.written.has("/out/native.m4a")).toBe(true));
+  });
+
+  it("offers M4A only where the desktop app can encode it", async () => {
+    const { user } = await setup();
+    mockTauri({ app_info: () => ({ ...APP_INFO, os: "windows" }) });
+    // A new window of the same app on Windows: no M4A item.
+    const song = await makeSong();
+    renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} onSaved={vi.fn()} />);
+    FakeScorePlayer.last.becomeReady();
+    const fileButtons = screen.getAllByRole("button", { name: "File" });
+    await user.click(fileButtons[fileButtons.length - 1]!);
+    await screen.findByRole("menuitem", { name: "Audio (WAV)…" });
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: "Audio (M4A)…" })).toBeNull(),
+    );
+  });
+
+  it("does not offer M4A in a plain browser", async () => {
+    const { user } = await setup({ desktop: false });
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await screen.findByRole("menuitem", { name: "Audio (WAV)…" });
+    expect(screen.queryByRole("menuitem", { name: "Audio (M4A)…" })).not.toBeInTheDocument();
+  });
+
+  it("reports an encoder that failed", async () => {
+    mockTauri({
+      export_m4a: () => {
+        throw { kind: "audio", message: "The system's AAC encoder could not start: disk full" };
+      },
+    });
+    const song = await makeSong();
+    renderWithProviders(
+      <>
+        <ScoreWorkspace song={song} onOpen={vi.fn()} onSaved={vi.fn()} />
+        <Toaster />
+      </>,
+    );
+    FakeScorePlayer.last.becomeReady();
+    backend.saveResult = "/out/mix.m4a";
+
+    await menu("export-audio-m4a");
+
+    expect((await screen.findAllByText("Couldn't export the audio")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/AAC encoder could not start/).length).toBeGreaterThan(0);
   });
 
   it("starts the WAV export's Save dialog next to the song, and does nothing when cancelled", async () => {

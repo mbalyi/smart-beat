@@ -23,6 +23,7 @@ export type MenuAction =
   | "export-alphatex"
   | "export-ascii-tab"
   | "export-audio"
+  | "export-audio-m4a"
   | "print"
   | "close-window"
   | "quit"
@@ -438,6 +439,19 @@ export async function writeScoreFile(path: string, bytes: Uint8Array): Promise<v
     headers: { path: encodeURIComponent(path) },
   });
 }
+
+/**
+ * Encodes rendered audio (the bytes of a 16-bit WAV file) as AAC and writes it
+ * to the `.m4a` file `path`, with the operating system's own encoder. Rejects
+ * with a {@link CommandError}; only macOS has one so far (see {@link canExportM4a}).
+ */
+export async function writeM4aFile(path: string, wav: Uint8Array): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  await invoke<void>("export_m4a", wav, { headers: { path: encodeURIComponent(path) } });
+}
+
+/** Whether this platform can export `.m4a` files (mirrors `m4a::SUPPORTED` in `src-tauri/src/m4a.rs`). */
+export const canExportM4a = ({ os }: Pick<AppInfo, "os">) => os === "macos";
 
 /** The recently opened songs, most recent first. Empty in a browser. */
 export async function loadRecentFiles(): Promise<string[]> {

@@ -19,16 +19,27 @@ import {
   isTauri,
   pickSavePath,
   readScoreFile,
+  writeM4aFile,
   writeProjectSettings,
   writeScoreFile,
   type MixerSettings,
   type SaveFilter,
 } from "@/lib/tauri";
 
-/** The audio export: a WAV file of the mix. */
-const AUDIO_EXTENSION = "wav";
-const AUDIO_MIME = "audio/wav";
-const AUDIO_FILTER: SaveFilter = { name: "WAV audio", extensions: [AUDIO_EXTENSION] };
+/** The audio exports of the mix: a WAV file, or AAC in an `.m4a` file (made by the system's encoder). */
+export type AudioKind = "wav" | "m4a";
+const AUDIO: Record<AudioKind, { extension: string; mime: string; filter: SaveFilter }> = {
+  wav: {
+    extension: "wav",
+    mime: "audio/wav",
+    filter: { name: "WAV audio", extensions: ["wav"] },
+  },
+  m4a: {
+    extension: "m4a",
+    mime: "audio/mp4",
+    filter: { name: "M4A audio (AAC)", extensions: ["m4a"] },
+  },
+};
 
 /** Formats "Save As" offers (a song can be reopened from them). */
 const SONG_FORMATS: ExportFormat[] = ["gp", "gp5"];
@@ -40,6 +51,13 @@ const SAVE_IN_PLACE: ExportFormat[] = ["gp", "gp5"];
 const EXPORT_ALTERNATIVES: Partial<Record<ExportFormat, ExportFormat[]>> = {
   musicxml: ["mxl"],
 };
+
+/** Why an audio export can't run here (a browser has no AAC encoder to call), or null. */
+export function audioExportProblem(kind: AudioKind, desktop: boolean): string | null {
+  return kind === "m4a" && !desktop
+    ? "M4A export needs the desktop app. Export a WAV file instead."
+    : null;
+}
 
 const filterOf = (format: ExportFormat): SaveFilter => ({
   name: FORMATS[format].filter,
@@ -211,18 +229,27 @@ export function useFileActions({
       reportWarnings(`“${name}” was exported with limits`, result);
     });
 
-  /** Exports the mix as a WAV file: rendered by the synthesizer, which takes a few seconds. */
-  const exportAudio = () =>
+  /**
+   * Exports the mix as a WAV or M4A file: rendered by the synthesizer, which
+   * takes a few seconds. M4A is encoded by the desktop app (the operating
+   * system's AAC encoder), so a browser can only download WAV files.
+   */
+  const exportAudio = (kind: AudioKind = "wav") =>
     exclusive(async () => {
       if (!renderAudio) return;
-      const name = `${stem(song)}.${AUDIO_EXTENSION}`;
+      const { extension, mime, filter } = AUDIO[kind];
+      const problem = audioExportProblem(kind, isTauri());
+      if (problem) {
+        toast.error("Couldn't export the audio", { description: problem });
+        return;
+      }
+      const name = `${stem(song)}.${extension}`;
       let path: string | null = null;
       if (isTauri()) {
         const dir = song.path?.match(/^(.*[\\/])/)?.[1] ?? "";
-        path = await pickSavePath(`${dir}${name}`, [AUDIO_FILTER], "Export audio");
+        path = await pickSavePath(`${dir}${name}`, [filter], "Export audio");
         if (!path) return;
-        if (!path.toLowerCase().endsWith(`.${AUDIO_EXTENSION}`))
-          path = `${path}.${AUDIO_EXTENSION}`;
+        if (!path.toLowerCase().endsWith(`.${extension}`)) path = `${path}.${extension}`;
       }
       const toastId = toast.loading("Rendering the audio…");
       try {
@@ -230,8 +257,9 @@ export function useFileActions({
           toast.loading(`Rendering the audio… ${Math.round(fraction * 100)}%`, { id: toastId }),
         );
         const bytes = encodeWav(audio);
-        if (path) await writeScoreFile(path, bytes);
-        else download(bytes, name, AUDIO_MIME);
+        if (path && kind === "m4a") await writeM4aFile(path, bytes);
+        else if (path) await writeScoreFile(path, bytes);
+        else download(bytes, name, mime);
         toast.success(path ? `Exported “${baseName(path)}”` : `Downloaded “${name}”`, {
           id: toastId,
         });

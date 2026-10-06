@@ -30,8 +30,16 @@ nam-rs = "0.4"
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "aiff"] }
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
+# macOS: the system's AAC encoder (AVFoundation) writes `.m4a` exports (src/m4a.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDictionary", "NSError", "NSObject", "NSString", "NSURL", "NSValue"] }
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioBuffer", "AVAudioFile", "AVAudioFormat", "AVAudioSettings", "AVAudioTypes"] }
+
 [dev-dependencies]
 tauri = { version = "2.12", features = ["test"] }
+# Decodes the exported `.m4a` in the tests (the app itself only reads the formats above).
+symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
 
 [profile.release]
 codegen-units = 1

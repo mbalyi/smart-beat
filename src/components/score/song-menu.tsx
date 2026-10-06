@@ -52,6 +52,7 @@ export function FileMenu({
   onSaveAs,
   onExport,
   onExportAudio,
+  onExportM4a,
   onPrint,
   encoding,
 }: {
@@ -61,6 +62,8 @@ export function FileMenu({
   onExport: (format: ExportFormat) => void;
   /** Renders the mix to a WAV file. */
   onExportAudio: () => void;
+  /** Renders the mix to an M4A file (only where the desktop app can: macOS). */
+  onExportM4a?: () => void;
   /** Opens the print dialog (which also saves a PDF). */
   onPrint: () => void;
 }) {
@@ -91,6 +94,7 @@ export function FileMenu({
             </DropdownMenuItem>
           ))}
           <DropdownMenuItem onSelect={onExportAudio}>Audio (WAV)…</DropdownMenuItem>
+          {onExportM4a && <DropdownMenuItem onSelect={onExportM4a}>Audio (M4A)…</DropdownMenuItem>}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onPrint}>

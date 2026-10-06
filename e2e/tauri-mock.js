@@ -158,6 +158,8 @@
       case "clear_recent_files":
         window.__recent = [];
         return window.__recent;
+      // `export_m4a` encodes the WAV it is sent as AAC; the mock keeps the WAV.
+      case "export_m4a":
       case "write_score_file": {
         // The bytes are the raw body; the URI-encoded path travels in a header.
         const path = decodeURIComponent(options?.headers?.path ?? "");

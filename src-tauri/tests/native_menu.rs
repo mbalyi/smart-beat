@@ -36,8 +36,13 @@ fn enabled(menu: &Menu<MockRuntime>, action: MenuAction) -> bool {
     }
 }
 
+/// Whether this platform's menu has the item (the M4A export needs the system encoder macOS has).
+fn in_menu(action: &MenuAction) -> bool {
+    *action != MenuAction::ExportAudioM4a || smart_beat_lib::m4a::SUPPORTED
+}
+
 fn every_custom_item_is_in_the_menu(menu: &Menu<MockRuntime>) {
-    for action in MenuAction::ALL {
+    for action in MenuAction::ALL.into_iter().filter(in_menu) {
         let native_mac_item = cfg!(target_os = "macos")
             && matches!(action, MenuAction::CloseWindow | MenuAction::Quit);
         if native_mac_item {
@@ -53,7 +58,10 @@ fn every_custom_item_is_in_the_menu(menu: &Menu<MockRuntime>) {
 }
 
 fn song_items_start_disabled(menu: &Menu<MockRuntime>) {
-    for action in MenuAction::ALL.into_iter().filter(|a| a.needs_song()) {
+    for action in MenuAction::ALL
+        .into_iter()
+        .filter(|a| a.needs_song() && in_menu(a))
+    {
         assert!(!enabled(menu, action), "{action:?} enabled without a song");
     }
     assert!(enabled(menu, MenuAction::Open));

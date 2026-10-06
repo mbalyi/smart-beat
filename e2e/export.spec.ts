@@ -54,6 +54,44 @@ test.describe("audio export (#17)", () => {
     await expect(app.getByText("Exported “mix.wav”").first()).toBeVisible();
   });
 
+  test("renders the same song to an M4A file through the system encoder", async ({ app }) => {
+    await openSong(app); // 12 seconds long
+    await app.evaluate(() => (window.__saveResult = "/Users/me/Music/mix"));
+
+    await app.getByRole("button", { name: "File" }).click();
+    await app.getByRole("menuitem", { name: "Audio (M4A)…" }).click();
+
+    // The mock keeps the WAV that the real command turns into AAC.
+    await expect
+      .poll(
+        () => app.evaluate(() => window.__written.get("/Users/me/Music/mix.m4a")?.length ?? 0),
+        { timeout: 60_000 },
+      )
+      .toBeGreaterThan(1_000_000);
+    const sent = await app.evaluate(() => {
+      const bytes = window.__written.get("/Users/me/Music/mix.m4a")!;
+      return {
+        riff: String.fromCharCode(...bytes.slice(0, 4)),
+        commands: window.__ipcCalls.map((c) => c.cmd),
+      };
+    });
+    expect(sent.riff).toBe("RIFF");
+    expect(sent.commands).toContain("export_m4a");
+    await expect(app.getByText("Exported “mix.m4a”").first()).toBeVisible();
+  });
+
+  test("the native menu action exports M4A too", async ({ app }) => {
+    await openSong(app);
+    await app.evaluate(() => (window.__saveResult = "/Users/me/Music/native.m4a"));
+    await emitMenuAction(app, "export-audio-m4a");
+    await expect
+      .poll(
+        () => app.evaluate(() => window.__written.get("/Users/me/Music/native.m4a")?.length ?? 0),
+        { timeout: 60_000 },
+      )
+      .toBeGreaterThan(1_000_000);
+  });
+
   test("a muted track is left out of the export", async ({ app }) => {
     await openSong(app);
     const peak = async (path: string) => {

@@ -9,6 +9,7 @@ use tauri::{AppHandle, PackageInfo, Runtime, State};
 
 use crate::audio::AudioState;
 use crate::error::{CommandError, ErrorKind};
+use crate::m4a;
 use crate::menu::{self, Shortcut};
 use crate::menu_state::{self, MenuState, MenuStateStore};
 use crate::mixer::{FileKey, MixerSettings, MixerStore};
@@ -65,6 +66,23 @@ pub fn read_score_file(path: PathBuf) -> Result<Response, CommandError> {
 /// serialized as JSON arrays.
 #[tauri::command(async)]
 pub fn write_score_file(request: tauri::ipc::Request<'_>) -> Result<(), CommandError> {
+    let (path, bytes) = destination_and_body(&request)?;
+    score_write::write(Path::new(&path), bytes)
+}
+
+/// Exports audio as AAC: the request body is the rendered 16-bit WAV file and
+/// the `path` header the `.m4a` file to write, as for [`write_score_file`].
+/// The system's own encoder does the work (macOS only for now).
+#[tauri::command(async)]
+pub fn export_m4a(request: tauri::ipc::Request<'_>) -> Result<(), CommandError> {
+    let (path, bytes) = destination_and_body(&request)?;
+    m4a::encode(bytes, Path::new(&path))
+}
+
+/// The URL-decoded `path` header and the raw body of a file-writing request.
+fn destination_and_body<'a>(
+    request: &'a tauri::ipc::Request<'_>,
+) -> Result<(String, &'a [u8]), CommandError> {
     let invalid = |message: &str| CommandError::new(ErrorKind::Io, message);
     let header = request
         .headers()
@@ -75,7 +93,7 @@ pub fn write_score_file(request: tauri::ipc::Request<'_>) -> Result<(), CommandE
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err(invalid("The file content is missing."));
     };
-    score_write::write(Path::new(&path), bytes)
+    Ok((path, bytes))
 }
 
 /// Decodes `encodeURIComponent` output.

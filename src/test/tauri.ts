@@ -144,6 +144,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         case "clear_recent_files":
           backend.recent = [];
           return backend.recent;
+        // `export_m4a` encodes the WAV it is sent as AAC; the mock keeps the WAV.
+        case "export_m4a":
         case "write_score_file": {
           // Raw body (bytes) plus the URI-encoded destination in a header.
           const path = decodeURIComponent(lastOptions?.headers?.path ?? "");
