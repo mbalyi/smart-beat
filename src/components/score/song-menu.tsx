@@ -42,6 +42,7 @@ export interface EncodingMenu {
 const EXPORTS: { format: ExportFormat; label: string }[] = [
   { format: "musicxml", label: "MusicXML…" },
   { format: "midi", label: "MIDI…" },
+  { format: "atex", label: "alphaTex…" },
   { format: "ascii-tab", label: "ASCII tab…" },
 ];
 

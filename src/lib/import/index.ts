@@ -54,8 +54,8 @@ export async function loadSong(
     const { score, warnings } = await importMuseScore(bytes);
     return { score, summary: summarizeScore(score), warnings, converted: true };
   }
-  if (extension === "atex" || extension === "capx") {
-    // alphaTab reads alphaTex and Capella files itself.
+  if (extension === "atex" || extension === "capx" || extension === "mxl") {
+    // alphaTab reads alphaTex, Capella and compressed MusicXML files itself.
     return { ...parseScore(bytes), warnings: [], converted: true };
   }
   if (isMidiFile(bytes)) {

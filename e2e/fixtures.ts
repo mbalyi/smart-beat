@@ -11,6 +11,7 @@ type MenuAction =
   | "save-as"
   | "export-musicxml"
   | "export-midi"
+  | "export-alphatex"
   | "export-ascii-tab"
   | "export-audio"
   | "print"

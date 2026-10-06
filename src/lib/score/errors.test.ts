@@ -4,7 +4,7 @@ describe("describeOpenError", () => {
   it.each([
     [
       "unsupported-type",
-      /opens Guitar Pro, MusicXML, MIDI, MuseScore, alphaTex, Capella and text tab files \(\.gp3, \.gp4, \.gp5, \.gpx, \.gp, \.mid, \.midi, \.musicxml, \.xml, \.mscx, \.mscz, \.atex, \.capx, \.txt\)/,
+      /opens Guitar Pro, MusicXML, MIDI, MuseScore, alphaTex, Capella and text tab files \(\.gp3, \.gp4, \.gp5, \.gpx, \.gp, \.mid, \.midi, \.musicxml, \.mxl, \.xml, \.mscx, \.mscz, \.atex, \.capx, \.txt\)/,
     ],
     ["not-a-score", /not a song file Smart Beat can open, or it is damaged/],
     ["too-large", /too large/],

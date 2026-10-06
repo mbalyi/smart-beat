@@ -250,6 +250,7 @@ mod tests {
             MenuAction::SaveAs,
             MenuAction::ExportMusicXml,
             MenuAction::ExportMidi,
+            MenuAction::ExportAlphaTex,
             MenuAction::ExportAsciiTab,
             MenuAction::Transpose,
         ];

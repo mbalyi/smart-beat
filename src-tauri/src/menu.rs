@@ -33,8 +33,12 @@ pub enum MenuAction {
     ClearRecent,
     Save,
     SaveAs,
+    // The UI knows these two by the names below (not "export-music-xml" / "export-alpha-tex").
+    #[serde(rename = "export-musicxml")]
     ExportMusicXml,
     ExportMidi,
+    #[serde(rename = "export-alphatex")]
+    ExportAlphaTex,
     ExportAsciiTab,
     ExportAudio,
     Print,
@@ -84,7 +88,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 53] = [
+    pub const ALL: [Self; 54] = [
         Self::NewSong,
         Self::Open,
         Self::ClearRecent,
@@ -92,6 +96,7 @@ impl MenuAction {
         Self::SaveAs,
         Self::ExportMusicXml,
         Self::ExportMidi,
+        Self::ExportAlphaTex,
         Self::ExportAsciiTab,
         Self::ExportAudio,
         Self::Print,
@@ -150,6 +155,7 @@ impl MenuAction {
             Self::SaveAs => "file.save-as",
             Self::ExportMusicXml => "file.export-musicxml",
             Self::ExportMidi => "file.export-midi",
+            Self::ExportAlphaTex => "file.export-alphatex",
             Self::ExportAsciiTab => "file.export-ascii-tab",
             Self::ExportAudio => "file.export-audio",
             Self::Print => "file.print",
@@ -213,6 +219,7 @@ impl MenuAction {
             | Self::SaveAs
             | Self::ExportMusicXml
             | Self::ExportMidi
+            | Self::ExportAlphaTex
             | Self::ExportAsciiTab
             | Self::ExportAudio
             | Self::Print
@@ -266,6 +273,7 @@ impl MenuAction {
             Self::SaveAs => "Save As…",
             Self::ExportMusicXml => "MusicXML…",
             Self::ExportMidi => "MIDI…",
+            Self::ExportAlphaTex => "alphaTex…",
             Self::ExportAsciiTab => "ASCII Tab…",
             Self::ExportAudio => "Audio (WAV)…",
             Self::Print => "Print or Save as PDF…",
@@ -370,6 +378,7 @@ impl MenuAction {
             | Self::ClearRecent
             | Self::ExportMusicXml
             | Self::ExportMidi
+            | Self::ExportAlphaTex
             | Self::ExportAsciiTab
             | Self::ExportAudio
             | Self::Transpose
@@ -448,6 +457,7 @@ impl MenuAction {
                 | Self::SaveAs
                 | Self::ExportMusicXml
                 | Self::ExportMidi
+                | Self::ExportAlphaTex
                 | Self::ExportAsciiTab
                 | Self::ExportAudio
                 | Self::Print
@@ -625,6 +635,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let export = SubmenuBuilder::new(app, "Export")
         .item(&item(app, ExportMusicXml)?)
         .item(&item(app, ExportMidi)?)
+        .item(&item(app, ExportAlphaTex)?)
         .item(&item(app, ExportAsciiTab)?)
         .separator()
         .item(&item(app, ExportAudio)?)
@@ -930,6 +941,21 @@ mod tests {
         assert_eq!(ids.len(), MenuAction::ALL.len());
     }
 
+    /// The UI listens for these names (`MenuAction` in `src/lib/tauri.ts`): an action it
+    /// does not know would be forwarded and silently ignored.
+    #[test]
+    fn every_forwarded_action_is_known_to_the_ui() {
+        let types = include_str!("../../src/lib/tauri.ts");
+        for action in MenuAction::ALL.into_iter().filter(|a| !a.is_native()) {
+            let name = serde_json::to_string(&action).unwrap();
+            assert!(
+                // Each union member is on its own line; the last one ends with a semicolon.
+                types.contains(&format!("| {name}\n")) || types.contains(&format!("| {name};")),
+                "{action:?} is sent as {name}, which the UI does not list"
+            );
+        }
+    }
+
     #[test]
     fn unknown_ids_are_ignored() {
         assert_eq!(MenuAction::from_id("edit.copy"), None);
@@ -1066,6 +1092,7 @@ mod tests {
             MenuAction::SaveAs,
             MenuAction::ExportMusicXml,
             MenuAction::ExportMidi,
+            MenuAction::ExportAlphaTex,
             MenuAction::ExportAsciiTab,
             MenuAction::ExportAudio,
             MenuAction::Print,

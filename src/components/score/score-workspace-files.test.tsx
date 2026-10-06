@@ -239,6 +239,53 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     expect((await screen.findAllByText(/tab.*left out|has no strings/)).length).toBeGreaterThan(0);
   });
 
+  it("exports alphaTex from the File menu and from the native menu", async () => {
+    const { user, onSaved } = await setup();
+    backend.saveResult = "/out/song";
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "alphaTex…" }));
+    await waitFor(() => expect(backend.written.has("/out/song.atex")).toBe(true));
+    expect(text(bytesOf("/out/song.atex"))).toContain('\\title "Practice Song"');
+
+    backend.saveResult = "/out/native.atex";
+    await menu("export-alphatex");
+    await waitFor(() => expect(backend.written.has("/out/native.atex")).toBe(true));
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("exports compressed MusicXML when the file name ends in .mxl", async () => {
+    const { calls } = await setup();
+    backend.saveResult = "/out/song.mxl";
+    await menu("export-musicxml");
+    await waitFor(() => expect(backend.written.has("/out/song.mxl")).toBe(true));
+    expect(isZip(bytesOf("/out/song.mxl"))).toBe(true);
+    // The name is kept: no ".musicxml" is added.
+    expect(backend.written.has("/out/song.mxl.musicxml")).toBe(false);
+    const dialog = calls.find((c) => c.cmd === "plugin:dialog|save")!;
+    expect(dialog.args).toMatchObject({
+      options: {
+        title: "Export MusicXML (.musicxml)",
+        filters: [
+          { name: "MusicXML", extensions: ["musicxml"] },
+          { name: "Compressed MusicXML", extensions: ["mxl"] },
+        ],
+      },
+    });
+
+    // Plain MusicXML as before.
+    backend.saveResult = "/out/plain.musicxml";
+    await menu("export-musicxml");
+    await waitFor(() => expect(backend.written.has("/out/plain.musicxml")).toBe(true));
+    expect(text(bytesOf("/out/plain.musicxml"))).toContain("<score-partwise");
+  });
+
+  it("adds .musicxml when the name has another extension", async () => {
+    await setup();
+    backend.saveResult = "/out/song.xml";
+    await menu("export-musicxml");
+    await waitFor(() => expect(backend.written.has("/out/song.xml.musicxml")).toBe(true));
+  });
+
   it("exports the mix as a WAV file, named after the song, with progress", async () => {
     const { user, player, onSaved } = await setup();
     backend.saveResult = "/out/mix";

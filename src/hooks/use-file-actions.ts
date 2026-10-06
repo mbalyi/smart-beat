@@ -30,8 +30,16 @@ const AUDIO_EXTENSION = "wav";
 const AUDIO_MIME = "audio/wav";
 const AUDIO_FILTER: SaveFilter = { name: "WAV audio", extensions: [AUDIO_EXTENSION] };
 
-/** Formats "Save" and "Save As" write (a song can be reopened from them). */
+/** Formats "Save As" offers (a song can be reopened from them). */
 const SONG_FORMATS: ExportFormat[] = ["gp", "gp5"];
+
+/** Formats "Save" writes back into the file the song came from. */
+const SAVE_IN_PLACE: ExportFormat[] = ["gp", "gp5"];
+
+/** Formats an Export item can also write: the extension typed in the dialog picks one. */
+const EXPORT_ALTERNATIVES: Partial<Record<ExportFormat, ExportFormat[]>> = {
+  musicxml: ["mxl"],
+};
 
 const filterOf = (format: ExportFormat): SaveFilter => ({
   name: FORMATS[format].filter,
@@ -62,9 +70,10 @@ function reportWarnings(title: string, { warnings }: ExportResult) {
 }
 
 /**
- * Save, Save As and the exports of the open song. Saving writes Guitar Pro
- * (native `.gp`, or `.gp5`) files; exports write MusicXML, MIDI and ASCII tab
- * without changing which file the song belongs to.
+ * Save, Save As and the exports of the open song. Saving writes song files
+ * (native `.gp` first, then the other Guitar Pro versions and MuseScore);
+ * exports write MusicXML, MIDI, alphaTex, ASCII tab and audio without changing
+ * which file the song belongs to.
  */
 export function useFileActions({
   song,
@@ -158,9 +167,13 @@ export function useFileActions({
         );
         if (!picked) return;
         const chosen = formatFromName(picked);
-        format = chosen === "gp5" ? "gp5" : "gp";
-        // No or another extension: the native format.
-        path = chosen === "gp" || chosen === "gp5" ? picked : `${picked}.gp`;
+        if (chosen && SONG_FORMATS.includes(chosen)) {
+          format = chosen;
+          path = picked;
+        } else {
+          // No or another extension: the native format.
+          path = `${picked}.gp`;
+        }
       }
       await saveTo(format, path);
     });
@@ -168,25 +181,29 @@ export function useFileActions({
   const save = () => {
     // Replace the file the song came from, if Smart Beat can write that format.
     const known = song.path ? formatFromName(song.path) : null;
-    if (song.path && (known === "gp" || known === "gp5")) {
+    if (song.path && known && SAVE_IN_PLACE.includes(known)) {
       return exclusive(() => saveTo(known, song.path));
     }
     return saveAs();
   };
 
-  const exportAs = (format: ExportFormat) =>
+  const exportAs = (requested: ExportFormat) =>
     exclusive(async () => {
-      const info = FORMATS[format];
+      const info = FORMATS[requested];
+      const choices = [requested, ...(EXPORT_ALTERNATIVES[requested] ?? [])];
+      let format = requested;
       let path: string | null = null;
       if (isTauri()) {
         const dir = song.path?.match(/^(.*[\\/])/)?.[1] ?? "";
         path = await pickSavePath(
           `${dir}${stem(song)}.${info.extension}`,
-          [filterOf(format)],
+          choices.map(filterOf),
           `Export ${info.label}`,
         );
         if (!path) return;
-        if (formatFromName(path) !== format) path = `${path}.${info.extension}`;
+        const chosen = formatFromName(path);
+        if (chosen && choices.includes(chosen)) format = chosen;
+        else path = `${path}.${info.extension}`;
       }
       const result = build(format);
       const name = await deliver(format, path, result);

@@ -44,6 +44,7 @@
     "mid",
     "midi",
     "musicxml",
+    "mxl",
     "xml",
     "mscx",
     "mscz",

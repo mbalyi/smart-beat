@@ -1476,6 +1476,9 @@ export function ScoreWorkspace({
       case "export-midi":
         void fileActions.exportAs("midi");
         break;
+      case "export-alphatex":
+        void fileActions.exportAs("atex");
+        break;
       case "export-ascii-tab":
         void fileActions.exportAs("ascii-tab");
         break;

@@ -13,9 +13,9 @@ use crate::error::{CommandError, ErrorKind};
 
 /// File extensions offered in the Open dialog and accepted on drop.
 /// Mirrored by `SCORE_EXTENSIONS` in `src/lib/tauri.ts`.
-pub const EXTENSIONS: [&str; 14] = [
-    "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml", "mscx", "mscz", "atex",
-    "capx", "txt",
+pub const EXTENSIONS: [&str; 15] = [
+    "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "mxl", "xml", "mscx", "mscz",
+    "atex", "capx", "txt",
 ];
 
 /// Largest file we load. Guitar Pro 7+ files can embed audio, so this is generous.
@@ -105,8 +105,8 @@ fn content_matches(extension: &str, bytes: &[u8]) -> bool {
     match extension {
         "atex" | "txt" => is_text(bytes),
         "mscx" => is_xml_with_root(bytes, b"<museScore"),
-        // MuseScore and Capella archives are ZIP files.
-        "mscz" | "capx" => bytes.starts_with(b"PK\x03\x04"),
+        // MuseScore, Capella and compressed MusicXML archives are ZIP files.
+        "mscz" | "capx" | "mxl" => bytes.starts_with(b"PK\x03\x04"),
         _ => ScoreFormat::detect(bytes).is_some(),
     }
 }
@@ -283,6 +283,8 @@ mod tests {
         assert!(read(&mscz).is_ok());
         let capx = write(&dir, "score.capx", b"PK\x03\x04\x14\x00");
         assert!(read(&capx).is_ok());
+        let mxl = write(&dir, "score.mxl", b"PK\x03\x04\x14\x00");
+        assert!(read(&mxl).is_ok());
     }
 
     #[test]
@@ -296,6 +298,8 @@ mod tests {
         assert_eq!(read(&svg).unwrap_err().kind, ErrorKind::NotAScore);
         let text_as_zip = write(&dir, "score.mscz", b"not a zip");
         assert_eq!(read(&text_as_zip).unwrap_err().kind, ErrorKind::NotAScore);
+        let text_as_mxl = write(&dir, "score.mxl", b"<score-partwise/>");
+        assert_eq!(read(&text_as_mxl).unwrap_err().kind, ErrorKind::NotAScore);
     }
 
     #[test]
@@ -304,6 +308,7 @@ mod tests {
             "a.mid",
             "a.MIDI",
             "a.musicxml",
+            "a.MXL",
             "a.xml",
             "a.mscx",
             "a.MSCZ",
@@ -313,7 +318,7 @@ mod tests {
         ] {
             assert!(has_supported_extension(Path::new(name)), "{name}");
         }
-        assert!(!has_supported_extension(Path::new("a.mxl")));
+        assert!(!has_supported_extension(Path::new("a.mxlx")));
     }
 
     #[test]

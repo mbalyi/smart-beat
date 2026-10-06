@@ -1,6 +1,6 @@
 //! Writing songs: Save, Save As and the exports.
 //!
-//! The UI builds the file content (Guitar Pro, MusicXML, MIDI, ASCII tab) and
+//! The UI builds the file content (Guitar Pro, MuseScore, MusicXML, MIDI, alphaTex, ASCII tab) and
 //! the user picks the destination in the native Save dialog. The command only
 //! writes file types Smart Beat produces, so it cannot be used to overwrite
 //! arbitrary files on disk. Writing is atomic: the content goes to a temporary
@@ -14,7 +14,10 @@ use crate::error::{CommandError, ErrorKind};
 use crate::score_file::MAX_SIZE;
 
 /// File extensions Smart Beat writes. Mirrored by `SAVE_EXTENSIONS` in `src/lib/tauri.ts`.
-pub const WRITE_EXTENSIONS: [&str; 7] = ["gp", "gp5", "mid", "midi", "musicxml", "txt", "wav"];
+pub const WRITE_EXTENSIONS: [&str; 14] = [
+    "gp", "gp5", "gp4", "gp3", "gpx", "mid", "midi", "musicxml", "mxl", "mscx", "mscz", "atex",
+    "txt", "wav",
+];
 
 /// Whether `path` ends in one of [`WRITE_EXTENSIONS`] (case-insensitive).
 pub fn has_writable_extension(path: &Path) -> bool {
@@ -98,7 +101,16 @@ mod tests {
         assert!(has_writable_extension(Path::new("a.MusicXML")));
         assert!(has_writable_extension(Path::new("a.txt")));
         assert!(has_writable_extension(Path::new("mix.WAV")));
+        // Every format Smart Beat saves or exports.
+        for name in [
+            "a.gp", "a.gp4", "a.gp3", "a.GPX", "a.mid", "a.midi", "a.mxl", "a.mscx", "a.MSCZ",
+            "a.atex",
+        ] {
+            assert!(has_writable_extension(Path::new(name)), "{name}");
+        }
         assert!(!has_writable_extension(Path::new("a.sh")));
+        // Guitar Pro 6 and later `.gp` containers are not written under other names.
+        assert!(!has_writable_extension(Path::new("a.gp6")));
         assert!(!has_writable_extension(Path::new("a")));
     }
 
