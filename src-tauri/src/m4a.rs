@@ -151,6 +151,10 @@ pub fn encode(wav: &[u8], path: &Path) -> Result<(), CommandError> {
         .tempfile_in(dir)
         .map_err(|e| io_error(&e))?;
     write_aac(&pcm, temp.path())?;
+    // Keep the permissions of the file being replaced, as the other saves do.
+    if let Ok(metadata) = std::fs::metadata(path) {
+        let _ = std::fs::set_permissions(temp.path(), metadata.permissions());
+    }
     temp.persist(path).map_err(|e| io_error(&e.error))?;
     Ok(())
 }

@@ -120,6 +120,22 @@ fn replaces_an_existing_file_and_leaves_no_temporary_files() {
 }
 
 #[test]
+fn keeps_the_permissions_of_the_replaced_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mix.m4a");
+    fs::write(&path, b"old").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+    m4a::encode(&tone_wav(0.5, 44_100, 2), &path).unwrap();
+
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+}
+
+#[test]
 fn an_unusable_wav_leaves_the_existing_file_alone() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mix.m4a");
