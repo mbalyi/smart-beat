@@ -9,13 +9,24 @@ import { writeGp3, writeGp4, writeGp5 } from "@/lib/export/gp/writer";
 import { writeGp7 } from "@/lib/export/gp7";
 import { writeMidi } from "@/lib/export/midi";
 import { writeMusicXml } from "@/lib/export/musicxml";
+import { writeMscx, writeMscz } from "@/lib/export/musescore";
 import { writeMxl } from "@/lib/export/mxl";
 import type { Score } from "@/lib/score/model";
 import type { MixerSettings } from "@/lib/tauri";
 import { withoutDrumTabs } from "@/lib/score/drum-tab";
 
 export type ExportFormat =
-  "gp" | "gp5" | "gp4" | "gp3" | "musicxml" | "mxl" | "midi" | "atex" | "ascii-tab";
+  | "gp"
+  | "gp5"
+  | "gp4"
+  | "gp3"
+  | "mscz"
+  | "mscx"
+  | "musicxml"
+  | "mxl"
+  | "midi"
+  | "atex"
+  | "ascii-tab";
 
 export interface FormatInfo {
   label: string;
@@ -49,6 +60,18 @@ export const FORMATS: Record<ExportFormat, FormatInfo> = {
     extension: "gp3",
     mime: "application/octet-stream",
     filter: "Guitar Pro 3",
+  },
+  mscz: {
+    label: "MuseScore (.mscz)",
+    extension: "mscz",
+    mime: "application/x-musescore+xml",
+    filter: "MuseScore",
+  },
+  mscx: {
+    label: "MuseScore, uncompressed (.mscx)",
+    extension: "mscx",
+    mime: "application/x-musescore+xml",
+    filter: "MuseScore, uncompressed",
   },
   musicxml: {
     label: "MusicXML (.musicxml)",
@@ -120,6 +143,10 @@ function buildFile(score: Score, format: ExportFormat, mix: MixerSettings | null
         return writeGp4(score);
       case "gp3":
         return writeGp3(score);
+      case "mscz":
+        return writeMscz(score);
+      case "mscx":
+        return writeMscx(score);
       case "midi":
         return { bytes: writeMidi(score), warnings: [] };
       case "musicxml":

@@ -113,6 +113,8 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
           { name: "Guitar Pro 5", extensions: ["gp5"] },
           { name: "Guitar Pro 4", extensions: ["gp4"] },
           { name: "Guitar Pro 3", extensions: ["gp3"] },
+          { name: "MuseScore", extensions: ["mscz"] },
+          { name: "MuseScore, uncompressed", extensions: ["mscx"] },
         ],
       },
     });
@@ -190,6 +192,25 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     await waitFor(() => expect(backend.written.has("/songs/mine.gp3")).toBe(true));
     expect(text(bytesOf("/songs/mine.gp3").slice(1, 25))).toBe("FICHIER GUITAR PRO v3.00");
     expect(parseScore(bytesOf("/songs/mine.gp3")).score.tracks).toHaveLength(4);
+  });
+
+  it("saves as MuseScore (.mscz and .mscx) and lists what MuseScore files do not carry", async () => {
+    await setup();
+    backend.saveResult = "/songs/mine.mscz";
+    await menu("save-as");
+    await waitFor(() => expect(backend.written.has("/songs/mine.mscz")).toBe(true));
+    expect(isZip(bytesOf("/songs/mine.mscz"))).toBe(true);
+    expect(
+      (await screen.findAllByText("“mine.mscz” was saved with limits")).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Tablature is saved as standard notation/).length).toBeGreaterThan(
+      0,
+    );
+
+    backend.saveResult = "/songs/mine.mscx";
+    await menu("save-as");
+    await waitFor(() => expect(backend.written.has("/songs/mine.mscx")).toBe(true));
+    expect(text(bytesOf("/songs/mine.mscx"))).toContain("<museScore");
   });
 
   it("does not save over a Guitar Pro 4 file it was opened from, but asks (the writer is checked with alphaTab only)", async () => {

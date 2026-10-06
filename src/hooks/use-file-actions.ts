@@ -42,7 +42,7 @@ const AUDIO: Record<AudioKind, { extension: string; mime: string; filter: SaveFi
 };
 
 /** Formats "Save As" offers (a song can be reopened from them). */
-const SONG_FORMATS: ExportFormat[] = ["gp", "gp5", "gp4", "gp3"];
+const SONG_FORMATS: ExportFormat[] = ["gp", "gp5", "gp4", "gp3", "mscz", "mscx"];
 
 /** Formats "Save" writes back into the file the song came from. */
 const SAVE_IN_PLACE: ExportFormat[] = ["gp", "gp5"];

@@ -141,6 +141,27 @@ test.describe("saving and exporting (#15, #16)", () => {
     });
   }
 
+  for (const extension of ["mscz", "mscx"] as const) {
+    test(`saves MuseScore (.${extension}), lists what it does not carry and opens the file again`, async ({
+      app,
+    }) => {
+      await openSong(app);
+      const path = `/Users/me/Music/mine.${extension}`;
+      await app.evaluate((p) => (window.__saveResult = p), path);
+      await emitMenuAction(app, "save-as");
+      await expect.poll(() => written(app, path)).toBeGreaterThan(500);
+      await expect(app.getByText(/was saved with limits/).first()).toBeVisible();
+
+      await app.evaluate((p) => (window.__dialogResult = p), path);
+      await emitMenuAction(app, "open");
+      await waitForScore(app);
+      await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
+      await app.getByRole("combobox", { name: "Track" }).click();
+      await expect(app.getByRole("option")).toHaveCount(4);
+      await app.keyboard.press("Escape");
+    });
+  }
+
   test("exports MusicXML, MIDI and ASCII tab, and opens the MIDI and MusicXML files again", async ({
     app,
   }) => {
