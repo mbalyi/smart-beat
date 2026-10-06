@@ -132,3 +132,32 @@ export function tempoMarkers(score: Score): { bar: number; bpm: number; label: s
     return first ? [{ bar, bpm: Math.round(first.bpm), label: first.label }] : [];
   });
 }
+
+/** The texts written on beats, per bar (0-based), from all tracks. */
+export function barTexts(score: Score): Map<number, string[]> {
+  const texts = new Map<number, string[]>();
+  for (const track of score.tracks) {
+    for (const staff of track.staves) {
+      staff.bars.forEach((bar, index) => {
+        for (const voice of bar.voices) {
+          for (const beat of voice.beats) {
+            const text = beat.text?.trim();
+            if (!text) continue;
+            const list = texts.get(index) ?? [];
+            if (!list.includes(text)) list.push(text);
+            texts.set(index, list);
+          }
+        }
+      });
+    }
+  }
+  return texts;
+}
+
+const SHORT_WORDS = 6;
+
+/** The first few words of a text, for the crowded bar row. */
+export function shortText(text: string): string {
+  const words = text.split(/\s+/);
+  return words.length > SHORT_WORDS ? `${words.slice(0, SHORT_WORDS).join(" ")}…` : text;
+}

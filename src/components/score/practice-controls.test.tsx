@@ -71,6 +71,12 @@ describe("PracticeControls", () => {
     await expectNoA11yViolations();
   });
 
+  it("turns the Metronome and Count-in buttons green while on (#57)", () => {
+    setup({ metronome: true, countIn: true });
+    expect(screen.getByRole("button", { name: "Count-in" }).className).toContain("bg-green-700");
+    expect(screen.getByRole("button", { name: "Metronome" }).className).toContain("bg-green-700");
+  });
+
   it("shows the Speed Trainer's progress and stops it", async () => {
     const { user, props } = setup({
       loop: true,

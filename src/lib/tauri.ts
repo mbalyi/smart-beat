@@ -619,6 +619,8 @@ export interface EngineSong {
 /** Mirrors `Transport` in `src-tauri/src/audio/mod.rs`. */
 export type TransportCommand =
   | { type: "play" }
+  /** Clicks `beats` times, `beatSeconds` apart, then plays. */
+  | { type: "countIn"; beats: number; beatSeconds: number }
   | { type: "pause" }
   | { type: "seek"; ms: number }
   | { type: "rate"; value: number }

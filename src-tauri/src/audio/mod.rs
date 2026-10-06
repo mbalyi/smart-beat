@@ -222,6 +222,12 @@ pub struct EngineStatus {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Transport {
     Play,
+    /// Clicks `beats` times `beat_seconds` apart, then plays.
+    #[serde(rename_all = "camelCase")]
+    CountIn {
+        beats: u32,
+        beat_seconds: f64,
+    },
     Pause,
     Seek {
         ms: f64,
@@ -552,6 +558,10 @@ pub fn audio_transport(
     let inner = inner;
     with_engine(&inner, |engine| match command {
         Transport::Play => engine.play(),
+        Transport::CountIn {
+            beats,
+            beat_seconds,
+        } => engine.start_count_in(beats.min(32), beat_seconds),
         Transport::Pause => engine.pause(),
         Transport::Seek { ms } => engine.seek(ms / 1000.0),
         Transport::Rate { value } => engine.set_rate(value),

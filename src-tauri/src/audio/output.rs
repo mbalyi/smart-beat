@@ -143,7 +143,7 @@ fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
                         // What is heard now was rendered `latency` ago.
                         let heard = (engine.position() - latency.as_secs_f64()).max(0.0);
                         shared.position.store(heard.to_bits(), Ordering::Relaxed);
-                        shared.playing.store(engine.is_playing(), Ordering::Relaxed);
+                        shared.playing.store(engine.is_active(), Ordering::Relaxed);
                     }
                     Err(_) => {
                         left[..frames].fill(0.0);

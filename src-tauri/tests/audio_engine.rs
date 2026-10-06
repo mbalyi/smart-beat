@@ -626,3 +626,36 @@ fn every_dynamics_preset_builds_and_sounds() {
         }
     }
 }
+
+#[test]
+fn count_in_clicks_then_starts_the_song_on_time() {
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.load(Arc::new(song())).unwrap();
+    engine.set_metronome_volume(0.0);
+    engine.start_count_in(2, 0.25);
+    assert!(engine.is_active());
+    assert!(!engine.is_playing());
+
+    // The clicks are heard although the metronome is off, and the song waits.
+    let (l, _) = render(&mut engine, 0.4);
+    assert!(l.iter().any(|v| v.abs() > 0.01));
+    assert_eq!(engine.position(), 0.0);
+
+    // Two beats of 0.25 s: the song starts at 0.5 s (within one block).
+    render(&mut engine, 0.2);
+    assert!(engine.is_playing());
+    let position = engine.position();
+    assert!((0.09..0.11).contains(&position), "position {position}");
+}
+
+#[test]
+fn pausing_or_seeking_cancels_the_count_in() {
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.load(Arc::new(song())).unwrap();
+    engine.start_count_in(4, 0.5);
+    engine.pause();
+    assert!(!engine.is_active());
+    engine.start_count_in(4, 0.5);
+    engine.seek(1.0);
+    assert!(!engine.is_active());
+}

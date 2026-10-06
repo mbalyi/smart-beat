@@ -81,6 +81,21 @@ describe("DrumMixerDialog", () => {
     expect(mixer()).toBeNull();
   });
 
+  it("shows pressed Mute in red and Solo in green, with vertical faders (#59, #60)", async () => {
+    const { user, dialog } = setup();
+    const mute = within(dialog).getByRole("button", { name: "Mute Snare" });
+    const solo = within(dialog).getByRole("button", { name: "Solo Snare" });
+    await user.click(mute);
+    await user.click(solo);
+    expect(mute).toHaveAttribute("aria-pressed", "true");
+    expect(mute.className).toContain("bg-red-700");
+    expect(solo.className).toContain("bg-green-700");
+    expect(within(dialog).getByRole("slider", { name: "Volume, Snare" })).toHaveAttribute(
+      "aria-orientation",
+      "vertical",
+    );
+  });
+
   it("lights the meters from the engine's element levels", () => {
     const { dialog } = setup();
     const drums = [[], [], DRUM_ELEMENTS.map((_, i) => (i === 3 ? 1 : 0))];

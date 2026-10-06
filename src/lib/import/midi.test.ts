@@ -293,3 +293,37 @@ describe("MIDI import", () => {
     expect(loaded.score.tracks[0]!.playbackInfo.program).toBe(25);
   });
 });
+
+describe("importMidi: a lead line over chords", () => {
+  /** Eight bars of power chords, with a high melody note on top of every other beat. */
+  function guitar(withLead: boolean) {
+    const events: [number, number[]][] = [name("distorted electric guitar"), tempo(120)];
+    for (let beat = 0; beat < 32; beat++) {
+      const lead = withLead && beat % 2 === 0;
+      const pitches = [40, 47, 52, ...(lead ? [76] : [])];
+      pitches.forEach((p) => events.push(on(0, p)));
+      pitches.forEach((p, i) => events.push(off(i === 0 ? 480 : 0, p)));
+    }
+    return smf(events);
+  }
+
+  it("moves the top notes to a track of their own", () => {
+    const { score, warnings } = importMidi(guitar(true));
+    expect(score.tracks.map((t) => t.name)).toEqual([
+      "distorted electric guitar",
+      "distorted electric guitar (lead)",
+    ]);
+    const notes = (track: number) =>
+      score.tracks[track]!.staves[0]!.bars.flatMap((b) =>
+        b.voices[0]!.beats.flatMap((beat) => beat.notes),
+      );
+    expect(notes(1)).toHaveLength(16);
+    expect(notes(0)).toHaveLength(96);
+    expect(warnings.join(" ")).toContain("lead line");
+  });
+
+  it("keeps plain chords in one track", () => {
+    const { score } = importMidi(guitar(false));
+    expect(score.tracks).toHaveLength(1);
+  });
+});

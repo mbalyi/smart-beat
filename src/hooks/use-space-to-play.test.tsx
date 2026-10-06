@@ -7,6 +7,10 @@ function press(target: Element | Document | Window, init: KeyboardEventInit = {}
 }
 
 describe("useSpaceToPlay", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
   it("toggles playback when Space is pressed outside controls", () => {
     const toggle = vi.fn();
     renderHook(() => useSpaceToPlay(toggle));
@@ -17,16 +21,56 @@ describe("useSpaceToPlay", () => {
     expect(notPrevented).toBe(false); // the page does not scroll
   });
 
-  it("leaves Space to buttons, fields and sliders", () => {
+  it("plays also when a button, toggle or slider has focus", () => {
     const toggle = vi.fn();
     renderHook(() => useSpaceToPlay(toggle));
     document.body.innerHTML = `
-      <button>Play</button><input /><div role="slider" tabindex="0"></div>
-      <div contenteditable="true"><span id="inner">text</span></div>`;
+      <button>Count-in</button><input type="checkbox" /><div role="slider" tabindex="0"></div>`;
 
-    for (const el of document.body.querySelectorAll("button, input, [role=slider], #inner")) {
+    for (const el of document.body.querySelectorAll("button, input, [role=slider]")) {
+      expect(press(el)).toBe(false);
+    }
+
+    expect(toggle).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves Space to a control reached with the keyboard (it presses it), not after a click", () => {
+    const toggle = vi.fn();
+    renderHook(() => useSpaceToPlay(toggle));
+    document.body.innerHTML = "<button>Mute</button>";
+    const button = document.querySelector("button")!;
+    const matches = button.matches.bind(button);
+    const focusVisible = (on: boolean) =>
+      vi
+        .spyOn(button, "matches")
+        .mockImplementation((selector: string) =>
+          selector === ":focus-visible" ? on : matches(selector),
+        );
+
+    focusVisible(true);
+    press(button);
+    expect(toggle).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+    focusVisible(false);
+    press(button);
+    expect(toggle).toHaveBeenCalledOnce();
+  });
+
+  it("leaves Space to text fields, open lists and dialogs", () => {
+    const toggle = vi.fn();
+    renderHook(() => useSpaceToPlay(toggle));
+    document.body.innerHTML = `
+      <input /><input type="number" /><textarea></textarea>
+      <div contenteditable="true"><span id="inner">text</span></div>
+      <div role="listbox"><div role="option" id="opt">A</div></div>`;
+
+    for (const el of document.body.querySelectorAll("input, textarea, #inner, #opt")) {
       press(el);
     }
+    document.body.innerHTML = `<div role="dialog"><button>Done</button></div><button id="x">x</button>`;
+    press(document.getElementById("x")!);
+    press(document.querySelector("[role=dialog] button")!);
 
     expect(toggle).not.toHaveBeenCalled();
   });

@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -48,11 +49,6 @@ import {
 } from "@/lib/audio/effects";
 import type { DrumMixer } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
-
-const MUTE_PRESSED =
-  "data-[state=on]:border-red-700 data-[state=on]:bg-red-700 data-[state=on]:text-white data-[state=on]:hover:bg-red-800 data-[state=on]:hover:text-white";
-const SOLO_PRESSED =
-  "data-[state=on]:border-amber-400 data-[state=on]:bg-amber-400 data-[state=on]:text-black data-[state=on]:hover:bg-amber-300 data-[state=on]:hover:text-black";
 
 /**
  * The drum mixer (Guitar Pro 8 style): a row per kit piece with mute, solo,
@@ -95,7 +91,7 @@ export function DrumMixerDialog({
   const anySolo = current.elements.some((e) => e.solo);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl">
+      <DialogContent size="full" className="sm:max-w-[min(calc(100%-2rem),78rem)]">
         <DialogHeader>
           <DialogTitle>Drum mixer: {trackName}</DialogTitle>
           <DialogDescription>
@@ -136,7 +132,7 @@ export function DrumMixerDialog({
             <ToggleGroupItem value="stereo">Stereo</ToggleGroupItem>
           </ToggleGroup>
 
-          <ol className="flex flex-col divide-y rounded-md border" aria-label="Kit pieces">
+          <ol className="flex gap-1 overflow-x-auto rounded-md border p-2" aria-label="Kit pieces">
             {DRUM_ELEMENTS.map((element, i) => {
               const mix = elementMix(current, element.id);
               const set = (change: Partial<typeof mix>) =>
@@ -147,46 +143,46 @@ export function DrumMixerDialog({
                   key={element.id}
                   data-testid="drum-element"
                   className={cn(
-                    // Narrow windows: the fader and its level go on a second line.
-                    "grid grid-cols-[minmax(0,1fr)_3.5rem_2.5rem_4rem] items-center gap-2 px-2 py-1 text-sm sm:grid-cols-[7.5rem_3.5rem_minmax(6rem,1fr)_3.75rem_2.5rem_4rem]",
+                    "flex min-w-14 flex-1 basis-14 flex-col items-center gap-2 rounded-md bg-muted/30 px-1 py-2 text-sm",
                     silent && "text-muted-foreground",
                   )}
                 >
-                  <span className="truncate">{element.label}</span>
-                  <span className="flex gap-0.5">
-                    <Toggle
-                      size="sm"
-                      variant="outline"
-                      pressed={mix.mute}
-                      onPressedChange={(mute) => set({ mute })}
-                      aria-label={`Mute ${element.label}`}
-                      className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
-                    >
-                      M
-                    </Toggle>
-                    <Toggle
-                      size="sm"
-                      variant="outline"
-                      pressed={mix.solo}
-                      onPressedChange={(solo) => set({ solo })}
-                      aria-label={`Solo ${element.label}`}
-                      className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
-                    >
-                      S
-                    </Toggle>
-                  </span>
-                  <span
-                    title={describeDb(mix.volume)}
-                    className="max-sm:order-last max-sm:col-span-3"
+                  <Toggle
+                    size="sm"
+                    variant="outline"
+                    pressed={mix.mute}
+                    onPressedChange={(mute) => set({ mute })}
+                    aria-label={`Mute ${element.label}`}
+                    className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
                   >
+                    M
+                  </Toggle>
+                  <Toggle
+                    size="sm"
+                    variant="outline"
+                    pressed={mix.solo}
+                    onPressedChange={(solo) => set({ solo })}
+                    aria-label={`Solo ${element.label}`}
+                    className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
+                  >
+                    S
+                  </Toggle>
+                  <span className="flex h-40 items-stretch gap-1.5" title={describeDb(mix.volume)}>
                     <LabeledSlider
+                      orientation="vertical"
                       label={`Volume, ${element.label}`}
                       valueText={describeDb(mix.volume)}
                       value={mix.volume}
                       onValueChange={(volume) => set({ volume })}
                     />
+                    <LevelMeter
+                      orientation="vertical"
+                      className="h-full"
+                      label={`Level, ${element.label}`}
+                      select={(m) => m.drums?.[trackIndex]?.[i] ?? 0}
+                    />
                   </span>
-                  <span className="text-right text-xs text-muted-foreground tabular-nums max-sm:order-last">
+                  <span className="text-xs text-muted-foreground tabular-nums">
                     {describeDb(mix.volume)}
                   </span>
                   <Knob
@@ -201,16 +197,11 @@ export function DrumMixerDialog({
                     disabled={!current.stereo}
                     onValueChange={(pan) => set({ pan })}
                   />
-                  <span className="flex items-center gap-1">
-                    <span className="w-7 text-xs text-muted-foreground tabular-nums">
-                      {shortPan(current.stereo ? mix.pan : 0)}
-                    </span>
-                    <LevelMeter
-                      orientation="vertical"
-                      className="h-5"
-                      label={`Level, ${element.label}`}
-                      select={(m) => m.drums?.[trackIndex]?.[i] ?? 0}
-                    />
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {shortPan(current.stereo ? mix.pan : 0)}
+                  </span>
+                  <span className="h-24 rotate-180 text-center font-medium whitespace-nowrap [text-orientation:mixed] [writing-mode:vertical-rl]">
+                    {element.label}
                   </span>
                 </li>
               );

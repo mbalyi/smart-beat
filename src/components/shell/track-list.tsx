@@ -36,7 +36,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { filledBars } from "@/lib/score/bar-grid";
-import { tempoMarkers } from "@/lib/score/tempo";
+import { barTexts, shortText, tempoMarkers } from "@/lib/score/tempo";
 import { describeInstrument } from "@/lib/score/instrument-view";
 import {
   describePan,
@@ -51,17 +51,8 @@ import type { Score } from "@/lib/score/model";
 import type { TrackSummary } from "@/lib/score/score";
 import { trackColor } from "@/lib/score/track-colors";
 import type { AutomationLaneKind, BackingInfo, MixerSettings } from "@/lib/tauri";
+import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { cn } from "@/lib/utils";
-
-/**
- * Pressed Mute (red) and Solo (yellow) use mixing-desk colours, fixed in both
- * themes, so they stand out from the strip background. Radix sets both
- * `data-state=on` and `aria-pressed`, so both are overridden.
- */
-const MUTE_PRESSED =
-  "data-[state=on]:border-red-700 data-[state=on]:bg-red-700 aria-pressed:bg-red-700 data-[state=on]:text-white data-[state=on]:hover:bg-red-800 data-[state=on]:hover:text-white";
-const SOLO_PRESSED =
-  "data-[state=on]:border-amber-400 data-[state=on]:bg-amber-400 aria-pressed:bg-amber-400 data-[state=on]:text-black data-[state=on]:hover:bg-amber-300 data-[state=on]:hover:text-black";
 
 export interface TrackActions {
   onShow: (index: number) => void;
@@ -263,6 +254,10 @@ export function TrackList({
     return score.tracks.map((t) => filledBars(t, barCount));
   }, [score, barCount, revision]);
   const numbers = Array.from({ length: barCount }, (_, i) => i + 1);
+  const texts = useMemo(() => {
+    void revision;
+    return barTexts(score);
+  }, [score, revision]);
   const tempos = useMemo(() => {
     void revision;
     return new Map(tempoMarkers(score).map((m) => [m.bar, m]));
@@ -338,6 +333,39 @@ export function TrackList({
                 <span key={n}>{n === 1 || n % 4 === 0 ? n : ""}</span>
               ))}
             </div>
+            {texts.size > 0 && (
+              // Texts written on the beats of any track, above all the tracks.
+              <ul
+                aria-label="Texts in the song"
+                data-testid="bar-texts"
+                className="grid h-4 items-center gap-px text-[10px] leading-none whitespace-nowrap text-foreground"
+                style={{ gridTemplateColumns: `repeat(${barCount}, ${BAR_WIDTH})` }}
+              >
+                {numbers.map((n) => {
+                  const list = texts.get(n - 1);
+                  if (!list) return <li key={n} aria-hidden="true" />;
+                  const full = list.join(", ");
+                  return (
+                    <li
+                      key={n}
+                      title={`Bar ${n}: ${full}`}
+                      // The current bar's text is on top; the text under the pointer is above that, in full.
+                      className={cn("group/text relative hover:z-30", n - 1 === bar && "z-20")}
+                    >
+                      <span
+                        className={cn(
+                          "block w-max rounded-sm bg-muted px-1 py-0.5 italic",
+                          n - 1 === bar && "ring-1 ring-foreground",
+                        )}
+                      >
+                        <span className="group-hover/text:hidden">{shortText(full)}</span>
+                        <span className="hidden group-hover/text:inline">{full}</span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         </div>
 
@@ -351,14 +379,21 @@ export function TrackList({
             const automation = trackAutomation(mix, i);
             const lane = lanes[i] ?? "volume";
             const focused = mix.focus === i;
+            // Opaque, so bars scrolled under the sticky name column stay hidden.
+            const rowBackground = isShown ? "bg-muted" : "bg-card";
             return (
               <li
                 key={`${i}-${track.name}`}
-                className={cn("flex flex-col border-b", isShown && "bg-muted/70")}
+                className={cn("flex flex-col border-b bg-card", isShown && "bg-muted")}
                 aria-current={isShown ? "true" : undefined}
               >
                 <div className="flex">
-                  <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r [background-color:inherit] bg-inherit px-2 py-1">
+                  <div
+                    className={cn(
+                      "sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r px-2 py-1",
+                      rowBackground,
+                    )}
+                  >
                     <div className={cn(CONTROLS, "w-full")}>
                       <div className="flex min-w-0 items-center gap-1.5">
                         <span
@@ -490,7 +525,12 @@ export function TrackList({
                 </div>
                 {automation.enabled && (
                   <div className="flex border-t border-dashed">
-                    <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center justify-end gap-2 border-r [background-color:inherit] bg-inherit px-2 py-1 text-xs">
+                    <div
+                      className={cn(
+                        "sticky left-0 z-10 flex w-[30rem] shrink-0 items-center justify-end gap-2 border-r px-2 py-1 text-xs",
+                        rowBackground,
+                      )}
+                    >
                       <span>Automation</span>
                       <LaneKindSelect
                         name={track.name}
