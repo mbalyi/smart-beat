@@ -50,6 +50,9 @@ pub enum MenuAction {
     ToggleEditMode,
     ToggleTheme,
     ToggleFretboard,
+    ToggleMixer,
+    ToggleInspector,
+    TogglePracticeView,
     ZoomIn,
     ZoomOut,
     ZoomReset,
@@ -89,7 +92,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 55] = [
+    pub const ALL: [Self; 58] = [
         Self::NewSong,
         Self::Open,
         Self::ClearRecent,
@@ -109,6 +112,9 @@ impl MenuAction {
         Self::ToggleEditMode,
         Self::ToggleTheme,
         Self::ToggleFretboard,
+        Self::ToggleMixer,
+        Self::ToggleInspector,
+        Self::TogglePracticeView,
         Self::ZoomIn,
         Self::ZoomOut,
         Self::ZoomReset,
@@ -169,6 +175,9 @@ impl MenuAction {
             Self::ToggleEditMode => "edit.toggle-edit-mode",
             Self::ToggleTheme => "view.toggle-theme",
             Self::ToggleFretboard => "view.toggle-fretboard",
+            Self::ToggleMixer => "view.toggle-mixer",
+            Self::ToggleInspector => "view.toggle-inspector",
+            Self::TogglePracticeView => "view.toggle-practice-view",
             Self::ZoomIn => "view.zoom-in",
             Self::ZoomOut => "view.zoom-out",
             Self::ZoomReset => "view.zoom-reset",
@@ -232,6 +241,9 @@ impl MenuAction {
             Self::Undo | Self::Redo | Self::ToggleEditMode => "Edit",
             Self::ToggleTheme
             | Self::ToggleFretboard
+            | Self::ToggleMixer
+            | Self::ToggleInspector
+            | Self::TogglePracticeView
             | Self::ScaleTool
             | Self::ZoomIn
             | Self::ZoomOut
@@ -289,6 +301,9 @@ impl MenuAction {
             Self::ToggleEditMode => "Edit Mode",
             Self::ToggleTheme => "Toggle Dark Mode",
             Self::ToggleFretboard => "Fretboard and Keyboard",
+            Self::ToggleMixer => "Mixer",
+            Self::ToggleInspector => "Inspector",
+            Self::TogglePracticeView => "Practice View",
             Self::ZoomIn => "Zoom In",
             Self::ZoomOut => "Zoom Out",
             Self::ZoomReset => "Actual Size",
@@ -344,6 +359,9 @@ impl MenuAction {
             Self::ToggleEditMode => Some("CmdOrCtrl+E"),
             Self::ToggleTheme => Some("CmdOrCtrl+Shift+L"),
             Self::ToggleFretboard => Some("CmdOrCtrl+Shift+F"),
+            Self::ToggleMixer => Some("CmdOrCtrl+Alt+M"),
+            Self::ToggleInspector => Some("CmdOrCtrl+Alt+I"),
+            Self::TogglePracticeView => Some("CmdOrCtrl+Shift+P"),
             Self::ZoomIn => Some("CmdOrCtrl+="),
             Self::ZoomOut => Some("CmdOrCtrl+-"),
             Self::ZoomReset => Some("CmdOrCtrl+0"),
@@ -417,6 +435,9 @@ impl MenuAction {
             self,
             Self::ToggleEditMode
                 | Self::ToggleFretboard
+                | Self::ToggleMixer
+                | Self::ToggleInspector
+                | Self::TogglePracticeView
                 | Self::ToggleRepeatStart
                 | Self::ToggleRepeatEnd
                 | Self::ToggleLoop
@@ -471,6 +492,9 @@ impl MenuAction {
                 | Self::Transpose
                 | Self::ToggleEditMode
                 | Self::ToggleFretboard
+                | Self::ToggleMixer
+                | Self::ToggleInspector
+                | Self::TogglePracticeView
                 | Self::AddTrack
                 | Self::AddAudioTrack
                 | Self::DuplicateTrack
@@ -718,6 +742,9 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let view = SubmenuBuilder::new(app, "View")
         .item(&toggle_theme)
         .item(&check_item(app, ToggleFretboard)?)
+        .item(&check_item(app, ToggleMixer)?)
+        .item(&check_item(app, ToggleInspector)?)
+        .item(&check_item(app, TogglePracticeView)?)
         .item(&item(app, ScaleTool)?)
         .separator()
         .item(&zoom_in)
@@ -1000,6 +1027,9 @@ mod tests {
             [
                 MenuAction::ToggleEditMode,
                 MenuAction::ToggleFretboard,
+                MenuAction::ToggleMixer,
+                MenuAction::ToggleInspector,
+                MenuAction::TogglePracticeView,
                 MenuAction::ToggleRepeatStart,
                 MenuAction::ToggleRepeatEnd,
                 MenuAction::ToggleHammerPull,

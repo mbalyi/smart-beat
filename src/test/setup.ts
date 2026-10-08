@@ -19,6 +19,9 @@ Element.prototype.scrollIntoView ??= () => {};
 
 beforeEach(() => {
   installMatchMedia({ dark: false });
+  // Tests start as someone who used Smart Beat before: both panels open. First-launch tests
+  // remove this (#83).
+  localStorage.setItem("smart-beat:layout", JSON.stringify({ mixer: true, inspector: true }));
 });
 
 afterEach(() => {

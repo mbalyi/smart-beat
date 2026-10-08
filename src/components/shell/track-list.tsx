@@ -47,6 +47,7 @@ import {
   describePan,
   describeVolume,
   EMPTY_AUTOMATION,
+  heardMix,
   isAudible,
   trackAutomation,
   trackEq,
@@ -409,7 +410,7 @@ export function TrackList({
             const i = track.index;
             const trackMix = mix.tracks[i];
             if (!trackMix) return null;
-            const audible = isAudible(mix, i);
+            const audible = isAudible(heardMix(mix), i);
             const isShown = i === shown;
             const automation = trackAutomation(mix, i);
             const lane = lanes[i] ?? "volume";

@@ -443,11 +443,71 @@ export const trackEq = (mix: MixerSettings, track: number): TrackEq => mix.eq?.[
 export const trackAutomation = (mix: MixerSettings, track: number): TrackAutomation =>
   mix.automation?.[track] ?? EMPTY_AUTOMATION;
 
-/** Extra gain of each track from the focus switch (dB). */
-export function focusTrims(mix: MixerSettings): number[] {
-  return mix.tracks.map((_, i) =>
-    mix.focus === undefined ? 0 : i === mix.focus ? FOCUS_BOOST_DB : FOCUS_CUT_DB,
+/**
+ * Extra gain of each track from the focus (dB): the others turned down by `cutDb`. Only in the
+ * "others down" mode; the other modes mute instead (see `heardMix`).
+ */
+export function focusTrims(mix: MixerSettings, cutDb = FOCUS_CUT_DB): number[] {
+  const on = mix.focus !== undefined && (mix.focusMode ?? "othersDown") === "othersDown";
+  return mix.tracks.map((_, i) => (!on ? 0 : i === mix.focus ? FOCUS_BOOST_DB : cutDb));
+}
+
+/** The practice mode in force: "normal" without a focused track. */
+export function practiceMode(mix: MixerSettings): FocusMode | "normal" {
+  return mix.focus === undefined ? "normal" : (mix.focusMode ?? "othersDown");
+}
+
+/**
+ * The mix as it is played (#83): the saved one with the practice mode applied on top. "Hear
+ * only me" plays the focused track alone (whatever is muted or soloed), "backing" mutes it and
+ * plays the rest. The saved mix is never changed, so the normal mix comes back as it was.
+ */
+export function heardMix(mix: MixerSettings): MixerSettings {
+  const mode = practiceMode(mix);
+  if (mode === "normal" || mode === "othersDown") return mix;
+  const focus = mix.focus!;
+  const tracks = mix.tracks.map((t, i) =>
+    mode === "onlyMe"
+      ? { ...t, mute: i !== focus, solo: false }
+      : i === focus
+        ? { ...t, mute: true, solo: false }
+        : t,
   );
+  const audio = mix.audioTrack;
+  return {
+    ...mix,
+    tracks,
+    // The recording is a backing too: silent while practising alone.
+    ...(audio && mode === "onlyMe" && { audioTrack: { ...audio, mute: true, solo: false } }),
+  };
+}
+
+/** How far the focus turns the other tracks down: presets, and the range of the slider (dB). */
+export const FOCUS_CUT_PRESETS = [
+  { name: "Subtle", db: -6 },
+  { name: "Medium", db: -12 },
+  { name: "Strong", db: -24 },
+] as const;
+export const FOCUS_CUT_MIN_DB = -24;
+export const FOCUS_CUT_STORAGE_KEY = "smart-beat:focus-cut";
+
+export function readFocusCutDb(): number {
+  try {
+    const value = Number(localStorage.getItem(FOCUS_CUT_STORAGE_KEY));
+    const stored = localStorage.getItem(FOCUS_CUT_STORAGE_KEY);
+    if (stored === null || !Number.isFinite(value)) return FOCUS_CUT_DB;
+    return clamp(Math.round(value), FOCUS_CUT_MIN_DB, 0);
+  } catch {
+    return FOCUS_CUT_DB;
+  }
+}
+
+export function storeFocusCutDb(db: number) {
+  try {
+    localStorage.setItem(FOCUS_CUT_STORAGE_KEY, String(clamp(Math.round(db), FOCUS_CUT_MIN_DB, 0)));
+  } catch {
+    // Not remembered: the default next time.
+  }
 }
 
 /** Adds a sound (a copy of `from`'s chain) and returns the new list. */

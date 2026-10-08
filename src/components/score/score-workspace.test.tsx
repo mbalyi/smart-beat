@@ -4,6 +4,7 @@ import { ScoreWorkspace } from "@/components/score/score-workspace";
 import { Toaster } from "@/components/ui/sonner";
 import type { ScoreDocument } from "@/hooks/use-score-document";
 import { fileKey } from "@/lib/score/format";
+import { LAYOUT_STORAGE_KEY } from "@/lib/score/layout";
 import { mixFromScore } from "@/lib/score/mixer";
 import { parseScore } from "@/lib/score/score";
 import { SOUNDFONT_STORAGE_KEY } from "@/lib/score/soundfonts";
@@ -166,6 +167,85 @@ describe("ScoreWorkspace", () => {
 
     await user.click(mixer);
     expect(mixerRegion()).toBeInTheDocument();
+  });
+
+  it("remembers which panels the user left open (#83)", async () => {
+    const { user, unmount } = await setup();
+    await user.click(screen.getByRole("button", { name: "Mixer" }));
+    expect(JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY)!)).toEqual({
+      mixer: false,
+      inspector: true,
+    });
+    unmount();
+    await setup();
+    expect(screen.queryByRole("region", { name: "Tracks and mixer" })).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
+  });
+
+  it("starts a new install with only the score and the playback controls (#83)", async () => {
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({ mixer: false, inspector: false }));
+    await setup();
+    expect(screen.queryByRole("region", { name: "Tracks and mixer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).not.toBeInTheDocument();
+    // Still one click away.
+    expect(screen.getByRole("button", { name: "Mixer" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Inspector" })).toBeInTheDocument();
+  });
+
+  it("Practice View hides the panels, focuses the shown track and puts it all back (#83)", async () => {
+    const { user, player } = await setup();
+    const practiceView = screen.getByRole("button", { name: "Practice View" });
+    await user.click(practiceView);
+
+    expect(practiceView).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("region", { name: "Tracks and mixer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).not.toBeInTheDocument();
+    // Playback and practice stay.
+    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Practice" })).toBeInTheDocument();
+    expect(player.setMix).toHaveBeenLastCalledWith(expect.objectContaining({ focus: 0 }));
+    // Not remembered as the user's layout.
+    expect(JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY)!)).toEqual({
+      mixer: true,
+      inspector: true,
+    });
+
+    await user.click(practiceView);
+    expect(mixerRegion()).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
+    expect(player.setMix.mock.lastCall![0].focus).toBeUndefined();
+  });
+
+  it("a panel switch ends Practice View and shows that panel (#83)", async () => {
+    const { user } = await setup();
+    await user.click(screen.getByRole("button", { name: "Practice View" }));
+    await user.click(screen.getByRole("button", { name: "Mixer" }));
+    expect(screen.getByRole("button", { name: "Practice View" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(mixerRegion()).toBeInTheDocument();
+  });
+
+  it("switches practice mixes without touching the saved faders (#83)", async () => {
+    const { user, player } = await setup();
+    await user.click(screen.getByRole("button", { name: /^Practice mix/ }));
+    const popover = await screen.findByRole("dialog", { name: "Practice mix" });
+    await user.click(within(popover).getByRole("radio", { name: /Hear only me/ }));
+    expect(player.setMix).toHaveBeenLastCalledWith(
+      expect.objectContaining({ focus: 0, focusMode: "onlyMe" }),
+    );
+    expect(
+      screen.getByRole("button", { name: /^Practice mix: Hear only me, Guitar/ }),
+    ).toBeInTheDocument();
+    await user.click(within(popover).getByRole("radio", { name: /Others turned down/ }));
+    await user.click(within(popover).getByRole("radio", { name: "Strong" }));
+    expect(player.setFocusCut).toHaveBeenLastCalledWith(-24);
+    await user.click(within(popover).getByRole("radio", { name: /Normal mix/ }));
+    const last = player.setMix.mock.lastCall![0];
+    expect(last.focus).toBeUndefined();
+    expect(last.tracks).toEqual(mixFromScore(SUMMARY).tracks);
+    await expectNoA11yViolations();
   });
 
   it("sends mixer changes to the player", async () => {

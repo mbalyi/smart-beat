@@ -393,6 +393,8 @@ fn editing_and_practice_menu_items_reach_the_webview() {
         ("edit.redo", "\"redo\""),
         ("edit.toggle-edit-mode", "\"toggle-edit-mode\""),
         ("view.toggle-fretboard", "\"toggle-fretboard\""),
+        ("view.toggle-mixer", "\"toggle-mixer\""),
+        ("view.toggle-practice-view", "\"toggle-practice-view\""),
         ("track.add", "\"add-track\""),
         ("track.remove", "\"remove-track\""),
         ("playback.toggle-loop", "\"toggle-loop\""),

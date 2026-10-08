@@ -9,6 +9,12 @@ import {
   focusTrims,
   FOCUS_BOOST_DB,
   FOCUS_CUT_DB,
+  FOCUS_CUT_MIN_DB,
+  FOCUS_CUT_STORAGE_KEY,
+  heardMix,
+  practiceMode,
+  readFocusCutDb,
+  storeFocusCutDb,
   initialMix,
   isAudible,
   mixerReducer,
@@ -428,5 +434,83 @@ describe("what the focus does to the mix (#83)", () => {
     ).toBeUndefined();
     m = mixerReducer(m, { type: "focus", track: 9 });
     expect(m.focus).toBeUndefined();
+  });
+});
+
+describe("practice mixes (#83)", () => {
+  const four = () => mixFromScore(SUMMARY);
+
+  it("turns the others down by the chosen amount, only in that mode", () => {
+    let m = mixerReducer(four(), { type: "focus", track: 1 });
+    expect(practiceMode(m)).toBe("othersDown");
+    expect(focusTrims(m, -6)).toEqual([-6, FOCUS_BOOST_DB, -6, -6]);
+    m = mixerReducer(m, { type: "focus", track: 1, mode: "onlyMe" });
+    expect(focusTrims(m, -6)).toEqual([0, 0, 0, 0]);
+    expect(practiceMode(four())).toBe("normal");
+  });
+
+  it("hears only the practised track, whatever is muted or soloed", () => {
+    let m = four();
+    m = mixerReducer(m, { type: "mute", track: 1, value: true });
+    m = mixerReducer(m, { type: "solo", track: 2, value: true });
+    m = mixerReducer(m, { type: "focus", track: 1, mode: "onlyMe" });
+    const heard = heardMix(m);
+    expect(heard.tracks.map((_, i) => isAudible(heard, i))).toEqual([false, true, false, false]);
+    // The saved mix keeps the user's mute and solo.
+    expect(m.tracks[1]!.mute).toBe(true);
+    expect(m.tracks[2]!.solo).toBe(true);
+  });
+
+  it("plays everything but the practised track as a backing", () => {
+    const m = mixerReducer(four(), { type: "focus", track: 0, mode: "backing" });
+    const heard = heardMix(m);
+    // The others play as they would in the normal mix.
+    expect(heard.tracks.map((_, i) => isAudible(heard, i))).toEqual(
+      m.tracks.map((_, i) => i !== 0 && isAudible(m, i)),
+    );
+  });
+
+  it("silences the audio track too when practising alone", () => {
+    const audio = {
+      name: "take.mp3",
+      embedded: false,
+      sync: [],
+      enabled: true,
+      volume: 1,
+      pan: 0,
+      mute: false,
+      solo: true,
+      eq: FLAT_EQ,
+      semitones: 0,
+      cents: 0,
+      filter: "off" as const,
+    };
+    const m = mixerReducer(
+      { ...four(), audioTrack: audio },
+      {
+        type: "focus",
+        track: 0,
+        mode: "onlyMe",
+      },
+    );
+    expect(heardMix(m).audioTrack).toMatchObject({ mute: true, solo: false });
+    expect(m.audioTrack).toBe(audio);
+  });
+
+  it("leaves the normal mix and 'others turned down' as they are", () => {
+    const m = four();
+    expect(heardMix(m)).toBe(m);
+    const focused = mixerReducer(m, { type: "focus", track: 2 });
+    expect(heardMix(focused)).toBe(focused);
+  });
+
+  it("remembers how far the others are turned down", () => {
+    expect(readFocusCutDb()).toBe(FOCUS_CUT_DB);
+    storeFocusCutDb(-6);
+    expect(readFocusCutDb()).toBe(-6);
+    storeFocusCutDb(-99);
+    expect(readFocusCutDb()).toBe(FOCUS_CUT_MIN_DB);
+    localStorage.setItem(FOCUS_CUT_STORAGE_KEY, "loud");
+    expect(readFocusCutDb()).toBe(FOCUS_CUT_DB);
   });
 });

@@ -10,6 +10,7 @@ import {
   PencilIcon,
   PlayIcon,
   Redo2Icon,
+  ScanEyeIcon,
   SkipBackIcon,
   SkipForwardIcon,
   SlidersHorizontalIcon,
@@ -86,6 +87,9 @@ export function WorkspaceToolbar({
   onToggleInspector,
   mixerOpen,
   onToggleMixer,
+  practiceView,
+  onTogglePracticeView,
+  practiceMix,
   headerSlot,
   active = true,
 }: {
@@ -132,6 +136,11 @@ export function WorkspaceToolbar({
   onToggleInspector: () => void;
   mixerOpen: boolean;
   onToggleMixer: () => void;
+  /** Practice View is on (#83): only the score and these controls. */
+  practiceView: boolean;
+  onTogglePracticeView: () => void;
+  /** The practice mix control, next to Practice View. */
+  practiceMix?: ReactNode;
   /** Where the main controls go: the app header's centre. Without it they sit above the view options. */
   headerSlot?: HTMLElement | null;
   /** The song is shown (hidden songs leave the header to the shown one). */
@@ -246,6 +255,20 @@ export function WorkspaceToolbar({
           >
             <SkipForwardIcon />
           </Button>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={practiceView}
+            onPressedChange={onTogglePracticeView}
+            aria-label="Practice View"
+            title="Practice View: just the score and the playback controls, your track in focus"
+          >
+            <ScanEyeIcon data-icon="inline-start" />
+            <span className="max-2xl:sr-only">Practice View</span>
+          </Toggle>
+          {practiceMix}
         </div>
         <LcdDisplay
           tracks={summary.tracks}

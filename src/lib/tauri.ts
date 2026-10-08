@@ -32,6 +32,9 @@ export type MenuAction =
   | "toggle-edit-mode"
   | "toggle-theme"
   | "toggle-fretboard"
+  | "toggle-mixer"
+  | "toggle-inspector"
+  | "toggle-practice-view"
   | "zoom-in"
   | "zoom-out"
   | "zoom-reset"
@@ -338,6 +341,9 @@ export interface MenuState {
   canRemoveTrack: boolean;
   editMode: boolean;
   fretboard: boolean;
+  mixer: boolean;
+  inspector: boolean;
+  practiceView: boolean;
   loop: boolean;
   metronome: boolean;
   countIn: boolean;

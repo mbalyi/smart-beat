@@ -52,7 +52,13 @@ import {
   type LatencyInfo,
 } from "@/lib/score/sync";
 import { applyInterpretation } from "@/lib/score/interpretation";
-import { focusTrims, isAudible, trackInterpretation } from "@/lib/score/mixer";
+import {
+  FOCUS_CUT_DB,
+  focusTrims,
+  heardMix,
+  isAudible,
+  trackInterpretation,
+} from "@/lib/score/mixer";
 import {
   renderEngineAudio,
   type BackingInfo,
@@ -530,19 +536,24 @@ export class ScorePlayer {
   }
 
   /** Sends the mix to the synthesizer. With `previous`, only what changed. */
-  private applyMix(previous: MixerSettings | null, next: MixerSettings) {
+  private applyMix(previousSaved: MixerSettings | null, nextSaved: MixerSettings) {
     const { api } = this;
+    // What is heard: the practice mode on top of the saved mix (#83).
+    const previous = previousSaved && heardMix(previousSaved);
+    const next = heardMix(nextSaved);
+    const cut = this.focusCutDb;
     if (previous?.master !== next.master) api.masterVolume = next.master;
     if (this.engine) {
-      this.engine.setMix(busMixes(next, focusTrims(next)));
+      this.engine.setMix(busMixes(next, focusTrims(next, cut)));
       this.applyExtras(next);
       return;
     }
     // alphaTab's synthesizer cannot boost: the focus switch only turns the others down.
-    const trims = focusTrims(next).map((db) => Math.min(1, 10 ** (db / 20)));
+    const trims = focusTrims(next, cut).map((db) => Math.min(1, 10 ** (db / 20)));
     const previousTrims = previous
-      ? focusTrims(previous).map((db) => Math.min(1, 10 ** (db / 20)))
+      ? focusTrims(previous, this.appliedCutDb).map((db) => Math.min(1, 10 ** (db / 20)))
       : [];
+    this.appliedCutDb = cut;
     next.tracks.forEach((trackMix, index) => {
       const track = this.score.tracks[index];
       if (!track) return;
@@ -622,6 +633,18 @@ export class ScorePlayer {
    * and regenerating it cuts off ringing notes, so during playback it is
    * applied at the next pause or stop instead.
    */
+  /** How far the focus turns the other tracks down (dB, at most 0). */
+  private focusCutDb = FOCUS_CUT_DB;
+  /** The cut the synthesizer's volumes were last set with. */
+  private appliedCutDb = FOCUS_CUT_DB;
+
+  /** Changes how far the focus turns the other tracks down (#83). */
+  setFocusCut(db: number) {
+    if (db === this.focusCutDb) return;
+    this.focusCutDb = db;
+    if (this.ready) this.applyMix(null, this.mix);
+  }
+
   setMix(mix: MixerSettings) {
     const previous = this.mix;
     this.mix = mix;
@@ -1028,10 +1051,12 @@ export class ScorePlayer {
       onProgress?.(1);
       return { samples, sampleRate: EXPORT_SAMPLE_RATE, channels: 2 };
     }
+    // Exported as it is heard: a practice mode (backing only…) is part of it.
+    const heard = heardMix(this.mix);
     const trackVolume = new Map<number, number>();
     this.score.tracks.forEach((_, index) => {
-      const mix = this.mix.tracks[index];
-      trackVolume.set(index, mix && isAudible(this.mix, index) ? mix.volume : 0);
+      const mix = heard.tracks[index];
+      trackVolume.set(index, mix && isAudible(heard, index) ? mix.volume : 0);
     });
     const options = {
       sampleRate: EXPORT_SAMPLE_RATE,

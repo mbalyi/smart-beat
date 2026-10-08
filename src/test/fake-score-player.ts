@@ -25,6 +25,7 @@ export class FakeScorePlayer {
   setView = vi.fn();
   setLayout = vi.fn();
   setMix = vi.fn();
+  setFocusCut = vi.fn();
   setSoundFont = vi.fn();
   playPause = vi.fn();
   stop = vi.fn();
