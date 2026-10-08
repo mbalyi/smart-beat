@@ -284,6 +284,14 @@ pub enum Transport {
         channel: u8,
         key: u8,
         velocity: u8,
+        /// The instrument to play it with (a reference note of a string, #83). None: the
+        /// channel's current one.
+        #[serde(default)]
+        program: Option<u8>,
+    },
+    /// Ends the previewed notes of a channel.
+    PreviewStop {
+        channel: u8,
     },
 }
 
@@ -612,11 +620,17 @@ pub fn audio_transport(
             channel,
             key,
             velocity,
+            program,
         } => {
-            if let Err(e) = engine.preview(channel, key, velocity) {
+            let result = match program {
+                Some(program) => engine.preview_with(channel, program, key, velocity),
+                None => engine.preview(channel, key, velocity),
+            };
+            if let Err(e) = result {
                 eprintln!("preview: {e}");
             }
         }
+        Transport::PreviewStop { channel } => engine.preview_stop(channel),
     })
 }
 

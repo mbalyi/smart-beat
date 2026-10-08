@@ -41,7 +41,7 @@ import { filledBars } from "@/lib/score/bar-grid";
 import { barTexts, shortText, tempoMarkers } from "@/lib/score/tempo";
 import { lowSoundWarning } from "@/lib/audio/sound-ranges";
 import { describeInstrument } from "@/lib/score/instrument-view";
-import { lowestPitch } from "@/lib/score/music";
+import { lowestPitch, tuningLabel } from "@/lib/score/music";
 import type { SoundFontId } from "@/lib/score/soundfonts";
 import {
   describePan,
@@ -455,6 +455,15 @@ export function TrackList({
                             className="size-3.5 shrink-0 text-primary"
                             aria-hidden="true"
                           />
+                        )}
+                        {track.kind === "stringed" && (
+                          // The tuning at a glance (#83); the pitches are in the tooltip.
+                          <span
+                            data-testid="tuning-name"
+                            className="shrink-0 rounded-sm border px-1 text-[10px] leading-4 text-foreground"
+                          >
+                            {tuningLabel(track.tuning)}
+                          </span>
                         )}
                         <LowSoundMark track={track} soundFont={soundFont} />
                       </div>

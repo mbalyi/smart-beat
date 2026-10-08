@@ -446,10 +446,21 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     });
   }
 
-  /** Plays one note now (a drum picked in the kit). */
-  preview(channel: number, key: number, velocity = 100) {
+  /** Plays one note now (a drum picked in the kit; with `program`, that instrument). */
+  preview(channel: number, key: number, velocity = 100, program?: number) {
     this.claim();
-    this.send({ type: "preview", channel, key, velocity });
+    this.send({
+      type: "preview",
+      channel,
+      key,
+      velocity,
+      ...(program !== undefined && { program }),
+    });
+  }
+
+  /** Ends the previewed notes of a channel. */
+  previewStop(channel: number) {
+    this.send({ type: "previewStop", channel });
   }
 
   setMetronome(volume: number) {

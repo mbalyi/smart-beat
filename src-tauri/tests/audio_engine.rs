@@ -261,6 +261,24 @@ fn previews_a_drum_without_playing_the_song() {
     assert!(!engine.is_playing());
 }
 
+#[test]
+fn previews_a_string_with_its_instrument_and_stops_it() {
+    // The low E of a guitar, with a nylon guitar (GM 25), as the tuner's reference note (#83).
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.preview_with(0, 24, 40, 100).unwrap();
+    let (sounding, _) = render(&mut engine, 0.3);
+    assert!(rms(&sounding) > 0.001, "silent reference note");
+    assert!(!engine.is_playing());
+    engine.preview_stop(0);
+    // Released notes fade out: well after the release, nothing is left.
+    let _ = render(&mut engine, 2.0);
+    let (after, _) = render(&mut engine, 0.3);
+    assert!(
+        rms(&after) < rms(&sounding) / 10.0,
+        "the note keeps ringing"
+    );
+}
+
 fn playing_engine(setup: impl FnOnce(&mut Engine)) -> Engine {
     let mut engine = Engine::new(sonivox(), RATE);
     engine.load(Arc::new(song())).unwrap();

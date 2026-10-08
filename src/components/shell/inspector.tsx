@@ -24,7 +24,7 @@ import { LabeledSlider } from "@/components/labeled-slider";
 import { describeInstrument } from "@/lib/score/instrument-view";
 import { PLAYING_STYLES, type Interpretation, type PlayingStyle } from "@/lib/score/interpretation";
 import { describePan, describeVolume } from "@/lib/score/mixer";
-import { pitchName } from "@/lib/score/music";
+import { pitchName, tuningLabel } from "@/lib/score/music";
 import type { NotationView, TrackSummary, TrackView } from "@/lib/score/score";
 import { isSoundFontId, SOUNDFONTS, type SoundFontId } from "@/lib/score/soundfonts";
 import { MAX_SYNC_OFFSET_MS, MIN_SYNC_OFFSET_MS } from "@/lib/score/sync";
@@ -440,6 +440,9 @@ export function Inspector({
           )}
           {track.kind === "stringed" && (
             <Row label="Tuning">
+              <span className="mr-2 font-medium" data-testid="tuning-name">
+                {tuningLabel(track.tuning)}
+              </span>
               <span className="font-mono tracking-widest">
                 {[...track.tuning]
                   .reverse()

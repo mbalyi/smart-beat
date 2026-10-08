@@ -480,6 +480,30 @@ impl Engine {
         Ok(())
     }
 
+    /// Plays one note with an instrument (a GM program) now: the reference note of a string
+    /// when tuning (#83).
+    pub fn preview_with(
+        &mut self,
+        channel: u8,
+        program: u8,
+        key: u8,
+        velocity: u8,
+    ) -> Result<(), String> {
+        if self.preview.is_none() {
+            self.preview = Some(self.synth_source().synth(POLYPHONY)?);
+        }
+        let synth = self.preview.as_mut().expect("just created");
+        synth.process_midi_message((channel & 0x0f) as i32, 0xc0, program.min(127) as i32, 0);
+        self.preview(channel, key, velocity)
+    }
+
+    /// Lets the previewed notes of a channel ring out.
+    pub fn preview_stop(&mut self, channel: u8) {
+        if let Some(synth) = self.preview.as_mut() {
+            synth.note_off_all_channel((channel & 0x0f) as i32, false);
+        }
+    }
+
     pub fn sample_rate(&self) -> f32 {
         self.sample_rate
     }

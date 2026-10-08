@@ -71,6 +71,8 @@ const { PlayerState, PlaybackRange } = synth;
 
 /** MIDI channel 10, where General MIDI plays drums (0-based). */
 const PERCUSSION_CHANNEL = 9;
+/** A channel the songs leave free (the last), for the tuner's reference notes. */
+const REFERENCE_CHANNEL = 15;
 
 /** Sample rate of exported audio, and how much sound is rendered at a time (ms). */
 const EXPORT_SAMPLE_RATE = 44_100;
@@ -856,6 +858,36 @@ export class ScorePlayer {
     const file = new midi.MidiFile();
     file.addEvent(new midi.NoteOnEvent(0, 0, PERCUSSION_CHANNEL, sound, 100));
     file.addEvent(new midi.NoteOffEvent(0, file.division, PERCUSSION_CHANNEL, sound, 0));
+    this.api.player?.playOneTimeMidiFile(file);
+  }
+
+  /** How long a reference note sounds (ms). */
+  static readonly REFERENCE_NOTE_MS = 2500;
+  private referenceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Plays a reference note with an instrument (a GM program), whether or not the song plays:
+   * the open strings of the tuner (#83). It rings for `REFERENCE_NOTE_MS`.
+   */
+  previewNote(pitch: number, program: number) {
+    const channel = REFERENCE_CHANNEL;
+    if (this.engine) {
+      const engine = this.engine;
+      engine.preview(channel, pitch, 100, program);
+      clearTimeout(this.referenceTimer);
+      this.referenceTimer = setTimeout(
+        () => engine.previewStop(channel),
+        ScorePlayer.REFERENCE_NOTE_MS,
+      );
+      return;
+    }
+    if (!this.hasSounds) return;
+    const file = new midi.MidiFile();
+    // At alphaTab's default 120 BPM a quarter is 0.5 s.
+    const ticks = Math.round((file.division * ScorePlayer.REFERENCE_NOTE_MS) / 500);
+    file.addEvent(new midi.ProgramChangeEvent(0, 0, channel, program));
+    file.addEvent(new midi.NoteOnEvent(0, 0, channel, pitch, 100));
+    file.addEvent(new midi.NoteOffEvent(0, ticks, channel, pitch, 0));
     this.api.player?.playOneTimeMidiFile(file);
   }
 

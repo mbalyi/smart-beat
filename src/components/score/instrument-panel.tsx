@@ -29,7 +29,7 @@ import {
   keyboardRange,
   type KitEntry,
 } from "@/lib/score/instrument-view";
-import { pitchName, tuningName, type TrackKind } from "@/lib/score/music";
+import { pitchName, tuningLabel, type TrackKind } from "@/lib/score/music";
 import {
   describeScale,
   SCALE_ROOTS,
@@ -127,6 +127,8 @@ function Fretboard({
   cursorString,
   scale,
   onFret,
+  onPlayString,
+  onOpenTuner,
 }: {
   tuning: number[];
   capo: number;
@@ -135,6 +137,9 @@ function Fretboard({
   cursorString: number | null;
   scale: Scale | null;
   onFret: (string: number, fretFromNut: number) => void;
+  /** Plays an open string's note, to tune by ear (#83). */
+  onPlayString?: (pitch: number) => void;
+  onOpenTuner?: () => void;
 }) {
   const strings = fretboardStrings(tuning);
   const positions = fretPositions(active, capo);
@@ -146,7 +151,7 @@ function Fretboard({
     fret: capo,
   });
   const frets = Array.from({ length: FRET_COUNT + 1 }, (_, fret) => fret);
-  const name = tuningName(tuning);
+  const name = tuningLabel(tuning);
 
   const move = (event: KeyboardEvent, string: number, fret: number) => {
     const delta = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [1, 0], ArrowDown: [-1, 0] }[
@@ -180,9 +185,18 @@ function Fretboard({
     <div className="flex flex-col gap-1">
       <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
         <span>
-          {name ?? "Custom tuning"}: {strings.map((s) => s.label).join(" ")}
+          {name}: {strings.map((s) => s.label).join(" ")}
           {capo > 0 && ` · Capo ${capo}`}
         </span>
+        {onOpenTuner && (
+          <button
+            type="button"
+            onClick={onOpenTuner}
+            className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            Tuner…
+          </button>
+        )}
         {editing && (
           // The buttons have the same text as their names: screen readers need no copy.
           <span aria-hidden="true" data-testid="fret-hint" className="font-medium text-foreground">
@@ -213,12 +227,27 @@ function Fretboard({
               editing && cursorString === s.string && "[&>*]:bg-sky-100 dark:[&>*]:bg-sky-950",
             )}
           >
-            <span
-              className="flex items-center justify-end pr-1 text-xs font-medium text-muted-foreground"
-              aria-hidden="true"
-            >
-              {s.label}
-            </span>
+            {onPlayString ? (
+              // The string's name plays its open note (#83). A mouse shortcut: the board stays
+              // one tab stop, and the keyboard reaches the same notes in the tuner.
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => onPlayString(s.open)}
+                aria-label={`Hear open string ${s.number} (${pitchName(s.open, { spoken: true })})`}
+                title={`Hear ${pitchName(s.open)}`}
+                className="flex items-center justify-end rounded-sm pr-1 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                {s.label}
+              </button>
+            ) : (
+              <span
+                className="flex items-center justify-end pr-1 text-xs font-medium text-muted-foreground"
+                aria-hidden="true"
+              >
+                {s.label}
+              </span>
+            )}
             {frets.map((fret) => {
               const on = isActive(s.string, fret);
               const behindCapo = fret < capo;
@@ -528,6 +557,8 @@ export function InstrumentPanel({
   cursorDrum = null,
   onReplaceDrum,
   onPreviewDrum,
+  onPlayString,
+  onOpenTuner,
 }: {
   kind: TrackKind;
   tuning: number[];
@@ -551,6 +582,9 @@ export function InstrumentPanel({
   cursorDrum?: number | null;
   onReplaceDrum?: (sound: number) => void;
   onPreviewDrum?: (sound: number) => void;
+  /** Plays an open string's note (#83). */
+  onPlayString?: (pitch: number) => void;
+  onOpenTuner?: () => void;
 }) {
   const name = instrumentViewName(kind);
   const [drumView, setDrumView] = useState<"pads" | "kit">("pads");
@@ -589,6 +623,8 @@ export function InstrumentPanel({
           cursorString={cursorString}
           scale={shownScale}
           onFret={onFret}
+          onPlayString={onPlayString}
+          onOpenTuner={onOpenTuner}
         />
       ) : kind === "drums" ? (
         <div className="flex flex-col gap-2">

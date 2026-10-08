@@ -2,6 +2,7 @@ import {
   editorStatus,
   emitMenuAction,
   expect,
+  expectNoA11yViolations,
   expectTab,
   newSong,
   openSong,
@@ -16,7 +17,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await openSong(app);
     await app.getByRole("button", { name: "Fretboard" }).click();
     const fretboard = app.getByRole("region", { name: "Fretboard" });
-    await expect(fretboard).toContainText("Guitar Standard Tuning: E B G D A E");
+    await expect(fretboard).toContainText("Standard: E B G D A E");
     const board = fretboard.getByRole("img");
     await expect(board).toHaveAccessibleName("Fretboard. No notes");
 
@@ -36,7 +37,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await app.getByRole("option", { name: "Bass" }).click();
 
     const fretboard = app.getByRole("region", { name: "Fretboard" });
-    await expect(fretboard).toContainText("Bass Standard Tuning: G D A E");
+    await expect(fretboard).toContainText("Standard: G D A E");
 
     await emitMenuAction(app, "track-settings");
     const dialog = app.getByRole("dialog", { name: "Track settings" });
@@ -179,5 +180,37 @@ test.describe("fretboard and keyboard (#8)", () => {
       app.getByRole("button", { name: "42 Hi-Hat (closed)", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(scoreRegion(app)).toBeFocused();
+  });
+});
+
+test.describe("tuner (#83)", () => {
+  test("plays the open strings from the fretboard and the tuner", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("switch", { name: "Native engine with effects" }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+    await app.getByRole("button", { name: "Fretboard" }).click();
+    const fretboard = app.getByRole("region", { name: "Fretboard" });
+    const previews = () =>
+      app.evaluate(() =>
+        window.__ipcCalls
+          .filter((c) => c.cmd === "audio_transport")
+          .map(
+            (c) =>
+              (c.args as { command: { type: string; key?: number; program?: number } }).command,
+          )
+          .filter((c) => c.type === "preview"),
+      );
+    // The low E string's name plays its note with the track's instrument.
+    await fretboard.getByRole("button", { name: "Hear open string 6 (E2)" }).click();
+    await expect.poll(async () => (await previews()).at(-1)).toMatchObject({ key: 40 });
+    expect((await previews()).at(-1)?.program).toEqual(expect.any(Number));
+
+    await fretboard.getByRole("button", { name: "Tuner…" }).click();
+    const tuner = app.getByRole("dialog", { name: "Tuner: Guitar" });
+    await tuner.getByRole("button", { name: /^Hear string 1/ }).click();
+    await expect.poll(async () => (await previews()).at(-1)).toMatchObject({ key: 64 });
+    await expectNoA11yViolations(app);
+    await tuner.getByRole("tab", { name: "Microphone" }).click();
+    await expect(tuner.getByRole("status")).toHaveText("The microphone is off.");
   });
 });

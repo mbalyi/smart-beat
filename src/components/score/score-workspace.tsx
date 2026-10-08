@@ -34,6 +34,7 @@ import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
 import { PracticeMix } from "@/components/score/practice-mix";
+import { TunerDialog } from "@/components/score/tuner-dialog";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
@@ -464,6 +465,7 @@ export function ScoreWorkspace({
   const [syncOffset, setSyncOffset] = useState(readSyncOffset);
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
   const [trainerOpen, setTrainerOpen] = useState(false);
+  const [tunerOpen, setTunerOpen] = useState(false);
   /** The bar dialog's bar and its settings when it opened (kept while it closes). */
   const [barDialog, setBarDialog] = useState<{
     open: boolean;
@@ -1849,6 +1851,8 @@ export function ScoreWorkspace({
               editing={editing}
               cursorString={track.kind === "stringed" ? editor.cursor.string : null}
               drumSounds={shownNotes.map((n) => n.pitch)}
+              onPlayString={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
+              onOpenTuner={() => setTunerOpen(true)}
               onFret={(string, fret) => {
                 editor.setString(string);
                 editor.setFret(fret - track.capo);
@@ -2002,6 +2006,15 @@ export function ScoreWorkspace({
           }
           onClose={() => setAudioEditorOpen(false)}
           canEmbed={isTauri()}
+        />
+      )}
+      {track.kind === "stringed" && (
+        <TunerDialog
+          open={tunerOpen}
+          onOpenChange={setTunerOpen}
+          trackName={track.name}
+          tuning={track.tuning}
+          onPlay={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
         />
       )}
       <PedalboardDialog

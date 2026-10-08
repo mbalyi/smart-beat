@@ -677,7 +677,8 @@ export type TransportCommand =
   | { type: "metronome"; volume: number }
   | { type: "masterVolume"; value: number }
   | { type: "masterPan"; value: number }
-  | { type: "preview"; channel: number; key: number; velocity: number };
+  | { type: "preview"; channel: number; key: number; velocity: number; program?: number }
+  | { type: "previewStop"; channel: number };
 
 /** Mirrors `BlockProblem` in `src-tauri/src/audio/chain.rs`. */
 export interface BlockProblem {

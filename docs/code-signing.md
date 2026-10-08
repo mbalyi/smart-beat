@@ -35,7 +35,7 @@ This is fine for internal testing. **Set up signing before the first public rele
    | `APPLE_API_KEY_P8`           | Contents of the downloaded `AuthKey_<KeyID>.p8`      |
 
 5. **What happens in CI:** `release.yml` imports the certificate into a temporary keychain. Tauri signs the app with the hardened runtime, submits it to `notarytool`, and staples the notarization ticket to the `.app` and `.dmg`. If the secrets are missing, the workflow falls back to ad-hoc signing, which is today's behavior.
-6. **Entitlements:** none are needed yet. When microphone input arrives (issue #20), add `com.apple.security.device.audio-input` through `bundle.macOS.entitlements` and an `NSMicrophoneUsageDescription` to `Info.plist`, otherwise macOS silently denies the microphone.
+6. **Entitlements:** `src-tauri/Entitlements.plist` (set as `bundle.macOS.entitlements`) grants `com.apple.security.device.audio-input` for the tuner's microphone (#83), and `src-tauri/Info.plist` adds the `NSMicrophoneUsageDescription` macOS shows when it asks. Without both, macOS silently denies the microphone under the hardened runtime.
 
 To verify a build locally:
 
