@@ -110,7 +110,7 @@ describe("DrumMixerDialog", () => {
 
   it("offers to turn on the engine", async () => {
     const { user, dialog, onEnableEngine } = setup(false);
-    await user.click(within(dialog).getByRole("button", { name: "Turn it on" }));
+    await user.click(within(dialog).getByRole("button", { name: "Enable effects playback" }));
     expect(onEnableEngine).toHaveBeenCalled();
   });
 });

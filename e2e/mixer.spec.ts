@@ -16,14 +16,14 @@ test.describe("mixer (#37)", () => {
   test("edits a track's channel EQ and sends it to the engine", async ({ app }) => {
     await withEngine(app);
     await app.getByRole("button", { name: "EQ for Bass" }).click();
-    const low = app.getByRole("slider", { name: "EQ low, Bass" });
+    const low = app.getByRole("slider", { name: "Bass, EQ low" });
     await low.focus();
     await app.keyboard.press("PageUp");
     await expect(low).toHaveAttribute("aria-valuetext", "+3.0 dB");
     await expectNoA11yViolations(app);
     await expect.poll(() => app.evaluate(() => window.__engineConfig.eq[1]?.lowDb)).toBe(3);
     await app.getByRole("switch", { name: "10-band EQ, Bass" }).click();
-    await expect(app.getByRole("slider", { name: "EQ 1.0 kHz, Bass" })).toBeVisible();
+    await expect(app.getByRole("slider", { name: "Bass, EQ 1.0 kHz" })).toBeVisible();
     await expect
       .poll(() => app.evaluate(() => window.__engineConfig.eq[1]?.graphic?.length))
       .toBe(10);

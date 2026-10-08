@@ -393,12 +393,17 @@ export function ScoreWorkspace({
   const [pedalboard, setPedalboard] = useState<{
     open: boolean;
     track: number | null;
+    /**
+     * The track it was opened for (none: the master). The dialog's Track / Mastering switch
+     * goes back to it, whatever track is highlighted in the mixer by then.
+     */
+    opened: number | null;
     focus?: EffectType;
     /** The sound of the track being edited. */
     sound: number;
     /** Changes with every opening, so the dialog starts fresh. */
     session: number;
-  }>({ open: false, track: null, sound: 0, session: 0 });
+  }>({ open: false, track: null, opened: null, sound: 0, session: 0 });
   const [drumMixer, setDrumMixer] = useState<{ open: boolean; track: number }>({
     open: false,
     track: 0,
@@ -958,8 +963,17 @@ export function ScoreWorkspace({
         changeMix({ type: "effects", track, slots: chain });
       }
     }
-    setPedalboard((p) => ({ open: true, track, focus, sound: 0, session: p.session + 1 }));
+    setPedalboard((p) => ({
+      open: true,
+      track,
+      opened: track,
+      focus,
+      sound: 0,
+      session: p.session + 1,
+    }));
   };
+  /** The track the pedalboard edits, or would edit when switched back from the master. */
+  const pedalboardTrack = pedalboard.track ?? pedalboard.opened ?? trackIndex;
   const pedalboardTarget: PedalboardTarget =
     pedalboard.track === null
       ? { track: null, name: "Master", presetTarget: "master" }
@@ -1141,7 +1155,7 @@ export function ScoreWorkspace({
     if (!engineOn) {
       toast.info("The audio track plays with the native audio engine", {
         action: nativeEngineAvailable()
-          ? { label: "Turn it on", onClick: () => changeAudioEngine("native") }
+          ? { label: "Enable effects playback", onClick: () => changeAudioEngine("native") }
           : undefined,
       });
       return;
@@ -1823,7 +1837,10 @@ export function ScoreWorkspace({
                   changeMix({ type: "drum-kit", track: trackIndex, kit });
                   if (kit && audioEngine !== "native" && nativeEngineAvailable()) {
                     toast("Imported kits play with the native engine", {
-                      action: { label: "Turn it on", onClick: () => changeAudioEngine("native") },
+                      action: {
+                        label: "Enable effects playback",
+                        onClick: () => changeAudioEngine("native"),
+                      },
                     });
                   }
                 },
@@ -1908,9 +1925,13 @@ export function ScoreWorkspace({
               ? effectProblems.master
               : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
         }
-        trackName={track.name}
+        trackName={summary.tracks[pedalboardTrack]?.name ?? track.name}
         onTargetChange={(mastering) =>
-          setPedalboard((p) => ({ ...p, track: mastering ? null : trackIndex, sound: 0 }))
+          setPedalboard((p) => ({
+            ...p,
+            track: mastering ? null : (p.opened ?? trackIndex),
+            sound: 0,
+          }))
         }
         sounds={pedalboardSounds}
         songPresets={mix.presets}

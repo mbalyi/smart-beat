@@ -261,7 +261,7 @@ describe("TrackList", () => {
     const onChange = vi.fn();
     const { user } = setup({ onChange });
     await user.click(screen.getByRole("button", { name: "EQ for Bass" }));
-    const low = await screen.findByRole("slider", { name: "EQ low, Bass" });
+    const low = await screen.findByRole("slider", { name: "Bass, EQ low" });
     low.focus();
     await user.keyboard("{ArrowUp}");
     expect(onChange).toHaveBeenLastCalledWith({

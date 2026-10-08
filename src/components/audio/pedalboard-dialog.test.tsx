@@ -312,7 +312,7 @@ describe("PedalboardDialog", () => {
       engineOn: false,
     });
     expect(within(dialog).getByRole("alert")).toHaveTextContent("not in the library");
-    await user.click(within(dialog).getByRole("button", { name: "Turn it on" }));
+    await user.click(within(dialog).getByRole("button", { name: "Enable effects playback" }));
     expect(onEnableEngine).toHaveBeenCalled();
   });
 

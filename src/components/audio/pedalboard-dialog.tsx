@@ -13,6 +13,7 @@ import {
   LibraryBigIcon,
 } from "lucide-react";
 
+import { EffectsPlaybackNotice } from "@/components/audio/effects-playback-notice";
 import { GainReductionMeter } from "@/components/audio/level-meter";
 import { Button } from "@/components/ui/button";
 import {
@@ -669,25 +670,7 @@ export function PedalboardDialog({
             </ToggleGroup>
           )}
 
-          {!engineOn && (
-            <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-              <TriangleAlertIcon
-                className="mt-0.5 size-4 shrink-0 text-amber-600"
-                aria-hidden="true"
-              />
-              <span className="flex-1">
-                Effects are heard with the native audio engine.{" "}
-                {onEnableEngine
-                  ? "They are saved either way."
-                  : "It is available in the Smart Beat desktop app."}
-              </span>
-              {onEnableEngine && (
-                <Button size="xs" variant="outline" onClick={onEnableEngine}>
-                  Turn it on
-                </Button>
-              )}
-            </p>
-          )}
+          <EffectsPlaybackNotice engineOn={engineOn} onEnable={onEnableEngine} />
 
           {sounds && target.track !== null && <SoundsBar sounds={sounds} />}
 
@@ -945,6 +928,11 @@ export function PedalboardDialog({
                 <span className="font-normal text-muted-foreground normal-case">
                   ({chain.length} of {limit})
                 </span>
+                {!engineOn && (
+                  <span className="ml-2 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[0.7rem] font-medium tracking-normal text-amber-800 normal-case dark:text-amber-300">
+                    Not audible yet
+                  </span>
+                )}
               </h3>
               {/* Dropping on the board is a mouse shortcut for the Add buttons. */}
               {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
@@ -952,7 +940,11 @@ export function PedalboardDialog({
                 ref={boardRef}
                 aria-labelledby={`${ids}-board`}
                 data-testid="pedalboard"
-                className="flex min-h-40 flex-wrap items-start gap-2 rounded-md border border-dashed p-2"
+                className={cn(
+                  "flex min-h-40 flex-wrap items-start gap-2 rounded-md border border-dashed p-2",
+                  // The pedals can be edited, but nothing is heard until the engine is on.
+                  !engineOn && "border-amber-500/60",
+                )}
                 onDragOver={(e) => {
                   e.preventDefault();
                   if (dropAt === null) setDropAt(chain.length);

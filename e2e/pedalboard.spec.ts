@@ -85,6 +85,26 @@ test.describe("pedalboard (#36)", () => {
     await expect(master.getByRole("button", { name: "Add Reverb" })).toBeDisabled();
   });
 
+  test("names the track being edited, not the one highlighted in the mixer (#83)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    // Bass is the highlighted track; the pedalboard is opened from the Guitar row.
+    await app.getByRole("button", { name: "Show Bass" }).click();
+    await expect(app.getByRole("button", { name: /^Show Bass/ })).toContainText("(shown)");
+    const dialog = await openPedalboard(app, "Guitar");
+    await expect(dialog.getByRole("radio", { name: "Current track: Guitar" })).toBeVisible();
+    await expect(dialog.getByRole("radiogroup", { name: "Chain to edit" })).not.toContainText(
+      "Bass",
+    );
+    // Mastering and back returns to the track it was opened for.
+    await dialog.getByRole("radio", { name: "Mastering" }).click();
+    const master = app.getByRole("dialog", { name: "Pedalboard: Master" });
+    await expect(master.getByRole("radio", { name: "Current track: Guitar" })).toBeVisible();
+    await master.getByRole("radio", { name: "Current track: Guitar" }).click();
+    await expect(app.getByRole("dialog", { name: "Pedalboard: Guitar" })).toBeVisible();
+  });
+
   test("gives a track a second sound that switches in at a bar", async ({ app }) => {
     await openSong(app);
     await app.getByRole("switch", { name: "Native engine with effects" }).click();
