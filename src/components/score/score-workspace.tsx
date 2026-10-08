@@ -34,6 +34,7 @@ import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
 import { PracticeMix } from "@/components/score/practice-mix";
+import { ScoreContextMenu, type ScoreMenuActions } from "@/components/score/score-context-menu";
 import { baseName } from "@/lib/score/format";
 import { useTheme } from "@/hooks/use-theme";
 import { TunerDialog } from "@/components/score/tuner-dialog";
@@ -166,6 +167,7 @@ import {
   barSettingsOf,
   barSettingsRange,
   changedParts,
+  sectionsOf,
   structureWarnings,
   tempoAt,
   toggleRepeatEnd,
@@ -375,6 +377,11 @@ export function ScoreWorkspace({
   const view = viewOf(trackObject, trackIndex);
   // Bars of the shown track that do not add up to their time signature.
   const revision = editor.revision; // changes with every edit, which changes the bars in place
+  // The song's named parts, to practise them by name (#83).
+  const sections = useMemo(() => {
+    void revision;
+    return sectionsOf(score);
+  }, [score, revision]);
   const problems = useMemo(() => {
     void revision;
     return barProblems(score, trackIndex);
@@ -471,6 +478,8 @@ export function ScoreWorkspace({
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
   const [trainerOpen, setTrainerOpen] = useState(false);
   const [tunerOpen, setTunerOpen] = useState(false);
+  /** The bars the Speed Trainer was opened for from the score's context menu (#83). */
+  const [trainerRange, setTrainerRange] = useState<LoopRange | null>(null);
   /** The bar dialog's bar and its settings when it opened (kept while it closes). */
   const [barDialog, setBarDialog] = useState<{
     open: boolean;
@@ -623,6 +632,7 @@ export function ScoreWorkspace({
     player.setSpeed(practice.speed);
     player.setMetronome(practice.metronome);
     player.setCountIn(practice.countIn);
+    player.setLoopCountIn(!!practice.trainer?.countInBetween && audioEngine === "native");
     player.setFocusCut(focusCutDb);
   });
   const playerCreated = useRef(false);
@@ -712,6 +722,9 @@ export function ScoreWorkspace({
   useEffect(() => playerRef.current?.setEditing(editing), [editing]);
   useEffect(() => playerRef.current?.setFocusCut(focusCutDb), [focusCutDb]);
   useEffect(() => playerRef.current?.setTheme(resolvedTheme), [resolvedTheme]);
+  // A count-in before every loop, while the Speed Trainer asks for one (native engine; #83).
+  const loopCountIn = !!practice.trainer?.countInBetween && audioEngine === "native";
+  useEffect(() => playerRef.current?.setLoopCountIn(loopCountIn), [loopCountIn]);
 
   /** After every change to the music: new mix order, re-render, new MIDI. */
   const onModelChange = useEffectEvent(() => {
@@ -1477,9 +1490,10 @@ export function ScoreWorkspace({
       const failed = (error: unknown) => {
         toast.error(what, {
           id: toastId,
-          description: pdfPath
-            ? errorText(error)
-            : `${errorText(error)} Try Export as PDF in the print settings instead.`,
+          description:
+            pdfPath || !pdfSupported
+              ? errorText(error)
+              : `${errorText(error)} Try Export as PDF in the print settings instead.`,
         });
         back();
       };
@@ -1552,6 +1566,7 @@ export function ScoreWorkspace({
       bar: start.bar + 1,
       endBar: end.bar + 1,
       beats: score.masterBars[cursorBar]?.timeSignatureNumerator ?? 4,
+      speed: practice.speed,
     };
   };
 
@@ -1581,6 +1596,27 @@ export function ScoreWorkspace({
     editor.setCursorTo({ bar, beat: 0, voice: 0 });
     playerRef.current?.seekToBar(bar);
     focusScore();
+  };
+
+  /** The score's right-click menu (#83). */
+  const loopBars = (start: number, end: number) =>
+    dispatchPractice({ type: "loop", value: true, range: { start, end } });
+  const scoreMenuActions: ScoreMenuActions = {
+    onPlayFrom: (at) => {
+      editor.setCursorTo({ bar: at, beat: 0, voice: 0 });
+      playerRef.current?.seekToBar(at);
+      if (!playing && ready) playPause();
+    },
+    onLoopBar: (at) => loopBars(at, at),
+    onLoopStart: (at) =>
+      practice.loop ? loopBars(at, Math.max(at, practice.range.end)) : loopBars(at, at),
+    onLoopEnd: (at) =>
+      practice.loop ? loopBars(Math.min(practice.range.start, at), at) : loopBars(at, at),
+    onPracticeSection: (section) => loopBars(section.start, section.end),
+    onTrainer: (range) => {
+      setTrainerRange(range);
+      setTrainerOpen(true);
+    },
   };
 
   // --- Menu -------------------------------------------------------------------
@@ -1830,6 +1866,7 @@ export function ScoreWorkspace({
         onPlayPause={playPause}
         onStop={() => playerRef.current?.stop()}
         onTempo={() => setTempoOpen(true)}
+        tempo={{ songBpm: tempoAt(score, bar), speed: practice.speed }}
         onSeekBar={(index) => playerRef.current?.seekToBar(index)}
         practice={
           <PracticeControls
@@ -1842,6 +1879,8 @@ export function ScoreWorkspace({
             onCountInChange={(value) => dispatchPractice({ type: "count-in", value })}
             onOpenTrainer={() => setTrainerOpen(true)}
             onStopTrainer={() => dispatchPractice({ type: "stop-trainer" })}
+            onHoldTrainer={(value) => dispatchPractice({ type: "hold-trainer", value })}
+            sections={sections}
           />
         }
         instrumentView={showInstrumentView}
@@ -1890,17 +1929,26 @@ export function ScoreWorkspace({
         </NotePalette>
         {/* Scrolls as a whole when the window is too short for all of it. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-          <ScoreView
-            viewportRef={viewportRef}
-            surfaceRef={surfaceRef}
-            label={`Score: ${track.name}`}
-            layout={layout}
-            rendering={rendering}
-            editing={editing}
-            overlay={overlay}
-            problemRects={problemRects}
-            describedBy={editing ? statusId : undefined}
-          />
+          <ScoreContextMenu
+            barAt={(x, y) => {
+              const rect = surfaceRef.current?.getBoundingClientRect();
+              return rect ? (playerRef.current?.barAt(x - rect.left, y - rect.top) ?? null) : null;
+            }}
+            sections={sections}
+            actions={scoreMenuActions}
+          >
+            <ScoreView
+              viewportRef={viewportRef}
+              surfaceRef={surfaceRef}
+              label={`Score: ${track.name}`}
+              layout={layout}
+              rendering={rendering}
+              editing={editing}
+              overlay={overlay}
+              problemRects={problemRects}
+              describedBy={editing ? statusId : undefined}
+            />
+          </ScoreContextMenu>
           {showInstrumentView && (
             <InstrumentPanel
               kind={track.kind}
@@ -2272,9 +2320,14 @@ export function ScoreWorkspace({
       />
       <SpeedTrainerDialog
         open={trainerOpen}
-        onOpenChange={setTrainerOpen}
+        onOpenChange={(open) => {
+          setTrainerOpen(open);
+          if (!open) setTrainerRange(null);
+        }}
         barCount={score.masterBars.length}
-        initialRange={suggestedRange()}
+        initialRange={trainerRange ?? suggestedRange()}
+        sections={sections}
+        countInBetweenAvailable={audioEngine === "native"}
         onCloseAutoFocus={returnFocusToScore}
         onStart={(trainer, trainerRange) => {
           dispatchPractice({ type: "start-trainer", trainer, range: trainerRange });

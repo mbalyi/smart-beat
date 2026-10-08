@@ -26,6 +26,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
         latencyMs: 10,
         dropouts: 0,
         faults: 0,
+        loops: 0,
         loadPercent: 1,
         meters: { tracks: [0.5], master: 0.6 },
       }),
@@ -240,6 +241,7 @@ describe("NativeEngine", () => {
       latencyMs: 10,
       dropouts: 0,
       faults,
+      loops: 0,
       loadPercent: 1,
       meters: {
         tracks: [],
@@ -258,6 +260,46 @@ describe("NativeEngine", () => {
     expect(onFault).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(POLL_MS);
     expect(onFault).toHaveBeenCalledTimes(1);
+    engine.destroy();
+  });
+
+  it("reports the loops the engine played to the end (#83)", async () => {
+    vi.useFakeTimers();
+    const state = vi.mocked(tauri.engineState);
+    const base = await state();
+    state.mockResolvedValueOnce({ ...base, loops: 0 }).mockResolvedValueOnce({ ...base, loops: 2 });
+    const onLoops = vi.fn();
+    const engine = new NativeEngine({ onLoops });
+    engine.attach(output());
+    engine.play();
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(onLoops).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(onLoops).toHaveBeenCalledWith(2);
+    engine.destroy();
+  });
+
+  it("counts a bar in before every loop when asked (#83)", async () => {
+    const engine = new NativeEngine();
+    engine.attach(output());
+    engine.setLoop({ startTick: 0, endTick: 3840 }, { beats: 3, beatSeconds: 0.5 });
+    await vi.waitFor(() =>
+      expect(mocked.engineTransport).toHaveBeenCalledWith({
+        type: "loop",
+        startTick: 0,
+        endTick: 3840,
+        countIn: { beats: 3, beatSeconds: 0.5 },
+      }),
+    );
+    engine.setLoop(null, { beats: 3, beatSeconds: 0.5 });
+    await vi.waitFor(() =>
+      expect(mocked.engineTransport).toHaveBeenLastCalledWith({
+        type: "loop",
+        startTick: null,
+        endTick: null,
+        countIn: null,
+      }),
+    );
     engine.destroy();
   });
 

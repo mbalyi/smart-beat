@@ -315,6 +315,11 @@ export class ScorePlayer {
             onMeters: (meters) => callbacks.onMeters?.(meters),
             onFault: () => callbacks.onEngineFault?.(),
             onError: (error) => callbacks.onError?.(error),
+            // The engine starts loops again by itself and reports them (#83).
+            onLoops: (count) => {
+              if (!this.loop) return;
+              for (let i = 0; i < count; i++) callbacks.onLoopRestart?.();
+            },
           })
         : null;
     if (this.engine) {
@@ -444,7 +449,8 @@ export class ScorePlayer {
     api.beatMouseMove.on((beat) => callbacks.onBeatDrag?.(realBeatOf(beat)));
     api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
     api.playerFinished.on(() => {
-      if (this.loop) callbacks.onLoopRestart?.();
+      // The native engine reports its own loops (see onLoops).
+      if (this.loop && !this.engine) callbacks.onLoopRestart?.();
     });
     // alphaTab reports SoundFont failures through `error` too: report them once.
     api.error.on((error) => {
@@ -754,6 +760,23 @@ export class ScorePlayer {
     this.applyLoop();
   }
 
+  /** Counts a bar in before every loop (native engine only; #83). */
+  private loopCountIn = false;
+  setLoopCountIn(on: boolean) {
+    if (on === this.loopCountIn) return;
+    this.loopCountIn = on;
+    this.applyLoop();
+  }
+
+  /** A bar of clicks in the tempo and time of bar `index` (beat length at normal speed). */
+  private countInAt(index: number): { beats: number; beatSeconds: number } | null {
+    const bar =
+      this.score.masterBars[Math.max(0, Math.min(index, this.score.masterBars.length - 1))];
+    if (!bar) return null;
+    const beatSeconds = (60 / tempoAt(this.score, index)) * (4 / bar.timeSignatureDenominator);
+    return { beats: bar.timeSignatureNumerator, beatSeconds };
+  }
+
   private applyLoop() {
     const { api } = this;
     const loop = this.loop;
@@ -777,7 +800,7 @@ export class ScorePlayer {
       range.startTick = cache.getMasterBarStart(first);
       range.endTick = cache.getMasterBarStart(last) + last.calculateDuration();
       this.appliedRange = { startTick: range.startTick, endTick: range.endTick };
-      this.engine?.setLoop(this.appliedRange);
+      this.engine?.setLoop(this.appliedRange, this.loopCountIn ? this.countInAt(loop.start) : null);
       api.playbackRange = range;
       api.isLooping = true;
       this.highlightLoop();
@@ -975,6 +998,25 @@ export class ScorePlayer {
           .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
       ),
     );
+  }
+
+  /**
+   * The bar drawn at a point of the score, in the drawing's own pixels (from the top left of
+   * the surface), or null between the bars. For the score's right-click menu (#83): alphaTab
+   * only reports left clicks.
+   */
+  barAt(x: number, y: number): number | null {
+    const lookup = this.api.boundsLookup;
+    const beat = lookup?.getBeatAtPos(x, y);
+    if (beat) return realBeatOf(beat).voice.bar.index;
+    // Beside the notes of a bar: the bar the point is in.
+    for (const system of lookup?.staffSystems ?? []) {
+      for (const masterBar of system.bars) {
+        const b = masterBar.visualBounds;
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return masterBar.index;
+      }
+    }
+    return null;
   }
 
   /** Moves the playback cursor to a beat. */

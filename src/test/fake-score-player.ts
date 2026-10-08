@@ -57,10 +57,13 @@ export class FakeScorePlayer {
   refresh = vi.fn();
   setEditing = vi.fn();
   setLoop = vi.fn();
+  setLoopCountIn = vi.fn();
   setSpeed = vi.fn();
   setMetronome = vi.fn();
   setCountIn = vi.fn();
   seekToBeat = vi.fn();
+  /** The bar under a right click (#83): bar 3 by default. */
+  barAt = vi.fn((): number | null => 2);
   /** Where beats and notes are "drawn": one fixed box each. */
   beatRects = vi.fn(() => [{ x: 10, y: 20, w: 30, h: 100 }]);
   noteRects = vi.fn(() => [{ x: 15, y: 60, w: 8, h: 10 }]);

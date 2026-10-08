@@ -186,6 +186,36 @@ export function tempoAt(score: Score, index: number): number {
   return DEFAULT_TEMPO;
 }
 
+/** A named part of the song (Verse, Chorus…), from its section marker to the next one. */
+export interface SongSection {
+  name: string;
+  /** First and last bar, 0-based and inclusive. */
+  start: number;
+  end: number;
+  /** For lists: "Verse · bars 5–12", so parts with the same name stay apart. */
+  label: string;
+}
+
+/**
+ * The song's sections (#83): every bar with a section marker starts one, which lasts until the
+ * next marker or the end. Empty when the score has no usable markers (then bars are used).
+ */
+export function sectionsOf(score: Score): SongSection[] {
+  const starts = score.masterBars.flatMap((bar, index) => {
+    const name = (bar.section?.text || bar.section?.marker || "").trim();
+    return name ? [{ name, start: index }] : [];
+  });
+  return starts.map(({ name, start }, i) => {
+    const end = (starts[i + 1]?.start ?? score.masterBars.length) - 1;
+    const bars = start === end ? `bar ${start + 1}` : `bars ${start + 1}–${end + 1}`;
+    return { name, start, end, label: `${name} · ${bars}` };
+  });
+}
+
+/** The section a bar is in, or null. */
+export const sectionAt = (sections: readonly SongSection[], bar: number) =>
+  sections.find((s) => bar >= s.start && bar <= s.end) ?? null;
+
 export function barSettingsOf(score: Score, index: number): BarSettings {
   const masterBar = score.masterBars[index]!;
   const bar = keyBar(score, index);

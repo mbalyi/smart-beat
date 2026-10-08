@@ -418,6 +418,11 @@ pub struct Engine {
     click_forced: Option<f32>,
     /// Clicks before the song starts (see [`Engine::start_count_in`]).
     count_in: Option<CountIn>,
+    /// Clicks before every loop (#83): beats, and a beat's length in the song at normal
+    /// speed (seconds). The speed in force when the loop starts again sets the real length.
+    loop_count_in: Option<(u32, f64)>,
+    /// Loops played to the end since the last [`Engine::take_loops`].
+    loops: u32,
     master_peak: f32,
     sound_fade: usize,
     /// Plays single notes the user picks (drum kit preview), on the master bus.
@@ -459,6 +464,8 @@ impl Engine {
             click_accent: false,
             click_forced: None,
             count_in: None,
+            loop_count_in: None,
+            loops: 0,
             master_peak: 0.0,
             sound_fade: ((SOUND_FADE_MS * 0.001 * sample_rate) as usize).max(1),
             preview: None,
@@ -662,6 +669,17 @@ impl Engine {
 
     pub fn set_loop(&mut self, range: Option<(f64, f64)>) {
         self.loop_range = range.filter(|(a, b)| a.is_finite() && b.is_finite() && b > a);
+    }
+
+    /// Counts in before every loop (`None`: only before playing), see `loop_count_in`.
+    pub fn set_loop_count_in(&mut self, count_in: Option<(u32, f64)>) {
+        self.loop_count_in =
+            count_in.filter(|(beats, beat)| *beats > 0 && beat.is_finite() && *beat > 0.0);
+    }
+
+    /// Loops played to the end since the last call (the Speed Trainer counts them).
+    pub fn take_loops(&mut self) -> u32 {
+        std::mem::take(&mut self.loops)
     }
 
     pub fn set_metronome_volume(&mut self, volume: f32) {
@@ -1051,6 +1069,11 @@ impl Engine {
                 && self.position >= end
             {
                 self.seek(start);
+                self.loops = self.loops.saturating_add(1);
+                // Back at the start, exactly: a bar of clicks before the loop plays again.
+                if let Some((beats, beat)) = self.loop_count_in {
+                    self.start_count_in(beats.min(32), beat / self.rate);
+                }
             } else if self.position >= self.duration() + TAIL_SECONDS {
                 self.playing = false;
                 self.position = self.duration();

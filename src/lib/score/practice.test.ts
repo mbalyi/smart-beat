@@ -110,12 +110,14 @@ describe("practice", () => {
       to: 120,
       step: 1,
       loopsPerStep: 20,
+      countInBetween: false,
     });
     expect(normalizeTrainer({ from: Number.NaN, to: 90, step: 5.4, loopsPerStep: 0 })).toEqual({
       from: 100,
       to: 100,
       step: 5,
       loopsPerStep: 1,
+      countInBetween: false,
     });
   });
 
@@ -136,5 +138,32 @@ describe("practice", () => {
     expect(readPracticePrefs()).toEqual({ metronome: true, countIn: false });
     localStorage.setItem("smart-beat:practice", "{broken");
     expect(readPracticePrefs()).toEqual({ metronome: false, countIn: false });
+  });
+});
+
+describe("Stay at this speed (#83)", () => {
+  const running = () =>
+    practiceReducer(initialPractice(), {
+      type: "start-trainer",
+      trainer: { from: 60, to: 100, step: 10, loopsPerStep: 1, countInBetween: true },
+      range: { start: 0, end: 1 },
+    });
+
+  it("keeps looping at the current speed while held, and speeds up again when resumed", () => {
+    let state = practiceReducer(running(), { type: "loop-completed" });
+    expect(state.speed).toBe(70);
+    state = practiceReducer(state, { type: "hold-trainer", value: true });
+    for (let i = 0; i < 3; i++) state = practiceReducer(state, { type: "loop-completed" });
+    expect(state.speed).toBe(70);
+    expect(state.loop).toBe(true);
+    expect(state.trainer).toMatchObject({ holding: true, countInBetween: true });
+    state = practiceReducer(state, { type: "hold-trainer", value: false });
+    state = practiceReducer(state, { type: "loop-completed" });
+    expect(state.speed).toBe(80);
+  });
+
+  it("does nothing without a running trainer", () => {
+    const idle = initialPractice();
+    expect(practiceReducer(idle, { type: "hold-trainer", value: true })).toBe(idle);
   });
 });

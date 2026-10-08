@@ -81,7 +81,7 @@ describe("PracticeControls", () => {
     const { user, props } = setup({
       loop: true,
       speed: 70,
-      trainer: { from: 60, to: 100, step: 10, loopsPerStep: 1, loopsAtSpeed: 0 },
+      trainer: { from: 60, to: 100, step: 10, loopsPerStep: 1, loopsAtSpeed: 0, holding: false },
     });
 
     expect(screen.getByRole("status")).toHaveTextContent("Trainer 70% → 100%");
@@ -140,5 +140,121 @@ describe("SpeedTrainerDialog", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onStart).not.toHaveBeenCalled();
+  });
+});
+
+const SECTIONS = [
+  { name: "Verse", start: 0, end: 3, label: "Verse · bars 1–4" },
+  { name: "Chorus", start: 4, end: 7, label: "Chorus · bars 5–8" },
+];
+
+describe("practice by section and Stay at this speed (#83)", () => {
+  it("loops a section chosen by name", async () => {
+    const onRangeChange = vi.fn();
+    const { user } = renderWithProviders(
+      <PracticeControls
+        practice={{ ...initialPractice(), loop: true }}
+        barCount={8}
+        onLoopChange={vi.fn()}
+        onRangeChange={onRangeChange}
+        onSpeedChange={vi.fn()}
+        onMetronomeChange={vi.fn()}
+        onCountInChange={vi.fn()}
+        onOpenTrainer={vi.fn()}
+        onStopTrainer={vi.fn()}
+        sections={SECTIONS}
+      />,
+    );
+    await user.click(screen.getByRole("combobox", { name: "Section" }));
+    await user.click(await screen.findByRole("option", { name: "Chorus · bars 5–8" }));
+    expect(onRangeChange).toHaveBeenCalledWith({ start: 4, end: 7 });
+  });
+
+  it("stays at the trainer's speed and says so", async () => {
+    const onHoldTrainer = vi.fn();
+    const trainer = { from: 60, to: 100, step: 10, loopsPerStep: 1, loopsAtSpeed: 0 };
+    const props = {
+      barCount: 8,
+      onLoopChange: vi.fn(),
+      onRangeChange: vi.fn(),
+      onSpeedChange: vi.fn(),
+      onMetronomeChange: vi.fn(),
+      onCountInChange: vi.fn(),
+      onOpenTrainer: vi.fn(),
+      onStopTrainer: vi.fn(),
+      onHoldTrainer,
+    };
+    const { user, rerender } = renderWithProviders(
+      <PracticeControls
+        {...props}
+        practice={{
+          ...initialPractice(),
+          loop: true,
+          speed: 70,
+          trainer: { ...trainer, holding: false },
+        }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Stay at this speed" }));
+    expect(onHoldTrainer).toHaveBeenCalledWith(true);
+    rerender(
+      <PracticeControls
+        {...props}
+        practice={{
+          ...initialPractice(),
+          loop: true,
+          speed: 70,
+          trainer: { ...trainer, holding: true },
+        }}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Trainer staying at 70%");
+    expect(screen.getByRole("button", { name: "Stay at this speed" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expectNoA11yViolations();
+  });
+});
+
+describe("SpeedTrainerDialog: sections and count-in between loops (#83)", () => {
+  it("starts on a section, counting in before every loop with the native engine", async () => {
+    const onStart = vi.fn();
+    const { user } = renderWithProviders(
+      <SpeedTrainerDialog
+        open
+        onOpenChange={vi.fn()}
+        barCount={8}
+        initialRange={{ start: 0, end: 0 }}
+        sections={SECTIONS}
+        countInBetweenAvailable
+        onStart={onStart}
+      />,
+    );
+    await user.click(screen.getByRole("combobox", { name: "Section to practise" }));
+    await user.click(await screen.findByRole("option", { name: "Chorus · bars 5–8" }));
+    expect(screen.getByRole("spinbutton", { name: "From bar" })).toHaveValue(5);
+    await user.click(screen.getByRole("checkbox", { name: "Count in before every loop" }));
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ countInBetween: true }), {
+      start: 4,
+      end: 7,
+    });
+    await expectNoA11yViolations();
+  });
+
+  it("explains that the count-in between loops needs the native engine", () => {
+    renderWithProviders(
+      <SpeedTrainerDialog
+        open
+        onOpenChange={vi.fn()}
+        barCount={8}
+        initialRange={{ start: 0, end: 0 }}
+        onStart={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("checkbox", { name: "Count in before every loop" })).toBeDisabled();
+    expect(screen.getByText(/Needs the native audio engine/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Section to practise" })).toBeNull();
   });
 });

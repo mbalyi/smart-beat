@@ -26,6 +26,8 @@ export interface TempoInitial {
   endBar: number;
   /** Beats in the bar at the cursor. */
   beats: number;
+  /** The practice speed in percent (#83): the tempo heard is the song's times this. */
+  speed?: number;
 }
 
 function NumberField({
@@ -127,6 +129,12 @@ function TempoForm({
           Change the speed of the whole song, from a bar on, or for some bars only. It can be
           undone.
         </DialogDescription>
+        {initial.speed !== undefined && initial.speed !== 100 && (
+          <p className="text-sm" data-testid="tempo-at-speed">
+            Song: {initial.bpm} BPM · Playback: {Math.round(initial.bpm * initial.speed) / 100} BPM
+            at {initial.speed}% speed. This changes the song&apos;s tempo; the practice speed stays.
+          </p>
+        )}
       </DialogHeader>
       <DialogBody>
         <NumberField

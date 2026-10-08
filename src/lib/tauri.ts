@@ -665,6 +665,8 @@ export interface EngineStatus {
   /** Times a sound crashed in the audio callback (effects were switched off, playback stopped). */
   faults: number;
   loadPercent: number;
+  /** Loops played to the end since the last report (#83). */
+  loops: number;
   meters: EngineMeters;
 }
 
@@ -687,7 +689,13 @@ export type TransportCommand =
   | { type: "pause" }
   | { type: "seek"; ms: number }
   | { type: "rate"; value: number }
-  | { type: "loop"; startTick: number | null; endTick: number | null }
+  | {
+      type: "loop";
+      startTick: number | null;
+      endTick: number | null;
+      /** A bar of clicks before every loop (beat length at normal speed, seconds; #83). */
+      countIn?: { beats: number; beatSeconds: number } | null;
+    }
   | { type: "metronome"; volume: number }
   | { type: "masterVolume"; value: number }
   | { type: "masterPan"; value: number }

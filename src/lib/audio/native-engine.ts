@@ -154,6 +154,8 @@ export interface NativeEngineCallbacks {
   /** A sound crashed in the audio callback: the engine switched every effect off and stopped. */
   onFault?: () => void;
   onError?: (error: Error) => void;
+  /** Loops played to the end (the engine starts them again by itself; #83). */
+  onLoops?: (count: number) => void;
 }
 
 const asError = (error: unknown) =>
@@ -270,6 +272,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
         type: "loop",
         startTick: this.loop?.startTick ?? null,
         endTick: this.loop?.endTick ?? null,
+        countIn: this.loopCountIn,
       });
       if (this.metronomeVolume !== null) {
         await engineTransport({ type: "metronome", volume: this.metronomeVolume });
@@ -436,15 +439,22 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     );
   }
 
-  setLoop(range: { startTick: number; endTick: number } | null) {
+  /** Loops between two ticks (null: no loop), with `countIn` clicks before every loop (#83). */
+  setLoop(
+    range: { startTick: number; endTick: number } | null,
+    countIn: { beats: number; beatSeconds: number } | null = null,
+  ) {
     this.loop = range;
+    this.loopCountIn = range ? countIn : null;
     if (!this.ownsOrFree) return;
     this.send({
       type: "loop",
       startTick: range?.startTick ?? null,
       endTick: range?.endTick ?? null,
+      countIn: this.loopCountIn,
     });
   }
+  private loopCountIn: { beats: number; beatSeconds: number } | null = null;
 
   /** Plays one note now (a drum picked in the kit; with `program`, that instrument). */
   preview(channel: number, key: number, velocity = 100, program?: number) {
@@ -480,6 +490,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
           this.callbacks.onMeters?.(status.meters);
           this.callbacks.onStatus?.(status);
           if (status.faults > 0) this.callbacks.onFault?.();
+          if (status.loops > 0) this.callbacks.onLoops?.(status.loops);
           // The engine stopped by itself at the end of the song.
           if (wasPlaying && !status.playing) this.stopPolling();
           wasPlaying = status.playing;
