@@ -113,6 +113,34 @@ export const TUPLETS: (Tuplet & { label: string })[] = [
 
 export const tupletKey = ({ numerator, denominator }: Tuplet) => `${numerator}:${denominator}`;
 
+/** Most notes a tuplet (nested ones included) may hold. */
+export const MAX_TUPLET_NOTES = 64;
+
+/**
+ * A tuplet inside a tuplet as the one flat ratio alphaTab stores: the ratios
+ * multiply. A triplet of triplets is 9 notes in the time of 4 (3:2 × 3:2), a
+ * quintuplet inside a triplet 15 in the time of 8. Timing and playback follow
+ * the flat ratio; the score draws one bracket for the whole group.
+ */
+export function composeTuplet(outer: Tuplet, inner: Tuplet): Tuplet {
+  return {
+    numerator: outer.numerator * inner.numerator,
+    denominator: outer.denominator * inner.denominator,
+  };
+}
+
+/** Whether a ratio is a real tuplet: more notes than the time it takes, within limits. */
+export const isTuplet = ({ numerator, denominator }: Tuplet) =>
+  Number.isInteger(numerator) &&
+  Number.isInteger(denominator) &&
+  denominator >= 1 &&
+  numerator > denominator &&
+  numerator <= MAX_TUPLET_NOTES;
+
+/** "Triplet (3:2)", or just "9:4" for a ratio the list does not name. */
+export const tupletLabel = (tuplet: Tuplet) =>
+  TUPLETS.find((t) => tupletKey(t) === tupletKey(tuplet))?.label ?? tupletKey(tuplet);
+
 /**
  * Rests that fill a bar of the given time signature: one rest when a single
  * (dotted) note value fits exactly, e.g. a whole rest in 4/4 or a dotted half
@@ -346,6 +374,14 @@ export const INSTRUMENT_PRESETS: InstrumentPreset[] = [
     tuning: [...STANDARD_GUITAR, 35, 30],
   },
   {
+    id: "guitar-9",
+    label: "Guitar (9 strings)",
+    name: "9-String Guitar",
+    kind: "stringed",
+    program: 30,
+    tuning: [...STANDARD_GUITAR, 35, 30, 25],
+  },
+  {
     id: "bass-4",
     label: "Bass (4 strings)",
     name: "Bass",
@@ -398,9 +434,9 @@ export const INSTRUMENT_PRESETS: InstrumentPreset[] = [
 
 export const getPreset = (id: string) => INSTRUMENT_PRESETS.find((p) => p.id === id);
 
-/** String counts the track settings allow (Guitar Pro 5: up to 7, plus 8). */
+/** String counts the track settings allow (Guitar Pro 8 offers 3 to 10). */
 export const MIN_STRINGS = 3;
-export const MAX_STRINGS = 8;
+export const MAX_STRINGS = 10;
 export const MAX_CAPO = 24;
 /** Highest fret the editor accepts (Guitar Pro allows 0–29). */
 export const MAX_FRET = 29;
@@ -410,22 +446,68 @@ export interface TuningPreset {
   tuning: number[];
 }
 
-/** Standard tunings for 8-string guitars and 3-string instruments, which alphaTab lacks. */
+/** Open strings, highest first, of an extended-range guitar in standard tuning (E, B, G, D, A, E, then fourths). */
+const STANDARD_STRINGS = [64, 59, 55, 50, 45, 40, 35, 30, 25, 20];
+
+/** The same tuning `semitones` lower. */
+export const transposeTuning = (tuning: readonly number[], semitones: number): number[] =>
+  tuning.map((pitch) => Math.min(127, Math.max(0, pitch + semitones)));
+
+/** The tuning with its lowest string a whole step lower ("drop" tunings). */
+const dropped = (tuning: readonly number[]): number[] =>
+  tuning.map((pitch, i) => (i === tuning.length - 1 ? Math.max(0, pitch - 2) : pitch));
+
+/** The lowest sounding pitch of a tuning (the lowest open string plus the capo). */
+export const lowestPitch = (tuning: readonly number[], capo = 0): number =>
+  tuning.length === 0 ? 0 : Math.min(...tuning) + capo;
+
+/**
+ * Tunings for heavy and extended-range guitars (djent, deathcore, metalcore):
+ * the standard tuning of the string count, tuned down in steps, and the same
+ * with the lowest string dropped a whole step. Named after the lowest string:
+ * "B standard" on a seven string, "Drop A" the same with that string on A.
+ */
+function heavyTunings(strings: number): TuningPreset[] {
+  const base = STANDARD_STRINGS.slice(0, strings);
+  const note = (pitch: number) => pitchName(pitch, { octave: false });
+  const standards: [number, string?][] = [[0], [1], [2]];
+  if (strings === 6) standards.push([4, "C standard"]);
+  const out: TuningPreset[] = standards.map(([down, name]) => {
+    const tuning = transposeTuning(base, -down);
+    return { name: name ?? `${note(lowestPitch(tuning))} standard`, tuning };
+  });
+  // A six string is "Drop D" when the low E drops; the others follow in half steps.
+  const drops = strings === 6 ? [0, 1, 2, 3, 4, 5] : [0, 1, 2];
+  for (const down of drops) {
+    const tuning = dropped(transposeTuning(base, -down));
+    out.push({ name: `Drop ${note(lowestPitch(tuning))}`, tuning });
+  }
+  return out;
+}
+
+/** Tunings for 3-string instruments, which alphaTab lacks. */
 const EXTRA_TUNINGS: Record<number, TuningPreset[]> = {
   3: [{ name: "Cigar box open G", tuning: [55, 50, 43] }],
-  8: [
-    { name: "Guitar 8 strings", tuning: [...STANDARD_GUITAR, 35, 30] },
-    { name: "Guitar 8 strings (drop E)", tuning: [...STANDARD_GUITAR, 35, 28] },
-  ],
 };
 
-/** Known tunings for a string count (alphaTab's list plus ours). */
+const sameTuning = (a: readonly number[], b: readonly number[]) =>
+  a.length === b.length && a.every((pitch, i) => pitch === b[i]);
+
+/**
+ * Known tunings for a string count: alphaTab's (standard first, then the
+ * drop, open and other tunings), then ours for heavy and extended-range
+ * guitars of 6 to 10 strings that alphaTab does not name, then the extra ones
+ * for other instruments. A tuning both know keeps alphaTab's name.
+ */
 export function tuningPresets(stringCount: number): TuningPreset[] {
   const known = model.Tuning.getPresetsFor(stringCount).map((t) => ({
     name: t.name,
     tuning: [...t.tunings],
   }));
-  return [...known, ...(EXTRA_TUNINGS[stringCount] ?? [])];
+  const ours = (stringCount >= 6 && stringCount <= 10 ? heavyTunings(stringCount) : []).filter(
+    (o) => !known.some((t) => sameTuning(o.tuning, t.tuning)),
+  );
+  return [...known, ...ours, ...(EXTRA_TUNINGS[stringCount] ?? [])];
 }
 
 /** The name of a known tuning, or null for a custom one. */

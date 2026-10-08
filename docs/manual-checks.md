@@ -28,9 +28,17 @@ With "Native engine with effects" on:
 - change the speed (50 %, 75 %, 125 %), check the pitch does not change;
 - switch the Metronome and the Count-in on and off (the count-in plays a bar of clicks, then the song and the cursor start together);
 - add an effect chain on a guitar track (the pedalboard) and listen to it; mute, solo and change the volume of a track;
-- import your own amp capture (`.nam`) and cabinet impulse response (`.wav`) from the sound library and use them in a chain.
+- import your own amp capture (`.nam`) and cabinet impulse response (`.wav`) from the sound library (also by dropping the file on the window) and use them in a chain; drag them from "My sounds" onto the board;
+- try a capture that was made at 44.1 kHz and one at 48 kHz, whatever your output device runs at: both should sound the same tone, at about the same level; switch "Match loudness" on and off on the amp block;
+- import a file that is not a capture (a renamed text file) and a broken `.wav`: the message names the problem and nothing is added.
 
 Expected: no clicks, dropouts or stuck notes; stopping is immediate; the sound after seeking and looping comes from the right place.
+
+### 2b. Extended-range guitars (#43)
+
+- add a 7, 8 and 9 string guitar, pick Drop A, F# standard and Drop B, write a low riff on the lowest strings and play it, on both sound sets;
+- listen for the thin, slowed-down sound the warning in the track settings talks about: is it right to warn at that point (below B1, more than an octave under the recording)? Does the other sound set help, as the message says?
+- write a 7/8 and an 11/16 bar and a triplet of triplets (Tuplet › Nested…) with the metronome on: does the click and the cursor agree with what you hear?
 
 ### 3. The right drum for every drum number
 

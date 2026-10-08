@@ -1835,6 +1835,7 @@ export function ScoreWorkspace({
       {mixerOpen && (
         <TrackList
           score={score}
+          soundFont={soundFont}
           revision={revision}
           tracks={summary.tracks}
           shown={trackIndex}
@@ -1989,6 +1990,7 @@ export function ScoreWorkspace({
             : null
         }
         drumKit={drumKitOf(editedTrack)}
+        soundFont={soundFont}
         onSubmit={submitTrack}
         onCloseAutoFocus={returnFocusToScore}
       />
