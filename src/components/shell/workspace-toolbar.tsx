@@ -22,6 +22,7 @@ import {
 import { LcdDisplay } from "@/components/shell/lcd-display";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EDIT_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Layout, PlaybackPosition } from "@/lib/score/player";
@@ -38,13 +39,6 @@ const LAYOUTS: { value: Layout; label: string }[] = [
   { value: "page", label: "Page" },
   { value: "horizontal", label: "Continuous" },
 ];
-
-/**
- * Pressed Edit stands out in blue, the colour of the edit cursor. Radix sets
- * both `data-state=on` and `aria-pressed`, so both are overridden.
- */
-const EDIT_PRESSED =
-  "data-[state=on]:border-sky-700 data-[state=on]:bg-sky-700 aria-pressed:bg-sky-700 data-[state=on]:text-white data-[state=on]:hover:bg-sky-800 data-[state=on]:hover:text-white";
 
 const isNotation = (value: string): value is NotationView =>
   NOTATIONS.some((n) => n.value === value);

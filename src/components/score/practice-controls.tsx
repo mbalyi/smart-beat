@@ -19,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ON_GREEN } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
 import {
   DEFAULT_TRAINER,
@@ -185,7 +184,6 @@ export function PracticeControls({
           size="sm"
           pressed={practice.metronome}
           onPressedChange={onMetronomeChange}
-          className={ON_GREEN}
         >
           <TimerIcon data-icon="inline-start" />
           <span className="max-xl:sr-only">Metronome</span>
@@ -196,7 +194,6 @@ export function PracticeControls({
           pressed={practice.countIn}
           onPressedChange={onCountInChange}
           title="Count one bar in before playing"
-          className={ON_GREEN}
         >
           Count-in
         </Toggle>

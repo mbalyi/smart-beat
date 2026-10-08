@@ -31,7 +31,7 @@ import {
 
 /** Radio items in the palette: the size of every other palette button, GP blue when chosen. */
 const CHOICE =
-  "size-8 min-w-8 overflow-hidden p-0 border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground data-[state=on]:border-sky-500 data-[state=on]:bg-sky-700 data-[state=on]:text-white";
+  "size-8 min-w-8 overflow-hidden p-0 border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground data-[state=on]:border-sky-500 data-[state=on]:bg-sky-700 aria-pressed:bg-sky-700 dark:data-[state=on]:bg-sky-700 dark:aria-pressed:bg-sky-700 data-[state=on]:text-white data-[state=on]:hover:bg-sky-600 dark:data-[state=on]:hover:bg-sky-600";
 
 /** The note value glyph of each duration. */
 /** The tuplet menu's entry that opens the nested tuplet dialog. */
