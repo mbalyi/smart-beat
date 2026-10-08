@@ -35,4 +35,4 @@ Always reply in English, even when the user writes in another language. Issues, 
 
 ## Licensing
 
-Proprietary freeware. Do not copy code from MuseScore, TuxGuitar or PyGuitarPro (see `docs/`). Do not add models with non-commercial licences.
+Source-available (PolyForm Noncommercial 1.0.0, see `LICENSE` and ADR 0002); commercial use needs a separate agreement. Released builds are freeware under `EULA.md`. Do not copy code from MuseScore, TuxGuitar or PyGuitarPro (see `docs/`). Do not add models with non-commercial licences.

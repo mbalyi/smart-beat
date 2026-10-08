@@ -9,7 +9,7 @@ export default mergeConfig(
       globals: true,
       environment: "jsdom",
       setupFiles: ["./src/test/setup.ts"],
-      include: ["src/**/*.test.{ts,tsx}"],
+      include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
       css: false,
       // Dialogs with long lists (Radix selects) are slow on the CI runners.
       testTimeout: 20_000,

@@ -6,7 +6,7 @@ Issue: [#3](https://github.com/mbalyi/smart-beat/issues/3). Decision record: [AD
 
 ## Summary
 
-- **Smart Beat's license:** proprietary freeware, all rights reserved ([`LICENSE`](../LICENSE), draft [`EULA.md`](../EULA.md)). The app is free without AI; a paid AI tier may follow.
+- **Smart Beat's license:** source-available under PolyForm Noncommercial 1.0.0 ([`LICENSE`](../LICENSE), [ADR 0002](adr/0002-source-available-noncommercial-license.md)); commercial use needs a separate agreement ([`COMMERCIAL-LICENSE.md`](../COMMERCIAL-LICENSE.md)). The released app is free under the draft [`EULA.md`](../EULA.md). The app is free without AI; a paid AI tier may follow.
 - **What we can reuse:**
   - permissive libraries (MIT, Apache-2.0, BSD and similar) and fonts under OFL-1.1;
   - MPL-2.0 libraries, in particular **alphaTab**, our planned score renderer and player;
@@ -20,7 +20,7 @@ Issue: [#3](https://github.com/mbalyi/smart-beat/issues/3). Decision record: [AD
 | ------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Permissive                     | MIT, ISC, BSD-2/3-Clause, Apache-2.0, Zlib, 0BSD, Unlicense, CC0, BSL-1.0, Unicode-3.0 | ✅ Yes, freely                                         | Include copyright and license notice. Apache-2.0: also keep `NOTICE` files and state changes to modified files.                                                                                                                                                                               |
 | Font                           | OFL-1.1                                                                                | ✅ Yes, embedded in the app                            | Include the license. Don't sell the font by itself. Rename it if modified.                                                                                                                                                                                                                    |
-| Weak copyleft (file-level)     | MPL-2.0                                                                                | ✅ Yes                                                 | Include the license. **Publish the source of any MPL file we modify** (our own files stay closed).                                                                                                                                                                                            |
+| Weak copyleft (file-level)     | MPL-2.0                                                                                | ✅ Yes                                                 | Include the license. **Publish the source of any MPL file we modify** (our own files stay under our own license).                                                                                                                                                                             |
 | Weak copyleft (library-level)  | LGPL-2.1, LGPL-3.0                                                                     | ⚠️ Only as a separate, replaceable library, unmodified | Ship the license and offer the library's source. The user must be able to swap the library (dynamic linking or a separate process). Our EULA must not forbid reverse engineering for that purpose (EULA §3 covers it). **Never** statically link into Rust, bundle into JS, or copy its code. |
 | Strong copyleft                | GPL-2.0/3.0                                                                            | ❌ No                                                  | Would require releasing Smart Beat's source code under GPL.                                                                                                                                                                                                                                   |
 | Network copyleft               | AGPL-3.0, SSPL                                                                         | ❌ No                                                  | Would apply even to a hosted AI service.                                                                                                                                                                                                                                                      |
@@ -100,15 +100,15 @@ The SFZ reader, the sampler and the kit library are our own code (`src-tauri/src
 
 ## Must NOT copy code from
 
-| Project                                                            | License             | Why                                                                                   |
-| ------------------------------------------------------------------ | ------------------- | ------------------------------------------------------------------------------------- |
-| MuseScore (all versions)                                           | GPL-3.0 / GPL-2.0   | Copying anything would put Smart Beat under the GPL                                   |
-| TuxGuitar                                                          | LGPL-2.1            | Ported code (e.g. its GP5 writer) would be LGPL-covered code inside our closed binary |
-| PyGuitarPro                                                        | LGPL-3.0            | Same as TuxGuitar. OK only as an unmodified library in the Python sidecar             |
-| FluidSynth                                                         | LGPL-2.1            | Same. Never copy it or link it statically                                             |
-| Any GPL, AGPL or SSPL project                                      |                     | Strong or network copyleft                                                            |
-| Code without a license                                             | All rights reserved | "Public on GitHub" does not mean usable. Ask the author for permission in writing     |
-| Guitar Pro (Arobas Music) binaries, samples (RSE) or documentation | Proprietary         | Copyrighted. Only the community-documented `.gp*` file format may be used             |
+| Project                                                            | License             | Why                                                                               |
+| ------------------------------------------------------------------ | ------------------- | --------------------------------------------------------------------------------- |
+| MuseScore (all versions)                                           | GPL-3.0 / GPL-2.0   | Copying anything would put Smart Beat under the GPL                               |
+| TuxGuitar                                                          | LGPL-2.1            | Ported code (e.g. its GP5 writer) would be LGPL-covered code inside our binary    |
+| PyGuitarPro                                                        | LGPL-3.0            | Same as TuxGuitar. OK only as an unmodified library in the Python sidecar         |
+| FluidSynth                                                         | LGPL-2.1            | Same. Never copy it or link it statically                                         |
+| Any GPL, AGPL or SSPL project                                      |                     | Strong or network copyleft                                                        |
+| Code without a license                                             | All rights reserved | "Public on GitHub" does not mean usable. Ask the author for permission in writing |
+| Guitar Pro (Arobas Music) binaries, samples (RSE) or documentation | Proprietary         | Copyrighted. Only the community-documented `.gp*` file format may be used         |
 
 ### Clean-room rule for GP5 writing
 

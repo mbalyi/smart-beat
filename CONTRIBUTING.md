@@ -1,5 +1,11 @@
 # Contributing
 
+## Code contributions are paused
+
+Smart Beat is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE) and may also be licensed commercially ([`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)). To keep that possible, **pull requests with code from outside the project are not accepted for now**. Issues, bug reports and ideas are welcome. Code contributions open up once a contributor licence agreement (CLA) is in place.
+
+The workflow below is for the maintainer and anyone the maintainer has agreed terms with.
+
 ## Workflow
 
 1. Pick an issue from the [project board](https://github.com/users/mbalyi/projects/3) and move it to **In progress**.
@@ -27,7 +33,7 @@
 
 ## Licensing rules (important)
 
-Smart Beat is closed source. Read [`docs/licensing.md`](docs/licensing.md) before adding a dependency or reusing code.
+Smart Beat is source-available (noncommercial licence), and its binaries may be licensed commercially, so dependency rules are strict. Read [`docs/licensing.md`](docs/licensing.md) before adding a dependency or reusing code.
 
 - **Never copy code** from GPL/AGPL/LGPL projects. That includes MuseScore, TuxGuitar and PyGuitarPro.
 - **New dependencies** must pass `pnpm licenses:check`. If a license isn't on the allowlist, don't add it to the allowlist yourself; raise it in the PR for review.

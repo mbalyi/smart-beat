@@ -16,6 +16,16 @@ const DIALOGS: [name: string | RegExp, open: Opener][] = [
   [/^Lyrics/, (app) => trackAction(app, "Guitar", "Lyrics…")],
   ["Keyboard shortcuts", (app) => emitMenuAction(app, "shortcuts")],
   ["Open-source licenses", (app) => emitMenuAction(app, "licenses")],
+  [
+    "Update available",
+    async (app) => {
+      // Long notes, so the body has to scroll.
+      await app.evaluate(() => {
+        window.__update = { version: "0.2.0", body: "- A change in the new version.\n".repeat(60) };
+      });
+      await emitMenuAction(app, "check-for-updates");
+    },
+  ],
 ];
 
 /** The dialog's own box must stay inside the viewport, and so must `part`. */

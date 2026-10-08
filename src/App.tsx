@@ -8,6 +8,7 @@ import { DocumentTabs } from "@/components/shell/document-tabs";
 import { DiscardDialog } from "@/components/discard-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
+import { UpdateDialog } from "@/components/update-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
 import { useFileDrop } from "@/hooks/use-file-drop";
@@ -16,6 +17,7 @@ import { useRecentFiles } from "@/hooks/use-recent-files";
 import { initLayoutPrefs } from "@/lib/score/layout";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
+import { useUpdater } from "@/hooks/use-updater";
 import { errorText } from "@/lib/errors";
 import { hasScoreExtension } from "@/lib/score/errors";
 import { baseName } from "@/lib/score/format";
@@ -43,6 +45,7 @@ export function App() {
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const { toggleTheme } = useTheme();
+  const updater = useUpdater();
   const {
     songs,
     song,
@@ -177,6 +180,9 @@ export function App() {
       case "licenses":
         showDialog(action);
         break;
+      case "check-for-updates":
+        updater.checkNow();
+        break;
       default:
         // Window actions (zoom, full screen, quit) are handled natively;
         // song actions (undo, loop, tracks...) by the workspace.
@@ -188,7 +194,12 @@ export function App() {
     <>
       <SkipLink />
       <div className={cn("flex flex-col", song ? "h-svh" : "min-h-svh")}>
-        <AppHeader onShowDialog={showDialog} wide={song !== null} centerRef={setHeaderSlot} />
+        <AppHeader
+          onShowDialog={showDialog}
+          onCheckForUpdates={isTauri() ? updater.checkNow : undefined}
+          wide={song !== null}
+          centerRef={setHeaderSlot}
+        />
         <main
           id="main"
           tabIndex={-1}
@@ -252,6 +263,7 @@ export function App() {
         onDiscard={() => closing && discardAndClose(closing.id)}
       />
       <AppDialogs open={dialog} onOpenChange={setDialog} returnFocusTo={returnFocusTo} />
+      <UpdateDialog updater={updater} />
       <Toaster position="bottom-right" />
     </>
   );

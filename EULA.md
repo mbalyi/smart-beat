@@ -16,6 +16,12 @@ use the Software.
    license to install and use the Software on devices you own or control, for
    personal or commercial purposes.
 
+   This Agreement covers the released installers and the application they
+   install. The source code is licensed separately under the PolyForm
+   Noncommercial License 1.0.0 (see LICENSE). Using the source code or a build
+   made from it for commercial purposes needs a separate written agreement
+   with Licensor (see COMMERCIAL-LICENSE.md).
+
 2. RESTRICTIONS
    Except as expressly permitted by this Agreement or by applicable law, you
    may not:

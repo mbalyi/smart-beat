@@ -228,3 +228,28 @@ test.describe("narrow window (800px)", () => {
     await expect(inspector).toHaveCount(0);
   });
 });
+
+/** The update dialog (#82) fits the smallest window the app allows, with long release notes. */
+test.describe("update dialog at the minimum window (480×360)", () => {
+  test.use({ viewport: { width: 480, height: 360 } });
+
+  test("keeps its buttons on screen and scrolls the notes inside", async ({ app }) => {
+    await app.evaluate(() => {
+      window.__update = { version: "0.2.0", body: "- A change in the new version.\n".repeat(60) };
+    });
+    await emitMenuAction(app, "check-for-updates");
+
+    const dialog = app.getByRole("dialog", { name: "Update available" });
+    await expect(dialog).toBeVisible();
+    for (const name of ["Later", "Download & Install"]) {
+      await expect(dialog.getByRole("button", { name })).toBeInViewport();
+    }
+    const box = (await dialog.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(480);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(360);
+    const overflow = await dialog.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+});

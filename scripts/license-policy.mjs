@@ -1,7 +1,8 @@
 // License policy shared by the npm checks and mirrored in deny.toml / about.toml.
-// Rationale: docs/licensing.md and docs/adr/0001-project-license.md.
+// Rationale: docs/licensing.md and docs/adr/0001-project-license.md (dependency rules, kept by
+// docs/adr/0002-source-available-noncommercial-license.md).
 
-/** Licenses compatible with distributing Smart Beat as closed-source freeware. */
+/** Licenses compatible with shipping Smart Beat binaries commercially (closed-source distribution). */
 export const ALLOWED_LICENSES = new Set([
   "0BSD",
   "Apache-2.0",

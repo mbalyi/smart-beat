@@ -35,17 +35,17 @@ Also in that research table: the freesound.org `jesterdyne` AX15 packs have a li
 
 ## 2. Matthieu Leschemelle: the TablEdit (`.tef`) specification
 
-**Why:** TablEdit's binary format has no public specification. Its author shares it on request (that is how MuseScore's importer was written). Smart Beat's code is closed source, so the request must say that commercial use is wanted; otherwise the specification cannot be used here ([file-formats.md](file-formats.md), "Not supported yet").
+**Why:** TablEdit's binary format has no public specification. Its author shares it on request (that is how MuseScore's importer was written). Smart Beat's code is source-available under a noncommercial licence and may also be licensed commercially, so the request must say that commercial use is wanted; otherwise the specification cannot be used here ([file-formats.md](file-formats.md), "Not supported yet").
 
 **To:** the contact on <https://www.tabledit.com/>.
 
-> Subject: TablEdit file format specification, for a free closed-source reader
+> Subject: TablEdit file format specification, for a free reader in Smart Beat
 >
 > Hello Mr Leschemelle,
 >
 > I am building Smart Beat, a desktop app for reading, editing and playing back guitar tab and scores. It opens Guitar Pro, MusicXML, MIDI and MuseScore files, and TablEdit users keep asking me for `.tef`. I would like to add a reader (opening files only, to start with).
 >
-> I understand you share the TablEdit file format specification on request. Could you send it to me, and tell me what the terms are? The app is free to download but its code is not open source, so I need the specification to be usable in a closed-source product, and I would put your name and a link to TablEdit in the app wherever it lists what it opens.
+> I understand you share the TablEdit file format specification on request. Could you send it to me, and tell me what the terms are? The app is free to download, its source code is published under a noncommercial licence (not open source), and I may license it commercially, so I need the specification to be usable in a product like that, and I would put your name and a link to TablEdit in the app wherever it lists what it opens.
 >
 > If you would rather not allow that, I understand, and I will not use or look at any other source for the format.
 >

@@ -124,6 +124,30 @@ fn disables_the_edit_menus_outside_edit_mode(menu: &Menu<MockRuntime>) {
     assert_eq!(undo.as_menuitem().unwrap().text().unwrap(), "Undo");
 }
 
+/// Help › Check for Updates… needs no song, and sits after the licences in the Help menu.
+fn check_for_updates_is_always_available(menu: &Menu<MockRuntime>) {
+    assert!(enabled(menu, MenuAction::CheckForUpdates));
+
+    let help = menu
+        .items()
+        .unwrap()
+        .into_iter()
+        .find_map(|kind| match kind {
+            MenuItemKind::Submenu(submenu) if submenu.text().unwrap() == "Help" => Some(submenu),
+            _ => None,
+        })
+        .expect("the Help menu exists");
+    let ids: Vec<String> = help
+        .items()
+        .unwrap()
+        .iter()
+        .map(|kind| kind.id().as_ref().to_string())
+        .collect();
+    let position = |action: MenuAction| ids.iter().position(|id| id == action.id());
+    assert!(position(MenuAction::Licenses) < position(MenuAction::CheckForUpdates));
+    assert!(position(MenuAction::CheckForUpdates).is_some());
+}
+
 /// Text and enabled state of the items in File › Open Recent (separators have no text).
 fn recent_items(menu: &Menu<MockRuntime>) -> Vec<(String, bool)> {
     let MenuItemKind::Submenu(recent) = item_by_id(menu, menu::RECENT_MENU_ID) else {
@@ -187,7 +211,7 @@ fn main() {
     open_recent_follows_the_list(app.handle(), &menu);
     println!("test open_recent_follows_the_list ... ok");
 
-    let tests: [MenuTest; 4] = [
+    let tests: [MenuTest; 5] = [
         (
             "every_custom_item_is_in_the_menu",
             every_custom_item_is_in_the_menu,
@@ -200,6 +224,10 @@ fn main() {
         (
             "disables_the_edit_menus_outside_edit_mode",
             disables_the_edit_menus_outside_edit_mode,
+        ),
+        (
+            "check_for_updates_is_always_available",
+            check_for_updates_is_always_available,
         ),
     ];
     for (name, test) in tests {

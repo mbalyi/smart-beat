@@ -6,10 +6,13 @@ import { cn } from "@/lib/utils";
 
 export function AppHeader({
   onShowDialog,
+  onCheckForUpdates,
   wide = false,
   centerRef,
 }: {
   onShowDialog: (dialog: AppDialog, returnFocusTo: HTMLElement | null) => void;
+  /** Help › Check for Updates… (desktop app only). */
+  onCheckForUpdates?: () => void;
   /** Span the whole window (a song is open) instead of the centred column. */
   wide?: boolean;
   /** Receives the element between the logo and the icons, where an open song puts its main controls. */
@@ -39,7 +42,7 @@ export function AppHeader({
         )}
         <div className="flex shrink-0 items-center gap-1">
           <ThemeToggle />
-          <HelpMenu onSelect={onShowDialog} />
+          <HelpMenu onSelect={onShowDialog} onCheckForUpdates={onCheckForUpdates} />
         </div>
       </div>
     </header>

@@ -1,4 +1,4 @@
-import type { InvokeArgs } from "@tauri-apps/api/core";
+import type { Channel, InvokeArgs } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
@@ -74,6 +74,12 @@ export const backend = {
   written: new Map<string, Uint8Array>(),
   /** Settings stored inside saved `.gp` files, by path. */
   projectSettings: new Map<string, MixerSettings>(),
+  /** The update the updater plugin finds, or `null` when this is the latest version. */
+  update: null as { version: string; body?: string } | null,
+  /** Makes `check` or the download fail with this message. */
+  updateError: null as { during: "check" | "install"; message: string } | null,
+  /** Size of the fake download, in bytes (sent as three equal chunks). */
+  updateBytes: 3000,
 };
 
 const MAX_RECENT = 10;
@@ -109,6 +115,9 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.saveResult = null;
   backend.written.clear();
   backend.projectSettings.clear();
+  backend.update = null;
+  backend.updateError = null;
+  backend.updateBytes = 3000;
   mockWindows("main");
   mockIPC(
     (cmd, args) => {
@@ -163,6 +172,34 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return backend.dialogResult;
         case "plugin:window|set_theme":
         case "plugin:window|set_title":
+          return null;
+        // The updater plugin: `check` finds `backend.update`, and the install reports progress
+        // through the channel the plugin passes in, like the Rust side.
+        case "plugin:updater|check": {
+          if (backend.updateError?.during === "check") throw backend.updateError.message;
+          if (!backend.update) return null;
+          return {
+            rid: 7,
+            currentVersion: APP_INFO.version,
+            version: backend.update.version,
+            date: "2026-11-01T00:00:00Z",
+            body: backend.update.body,
+            rawJson: {},
+          };
+        }
+        case "plugin:updater|download_and_install": {
+          const { onEvent } = args as { onEvent: Channel<unknown> };
+          const send = (message: unknown) => onEvent.onmessage(message);
+          send({ event: "Started", data: { contentLength: backend.updateBytes } });
+          for (let i = 0; i < 3; i++) {
+            send({ event: "Progress", data: { chunkLength: backend.updateBytes / 3 } });
+          }
+          if (backend.updateError?.during === "install") throw backend.updateError.message;
+          send({ event: "Finished" });
+          return null;
+        }
+        case "plugin:process|restart":
+        case "plugin:resources|close":
           return null;
         // The sound library starts empty; the native engine is never started here.
         case "library_list":

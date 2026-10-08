@@ -98,7 +98,7 @@ alphaTex export uses alphaTab's own exporter (`src/lib/export/alphatex.ts`). Com
 
 WAV is 16-bit PCM of the song rendered with the current mix. **M4A** is AAC in an MP4 file (192 kbit/s stereo, 128 kbit/s mono), made by the **operating system's own encoder**: on macOS the AVFoundation `AVAudioFile` (`src-tauri/src/m4a.rs`); the UI renders the same WAV and hands it over. The menu item only exists on macOS. A Windows version through Windows Media Foundation (and Linux) is future work; until then the other platforms answer with a clear error.
 
-**No MP3.** Every usable MP3 encoder is LGPL (LAME, shine, lamejs), and Smart Beat is closed-source freeware that links statically, so none can be bundled ([licensing.md](licensing.md)). The system encoders are the way to get a compressed file without a licence problem (the operating system vendor holds the codec licence); the other option, asking the user to install an encoder, was not taken.
+**No MP3.** Every usable MP3 encoder is LGPL (LAME, shine, lamejs), and Smart Beat's binaries may be licensed commercially and link statically, so none can be bundled ([licensing.md](licensing.md)). The system encoders are the way to get a compressed file without a licence problem (the operating system vendor holds the codec licence); the other option, asking the user to install an encoder, was not taken.
 
 ## Guitar Pro 6 (`.gpx`, open only)
 
@@ -141,7 +141,7 @@ The importer (`src/lib/import/musescore.ts`) reads parts, staves, up to four voi
 
 ## Not supported yet (needs a format specification)
 
-These are binary formats with no public specification. Smart Beat's code is closed source, so their readers must be written clean-room ([ADR 0001](adr/0001-project-license.md)); the open-source programs that read them are GPL or LGPL and cannot be ported.
+These are binary formats with no public specification. Smart Beat's code is source-available but not open source, so their readers must be written clean-room ([ADR 0001](adr/0001-project-license.md), [ADR 0002](adr/0002-source-available-noncommercial-license.md)); the open-source programs that read them are GPL or LGPL and cannot be ported.
 
 | Format    | Extension | What is needed                                                                                                                                                                     |
 | --------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
