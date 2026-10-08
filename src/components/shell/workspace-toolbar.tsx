@@ -81,6 +81,7 @@ export function WorkspaceToolbar({
   onTempo,
   tempo,
   practice,
+  practiceMix,
   instrumentView,
   instrumentLabel,
   onToggleInstrumentView,
@@ -90,7 +91,6 @@ export function WorkspaceToolbar({
   onToggleMixer,
   practiceView,
   onTogglePracticeView,
-  practiceMix,
   headerSlot,
   active = true,
 }: {
@@ -131,6 +131,8 @@ export function WorkspaceToolbar({
   tempo?: { songBpm: number; speed: number };
   /** Practice tools (loop, speed, metronome…). */
   practice?: ReactNode;
+  /** The practice mix control, after the practice tools (#83). */
+  practiceMix?: ReactNode;
   instrumentView: boolean;
   /** "Fretboard", "Keyboard" or "Drum pads", for the shown track. */
   instrumentLabel: string;
@@ -142,8 +144,6 @@ export function WorkspaceToolbar({
   /** Practice View is on (#83): only the score and these controls. */
   practiceView: boolean;
   onTogglePracticeView: () => void;
-  /** The practice mix control, next to Practice View. */
-  practiceMix?: ReactNode;
   /** Where the main controls go: the app header's centre. Without it they sit above the view options. */
   headerSlot?: HTMLElement | null;
   /** The song is shown (hidden songs leave the header to the shown one). */
@@ -259,7 +259,8 @@ export function WorkspaceToolbar({
             <SkipForwardIcon />
           </Button>
         </div>
-        <div className="flex items-center gap-1.5">
+        {/* In the smallest windows the header has no room: the View menu and ⇧⌘P remain. */}
+        <div className="flex items-center gap-1.5 max-sm:hidden">
           <Toggle
             variant="outline"
             size="sm"
@@ -271,7 +272,6 @@ export function WorkspaceToolbar({
             <ScanEyeIcon data-icon="inline-start" />
             <span className="max-2xl:sr-only">Practice View</span>
           </Toggle>
-          {practiceMix}
         </div>
         <LcdDisplay
           tracks={summary.tracks}
@@ -412,6 +412,8 @@ export function WorkspaceToolbar({
           </div>
 
           {practice}
+          {/* The practice mix (#83); no room for it in the smallest windows. */}
+          {practiceMix && <div className="max-sm:hidden">{practiceMix}</div>}
         </div>
       </header>
     </>
