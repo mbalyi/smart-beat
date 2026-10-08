@@ -56,8 +56,8 @@ function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
 }
 
 /**
- * Scrollable "paper" that alphaTab draws the notation into. The paper stays
- * light in dark mode, like printed music, since the notation is drawn in black.
+ * Scrollable "paper" that alphaTab draws the notation into. In dark mode the paper is dark
+ * and the notation light (#83); printing always uses the light colours.
  */
 export function ScoreView({
   viewportRef,
@@ -106,7 +106,7 @@ export function ScoreView({
       >
         <div
           className={cn(
-            "score-paper min-h-full rounded-md bg-white text-black shadow-sm",
+            "score-paper min-h-full rounded-md bg-white text-black shadow-sm dark:bg-[#18181b] dark:text-[#ececee]",
             // Page layout wraps to the paper width; continuous layout is one
             // long row, so the paper grows with it.
             layout === "page" ? "mx-auto" : "w-max min-w-full",

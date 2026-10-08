@@ -227,7 +227,8 @@ export async function tabNumbers(page: Page): Promise<string[]> {
     .evaluateAll((texts) =>
       texts
         // Bar numbers are drawn in red.
-        .filter((t) => t.getAttribute("fill") !== "#C80000")
+        // Bar numbers are drawn in red (light) or salmon (dark).
+        .filter((t) => !["#C80000", "#FF8A80"].includes(t.getAttribute("fill") ?? ""))
         .map((t) => t.textContent?.trim() ?? "")
         .filter((text) => /^\d+$/.test(text)),
     );

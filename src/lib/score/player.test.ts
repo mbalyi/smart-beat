@@ -1179,3 +1179,32 @@ describe("ScorePlayer.showForPrint", () => {
     expect(api.renderTracks).toHaveBeenLastCalledWith([score.tracks[0]]);
   });
 });
+
+describe("ScorePlayer.setTheme (#83)", () => {
+  const hex = (c: { r: number; g: number; b: number }) =>
+    `#${[c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+
+  it("draws the score in the dark colours, and quietly re-renders", async () => {
+    const { player, api } = await readySetup();
+    const resources = api.settings.display.resources;
+    expect(hex(resources.mainGlyphColor)).toBe("#000000");
+    api.render.mockClear();
+    player.setTheme("dark");
+    expect(hex(resources.mainGlyphColor)).toBe("#ececee");
+    expect(hex(resources.barNumberColor)).toBe("#ff8a80");
+    expect(api.updateSettings).toHaveBeenCalled();
+    expect(api.render).toHaveBeenCalledTimes(1);
+    // The same theme again draws nothing.
+    player.setTheme("dark");
+    expect(api.render).toHaveBeenCalledTimes(1);
+  });
+
+  it("prints in the light colours and goes back to dark afterwards", async () => {
+    const { player, api } = await readySetup();
+    player.setTheme("dark");
+    const restore = player.showForPrint([0], 1);
+    expect(hex(api.settings.display.resources.mainGlyphColor)).toBe("#000000");
+    restore();
+    expect(hex(api.settings.display.resources.mainGlyphColor)).toBe("#ececee");
+  });
+});

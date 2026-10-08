@@ -34,6 +34,7 @@ import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
 import { PracticeMix } from "@/components/score/practice-mix";
+import { useTheme } from "@/hooks/use-theme";
 import { TunerDialog } from "@/components/score/tuner-dialog";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
@@ -601,10 +602,12 @@ export function ScoreWorkspace({
 
   // The initial state, read once when the player is created. Later changes go
   // straight to the player from the handlers below.
-  const initial = useRef({ trackIndex, view, layout, soundFont });
+  // The score follows the app's light or dark mode; printing stays light (#83).
+  const { resolvedTheme } = useTheme();
+  const initial = useRef({ trackIndex, view, layout, soundFont, theme: resolvedTheme });
   // Kept current, for a player created again (the audio engine changed).
   useEffect(() => {
-    initial.current = { trackIndex, view, layout, soundFont };
+    initial.current = { trackIndex, view, layout, soundFont, theme: resolvedTheme };
   });
 
   /** A new player for the same song (other audio engine) gets the current settings. */
@@ -636,6 +639,7 @@ export function ScoreWorkspace({
         soundFontUrl: getSoundFont(start.soundFont).url,
         reducedMotion: prefersReducedMotion(),
         audioEngine,
+        theme: start.theme,
       },
       {
         onRenderingChange: setRendering,
@@ -702,6 +706,7 @@ export function ScoreWorkspace({
   }, [metronome, countIn]);
   useEffect(() => playerRef.current?.setEditing(editing), [editing]);
   useEffect(() => playerRef.current?.setFocusCut(focusCutDb), [focusCutDb]);
+  useEffect(() => playerRef.current?.setTheme(resolvedTheme), [resolvedTheme]);
 
   /** After every change to the music: new mix order, re-render, new MIDI. */
   const onModelChange = useEffectEvent(() => {

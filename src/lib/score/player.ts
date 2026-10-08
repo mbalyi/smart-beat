@@ -11,6 +11,7 @@ import {
   LayoutMode,
   LogLevel,
   midi,
+  model,
   NotationElement,
   PlayerMode,
   PlayerOutputMode,
@@ -22,6 +23,7 @@ import {
 } from "@coderline/alphatab";
 
 import { barOccurrences, engineExtras, type BarOccurrence } from "@/lib/audio/engine-config";
+import { rgbOf, SCORE_PALETTES, type ScoreTheme } from "@/lib/score/score-theme";
 import {
   busMixes,
   NativeEngine,
@@ -151,6 +153,21 @@ export interface ScorePlayerOptions {
   reducedMotion?: boolean;
   /** Default: alphaTab. */
   audioEngine?: AudioEngineKind;
+  /** The score's colours (#83); default: light. */
+  theme?: ScoreTheme;
+}
+
+/** Puts a palette's colours in alphaTab's settings. */
+function applyPalette(settings: Settings, theme: ScoreTheme) {
+  const p = SCORE_PALETTES[theme];
+  const color = (hex: string, alpha = 255) => new model.Color(...rgbOf(hex), alpha);
+  const resources = settings.display.resources;
+  resources.mainGlyphColor = color(p.main);
+  resources.secondaryGlyphColor = color(p.secondary, p.secondaryAlpha);
+  resources.staffLineColor = color(p.staffLine);
+  resources.barSeparatorColor = color(p.barSeparator);
+  resources.barNumberColor = color(p.barNumber);
+  resources.scoreInfoColor = color(p.scoreInfo);
 }
 
 const LAYOUT_MODES: Record<Layout, LayoutMode> = {
@@ -209,6 +226,7 @@ function createSettings(options: ScorePlayerOptions): Settings {
   settings.player.nativeBrowserSmoothScroll = !options.reducedMotion;
   // Clicking a beat moves the playback cursor there ("start from here").
   settings.player.enableUserInteraction = true;
+  applyPalette(settings, options.theme ?? "light");
   return settings;
 }
 
@@ -283,6 +301,7 @@ export class ScorePlayer {
     this.score = options.score;
     this.trackIndex = options.trackIndex;
     this.mix = options.mix;
+    this.theme = options.theme ?? "light";
     this.callbacks = callbacks;
 
     // Pan is part of the generated MIDI, so it must be in the model before playback.
@@ -903,12 +922,15 @@ export class ScorePlayer {
       .filter((t): t is NonNullable<typeof t> => t !== undefined);
     display.scale = scale;
     display.layoutMode = LayoutMode.Page;
+    // Paper is white: the printed score is always in the light colours.
+    applyPalette(this.api.settings, "light");
     this.api.updateSettings();
     this.quietRender = true;
     this.api.renderTracks(tracks.length > 0 ? tracks : [this.track]);
     return () => {
       display.scale = before.scale;
       display.layoutMode = before.layout;
+      applyPalette(this.api.settings, this.theme);
       this.api.updateSettings();
       this.quietRender = true;
       this.api.renderTracks([this.track]);
@@ -1042,6 +1064,18 @@ export class ScorePlayer {
   }
 
   /** Zooms the notation (1 = 100%). */
+  private theme: ScoreTheme = "light";
+
+  /** Draws the score in light or dark colours (#83). */
+  setTheme(theme: ScoreTheme) {
+    if (theme === this.theme) return;
+    this.theme = theme;
+    applyPalette(this.api.settings, theme);
+    this.api.updateSettings();
+    this.quietRender = true;
+    this.api.render();
+  }
+
   setZoom(scale: number) {
     this.api.settings.display.scale = scale;
     this.api.updateSettings();

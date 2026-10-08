@@ -22,8 +22,7 @@ export interface Pitch {
 }
 
 /** How many samples `detectPitch` needs to find `minHz`: two periods. */
-export const samplesNeeded = (sampleRate: number, minHz = 28) =>
-  2 * Math.ceil(sampleRate / minHz);
+export const samplesNeeded = (sampleRate: number, minHz = 28) => 2 * Math.ceil(sampleRate / minHz);
 
 /** The pitch of a sound, or null for silence and noise. */
 export function detectPitch(
