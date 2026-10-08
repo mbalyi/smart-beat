@@ -56,6 +56,7 @@ function pdtaChunks(bytes: Uint8Array): Chunks {
 const GEN_KEY_RANGE = 43;
 const GEN_INSTRUMENT = 41;
 const GEN_SAMPLE_ID = 53;
+const GEN_OVERRIDING_ROOT_KEY = 58;
 
 interface Zone {
   /** Generators of the zone, by number. */
@@ -84,6 +85,54 @@ function zonesOf(bag: DataView, gen: DataView, first: number, last: number): Zon
     zones.push({ gens, keyLow, keyHigh });
   }
   return zones;
+}
+
+/**
+ * For each General MIDI program (melodic presets, bank 0) the lowest key at
+ * which one of its samples was recorded (the sample's root key). Notes far
+ * below it are that sample slowed down, and sound thin and dull: this is what
+ * "the range of an instrument" means for a sampled sound. Programs the
+ * SoundFont does not have are missing from the result.
+ */
+export function melodicRootKeys(bytes: Uint8Array, bank = 0): Map<number, number> {
+  const pdta = pdtaChunks(bytes);
+  const { phdr, pbag, pgen, inst, ibag, igen, shdr } = pdta;
+  if (!phdr || !pbag || !pgen || !inst || !ibag || !igen || !shdr) {
+    throw new Error("The SoundFont is incomplete.");
+  }
+  const lowest = new Map<number, number>();
+  const presetCount = phdr.byteLength / 38 - 1;
+  for (let preset = 0; preset < presetCount; preset++) {
+    if (phdr.getUint16(preset * 38 + 22, true) !== bank) continue;
+    const program = phdr.getUint16(preset * 38 + 20, true);
+    const presetZones = zonesOf(
+      pbag,
+      pgen,
+      phdr.getUint16(preset * 38 + 24, true),
+      phdr.getUint16((preset + 1) * 38 + 24, true),
+    );
+    for (const presetZone of presetZones) {
+      const instrument = presetZone.gens.get(GEN_INSTRUMENT);
+      if (instrument === undefined) continue;
+      const zones = zonesOf(
+        ibag,
+        igen,
+        inst.getUint16(instrument * 22 + 20, true),
+        inst.getUint16((instrument + 1) * 22 + 20, true),
+      );
+      for (const zone of zones) {
+        const sample = zone.gens.get(GEN_SAMPLE_ID);
+        if (sample === undefined) continue;
+        // The zone's own root key (0-127, anything else means "not set"), else the sample's.
+        const own = zone.gens.get(GEN_OVERRIDING_ROOT_KEY);
+        // Sample headers are 46 bytes; the original pitch is the byte at 40.
+        const root = own !== undefined && own <= 127 ? own : shdr.getUint8(sample * 46 + 40);
+        if (root > 127) continue;
+        lowest.set(program, Math.min(lowest.get(program) ?? 127, root));
+      }
+    }
+  }
+  return lowest;
 }
 
 /**

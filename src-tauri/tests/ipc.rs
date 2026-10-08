@@ -18,6 +18,8 @@ use tauri::test::{
 use tauri::webview::InvokeRequest;
 use tauri::{App, Listener, Manager, WebviewWindow, WebviewWindowBuilder};
 
+mod common;
+
 const FILE_KEY: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 
 fn app() -> App<MockRuntime> {
@@ -1139,4 +1141,156 @@ fn drum_kit_commands_import_list_assign_and_remove() {
     assert!(invoke_with(&window, "kits_remove", json!({ "id": "gone" })).is_err());
     // The kits live next to the sound library in the app data folder.
     assert!(dir.path().join("kits/kits.json").exists());
+}
+
+/// Sound library commands (#41): import a tiny synthetic amp capture and
+/// cabinet, list, tag, rename and remove them, and get a clear error (never
+/// a crash) for bad files.
+#[test]
+fn sound_library_commands_import_tag_rename_and_remove() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_audio(dir.path());
+    let window = main_window(&app);
+    let list = || {
+        invoke_with(&window, "library_list", json!({}))
+            .unwrap()
+            .deserialize::<Value>()
+            .unwrap()
+    };
+    let user_items = || -> Vec<Value> {
+        list()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["builtin"] == false)
+            .cloned()
+            .collect()
+    };
+    assert!(user_items().is_empty());
+    assert!(
+        list()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["builtin"] == true),
+        "generated cabinets are always there"
+    );
+
+    let amp = dir.path().join("my-amp.nam");
+    std::fs::write(
+        &amp,
+        common::tiny_nam(Some(44_100.0), Some(-22.0), "Test Amp"),
+    )
+    .unwrap();
+    let cab = dir.path().join("my-cab.wav");
+    std::fs::write(&cab, common::tiny_ir(48_000, 2_048)).unwrap();
+
+    let amp_item = invoke_with(
+        &window,
+        "library_import",
+        json!({ "path": amp, "kind": "amp" }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(amp_item["name"], "Test Amp");
+    assert_eq!(amp_item["kind"], "amp");
+    assert_eq!(amp_item["sampleRate"], 44_100);
+    let cab_item = invoke_with(
+        &window,
+        "library_import",
+        json!({ "path": cab, "kind": "cab" }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(cab_item["name"], "my-cab");
+    assert_eq!(cab_item["note"], "");
+    assert_eq!(user_items().len(), 2);
+
+    // Tags and rename.
+    let id = cab_item["id"].as_str().unwrap();
+    let renamed = invoke_with(
+        &window,
+        "library_update",
+        json!({ "id": id, "name": "Mesa 4x12", "tags": ["metal", "djent", " "] }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(renamed["name"], "Mesa 4x12");
+    assert_eq!(renamed["tags"], json!(["metal", "djent"]));
+    let error = invoke_with(
+        &window,
+        "library_update",
+        json!({ "id": id, "name": "  ", "tags": [] }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "audio");
+
+    // Bad files: a clear message, nothing added, the app keeps running.
+    let broken = dir.path().join("broken.nam");
+    std::fs::write(&broken, b"{ \"architecture\": \"Nope\" ").unwrap();
+    let error = invoke_with(
+        &window,
+        "library_import",
+        json!({ "path": broken, "kind": "amp" }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "audio");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("Neural Amp Modeler")
+    );
+    let wrong = invoke_with(
+        &window,
+        "library_import",
+        json!({ "path": cab, "kind": "amp" }),
+    )
+    .unwrap_err();
+    assert_eq!(wrong["kind"], "audio");
+    let missing = invoke_with(
+        &window,
+        "library_import",
+        json!({ "path": dir.path().join("nothing.wav"), "kind": "cab" }),
+    )
+    .unwrap_err();
+    assert!(
+        missing["message"]
+            .as_str()
+            .unwrap()
+            .contains("cannot be read")
+    );
+    assert_eq!(user_items().len(), 2);
+
+    // The library survives a restart (a new app on the same folder).
+    drop(window);
+    drop(app);
+    let app = app_with_audio(dir.path());
+    let window = main_window(&app);
+    let again = invoke_with(&window, "library_list", json!({}))
+        .unwrap()
+        .deserialize::<Value>()
+        .unwrap();
+    assert_eq!(
+        again
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["builtin"] == false)
+            .count(),
+        2
+    );
+
+    // Removing deletes the stored copy too.
+    let stored = dir
+        .path()
+        .join("library")
+        .join(renamed["file"].as_str().unwrap());
+    assert!(stored.is_file());
+    invoke_with(&window, "library_remove", json!({ "id": id })).unwrap();
+    assert!(!stored.exists());
+    assert!(invoke_with(&window, "library_remove", json!({ "id": id })).is_err());
 }

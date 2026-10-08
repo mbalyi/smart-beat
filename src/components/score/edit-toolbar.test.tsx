@@ -1,5 +1,5 @@
 import { model } from "@coderline/alphatab";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { EditToolbar, type EditActions } from "@/components/score/edit-toolbar";
 import type { BeatInfo } from "@/lib/score/editor";
@@ -141,5 +141,69 @@ describe("EditToolbar", () => {
       "aria-pressed",
       "false",
     );
+  });
+});
+
+describe("EditToolbar: nested tuplets (#43)", () => {
+  it("opens the nested tuplet dialog from the tuplet menu and applies the combined ratio", async () => {
+    const { user, actions } = setup();
+    await user.click(screen.getByRole("combobox", { name: "Tuplet" }));
+    await user.click(await screen.findByRole("option", { name: "Nested…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Nested tuplet" });
+    // A triplet of triplets by default: nine notes in the time of four.
+    expect(within(dialog).getByTestId("nested-tuplet-result")).toHaveTextContent(
+      "9 notes in the time of 4 (9:4)",
+    );
+    await expectNoA11yViolations();
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(actions.onTuplet).toHaveBeenCalledWith({ numerator: 9, denominator: 4 });
+    // Focus goes back to the score, whichever way the dialog closes.
+    await waitFor(() => expect(actions.onDone).toHaveBeenCalled());
+    expect(screen.queryByRole("dialog", { name: "Nested tuplet" })).not.toBeInTheDocument();
+  });
+
+  it("combines other ratios and shows the result before applying", async () => {
+    const { user, actions } = setup();
+    await user.click(screen.getByRole("combobox", { name: "Tuplet" }));
+    await user.click(await screen.findByRole("option", { name: "Nested…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Nested tuplet" });
+    await user.click(within(dialog).getByRole("combobox", { name: /^Inner tuplet/ }));
+    await user.click(await screen.findByRole("option", { name: "Quintuplet (5:4)" }));
+    expect(within(dialog).getByTestId("nested-tuplet-result")).toHaveTextContent(
+      "15 notes in the time of 8 (15:8)",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(actions.onTuplet).toHaveBeenCalledWith({ numerator: 15, denominator: 8 });
+  });
+
+  it("refuses a combination with too many notes", async () => {
+    const { user, actions } = setup();
+    await user.click(screen.getByRole("combobox", { name: "Tuplet" }));
+    await user.click(await screen.findByRole("option", { name: "Nested…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Nested tuplet" });
+    for (const name of ["Outer tuplet", /^Inner tuplet/]) {
+      await user.click(within(dialog).getByRole("combobox", { name }));
+      await user.click(await screen.findByRole("option", { name: "13:8" }));
+    }
+    expect(within(dialog).getByTestId("nested-tuplet-result")).toHaveTextContent("too many notes");
+    expect(within(dialog).getByRole("button", { name: "Apply" })).toBeDisabled();
+    expect(actions.onTuplet).not.toHaveBeenCalled();
+  });
+
+  it("cancelling changes nothing", async () => {
+    const { user, actions } = setup();
+    await user.click(screen.getByRole("combobox", { name: "Tuplet" }));
+    await user.click(await screen.findByRole("option", { name: "Nested…" }));
+    await user.click(
+      within(await screen.findByRole("dialog", { name: "Nested tuplet" })).getByRole("button", {
+        name: "Cancel",
+      }),
+    );
+    expect(actions.onTuplet).not.toHaveBeenCalled();
+  });
+
+  it("shows a nested ratio the list does not name under its own ratio", async () => {
+    setup({ beat: { ...BEAT, tuplet: { numerator: 9, denominator: 4 } } });
+    expect(screen.getByRole("combobox", { name: "Tuplet" })).toHaveTextContent("9:4");
   });
 });

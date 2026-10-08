@@ -44,8 +44,8 @@ The writer (`src/lib/export/gp/writer.ts`) produces version 5.00 files. Everythi
 What Guitar Pro 5 cannot hold is reported after saving ("saved with limits"):
 
 - tracks without strings (piano, other instruments): saved as a seven-string track without tablature;
-- more than seven strings, frets above 24, more than two voices, more than six simultaneous drum notes;
-- double-dotted notes (saved with one dot), tuplets other than 3, 5-7, 9-13, notes shorter than a 64th;
+- more than seven strings (the notes on the lowest strings are left out), frets above 24, more than two voices, more than six simultaneous drum notes;
+- double-dotted notes (saved with one dot), tuplets other than 3 in the time of 2, 5 to 7 in the time of 4 and 9 to 13 in the time of 8 (a nested tuplet such as 9:4 is saved as plain notes: Guitar Pro 5 stores only the note count), notes shorter than a 64th;
 - lyrics of more than one track, dotted and Scottish triplet feels, feedback harmonics.
 
 Text is written in a Windows code page, as Guitar Pro 5 expects: the one the song was read with (see below), else the user's (Windows-1250 for Central European languages, otherwise Windows-1252). If the text does not fit that code page but fits the other one, the other is used; characters that fit neither become "?" and the save warns about them.

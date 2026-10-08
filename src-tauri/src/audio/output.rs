@@ -8,7 +8,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, TryLockError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -31,6 +31,9 @@ pub struct Published {
     pub dropouts: AtomicU32,
     /// Time the callback took, as a share of the buffer's duration (per mille), peak.
     pub load_permille: AtomicU32,
+    /// Panics caught in the callback (the effects were switched off and
+    /// playback stopped); reported once.
+    pub faults: AtomicU32,
 }
 
 pub struct Output {
@@ -100,6 +103,23 @@ impl Drop for Output {
     }
 }
 
+/// Renders one buffer and publishes where the song is. A panic in the
+/// engine is caught: the buffer is silent and the fault is counted.
+fn publish(
+    engine: &mut Engine,
+    (left, right): (&mut [f32], &mut [f32]),
+    latency: Duration,
+    shared: &Published,
+) {
+    if !engine.render_guarded(left, right) {
+        shared.faults.fetch_add(1, Ordering::Relaxed);
+    }
+    // What is heard now was rendered `latency` ago.
+    let heard = (engine.position() - latency.as_secs_f64()).max(0.0);
+    shared.position.store(heard.to_bits(), Ordering::Relaxed);
+    shared.playing.store(engine.is_active(), Ordering::Relaxed);
+}
+
 type Built = (cpal::Stream, u32, u16, Arc<Published>);
 
 fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
@@ -138,14 +158,28 @@ fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
                     .latency_us
                     .store(latency.as_micros() as u32, Ordering::Relaxed);
                 match engine.try_lock() {
-                    Ok(mut engine) => {
-                        engine.render(&mut left[..frames], &mut right[..frames]);
-                        // What is heard now was rendered `latency` ago.
-                        let heard = (engine.position() - latency.as_secs_f64()).max(0.0);
-                        shared.position.store(heard.to_bits(), Ordering::Relaxed);
-                        shared.playing.store(engine.is_active(), Ordering::Relaxed);
+                    Ok(mut engine) => publish(
+                        &mut engine,
+                        (&mut left[..frames], &mut right[..frames]),
+                        latency,
+                        &shared,
+                    ),
+                    Err(TryLockError::Poisoned(poisoned)) => {
+                        // Something panicked while holding the engine (not the
+                        // callback: that one is caught below). Take it back,
+                        // switch the effects off and carry on.
+                        engine.clear_poison();
+                        let mut engine = poisoned.into_inner();
+                        engine.quarantine();
+                        shared.faults.fetch_add(1, Ordering::Relaxed);
+                        publish(
+                            &mut engine,
+                            (&mut left[..frames], &mut right[..frames]),
+                            latency,
+                            &shared,
+                        );
                     }
-                    Err(_) => {
+                    Err(TryLockError::WouldBlock) => {
                         left[..frames].fill(0.0);
                         right[..frames].fill(0.0);
                         shared.dropouts.fetch_add(1, Ordering::Relaxed);

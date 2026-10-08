@@ -25,6 +25,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
         playing: true,
         latencyMs: 10,
         dropouts: 0,
+        faults: 0,
         loadPercent: 1,
         meters: { tracks: [0.5], master: 0.6 },
       }),
@@ -225,6 +226,39 @@ describe("NativeEngine", () => {
     expect(onMeters).toHaveBeenCalledWith({ tracks: [0.5], master: 0.6 });
     engine.destroy();
     expect(out.handler).toBeUndefined();
+  });
+
+  it("tells the UI when a sound crashed in the audio callback (#41)", async () => {
+    vi.useFakeTimers();
+    const state = vi.mocked(tauri.engineState);
+    const status = (faults: number) => ({
+      running: true,
+      sampleRate: 48_000,
+      positionMs: 0,
+      durationMs: 8_000,
+      playing: true,
+      latencyMs: 10,
+      dropouts: 0,
+      faults,
+      loadPercent: 1,
+      meters: {
+        tracks: [],
+        master: 0,
+        drums: [],
+        reduction: { tracks: [], master: [] },
+        backing: 0,
+      },
+    });
+    state.mockResolvedValueOnce(status(0)).mockResolvedValueOnce(status(1));
+    const onFault = vi.fn();
+    const engine = new NativeEngine({ onFault });
+    engine.attach(output());
+    engine.play();
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(onFault).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(onFault).toHaveBeenCalledTimes(1);
+    engine.destroy();
   });
 
   const extras = (over: Partial<EngineExtras> = {}): EngineExtras => ({

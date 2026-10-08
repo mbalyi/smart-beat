@@ -55,6 +55,50 @@ describe("TrackList", () => {
     await expectNoA11yViolations();
   });
 
+  it("warns next to a track whose lowest string is far below its sound (#43)", async () => {
+    const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
+    // The guitar becomes an 8-string overdriven guitar: F#1 is below what it was recorded at.
+    const tracks = summary.tracks.map((t, i) =>
+      i === 0 ? { ...t, program: 29, tuning: [64, 59, 55, 50, 45, 40, 35, 30] } : t,
+    );
+    renderWithProviders(
+      <TrackList
+        score={score}
+        revision={0}
+        tracks={tracks}
+        shown={0}
+        mix={mixFromScore(summary)}
+        onChange={vi.fn()}
+        onReset={vi.fn()}
+        actions={
+          {
+            onShow: vi.fn(),
+            onMove: vi.fn(),
+            onDuplicate: vi.fn(),
+            onRemove: vi.fn(),
+            onSettings: vi.fn(),
+            onLyrics: vi.fn(),
+            onAdd: vi.fn(),
+          } as TrackActions
+        }
+        bar={1}
+        onSeekBar={vi.fn()}
+        saved={false}
+        playing={false}
+        soundFont="sonivox"
+      />,
+    );
+    const marks = screen.getAllByTestId("low-sound-mark");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveAccessibleName(/^Guitar: The lowest string \(F#1\)/);
+    await expectNoA11yViolations();
+  });
+
+  it("shows no warning for ordinary tunings or without a sound set", () => {
+    setup({ soundFont: "sonivox" });
+    expect(screen.queryByTestId("low-sound-mark")).not.toBeInTheDocument();
+  });
+
   it("marks the shown track", () => {
     setup({ shown: 2 });
 

@@ -74,3 +74,101 @@ export function makeDrumSoundFont(zones: DrumZone[], { bank = 128, program = 0 }
   const body = [...ascii("sfbk"), ...chunk("LIST", pdta)];
   return Uint8Array.from([...ascii("RIFF"), ...u32(body.length), ...body]);
 }
+
+export interface MelodicZone {
+  low: number;
+  high: number;
+  /** The pitch the sample was recorded at (the sample header's original pitch). */
+  samplePitch: number;
+  /** The zone's own root key, which wins over the sample's (generator 58). */
+  rootKey?: number;
+}
+
+export interface MelodicPreset {
+  program: number;
+  bank?: number;
+  zones: MelodicZone[];
+}
+
+/**
+ * A tiny SoundFont 2 of melodic presets (for tests): each preset has one
+ * instrument whose zones cover key ranges, each with a sample recorded at a
+ * given pitch.
+ */
+export function makeMelodicSoundFont(presets: MelodicPreset[]): Uint8Array {
+  // Preset headers (38 bytes): name, program, bank, bag index, 3 reserved dwords; then the terminator.
+  const phdr: number[] = [];
+  const pbag: number[] = [];
+  const pgen: number[] = [];
+  const inst: number[] = [];
+  const ibag: number[] = [];
+  const igen: number[] = [];
+  const shdr: number[] = [];
+  let zoneCount = 0;
+  let sampleCount = 0;
+  presets.forEach((preset, p) => {
+    phdr.push(
+      ...ascii(`Preset ${preset.program}`, 20),
+      ...u16(preset.program),
+      ...u16(preset.bank ?? 0),
+      ...u16(p),
+      ...u32(0),
+      ...u32(0),
+      ...u32(0),
+    );
+    // One preset zone: instrument p.
+    pbag.push(...u16(p), ...u16(0));
+    pgen.push(...u16(41), ...u16(p));
+    inst.push(...ascii(`Instrument ${p}`, 20), ...u16(zoneCount));
+    for (const zone of preset.zones) {
+      ibag.push(...u16(igen.length / 4), ...u16(0));
+      igen.push(...u16(43), zone.low, zone.high);
+      if (zone.rootKey !== undefined) igen.push(...u16(58), ...u16(zone.rootKey));
+      igen.push(...u16(53), ...u16(sampleCount));
+      // Sample header: name(20), start, end, loop start, loop end, rate (5 × 4), pitch(1), correction(1), link(2), type(2).
+      shdr.push(
+        ...ascii(`Sample ${sampleCount}`, 20),
+        ...u32(0),
+        ...u32(0),
+        ...u32(0),
+        ...u32(0),
+        ...u32(44_100),
+        zone.samplePitch,
+        0,
+        ...u16(0),
+        ...u16(1),
+      );
+      sampleCount++;
+      zoneCount++;
+    }
+  });
+  phdr.push(
+    ...ascii("EOP", 20),
+    ...u16(0),
+    ...u16(0),
+    ...u16(presets.length),
+    ...u32(0),
+    ...u32(0),
+    ...u32(0),
+  );
+  pbag.push(...u16(presets.length), ...u16(0));
+  pgen.push(...u16(0), ...u16(0));
+  inst.push(...ascii("EOI", 20), ...u16(zoneCount));
+  ibag.push(...u16(igen.length / 4), ...u16(0));
+  igen.push(...u16(0), ...u16(0));
+  shdr.push(...ascii("EOS", 20), ...new Array<number>(26).fill(0));
+  const pdta = [
+    ...ascii("pdta"),
+    ...chunk("phdr", phdr),
+    ...chunk("pbag", pbag),
+    ...chunk("pmod", new Array(10).fill(0)),
+    ...chunk("pgen", pgen),
+    ...chunk("inst", inst),
+    ...chunk("ibag", ibag),
+    ...chunk("imod", new Array(10).fill(0)),
+    ...chunk("igen", igen),
+    ...chunk("shdr", shdr),
+  ];
+  const body = [...ascii("sfbk"), ...chunk("LIST", pdta)];
+  return Uint8Array.from([...ascii("RIFF"), ...u32(body.length), ...body]);
+}

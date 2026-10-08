@@ -6,7 +6,12 @@ import {
   type PedalboardSounds,
   type PedalboardTarget,
 } from "@/components/audio/pedalboard-dialog";
-import { defaultEffect, type EffectSlot, type EffectType } from "@/lib/audio/effects";
+import {
+  defaultEffect,
+  MAX_TRACK_EFFECTS,
+  type EffectSlot,
+  type EffectType,
+} from "@/lib/audio/effects";
 import { meters } from "@/lib/audio/meter-store";
 import type { BlockProblem, LibraryItem, SongPreset } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -23,6 +28,7 @@ const LIBRARY: LibraryItem[] = [
     source: "Smart Beat",
     builtin: true,
     includesCab: false,
+    note: "",
   },
   {
     id: "abc",
@@ -34,6 +40,7 @@ const LIBRARY: LibraryItem[] = [
     source: "5150.nam",
     builtin: false,
     includesCab: true,
+    note: "",
   },
 ];
 
@@ -152,6 +159,47 @@ describe("PedalboardDialog", () => {
     // A pedal back to the library: removed.
     drag(pedal(dialog, "Chorus 3"), library);
     expect(types(chain())).toEqual(["reverb", "gate", "cab"]);
+  });
+
+  it("lists the user's amps and cabinets and adds them by button or drag (#41)", async () => {
+    const { user, dialog, chain } = setup({ initial: [defaultEffect("gate")] });
+    const mine = within(dialog).getByRole("list", { name: "Your amps and cabinets" });
+    const names = within(mine)
+      .getAllByTestId("library-asset")
+      .map((li) => li.textContent);
+    expect(names.some((n) => n?.includes("My 5150") && n.includes("Amp"))).toBe(true);
+    expect(names.some((n) => n?.includes("4×12 modern") && n.includes("Cab"))).toBe(true);
+    await user.click(within(dialog).getByRole("button", { name: "Add amp My 5150" }));
+    expect(chain().map((s) => s.type)).toEqual(["gate", "amp"]);
+    expect(chain()[1]).toMatchObject({ model: "abc", matchLoudness: false });
+    // Dragging a cabinet in front of the gate.
+    const cab = within(mine)
+      .getAllByTestId("library-asset")
+      .find((li) => li.textContent?.includes("4×12 modern"))!;
+    drag(cab, pedal(dialog, "Noise gate 1"));
+    expect(chain().map((s) => s.type)).toEqual(["cab", "gate", "amp"]);
+    expect(chain()[0]).toMatchObject({ ir: "builtin:4x12-modern" });
+    await expectNoA11yViolations();
+  });
+
+  it("does not add sounds to a full chain", async () => {
+    const full = Array.from({ length: MAX_TRACK_EFFECTS }, () => defaultEffect("gate"));
+    const { dialog, chain } = setup({ initial: full });
+    const button = within(dialog).getByRole("button", { name: "Add amp My 5150" });
+    expect(button).toBeDisabled();
+    const asset = within(dialog).getAllByTestId("library-asset")[0]!;
+    expect(asset).toHaveAttribute("draggable", "false");
+    drag(asset, within(dialog).getByTestId("pedalboard"));
+    expect(chain()).toHaveLength(MAX_TRACK_EFFECTS);
+  });
+
+  it("switches loudness matching on an amp capture", async () => {
+    const amp = { ...defaultEffect("amp"), model: "abc" } as EffectSlot;
+    const { user, dialog, chain } = setup({ initial: [amp] });
+    await user.click(
+      within(dialog).getByRole("switch", { name: "Amp (capture) 1: Match loudness" }),
+    );
+    expect(chain()[0]).toMatchObject({ type: "amp", matchLoudness: true });
   });
 
   it("removes with Delete and reorders with Alt+arrows and the buttons", async () => {

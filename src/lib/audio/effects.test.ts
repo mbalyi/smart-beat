@@ -5,12 +5,14 @@ import {
   EFFECT_LABELS,
   formatParam,
   graphicBands,
+  insertAsset,
   MAX_TRACK_EFFECTS,
   moveEffect,
   PARAMS,
   removeEffect,
   replaceEffect,
   withBandGain,
+  withOption,
   withParam,
   withFocusBlock,
   type EffectType,
@@ -92,5 +94,30 @@ describe("withFocusBlock", () => {
       chain: [gate, gate, gate],
       index: -1,
     });
+  });
+});
+
+describe("blocks from the sound library", () => {
+  it("makes an amp or a cabinet that points at the library file", () => {
+    const gate = defaultEffect("gate");
+    const withAmp = insertAsset([gate], { kind: "amp", id: "abc" }, 0, MAX_TRACK_EFFECTS);
+    expect(withAmp.map((s) => s.type)).toEqual(["amp", "gate"]);
+    expect(withAmp[0]).toMatchObject({ model: "abc", enabled: true, matchLoudness: false });
+    const withCab = insertAsset(withAmp, { kind: "cab", id: "builtin:4x12-modern" }, 99, 6);
+    expect(withCab.map((s) => s.type)).toEqual(["amp", "gate", "cab"]);
+    expect(withCab[2]).toMatchObject({ ir: "builtin:4x12-modern" });
+    // The chain it was given is not changed, and a full chain stays as it is.
+    expect(withAmp).toHaveLength(2);
+    const full = Array.from({ length: 3 }, () => gate);
+    expect(insertAsset(full, { kind: "amp", id: "x" }, 0, 3)).toEqual(full);
+  });
+
+  it("has a switch for matching the loudness of a capture", () => {
+    const amp = defaultEffect("amp");
+    expect(amp).toMatchObject({ matchLoudness: false });
+    const on = withOption(amp, "matchLoudness", true);
+    expect(on).toMatchObject({ matchLoudness: true });
+    // Only the switches the pedal has.
+    expect(withOption(amp, "pingPong", true)).toBe(amp);
   });
 });

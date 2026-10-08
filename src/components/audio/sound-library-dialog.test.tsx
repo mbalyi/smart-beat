@@ -16,6 +16,7 @@ const item = (over: Partial<LibraryItem>): LibraryItem => ({
   source: "cab.wav",
   builtin: false,
   includesCab: false,
+  note: "",
   ...over,
 });
 
@@ -70,6 +71,50 @@ describe("SoundLibraryDialog", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Remove 5150 capture" }));
     expect(onRemove).toHaveBeenCalledWith("a1");
+  });
+
+  it("shows what the user should know about a file", () => {
+    const { dialog } = setup([
+      item({
+        id: "long",
+        name: "Hall",
+        note: "Only the first 1.4 s of this 3.0 s impulse response is used.",
+      }),
+    ]);
+    expect(within(dialog).getByText(/Only the first 1.4 s/)).toBeInTheDocument();
+  });
+
+  it("searches and filters by tag (#41)", async () => {
+    const many = [
+      ...ITEMS,
+      item({ id: "c2", name: "Greenback", source: "gb.wav", tags: ["rock"] }),
+      item({ id: "a2", kind: "amp", name: "Plexi", source: "plexi.nam", tags: ["rock", "metal"] }),
+    ];
+    const { user, dialog } = setup(many);
+    const rows = () =>
+      within(dialog)
+        .getAllByTestId("library-item")
+        .map((li) => li.textContent ?? "");
+    expect(rows()).toHaveLength(5);
+    // Tag buttons, one per tag, pressed state follows the choice.
+    const filter = within(dialog).getByRole("group", { name: "Filter by tag" });
+    const rock = within(filter).getByRole("button", { name: "rock" });
+    expect(rock).toHaveAttribute("aria-pressed", "false");
+    await user.click(rock);
+    expect(rock).toHaveAttribute("aria-pressed", "true");
+    // Amps are listed before cabinets.
+    expect(rows().map((r) => r.replace(/Imported from.*/, ""))).toEqual(["Plexi", "Greenback"]);
+    // Search narrows it further; clicking the tag again clears it.
+    await user.type(within(dialog).getByRole("searchbox", { name: "Search the library" }), "plexi");
+    expect(rows()).toHaveLength(1);
+    await user.click(rock);
+    expect(rows()).toHaveLength(1);
+    await user.clear(within(dialog).getByRole("searchbox", { name: "Search the library" }));
+    expect(rows()).toHaveLength(5);
+    // Nothing found.
+    await user.type(within(dialog).getByRole("searchbox", { name: "Search the library" }), "zzz");
+    expect(within(dialog).getAllByText("Nothing matches.")).toHaveLength(2);
+    await expectNoA11yViolations();
   });
 
   it("says when nothing is imported", () => {

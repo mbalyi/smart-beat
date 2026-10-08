@@ -115,6 +115,8 @@ export interface ScorePlayerCallbacks {
   onLoopRestart?: () => void;
   /** Native engine only: peak levels of each track and the master while playing. */
   onMeters?: (meters: EngineMeters) => void;
+  /** Native engine only: a sound crashed, so every effect was switched off and playback stopped. */
+  onEngineFault?: () => void;
   /** Native engine only: effect blocks that cannot run (per track, and the master's). */
   onEffectProblems?: (problems: EffectProblems) => void;
   /** Native engine: the bars in playback order (after every MIDI load), for the audio track. */
@@ -284,6 +286,7 @@ export class ScorePlayer {
       options.audioEngine === "native"
         ? new NativeEngine({
             onMeters: (meters) => callbacks.onMeters?.(meters),
+            onFault: () => callbacks.onEngineFault?.(),
             onError: (error) => callbacks.onError?.(error),
           })
         : null;

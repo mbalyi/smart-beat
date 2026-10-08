@@ -100,7 +100,23 @@ const DIRECTION_ORDER = [
   Direction.JumpDaDoubleCoda,
 ];
 
-const TUPLET_NUMERATORS = new Set([3, 5, 6, 7, 9, 10, 11, 12, 13]);
+/**
+ * The tuplets Guitar Pro 3–5 can store: they write only the number of notes
+ * and read the time they take back from it (3 in the time of 2, 5 to 7 in the
+ * time of 4, 9 to 13 in the time of 8). Any other ratio, like a nested 9:4,
+ * would come back as a different rhythm.
+ */
+const GP_TUPLET_TIME = new Map([
+  [3, 2],
+  [5, 4],
+  [6, 4],
+  [7, 4],
+  [9, 8],
+  [10, 8],
+  [11, 8],
+  [12, 8],
+  [13, 8],
+]);
 
 type TrackKindOnDisk = "stringed" | "drums" | "keys";
 
@@ -666,15 +682,19 @@ class GpWriter {
       beat.tupletNumerator > 1 &&
       beat.tupletDenominator > 0 &&
       beat.tupletNumerator !== beat.tupletDenominator;
-    const writeTuplet = tupleted && TUPLET_NUMERATORS.has(beat.tupletNumerator);
+    const writeTuplet =
+      tupleted && GP_TUPLET_TIME.get(beat.tupletNumerator) === beat.tupletDenominator;
     if (beat.dots > 1) {
       this.warnings.add(
         `Double-dotted notes are not in ${this.product}: they are saved with one dot.`,
       );
     }
     if (tupleted && !writeTuplet) {
+      const time = GP_TUPLET_TIME.get(beat.tupletNumerator);
       this.warnings.add(
-        `Tuplets of ${beat.tupletNumerator} are not in ${this.product} and are saved as plain notes.`,
+        time === undefined
+          ? `Tuplets of ${beat.tupletNumerator} are not in ${this.product} and are saved as plain notes.`
+          : `The ${beat.tupletNumerator}:${beat.tupletDenominator} tuplet is not in ${this.product}, which only has ${beat.tupletNumerator} notes in the time of ${time}: it is saved as plain notes.`,
       );
     }
     if (beat.duration > 64) this.warnings.add("Notes shorter than a 64th are saved as 64ths.");

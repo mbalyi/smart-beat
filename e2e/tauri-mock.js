@@ -118,6 +118,7 @@
     source: "Smart Beat",
     builtin: true,
     includesCab: false,
+    note: "",
   });
   window.__library = [
     builtinCab("4x12-modern", "4×12 modern (generated)"),
@@ -195,10 +196,29 @@
       case "library_list":
         return window.__library;
       case "library_import": {
-        const name = args.path
-          .split("/")
-          .pop()
-          .replace(/\.[^.]+$/, "");
+        // Like the Rust side: a "broken" file is refused with a reason, a capture
+        // given to the cabinet importer (or the other way round) too, and a
+        // "hall" impulse response is imported with a note about its length.
+        const file = args.path.split("/").pop();
+        const name = file.replace(/\.[^.]+$/, "");
+        const isNam = /\.nam$/i.test(file);
+        if (/broken/i.test(file)) {
+          throw {
+            kind: "audio",
+            message: isNam
+              ? "This is not a Neural Amp Modeler file the app can use (unknown architecture)"
+              : "This is not a WAV file the app can read (unexpected end of file)",
+          };
+        }
+        if ((args.kind === "amp") !== isNam) {
+          throw {
+            kind: "audio",
+            message:
+              args.kind === "amp"
+                ? "This is not a Neural Amp Modeler (.nam) file"
+                : "This is not a WAV file the app can read (not a RIFF file)",
+          };
+        }
         const item = {
           id: `lib-${window.__library.length}`,
           kind: args.kind,
@@ -206,9 +226,12 @@
           tags: [],
           file: args.path,
           sampleRate: 48000,
-          source: args.path.split("/").pop(),
+          source: file,
           builtin: false,
           includesCab: false,
+          note: /hall/i.test(file)
+            ? "Only the first 1.4 s of this 3.0 s impulse response is used."
+            : "",
         };
         window.__library = [...window.__library, item];
         return item;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckIcon, PencilIcon, Trash2Icon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { parseTags } from "@/lib/audio/library";
+import { filterLibrary, parseTags, tagsOf } from "@/lib/audio/library";
 import type { AssetKind, LibraryItem } from "@/lib/tauri";
 
 function ItemRow({
@@ -70,6 +70,7 @@ function ItemRow({
               {item.sampleRate > 0 && ` · ${item.sampleRate / 1000} kHz`}
               {item.includesCab && " · includes a cabinet"}
             </p>
+            {item.note && <p className="text-xs text-amber-700 dark:text-amber-400">{item.note}</p>}
           </div>
           {item.tags.map((tag) => (
             <Badge key={tag} variant="secondary">
@@ -111,7 +112,7 @@ const SECTIONS: { kind: AssetKind; title: string; help: string }[] = [
   {
     kind: "cab",
     title: "Cabinets",
-    help: "Impulse responses (.wav, mono or stereo; the first channel is used).",
+    help: "Impulse responses (.wav). Stereo files are mixed to mono; only the first 1.4 s (at 48 kHz) of a long one is used.",
   },
 ];
 
@@ -134,6 +135,16 @@ export function SoundLibraryDialog({
   onRename: (id: string, name: string, tags: string[]) => void;
   onRemove: (id: string) => void;
 }) {
+  const [search, setSearch] = useState("");
+  const [tag, setTag] = useState<string | null>(null);
+  const tags = useMemo(() => tagsOf(items), [items]);
+  // A tag that no longer exists (renamed, removed) stops filtering.
+  const activeTag = tag && tags.includes(tag) ? tag : null;
+  const shown = useMemo(
+    () => filterLibrary(items, { search, tag: activeTag }),
+    [items, search, activeTag],
+  );
+  const filtering = search.trim() !== "" || activeTag !== null;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="xl">
@@ -141,12 +152,37 @@ export function SoundLibraryDialog({
           <DialogTitle>Sound library</DialogTitle>
           <DialogDescription>
             Your own amp captures and cabinets. Imported files stay on this computer; they are never
-            bundled with the app or uploaded.
+            bundled with the app or uploaded. You can also drop a .nam or .wav file on this window.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="search"
+              aria-label="Search the library"
+              placeholder="Search by name, tag or file…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 w-64"
+            />
+            {tags.length > 0 && (
+              <div role="group" aria-label="Filter by tag" className="flex flex-wrap gap-1">
+                {tags.map((t) => (
+                  <Button
+                    key={t}
+                    size="xs"
+                    variant={t === activeTag ? "default" : "outline"}
+                    aria-pressed={t === activeTag}
+                    onClick={() => setTag(t === activeTag ? null : t)}
+                  >
+                    {t}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
           {SECTIONS.map((section) => {
-            const own = items.filter((item) => item.kind === section.kind);
+            const own = shown.filter((item) => item.kind === section.kind);
             return (
               <section
                 key={section.kind}
@@ -162,7 +198,7 @@ export function SoundLibraryDialog({
                 <p className="text-xs text-muted-foreground">{section.help}</p>
                 {own.length === 0 ? (
                   <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
-                    Nothing imported yet.
+                    {filtering ? "Nothing matches." : "Nothing imported yet."}
                   </p>
                 ) : (
                   <ul className="rounded-md border px-3">

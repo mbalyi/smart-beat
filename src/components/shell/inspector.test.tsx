@@ -203,7 +203,16 @@ describe("Inspector: effects", () => {
     const { user } = setup({
       onAudioEngineChange,
       audioEngine: "native",
-      effects: [{ type: "amp", enabled: true, model: "gone", inputDb: 0, outputDb: 0 }],
+      effects: [
+        {
+          type: "amp",
+          enabled: true,
+          model: "gone",
+          inputDb: 0,
+          outputDb: 0,
+          matchLoudness: false,
+        },
+      ],
       effectProblems: 1,
     });
     expect(screen.getByText(/One effect cannot play/)).toBeInTheDocument();

@@ -19,8 +19,9 @@ use super::dsp::eq::{Band, Eq};
 use super::dsp::gate::{Gate, GateParams};
 use super::dsp::limiter::{Limiter, LimiterParams};
 use super::dsp::modulation::{Chorus, ChorusParams, Phaser, PhaserParams, Tremolo, TremoloParams};
+use super::dsp::resample::StreamResampler;
 use super::dsp::reverb::{Reverb, ReverbParams};
-use super::dsp::{Effect, db_to_gain};
+use super::dsp::{Effect, db_to_gain, flush_denormal};
 
 pub const MAX_TRACK_EFFECTS: usize = 6;
 pub const MAX_MASTER_EFFECTS: usize = 3;
@@ -55,6 +56,10 @@ pub enum EffectConfig {
         input_db: f32,
         #[serde(default)]
         output_db: f32,
+        /// Brings the capture to a common loudness (when the file records it),
+        /// so swapping amps does not jump in level.
+        #[serde(default)]
+        match_loudness: bool,
     },
     /// A cabinet impulse response from the user's library (or a built-in one).
     Cab {
@@ -110,12 +115,119 @@ impl AssetSource for NoAssets {
     }
 }
 
+/// Loudness (dBFS RMS) that "match loudness" brings every capture to, the
+/// level the Neural Amp Modeler plugin normalises to.
+const LOUDNESS_TARGET_DB: f32 = -18.0;
+/// Corner of the high-pass after the model that removes any DC offset
+/// (the model's own output is not guaranteed to be centred).
+const DC_BLOCK_HZ: f32 = 5.0;
+/// Silence in front of the converted signal: covers the delay of the two
+/// converters so the block that is returned never runs dry.
+const BRIDGE_PREFILL: usize = 32;
+
+/// One-pole DC blocker.
+struct DcBlocker {
+    coefficient: f32,
+    last_in: f32,
+    last_out: f32,
+}
+
+impl DcBlocker {
+    fn new(sample_rate: f32) -> Self {
+        Self {
+            coefficient: 1.0 - std::f32::consts::TAU * DC_BLOCK_HZ / sample_rate,
+            last_in: 0.0,
+            last_out: 0.0,
+        }
+    }
+
+    #[inline]
+    fn process(&mut self, x: f32) -> f32 {
+        let y = flush_denormal(x - self.last_in + self.coefficient * self.last_out);
+        self.last_in = x;
+        self.last_out = y;
+        y
+    }
+
+    fn reset(&mut self) {
+        self.last_in = 0.0;
+        self.last_out = 0.0;
+    }
+}
+
+/// Runs a model at its own sample rate inside a chain at another rate:
+/// converts the block down (or up) to the model's rate, runs the model and
+/// converts the result back.
+struct RateBridge {
+    to_model: StreamResampler,
+    from_model: StreamResampler,
+    model_block: Vec<f32>,
+    back_block: Vec<f32>,
+    /// Converted output waiting to be handed out in blocks of the caller's size.
+    pending: Vec<f32>,
+}
+
+impl RateBridge {
+    fn new(chain_rate: f32, model_rate: f32, max_block: usize) -> Self {
+        let model_len = StreamResampler::max_output(chain_rate, model_rate, max_block);
+        let back_len = StreamResampler::max_output(model_rate, chain_rate, model_len);
+        let mut pending = Vec::with_capacity(max_block * 2 + BRIDGE_PREFILL + back_len);
+        pending.resize(BRIDGE_PREFILL, 0.0);
+        Self {
+            to_model: StreamResampler::new(chain_rate, model_rate, max_block),
+            from_model: StreamResampler::new(model_rate, chain_rate, model_len),
+            model_block: vec![0.0; model_len],
+            back_block: vec![0.0; back_len],
+            pending,
+        }
+    }
+
+    fn run(&mut self, model: &mut nam_rs::Model, block: &mut [f32]) {
+        let n = self.to_model.process(block, &mut self.model_block);
+        model.process_buffer(&mut self.model_block[..n]);
+        let k = self
+            .from_model
+            .process(&self.model_block[..n], &mut self.back_block);
+        self.pending.extend_from_slice(&self.back_block[..k]);
+        let have = self.pending.len().min(block.len());
+        block[..have].copy_from_slice(&self.pending[..have]);
+        block[have..].fill(0.0);
+        self.pending.drain(..have);
+    }
+
+    fn reset(&mut self) {
+        self.to_model.reset();
+        self.from_model.reset();
+        self.pending.clear();
+        self.pending.resize(BRIDGE_PREFILL, 0.0);
+    }
+}
+
 /// A NAM capture run on the mid (mono) signal, the way amps are recorded.
 struct Amp {
     model: nam_rs::Model,
+    /// Library id of the capture (a knob turn keeps it, another capture rebuilds).
+    id: String,
     input: f32,
     output: f32,
+    /// The capture's loudness (dBFS RMS) when the file records it.
+    loudness_db: Option<f32>,
+    /// Gain that brings the capture to the reference loudness (1 when off).
+    trim: f32,
+    bridge: Option<RateBridge>,
+    dc: DcBlocker,
     mono: Vec<f32>,
+}
+
+impl Amp {
+    fn trim_for(loudness_db: Option<f32>, match_loudness: bool) -> f32 {
+        match (match_loudness, loudness_db) {
+            (true, Some(db)) if db.is_finite() => {
+                db_to_gain((LOUDNESS_TARGET_DB - db).clamp(-24.0, 24.0))
+            }
+            _ => 1.0,
+        }
+    }
 }
 
 impl Effect for Amp {
@@ -126,12 +238,18 @@ impl Effect for Amp {
             for ((m, a), b) in mono.iter_mut().zip(l.iter()).zip(r.iter()) {
                 *m = 0.5 * (a + b) * self.input;
             }
-            self.model.process_buffer(mono);
+            match &mut self.bridge {
+                None => self.model.process_buffer(mono),
+                Some(bridge) => bridge.run(&mut self.model, mono),
+            }
+            let gain = self.output * self.trim;
             for ((m, a), b) in mono.iter().zip(l.iter_mut()).zip(r.iter_mut()) {
-                let y = m * self.output;
+                let y = self.dc.process(*m) * gain;
                 let y = if y.is_finite() {
                     y.clamp(-4.0, 4.0)
                 } else {
+                    // A broken model must not poison the filter state either.
+                    self.dc.reset();
                     0.0
                 };
                 *a = y;
@@ -142,7 +260,73 @@ impl Effect for Amp {
 
     fn reset(&mut self) {
         self.model.reset();
+        self.dc.reset();
+        if let Some(bridge) = &mut self.bridge {
+            bridge.reset();
+        }
     }
+
+    fn update(&mut self, config: &EffectConfig) -> bool {
+        let EffectConfig::Amp {
+            model,
+            input_db,
+            output_db,
+            match_loudness,
+        } = config
+        else {
+            return false;
+        };
+        if *model != self.id {
+            return false;
+        }
+        self.input = db_to_gain(input_db.clamp(-24.0, 24.0));
+        self.output = db_to_gain(output_db.clamp(-24.0, 24.0));
+        self.trim = Self::trim_for(self.loudness_db, *match_loudness);
+        true
+    }
+}
+
+/// What the UI shows for a block whose asset is gone (removed from the
+/// library, or the song came from another computer).
+fn missing_asset(what: &str, id: &str) -> String {
+    let short: String = id.chars().take(8).collect();
+    format!(
+        "This {what} is not in your sound library (it was removed, or the song came from another computer; id {short}). Choose another one."
+    )
+}
+
+/// Models run at the rate they were captured at; anything else is converted.
+const MODEL_RATES: std::ops::RangeInclusive<f32> = 8_000.0..=384_000.0;
+
+fn build_amp(
+    id: &str,
+    nam: &nam_rs::NamModel,
+    (input_db, output_db, match_loudness): (f32, f32, bool),
+    sample_rate: f32,
+    max_block: usize,
+) -> Result<Box<dyn Effect>, String> {
+    let expected = nam.expected_sample_rate() as f32;
+    if !MODEL_RATES.contains(&expected) || !MODEL_RATES.contains(&sample_rate) {
+        return Err(format!(
+            "The amp capture asks for {expected} Hz, which the audio output ({sample_rate} Hz) cannot be converted to"
+        ));
+    }
+    let model =
+        nam_rs::Model::from_nam(nam).map_err(|e| format!("The amp capture cannot run: {e}"))?;
+    let bridge = ((expected - sample_rate).abs() > 1.0)
+        .then(|| RateBridge::new(sample_rate, expected, max_block.max(1)));
+    let loudness_db = nam.loudness();
+    Ok(Box::new(Amp {
+        model,
+        id: id.to_string(),
+        input: db_to_gain(input_db.clamp(-24.0, 24.0)),
+        output: db_to_gain(output_db.clamp(-24.0, 24.0)),
+        loudness_db,
+        trim: Amp::trim_for(loudness_db, match_loudness),
+        bridge,
+        dc: DcBlocker::new(sample_rate),
+        mono: vec![0.0; max_block.max(1)],
+    }))
 }
 
 /// Why a block does not run (shown next to it in the UI).
@@ -172,6 +356,19 @@ impl Chain {
             blocks: Vec::new(),
             layout: Vec::new(),
             slots: Vec::new(),
+            reduction: [0.0; MAX_TRACK_EFFECTS],
+            problems: Vec::new(),
+        }
+    }
+
+    /// A chain of ready-made processors, for tests and custom blocks.
+    #[doc(hidden)]
+    pub fn from_effects(blocks: Vec<Box<dyn Effect>>) -> Self {
+        let count = blocks.len();
+        Self {
+            blocks,
+            layout: vec![EffectConfig::Gate(GateParams::default()); count],
+            slots: (0..count).collect(),
             reduction: [0.0; MAX_TRACK_EFFECTS],
             problems: Vec::new(),
         }
@@ -245,32 +442,21 @@ impl Chain {
                 EffectConfig::Cab { ir } => assets
                     .impulse_response(ir)
                     .map(|spectrum| Box::new(Convolver::new(spectrum)) as Box<dyn Effect>)
-                    .ok_or_else(|| format!("Impulse response “{ir}” is not in the library")),
+                    .ok_or_else(|| missing_asset("cabinet", ir)),
                 EffectConfig::Amp {
                     model,
                     input_db,
                     output_db,
+                    match_loudness,
                 } => match assets.amp_model(model) {
-                    None => Err(format!("Amp model “{model}” is not in the library")),
-                    Some(nam) => {
-                        let expected = nam.expected_sample_rate() as f32;
-                        if (expected - sample_rate).abs() > 1.0 {
-                            Err(format!(
-                                "The amp model needs {expected} Hz; the audio output runs at {sample_rate} Hz"
-                            ))
-                        } else {
-                            nam_rs::Model::from_nam(&nam)
-                                .map(|model| {
-                                    Box::new(Amp {
-                                        model,
-                                        input: db_to_gain(input_db.clamp(-24.0, 24.0)),
-                                        output: db_to_gain(output_db.clamp(-24.0, 24.0)),
-                                        mono: vec![0.0; max_block.max(1)],
-                                    }) as Box<dyn Effect>
-                                })
-                                .map_err(|e| format!("The amp model cannot run: {e}"))
-                        }
-                    }
+                    None => Err(missing_asset("amp capture", model)),
+                    Some(nam) => build_amp(
+                        model,
+                        &nam,
+                        (*input_db, *output_db, *match_loudness),
+                        sample_rate,
+                        max_block,
+                    ),
                 },
             };
             match block {
@@ -348,6 +534,13 @@ impl ChainPlayer {
 
     pub fn current(&self) -> &Chain {
         &self.current
+    }
+
+    /// Switches every block off: the signal passes through untouched. Used
+    /// when a block panicked, so the song can go on without it.
+    pub fn bypass(&mut self) {
+        self.current = Chain::empty();
+        self.previous = None;
     }
 
     /// See [`Chain::take_reduction`] (of the chain that is playing).
@@ -438,7 +631,185 @@ mod tests {
             .collect();
         let chain = Chain::build(&slots, MAX_MASTER_EFFECTS, RATE, 64, &NoAssets);
         assert_eq!(chain.problems.len(), 3);
-        assert!(chain.problems[0].message.contains("missing-0"));
+        assert!(
+            chain.problems[0]
+                .message
+                .contains("not in your sound library")
+        );
+        assert_eq!(chain.problems[2].index, 2);
+    }
+
+    /// Hands out one tiny amp capture under the id `amp`.
+    struct OneAmp(Arc<nam_rs::NamModel>);
+
+    impl OneAmp {
+        fn new(sample_rate: Option<f64>, loudness: Option<f32>) -> Self {
+            let json = super::super::test_fixtures::tiny_nam(sample_rate, loudness);
+            Self(Arc::new(nam_rs::NamModel::from_json_str(&json).unwrap()))
+        }
+    }
+
+    impl AssetSource for OneAmp {
+        fn impulse_response(&self, _: &str) -> Option<Arc<IrSpectrum>> {
+            None
+        }
+        fn amp_model(&self, id: &str) -> Option<Arc<nam_rs::NamModel>> {
+            (id == "amp").then(|| self.0.clone())
+        }
+    }
+
+    fn amp_slot(input_db: f32, output_db: f32, match_loudness: bool) -> EffectSlot {
+        slot(EffectConfig::Amp {
+            model: "amp".into(),
+            input_db,
+            output_db,
+            match_loudness,
+        })
+    }
+
+    /// Runs a signal through a chain in blocks of 64, like the engine.
+    fn run(chain: &mut Chain, input: &[f32]) -> Vec<f32> {
+        let mut out = Vec::new();
+        for block in input.chunks(64) {
+            let (mut l, mut r) = (block.to_vec(), block.to_vec());
+            chain.process(&mut l, &mut r);
+            out.extend(l);
+        }
+        out
+    }
+
+    fn build_one(assets: &dyn AssetSource, slots: &[EffectSlot]) -> Chain {
+        Chain::build(slots, MAX_TRACK_EFFECTS, RATE, 64, assets)
+    }
+
+    #[test]
+    fn an_amp_capture_makes_sound_and_stays_finite() {
+        let assets = OneAmp::new(None, None);
+        let mut chain = build_one(&assets, &[amp_slot(0.0, 0.0, false)]);
+        assert!(chain.problems.is_empty(), "{:?}", chain.problems);
+        let out = run(&mut chain, &sine(220.0, 0.2, 4_800));
+        assert!(all_finite(&out));
+        assert!(rms(&out[480..]) > 0.01, "silent: {}", rms(&out));
+    }
+
+    /// The capture's own rate and the chain's rate may differ (a 44.1 kHz
+    /// capture on a 48 kHz output): the sound must be the same, not an error.
+    #[test]
+    fn a_capture_at_another_sample_rate_sounds_the_same() {
+        let direct = OneAmp::new(Some(48_000.0), None);
+        let other = OneAmp::new(Some(44_100.0), None);
+        let input = sine(330.0, 0.15, 9_600);
+        let mut chain = build_one(&direct, &[amp_slot(0.0, -12.0, false)]);
+        let reference = run(&mut chain, &input);
+        let mut chain = build_one(&other, &[amp_slot(0.0, -12.0, false)]);
+        assert!(chain.problems.is_empty(), "{:?}", chain.problems);
+        let converted = run(&mut chain, &input);
+        assert!(all_finite(&converted));
+        // The model has no memory, so the converted signal is the reference
+        // shifted by the delay of the two converters: find the best shift.
+        let (best_error, best_lag) = (0..80usize)
+            .map(|lag| {
+                let n = reference.len() - 1_000;
+                let error: f32 = (500..n)
+                    .map(|i| (converted[i] - reference[i - lag.min(i)]).abs())
+                    .sum::<f32>()
+                    / (n - 500) as f32;
+                (error, lag)
+            })
+            .fold((f32::MAX, 0), |a, b| if b.0 < a.0 { b } else { a });
+        let level = rms(&reference[500..]);
+        assert!(level > 0.005, "reference is silent");
+        assert!(
+            best_error < level * 0.25,
+            "error {best_error} (lag {best_lag}) against level {level}"
+        );
+        assert!(best_lag < 60, "lag {best_lag}");
+        // And a 96 kHz capture on a 48 kHz chain works as well.
+        let high = OneAmp::new(Some(96_000.0), None);
+        let mut chain = build_one(&high, &[amp_slot(0.0, 0.0, false)]);
+        assert!(chain.problems.is_empty());
+        assert!(all_finite(&run(&mut chain, &input)));
+    }
+
+    #[test]
+    fn a_capture_asking_for_an_impossible_rate_is_reported_not_fatal() {
+        let assets = OneAmp::new(Some(1_000.0), None);
+        let chain = build_one(&assets, &[amp_slot(0.0, 0.0, false)]);
+        assert_eq!(chain.problems.len(), 1);
+        assert!(chain.is_empty());
+        assert!(chain.problems[0].message.contains("1000"));
+    }
+
+    #[test]
+    fn turning_an_amp_knob_updates_in_place_but_another_capture_rebuilds() {
+        let assets = OneAmp::new(None, None);
+        let mut slots = vec![amp_slot(0.0, 0.0, false)];
+        let mut chain = build_one(&assets, &slots);
+        let quiet = run(&mut chain, &sine(220.0, 0.2, 2_400));
+        slots[0] = amp_slot(6.0, -6.0, false);
+        assert!(chain.update(&slots, MAX_TRACK_EFFECTS), "knob turn");
+        slots[0] = amp_slot(6.0, -6.0, true);
+        assert!(chain.update(&slots, MAX_TRACK_EFFECTS), "loudness switch");
+        let again = run(&mut chain, &sine(220.0, 0.2, 2_400));
+        assert!(all_finite(&again) && !quiet.is_empty());
+        slots[0] = slot(EffectConfig::Amp {
+            model: "another".into(),
+            input_db: 0.0,
+            output_db: 0.0,
+            match_loudness: false,
+        });
+        assert!(!chain.update(&slots, MAX_TRACK_EFFECTS), "another capture");
+    }
+
+    #[test]
+    fn matching_the_loudness_brings_quiet_and_loud_captures_together() {
+        // A capture recorded 12 dB below the reference is lifted by 12 dB.
+        assert!((Amp::trim_for(Some(-30.0), true) - db_to_gain(12.0)).abs() < 1e-4);
+        assert!((Amp::trim_for(Some(-10.0), true) - db_to_gain(-8.0)).abs() < 1e-4);
+        // Off, unknown or nonsense: untouched.
+        assert_eq!(Amp::trim_for(Some(-30.0), false), 1.0);
+        assert_eq!(Amp::trim_for(None, true), 1.0);
+        assert_eq!(Amp::trim_for(Some(f32::NAN), true), 1.0);
+        // Never more than ±24 dB.
+        assert!((Amp::trim_for(Some(-90.0), true) - db_to_gain(24.0)).abs() < 1e-3);
+        // End to end: the louder the file says it is, the more it is turned down.
+        let input = sine(220.0, 0.2, 4_800);
+        let level = |loudness| {
+            let assets = OneAmp::new(None, Some(loudness));
+            let mut chain = build_one(&assets, &[amp_slot(0.0, 0.0, true)]);
+            rms(&run(&mut chain, &input)[480..])
+        };
+        assert!(level(-30.0) > level(-10.0) * 3.0);
+    }
+
+    #[test]
+    fn the_dc_blocker_removes_an_offset_but_keeps_the_tone() {
+        let mut dc = DcBlocker::new(RATE);
+        let settled = (0..RATE as usize).map(|_| dc.process(1.0)).last().unwrap();
+        assert!(settled.abs() < 1e-3, "left {settled}");
+        let mut dc = DcBlocker::new(RATE);
+        let tone: Vec<f32> = sine(200.0, 0.5, 4_800)
+            .into_iter()
+            .map(|x| dc.process(x))
+            .collect();
+        assert!(rms(&tone[480..]) > 0.34, "tone level {}", rms(&tone[480..]));
+    }
+
+    #[test]
+    fn a_missing_asset_message_is_readable() {
+        let chain = build_one(
+            &NoAssets,
+            &[slot(EffectConfig::Cab {
+                ir: "4f3a9c0d77e1b2aa".into(),
+            })],
+        );
+        let message = &chain.problems[0].message;
+        assert!(message.contains("not in your sound library"), "{message}");
+        assert!(message.contains("4f3a9c0d"), "{message}");
+        assert!(
+            !message.contains("4f3a9c0d77e1b2aa"),
+            "full hash: {message}"
+        );
     }
 
     #[test]
@@ -452,6 +823,7 @@ mod tests {
                 model: "lib:abc".into(),
                 input_db: 3.0,
                 output_db: -2.0,
+                match_loudness: true,
             }),
         ];
         let json = serde_json::to_string(&slots).unwrap();

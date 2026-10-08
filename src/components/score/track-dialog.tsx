@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent, type ReactNode } from "react";
-import { MinusIcon, PlusIcon } from "lucide-react";
+import { MinusIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { lowSoundWarning } from "@/lib/audio/sound-ranges";
 import type { DrumMapping } from "@/lib/score/instrument-view";
 import {
   describeStaffLine,
@@ -29,6 +30,7 @@ import {
   GM_FAMILIES,
   GM_INSTRUMENTS,
   INSTRUMENT_PRESETS,
+  lowestPitch,
   MAX_CAPO,
   MAX_STRINGS,
   MIN_STRINGS,
@@ -38,6 +40,7 @@ import {
   tuningPresets,
   type TrackKind,
 } from "@/lib/score/music";
+import type { SoundFontId } from "@/lib/score/soundfonts";
 
 /** What the dialog produces. */
 export interface TrackSettings {
@@ -175,11 +178,13 @@ const settingsFromPreset = (presetId: string): TrackSettings => {
 function TrackForm({
   initial,
   drumKit,
+  soundFont,
   onSubmit,
   onCancel,
 }: {
   initial: TrackSettings | null;
   drumKit: DrumMapping[];
+  soundFont?: SoundFontId;
   onSubmit: (settings: TrackSettings) => void;
   onCancel: () => void;
 }) {
@@ -199,6 +204,11 @@ function TrackForm({
   const set = (change: Partial<TrackSettings>) => setSettings((s) => ({ ...s, ...change }));
   const { kind, tuning } = settings;
   const presetName = tuningName(tuning);
+  // Very low strings sound thin on a sampled sound: say so while the tuning is chosen.
+  const lowWarning =
+    soundFont && kind === "stringed"
+      ? lowSoundWarning(soundFont, settings.program, lowestPitch(tuning, settings.capo))
+      : null;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -331,6 +341,16 @@ function TrackForm({
               </Select>
             </Field>
             <TuningEditor tuning={tuning} onChange={(next) => set({ tuning: next })} />
+            {lowWarning && (
+              <p
+                role="status"
+                data-testid="low-sound-warning"
+                className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200"
+              >
+                <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <span>{lowWarning.message}</span>
+              </p>
+            )}
             {!adding && (
               <div className="flex items-center gap-2">
                 <Checkbox
@@ -374,6 +394,7 @@ export function TrackDialog({
   onOpenChange,
   initial,
   drumKit,
+  soundFont,
   onSubmit,
   onCloseAutoFocus,
 }: {
@@ -382,6 +403,8 @@ export function TrackDialog({
   /** The track to change, or null to add one. */
   initial: TrackSettings | null;
   drumKit: DrumMapping[];
+  /** The sound set that plays the song (missing: no warning about very low notes). */
+  soundFont?: SoundFontId;
   onSubmit: (settings: TrackSettings) => void;
   onCloseAutoFocus?: (event: Event) => void;
 }) {
@@ -391,6 +414,7 @@ export function TrackDialog({
         <TrackForm
           initial={initial}
           drumKit={drumKit}
+          soundFont={soundFont}
           onSubmit={(settings) => {
             onSubmit(settings);
             onOpenChange(false);

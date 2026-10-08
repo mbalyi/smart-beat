@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use super::backing::Interpolator;
 use super::chain::AssetSource;
 use super::dsp::biquad::{Biquad, Coefficients, FilterKind};
 use super::dsp::convolver::{IrSpectrum, MAX_IR_SAMPLES};
@@ -45,6 +46,10 @@ pub struct LibraryItem {
     /// For amps: whether the capture already includes a speaker cabinet.
     #[serde(default)]
     pub includes_cab: bool,
+    /// Something the user should know about this file (empty when nothing):
+    /// for example that only the first part of a long impulse response is used.
+    #[serde(default)]
+    pub note: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -166,6 +171,7 @@ fn builtin_items() -> Vec<LibraryItem> {
             source: "Smart Beat".into(),
             builtin: true,
             includes_cab: false,
+            note: String::new(),
         })
         .collect()
 }
@@ -180,7 +186,7 @@ fn content_id(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
-/// Reads a WAV impulse response as mono floats (first channel).
+/// Reads a WAV impulse response as mono floats (the channels averaged).
 pub fn read_ir(bytes: &[u8]) -> Result<(Vec<f32>, u32), String> {
     let reader = hound::WavReader::new(std::io::Cursor::new(bytes))
         .map_err(|e| format!("This is not a WAV file the app can read ({e})"))?;
@@ -202,7 +208,7 @@ pub fn read_ir(bytes: &[u8]) -> Result<(Vec<f32>, u32), String> {
     let samples = samples.map_err(|e| format!("The WAV file is damaged ({e})"))?;
     let mono: Vec<f32> = samples
         .chunks(channels)
-        .map(|f| f[0])
+        .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
         .take(MAX_IR_SAMPLES * 8)
         .collect();
     if mono.is_empty() || mono.iter().all(|s| *s == 0.0) {
@@ -214,23 +220,30 @@ pub fn read_ir(bytes: &[u8]) -> Result<(Vec<f32>, u32), String> {
     Ok((mono, spec.sample_rate))
 }
 
-/// Linear-interpolation resampling (fine for short, band-limited cabinet IRs).
+/// Band-limited resampling (windowed sinc; converting down filters first so
+/// nothing aliases).
 pub fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
     if from == to || input.is_empty() {
         return input.to_vec();
     }
-    let ratio = from as f64 / to as f64;
-    let len = ((input.len() as f64) / ratio).floor().max(1.0) as usize;
+    let step = from as f64 / to as f64;
+    let interpolator = Interpolator::new(step);
+    let len = ((input.len() as f64) / step).floor().max(1.0) as usize;
     (0..len)
-        .map(|i| {
-            let pos = i as f64 * ratio;
-            let idx = pos.floor() as usize;
-            let frac = (pos - idx as f64) as f32;
-            let a = input[idx.min(input.len() - 1)];
-            let b = input[(idx + 1).min(input.len() - 1)];
-            a + (b - a) * frac
-        })
+        .map(|i| interpolator.read(input, i as f64 * step))
         .collect()
+}
+
+/// What to tell the user about an impulse response the engine cannot use whole.
+fn ir_note(samples: usize, rate: u32) -> String {
+    if samples <= MAX_IR_SAMPLES {
+        return String::new();
+    }
+    format!(
+        "Only the first {:.1} s of this {:.1} s impulse response is used.",
+        MAX_IR_SAMPLES as f64 / rate as f64,
+        samples as f64 / rate as f64
+    )
 }
 
 pub struct Library {
@@ -291,7 +304,7 @@ impl Library {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let id = content_id(&bytes);
-        let (name, sample_rate, includes_cab, extension) = match kind {
+        let (name, sample_rate, includes_cab, extension, note) = match kind {
             AssetKind::Amp => {
                 let text = std::str::from_utf8(&bytes)
                     .map_err(|_| "This is not a Neural Amp Modeler (.nam) file")?;
@@ -311,11 +324,12 @@ impl Library {
                     model.expected_sample_rate() as u32,
                     meta.includes_cab().unwrap_or(false),
                     "nam",
+                    String::new(),
                 )
             }
             AssetKind::Cab => {
-                let (_, rate) = read_ir(&bytes)?;
-                (stem, rate, false, "wav")
+                let (samples, rate) = read_ir(&bytes)?;
+                (stem, rate, false, "wav", ir_note(samples.len(), rate))
             }
         };
         let file = format!("{id}.{extension}");
@@ -336,6 +350,7 @@ impl Library {
             source,
             builtin: false,
             includes_cab,
+            note,
         };
         items.push(item.clone());
         self.save(&items)?;
@@ -486,10 +501,162 @@ mod tests {
     }
 
     #[test]
-    fn resamples_to_the_new_length() {
-        let out = resample(&[0.0, 1.0, 0.0, -1.0], 24_000, 48_000);
-        assert_eq!(out.len(), 8);
-        assert!((out[1] - 0.5).abs() < 1e-6);
+    fn resamples_smoothly_and_to_the_new_length() {
+        use std::f32::consts::TAU;
+        // A 1 kHz tone at 24 kHz, doubled to 48 kHz, must stay the same tone.
+        let input: Vec<f32> = (0..480)
+            .map(|i| (TAU * 1_000.0 * i as f32 / 24_000.0).sin())
+            .collect();
+        let out = resample(&input, 24_000, 48_000);
+        assert_eq!(out.len(), 960);
+        for (i, value) in out.iter().enumerate().skip(20).take(900) {
+            let truth = (TAU * 1_000.0 * i as f32 / 48_000.0).sin();
+            assert!(
+                (value - truth).abs() < 0.02,
+                "sample {i}: {value} vs {truth}"
+            );
+        }
+        // Converting down keeps the length ratio and does not alias a tone
+        // above the new Nyquist back into the band.
+        let tone: Vec<f32> = (0..4_800)
+            .map(|i| (TAU * 20_000.0 * i as f32 / 48_000.0).sin())
+            .collect();
+        let down = resample(&tone, 48_000, 24_000);
+        assert_eq!(down.len(), 2_400);
+        let rms = (down[50..2_350].iter().map(|s| s * s).sum::<f32>() / 2_300.0).sqrt();
+        assert!(rms < 0.1, "aliased: {rms}");
+    }
+
+    #[test]
+    fn stereo_irs_average_both_channels() {
+        let mut out = std::io::Cursor::new(Vec::new());
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut w = hound::WavWriter::new(&mut out, spec).unwrap();
+        for (l, r) in [(16_384i16, 0i16), (0, 8_192)] {
+            w.write_sample(l).unwrap();
+            w.write_sample(r).unwrap();
+        }
+        w.finalize().unwrap();
+        let (ir, _) = read_ir(&out.into_inner()).unwrap();
+        assert!(
+            (ir[0] - 0.25).abs() < 1e-3 && (ir[1] - 0.125).abs() < 1e-3,
+            "{ir:?}"
+        );
+    }
+
+    #[test]
+    fn a_long_impulse_response_is_imported_with_a_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let long = dir.path().join("hall.wav");
+        let samples: Vec<f32> = (0..MAX_IR_SAMPLES + 5_000)
+            .map(|i| if i == 0 { 1.0 } else { 0.001 })
+            .collect();
+        fs::write(&long, wav(&samples, 48_000, 1)).unwrap();
+        let short = dir.path().join("cab.wav");
+        fs::write(&short, wav(&[1.0, 0.5], 48_000, 1)).unwrap();
+        let library = Arc::new(Library::new(dir.path().join("lib")));
+        let item = library.import(&long, AssetKind::Cab).unwrap();
+        assert!(item.note.contains("Only the first 1.4 s"), "{}", item.note);
+        assert!(
+            library
+                .import(&short, AssetKind::Cab)
+                .unwrap()
+                .note
+                .is_empty()
+        );
+        // The note is stored with the item.
+        let again = Library::new(dir.path().join("lib"));
+        assert!(
+            again
+                .list()
+                .iter()
+                .any(|i| i.id == item.id && !i.note.is_empty())
+        );
+    }
+
+    #[test]
+    fn imports_a_valid_amp_capture_and_uses_its_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tiny-file-name.nam");
+        fs::write(
+            &file,
+            crate::audio::test_fixtures::tiny_nam(Some(44_100.0), Some(-20.0)),
+        )
+        .unwrap();
+        let library = Arc::new(Library::new(dir.path().join("lib")));
+        let item = library.import(&file, AssetKind::Amp).unwrap();
+        assert_eq!(item.kind, AssetKind::Amp);
+        assert_eq!(item.name, "Tiny test amp", "the name inside the file wins");
+        assert_eq!(item.sample_rate, 44_100);
+        assert_eq!(item.source, "tiny-file-name.nam");
+        assert!(library.assets(48_000).amp_model(&item.id).is_some());
+        // The copy lives in the library folder only.
+        assert!(dir.path().join("lib").join(&item.file).is_file());
+        // A new instance finds it again.
+        let again = Arc::new(Library::new(dir.path().join("lib")));
+        assert!(again.assets(48_000).amp_model(&item.id).is_some());
+    }
+
+    #[test]
+    fn files_of_the_wrong_kind_or_shape_are_refused_with_a_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Arc::new(Library::new(dir.path().join("lib")));
+        let write = |name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            fs::write(&path, bytes).unwrap();
+            path
+        };
+        let nam = crate::audio::test_fixtures::tiny_nam(None, None);
+        // A WAV given to the amp importer, a capture given to the cabinet importer.
+        let err = library
+            .import(
+                &write("cab.wav", &wav(&[1.0, 0.5], 48_000, 1)),
+                AssetKind::Amp,
+            )
+            .unwrap_err();
+        assert!(err.contains("Neural Amp Modeler"), "{err}");
+        let err = library
+            .import(&write("amp.nam", nam.as_bytes()), AssetKind::Cab)
+            .unwrap_err();
+        assert!(err.contains("WAV"), "{err}");
+        // Empty, truncated and non-UTF-8 files.
+        assert!(
+            library
+                .import(&write("empty.nam", b""), AssetKind::Amp)
+                .is_err()
+        );
+        assert!(
+            library
+                .import(&write("empty.wav", b""), AssetKind::Cab)
+                .is_err()
+        );
+        let cut = &nam.as_bytes()[..nam.len() / 2];
+        assert!(
+            library
+                .import(&write("cut.nam", cut), AssetKind::Amp)
+                .is_err()
+        );
+        assert!(
+            library
+                .import(
+                    &write("binary.nam", &[0xff, 0xfe, 0x00, 0x80]),
+                    AssetKind::Amp
+                )
+                .is_err()
+        );
+        // A missing file.
+        let err = library
+            .import(&dir.path().join("nope.nam"), AssetKind::Amp)
+            .unwrap_err();
+        assert!(err.contains("cannot be read"), "{err}");
+        // Nothing of that ended up in the library.
+        assert!(library.list().iter().all(|i| i.builtin));
+        assert!(!dir.path().join("lib").join("library.json").exists());
     }
 
     #[test]

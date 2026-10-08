@@ -2,6 +2,7 @@ import { screen, within } from "@testing-library/react";
 
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
 import { drumKitOf } from "@/lib/score/instrument-view";
+import type { SoundFontId } from "@/lib/score/soundfonts";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 
@@ -13,7 +14,7 @@ const GUITAR: TrackSettings = {
   capo: 0,
 };
 
-function setup(initial: TrackSettings | null) {
+function setup(initial: TrackSettings | null, soundFont?: SoundFontId) {
   const onSubmit = vi.fn();
   const onOpenChange = vi.fn();
   const utils = renderWithProviders(
@@ -22,6 +23,7 @@ function setup(initial: TrackSettings | null) {
       onOpenChange={onOpenChange}
       initial={initial}
       drumKit={drumKitOf(null)}
+      soundFont={soundFont}
       onSubmit={onSubmit}
     />,
   );
@@ -168,5 +170,93 @@ describe("TrackDialog: settings", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe("TrackDialog: extended-range guitars (#43)", () => {
+  it("offers 3 to 10 strings", async () => {
+    const { user } = setup(GUITAR);
+    await user.click(screen.getByRole("combobox", { name: "Strings" }));
+    const counts = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(counts).toEqual([
+      "3 strings",
+      "4 strings",
+      "5 strings",
+      "6 strings",
+      "7 strings",
+      "8 strings",
+      "9 strings",
+      "10 strings",
+    ]);
+  });
+
+  it("adds a 9-string guitar with its standard tuning", async () => {
+    const { user, onSubmit } = setup(null);
+    await choose(user, "Instrument", "Guitar (9 strings)");
+    expect(screen.getByRole("combobox", { name: "Strings" })).toHaveTextContent("9 strings");
+    expect(screen.getByRole("combobox", { name: "Tuning" })).toHaveTextContent("C# standard");
+    await user.click(screen.getByRole("button", { name: "Add track" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        presetId: "guitar-9",
+        tuning: [64, 59, 55, 50, 45, 40, 35, 30, 25],
+      }),
+    );
+  });
+
+  it("picks drop and low tunings for eight strings, then goes to ten", async () => {
+    const { user, onSubmit } = setup({ ...GUITAR, tuning: [64, 59, 55, 50, 45, 40, 35, 30] });
+    expect(screen.getByRole("combobox", { name: "Tuning" })).toHaveTextContent("F# standard");
+    await choose(user, "Tuning", /^Drop E \(/);
+    await choose(user, "Strings", "10 strings");
+    // Each new string is a fourth lower than the one above: B0 (23), then F#0 (18).
+    expect(screen.getByRole("status", { name: "String 10" })).toHaveTextContent("F#0");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ tuning: [64, 59, 55, 50, 45, 40, 35, 28, 23, 18] }),
+    );
+  });
+
+  it("lists the drop tunings of metal on six strings", async () => {
+    const { user } = setup(GUITAR);
+    await user.click(screen.getByRole("combobox", { name: "Tuning" }));
+    const names = screen.getAllByRole("option").map((o) => o.textContent ?? "");
+    for (const wanted of ["Dropped D", "Dropped C", "Drop B (", "Drop A# (", "Drop A ("]) {
+      expect(
+        names.some((n) => n.includes(wanted)),
+        wanted,
+      ).toBe(true);
+    }
+  });
+
+  it("warns that very low strings sound thin, and stops when the tuning goes up", async () => {
+    // An overdriven guitar (30) in the standard sound set, recorded from B2.
+    const { user } = setup({ ...GUITAR, tuning: [64, 59, 55, 50, 45, 40, 35, 30] }, "sonivox");
+    const warning = screen.getByTestId("low-sound-warning");
+    expect(warning).toHaveTextContent("The lowest string (F#1)");
+    expect(warning).toHaveTextContent("It will sound thin");
+    expect(warning).toHaveTextContent("High quality");
+    await expectNoA11yViolations();
+    // A capo raises the lowest note: F#1 + 6 = C2, back inside the usual range.
+    const capo = screen.getByRole("spinbutton", { name: "Capo" });
+    await user.clear(capo);
+    await user.type(capo, "6");
+    expect(screen.queryByTestId("low-sound-warning")).not.toBeInTheDocument();
+    await user.clear(capo);
+    await user.type(capo, "0");
+    expect(screen.getByTestId("low-sound-warning")).toBeInTheDocument();
+    // Seven strings are fine: B1.
+    await choose(user, "Strings", "7 strings");
+    expect(screen.queryByTestId("low-sound-warning")).not.toBeInTheDocument();
+  });
+
+  it("does not warn without a sound set, for drums, or for a bass on its own sound", async () => {
+    setup({ ...GUITAR, tuning: [64, 59, 55, 50, 45, 40, 35, 30] });
+    expect(screen.queryByTestId("low-sound-warning")).not.toBeInTheDocument();
+  });
+
+  it("does not warn for a 5-string bass on the bass sound", () => {
+    setup({ ...GUITAR, program: 33, tuning: [43, 38, 33, 28, 23] }, "sonivox");
+    expect(screen.queryByTestId("low-sound-warning")).not.toBeInTheDocument();
   });
 });

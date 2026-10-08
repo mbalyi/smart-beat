@@ -18,6 +18,7 @@ import {
   SlidersHorizontalIcon,
   SlidersVerticalIcon,
   Trash2Icon,
+  TriangleAlertIcon,
 } from "lucide-react";
 
 import { AudioWaveform } from "@/components/audio/audio-track-panel";
@@ -37,7 +38,10 @@ import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { filledBars } from "@/lib/score/bar-grid";
 import { barTexts, shortText, tempoMarkers } from "@/lib/score/tempo";
+import { lowSoundWarning } from "@/lib/audio/sound-ranges";
 import { describeInstrument } from "@/lib/score/instrument-view";
+import { lowestPitch } from "@/lib/score/music";
+import type { SoundFontId } from "@/lib/score/soundfonts";
 import {
   describePan,
   describeVolume,
@@ -203,6 +207,24 @@ function TrackRowMenu({
  * automation switches, and a coloured grid with one cell per bar. The Master
  * row sets the overall volume. Replaces the old Mixer and Tracks panels.
  */
+/** A small warning next to a track whose lowest string is far below what its sound was recorded at. */
+function LowSoundMark({ track, soundFont }: { track: TrackSummary; soundFont?: SoundFontId }) {
+  if (!soundFont || track.kind !== "stringed") return null;
+  const warning = lowSoundWarning(soundFont, track.program, lowestPitch(track.tuning, track.capo));
+  if (!warning) return null;
+  return (
+    <span
+      role="img"
+      aria-label={`${track.name}: ${warning.message}`}
+      title={warning.message}
+      data-testid="low-sound-mark"
+      className="shrink-0 text-amber-600 dark:text-amber-400"
+    >
+      <TriangleAlertIcon className="size-3.5" aria-hidden="true" />
+    </span>
+  );
+}
+
 export function TrackList({
   score,
   revision,
@@ -218,8 +240,11 @@ export function TrackList({
   playing,
   onMasterEffects,
   audio,
+  soundFont,
 }: {
   score: Score;
+  /** The sound set that plays the song (missing: no warning about very low notes). */
+  soundFont?: SoundFontId;
   /** Changes with every edit (the bars change in place). */
   revision: number;
   tracks: TrackSummary[];
@@ -420,6 +445,7 @@ export function TrackList({
                             aria-hidden="true"
                           />
                         )}
+                        <LowSoundMark track={track} soundFont={soundFont} />
                       </div>
                       <div className="flex items-center">
                         <Toggle
