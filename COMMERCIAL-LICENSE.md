@@ -18,7 +18,7 @@ The ready-made installers on the GitHub Releases page are covered by the separat
 
 ## How to ask for a commercial licence
 
-Write to **balyi.mark@gmail.com** with:
+Write to **smartbeat@outlook.com** with:
 
 1. who you are (person or company);
 2. what you want to do with Smart Beat (use inside a company, ship it in a product, offer a service, resell it, …);
