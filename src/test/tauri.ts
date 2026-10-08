@@ -152,6 +152,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           backend.written.set(path, new Uint8Array(args as ArrayBuffer | Uint8Array));
           return null;
         }
+        case "export_pdf":
+          return null;
         case "plugin:dialog|save":
           return backend.saveResult;
         case "update_menu_state":

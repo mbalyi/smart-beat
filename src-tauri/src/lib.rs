@@ -7,6 +7,7 @@ pub mod m4a;
 pub mod menu;
 pub mod menu_state;
 pub mod mixer;
+pub mod pdf;
 pub mod project;
 pub mod recent;
 pub mod score_file;
@@ -52,6 +53,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::read_score_file,
             commands::write_score_file,
             commands::export_m4a,
+            commands::export_pdf,
             commands::load_mixer_settings,
             commands::save_mixer_settings,
             commands::read_project_settings,

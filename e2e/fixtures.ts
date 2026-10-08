@@ -15,6 +15,7 @@ type MenuAction =
   | "export-ascii-tab"
   | "export-audio"
   | "export-audio-m4a"
+  | "export-pdf"
   | "print"
   | "transpose"
   | "fix-bar-durations"
@@ -90,6 +91,8 @@ declare global {
     __emitMenuAction: (action: MenuAction) => number;
     __emitTauriEvent: (event: string, payload: unknown) => number;
     __dialogResult: string | null;
+    __pdfExports?: { path: string; page: Record<string, unknown>; parts: number }[];
+    __pdfFail?: string;
     __engineChains?: Record<string, { type: string }[]>;
     __engineConfig: {
       sounds: Record<string, { sounds: unknown[][]; switches: [number, number][] }>;

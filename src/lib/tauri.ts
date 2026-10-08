@@ -2,6 +2,7 @@
  * Typed bridge to the Rust core (`src-tauri`). Every call degrades gracefully
  * when the UI runs in a plain browser (e.g. `pnpm dev` or Playwright).
  */
+import type { PdfPage } from "@/lib/print";
 import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -24,6 +25,7 @@ export type MenuAction =
   | "export-ascii-tab"
   | "export-audio"
   | "export-audio-m4a"
+  | "export-pdf"
   | "print"
   | "close-window"
   | "quit"
@@ -465,6 +467,18 @@ export async function writeM4aFile(path: string, wav: Uint8Array): Promise<void>
   if (!isTauri()) throw new NotInDesktopAppError();
   await invoke<void>("export_m4a", wav, { headers: { path: encodeURIComponent(path) } });
 }
+
+/**
+ * Exports the window's print copy of the score (put in place by `printScore`) as a PDF file at
+ * `path`, without a print dialog (#83). macOS only (see {@link canExportPdf}).
+ */
+export async function writePdfFile(path: string, page: PdfPage): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  await invoke<void>("export_pdf", { path, page });
+}
+
+/** Whether this platform exports PDF itself (mirrors `pdf::SUPPORTED` in `src-tauri/src/pdf.rs`). */
+export const canExportPdf = ({ os }: Pick<AppInfo, "os">) => os === "macos";
 
 /** Whether this platform can export `.m4a` files (mirrors `m4a::SUPPORTED` in `src-tauri/src/m4a.rs`). */
 export const canExportM4a = ({ os }: Pick<AppInfo, "os">) => os === "macos";

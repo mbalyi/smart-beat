@@ -36,9 +36,13 @@ fn enabled(menu: &Menu<MockRuntime>, action: MenuAction) -> bool {
     }
 }
 
-/// Whether this platform's menu has the item (the M4A export needs the system encoder macOS has).
+/// Whether this platform's menu has the item (the M4A and PDF exports need what macOS has).
 fn in_menu(action: &MenuAction) -> bool {
-    *action != MenuAction::ExportAudioM4a || smart_beat_lib::m4a::SUPPORTED
+    match action {
+        MenuAction::ExportAudioM4a => smart_beat_lib::m4a::SUPPORTED,
+        MenuAction::ExportPdf => smart_beat_lib::pdf::SUPPORTED,
+        _ => true,
+    }
 }
 
 fn every_custom_item_is_in_the_menu(menu: &Menu<MockRuntime>) {

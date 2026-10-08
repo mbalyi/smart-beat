@@ -13,6 +13,7 @@ use crate::m4a;
 use crate::menu::{self, Shortcut};
 use crate::menu_state::{self, MenuState, MenuStateStore};
 use crate::mixer::{FileKey, MixerSettings, MixerStore};
+use crate::pdf;
 use crate::project;
 use crate::recent::RecentStore;
 use crate::score_file;
@@ -77,6 +78,17 @@ pub fn write_score_file(request: tauri::ipc::Request<'_>) -> Result<(), CommandE
 pub fn export_m4a(request: tauri::ipc::Request<'_>) -> Result<(), CommandError> {
     let (path, bytes) = destination_and_body(&request)?;
     m4a::encode(bytes, Path::new(&path))
+}
+
+/// Exports the window's print copy of the score as PDF to `path` (macOS; #83). The UI puts
+/// the copy in place first (see `src/lib/print.ts`).
+#[tauri::command(async)]
+pub fn export_pdf<R: Runtime>(
+    webview: tauri::Webview<R>,
+    path: String,
+    page: pdf::PdfPage,
+) -> Result<(), CommandError> {
+    pdf::export(&webview, Path::new(&path), page)
 }
 
 /// The URL-decoded `path` header and the raw body of a file-writing request.

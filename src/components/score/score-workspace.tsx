@@ -34,6 +34,7 @@ import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
 import { PracticeMix } from "@/components/score/practice-mix";
+import { baseName } from "@/lib/score/format";
 import { useTheme } from "@/hooks/use-theme";
 import { TunerDialog } from "@/components/score/tuner-dialog";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
@@ -50,7 +51,7 @@ import { TrackList, type TrackActions } from "@/components/shell/track-list";
 import { WorkspaceToolbar } from "@/components/shell/workspace-toolbar";
 import { useEditorKeys } from "@/hooks/use-editor-keys";
 import { useFileActions } from "@/hooks/use-file-actions";
-import { useM4aSupport } from "@/hooks/use-m4a-support";
+import { useM4aSupport, usePdfSupport } from "@/hooks/use-m4a-support";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
@@ -108,6 +109,7 @@ import {
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
 import {
+  pdfPage,
   printScore,
   readPrintSettings,
   storePrintSettings,
@@ -202,7 +204,9 @@ import {
   isTauri,
   MIXER_SETTINGS_VERSION,
   pickAudioFile,
+  pickSavePath,
   saveMixerSettings,
+  writePdfFile,
   type AudioTrackSettings,
   type BackingInfo,
   type BackingSource,
@@ -515,6 +519,7 @@ export function ScoreWorkspace({
   useSavedMix(song, mix, saved);
 
   const m4aSupported = useM4aSupport();
+  const pdfSupported = usePdfSupport();
   const fileActions = useFileActions({
     song,
     editor,
@@ -1446,7 +1451,11 @@ export function ScoreWorkspace({
   // --- Print ----------------------------------------------------------------
 
   /** Prints the score: in the page layout, which is switched to for the time it takes. */
-  const submitPrint = (settings: PrintSettings, tracks: PrintTracks) => {
+  /**
+   * Prints the chosen tracks, or with `pdfPath` saves them as a PDF there without the print
+   * dialog (macOS app; #83). Either way the score is laid out for paper first and put back after.
+   */
+  const submitPrint = (settings: PrintSettings, tracks: PrintTracks, pdfPath?: string) => {
     setPrintSettings(settings);
     storePrintSettings(settings);
     const player = playerRef.current;
@@ -1459,20 +1468,62 @@ export function ScoreWorkspace({
       restored = true;
       restore();
     };
-    window.addEventListener("afterprint", back, { once: true });
+    if (!pdfPath) window.addEventListener("afterprint", back, { once: true });
+    const what = pdfPath ? "Couldn't export the PDF" : "Couldn't print";
+    const toastId = pdfPath ? toast.loading("Exporting the PDF…") : undefined;
     afterRender.current = async () => {
       const surface = surfaceRef.current;
+      let cleanup: (() => void) | null = null;
+      const failed = (error: unknown) => {
+        toast.error(what, {
+          id: toastId,
+          description: pdfPath
+            ? errorText(error)
+            : `${errorText(error)} Try Export as PDF in the print settings instead.`,
+        });
+        back();
+      };
+      const exportFile = () =>
+        writePdfFile(pdfPath!, pdfPage(settings)).then(() => {
+          cleanup?.();
+          back();
+          toast.success(`Exported “${baseName(pdfPath!)}”`, {
+            id: toastId,
+            description: pdfPath,
+          });
+        });
       try {
         // The parts of the score arrive a moment after the render.
-        if (!surface || !(await whenDrawn(surface)) || !printScore(surface, settings)) {
-          toast.error("There is nothing to print yet");
+        cleanup =
+          surface && (await whenDrawn(surface))
+            ? printScore(surface, settings, pdfPath ? exportFile : undefined, failed)
+            : null;
+        if (!cleanup) {
+          toast.error("There is nothing to print yet", { id: toastId });
           back();
         }
       } catch (error) {
-        toast.error("Couldn't print", { description: errorText(error) });
-        back();
+        failed(error);
       }
     };
+  };
+
+  /** Asks where to save the PDF, then exports it (#83). */
+  const exportPdf = async (settings: PrintSettings, tracks: PrintTracks) => {
+    try {
+      const dir = song.path?.match(/^(.*[\\/])/)?.[1] ?? "";
+      const stem = song.name.replace(/\.[^.]+$/, "");
+      let path = await pickSavePath(
+        `${dir}${stem}.pdf`,
+        [{ name: "PDF", extensions: ["pdf"] }],
+        "Export as PDF",
+      );
+      if (!path) return;
+      if (!path.toLowerCase().endsWith(".pdf")) path = `${path}.pdf`;
+      submitPrint(settings, tracks, path);
+    } catch (error) {
+      toast.error("Couldn't export the PDF", { description: errorText(error) });
+    }
   };
 
   // Ctrl/⌘+P prints the shown song.
@@ -1616,6 +1667,9 @@ export function ScoreWorkspace({
         break;
       case "export-audio-m4a":
         void fileActions.exportAudio("m4a");
+        break;
+      case "export-pdf":
+        void exportPdf(printSettings, [trackIndex]);
         break;
       case "print":
         setPrintOpen(true);
@@ -2195,7 +2249,10 @@ export function ScoreWorkspace({
         initial={printSettings}
         trackNames={summary.tracks.map((t) => t.name)}
         shownTrack={trackIndex}
-        onSubmit={submitPrint}
+        onSubmit={(settings, tracks) => submitPrint(settings, tracks)}
+        onExportPdf={
+          pdfSupported ? (settings, tracks) => void exportPdf(settings, tracks) : undefined
+        }
         onCloseAutoFocus={returnFocusToScore}
       />
       <TempoDialog

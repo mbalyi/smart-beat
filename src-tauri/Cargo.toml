@@ -33,7 +33,9 @@ zip = { version = "8.6", default-features = false, features = ["deflate-flate2-z
 # macOS: the system's AAC encoder (AVFoundation) writes `.m4a` exports (src/m4a.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDictionary", "NSError", "NSObject", "NSString", "NSURL", "NSValue"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDictionary", "NSError", "NSGeometry", "NSObject", "NSString", "NSURL", "NSValue"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSView", "NSWindow"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "objc2-app-kit", "WKWebView"] }
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioBuffer", "AVAudioFile", "AVAudioFormat", "AVAudioSettings", "AVAudioTypes"] }
 
 [dev-dependencies]

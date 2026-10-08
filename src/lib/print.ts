@@ -46,6 +46,31 @@ export function pageCss({ paper, orientation, margin }: PrintSettings): string {
   return `@page { size: ${size} ${orientation}; margin: ${margin}mm; }`;
 }
 
+/** Paper sizes in points (1/72 inch), portrait. */
+const PAPER_POINTS: Record<Paper, [number, number]> = {
+  a4: [595.28, 841.89],
+  letter: [612, 792],
+  a3: [841.89, 1190.55],
+};
+
+/** The page of a PDF export (#83), for `writePdfFile`. Mirrors `PdfPage` in `src-tauri/src/pdf.rs`. */
+export interface PdfPage {
+  widthPt: number;
+  heightPt: number;
+  marginPt: number;
+  landscape: boolean;
+}
+
+export function pdfPage({ paper, orientation, margin }: PrintSettings): PdfPage {
+  const [widthPt, heightPt] = PAPER_POINTS[paper];
+  return {
+    widthPt,
+    heightPt,
+    marginPt: Math.round(((margin * 72) / 25.4) * 100) / 100,
+    landscape: orientation === "landscape",
+  };
+}
+
 export function readPrintSettings(): PrintSettings {
   try {
     const raw = localStorage.getItem(PRINT_STORAGE_KEY);
@@ -136,12 +161,14 @@ export function whenDrawn(surface: HTMLElement, timeoutMs = 3_000): Promise<bool
 /**
  * Opens the system print dialog for the score in `surface`. Returns a function
  * that removes the print copy (also done after printing); null if there is
- * nothing to print.
+ * nothing to print. In the macOS app `window.print()` is a call to the app that
+ * can fail later: then the copy is removed and `onFailed` says why.
  */
 export function printScore(
   surface: HTMLElement,
   settings: PrintSettings,
-  print: () => void = () => window.print(),
+  print: () => unknown = () => window.print(),
+  onFailed?: (error: unknown) => void,
 ): (() => void) | null {
   const root = buildPrintRoot(surface);
   if (!root) return null;
@@ -160,11 +187,19 @@ export function printScore(
     style.remove();
   };
   window.addEventListener("afterprint", cleanup);
+  let result: unknown;
   try {
-    print();
+    result = print();
   } catch (error) {
     cleanup();
     throw error;
+  }
+  // Tauri's print on macOS returns a promise; no "afterprint" comes when it fails.
+  if (result instanceof Promise) {
+    result.catch((error: unknown) => {
+      cleanup();
+      onFailed?.(error);
+    });
   }
   return cleanup;
 }
