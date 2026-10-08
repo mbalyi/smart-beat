@@ -10,6 +10,7 @@ import {
   type Interpretation,
 } from "@/lib/score/interpretation";
 import type { ScoreSummary } from "@/lib/score/score";
+import { isTrackColor } from "@/lib/score/track-colors";
 import {
   MIXER_SETTINGS_MIN_VERSION,
   MIXER_SETTINGS_VERSION,
@@ -17,6 +18,7 @@ import {
   type AutomationLaneKind,
   type AutomationPoint,
   type DrumMixer,
+  type FocusMode,
   type MixerSettings,
   type SongPreset,
   type TrackAutomation,
@@ -45,8 +47,15 @@ export type MixerAction =
   | { type: "interpretation"; track: number; value: Interpretation }
   | { type: "eq"; track: number; eq: TrackEq }
   | { type: "automation"; track: number; automation: TrackAutomation }
-  /** Focus one track (null: none). */
-  | { type: "focus"; track: number | null }
+  /**
+   * Focus one track (null: none, the normal mix). Without a mode the current one stays; it is
+   * saved with the song but never changes the faders, mutes and solos below it.
+   */
+  | { type: "focus"; track: number | null; mode?: FocusMode }
+  /** A colour for a track's strip and bars (`#rrggbb`; null: the default one; #83). */
+  | { type: "track-color"; track: number; color: string | null }
+  /** Every track back to its default colour. */
+  | { type: "reset-track-colors" }
   | { type: "drums"; track: number; drums: DrumMixer | null }
   /** Plays a drum track with an imported kit (#40; null: the SoundFont's own). */
   | { type: "drum-kit"; track: number; kit: string | null }
@@ -130,6 +139,8 @@ export interface TrackState {
   drums: DrumMixer | null;
   /** The imported drum kit it plays (#40). */
   kit: string | null;
+  /** The colour the user chose, `#rrggbb`. */
+  color: string | null;
   focused: boolean;
 }
 
@@ -143,6 +154,7 @@ export function trackStates(mix: MixerSettings): TrackState[] {
     automation: trackAutomation(mix, i),
     drums: mix.drums?.[i] ?? null,
     kit: mix.drumKits?.[i] ?? null,
+    color: mix.trackColors?.[i] ?? null,
     focused: mix.focus === i,
   }));
 }
@@ -169,8 +181,11 @@ export function withTrackStates(mix: MixerSettings, states: readonly TrackState[
   next.automation = someAutomation ? states.map((s) => s.automation) : undefined;
   next.drums = someDrums ? states.map((s) => s.drums) : undefined;
   next.drumKits = states.some((s) => s.kit) ? states.map((s) => s.kit) : undefined;
+  next.trackColors = states.some((s) => s.color) ? states.map((s) => s.color) : undefined;
   const focus = states.findIndex((s) => s.focused);
   next.focus = focus >= 0 ? focus : undefined;
+  // No track in focus (it was removed): back to the normal mix.
+  if (focus < 0) next.focusMode = undefined;
   return stripUndefined(next);
 }
 
@@ -269,9 +284,24 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
       return { ...mix, automation };
     }
     case "focus": {
-      if (action.track === null || !mix.tracks[action.track]) return without(mix, "focus");
-      return { ...mix, focus: action.track };
+      if (action.track === null || !mix.tracks[action.track]) {
+        return without(mix, "focus", "focusMode");
+      }
+      const next = { ...mix, focus: action.track };
+      if (action.mode === undefined) return next;
+      // "The others are turned down" is the default and isn't written.
+      return action.mode === "othersDown"
+        ? without(next, "focusMode")
+        : { ...next, focusMode: action.mode };
     }
+    case "track-color": {
+      if (!mix.tracks[action.track]) return mix;
+      const color = isTrackColor(action.color) ? action.color.toLowerCase() : null;
+      const trackColors = perTrack(mix, mix.trackColors, action.track, color, () => null);
+      return trackColors.some(Boolean) ? { ...mix, trackColors } : without(mix, "trackColors");
+    }
+    case "reset-track-colors":
+      return without(mix, "trackColors");
     case "drums": {
       if (!mix.tracks[action.track]) return mix;
       return { ...mix, drums: perTrack(mix, mix.drums, action.track, action.drums, () => null) };
@@ -291,7 +321,7 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
       return { ...mix, presets: action.presets };
     case "reset":
       return {
-        ...without(mix, "focus", "masterPan"),
+        ...without(mix, "focus", "focusMode", "masterPan"),
         master: action.mix.master,
         tracks: action.mix.tracks,
       };
@@ -413,11 +443,71 @@ export const trackEq = (mix: MixerSettings, track: number): TrackEq => mix.eq?.[
 export const trackAutomation = (mix: MixerSettings, track: number): TrackAutomation =>
   mix.automation?.[track] ?? EMPTY_AUTOMATION;
 
-/** Extra gain of each track from the focus switch (dB). */
-export function focusTrims(mix: MixerSettings): number[] {
-  return mix.tracks.map((_, i) =>
-    mix.focus === undefined ? 0 : i === mix.focus ? FOCUS_BOOST_DB : FOCUS_CUT_DB,
+/**
+ * Extra gain of each track from the focus (dB): the others turned down by `cutDb`. Only in the
+ * "others down" mode; the other modes mute instead (see `heardMix`).
+ */
+export function focusTrims(mix: MixerSettings, cutDb = FOCUS_CUT_DB): number[] {
+  const on = mix.focus !== undefined && (mix.focusMode ?? "othersDown") === "othersDown";
+  return mix.tracks.map((_, i) => (!on ? 0 : i === mix.focus ? FOCUS_BOOST_DB : cutDb));
+}
+
+/** The practice mode in force: "normal" without a focused track. */
+export function practiceMode(mix: MixerSettings): FocusMode | "normal" {
+  return mix.focus === undefined ? "normal" : (mix.focusMode ?? "othersDown");
+}
+
+/**
+ * The mix as it is played (#83): the saved one with the practice mode applied on top. "Hear
+ * only me" plays the focused track alone (whatever is muted or soloed), "backing" mutes it and
+ * plays the rest. The saved mix is never changed, so the normal mix comes back as it was.
+ */
+export function heardMix(mix: MixerSettings): MixerSettings {
+  const mode = practiceMode(mix);
+  if (mode === "normal" || mode === "othersDown") return mix;
+  const focus = mix.focus!;
+  const tracks = mix.tracks.map((t, i) =>
+    mode === "onlyMe"
+      ? { ...t, mute: i !== focus, solo: false }
+      : i === focus
+        ? { ...t, mute: true, solo: false }
+        : t,
   );
+  const audio = mix.audioTrack;
+  return {
+    ...mix,
+    tracks,
+    // The recording is a backing too: silent while practising alone.
+    ...(audio && mode === "onlyMe" && { audioTrack: { ...audio, mute: true, solo: false } }),
+  };
+}
+
+/** How far the focus turns the other tracks down: presets, and the range of the slider (dB). */
+export const FOCUS_CUT_PRESETS = [
+  { name: "Subtle", db: -6 },
+  { name: "Medium", db: -12 },
+  { name: "Strong", db: -24 },
+] as const;
+export const FOCUS_CUT_MIN_DB = -24;
+export const FOCUS_CUT_STORAGE_KEY = "smart-beat:focus-cut";
+
+export function readFocusCutDb(): number {
+  try {
+    const value = Number(localStorage.getItem(FOCUS_CUT_STORAGE_KEY));
+    const stored = localStorage.getItem(FOCUS_CUT_STORAGE_KEY);
+    if (stored === null || !Number.isFinite(value)) return FOCUS_CUT_DB;
+    return clamp(Math.round(value), FOCUS_CUT_MIN_DB, 0);
+  } catch {
+    return FOCUS_CUT_DB;
+  }
+}
+
+export function storeFocusCutDb(db: number) {
+  try {
+    localStorage.setItem(FOCUS_CUT_STORAGE_KEY, String(clamp(Math.round(db), FOCUS_CUT_MIN_DB, 0)));
+  } catch {
+    // Not remembered: the default next time.
+  }
 }
 
 /** Adds a sound (a copy of `from`'s chain) and returns the new list. */

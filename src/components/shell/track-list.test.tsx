@@ -261,7 +261,7 @@ describe("TrackList", () => {
     const onChange = vi.fn();
     const { user } = setup({ onChange });
     await user.click(screen.getByRole("button", { name: "EQ for Bass" }));
-    const low = await screen.findByRole("slider", { name: "EQ low, Bass" });
+    const low = await screen.findByRole("slider", { name: "Bass, EQ low" });
     low.focus();
     await user.keyboard("{ArrowUp}");
     expect(onChange).toHaveBeenLastCalledWith({
@@ -275,6 +275,23 @@ describe("TrackList", () => {
       track: 1,
       eq: expect.objectContaining({ graphic: Array(10).fill(0) }),
     });
+  });
+
+  it("colours a track's strip and bars, and picks another colour from the row menu (#83)", async () => {
+    const onChange = vi.fn();
+    const { summary } = parseScore(fixtureBytes("practice-song.gp"));
+    const mix = { ...mixFromScore(summary), trackColors: [null, "#3e63dd", null, null] };
+    const { user, container } = setup({ onChange, mix });
+    const strips = container.querySelectorAll("li span.h-5.w-1");
+    expect((strips[0] as HTMLElement).style.backgroundColor).toContain("var(--track-1)");
+    expect((strips[1] as HTMLElement).style.backgroundColor).toContain("oklch(clamp(");
+    await user.click(screen.getByRole("button", { name: "Actions for Bass" }));
+    await user.click(screen.getByRole("menuitem", { name: "Colour…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Track colour: Bass" });
+    await user.click(within(dialog).getByRole("button", { name: "Red" }));
+    expect(onChange).toHaveBeenLastCalledWith({ type: "track-color", track: 1, color: "#e5484d" });
+    await user.click(within(dialog).getByRole("button", { name: "Reset all colours" }));
+    expect(onChange).toHaveBeenLastCalledWith({ type: "reset-track-colors" });
   });
 
   it("opens the pedalboard, the drum mixer and the focus from the row menu", async () => {

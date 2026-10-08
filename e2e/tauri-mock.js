@@ -167,6 +167,18 @@
         window.__written.set(path, new Uint8Array(args));
         return null;
       }
+      // Export as PDF prints the window's print copy to a file (#83): record what was there.
+      case "export_pdf": {
+        window.__pdfExports = window.__pdfExports ?? [];
+        window.__pdfExports.push({
+          path: args.path,
+          page: args.page,
+          parts: document.querySelectorAll("#print-root svg").length,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (window.__pdfFail) throw { kind: "io", message: window.__pdfFail };
+        return null;
+      }
       case "plugin:dialog|save":
         return window.__saveResult;
       case "update_menu_state":

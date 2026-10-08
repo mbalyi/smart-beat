@@ -86,3 +86,32 @@ describe("PrintDialog", () => {
     await expectNoA11yViolations();
   });
 });
+
+describe("PrintDialog: Export as PDF (#83)", () => {
+  it("offers Export as PDF where the app can save it, and closes", async () => {
+    const onExportPdf = vi.fn();
+    const onOpenChange = vi.fn();
+    const { user } = renderWithProviders(
+      <PrintDialog
+        open
+        onOpenChange={onOpenChange}
+        initial={DEFAULT_PRINT}
+        trackNames={["Guitar", "Bass"]}
+        shownTrack={1}
+        onSubmit={vi.fn()}
+        onExportPdf={onExportPdf}
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Print or save as PDF" });
+    expect(dialog).toHaveTextContent("Export as PDF saves a PDF file where you choose");
+    await user.click(within(dialog).getByRole("button", { name: "Export as PDF…" }));
+    expect(onExportPdf).toHaveBeenCalledWith(DEFAULT_PRINT, [1]);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("explains the system dialog's PDF option elsewhere", () => {
+    const { dialog } = setup();
+    expect(within(dialog).queryByRole("button", { name: "Export as PDF…" })).toBeNull();
+    expect(dialog).toHaveTextContent("Microsoft Print to PDF");
+  });
+});

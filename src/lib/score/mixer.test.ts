@@ -9,6 +9,12 @@ import {
   focusTrims,
   FOCUS_BOOST_DB,
   FOCUS_CUT_DB,
+  FOCUS_CUT_MIN_DB,
+  FOCUS_CUT_STORAGE_KEY,
+  heardMix,
+  practiceMode,
+  readFocusCutDb,
+  storeFocusCutDb,
   initialMix,
   isAudible,
   mixerReducer,
@@ -351,5 +357,160 @@ describe("drum kits per track (#40)", () => {
   it("does not take drum kits over when the settings are loaded as a mix", () => {
     const saved = { ...mixFromScore(SUMMARY), drumKits: [null, null, "free-kit", null] };
     expect(initialMix(SUMMARY, saved).drumKits).toEqual([null, null, "free-kit", null]);
+  });
+});
+
+describe("track colours (#83)", () => {
+  it("remembers a colour per track, lower-cased, and moves it with its track", () => {
+    const mix = mixFromScore(SUMMARY);
+    const next = mixerReducer(mix, { type: "track-color", track: 2, color: "#E5484D" });
+    expect(next.trackColors).toEqual([null, null, "#e5484d", null]);
+    const states = trackStates(next);
+    expect(states[2]!.color).toBe("#e5484d");
+    const moved = withTrackStates(next, [states[2]!, states[0]!, states[1]!, states[3]!]);
+    expect(moved.trackColors).toEqual(["#e5484d", null, null, null]);
+  });
+
+  it("goes back to the default colour, and writes nothing when no track has one", () => {
+    const mix = mixFromScore(SUMMARY);
+    const one = mixerReducer(mix, { type: "track-color", track: 1, color: "#3e63dd" });
+    const cleared = mixerReducer(one, { type: "track-color", track: 1, color: null });
+    expect(cleared.trackColors).toBeUndefined();
+    expect(withTrackStates(cleared, trackStates(cleared)).trackColors).toBeUndefined();
+    const two = mixerReducer(one, { type: "track-color", track: 0, color: "#30a46c" });
+    expect(mixerReducer(two, { type: "reset-track-colors" }).trackColors).toBeUndefined();
+  });
+
+  it("ignores colours that are not #rrggbb and tracks that do not exist", () => {
+    const mix = mixFromScore(SUMMARY);
+    expect(mixerReducer(mix, { type: "track-color", track: 0, color: "red" }).trackColors).toBe(
+      undefined,
+    );
+    expect(mixerReducer(mix, { type: "track-color", track: 0, color: "#12345" }).trackColors).toBe(
+      undefined,
+    );
+    expect(mixerReducer(mix, { type: "track-color", track: 9, color: "#e5484d" })).toBe(mix);
+  });
+
+  it("keeps the colours when a saved mix is loaded", () => {
+    const saved = { ...mixFromScore(SUMMARY), trackColors: ["#e5484d", null, null, null] };
+    expect(initialMix(SUMMARY, saved).trackColors).toEqual(["#e5484d", null, null, null]);
+  });
+});
+
+describe("what the focus does to the mix (#83)", () => {
+  it("remembers the mode with the focus, and the default mode is not written", () => {
+    let m = mixFromScore(SUMMARY);
+    m = mixerReducer(m, { type: "focus", track: 1, mode: "onlyMe" });
+    expect(m).toMatchObject({ focus: 1, focusMode: "onlyMe" });
+    // Focusing another track keeps the mode.
+    m = mixerReducer(m, { type: "focus", track: 2 });
+    expect(m).toMatchObject({ focus: 2, focusMode: "onlyMe" });
+    m = mixerReducer(m, { type: "focus", track: 2, mode: "backing" });
+    expect(m.focusMode).toBe("backing");
+    m = mixerReducer(m, { type: "focus", track: 2, mode: "othersDown" });
+    expect(m.focusMode).toBeUndefined();
+  });
+
+  it("goes back to the normal mix without touching the faders, mutes and solos", () => {
+    let m = mixFromScore(SUMMARY);
+    m = mixerReducer(m, { type: "mute", track: 0, value: true });
+    m = mixerReducer(m, { type: "volume", track: 2, value: 0.4 });
+    const before = m.tracks;
+    m = mixerReducer(m, { type: "focus", track: 1, mode: "onlyMe" });
+    expect(m.tracks).toBe(before);
+    m = mixerReducer(m, { type: "focus", track: null });
+    expect(m.focus).toBeUndefined();
+    expect(m.focusMode).toBeUndefined();
+    expect(m.tracks).toBe(before);
+  });
+
+  it("drops the mode when the focused track is removed, and on reset", () => {
+    let m = mixerReducer(mixFromScore(SUMMARY), { type: "focus", track: 1, mode: "backing" });
+    const states = trackStates(m).filter((_, i) => i !== 1);
+    expect(withTrackStates(m, states).focusMode).toBeUndefined();
+    expect(
+      mixerReducer(m, { type: "reset", mix: mixFromScore(SUMMARY) }).focusMode,
+    ).toBeUndefined();
+    m = mixerReducer(m, { type: "focus", track: 9 });
+    expect(m.focus).toBeUndefined();
+  });
+});
+
+describe("practice mixes (#83)", () => {
+  const four = () => mixFromScore(SUMMARY);
+
+  it("turns the others down by the chosen amount, only in that mode", () => {
+    let m = mixerReducer(four(), { type: "focus", track: 1 });
+    expect(practiceMode(m)).toBe("othersDown");
+    expect(focusTrims(m, -6)).toEqual([-6, FOCUS_BOOST_DB, -6, -6]);
+    m = mixerReducer(m, { type: "focus", track: 1, mode: "onlyMe" });
+    expect(focusTrims(m, -6)).toEqual([0, 0, 0, 0]);
+    expect(practiceMode(four())).toBe("normal");
+  });
+
+  it("hears only the practised track, whatever is muted or soloed", () => {
+    let m = four();
+    m = mixerReducer(m, { type: "mute", track: 1, value: true });
+    m = mixerReducer(m, { type: "solo", track: 2, value: true });
+    m = mixerReducer(m, { type: "focus", track: 1, mode: "onlyMe" });
+    const heard = heardMix(m);
+    expect(heard.tracks.map((_, i) => isAudible(heard, i))).toEqual([false, true, false, false]);
+    // The saved mix keeps the user's mute and solo.
+    expect(m.tracks[1]!.mute).toBe(true);
+    expect(m.tracks[2]!.solo).toBe(true);
+  });
+
+  it("plays everything but the practised track as a backing", () => {
+    const m = mixerReducer(four(), { type: "focus", track: 0, mode: "backing" });
+    const heard = heardMix(m);
+    // The others play as they would in the normal mix.
+    expect(heard.tracks.map((_, i) => isAudible(heard, i))).toEqual(
+      m.tracks.map((_, i) => i !== 0 && isAudible(m, i)),
+    );
+  });
+
+  it("silences the audio track too when practising alone", () => {
+    const audio = {
+      name: "take.mp3",
+      embedded: false,
+      sync: [],
+      enabled: true,
+      volume: 1,
+      pan: 0,
+      mute: false,
+      solo: true,
+      eq: FLAT_EQ,
+      semitones: 0,
+      cents: 0,
+      filter: "off" as const,
+    };
+    const m = mixerReducer(
+      { ...four(), audioTrack: audio },
+      {
+        type: "focus",
+        track: 0,
+        mode: "onlyMe",
+      },
+    );
+    expect(heardMix(m).audioTrack).toMatchObject({ mute: true, solo: false });
+    expect(m.audioTrack).toBe(audio);
+  });
+
+  it("leaves the normal mix and 'others turned down' as they are", () => {
+    const m = four();
+    expect(heardMix(m)).toBe(m);
+    const focused = mixerReducer(m, { type: "focus", track: 2 });
+    expect(heardMix(focused)).toBe(focused);
+  });
+
+  it("remembers how far the others are turned down", () => {
+    expect(readFocusCutDb()).toBe(FOCUS_CUT_DB);
+    storeFocusCutDb(-6);
+    expect(readFocusCutDb()).toBe(-6);
+    storeFocusCutDb(-99);
+    expect(readFocusCutDb()).toBe(FOCUS_CUT_MIN_DB);
+    localStorage.setItem(FOCUS_CUT_STORAGE_KEY, "loud");
+    expect(readFocusCutDb()).toBe(FOCUS_CUT_DB);
   });
 });

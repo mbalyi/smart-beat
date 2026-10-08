@@ -24,6 +24,8 @@ export interface SpeedTrainer {
   step: number;
   /** Loops played at each speed before the next step. */
   loopsPerStep: number;
+  /** A bar counted in before every loop, not only the first (#83; native engine). */
+  countInBetween?: boolean;
 }
 
 export interface PracticeState {
@@ -31,8 +33,11 @@ export interface PracticeState {
   range: LoopRange;
   /** Playback speed in percent (100 = as written). */
   speed: number;
-  /** Set while the Speed Trainer runs. */
-  trainer: (SpeedTrainer & { loopsAtSpeed: number }) | null;
+  /**
+   * Set while the Speed Trainer runs. `holding`: it stays at this speed and keeps looping
+   * ("Stay at this speed", #83) until it is resumed.
+   */
+  trainer: (SpeedTrainer & { loopsAtSpeed: number; holding: boolean }) | null;
   metronome: boolean;
   countIn: boolean;
 }
@@ -56,6 +61,8 @@ export type PracticeAction =
   | { type: "speed"; value: number }
   | { type: "start-trainer"; trainer: SpeedTrainer; range: LoopRange }
   | { type: "stop-trainer" }
+  /** Stay at the current speed (true) or go on speeding up (false). */
+  | { type: "hold-trainer"; value: boolean }
   /** Playback reached the end of the loop and starts it again. */
   | { type: "loop-completed" }
   | { type: "metronome"; value: boolean }
@@ -85,6 +92,7 @@ export function normalizeTrainer(trainer: SpeedTrainer): SpeedTrainer {
     to,
     step: Math.min(MAX_SPEED, Math.max(1, Math.round(trainer.step) || 1)),
     loopsPerStep: Math.min(20, Math.max(1, Math.round(trainer.loopsPerStep) || 1)),
+    countInBetween: trainer.countInBetween === true,
   };
 }
 
@@ -108,15 +116,19 @@ export function practiceReducer(state: PracticeState, action: PracticeAction): P
         loop: true,
         range: action.range,
         speed: trainer.from,
-        trainer: { ...trainer, loopsAtSpeed: 0 },
+        trainer: { ...trainer, loopsAtSpeed: 0, holding: false },
       };
     }
+    case "hold-trainer":
+      if (!state.trainer) return state;
+      // Resuming counts the loops at this speed afresh.
+      return { ...state, trainer: { ...state.trainer, holding: action.value, loopsAtSpeed: 0 } };
     // Stopping ends the practice run: no loop and the normal tempo again.
     case "stop-trainer":
       return { ...state, trainer: null, loop: false, speed: 100 };
     case "loop-completed": {
       const trainer = state.trainer;
-      if (!trainer || !state.loop) return state;
+      if (!trainer || !state.loop || trainer.holding) return state;
       const loopsAtSpeed = trainer.loopsAtSpeed + 1;
       if (loopsAtSpeed < trainer.loopsPerStep || state.speed >= trainer.to) {
         return { ...state, trainer: { ...trainer, loopsAtSpeed } };

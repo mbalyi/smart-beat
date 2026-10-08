@@ -24,12 +24,16 @@ import {
   FRET_MARKERS,
   fretboardStrings,
   fretPositions,
+  INSTRUMENT_SIZES,
   instrumentViewName,
   isBlackKey,
   keyboardRange,
+  readInstrumentSize,
+  storeInstrumentSize,
   type KitEntry,
 } from "@/lib/score/instrument-view";
-import { pitchName, tuningName, type TrackKind } from "@/lib/score/music";
+import { LabeledSlider } from "@/components/labeled-slider";
+import { pitchName, tuningLabel, type TrackKind } from "@/lib/score/music";
 import {
   describeScale,
   SCALE_ROOTS,
@@ -127,6 +131,8 @@ function Fretboard({
   cursorString,
   scale,
   onFret,
+  onPlayString,
+  onOpenTuner,
 }: {
   tuning: number[];
   capo: number;
@@ -135,6 +141,9 @@ function Fretboard({
   cursorString: number | null;
   scale: Scale | null;
   onFret: (string: number, fretFromNut: number) => void;
+  /** Plays an open string's note, to tune by ear (#83). */
+  onPlayString?: (pitch: number) => void;
+  onOpenTuner?: () => void;
 }) {
   const strings = fretboardStrings(tuning);
   const positions = fretPositions(active, capo);
@@ -146,7 +155,7 @@ function Fretboard({
     fret: capo,
   });
   const frets = Array.from({ length: FRET_COUNT + 1 }, (_, fret) => fret);
-  const name = tuningName(tuning);
+  const name = tuningLabel(tuning);
 
   const move = (event: KeyboardEvent, string: number, fret: number) => {
     const delta = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [1, 0], ArrowDown: [-1, 0] }[
@@ -180,9 +189,18 @@ function Fretboard({
     <div className="flex flex-col gap-1">
       <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
         <span>
-          {name ?? "Custom tuning"}: {strings.map((s) => s.label).join(" ")}
+          {name}: {strings.map((s) => s.label).join(" ")}
           {capo > 0 && ` · Capo ${capo}`}
         </span>
+        {onOpenTuner && (
+          <button
+            type="button"
+            onClick={onOpenTuner}
+            className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            Tuner…
+          </button>
+        )}
         {editing && (
           // The buttons have the same text as their names: screen readers need no copy.
           <span aria-hidden="true" data-testid="fret-hint" className="font-medium text-foreground">
@@ -198,8 +216,10 @@ function Fretboard({
             ? `Fretboard: click a fret to enter it${scaleSummary}`
             : `Fretboard. ${summary}${scaleSummary}`
         }
-        className="grid w-max gap-y-0.5"
-        style={{ gridTemplateColumns: `2rem repeat(${FRET_COUNT + 1}, minmax(1.75rem, 1fr))` }}
+        className="relative grid w-full min-w-max gap-y-0.5"
+        style={{
+          gridTemplateColumns: `2rem repeat(${FRET_COUNT + 1}, minmax(calc(1.75rem * var(--instrument-size, 1)), 1fr))`,
+        }}
       >
         {strings.map((s) => (
           <div
@@ -214,8 +234,16 @@ function Fretboard({
             )}
           >
             <span
-              className="flex items-center justify-end pr-1 text-xs font-medium text-muted-foreground"
+              className={cn(
+                "flex items-center justify-end pr-1 text-xs font-medium text-muted-foreground",
+                onPlayString && "cursor-pointer hover:text-foreground",
+              )}
               aria-hidden="true"
+              data-testid="string-name"
+              title={onPlayString ? `Hear ${pitchName(s.open)}` : undefined}
+              // A mouse shortcut to the string's open note (#83). It is not a control (the board
+              // is a picture, or one tab stop): the keyboard reaches the same notes in the tuner.
+              onClick={onPlayString && (() => onPlayString(s.open))}
             >
               {s.label}
             </span>
@@ -224,7 +252,7 @@ function Fretboard({
               const behindCapo = fret < capo;
               const degree = scale && !behindCapo ? scaleDegree(scale, s.open + fret) : null;
               const cell = cn(
-                "relative flex h-6 items-center justify-center border-r border-muted-foreground/30 text-[0.65rem] tabular-nums",
+                "relative flex h-[calc(1.75rem*var(--instrument-size,1))] items-center justify-center border-r border-muted-foreground/30 text-[0.7rem] tabular-nums",
                 fret === 0 && "border-r-4 border-r-foreground/60",
                 fret === capo && capo > 0 && "border-r-4 border-r-amber-600",
                 behindCapo && "bg-muted/60 text-muted-foreground/60",
@@ -233,7 +261,7 @@ function Fretboard({
               const dot = on && (
                 <span
                   className={cn(
-                    "relative z-10 flex size-5 items-center justify-center rounded-full font-semibold",
+                    "relative z-10 flex size-[calc(1.5rem*var(--instrument-size,1))] items-center justify-center rounded-full font-semibold",
                     ACTIVE,
                   )}
                 >
@@ -243,7 +271,7 @@ function Fretboard({
               const marker = !on && degree && (
                 <span
                   className={cn(
-                    "relative z-10 flex size-4 items-center justify-center rounded-full border text-[0.55rem] leading-none",
+                    "relative z-10 flex size-[calc(1.1rem*var(--instrument-size,1))] items-center justify-center rounded-full border text-[0.55rem] leading-none",
                     degree === "root" ? SCALE_ROOT : SCALE_NOTE,
                   )}
                 >
@@ -287,21 +315,32 @@ function Fretboard({
             })}
           </div>
         ))}
-        <span aria-hidden="true" />
-        {frets.map((fret) => (
-          <span
-            key={fret}
-            aria-hidden="true"
-            className="flex flex-col items-center text-[0.65rem] leading-tight text-muted-foreground tabular-nums"
-          >
-            <span className="h-3">
-              {FRET_MARKERS.includes(fret) ? (fret % 12 === 0 ? "••" : "•") : ""}
+        {/* Fret numbers in the middle of the board, under the notes (#83): a layer with the
+            board's columns, so the strings' cells keep their places. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 grid items-center"
+          style={{ gridTemplateColumns: "inherit" }}
+        >
+          {FRET_MARKERS.map((fret) => (
+            <span
+              key={fret}
+              data-testid="fret-marker"
+              className={cn(
+                "flex justify-center text-xs text-foreground tabular-nums opacity-75",
+                fret % 12 === 0 ? "font-bold" : "font-medium",
+              )}
+              style={{ gridColumn: fret + 2, gridRow: 1 }}
+            >
+              {fret % 12 === 0 ? (
+                // Octaves: the number between two dots, on its own patch of paper.
+                <span className="rounded-full bg-background px-1">•{fret}•</span>
+              ) : (
+                fret
+              )}
             </span>
-            <span className={cn(FRET_MARKERS.includes(fret) && "font-semibold text-foreground")}>
-              {fret}
-            </span>
-          </span>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -346,8 +385,8 @@ function PianoKeyboard({
     const className = cn(
       "flex items-end justify-center rounded-b-sm pb-1 text-[0.6rem]",
       black
-        ? "absolute top-0 z-10 h-[60%] w-[0.95rem] -translate-x-1/2 bg-neutral-900 text-white"
-        : "relative h-full w-6 border border-neutral-400 bg-white text-neutral-600",
+        ? "absolute top-0 z-10 h-[60%] w-[calc(0.95rem*var(--instrument-size,1))] -translate-x-1/2 bg-neutral-900 text-white"
+        : "relative h-full w-[calc(1.5rem*var(--instrument-size,1))] border border-neutral-400 bg-white text-neutral-600",
       on && ACTIVE,
     );
     const label = pitch % 12 === 0 ? pitchName(pitch) : "";
@@ -402,12 +441,14 @@ function PianoKeyboard({
           ? `Piano keyboard: click a key to enter it${scaleSummary}`
           : `Piano keyboard. ${summary}${scaleSummary}`
       }
-      className="relative flex h-24 w-max"
+      className="relative flex h-[calc(6rem*var(--instrument-size,1))] w-max"
     >
       {whites.map((pitch) => key(pitch, false))}
       {keys.filter(isBlackKey).map((pitch) => {
         const whitesBefore = whites.filter((w) => w < pitch).length;
-        return key(pitch, true, { left: `${whitesBefore * 1.5}rem` });
+        return key(pitch, true, {
+          left: `calc(${whitesBefore * 1.5}rem * var(--instrument-size, 1))`,
+        });
       })}
     </div>
   );
@@ -454,11 +495,11 @@ function DrumPads({
           >
             {group.label}
           </div>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-1">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(calc(6.5rem*var(--instrument-size,1)),1fr))] gap-1">
             {group.pads.map((pad) => {
               const on = hits.includes(pad.id);
               const className = cn(
-                "flex h-11 items-center gap-1.5 rounded-md border px-1.5 text-left text-xs leading-tight",
+                "flex h-[calc(2.75rem*var(--instrument-size,1))] items-center gap-1.5 rounded-md border px-1.5 text-left text-xs leading-tight",
                 on ? ACTIVE : "bg-background",
               );
               const content = (
@@ -528,6 +569,8 @@ export function InstrumentPanel({
   cursorDrum = null,
   onReplaceDrum,
   onPreviewDrum,
+  onPlayString,
+  onOpenTuner,
 }: {
   kind: TrackKind;
   tuning: number[];
@@ -551,9 +594,17 @@ export function InstrumentPanel({
   cursorDrum?: number | null;
   onReplaceDrum?: (sound: number) => void;
   onPreviewDrum?: (sound: number) => void;
+  /** Plays an open string's note (#83). */
+  onPlayString?: (pitch: number) => void;
+  onOpenTuner?: () => void;
 }) {
   const name = instrumentViewName(kind);
   const [drumView, setDrumView] = useState<"pads" | "kit">("pads");
+  const [size, setSize] = useState(readInstrumentSize);
+  const changeSize = (next: number) => {
+    setSize(next);
+    storeInstrumentSize(next);
+  };
   const shownScale = kind === "drums" ? null : scale;
   /** Clicks on the keys, frets and pads must not move the keyboard focus out of the score (typing and arrows continue there). */
   const keepFocus = (event: MouseEvent<HTMLElement>) => {
@@ -566,20 +617,36 @@ export function InstrumentPanel({
     <section
       aria-label={name}
       onMouseDown={keepFocus}
-      className="max-h-[35svh] shrink-0 overflow-auto border-t bg-background px-4 py-2 sm:px-6"
+      className="max-h-[45svh] shrink-0 overflow-auto border-t bg-background px-4 py-2 sm:px-6"
+      style={{ "--instrument-size": size } as CSSProperties}
       // Scrollable: keyboard users must be able to reach it even when it has no buttons.
       tabIndex={editing ? undefined : 0}
     >
-      {kind !== "drums" && onScaleChange && (
-        <div className="pb-1.5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pb-1.5">
+        {kind !== "drums" && onScaleChange && (
           <ScalePicker
             scale={shownScale}
             defaultRoot={defaultScaleRoot}
             onChange={onScaleChange}
             triggerRef={scalePickerRef}
           />
+        )}
+        {/* One size for the fretboard, the keyboard and the drum pads (#83). */}
+        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          <span aria-hidden="true">Size</span>
+          <LabeledSlider
+            label="Instrument size"
+            valueText={`${Math.round(size * 100)}%`}
+            value={INSTRUMENT_SIZES.indexOf(size as (typeof INSTRUMENT_SIZES)[number])}
+            min={0}
+            max={INSTRUMENT_SIZES.length - 1}
+            step={1}
+            onValueChange={(i) => changeSize(INSTRUMENT_SIZES[i] ?? 1)}
+            className="w-28"
+          />
+          <span className="w-9 tabular-nums">{Math.round(size * 100)}%</span>
         </div>
-      )}
+      </div>
       {kind === "stringed" ? (
         <Fretboard
           tuning={tuning}
@@ -589,6 +656,8 @@ export function InstrumentPanel({
           cursorString={cursorString}
           scale={shownScale}
           onFret={onFret}
+          onPlayString={onPlayString}
+          onOpenTuner={onOpenTuner}
         />
       ) : kind === "drums" ? (
         <div className="flex flex-col gap-2">

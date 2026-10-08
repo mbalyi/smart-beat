@@ -11,6 +11,7 @@ import {
   LayoutMode,
   LogLevel,
   midi,
+  model,
   NotationElement,
   PlayerMode,
   PlayerOutputMode,
@@ -22,6 +23,7 @@ import {
 } from "@coderline/alphatab";
 
 import { barOccurrences, engineExtras, type BarOccurrence } from "@/lib/audio/engine-config";
+import { rgbOf, SCORE_PALETTES, type ScoreTheme } from "@/lib/score/score-theme";
 import {
   busMixes,
   NativeEngine,
@@ -52,7 +54,13 @@ import {
   type LatencyInfo,
 } from "@/lib/score/sync";
 import { applyInterpretation } from "@/lib/score/interpretation";
-import { focusTrims, isAudible, trackInterpretation } from "@/lib/score/mixer";
+import {
+  FOCUS_CUT_DB,
+  focusTrims,
+  heardMix,
+  isAudible,
+  trackInterpretation,
+} from "@/lib/score/mixer";
 import {
   renderEngineAudio,
   type BackingInfo,
@@ -65,6 +73,8 @@ const { PlayerState, PlaybackRange } = synth;
 
 /** MIDI channel 10, where General MIDI plays drums (0-based). */
 const PERCUSSION_CHANNEL = 9;
+/** A channel the songs leave free (the last), for the tuner's reference notes. */
+const REFERENCE_CHANNEL = 15;
 
 /** Sample rate of exported audio, and how much sound is rendered at a time (ms). */
 const EXPORT_SAMPLE_RATE = 44_100;
@@ -143,6 +153,21 @@ export interface ScorePlayerOptions {
   reducedMotion?: boolean;
   /** Default: alphaTab. */
   audioEngine?: AudioEngineKind;
+  /** The score's colours (#83); default: light. */
+  theme?: ScoreTheme;
+}
+
+/** Puts a palette's colours in alphaTab's settings. */
+function applyPalette(settings: Settings, theme: ScoreTheme) {
+  const p = SCORE_PALETTES[theme];
+  const color = (hex: string, alpha = 255) => new model.Color(...rgbOf(hex), alpha);
+  const resources = settings.display.resources;
+  resources.mainGlyphColor = color(p.main);
+  resources.secondaryGlyphColor = color(p.secondary, p.secondaryAlpha);
+  resources.staffLineColor = color(p.staffLine);
+  resources.barSeparatorColor = color(p.barSeparator);
+  resources.barNumberColor = color(p.barNumber);
+  resources.scoreInfoColor = color(p.scoreInfo);
 }
 
 const LAYOUT_MODES: Record<Layout, LayoutMode> = {
@@ -201,6 +226,7 @@ function createSettings(options: ScorePlayerOptions): Settings {
   settings.player.nativeBrowserSmoothScroll = !options.reducedMotion;
   // Clicking a beat moves the playback cursor there ("start from here").
   settings.player.enableUserInteraction = true;
+  applyPalette(settings, options.theme ?? "light");
   return settings;
 }
 
@@ -275,6 +301,7 @@ export class ScorePlayer {
     this.score = options.score;
     this.trackIndex = options.trackIndex;
     this.mix = options.mix;
+    this.theme = options.theme ?? "light";
     this.callbacks = callbacks;
 
     // Pan is part of the generated MIDI, so it must be in the model before playback.
@@ -288,6 +315,11 @@ export class ScorePlayer {
             onMeters: (meters) => callbacks.onMeters?.(meters),
             onFault: () => callbacks.onEngineFault?.(),
             onError: (error) => callbacks.onError?.(error),
+            // The engine starts loops again by itself and reports them (#83).
+            onLoops: (count) => {
+              if (!this.loop) return;
+              for (let i = 0; i < count; i++) callbacks.onLoopRestart?.();
+            },
           })
         : null;
     if (this.engine) {
@@ -417,7 +449,8 @@ export class ScorePlayer {
     api.beatMouseMove.on((beat) => callbacks.onBeatDrag?.(realBeatOf(beat)));
     api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
     api.playerFinished.on(() => {
-      if (this.loop) callbacks.onLoopRestart?.();
+      // The native engine reports its own loops (see onLoops).
+      if (this.loop && !this.engine) callbacks.onLoopRestart?.();
     });
     // alphaTab reports SoundFont failures through `error` too: report them once.
     api.error.on((error) => {
@@ -530,19 +563,24 @@ export class ScorePlayer {
   }
 
   /** Sends the mix to the synthesizer. With `previous`, only what changed. */
-  private applyMix(previous: MixerSettings | null, next: MixerSettings) {
+  private applyMix(previousSaved: MixerSettings | null, nextSaved: MixerSettings) {
     const { api } = this;
+    // What is heard: the practice mode on top of the saved mix (#83).
+    const previous = previousSaved && heardMix(previousSaved);
+    const next = heardMix(nextSaved);
+    const cut = this.focusCutDb;
     if (previous?.master !== next.master) api.masterVolume = next.master;
     if (this.engine) {
-      this.engine.setMix(busMixes(next, focusTrims(next)));
+      this.engine.setMix(busMixes(next, focusTrims(next, cut)));
       this.applyExtras(next);
       return;
     }
     // alphaTab's synthesizer cannot boost: the focus switch only turns the others down.
-    const trims = focusTrims(next).map((db) => Math.min(1, 10 ** (db / 20)));
+    const trims = focusTrims(next, cut).map((db) => Math.min(1, 10 ** (db / 20)));
     const previousTrims = previous
-      ? focusTrims(previous).map((db) => Math.min(1, 10 ** (db / 20)))
+      ? focusTrims(previous, this.appliedCutDb).map((db) => Math.min(1, 10 ** (db / 20)))
       : [];
+    this.appliedCutDb = cut;
     next.tracks.forEach((trackMix, index) => {
       const track = this.score.tracks[index];
       if (!track) return;
@@ -622,6 +660,18 @@ export class ScorePlayer {
    * and regenerating it cuts off ringing notes, so during playback it is
    * applied at the next pause or stop instead.
    */
+  /** How far the focus turns the other tracks down (dB, at most 0). */
+  private focusCutDb = FOCUS_CUT_DB;
+  /** The cut the synthesizer's volumes were last set with. */
+  private appliedCutDb = FOCUS_CUT_DB;
+
+  /** Changes how far the focus turns the other tracks down (#83). */
+  setFocusCut(db: number) {
+    if (db === this.focusCutDb) return;
+    this.focusCutDb = db;
+    if (this.ready) this.applyMix(null, this.mix);
+  }
+
   setMix(mix: MixerSettings) {
     const previous = this.mix;
     this.mix = mix;
@@ -710,6 +760,23 @@ export class ScorePlayer {
     this.applyLoop();
   }
 
+  /** Counts a bar in before every loop (native engine only; #83). */
+  private loopCountIn = false;
+  setLoopCountIn(on: boolean) {
+    if (on === this.loopCountIn) return;
+    this.loopCountIn = on;
+    this.applyLoop();
+  }
+
+  /** A bar of clicks in the tempo and time of bar `index` (beat length at normal speed). */
+  private countInAt(index: number): { beats: number; beatSeconds: number } | null {
+    const bar =
+      this.score.masterBars[Math.max(0, Math.min(index, this.score.masterBars.length - 1))];
+    if (!bar) return null;
+    const beatSeconds = (60 / tempoAt(this.score, index)) * (4 / bar.timeSignatureDenominator);
+    return { beats: bar.timeSignatureNumerator, beatSeconds };
+  }
+
   private applyLoop() {
     const { api } = this;
     const loop = this.loop;
@@ -733,7 +800,7 @@ export class ScorePlayer {
       range.startTick = cache.getMasterBarStart(first);
       range.endTick = cache.getMasterBarStart(last) + last.calculateDuration();
       this.appliedRange = { startTick: range.startTick, endTick: range.endTick };
-      this.engine?.setLoop(this.appliedRange);
+      this.engine?.setLoop(this.appliedRange, this.loopCountIn ? this.countInAt(loop.start) : null);
       api.playbackRange = range;
       api.isLooping = true;
       this.highlightLoop();
@@ -836,6 +903,36 @@ export class ScorePlayer {
     this.api.player?.playOneTimeMidiFile(file);
   }
 
+  /** How long a reference note sounds (ms). */
+  static readonly REFERENCE_NOTE_MS = 2500;
+  private referenceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Plays a reference note with an instrument (a GM program), whether or not the song plays:
+   * the open strings of the tuner (#83). It rings for `REFERENCE_NOTE_MS`.
+   */
+  previewNote(pitch: number, program: number) {
+    const channel = REFERENCE_CHANNEL;
+    if (this.engine) {
+      const engine = this.engine;
+      engine.preview(channel, pitch, 100, program);
+      clearTimeout(this.referenceTimer);
+      this.referenceTimer = setTimeout(
+        () => engine.previewStop(channel),
+        ScorePlayer.REFERENCE_NOTE_MS,
+      );
+      return;
+    }
+    if (!this.hasSounds) return;
+    const file = new midi.MidiFile();
+    // At alphaTab's default 120 BPM a quarter is 0.5 s.
+    const ticks = Math.round((file.division * ScorePlayer.REFERENCE_NOTE_MS) / 500);
+    file.addEvent(new midi.ProgramChangeEvent(0, 0, channel, program));
+    file.addEvent(new midi.NoteOnEvent(0, 0, channel, pitch, 100));
+    file.addEvent(new midi.NoteOffEvent(0, ticks, channel, pitch, 0));
+    this.api.player?.playOneTimeMidiFile(file);
+  }
+
   /**
    * Shows `trackIndexes` together (a full score, in page layout) at a size for
    * printing. Returns a function that puts back the shown track, layout and zoom.
@@ -848,12 +945,15 @@ export class ScorePlayer {
       .filter((t): t is NonNullable<typeof t> => t !== undefined);
     display.scale = scale;
     display.layoutMode = LayoutMode.Page;
+    // Paper is white: the printed score is always in the light colours.
+    applyPalette(this.api.settings, "light");
     this.api.updateSettings();
     this.quietRender = true;
     this.api.renderTracks(tracks.length > 0 ? tracks : [this.track]);
     return () => {
       display.scale = before.scale;
       display.layoutMode = before.layout;
+      applyPalette(this.api.settings, this.theme);
       this.api.updateSettings();
       this.quietRender = true;
       this.api.renderTracks([this.track]);
@@ -898,6 +998,25 @@ export class ScorePlayer {
           .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
       ),
     );
+  }
+
+  /**
+   * The bar drawn at a point of the score, in the drawing's own pixels (from the top left of
+   * the surface), or null between the bars. For the score's right-click menu (#83): alphaTab
+   * only reports left clicks.
+   */
+  barAt(x: number, y: number): number | null {
+    const lookup = this.api.boundsLookup;
+    const beat = lookup?.getBeatAtPos(x, y);
+    if (beat) return realBeatOf(beat).voice.bar.index;
+    // Beside the notes of a bar: the bar the point is in.
+    for (const system of lookup?.staffSystems ?? []) {
+      for (const masterBar of system.bars) {
+        const b = masterBar.visualBounds;
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return masterBar.index;
+      }
+    }
+    return null;
   }
 
   /** Moves the playback cursor to a beat. */
@@ -987,6 +1106,18 @@ export class ScorePlayer {
   }
 
   /** Zooms the notation (1 = 100%). */
+  private theme: ScoreTheme = "light";
+
+  /** Draws the score in light or dark colours (#83). */
+  setTheme(theme: ScoreTheme) {
+    if (theme === this.theme) return;
+    this.theme = theme;
+    applyPalette(this.api.settings, theme);
+    this.api.updateSettings();
+    this.quietRender = true;
+    this.api.render();
+  }
+
   setZoom(scale: number) {
     this.api.settings.display.scale = scale;
     this.api.updateSettings();
@@ -1028,10 +1159,12 @@ export class ScorePlayer {
       onProgress?.(1);
       return { samples, sampleRate: EXPORT_SAMPLE_RATE, channels: 2 };
     }
+    // Exported as it is heard: a practice mode (backing only…) is part of it.
+    const heard = heardMix(this.mix);
     const trackVolume = new Map<number, number>();
     this.score.tracks.forEach((_, index) => {
-      const mix = this.mix.tracks[index];
-      trackVolume.set(index, mix && isAudible(this.mix, index) ? mix.volume : 0);
+      const mix = heard.tracks[index];
+      trackVolume.set(index, mix && isAudible(heard, index) ? mix.volume : 0);
     });
     const options = {
       sampleRate: EXPORT_SAMPLE_RATE,

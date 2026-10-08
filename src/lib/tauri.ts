@@ -2,6 +2,7 @@
  * Typed bridge to the Rust core (`src-tauri`). Every call degrades gracefully
  * when the UI runs in a plain browser (e.g. `pnpm dev` or Playwright).
  */
+import type { PdfPage } from "@/lib/print";
 import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -24,6 +25,7 @@ export type MenuAction =
   | "export-ascii-tab"
   | "export-audio"
   | "export-audio-m4a"
+  | "export-pdf"
   | "print"
   | "close-window"
   | "quit"
@@ -32,6 +34,9 @@ export type MenuAction =
   | "toggle-edit-mode"
   | "toggle-theme"
   | "toggle-fretboard"
+  | "toggle-mixer"
+  | "toggle-inspector"
+  | "toggle-practice-view"
   | "zoom-in"
   | "zoom-out"
   | "zoom-reset"
@@ -275,6 +280,13 @@ export interface SongPreset {
   effects: EffectSlot[];
 }
 
+/**
+ * What the focus on a track does to the mix (#83): turn the others down, hear only that track, or
+ * mute it and hear the rest. Never changes the saved levels, mutes and solos. Mirrors `FocusMode`
+ * in `src-tauri/src/mixer.rs`.
+ */
+export type FocusMode = "othersDown" | "onlyMe" | "backing";
+
 /** Mirrors `MixerSettings` in `src-tauri/src/mixer.rs`. */
 export interface MixerSettings {
   version: number;
@@ -295,12 +307,16 @@ export interface MixerSettings {
   eq?: TrackEq[];
   /** Volume, pan and mute automation of each track. */
   automation?: TrackAutomation[];
-  /** The track in focus (the others are turned down). */
+  /** The track in focus: the one being practised. */
   focus?: number;
+  /** What the focus does to the rest of the mix (missing: the others are turned down; #83). */
+  focusMode?: FocusMode;
   /** The drum mixer of each track (null when not split). */
   drums?: (DrumMixer | null)[];
   /** The imported drum kit (#40) each track plays (null: the SoundFont's own kit). */
   drumKits?: (string | null)[];
+  /** A colour chosen for each track, `#rrggbb` (null: the default one; #83). */
+  trackColors?: (string | null)[];
   audioTrack?: AudioTrackSettings;
   /** Effect chain presets saved with the song. */
   presets?: SongPreset[];
@@ -327,6 +343,9 @@ export interface MenuState {
   canRemoveTrack: boolean;
   editMode: boolean;
   fretboard: boolean;
+  mixer: boolean;
+  inspector: boolean;
+  practiceView: boolean;
   loop: boolean;
   metronome: boolean;
   countIn: boolean;
@@ -448,6 +467,18 @@ export async function writeM4aFile(path: string, wav: Uint8Array): Promise<void>
   if (!isTauri()) throw new NotInDesktopAppError();
   await invoke<void>("export_m4a", wav, { headers: { path: encodeURIComponent(path) } });
 }
+
+/**
+ * Exports the window's print copy of the score (put in place by `printScore`) as a PDF file at
+ * `path`, without a print dialog (#83). macOS only (see {@link canExportPdf}).
+ */
+export async function writePdfFile(path: string, page: PdfPage): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  await invoke<void>("export_pdf", { path, page });
+}
+
+/** Whether this platform exports PDF itself (mirrors `pdf::SUPPORTED` in `src-tauri/src/pdf.rs`). */
+export const canExportPdf = ({ os }: Pick<AppInfo, "os">) => os === "macos";
 
 /** Whether this platform can export `.m4a` files (mirrors `m4a::SUPPORTED` in `src-tauri/src/m4a.rs`). */
 export const canExportM4a = ({ os }: Pick<AppInfo, "os">) => os === "macos";
@@ -634,6 +665,8 @@ export interface EngineStatus {
   /** Times a sound crashed in the audio callback (effects were switched off, playback stopped). */
   faults: number;
   loadPercent: number;
+  /** Loops played to the end since the last report (#83). */
+  loops: number;
   meters: EngineMeters;
 }
 
@@ -656,11 +689,18 @@ export type TransportCommand =
   | { type: "pause" }
   | { type: "seek"; ms: number }
   | { type: "rate"; value: number }
-  | { type: "loop"; startTick: number | null; endTick: number | null }
+  | {
+      type: "loop";
+      startTick: number | null;
+      endTick: number | null;
+      /** A bar of clicks before every loop (beat length at normal speed, seconds; #83). */
+      countIn?: { beats: number; beatSeconds: number } | null;
+    }
   | { type: "metronome"; volume: number }
   | { type: "masterVolume"; value: number }
   | { type: "masterPan"; value: number }
-  | { type: "preview"; channel: number; key: number; velocity: number };
+  | { type: "preview"; channel: number; key: number; velocity: number; program?: number }
+  | { type: "previewStop"; channel: number };
 
 /** Mirrors `BlockProblem` in `src-tauri/src/audio/chain.rs`. */
 export interface BlockProblem {

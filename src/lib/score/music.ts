@@ -520,6 +520,51 @@ export function tuningName(tuning: readonly number[]): string | null {
   );
 }
 
+/** Basses are tuned in fourths: E A D G, B E A D G, B E A D G C. */
+const STANDARD_BASS: Record<number, number[]> = {
+  4: [43, 38, 33, 28],
+  5: [43, 38, 33, 28, 23],
+  6: [48, 43, 38, 33, 28, 23],
+};
+
+/** The steps between strings, lowest last (alphaTab's order). */
+const intervals = (tuning: readonly number[]) => tuning.slice(1).map((p, i) => tuning[i]! - p);
+const sameSteps = (a: readonly number[], b: readonly number[]) =>
+  a.length === b.length && intervals(a).every((step, i) => step === intervals(b)[i]);
+
+/**
+ * A short, human name for a tuning (#83): "Standard", "C# Standard", "Drop D", "Drop C#", a
+ * known preset's name without the instrument ("Open G"), or null for a custom tuning. Standard
+ * and drop tunings are recognised in any key, for guitars of 4 to 10 strings and for basses.
+ */
+export function shortTuningName(tuning: readonly number[]): string | null {
+  const n = tuning.length;
+  if (n < 2) return null;
+  const note = (pitch: number) => pitchName(pitch, { octave: false });
+  const shapes = [STANDARD_STRINGS.slice(0, n), STANDARD_BASS[n]].filter(
+    (shape): shape is number[] => !!shape && shape.length === n,
+  );
+  for (const shape of shapes) {
+    const low = tuning[n - 1]!;
+    if (sameSteps(tuning, shape)) {
+      const offset = low - shape[n - 1]!;
+      if (Math.abs(offset) <= 12) return offset === 0 ? "Standard" : `${note(low)} Standard`;
+    }
+    // Drop: standard above, the lowest string a whole step further down.
+    const raised = [...tuning.slice(0, -1), low + 2];
+    if (sameSteps(raised, shape) && Math.abs(raised[n - 1]! - shape[n - 1]!) <= 12) {
+      return `Drop ${note(low)}`;
+    }
+  }
+  const known = tuningName(tuning);
+  if (!known) return null;
+  return known.replace(/^(Guitar|Bass|Banjo|Mandolin|Ukulele)\s+/i, "").replace(/\s+Tuning$/i, "");
+}
+
+/** The tuning's short name, or "Custom tuning" (#83). */
+export const tuningLabel = (tuning: readonly number[]) =>
+  shortTuningName(tuning) ?? "Custom tuning";
+
 /** A tuning for a new string count: keeps the top strings, adds strings a fourth lower. */
 export function resizeTuning(tuning: readonly number[], stringCount: number): number[] {
   const standard = tuningPresets(stringCount)[0]?.tuning;

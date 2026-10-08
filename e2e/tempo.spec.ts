@@ -69,14 +69,14 @@ test.describe("tempo (#46)", () => {
     const display = app.getByRole("group", { name: "Display" });
     await app.getByRole("combobox", { name: "Speed" }).click();
     await app.getByRole("option", { name: "50%", exact: true }).click();
-    // Bars 1–2 at 60 BPM play at 30, bars 3–4 at 120 play at 60.
+    // Bars 1–2 at 60 BPM play at 30, bars 3–4 at 120 play at 60: both tempos are shown (#83).
     await app.getByRole("button", { name: "Play" }).click();
-    await expect(display).toContainText("♩ = 30", { timeout: 10_000 });
+    await expect(display).toContainText("Song 60 · Playback 30 BPM", { timeout: 10_000 });
     await app.getByRole("button", { name: "Stop" }).click();
     await display.getByRole("spinbutton", { name: "Bar" }).fill("3");
     await display.getByRole("spinbutton", { name: "Bar" }).press("Enter");
     await app.getByRole("button", { name: "Play" }).click();
-    await expect(display).toContainText("♩ = 60", { timeout: 10_000 });
+    await expect(display).toContainText("Song 120 · Playback 60 BPM", { timeout: 10_000 });
     await app.getByRole("button", { name: "Stop" }).click();
   });
 

@@ -19,7 +19,10 @@ export function EqControls({
   eq,
   onChange,
 }: {
-  /** "Rhythm guitar", for the controls' accessible names. */
+  /**
+   * "Rhythm guitar", for the controls' accessible names. Each knob is labelled "<name>, <what it
+   * sets>": a knob shows only the part after the last comma, so a long name never replaces it.
+   */
   name: string;
   eq: TrackEq;
   onChange: (eq: TrackEq) => void;
@@ -59,7 +62,7 @@ export function EqControls({
             <Knob
               key={freq}
               size="sm"
-              label={`EQ ${freqText(freq)}, ${name}`}
+              label={`${name}, EQ ${freqText(freq)}`}
               valueText={gainText(eq.graphic![i] ?? 0)}
               value={eq.graphic![i] ?? 0}
               min={-15}
@@ -74,7 +77,7 @@ export function EqControls({
       ) : (
         <div className="grid grid-cols-4 gap-1">
           <Knob
-            label={`EQ low, ${name}`}
+            label={`${name}, EQ low`}
             valueText={gainText(eq.lowDb)}
             value={eq.lowDb}
             min={-15}
@@ -83,7 +86,7 @@ export function EqControls({
             onValueChange={(lowDb) => onChange({ ...eq, lowDb })}
           />
           <Knob
-            label={`EQ mid, ${name}`}
+            label={`${name}, EQ mid`}
             valueText={gainText(eq.midDb)}
             value={eq.midDb}
             min={-15}
@@ -92,7 +95,7 @@ export function EqControls({
             onValueChange={(midDb) => onChange({ ...eq, midDb })}
           />
           <Knob
-            label={`EQ mid frequency, ${name}`}
+            label={`${name}, EQ mid freq`}
             valueText={freqText(eq.midHz)}
             value={eq.midHz}
             min={200}
@@ -102,7 +105,7 @@ export function EqControls({
             onValueChange={(midHz) => onChange({ ...eq, midHz })}
           />
           <Knob
-            label={`EQ high, ${name}`}
+            label={`${name}, EQ high`}
             valueText={gainText(eq.highDb)}
             value={eq.highDb}
             min={-15}
@@ -144,7 +147,9 @@ export function EqPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80" aria-label={`EQ, ${name}`}>
-        <h3 className="mb-2 text-sm font-medium">EQ: {name}</h3>
+        <h3 className="mb-2 truncate text-sm font-medium" title={name}>
+          EQ: {name}
+        </h3>
         <EqControls name={name} eq={eq} onChange={onChange} />
       </PopoverContent>
     </Popover>

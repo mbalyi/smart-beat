@@ -1,7 +1,6 @@
-import { TriangleAlertIcon } from "lucide-react";
-
 import { useId } from "react";
 
+import { EffectsPlaybackNotice } from "@/components/audio/effects-playback-notice";
 import { GainReductionMeter, LevelMeter } from "@/components/audio/level-meter";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
@@ -99,25 +98,11 @@ export function DrumMixerDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
-          {!engineOn && (
-            <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-              <TriangleAlertIcon
-                className="mt-0.5 size-4 shrink-0 text-amber-600"
-                aria-hidden="true"
-              />
-              <span className="flex-1">
-                The drum mixer is heard with the native audio engine.{" "}
-                {onEnableEngine
-                  ? "It is saved either way."
-                  : "It is available in the Smart Beat desktop app."}
-              </span>
-              {onEnableEngine && (
-                <Button size="xs" variant="outline" onClick={onEnableEngine}>
-                  Turn it on
-                </Button>
-              )}
-            </p>
-          )}
+          <EffectsPlaybackNotice
+            subject="drum mixer"
+            engineOn={engineOn}
+            onEnable={onEnableEngine}
+          />
 
           <ToggleGroup
             type="single"

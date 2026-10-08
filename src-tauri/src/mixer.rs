@@ -67,9 +67,13 @@ pub struct MixerSettings {
     /// Volume, pan and mute automation of each track.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub automation: Vec<TrackAutomation>,
-    /// The track in focus (the others are turned down).
+    /// The track in focus (the practice track; see `focus_mode` for what that does to the rest).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focus: Option<usize>,
+    /// What the focus does to the mix (#83): none means the others are turned down. It never
+    /// changes the saved levels, mutes and solos; it is applied on top of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_mode: Option<FocusMode>,
     /// Drum mixer of each track (`null` for tracks that are not drums or not split).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drums: Vec<Option<DrumMixer>>,
@@ -81,6 +85,9 @@ pub struct MixerSettings {
     /// The imported drum kit each track plays (#40), by kit id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drum_kits: Vec<Option<String>>,
+    /// A colour the user chose for each track (#83), as `#rrggbb` (`null`: the default one).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub track_colors: Vec<Option<String>>,
     /// Drum notes placed on a chosen line of the drum tab (#53). Guitar Pro 7+
     /// files have no place for it, so it travels in Smart Beat's settings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -207,6 +214,23 @@ fn check_name(name: &str, what: &str) -> Result<(), String> {
         return Err(format!("{what} name is too long"));
     }
     Ok(())
+}
+
+/// What the focus on a track does to the mix. Mirrored by `FocusMode` in `src/lib/tauri.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FocusMode {
+    /// The other tracks are turned down.
+    OthersDown,
+    /// Only the focused track is heard.
+    OnlyMe,
+    /// The focused track is muted and the rest plays on.
+    Backing,
+}
+
+/// A track colour: `#` and six hexadecimal digits.
+fn is_color(value: &str) -> bool {
+    value.len() == 7 && value.starts_with('#') && value[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// Playing style of a track. Mirrored by `PlayingStyle` in `src/lib/score/interpretation.ts`.
@@ -383,6 +407,12 @@ impl MixerSettings {
         for kit in self.drum_kits.iter().flatten() {
             check_name(kit, "drum kit")?;
         }
+        if self.track_colors.len() > self.tracks.len() {
+            return Err("more track colours than tracks".into());
+        }
+        if self.track_colors.iter().flatten().any(|c| !is_color(c)) {
+            return Err("a track colour is not #rrggbb".into());
+        }
         if self.drum_lines.len() > MAX_DRUM_LINES {
             return Err(format!("more than {MAX_DRUM_LINES} drum lines"));
         }
@@ -529,10 +559,12 @@ mod tests {
             eq: Vec::new(),
             automation: Vec::new(),
             focus: None,
+            focus_mode: None,
             drums: Vec::new(),
             audio_track: None,
             presets: Vec::new(),
             drum_kits: Vec::new(),
+            track_colors: Vec::new(),
             drum_lines: Vec::new(),
         }
     }
@@ -663,6 +695,7 @@ mod tests {
                 },
             ],
             focus: Some(1),
+            focus_mode: Some(FocusMode::OnlyMe),
             drums: vec![
                 None,
                 Some(DrumMixer {
@@ -703,6 +736,7 @@ mod tests {
                 effects: vec![delay],
             }],
             drum_kits: vec![None],
+            track_colors: vec![Some("#e5484d".into()), None],
             drum_lines: vec![DrumLine {
                 track: 2,
                 bar: 1,
@@ -749,6 +783,8 @@ mod tests {
             "\"eq\"",
             "\"automation\"",
             "\"focus\"",
+            "\"focusMode\":\"onlyMe\"",
+            "\"trackColors\":[\"#e5484d\",null]",
             "\"drums\"",
             "\"audioTrack\"",
             "\"semitones\":-2",
@@ -824,6 +860,30 @@ mod tests {
                     s
                 },
                 "more EQs",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.track_colors = vec![None; 3];
+                    s
+                },
+                "more track colours",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.track_colors = vec![Some("red".into())];
+                    s
+                },
+                "not #rrggbb",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.track_colors = vec![Some("#12345g".into())];
+                    s
+                },
+                "not #rrggbb",
             ),
         ];
         for (settings, message) in cases {

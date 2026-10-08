@@ -2,6 +2,7 @@ import {
   editorStatus,
   emitMenuAction,
   expect,
+  expectNoA11yViolations,
   expectTab,
   newSong,
   openSong,
@@ -16,7 +17,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await openSong(app);
     await app.getByRole("button", { name: "Fretboard" }).click();
     const fretboard = app.getByRole("region", { name: "Fretboard" });
-    await expect(fretboard).toContainText("Guitar Standard Tuning: E B G D A E");
+    await expect(fretboard).toContainText("Standard: E B G D A E");
     const board = fretboard.getByRole("img");
     await expect(board).toHaveAccessibleName("Fretboard. No notes");
 
@@ -36,7 +37,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await app.getByRole("option", { name: "Bass" }).click();
 
     const fretboard = app.getByRole("region", { name: "Fretboard" });
-    await expect(fretboard).toContainText("Bass Standard Tuning: G D A E");
+    await expect(fretboard).toContainText("Standard: G D A E");
 
     await emitMenuAction(app, "track-settings");
     const dialog = app.getByRole("dialog", { name: "Track settings" });
@@ -180,4 +181,67 @@ test.describe("fretboard and keyboard (#8)", () => {
     ).toHaveAttribute("aria-pressed", "true");
     await expect(scoreRegion(app)).toBeFocused();
   });
+});
+
+test.describe("tuner (#83)", () => {
+  test("plays the open strings from the fretboard and the tuner", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("switch", { name: "Native engine with effects" }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+    await app.getByRole("button", { name: "Fretboard" }).click();
+    const fretboard = app.getByRole("region", { name: "Fretboard" });
+    const previews = () =>
+      app.evaluate(() =>
+        window.__ipcCalls
+          .filter((c) => c.cmd === "audio_transport")
+          .map(
+            (c) =>
+              (c.args as { command: { type: string; key?: number; program?: number } }).command,
+          )
+          .filter((c) => c.type === "preview"),
+      );
+    // The low E string's name plays its note with the track's instrument.
+    await fretboard.getByTestId("string-name").last().click();
+    await expect.poll(async () => (await previews()).at(-1)).toMatchObject({ key: 40 });
+    expect((await previews()).at(-1)?.program).toEqual(expect.any(Number));
+
+    await fretboard.getByRole("button", { name: "Tuner…" }).click();
+    const tuner = app.getByRole("dialog", { name: "Tuner: Guitar" });
+    await tuner.getByRole("button", { name: /^Hear string 1/ }).click();
+    await expect.poll(async () => (await previews()).at(-1)).toMatchObject({ key: 64 });
+    await expectNoA11yViolations(app);
+    await tuner.getByRole("tab", { name: "Microphone" }).click();
+    await expect(tuner.getByRole("status")).toHaveText("The microphone is off.");
+  });
+});
+
+test.describe("fretboard size and fret numbers (#83)", () => {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`uses the full width, centres the fret numbers and grows, in ${colorScheme} mode`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await openSong(app);
+      await app.getByRole("button", { name: "Fretboard" }).click();
+      const fretboard = app.getByRole("region", { name: "Fretboard" });
+      const board = fretboard.getByRole("img");
+      const width = () => board.evaluate((el) => el.getBoundingClientRect().width);
+      const panel = await fretboard.evaluate((el) => el.clientWidth);
+      expect(await width()).toBeGreaterThan(panel * 0.85);
+      // The 12th fret's number sits in the middle of the strings.
+      const twelve = fretboard.getByTestId("fret-marker").filter({ hasText: "12" });
+      const [boardBox, markerBox] = [await board.boundingBox(), await twelve.boundingBox()];
+      const middle = boardBox!.y + boardBox!.height / 2;
+      expect(Math.abs(markerBox!.y + markerBox!.height / 2 - middle)).toBeLessThan(12);
+
+      const height = () => board.evaluate((el) => el.getBoundingClientRect().height);
+      const before = await height();
+      const size = fretboard.getByRole("slider", { name: "Instrument size" });
+      await size.focus();
+      await app.keyboard.press("ArrowRight");
+      await expect(size).toHaveAttribute("aria-valuetext", "125%");
+      await expect.poll(height).toBeGreaterThan(before * 1.15);
+      await expectNoA11yViolations(app);
+    });
+  }
 });

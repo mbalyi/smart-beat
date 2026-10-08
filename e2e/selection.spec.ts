@@ -9,7 +9,9 @@ async function tabNoteCenters(app: Page) {
     .evaluateAll((texts) =>
       texts
         .filter(
-          (t) => t.getAttribute("fill") !== "#C80000" && /^\d+$/.test(t.textContent?.trim() ?? ""),
+          (t) =>
+            !["#C80000", "#FF8A80"].includes(t.getAttribute("fill") ?? "") &&
+            /^\d+$/.test(t.textContent?.trim() ?? ""),
         )
         .map((el) => {
           const text = el as SVGTextElement;

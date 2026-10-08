@@ -34,6 +34,15 @@ pub struct MenuState {
     pub can_remove_track: bool,
     pub edit_mode: bool,
     pub fretboard: bool,
+    /// The tracks and mixer panel is shown.
+    #[serde(default)]
+    pub mixer: bool,
+    /// The inspector is shown.
+    #[serde(default)]
+    pub inspector: bool,
+    /// Practice View is on (#83).
+    #[serde(default)]
+    pub practice_view: bool,
     #[serde(rename = "loop")]
     pub looping: bool,
     pub metronome: bool,
@@ -111,6 +120,9 @@ pub fn is_checked(state: &MenuState, action: MenuAction) -> bool {
     match action {
         MenuAction::ToggleEditMode => state.edit_mode,
         MenuAction::ToggleFretboard => state.fretboard,
+        MenuAction::ToggleMixer => state.mixer,
+        MenuAction::ToggleInspector => state.inspector,
+        MenuAction::TogglePracticeView => state.practice_view,
         MenuAction::ToggleRepeatStart => state.repeat_start,
         MenuAction::ToggleRepeatEnd => state.repeat_end,
         MenuAction::ToggleHammerPull => effects.hammer_pull,
@@ -433,6 +445,9 @@ mod tests {
         };
         for set in [
             |s: &mut MenuState| s.fretboard = true,
+            |s: &mut MenuState| s.mixer = true,
+            |s: &mut MenuState| s.inspector = true,
+            |s: &mut MenuState| s.practice_view = true,
             |s: &mut MenuState| s.repeat_start = true,
             |s: &mut MenuState| s.repeat_end = true,
             |s: &mut MenuState| s.looping = true,

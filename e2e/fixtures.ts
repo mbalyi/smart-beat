@@ -15,6 +15,7 @@ type MenuAction =
   | "export-ascii-tab"
   | "export-audio"
   | "export-audio-m4a"
+  | "export-pdf"
   | "print"
   | "transpose"
   | "fix-bar-durations"
@@ -23,6 +24,9 @@ type MenuAction =
   | "toggle-edit-mode"
   | "toggle-theme"
   | "toggle-fretboard"
+  | "toggle-mixer"
+  | "toggle-inspector"
+  | "toggle-practice-view"
   | "add-track"
   | "add-audio-track"
   | "duplicate-track"
@@ -61,6 +65,9 @@ interface MenuState {
   canRemoveTrack: boolean;
   editMode: boolean;
   fretboard: boolean;
+  mixer: boolean;
+  inspector: boolean;
+  practiceView: boolean;
   loop: boolean;
   metronome: boolean;
   countIn: boolean;
@@ -74,6 +81,9 @@ interface MixerSettings {
   version: number;
   master: number;
   tracks: { volume: number; pan: number; mute: boolean; solo: boolean }[];
+  focus?: number;
+  focusMode?: string;
+  trackColors?: (string | null)[];
 }
 
 declare global {
@@ -81,6 +91,8 @@ declare global {
     __emitMenuAction: (action: MenuAction) => number;
     __emitTauriEvent: (event: string, payload: unknown) => number;
     __dialogResult: string | null;
+    __pdfExports?: { path: string; page: Record<string, unknown>; parts: number }[];
+    __pdfFail?: string;
     __engineChains?: Record<string, { type: string }[]>;
     __engineConfig: {
       sounds: Record<string, { sounds: unknown[][]; switches: [number, number][] }>;
@@ -130,9 +142,21 @@ export async function serveFixtures(page: Page) {
   });
 }
 
-export const test = base.extend<{ app: Page }>({
-  app: async ({ page }, use) => {
+export const test = base.extend<{ app: Page; firstLaunch: boolean }>({
+  /** Start as a new install (no saved layout: #83). Otherwise both panels start open. */
+  firstLaunch: [false, { option: true }],
+  app: async ({ page, firstLaunch }, use) => {
     await page.addInitScript({ path: TAURI_MOCK });
+    if (!firstLaunch) {
+      await page.addInitScript(() => {
+        if (!localStorage.getItem("smart-beat:layout")) {
+          localStorage.setItem(
+            "smart-beat:layout",
+            JSON.stringify({ mixer: true, inspector: true }),
+          );
+        }
+      });
+    }
     // The 3 s startup splash is tested in splash.spec.ts; elsewhere it would only slow tests down.
     await page.addInitScript(() => {
       (window as unknown as { __splashMinMs: number }).__splashMinMs = 0;
@@ -206,7 +230,8 @@ export async function tabNumbers(page: Page): Promise<string[]> {
     .evaluateAll((texts) =>
       texts
         // Bar numbers are drawn in red.
-        .filter((t) => t.getAttribute("fill") !== "#C80000")
+        // Bar numbers are drawn in red (light) or salmon (dark).
+        .filter((t) => !["#C80000", "#FF8A80"].includes(t.getAttribute("fill") ?? ""))
         .map((t) => t.textContent?.trim() ?? "")
         .filter((text) => /^\d+$/.test(text)),
     );

@@ -244,7 +244,17 @@ pub struct EngineStatus {
     pub faults: u32,
     /// Peak time spent in the audio callback since the last report (% of the buffer).
     pub load_percent: f64,
+    /// Loops played to the end since the last report (the Speed Trainer counts them, #83).
+    pub loops: u32,
     pub meters: Meters,
+}
+
+/// A bar of clicks before every loop: beats, and a beat's length at normal speed (seconds).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopCountIn {
+    pub beats: u32,
+    pub beat_seconds: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -269,6 +279,9 @@ pub enum Transport {
     Loop {
         start_tick: Option<u32>,
         end_tick: Option<u32>,
+        /// Clicks before every loop (#83).
+        #[serde(default)]
+        count_in: Option<LoopCountIn>,
     },
     Metronome {
         volume: f32,
@@ -284,6 +297,14 @@ pub enum Transport {
         channel: u8,
         key: u8,
         velocity: u8,
+        /// The instrument to play it with (a reference note of a string, #83). None: the
+        /// channel's current one.
+        #[serde(default)]
+        program: Option<u8>,
+    },
+    /// Ends the previewed notes of a channel.
+    PreviewStop {
+        channel: u8,
     },
 }
 
@@ -530,9 +551,9 @@ fn status(inner: &Inner) -> Result<EngineStatus, CommandError> {
         return Ok(EngineStatus::default());
     };
     let published = &output.published;
-    let (duration, meters) = {
+    let (duration, meters, loops) = {
         let mut engine = engine.lock().unwrap();
-        (engine.duration(), engine.take_meters())
+        (engine.duration(), engine.take_meters(), engine.take_loops())
     };
     Ok(EngineStatus {
         running: true,
@@ -544,6 +565,7 @@ fn status(inner: &Inner) -> Result<EngineStatus, CommandError> {
         dropouts: published.dropouts.swap(0, Ordering::Relaxed),
         faults: published.faults.swap(0, Ordering::Relaxed),
         load_percent: published.load_permille.swap(0, Ordering::Relaxed) as f64 / 10.0,
+        loops,
         meters,
     })
 }
@@ -598,7 +620,9 @@ pub fn audio_transport(
         Transport::Loop {
             start_tick,
             end_tick,
+            count_in,
         } => {
+            engine.set_loop_count_in(count_in.map(|c| (c.beats, c.beat_seconds)));
             let range = start_tick
                 .zip(end_tick)
                 .zip(inner.song.as_ref())
@@ -612,11 +636,17 @@ pub fn audio_transport(
             channel,
             key,
             velocity,
+            program,
         } => {
-            if let Err(e) = engine.preview(channel, key, velocity) {
+            let result = match program {
+                Some(program) => engine.preview_with(channel, program, key, velocity),
+                None => engine.preview(channel, key, velocity),
+            };
+            if let Err(e) = result {
                 eprintln!("preview: {e}");
             }
         }
+        Transport::PreviewStop { channel } => engine.preview_stop(channel),
     })
 }
 

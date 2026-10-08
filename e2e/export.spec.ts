@@ -200,6 +200,59 @@ test.describe("print and PDF (#17)", () => {
     await expectNoA11y(app);
   });
 
+  test("Export as PDF saves the score where the user chose, with a clear message (#83)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await app.evaluate(() => (window.__saveResult = "/Users/me/Music/practice-song.pdf"));
+    const dialog = await openPrintDialog(app);
+    await expect(dialog).toContainText("Export as PDF saves a PDF file where you choose");
+    await dialog.getByRole("combobox", { name: "Orientation" }).click();
+    await app.getByRole("option", { name: "Landscape" }).click();
+    await dialog.getByRole("button", { name: "Export as PDF…" }).click();
+
+    await expect(app.getByText("Exported “practice-song.pdf”")).toBeVisible();
+    await expect(app.getByText("/Users/me/Music/practice-song.pdf")).toBeVisible();
+    const exports = await app.evaluate(() => window.__pdfExports ?? []);
+    expect(exports).toHaveLength(1);
+    expect(exports[0]).toMatchObject({
+      path: "/Users/me/Music/practice-song.pdf",
+      page: { widthPt: 595.28, heightPt: 841.89, landscape: true },
+    });
+    // The print copy was in place while macOS printed it, and is gone afterwards.
+    expect(exports[0]!.parts).toBeGreaterThan(0);
+    await expect(app.locator("#print-root")).toHaveCount(0);
+    // No system print dialog.
+    expect(await app.evaluate(() => window.__printCalls)).toBe(0);
+  });
+
+  test("Export as PDF says why it failed (#83)", async ({ app }) => {
+    await openSong(app);
+    await app.evaluate(() => {
+      window.__saveResult = "/Users/me/Music/song.pdf";
+      window.__pdfFail = "The disk is full.";
+    });
+    await emitMenuAction(app, "export-pdf");
+    await expect(app.getByText("Couldn't export the PDF")).toBeVisible();
+    await expect(app.getByText("The disk is full.")).toBeVisible();
+    await expect(app.locator("#print-root")).toHaveCount(0);
+  });
+
+  test("a print the app refuses is reported, not silently dropped (#83)", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("radio", { name: "Continuous" }).click();
+    await app.evaluate(() => {
+      window.print = () => Promise.reject(new Error("Printing is not allowed.")) as never;
+    });
+    const dialog = await openPrintDialog(app);
+    await dialog.getByRole("button", { name: "Print…" }).click();
+    await expect(app.getByText("Couldn't print")).toBeVisible();
+    await expect(app.getByText(/Printing is not allowed\./)).toBeVisible();
+    await expect(app.locator("#print-root")).toHaveCount(0);
+    // The screen layout came back without an afterprint event.
+    await expect(app.getByRole("radio", { name: "Continuous" })).toBeChecked();
+  });
+
   test("File › Print… (native menu) prints every track as a full score", async ({ app }) => {
     await openSong(app);
     await app.evaluate(() => {

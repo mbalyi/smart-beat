@@ -25,6 +25,7 @@ export class FakeScorePlayer {
   setView = vi.fn();
   setLayout = vi.fn();
   setMix = vi.fn();
+  setFocusCut = vi.fn();
   setSoundFont = vi.fn();
   playPause = vi.fn();
   stop = vi.fn();
@@ -34,10 +35,12 @@ export class FakeScorePlayer {
     return { samples: new Float32Array([0, 0.5, -0.5, 1]), sampleRate: 44_100, channels: 2 };
   });
   setZoom = vi.fn();
+  setTheme = vi.fn();
   /** The view put back after printing. */
   restoreAfterPrint = vi.fn();
   showForPrint = vi.fn((_tracks: number[], _scale: number) => this.restoreAfterPrint);
   previewDrum = vi.fn();
+  previewNote = vi.fn();
   /** Whether the native engine plays (set by tests that need the audio track). */
   usesNativeEngine = false;
   loadBacking = vi.fn(async (source: { type: string; path?: string; name?: string }) => ({
@@ -54,10 +57,13 @@ export class FakeScorePlayer {
   refresh = vi.fn();
   setEditing = vi.fn();
   setLoop = vi.fn();
+  setLoopCountIn = vi.fn();
   setSpeed = vi.fn();
   setMetronome = vi.fn();
   setCountIn = vi.fn();
   seekToBeat = vi.fn();
+  /** The bar under a right click (#83): bar 3 by default. */
+  barAt = vi.fn((): number | null => 2);
   /** Where beats and notes are "drawn": one fixed box each. */
   beatRects = vi.fn(() => [{ x: 10, y: 20, w: 30, h: 100 }]);
   noteRects = vi.fn(() => [{ x: 15, y: 60, w: 8, h: 10 }]);

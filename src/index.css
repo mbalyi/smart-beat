@@ -109,6 +109,9 @@
   --track-6: oklch(0.76 0.13 55);
   --track-7: oklch(0.76 0.1 185);
   --track-8: oklch(0.74 0.12 350);
+  /* The lightness a colour chosen for a track is held to (bar grid and strip on the card). */
+  --track-l-min: 0.3;
+  --track-l-max: 0.8;
   --lcd: oklch(0.2 0.01 250);
   --lcd-foreground: oklch(0.95 0.02 160);
   --lcd-muted: oklch(0.74 0.02 250);
@@ -154,6 +157,8 @@
   --track-6: oklch(0.72 0.14 55);
   --track-7: oklch(0.7 0.1 185);
   --track-8: oklch(0.68 0.14 350);
+  --track-l-min: 0.55;
+  --track-l-max: 0.9;
   --lcd: oklch(0.12 0.01 250);
 }
 
@@ -183,7 +188,7 @@
 
 /*
  * alphaTab playback cursor, selection and highlighted notes. alphaTab leaves
- * these unstyled. The score paper is always light, so the colours are fixed.
+ * these unstyled. The light score's colours; the dark score's follow.
  */
 .score-paper .at-cursor-bar {
   background: oklch(0.92 0.16 95 / 0.25);
@@ -198,6 +203,20 @@
 .score-paper .at-highlight * {
   fill: oklch(0.5 0.22 262);
   stroke: oklch(0.5 0.22 262);
+}
+/* The dark score (#83): the same marks, light enough to read on the dark paper. */
+.dark .score-paper .at-cursor-bar {
+  background: oklch(0.85 0.14 95 / 0.18);
+}
+.dark .score-paper .at-cursor-beat {
+  background: oklch(0.75 0.16 250 / 0.95);
+}
+.dark .score-paper .at-selection div {
+  background: oklch(0.75 0.16 250 / 0.22);
+}
+.dark .score-paper .at-highlight * {
+  fill: oklch(0.8 0.15 250);
+  stroke: oklch(0.8 0.15 250);
 }
 
 /* Printing the score (see lib/print.ts): only the copy of the score in #print-root is printed. */

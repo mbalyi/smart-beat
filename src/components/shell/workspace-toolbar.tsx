@@ -10,6 +10,7 @@ import {
   PencilIcon,
   PlayIcon,
   Redo2Icon,
+  ScanEyeIcon,
   SkipBackIcon,
   SkipForwardIcon,
   SlidersHorizontalIcon,
@@ -22,6 +23,7 @@ import {
 import { LcdDisplay } from "@/components/shell/lcd-display";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EDIT_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Layout, PlaybackPosition } from "@/lib/score/player";
@@ -38,13 +40,6 @@ const LAYOUTS: { value: Layout; label: string }[] = [
   { value: "page", label: "Page" },
   { value: "horizontal", label: "Continuous" },
 ];
-
-/**
- * Pressed Edit stands out in blue, the colour of the edit cursor. Radix sets
- * both `data-state=on` and `aria-pressed`, so both are overridden.
- */
-const EDIT_PRESSED =
-  "data-[state=on]:border-sky-700 data-[state=on]:bg-sky-700 aria-pressed:bg-sky-700 data-[state=on]:text-white data-[state=on]:hover:bg-sky-800 data-[state=on]:hover:text-white";
 
 const isNotation = (value: string): value is NotationView =>
   NOTATIONS.some((n) => n.value === value);
@@ -84,7 +79,9 @@ export function WorkspaceToolbar({
   onStop,
   onSeekBar,
   onTempo,
+  tempo,
   practice,
+  practiceMix,
   instrumentView,
   instrumentLabel,
   onToggleInstrumentView,
@@ -92,6 +89,8 @@ export function WorkspaceToolbar({
   onToggleInspector,
   mixerOpen,
   onToggleMixer,
+  practiceView,
+  onTogglePracticeView,
   headerSlot,
   active = true,
 }: {
@@ -128,8 +127,12 @@ export function WorkspaceToolbar({
   onSeekBar: (barIndex: number) => void;
   /** Opens the tempo dialog. */
   onTempo?: () => void;
+  /** The song's tempo here and the practice speed, for the display (#83). */
+  tempo?: { songBpm: number; speed: number };
   /** Practice tools (loop, speed, metronome…). */
   practice?: ReactNode;
+  /** The practice mix control, after the practice tools (#83). */
+  practiceMix?: ReactNode;
   instrumentView: boolean;
   /** "Fretboard", "Keyboard" or "Drum pads", for the shown track. */
   instrumentLabel: string;
@@ -138,6 +141,9 @@ export function WorkspaceToolbar({
   onToggleInspector: () => void;
   mixerOpen: boolean;
   onToggleMixer: () => void;
+  /** Practice View is on (#83): only the score and these controls. */
+  practiceView: boolean;
+  onTogglePracticeView: () => void;
   /** Where the main controls go: the app header's centre. Without it they sit above the view options. */
   headerSlot?: HTMLElement | null;
   /** The song is shown (hidden songs leave the header to the shown one). */
@@ -253,6 +259,20 @@ export function WorkspaceToolbar({
             <SkipForwardIcon />
           </Button>
         </div>
+        {/* In the smallest windows the header has no room: the View menu and ⇧⌘P remain. */}
+        <div className="flex items-center gap-1.5 max-sm:hidden">
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={practiceView}
+            onPressedChange={onTogglePracticeView}
+            aria-label="Practice View"
+            title="Practice View: just the score and the playback controls, your track in focus"
+          >
+            <ScanEyeIcon data-icon="inline-start" />
+            <span className="max-2xl:sr-only">Practice View</span>
+          </Toggle>
+        </div>
         <LcdDisplay
           tracks={summary.tracks}
           trackIndex={trackIndex}
@@ -263,6 +283,7 @@ export function WorkspaceToolbar({
           ready={ready}
           onSeekBar={onSeekBar}
           onTempo={onTempo}
+          tempo={tempo}
         />
       </div>
 
@@ -391,6 +412,8 @@ export function WorkspaceToolbar({
           </div>
 
           {practice}
+          {/* The practice mix (#83); no room for it in the smallest windows. */}
+          {practiceMix && <div className="max-sm:hidden">{practiceMix}</div>}
         </div>
       </header>
     </>

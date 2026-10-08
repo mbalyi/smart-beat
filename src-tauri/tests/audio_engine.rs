@@ -127,6 +127,51 @@ fn solo_and_mute_select_the_buses() {
 }
 
 #[test]
+fn reports_every_loop_played_to_the_end() {
+    // The Speed Trainer speeds up after loops; the engine reports them (#83).
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.load(Arc::new(song())).unwrap();
+    engine.set_loop(Some((1.0, 1.5)));
+    engine.seek(1.0);
+    engine.play();
+    render(&mut engine, 1.2);
+    assert_eq!(engine.take_loops(), 2);
+    assert_eq!(engine.take_loops(), 0, "reported once");
+}
+
+#[test]
+fn counts_in_before_every_loop_in_time() {
+    // Two clicks a quarter second apart, then the loop again: half a second between loops.
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.load(Arc::new(song())).unwrap();
+    engine.set_loop(Some((1.0, 1.5)));
+    engine.set_loop_count_in(Some((2, 0.25)));
+    engine.seek(1.0);
+    engine.play();
+    render(&mut engine, 0.75);
+    // The loop ended at 0.5 s: the count-in clicks, the song waits at the loop's start.
+    assert_eq!(engine.take_loops(), 1);
+    assert!(engine.is_active() && !engine.is_playing());
+    assert!(
+        (engine.position() - 1.0).abs() < 1e-9,
+        "{}",
+        engine.position()
+    );
+    render(&mut engine, 0.45);
+    // 0.5 s of count-in, then 0.2 s of the loop.
+    assert!(engine.is_playing());
+    assert!(
+        (engine.position() - 1.2).abs() < 0.01,
+        "{}",
+        engine.position()
+    );
+    // With the count-in off again, the next loop follows straight away.
+    engine.set_loop_count_in(None);
+    render(&mut engine, 1.0);
+    assert!(engine.is_playing(), "no count-in once it is off");
+}
+
+#[test]
 fn seeking_loops_and_stops_at_the_end() {
     let mut engine = Engine::new(sonivox(), RATE);
     engine.load(Arc::new(song())).unwrap();
@@ -259,6 +304,24 @@ fn previews_a_drum_without_playing_the_song() {
     let (l, _) = render(&mut engine, 0.3);
     assert!(rms(&l) > 0.001, "silent preview");
     assert!(!engine.is_playing());
+}
+
+#[test]
+fn previews_a_string_with_its_instrument_and_stops_it() {
+    // The low E of a guitar, with a nylon guitar (GM 25), as the tuner's reference note (#83).
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.preview_with(0, 24, 40, 100).unwrap();
+    let (sounding, _) = render(&mut engine, 0.3);
+    assert!(rms(&sounding) > 0.001, "silent reference note");
+    assert!(!engine.is_playing());
+    engine.preview_stop(0);
+    // Released notes fade out: well after the release, nothing is left.
+    let _ = render(&mut engine, 2.0);
+    let (after, _) = render(&mut engine, 0.3);
+    assert!(
+        rms(&after) < rms(&sounding) / 10.0,
+        "the note keeps ringing"
+    );
 }
 
 fn playing_engine(setup: impl FnOnce(&mut Engine)) -> Engine {

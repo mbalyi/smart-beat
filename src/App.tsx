@@ -13,6 +13,7 @@ import { Welcome } from "@/components/welcome";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { useRecentFiles } from "@/hooks/use-recent-files";
+import { initLayoutPrefs } from "@/lib/score/layout";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
 import { errorText } from "@/lib/errors";
@@ -124,6 +125,10 @@ export function App() {
 
   const open = () => void showOpenDialog();
   const recent = useRecentFiles((path) => void openPath(path), recentsVersion);
+  // A new install starts with a quiet layout; earlier users keep their panels (#83).
+  useEffect(() => {
+    void initLayoutPrefs();
+  }, []);
 
   const [droppedAudio, setDroppedAudio] = useState<{ path: string; nonce: number } | null>(null);
   const dragging = useFileDrop({

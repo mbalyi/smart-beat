@@ -40,6 +40,15 @@ Expected: no clicks, dropouts or stuck notes; stopping is immediate; the sound a
 - listen for the thin, slowed-down sound the warning in the track settings talks about: is it right to warn at that point (below B1, more than an octave under the recording)? Does the other sound set help, as the message says?
 - write a 7/8 and an 11/16 bar and a triplet of triplets (Tuplet › Nested…) with the metronome on: does the click and the cursor agree with what you hear?
 
+### 2c. The tuner's microphone (#83)
+
+Install the bundled app (the browser and `pnpm tauri dev` skip the entitlement). Open a guitar track, show the fretboard, click **Tuner…**, then **Microphone** › **Listen with the microphone**.
+
+- macOS asks for the microphone once, with Smart Beat's reason. Saying no shows how to allow it in System Settings.
+- Play each open string of a guitar and a bass (a five-string bass's low B too). The note shown is the string's; the needle settles within a few cents of a clip-on tuner's reading, and reacts within about a fifth of a second.
+- Stop listening, or close the dialog: the microphone indicator in the menu bar goes off.
+- **Reference notes:** each button plays the string's note with the track's instrument, also while the song is stopped.
+
 ### 3. The right drum for every drum number
 
 [drum-midi-support.md](drum-midi-support.md) says which numbers sound, not whether the sample is the right instrument. Judge by ear:
@@ -50,13 +59,17 @@ Expected: no clicks, dropouts or stuck notes; stopping is immediate; the sound a
 
 ## Printing
 
-### 4. Print and Save as PDF in the macOS window
+### 4. Print and Save as PDF (#83)
 
-WebKit may ignore the `@page` paper size. Check with a song of several tracks and with a larger notation size:
+WebKit may ignore the `@page` paper size. Check with a song of several tracks and with a larger notation size, in light and dark mode (the PDF is always light).
 
-1. File › Print / PDF…, choose the tracks and the size, then Print.
-2. In the macOS print panel, choose PDF › Save as PDF.
-3. Open the PDF: paper size (A4 or Letter as chosen), margins, no cut-off bars, every chosen track present.
+**macOS (installed app):**
+
+1. File › Print / PDF… › **Export as PDF…** (or File › Export › PDF…): a save dialog asks where, no print panel opens, and a message names the file and its folder when it is done.
+2. Open the PDF: paper size and orientation as chosen, margins, no cut-off bars, every chosen track present.
+3. **Print…** opens the macOS print panel (it was blocked before #83). Its PDF › Save as PDF still works.
+
+**Windows:** Print… opens the system print dialog; choose "Microsoft Print to PDF" and the file name there. **Linux:** Print… opens the GTK print dialog; choose "Print to File" (PDF). Note on each which version you used.
 
 ## Files we write
 

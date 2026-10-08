@@ -81,6 +81,7 @@ export function LcdDisplay({
   ready,
   onSeekBar,
   onTempo,
+  tempo,
 }: {
   tracks: TrackSummary[];
   trackIndex: number;
@@ -92,7 +93,23 @@ export function LcdDisplay({
   onSeekBar: (barIndex: number) => void;
   /** Opens the tempo dialog (a click on the tempo, as in Guitar Pro). */
   onTempo?: () => void;
+  /**
+   * The song's tempo at the current bar and the practice speed (%), to tell the song's tempo
+   * from the one heard while the speed is changed (#83).
+   */
+  tempo?: { songBpm: number; speed: number };
 }) {
+  // At another speed: "Song 50 · Playback 30 BPM" (both are right, but they are not the same).
+  const slowed = tempo && tempo.speed !== 100 ? tempo : null;
+  const playbackBpm = slowed
+    ? Math.round(((slowed.songBpm * slowed.speed) / 100) * 10) / 10
+    : position.bpm;
+  const tempoText = slowed
+    ? `Song ${slowed.songBpm} · Playback ${playbackBpm} BPM`
+    : `♩ = ${position.bpm} BPM`;
+  const tempoName = slowed
+    ? `Song tempo ${slowed.songBpm} BPM, heard at ${playbackBpm} BPM at ${slowed.speed}% speed`
+    : `Tempo ${position.bpm} BPM`;
   const trackLabelId = useId();
 
   return (
@@ -145,13 +162,13 @@ export function LcdDisplay({
             <button
               type="button"
               onClick={onTempo}
-              aria-label={`Tempo ${position.bpm} BPM. Change the tempo…`}
+              aria-label={`${tempoName}. Change the tempo…`}
               className="rounded px-1 text-lcd-muted tabular-nums outline-none hover:bg-white/10 hover:text-lcd-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              ♩ = {position.bpm} BPM
+              {tempoText}
             </button>
           ) : (
-            <span className="text-lcd-muted tabular-nums">♩ = {position.bpm} BPM</span>
+            <span className="text-lcd-muted tabular-nums">{tempoText}</span>
           ))}
       </div>
     </div>

@@ -447,6 +447,8 @@ test.describe("mixer (#6)", () => {
       .locator("input[type=file]")
       .setInputFiles(path.join(import.meta.dirname, "fixtures/practice-song.gp"));
     await waitForScore(page);
+    // A first launch starts without the mixer (#83).
+    await page.getByRole("button", { name: "Mixer" }).click();
 
     await expect(page.getByText("Mix changes last until you close this song.")).toBeVisible();
   });

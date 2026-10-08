@@ -33,6 +33,11 @@ import {
 import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
+import { PracticeMix } from "@/components/score/practice-mix";
+import { ScoreContextMenu, type ScoreMenuActions } from "@/components/score/score-context-menu";
+import { baseName } from "@/lib/score/format";
+import { useTheme } from "@/hooks/use-theme";
+import { TunerDialog } from "@/components/score/tuner-dialog";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
@@ -47,7 +52,7 @@ import { TrackList, type TrackActions } from "@/components/shell/track-list";
 import { WorkspaceToolbar } from "@/components/shell/workspace-toolbar";
 import { useEditorKeys } from "@/hooks/use-editor-keys";
 import { useFileActions } from "@/hooks/use-file-actions";
-import { useM4aSupport } from "@/hooks/use-m4a-support";
+import { useM4aSupport, usePdfSupport } from "@/hooks/use-m4a-support";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
@@ -105,6 +110,7 @@ import {
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
 import {
+  pdfPage,
   printScore,
   readPrintSettings,
   storePrintSettings,
@@ -120,8 +126,10 @@ import {
   EMPTY_AUTOMATION,
   FLAT_EQ,
   mixerReducer,
+  readFocusCutDb,
   removeSound,
   soundEffects,
+  storeFocusCutDb,
   soundNames,
   trackEffects,
   trackInterpretation,
@@ -131,6 +139,12 @@ import {
   type MixerChange,
   type TrackState,
 } from "@/lib/score/mixer";
+import {
+  CLASSIC_LAYOUT,
+  readLayoutPrefs,
+  storeLayoutPrefs,
+  type LayoutPrefs,
+} from "@/lib/score/layout";
 import { trackContent, type Beat, type Track } from "@/lib/score/model";
 import {
   ScorePlayer,
@@ -153,6 +167,7 @@ import {
   barSettingsOf,
   barSettingsRange,
   changedParts,
+  sectionsOf,
   structureWarnings,
   tempoAt,
   toggleRepeatEnd,
@@ -191,10 +206,13 @@ import {
   isTauri,
   MIXER_SETTINGS_VERSION,
   pickAudioFile,
+  pickSavePath,
   saveMixerSettings,
+  writePdfFile,
   type AudioTrackSettings,
   type BackingInfo,
   type BackingSource,
+  type FocusMode,
   type MenuAction,
   type MixerSettings,
   type NoteEffectFlags,
@@ -359,6 +377,11 @@ export function ScoreWorkspace({
   const view = viewOf(trackObject, trackIndex);
   // Bars of the shown track that do not add up to their time signature.
   const revision = editor.revision; // changes with every edit, which changes the bars in place
+  // The song's named parts, to practise them by name (#83).
+  const sections = useMemo(() => {
+    void revision;
+    return sectionsOf(score);
+  }, [score, revision]);
   const problems = useMemo(() => {
     void revision;
     return barProblems(score, trackIndex);
@@ -393,12 +416,17 @@ export function ScoreWorkspace({
   const [pedalboard, setPedalboard] = useState<{
     open: boolean;
     track: number | null;
+    /**
+     * The track it was opened for (none: the master). The dialog's Track / Mastering switch
+     * goes back to it, whatever track is highlighted in the mixer by then.
+     */
+    opened: number | null;
     focus?: EffectType;
     /** The sound of the track being edited. */
     sound: number;
     /** Changes with every opening, so the dialog starts fresh. */
     session: number;
-  }>({ open: false, track: null, sound: 0, session: 0 });
+  }>({ open: false, track: null, opened: null, sound: 0, session: 0 });
   const [drumMixer, setDrumMixer] = useState<{ open: boolean; track: number }>({
     open: false,
     track: 0,
@@ -415,11 +443,25 @@ export function ScoreWorkspace({
   const library = useSoundLibrary();
   const drumKits = useDrumKits();
   const [kitsOpen, setKitsOpen] = useState(false);
-  const [mixerOpen, setMixerOpen] = useState(true);
+  // The panels the user left open (a new install starts without them, #83).
+  const [mixerOpen, setMixerOpen] = useState(() => (readLayoutPrefs() ?? CLASSIC_LAYOUT).mixer);
   // Side panels cover the score in narrow windows: start without the inspector there.
   const [inspectorOpen, setInspectorOpen] = useState(
-    () => !window.matchMedia?.("(max-width: 1023px)").matches,
+    () =>
+      (readLayoutPrefs() ?? CLASSIC_LAYOUT).inspector &&
+      !window.matchMedia?.("(max-width: 1023px)").matches,
   );
+  /**
+   * Practice View (#83): only the score and the playback and practice controls, the practised
+   * track in focus. Holds what to put back when it ends (null: off). The panels' own state is
+   * untouched, so they come back as they were.
+   */
+  const [practiceView, setPracticeView] = useState<{
+    editing: boolean;
+    focus?: number;
+    focusMode?: FocusMode;
+  } | null>(null);
+  const [focusCutDb, setFocusCutDb] = useState(readFocusCutDb);
   const [inspectorTab, setInspectorTab] = useState<"song" | "track">("track");
   // Narrowing the window below 1024 px closes the inspector: it would cover the score.
   useEffect(() => {
@@ -435,6 +477,9 @@ export function ScoreWorkspace({
   const [syncOffset, setSyncOffset] = useState(readSyncOffset);
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
   const [trainerOpen, setTrainerOpen] = useState(false);
+  const [tunerOpen, setTunerOpen] = useState(false);
+  /** The bars the Speed Trainer was opened for from the score's context menu (#83). */
+  const [trainerRange, setTrainerRange] = useState<LoopRange | null>(null);
   /** The bar dialog's bar and its settings when it opened (kept while it closes). */
   const [barDialog, setBarDialog] = useState<{
     open: boolean;
@@ -483,6 +528,7 @@ export function ScoreWorkspace({
   useSavedMix(song, mix, saved);
 
   const m4aSupported = useM4aSupport();
+  const pdfSupported = usePdfSupport();
   const fileActions = useFileActions({
     song,
     editor,
@@ -570,10 +616,12 @@ export function ScoreWorkspace({
 
   // The initial state, read once when the player is created. Later changes go
   // straight to the player from the handlers below.
-  const initial = useRef({ trackIndex, view, layout, soundFont });
+  // The score follows the app's light or dark mode; printing stays light (#83).
+  const { resolvedTheme } = useTheme();
+  const initial = useRef({ trackIndex, view, layout, soundFont, theme: resolvedTheme });
   // Kept current, for a player created again (the audio engine changed).
   useEffect(() => {
-    initial.current = { trackIndex, view, layout, soundFont };
+    initial.current = { trackIndex, view, layout, soundFont, theme: resolvedTheme };
   });
 
   /** A new player for the same song (other audio engine) gets the current settings. */
@@ -584,6 +632,8 @@ export function ScoreWorkspace({
     player.setSpeed(practice.speed);
     player.setMetronome(practice.metronome);
     player.setCountIn(practice.countIn);
+    player.setLoopCountIn(!!practice.trainer?.countInBetween && audioEngine === "native");
+    player.setFocusCut(focusCutDb);
   });
   const playerCreated = useRef(false);
 
@@ -604,6 +654,7 @@ export function ScoreWorkspace({
         soundFontUrl: getSoundFont(start.soundFont).url,
         reducedMotion: prefersReducedMotion(),
         audioEngine,
+        theme: start.theme,
       },
       {
         onRenderingChange: setRendering,
@@ -669,6 +720,11 @@ export function ScoreWorkspace({
     storePracticePrefs({ metronome, countIn });
   }, [metronome, countIn]);
   useEffect(() => playerRef.current?.setEditing(editing), [editing]);
+  useEffect(() => playerRef.current?.setFocusCut(focusCutDb), [focusCutDb]);
+  useEffect(() => playerRef.current?.setTheme(resolvedTheme), [resolvedTheme]);
+  // A count-in before every loop, while the Speed Trainer asks for one (native engine; #83).
+  const loopCountIn = !!practice.trainer?.countInBetween && audioEngine === "native";
+  useEffect(() => playerRef.current?.setLoopCountIn(loopCountIn), [loopCountIn]);
 
   /** After every change to the music: new mix order, re-render, new MIDI. */
   const onModelChange = useEffectEvent(() => {
@@ -684,6 +740,7 @@ export function ScoreWorkspace({
         automation: EMPTY_AUTOMATION,
         drums: null,
         kit: null,
+        color: null,
         focused: false,
       };
       stateByTrack.current.set(t, fresh);
@@ -884,7 +941,15 @@ export function ScoreWorkspace({
     focusScore();
   };
 
-  const toggleEditing = () => setEditing((on) => !on);
+  const toggleEditing = () => {
+    // Editing ends Practice View.
+    if (practiceView) {
+      leavePracticeView();
+      setEditing(true);
+      return;
+    }
+    setEditing((on) => !on);
+  };
 
   // Entering edit mode puts the keyboard in the score and shows the cursor.
   useEffect(() => {
@@ -929,6 +994,48 @@ export function ScoreWorkspace({
     if (commit) playerRef.current?.setMix(next);
   };
 
+  // --- Panels and Practice View (#83) ------------------------------------------------------
+
+  const showMixer = mixerOpen && !practiceView;
+  const showInspector = inspectorOpen && !practiceView;
+  const showInstrumentView = instrumentView && !practiceView;
+  const rememberPanels = (change: Partial<LayoutPrefs>) =>
+    storeLayoutPrefs({ ...(readLayoutPrefs() ?? CLASSIC_LAYOUT), ...change });
+  const enterPracticeView = () => {
+    setPracticeView({ editing, focus: mix.focus, focusMode: mix.focusMode });
+    setEditing(false);
+    if (mix.focus === undefined) changeMix({ type: "focus", track: trackIndex });
+  };
+  /** Ends Practice View: the panels, edit mode and the mix's focus come back as they were. */
+  const leavePracticeView = () => {
+    if (!practiceView) return;
+    setPracticeView(null);
+    setEditing(practiceView.editing);
+    changeMix({
+      type: "focus",
+      track: practiceView.focus ?? null,
+      mode: practiceView.focusMode ?? "othersDown",
+    });
+  };
+  const togglePracticeView = () => (practiceView ? leavePracticeView() : enterPracticeView());
+  /** A panel switch in Practice View ends it and shows the panel. */
+  const toggleMixer = () => {
+    const next = practiceView ? true : !mixerOpen;
+    leavePracticeView();
+    setMixerOpen(next);
+    rememberPanels({ mixer: next });
+  };
+  const toggleInspector = () => {
+    const next = practiceView ? true : !inspectorOpen;
+    leavePracticeView();
+    setInspectorOpen(next);
+    rememberPanels({ inspector: next });
+  };
+  const changeFocusCut = (db: number) => {
+    setFocusCutDb(db);
+    storeFocusCutDb(db);
+  };
+
   const resetMix = () =>
     changeMix({
       type: "reset",
@@ -958,8 +1065,17 @@ export function ScoreWorkspace({
         changeMix({ type: "effects", track, slots: chain });
       }
     }
-    setPedalboard((p) => ({ open: true, track, focus, sound: 0, session: p.session + 1 }));
+    setPedalboard((p) => ({
+      open: true,
+      track,
+      opened: track,
+      focus,
+      sound: 0,
+      session: p.session + 1,
+    }));
   };
+  /** The track the pedalboard edits, or would edit when switched back from the master. */
+  const pedalboardTrack = pedalboard.track ?? pedalboard.opened ?? trackIndex;
   const pedalboardTarget: PedalboardTarget =
     pedalboard.track === null
       ? { track: null, name: "Master", presetTarget: "master" }
@@ -1141,7 +1257,7 @@ export function ScoreWorkspace({
     if (!engineOn) {
       toast.info("The audio track plays with the native audio engine", {
         action: nativeEngineAvailable()
-          ? { label: "Turn it on", onClick: () => changeAudioEngine("native") }
+          ? { label: "Enable effects playback", onClick: () => changeAudioEngine("native") }
           : undefined,
       });
       return;
@@ -1189,6 +1305,11 @@ export function ScoreWorkspace({
   }, [droppedAudio]);
 
   const toggleInstrumentView = () => {
+    // In Practice View the switch ends it and shows the view.
+    if (practiceView) {
+      leavePracticeView();
+      if (instrumentView) return;
+    }
     setInstrumentView((shown) => {
       storeInstrumentView(!shown);
       return !shown;
@@ -1343,7 +1464,11 @@ export function ScoreWorkspace({
   // --- Print ----------------------------------------------------------------
 
   /** Prints the score: in the page layout, which is switched to for the time it takes. */
-  const submitPrint = (settings: PrintSettings, tracks: PrintTracks) => {
+  /**
+   * Prints the chosen tracks, or with `pdfPath` saves them as a PDF there without the print
+   * dialog (macOS app; #83). Either way the score is laid out for paper first and put back after.
+   */
+  const submitPrint = (settings: PrintSettings, tracks: PrintTracks, pdfPath?: string) => {
     setPrintSettings(settings);
     storePrintSettings(settings);
     const player = playerRef.current;
@@ -1356,20 +1481,63 @@ export function ScoreWorkspace({
       restored = true;
       restore();
     };
-    window.addEventListener("afterprint", back, { once: true });
+    if (!pdfPath) window.addEventListener("afterprint", back, { once: true });
+    const what = pdfPath ? "Couldn't export the PDF" : "Couldn't print";
+    const toastId = pdfPath ? toast.loading("Exporting the PDF…") : undefined;
     afterRender.current = async () => {
       const surface = surfaceRef.current;
+      let cleanup: (() => void) | null = null;
+      const failed = (error: unknown) => {
+        toast.error(what, {
+          id: toastId,
+          description:
+            pdfPath || !pdfSupported
+              ? errorText(error)
+              : `${errorText(error)} Try Export as PDF in the print settings instead.`,
+        });
+        back();
+      };
+      const exportFile = () =>
+        writePdfFile(pdfPath!, pdfPage(settings)).then(() => {
+          cleanup?.();
+          back();
+          toast.success(`Exported “${baseName(pdfPath!)}”`, {
+            id: toastId,
+            description: pdfPath,
+          });
+        });
       try {
         // The parts of the score arrive a moment after the render.
-        if (!surface || !(await whenDrawn(surface)) || !printScore(surface, settings)) {
-          toast.error("There is nothing to print yet");
+        cleanup =
+          surface && (await whenDrawn(surface))
+            ? printScore(surface, settings, pdfPath ? exportFile : undefined, failed)
+            : null;
+        if (!cleanup) {
+          toast.error("There is nothing to print yet", { id: toastId });
           back();
         }
       } catch (error) {
-        toast.error("Couldn't print", { description: errorText(error) });
-        back();
+        failed(error);
       }
     };
+  };
+
+  /** Asks where to save the PDF, then exports it (#83). */
+  const exportPdf = async (settings: PrintSettings, tracks: PrintTracks) => {
+    try {
+      const dir = song.path?.match(/^(.*[\\/])/)?.[1] ?? "";
+      const stem = song.name.replace(/\.[^.]+$/, "");
+      let path = await pickSavePath(
+        `${dir}${stem}.pdf`,
+        [{ name: "PDF", extensions: ["pdf"] }],
+        "Export as PDF",
+      );
+      if (!path) return;
+      if (!path.toLowerCase().endsWith(".pdf")) path = `${path}.pdf`;
+      submitPrint(settings, tracks, path);
+    } catch (error) {
+      toast.error("Couldn't export the PDF", { description: errorText(error) });
+    }
   };
 
   // Ctrl/⌘+P prints the shown song.
@@ -1398,6 +1566,7 @@ export function ScoreWorkspace({
       bar: start.bar + 1,
       endBar: end.bar + 1,
       beats: score.masterBars[cursorBar]?.timeSignatureNumerator ?? 4,
+      speed: practice.speed,
     };
   };
 
@@ -1429,6 +1598,27 @@ export function ScoreWorkspace({
     focusScore();
   };
 
+  /** The score's right-click menu (#83). */
+  const loopBars = (start: number, end: number) =>
+    dispatchPractice({ type: "loop", value: true, range: { start, end } });
+  const scoreMenuActions: ScoreMenuActions = {
+    onPlayFrom: (at) => {
+      editor.setCursorTo({ bar: at, beat: 0, voice: 0 });
+      playerRef.current?.seekToBar(at);
+      if (!playing && ready) playPause();
+    },
+    onLoopBar: (at) => loopBars(at, at),
+    onLoopStart: (at) =>
+      practice.loop ? loopBars(at, Math.max(at, practice.range.end)) : loopBars(at, at),
+    onLoopEnd: (at) =>
+      practice.loop ? loopBars(Math.min(practice.range.start, at), at) : loopBars(at, at),
+    onPracticeSection: (section) => loopBars(section.start, section.end),
+    onTrainer: (range) => {
+      setTrainerRange(range);
+      setTrainerOpen(true);
+    },
+  };
+
   // --- Menu -------------------------------------------------------------------
 
   useMenuActions((action) => {
@@ -1450,6 +1640,15 @@ export function ScoreWorkspace({
         break;
       case "toggle-fretboard":
         toggleInstrumentView();
+        break;
+      case "toggle-mixer":
+        toggleMixer();
+        break;
+      case "toggle-inspector":
+        toggleInspector();
+        break;
+      case "toggle-practice-view":
+        togglePracticeView();
         break;
       case "add-track":
         setTrackDialog({ mode: "add" });
@@ -1505,6 +1704,9 @@ export function ScoreWorkspace({
       case "export-audio-m4a":
         void fileActions.exportAudio("m4a");
         break;
+      case "export-pdf":
+        void exportPdf(printSettings, [trackIndex]);
+        break;
       case "print":
         setPrintOpen(true);
         break;
@@ -1546,7 +1748,10 @@ export function ScoreWorkspace({
       redo: editor.redoLabel,
       canRemoveTrack: score.tracks.length > 1,
       editMode: editing,
-      fretboard: instrumentView,
+      fretboard: showInstrumentView,
+      mixer: showMixer,
+      inspector: showInspector,
+      practiceView: !!practiceView,
       loop: practice.loop,
       metronome: practice.metronome,
       countIn: practice.countIn,
@@ -1661,6 +1866,7 @@ export function ScoreWorkspace({
         onPlayPause={playPause}
         onStop={() => playerRef.current?.stop()}
         onTempo={() => setTempoOpen(true)}
+        tempo={{ songBpm: tempoAt(score, bar), speed: practice.speed }}
         onSeekBar={(index) => playerRef.current?.seekToBar(index)}
         practice={
           <PracticeControls
@@ -1673,17 +1879,31 @@ export function ScoreWorkspace({
             onCountInChange={(value) => dispatchPractice({ type: "count-in", value })}
             onOpenTrainer={() => setTrainerOpen(true)}
             onStopTrainer={() => dispatchPractice({ type: "stop-trainer" })}
+            onHoldTrainer={(value) => dispatchPractice({ type: "hold-trainer", value })}
+            sections={sections}
           />
         }
-        instrumentView={instrumentView}
+        instrumentView={showInstrumentView}
         instrumentLabel={instrumentViewName(track.kind)}
         onToggleInstrumentView={toggleInstrumentView}
-        inspectorOpen={inspectorOpen}
-        onToggleInspector={() => setInspectorOpen((open) => !open)}
-        mixerOpen={mixerOpen}
+        inspectorOpen={showInspector}
+        onToggleInspector={toggleInspector}
+        mixerOpen={showMixer}
         headerSlot={headerSlot}
         active={active}
-        onToggleMixer={() => setMixerOpen((open) => !open)}
+        onToggleMixer={toggleMixer}
+        practiceView={!!practiceView}
+        onTogglePracticeView={togglePracticeView}
+        practiceMix={
+          <PracticeMix
+            tracks={summary.tracks}
+            shown={trackIndex}
+            mix={mix}
+            onChange={changeMix}
+            cutDb={focusCutDb}
+            onCutChange={changeFocusCut}
+          />
+        }
       />
       {tabs}
       <BarProblems problems={problems} onFix={() => fixBars()} onGoTo={goToBar} />
@@ -1709,18 +1929,27 @@ export function ScoreWorkspace({
         </NotePalette>
         {/* Scrolls as a whole when the window is too short for all of it. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-          <ScoreView
-            viewportRef={viewportRef}
-            surfaceRef={surfaceRef}
-            label={`Score: ${track.name}`}
-            layout={layout}
-            rendering={rendering}
-            editing={editing}
-            overlay={overlay}
-            problemRects={problemRects}
-            describedBy={editing ? statusId : undefined}
-          />
-          {instrumentView && (
+          <ScoreContextMenu
+            barAt={(x, y) => {
+              const rect = surfaceRef.current?.getBoundingClientRect();
+              return rect ? (playerRef.current?.barAt(x - rect.left, y - rect.top) ?? null) : null;
+            }}
+            sections={sections}
+            actions={scoreMenuActions}
+          >
+            <ScoreView
+              viewportRef={viewportRef}
+              surfaceRef={surfaceRef}
+              label={`Score: ${track.name}`}
+              layout={layout}
+              rendering={rendering}
+              editing={editing}
+              overlay={overlay}
+              problemRects={problemRects}
+              describedBy={editing ? statusId : undefined}
+            />
+          </ScoreContextMenu>
+          {showInstrumentView && (
             <InstrumentPanel
               kind={track.kind}
               tuning={track.tuning}
@@ -1729,6 +1958,8 @@ export function ScoreWorkspace({
               editing={editing}
               cursorString={track.kind === "stringed" ? editor.cursor.string : null}
               drumSounds={shownNotes.map((n) => n.pitch)}
+              onPlayString={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
+              onOpenTuner={() => setTunerOpen(true)}
               onFret={(string, fret) => {
                 editor.setString(string);
                 editor.setFret(fret - track.capo);
@@ -1757,7 +1988,7 @@ export function ScoreWorkspace({
           )}
           {showLyrics && <LyricsStrip lines={lyricLines} current={lyricBeat} />}
         </div>
-        {inspectorOpen && (
+        {showInspector && (
           <aside
             aria-label="Inspector"
             className="flex min-h-0 w-72 shrink-0 flex-col border-l bg-sidebar text-sidebar-foreground max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 max-lg:shadow-xl"
@@ -1768,7 +1999,7 @@ export function ScoreWorkspace({
               variant="ghost"
               size="xs"
               className="self-end lg:hidden"
-              onClick={() => setInspectorOpen(false)}
+              onClick={toggleInspector}
             >
               <XIcon data-icon="inline-start" />
               Close inspector
@@ -1788,6 +2019,7 @@ export function ScoreWorkspace({
               view={view}
               onViewChange={changeView}
               mix={mix.tracks[trackIndex]}
+              color={mix.trackColors?.[trackIndex]}
               soundFont={soundFont}
               onSoundFontChange={changeSoundFont}
               soundsReady={ready}
@@ -1823,7 +2055,10 @@ export function ScoreWorkspace({
                   changeMix({ type: "drum-kit", track: trackIndex, kit });
                   if (kit && audioEngine !== "native" && nativeEngineAvailable()) {
                     toast("Imported kits play with the native engine", {
-                      action: { label: "Turn it on", onClick: () => changeAudioEngine("native") },
+                      action: {
+                        label: "Enable effects playback",
+                        onClick: () => changeAudioEngine("native"),
+                      },
                     });
                   }
                 },
@@ -1832,7 +2067,7 @@ export function ScoreWorkspace({
           </aside>
         )}
       </div>
-      {mixerOpen && (
+      {showMixer && (
         <TrackList
           score={score}
           soundFont={soundFont}
@@ -1860,7 +2095,7 @@ export function ScoreWorkspace({
           }
         />
       )}
-      {mixerOpen && audio && audioEditorOpen && (
+      {showMixer && audio && audioEditorOpen && (
         <AudioTrackPanel
           audio={audio}
           info={backingInfo}
@@ -1878,6 +2113,15 @@ export function ScoreWorkspace({
           }
           onClose={() => setAudioEditorOpen(false)}
           canEmbed={isTauri()}
+        />
+      )}
+      {track.kind === "stringed" && (
+        <TunerDialog
+          open={tunerOpen}
+          onOpenChange={setTunerOpen}
+          trackName={track.name}
+          tuning={track.tuning}
+          onPlay={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
         />
       )}
       <PedalboardDialog
@@ -1908,9 +2152,13 @@ export function ScoreWorkspace({
               ? effectProblems.master
               : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
         }
-        trackName={track.name}
+        trackName={summary.tracks[pedalboardTrack]?.name ?? track.name}
         onTargetChange={(mastering) =>
-          setPedalboard((p) => ({ ...p, track: mastering ? null : trackIndex, sound: 0 }))
+          setPedalboard((p) => ({
+            ...p,
+            track: mastering ? null : (p.opened ?? trackIndex),
+            sound: 0,
+          }))
         }
         sounds={pedalboardSounds}
         songPresets={mix.presets}
@@ -2049,7 +2297,10 @@ export function ScoreWorkspace({
         initial={printSettings}
         trackNames={summary.tracks.map((t) => t.name)}
         shownTrack={trackIndex}
-        onSubmit={submitPrint}
+        onSubmit={(settings, tracks) => submitPrint(settings, tracks)}
+        onExportPdf={
+          pdfSupported ? (settings, tracks) => void exportPdf(settings, tracks) : undefined
+        }
         onCloseAutoFocus={returnFocusToScore}
       />
       <TempoDialog
@@ -2069,9 +2320,14 @@ export function ScoreWorkspace({
       />
       <SpeedTrainerDialog
         open={trainerOpen}
-        onOpenChange={setTrainerOpen}
+        onOpenChange={(open) => {
+          setTrainerOpen(open);
+          if (!open) setTrainerRange(null);
+        }}
         barCount={score.masterBars.length}
-        initialRange={suggestedRange()}
+        initialRange={trainerRange ?? suggestedRange()}
+        sections={sections}
+        countInBetweenAvailable={audioEngine === "native"}
         onCloseAutoFocus={returnFocusToScore}
         onStart={(trainer, trainerRange) => {
           dispatchPractice({ type: "start-trainer", trainer, range: trainerRange });

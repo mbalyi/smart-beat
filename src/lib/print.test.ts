@@ -160,6 +160,28 @@ describe("printScore", () => {
   });
 });
 
+describe("printScore in the macOS app (#83)", () => {
+  it("cleans up and says why when the app refuses to print, as no afterprint comes", async () => {
+    const onFailed = vi.fn();
+    const refused = new Error("webview.print not allowed");
+    printScore(surface(1), DEFAULT_PRINT, () => Promise.reject(refused), onFailed);
+    expect(document.getElementById("print-root")).not.toBeNull();
+    await vi.waitFor(() => expect(onFailed).toHaveBeenCalledWith(refused));
+    expect(document.getElementById("print-root")).toBeNull();
+    expect(document.getElementById("print-page-style")).toBeNull();
+  });
+
+  it("keeps the copy while the app's print dialog is open", async () => {
+    const onFailed = vi.fn();
+    printScore(surface(1), DEFAULT_PRINT, () => Promise.resolve(), onFailed);
+    await Promise.resolve();
+    expect(document.getElementById("print-root")).not.toBeNull();
+    window.dispatchEvent(new Event("afterprint"));
+    expect(document.getElementById("print-root")).toBeNull();
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+});
+
 describe("whenDrawn", () => {
   it("waits until the parts have been added and no more come", async () => {
     vi.useFakeTimers();

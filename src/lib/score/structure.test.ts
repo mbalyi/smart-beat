@@ -14,6 +14,8 @@ import {
   toggleRepeatEnd,
   toggleRepeatStart,
   type BarSettings,
+  sectionAt,
+  sectionsOf,
 } from "@/lib/score/structure";
 import { Snapshot } from "@/lib/score/snapshot";
 import { playedBars, texScore } from "@/test/playback";
@@ -279,5 +281,33 @@ describe("structure warnings", () => {
     expect(DIRECTIONS).toHaveLength(19);
     expect(new Set(DIRECTIONS.map((d) => d.value)).size).toBe(19);
     expect(directionInfo(Direction.JumpDaCoda).label).toBe("To Coda");
+  });
+});
+
+describe("song sections (#83)", () => {
+  it("runs each section from its marker to the next, with a label that tells repeats apart", () => {
+    const score = texScore(String.raw`
+      \track "G" \staff {tabs}
+      \section "Intro" :1 0.6 | 0.6 |
+      \section "Chorus" :1 0.6 | 0.6 | 0.6 |
+      \section "Verse" :1 0.6 |
+      \section "Chorus" :1 0.6 | 0.6
+    `);
+    const sections = sectionsOf(score);
+    expect(sections.map((s) => s.label)).toEqual([
+      "Intro · bars 1–2",
+      "Chorus · bars 3–5",
+      "Verse · bar 6",
+      "Chorus · bars 7–8",
+    ]);
+    expect(sectionAt(sections, 3)).toMatchObject({ name: "Chorus", start: 2, end: 4 });
+    expect(sectionAt(sections, 5)?.name).toBe("Verse");
+  });
+
+  it("has none without section markers, and none before the first one", () => {
+    expect(sectionsOf(texScore(String.raw`\track "G" :1 r | r`))).toEqual([]);
+    const late = sectionsOf(texScore(String.raw`\track "G" :1 r | \section "Solo" :1 r | r`));
+    expect(late).toEqual([{ name: "Solo", start: 1, end: 2, label: "Solo · bars 2–3" }]);
+    expect(sectionAt(late, 0)).toBeNull();
   });
 });

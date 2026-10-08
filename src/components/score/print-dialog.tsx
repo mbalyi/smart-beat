@@ -35,12 +35,14 @@ function PrintForm({
   trackNames,
   shownTrack,
   onSubmit,
+  onExportPdf,
   onCancel,
 }: {
   initial: PrintSettings;
   trackNames: string[];
   shownTrack: number;
   onSubmit: (settings: PrintSettings, tracks: PrintTracks) => void;
+  onExportPdf?: (settings: PrintSettings, tracks: PrintTracks) => void;
   onCancel: () => void;
 }) {
   const ids = {
@@ -70,8 +72,9 @@ function PrintForm({
       <DialogHeader>
         <DialogTitle>Print or save as PDF</DialogTitle>
         <DialogDescription>
-          Prints the score in the page layout. To get a PDF, choose “Save as PDF” in the print
-          dialog that opens next.
+          {onExportPdf
+            ? "Export as PDF saves a PDF file where you choose. Print opens the system print dialog."
+            : "Prints the score in the page layout. To get a PDF, choose “Save as PDF” (or “Microsoft Print to PDF”) in the print dialog that opens next, and choose where to save it there."}
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
@@ -201,6 +204,16 @@ function PrintForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
+        {onExportPdf && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={tracks.length === 0}
+            onClick={() => onExportPdf(settings, tracks)}
+          >
+            Export as PDF…
+          </Button>
+        )}
         <Button type="submit" disabled={tracks.length === 0}>
           Print…
         </Button>
@@ -217,6 +230,7 @@ export function PrintDialog({
   trackNames,
   shownTrack,
   onSubmit,
+  onExportPdf,
   onCloseAutoFocus,
 }: {
   open: boolean;
@@ -227,6 +241,8 @@ export function PrintDialog({
   /** The shown track: printed unless others are chosen. */
   shownTrack: number;
   onSubmit: (settings: PrintSettings, tracks: PrintTracks) => void;
+  /** Saves a PDF file without the print dialog (macOS app; #83). */
+  onExportPdf?: (settings: PrintSettings, tracks: PrintTracks) => void;
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
@@ -241,6 +257,13 @@ export function PrintDialog({
               onSubmit(settings, tracks);
               onOpenChange(false);
             }}
+            onExportPdf={
+              onExportPdf &&
+              ((settings, tracks) => {
+                onExportPdf(settings, tracks);
+                onOpenChange(false);
+              })
+            }
             onCancel={() => onOpenChange(false)}
           />
         )}

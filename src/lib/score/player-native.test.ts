@@ -7,6 +7,7 @@ import { midi, PlayerMode } from "@coderline/alphatab";
 
 import { defaultEffect } from "@/lib/audio/effects";
 import { mixerReducer, mixFromScore } from "@/lib/score/mixer";
+import type { NativeEngine } from "@/lib/audio/native-engine";
 import { ScorePlayer } from "@/lib/score/player";
 import { parseScore } from "@/lib/score/score";
 import * as tauri from "@/lib/tauri";
@@ -54,6 +55,7 @@ async function setup() {
   const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
   const onEffectProblems = vi.fn();
   const onReadyChange = vi.fn();
+  const onLoopRestart = vi.fn();
   const mix = mixFromScore(summary);
   const player = new ScorePlayer(
     {
@@ -67,10 +69,10 @@ async function setup() {
       soundFontUrl: "/soundfont/sonivox.sf3",
       audioEngine: "native",
     },
-    { onEffectProblems, onReadyChange },
+    { onEffectProblems, onReadyChange, onLoopRestart },
   );
   const api = FakeAlphaTabApi.last;
-  return { player, api, mix, onEffectProblems, onReadyChange };
+  return { player, api, mix, onEffectProblems, onReadyChange, onLoopRestart };
 }
 
 describe("ScorePlayer with the native engine", () => {
@@ -153,5 +155,39 @@ describe("ScorePlayer with the native engine", () => {
         velocity: 100,
       }),
     );
+  });
+
+  /** The player's engine (private). */
+  const engineOf = (player: ScorePlayer) => (player as unknown as { engine: NativeEngine }).engine;
+  /** The engine's report of finished loops (a private callback). */
+  const reportLoops = (player: ScorePlayer, count: number) =>
+    (
+      engineOf(player) as unknown as { callbacks: { onLoops?: (count: number) => void } }
+    ).callbacks.onLoops?.(count);
+
+  it("advances the Speed Trainer on the engine's own loops, once each (#83)", async () => {
+    const { player, api, onLoopRestart } = await setup();
+    reportLoops(player, 1);
+    expect(onLoopRestart).not.toHaveBeenCalled(); // no loop set
+    player.setLoop({ start: 0, end: 0 });
+    // alphaTab's "finished" is not a loop under the engine: the engine reports those.
+    api.playerFinished.trigger();
+    expect(onLoopRestart).not.toHaveBeenCalled();
+    reportLoops(player, 2);
+    expect(onLoopRestart).toHaveBeenCalledTimes(2);
+  });
+
+  it("counts a bar in before every loop in the loop's own time (#83)", async () => {
+    const { player, api } = await setup();
+    const setLoop = vi.spyOn(engineOf(player), "setLoop");
+    (api as unknown as { tickCache: unknown }).tickCache = {
+      getMasterBarStart: (bar: { index: number }) => bar.index * 3840,
+    };
+    player.setLoopCountIn(true);
+    player.setLoop({ start: 2, end: 3 });
+    // Bar 3 of the practice song: 4/4 at 120 BPM.
+    expect(setLoop).toHaveBeenLastCalledWith(expect.any(Object), { beats: 4, beatSeconds: 0.5 });
+    player.setLoopCountIn(false);
+    expect(setLoop).toHaveBeenLastCalledWith(expect.any(Object), null);
   });
 });

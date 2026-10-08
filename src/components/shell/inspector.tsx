@@ -24,7 +24,7 @@ import { LabeledSlider } from "@/components/labeled-slider";
 import { describeInstrument } from "@/lib/score/instrument-view";
 import { PLAYING_STYLES, type Interpretation, type PlayingStyle } from "@/lib/score/interpretation";
 import { describePan, describeVolume } from "@/lib/score/mixer";
-import { pitchName } from "@/lib/score/music";
+import { pitchName, tuningLabel } from "@/lib/score/music";
 import type { NotationView, TrackSummary, TrackView } from "@/lib/score/score";
 import { isSoundFontId, SOUNDFONTS, type SoundFontId } from "@/lib/score/soundfonts";
 import { MAX_SYNC_OFFSET_MS, MIN_SYNC_OFFSET_MS } from "@/lib/score/sync";
@@ -291,6 +291,7 @@ export function Inspector({
   view,
   onViewChange,
   mix,
+  color,
   soundFont,
   onSoundFontChange,
   soundsReady,
@@ -315,6 +316,8 @@ export function Inspector({
   view: TrackView;
   onViewChange: (view: TrackView) => void;
   mix: TrackMix | undefined;
+  /** The colour the user chose for the track, `#rrggbb`. */
+  color?: string | null;
   soundFont: SoundFontId;
   onSoundFontChange: (id: SoundFontId) => void;
   /** False while instrument sounds load: switching again is disabled. */
@@ -400,7 +403,7 @@ export function Inspector({
             <span
               aria-hidden="true"
               className="size-5 shrink-0 rounded"
-              style={{ backgroundColor: trackColor(track.index) }}
+              style={{ backgroundColor: trackColor(track.index, color) }}
             />
             <p className="min-w-0 flex-1 truncate font-medium">{track.name}</p>
             <Button
@@ -437,6 +440,9 @@ export function Inspector({
           )}
           {track.kind === "stringed" && (
             <Row label="Tuning">
+              <span className="mr-2 font-medium" data-testid="tuning-name">
+                {tuningLabel(track.tuning)}
+              </span>
               <span className="font-mono tracking-widest">
                 {[...track.tuning]
                   .reverse()
