@@ -11,6 +11,7 @@ import {
   GuitarIcon,
   MicVocalIcon,
   MoreVerticalIcon,
+  PaletteIcon,
   PianoIcon,
   PlusIcon,
   RotateCcwIcon,
@@ -53,6 +54,7 @@ import {
 } from "@/lib/score/mixer";
 import type { Score } from "@/lib/score/model";
 import type { TrackSummary } from "@/lib/score/score";
+import { TrackColorDialog } from "@/components/shell/track-color-dialog";
 import { trackColor } from "@/lib/score/track-colors";
 import type { AutomationLaneKind, BackingInfo, MixerSettings } from "@/lib/tauri";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
@@ -130,12 +132,15 @@ function TrackRowMenu({
   actions,
   focused,
   onFocus,
+  onColor,
 }: {
   track: TrackSummary;
   count: number;
   actions: TrackActions;
   focused: boolean;
   onFocus: (focus: boolean) => void;
+  /** Opens the colour picker of the track. */
+  onColor: () => void;
 }) {
   const i = track.index;
   return (
@@ -174,6 +179,10 @@ function TrackRowMenu({
         <DropdownMenuItem onSelect={() => onFocus(!focused)}>
           <CrosshairIcon />
           {focused ? "Unfocus" : "Focus (turn the others down)"}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onColor}>
+          <PaletteIcon />
+          Colour…
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={i === 0} onSelect={() => actions.onMove(i, i - 1)}>
@@ -273,6 +282,7 @@ export function TrackList({
   };
 }) {
   const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
+  const [colorTrack, setColorTrack] = useState<number | null>(null);
   const barCount = score.masterBars.length;
   const grids = useMemo(() => {
     void revision;
@@ -424,7 +434,7 @@ export function TrackList({
                         <span
                           aria-hidden="true"
                           className="h-5 w-1 shrink-0 rounded-full"
-                          style={{ backgroundColor: trackColor(i) }}
+                          style={{ backgroundColor: trackColor(i, mix.trackColors?.[i]) }}
                         />
                         <TrackIcon track={track} />
                         <button
@@ -535,13 +545,14 @@ export function TrackList({
                           actions={actions}
                           focused={focused}
                           onFocus={(on) => onChange({ type: "focus", track: on ? i : null })}
+                          onColor={() => setColorTrack(i)}
                         />
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center px-0">
                     <BarGrid
-                      color={trackColor(i)}
+                      color={trackColor(i, mix.trackColors?.[i])}
                       filled={grids[i] ?? []}
                       current={bar}
                       dimmed={!audible}
@@ -768,6 +779,18 @@ export function TrackList({
           {playing && " Pan changes are applied when you pause."}
         </p>
       </div>
+      {colorTrack !== null && tracks[colorTrack] && (
+        <TrackColorDialog
+          open
+          onOpenChange={(open) => !open && setColorTrack(null)}
+          trackName={tracks[colorTrack].name}
+          index={colorTrack}
+          color={mix.trackColors?.[colorTrack] ?? null}
+          anyCustom={!!mix.trackColors?.some(Boolean)}
+          onChange={(color) => onChange({ type: "track-color", track: colorTrack, color })}
+          onResetAll={() => onChange({ type: "reset-track-colors" })}
+        />
+      )}
     </section>
   );
 }

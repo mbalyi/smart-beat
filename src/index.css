@@ -109,6 +109,9 @@
   --track-6: oklch(0.76 0.13 55);
   --track-7: oklch(0.76 0.1 185);
   --track-8: oklch(0.74 0.12 350);
+  /* The lightness a colour chosen for a track is held to (bar grid and strip on the card). */
+  --track-l-min: 0.3;
+  --track-l-max: 0.8;
   --lcd: oklch(0.2 0.01 250);
   --lcd-foreground: oklch(0.95 0.02 160);
   --lcd-muted: oklch(0.74 0.02 250);
@@ -154,6 +157,8 @@
   --track-6: oklch(0.72 0.14 55);
   --track-7: oklch(0.7 0.1 185);
   --track-8: oklch(0.68 0.14 350);
+  --track-l-min: 0.55;
+  --track-l-max: 0.9;
   --lcd: oklch(0.12 0.01 250);
 }
 

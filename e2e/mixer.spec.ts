@@ -99,6 +99,56 @@ test.describe("mixer (#37)", () => {
     await expect.poll(() => background(mute)).toBe(idle);
   });
 
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`colours a track from the row menu, saves it and resets it, in ${colorScheme} mode (#83)`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await openSong(app);
+      const strip = (name: string) =>
+        app
+          .getByRole("button", { name: `Show ${name}` })
+          .locator("xpath=preceding-sibling::span[contains(@class,'w-1')]");
+      const background = (name: string) =>
+        strip(name).evaluate((el) => getComputedStyle(el).backgroundColor);
+      const guitarBefore = await background("Guitar");
+      const bassBefore = await background("Bass");
+
+      await app.getByRole("button", { name: "Actions for Guitar" }).click();
+      await app.getByRole("menuitem", { name: "Colour…" }).click();
+      const dialog = app.getByRole("dialog", { name: "Track colour: Guitar" });
+      await dialog.getByRole("button", { name: "Blue" }).click();
+      await expect(dialog.getByRole("button", { name: "Blue" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expectNoA11yViolations(app);
+      await dialog.getByRole("button", { name: "Done" }).click();
+
+      await expect.poll(() => background("Guitar")).not.toBe(guitarBefore);
+      // The other tracks keep their colours.
+      expect(await background("Bass")).toBe(bassBefore);
+      await expect
+        .poll(() => app.evaluate(() => [...window.__mixes.values()][0]?.trackColors))
+        .toEqual(["#3e63dd", null, null, null]);
+
+      await app.getByRole("button", { name: "Actions for Guitar" }).click();
+      await app.getByRole("menuitem", { name: "Colour…" }).click();
+      await app
+        .getByRole("dialog", { name: "Track colour: Guitar" })
+        .getByRole("button", { name: "Reset all colours" })
+        .click();
+      await app
+        .getByRole("dialog", { name: "Track colour: Guitar" })
+        .getByRole("button", { name: "Done" })
+        .click();
+      await expect.poll(() => background("Guitar")).toBe(guitarBefore);
+      await expect
+        .poll(() => app.evaluate(() => [...window.__mixes.values()][0]?.trackColors))
+        .toBeUndefined();
+    });
+  }
+
   test("the name column hides the bars scrolled under it", async ({ app }) => {
     await app.emulateMedia({ colorScheme: "dark" });
     await openSong(app);

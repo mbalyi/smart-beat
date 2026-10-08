@@ -353,3 +353,80 @@ describe("drum kits per track (#40)", () => {
     expect(initialMix(SUMMARY, saved).drumKits).toEqual([null, null, "free-kit", null]);
   });
 });
+
+describe("track colours (#83)", () => {
+  it("remembers a colour per track, lower-cased, and moves it with its track", () => {
+    const mix = mixFromScore(SUMMARY);
+    const next = mixerReducer(mix, { type: "track-color", track: 2, color: "#E5484D" });
+    expect(next.trackColors).toEqual([null, null, "#e5484d", null]);
+    const states = trackStates(next);
+    expect(states[2]!.color).toBe("#e5484d");
+    const moved = withTrackStates(next, [states[2]!, states[0]!, states[1]!, states[3]!]);
+    expect(moved.trackColors).toEqual(["#e5484d", null, null, null]);
+  });
+
+  it("goes back to the default colour, and writes nothing when no track has one", () => {
+    const mix = mixFromScore(SUMMARY);
+    const one = mixerReducer(mix, { type: "track-color", track: 1, color: "#3e63dd" });
+    const cleared = mixerReducer(one, { type: "track-color", track: 1, color: null });
+    expect(cleared.trackColors).toBeUndefined();
+    expect(withTrackStates(cleared, trackStates(cleared)).trackColors).toBeUndefined();
+    const two = mixerReducer(one, { type: "track-color", track: 0, color: "#30a46c" });
+    expect(mixerReducer(two, { type: "reset-track-colors" }).trackColors).toBeUndefined();
+  });
+
+  it("ignores colours that are not #rrggbb and tracks that do not exist", () => {
+    const mix = mixFromScore(SUMMARY);
+    expect(mixerReducer(mix, { type: "track-color", track: 0, color: "red" }).trackColors).toBe(
+      undefined,
+    );
+    expect(mixerReducer(mix, { type: "track-color", track: 0, color: "#12345" }).trackColors).toBe(
+      undefined,
+    );
+    expect(mixerReducer(mix, { type: "track-color", track: 9, color: "#e5484d" })).toBe(mix);
+  });
+
+  it("keeps the colours when a saved mix is loaded", () => {
+    const saved = { ...mixFromScore(SUMMARY), trackColors: ["#e5484d", null, null, null] };
+    expect(initialMix(SUMMARY, saved).trackColors).toEqual(["#e5484d", null, null, null]);
+  });
+});
+
+describe("what the focus does to the mix (#83)", () => {
+  it("remembers the mode with the focus, and the default mode is not written", () => {
+    let m = mixFromScore(SUMMARY);
+    m = mixerReducer(m, { type: "focus", track: 1, mode: "onlyMe" });
+    expect(m).toMatchObject({ focus: 1, focusMode: "onlyMe" });
+    // Focusing another track keeps the mode.
+    m = mixerReducer(m, { type: "focus", track: 2 });
+    expect(m).toMatchObject({ focus: 2, focusMode: "onlyMe" });
+    m = mixerReducer(m, { type: "focus", track: 2, mode: "backing" });
+    expect(m.focusMode).toBe("backing");
+    m = mixerReducer(m, { type: "focus", track: 2, mode: "othersDown" });
+    expect(m.focusMode).toBeUndefined();
+  });
+
+  it("goes back to the normal mix without touching the faders, mutes and solos", () => {
+    let m = mixFromScore(SUMMARY);
+    m = mixerReducer(m, { type: "mute", track: 0, value: true });
+    m = mixerReducer(m, { type: "volume", track: 2, value: 0.4 });
+    const before = m.tracks;
+    m = mixerReducer(m, { type: "focus", track: 1, mode: "onlyMe" });
+    expect(m.tracks).toBe(before);
+    m = mixerReducer(m, { type: "focus", track: null });
+    expect(m.focus).toBeUndefined();
+    expect(m.focusMode).toBeUndefined();
+    expect(m.tracks).toBe(before);
+  });
+
+  it("drops the mode when the focused track is removed, and on reset", () => {
+    let m = mixerReducer(mixFromScore(SUMMARY), { type: "focus", track: 1, mode: "backing" });
+    const states = trackStates(m).filter((_, i) => i !== 1);
+    expect(withTrackStates(m, states).focusMode).toBeUndefined();
+    expect(
+      mixerReducer(m, { type: "reset", mix: mixFromScore(SUMMARY) }).focusMode,
+    ).toBeUndefined();
+    m = mixerReducer(m, { type: "focus", track: 9 });
+    expect(m.focus).toBeUndefined();
+  });
+});

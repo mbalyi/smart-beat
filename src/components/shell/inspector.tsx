@@ -291,6 +291,7 @@ export function Inspector({
   view,
   onViewChange,
   mix,
+  color,
   soundFont,
   onSoundFontChange,
   soundsReady,
@@ -315,6 +316,8 @@ export function Inspector({
   view: TrackView;
   onViewChange: (view: TrackView) => void;
   mix: TrackMix | undefined;
+  /** The colour the user chose for the track, `#rrggbb`. */
+  color?: string | null;
   soundFont: SoundFontId;
   onSoundFontChange: (id: SoundFontId) => void;
   /** False while instrument sounds load: switching again is disabled. */
@@ -400,7 +403,7 @@ export function Inspector({
             <span
               aria-hidden="true"
               className="size-5 shrink-0 rounded"
-              style={{ backgroundColor: trackColor(track.index) }}
+              style={{ backgroundColor: trackColor(track.index, color) }}
             />
             <p className="min-w-0 flex-1 truncate font-medium">{track.name}</p>
             <Button

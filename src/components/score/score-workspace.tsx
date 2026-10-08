@@ -689,6 +689,7 @@ export function ScoreWorkspace({
         automation: EMPTY_AUTOMATION,
         drums: null,
         kit: null,
+        color: null,
         focused: false,
       };
       stateByTrack.current.set(t, fresh);
@@ -1802,6 +1803,7 @@ export function ScoreWorkspace({
               view={view}
               onViewChange={changeView}
               mix={mix.tracks[trackIndex]}
+              color={mix.trackColors?.[trackIndex]}
               soundFont={soundFont}
               onSoundFontChange={changeSoundFont}
               soundsReady={ready}

@@ -10,6 +10,7 @@ import {
   type Interpretation,
 } from "@/lib/score/interpretation";
 import type { ScoreSummary } from "@/lib/score/score";
+import { isTrackColor } from "@/lib/score/track-colors";
 import {
   MIXER_SETTINGS_MIN_VERSION,
   MIXER_SETTINGS_VERSION,
@@ -17,6 +18,7 @@ import {
   type AutomationLaneKind,
   type AutomationPoint,
   type DrumMixer,
+  type FocusMode,
   type MixerSettings,
   type SongPreset,
   type TrackAutomation,
@@ -45,8 +47,15 @@ export type MixerAction =
   | { type: "interpretation"; track: number; value: Interpretation }
   | { type: "eq"; track: number; eq: TrackEq }
   | { type: "automation"; track: number; automation: TrackAutomation }
-  /** Focus one track (null: none). */
-  | { type: "focus"; track: number | null }
+  /**
+   * Focus one track (null: none, the normal mix). Without a mode the current one stays; it is
+   * saved with the song but never changes the faders, mutes and solos below it.
+   */
+  | { type: "focus"; track: number | null; mode?: FocusMode }
+  /** A colour for a track's strip and bars (`#rrggbb`; null: the default one; #83). */
+  | { type: "track-color"; track: number; color: string | null }
+  /** Every track back to its default colour. */
+  | { type: "reset-track-colors" }
   | { type: "drums"; track: number; drums: DrumMixer | null }
   /** Plays a drum track with an imported kit (#40; null: the SoundFont's own). */
   | { type: "drum-kit"; track: number; kit: string | null }
@@ -130,6 +139,8 @@ export interface TrackState {
   drums: DrumMixer | null;
   /** The imported drum kit it plays (#40). */
   kit: string | null;
+  /** The colour the user chose, `#rrggbb`. */
+  color: string | null;
   focused: boolean;
 }
 
@@ -143,6 +154,7 @@ export function trackStates(mix: MixerSettings): TrackState[] {
     automation: trackAutomation(mix, i),
     drums: mix.drums?.[i] ?? null,
     kit: mix.drumKits?.[i] ?? null,
+    color: mix.trackColors?.[i] ?? null,
     focused: mix.focus === i,
   }));
 }
@@ -169,8 +181,11 @@ export function withTrackStates(mix: MixerSettings, states: readonly TrackState[
   next.automation = someAutomation ? states.map((s) => s.automation) : undefined;
   next.drums = someDrums ? states.map((s) => s.drums) : undefined;
   next.drumKits = states.some((s) => s.kit) ? states.map((s) => s.kit) : undefined;
+  next.trackColors = states.some((s) => s.color) ? states.map((s) => s.color) : undefined;
   const focus = states.findIndex((s) => s.focused);
   next.focus = focus >= 0 ? focus : undefined;
+  // No track in focus (it was removed): back to the normal mix.
+  if (focus < 0) next.focusMode = undefined;
   return stripUndefined(next);
 }
 
@@ -269,9 +284,24 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
       return { ...mix, automation };
     }
     case "focus": {
-      if (action.track === null || !mix.tracks[action.track]) return without(mix, "focus");
-      return { ...mix, focus: action.track };
+      if (action.track === null || !mix.tracks[action.track]) {
+        return without(mix, "focus", "focusMode");
+      }
+      const next = { ...mix, focus: action.track };
+      if (action.mode === undefined) return next;
+      // "The others are turned down" is the default and isn't written.
+      return action.mode === "othersDown"
+        ? without(next, "focusMode")
+        : { ...next, focusMode: action.mode };
     }
+    case "track-color": {
+      if (!mix.tracks[action.track]) return mix;
+      const color = isTrackColor(action.color) ? action.color.toLowerCase() : null;
+      const trackColors = perTrack(mix, mix.trackColors, action.track, color, () => null);
+      return trackColors.some(Boolean) ? { ...mix, trackColors } : without(mix, "trackColors");
+    }
+    case "reset-track-colors":
+      return without(mix, "trackColors");
     case "drums": {
       if (!mix.tracks[action.track]) return mix;
       return { ...mix, drums: perTrack(mix, mix.drums, action.track, action.drums, () => null) };
@@ -291,7 +321,7 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
       return { ...mix, presets: action.presets };
     case "reset":
       return {
-        ...without(mix, "focus", "masterPan"),
+        ...without(mix, "focus", "focusMode", "masterPan"),
         master: action.mix.master,
         tracks: action.mix.tracks,
       };

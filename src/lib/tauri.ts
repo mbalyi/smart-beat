@@ -275,6 +275,13 @@ export interface SongPreset {
   effects: EffectSlot[];
 }
 
+/**
+ * What the focus on a track does to the mix (#83): turn the others down, hear only that track, or
+ * mute it and hear the rest. Never changes the saved levels, mutes and solos. Mirrors `FocusMode`
+ * in `src-tauri/src/mixer.rs`.
+ */
+export type FocusMode = "othersDown" | "onlyMe" | "backing";
+
 /** Mirrors `MixerSettings` in `src-tauri/src/mixer.rs`. */
 export interface MixerSettings {
   version: number;
@@ -295,12 +302,16 @@ export interface MixerSettings {
   eq?: TrackEq[];
   /** Volume, pan and mute automation of each track. */
   automation?: TrackAutomation[];
-  /** The track in focus (the others are turned down). */
+  /** The track in focus: the one being practised. */
   focus?: number;
+  /** What the focus does to the rest of the mix (missing: the others are turned down; #83). */
+  focusMode?: FocusMode;
   /** The drum mixer of each track (null when not split). */
   drums?: (DrumMixer | null)[];
   /** The imported drum kit (#40) each track plays (null: the SoundFont's own kit). */
   drumKits?: (string | null)[];
+  /** A colour chosen for each track, `#rrggbb` (null: the default one; #83). */
+  trackColors?: (string | null)[];
   audioTrack?: AudioTrackSettings;
   /** Effect chain presets saved with the song. */
   presets?: SongPreset[];
