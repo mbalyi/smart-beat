@@ -5,6 +5,7 @@ import { DRUM_MIDI_MAP } from "@/lib/score/drum-map";
 import type { NoteInfo } from "@/lib/score/editor";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
+import { INSTRUMENT_SIZE_STORAGE_KEY } from "@/lib/score/instrument-view";
 
 const GUITAR = [64, 59, 55, 50, 45, 40];
 
@@ -249,7 +250,46 @@ describe("InstrumentPanel: keeping the keyboard focus in the score", () => {
 
   it("keeps the buttons reachable with Tab", async () => {
     const { user } = setup({ kind: "drums", tuning: [], editing: true });
+    // The size slider comes first, then the buttons.
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("slider", { name: "Instrument size" }));
     await user.tab();
     expect(document.activeElement?.tagName).toBe("BUTTON");
+  });
+});
+
+describe("InstrumentPanel: size and fret numbers (#83)", () => {
+  it("shows the reference frets in the middle of the board, the octaves set apart", () => {
+    setup();
+    const markers = screen.getAllByTestId("fret-marker");
+    expect(markers.map((m) => m.textContent)).toEqual([
+      "3",
+      "5",
+      "7",
+      "9",
+      "•12•",
+      "15",
+      "17",
+      "19",
+      "21",
+      "•24•",
+    ]);
+    // Faded, so the notes stay in front.
+    expect(markers[0]!.style.gridColumn).toBe("5");
+    expect(markers[0]!.className).toContain("opacity-75");
+    expect(markers[4]!.className).toContain("font-bold");
+  });
+
+  it("makes the instruments bigger and remembers the size", async () => {
+    const { user, container } = setup();
+    const section = container.querySelector("section")!;
+    expect(section.style.getPropertyValue("--instrument-size")).toBe("1");
+    const slider = screen.getByRole("slider", { name: "Instrument size" });
+    slider.focus();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(slider).toHaveAttribute("aria-valuetext", "150%");
+    expect(section.style.getPropertyValue("--instrument-size")).toBe("1.5");
+    expect(localStorage.getItem(INSTRUMENT_SIZE_STORAGE_KEY)).toBe("1.5");
+    await expectNoA11yViolations();
   });
 });

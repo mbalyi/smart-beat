@@ -29,6 +29,27 @@ export const FRET_COUNT = 24;
 /** Frets with an inlay dot (12 and 24 get two). */
 export const FRET_MARKERS = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24];
 
+/** Sizes of the fretboard, keyboard and drum pads (#83), as a factor. */
+export const INSTRUMENT_SIZES = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+export const INSTRUMENT_SIZE_STORAGE_KEY = "smart-beat:instrument-size";
+
+export function readInstrumentSize(): number {
+  try {
+    const value = Number(localStorage.getItem(INSTRUMENT_SIZE_STORAGE_KEY));
+    return (INSTRUMENT_SIZES as readonly number[]).includes(value) ? value : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function storeInstrumentSize(size: number) {
+  try {
+    localStorage.setItem(INSTRUMENT_SIZE_STORAGE_KEY, String(size));
+  } catch {
+    // Not remembered: the default size next time.
+  }
+}
+
 export interface FretboardString {
   /** alphaTab's string number (1 = lowest). */
   string: number;

@@ -201,7 +201,7 @@ test.describe("tuner (#83)", () => {
           .filter((c) => c.type === "preview"),
       );
     // The low E string's name plays its note with the track's instrument.
-    await fretboard.getByRole("button", { name: "Hear open string 6 (E2)" }).click();
+    await fretboard.getByTestId("string-name").last().click();
     await expect.poll(async () => (await previews()).at(-1)).toMatchObject({ key: 40 });
     expect((await previews()).at(-1)?.program).toEqual(expect.any(Number));
 
@@ -213,4 +213,35 @@ test.describe("tuner (#83)", () => {
     await tuner.getByRole("tab", { name: "Microphone" }).click();
     await expect(tuner.getByRole("status")).toHaveText("The microphone is off.");
   });
+});
+
+test.describe("fretboard size and fret numbers (#83)", () => {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`uses the full width, centres the fret numbers and grows, in ${colorScheme} mode`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await openSong(app);
+      await app.getByRole("button", { name: "Fretboard" }).click();
+      const fretboard = app.getByRole("region", { name: "Fretboard" });
+      const board = fretboard.getByRole("img");
+      const width = () => board.evaluate((el) => el.getBoundingClientRect().width);
+      const panel = await fretboard.evaluate((el) => el.clientWidth);
+      expect(await width()).toBeGreaterThan(panel * 0.85);
+      // The 12th fret's number sits in the middle of the strings.
+      const twelve = fretboard.getByTestId("fret-marker").filter({ hasText: "12" });
+      const [boardBox, markerBox] = [await board.boundingBox(), await twelve.boundingBox()];
+      const middle = boardBox!.y + boardBox!.height / 2;
+      expect(Math.abs(markerBox!.y + markerBox!.height / 2 - middle)).toBeLessThan(12);
+
+      const height = () => board.evaluate((el) => el.getBoundingClientRect().height);
+      const before = await height();
+      const size = fretboard.getByRole("slider", { name: "Instrument size" });
+      await size.focus();
+      await app.keyboard.press("ArrowRight");
+      await expect(size).toHaveAttribute("aria-valuetext", "125%");
+      await expect.poll(height).toBeGreaterThan(before * 1.15);
+      await expectNoA11yViolations(app);
+    });
+  }
 });
