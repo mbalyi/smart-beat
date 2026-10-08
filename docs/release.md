@@ -40,11 +40,11 @@ To test updater bundles locally, with a throwaway key (never the real one):
 
 ```bash
 pnpm tauri signer generate --ci -p test -w /tmp/test-updater.key
-TAURI_SIGNING_PRIVATE_KEY_PATH=/tmp/test-updater.key TAURI_SIGNING_PRIVATE_KEY_PASSWORD=test \
+TAURI_SIGNING_PRIVATE_KEY=/tmp/test-updater.key TAURI_SIGNING_PRIVATE_KEY_PASSWORD=test \
   pnpm tauri build --config src-tauri/tauri.updater.conf.json
 ```
 
-The `.app.tar.gz` and `.sig` files appear next to the `.dmg` under `src-tauri/target/release/bundle/`.
+The build reads the key from `TAURI_SIGNING_PRIVATE_KEY`, which can be the key text or the path to the key file. The `.app.tar.gz` and its `.sig` appear under `src-tauri/target/release/bundle/macos/`.
 
 ## What a release contains
 
