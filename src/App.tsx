@@ -259,6 +259,7 @@ export function App() {
               onOpenFile={open}
               onNewSong={startNewSong}
               onShowShortcuts={() => showDialog("shortcuts")}
+              onShowLicenses={() => showDialog("licenses")}
               recent={recent}
               onOpenRecent={(path) => void openPath(path)}
             />

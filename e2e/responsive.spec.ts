@@ -167,7 +167,7 @@ for (const { name, width, height, columns } of VIEWPORTS) {
 
     test(`lays out feature cards in ${columns} column(s)`, async ({ app }) => {
       const cards = app.getByRole("list").getByRole("listitem");
-      await expect(cards).toHaveCount(3);
+      await expect(cards).toHaveCount(7); // every feature of the start page
 
       const tops = await cards.evaluateAll((items) =>
         items.map((item) => Math.round(item.getBoundingClientRect().top)),

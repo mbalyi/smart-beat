@@ -93,7 +93,7 @@ test.describe("mixer (#37)", () => {
     // The colours fade in: wait for the end.
     await expect.poll(() => background(mute)).toContain("oklch(0.505 0.213 27"); // red-700
     await expect.poll(() => background(solo)).toContain("oklch(0.527 0.154 150"); // green-700
-    await expect.poll(() => background(countIn)).toContain("oklch(0.527 0.154 150");
+    await expect.poll(() => background(countIn)).toContain("rgb(154, 42, 230)"); // the purple of the logo
     await mute.click();
     await app.mouse.move(0, 0);
     await expect.poll(() => background(mute)).toBe(idle);

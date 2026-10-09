@@ -32,6 +32,7 @@ export function AppHeader({
         <div className="flex shrink-0 items-center">
           <button
             type="button"
+            aria-label="Smart Beat"
             title="Back to the start screen"
             onClick={onHome}
             className="rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"

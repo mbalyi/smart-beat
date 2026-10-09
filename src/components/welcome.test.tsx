@@ -24,16 +24,22 @@ describe("Welcome", () => {
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(FEATURES.length);
   });
 
-  it("thanks alphaTab first, after the features, with its logo and links", () => {
-    renderWelcome();
+  it("thanks alphaTab first, after the features, with its logo, and says who made cpal", async () => {
+    const onShowLicenses = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onShowLicenses={onShowLicenses}
+      />,
+    );
 
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings[headings.length - 2]).toBe("Features");
-    expect(headings[headings.length - 1]).toMatch(
-      /^Many thanks to the open-source library maintainers/,
-    );
+    expect(headings[headings.length - 1]).toBe("Made possible by open source.");
     const section = screen
-      .getByRole("heading", { name: /open-source library maintainers/ })
+      .getByRole("heading", { name: "Made possible by open source." })
       .closest("section")!;
     const links = within(section).getAllByRole("link");
     expect(links[0]).toHaveAccessibleName("alphaTab");
@@ -43,9 +49,30 @@ describe("Welcome", () => {
       "https://github.com/CoderLine/alphaTab",
     );
     expect(section).toHaveTextContent("not affiliated with or endorsed by alphaTab");
-    expect(links).toHaveLength(2 + 4);
+    // alphaTab, four libraries and the star link.
+    expect(links).toHaveLength(1 + 4 + 1);
     expect(within(section).getByRole("link", { name: "rustysynth" })).toBeInTheDocument();
+    expect(within(section).getByRole("link", { name: "cpal by RustAudio" })).toHaveAttribute(
+      "href",
+      "https://github.com/RustAudio/cpal",
+    );
     expect(within(section).queryByRole("link", { name: "React" })).not.toBeInTheDocument();
+
+    await user.click(within(section).getByRole("button", { name: /View open-source notices/ }));
+    expect(onShowLicenses).toHaveBeenCalledOnce();
+  });
+
+  it("opens a card with the details and a link when a library is focused", async () => {
+    const { user } = renderWelcome();
+
+    await user.tab(); // reaches the first controls; go straight to the library instead
+    screen.getByRole("link", { name: "rustysynth" }).focus();
+
+    expect(await screen.findByText(/Turns notes and SoundFonts into sound/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Explore project/ })).toHaveAttribute(
+      "href",
+      "https://github.com/sinshu/rustysynth",
+    );
   });
 
   it("orders the features: what works first, the AI ideas last, Hum to accompaniment at the end", () => {

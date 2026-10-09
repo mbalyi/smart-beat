@@ -8,6 +8,8 @@ export interface Credit {
   url: string;
   /** What exactly it does for Smart Beat (shown when hovering or focusing its tile). */
   description: string;
+  /** "by RustAudio": the group behind it, written next to the name. */
+  by?: string;
 }
 
 export const ALPHATAB: Credit & { source: string } = {
@@ -26,7 +28,8 @@ export const OTHER_CREDITS: readonly Credit[] = [
       "Turns notes and SoundFonts into sound: the software synthesizer of the audio engine.",
   },
   {
-    name: "cpal by RustAudio",
+    name: "cpal",
+    by: "RustAudio",
     url: "https://github.com/RustAudio/cpal",
     description: "Sends the sound to your speakers or headphones on macOS, Windows and Linux.",
   },

@@ -73,6 +73,9 @@ describe("App", () => {
     expect(skip).toHaveAttribute("href", "#main");
     expect(screen.getByRole("main")).toHaveAttribute("id", "main");
 
+    // The logo is a button now: back to the start screen.
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Smart Beat" })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("button", { name: "Theme" })).toHaveFocus();
   });

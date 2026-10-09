@@ -15,6 +15,6 @@ cpal has **no logo of its own**. Its maintainers answered in <https://github.com
 
 - Naming cpal for attribution needs no permission (and its Apache-2.0 licence asks for attribution; the notices are in Help › Open-Source Licenses).
 - Do not stand in for cpal with the RustAudio logo directly. Writing "cpal by RustAudio" and showing the RustAudio logo next to that is fine; otherwise keep it text.
-- So Smart Beat shows the text "cpal by RustAudio" and no logo. Add the RustAudio logo only next to that wording.
+- So Smart Beat shows "cpal by RustAudio" with the RustAudio logo ([`rustaudio-logo.png`](rustaudio-logo.png), the organisation's GitHub picture, unmodified) right next to that wording, in the README and on the start page, and nowhere on its own.
 
 Logos of other projects are not used here: plain names and links only, unless their owners allow more ([#82](https://github.com/mbalyi/smart-beat/issues/82)).
