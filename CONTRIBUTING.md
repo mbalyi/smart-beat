@@ -1,5 +1,7 @@
 # Contributing
 
+AI coding assistants should read [`AGENTS.md`](AGENTS.md). Shared workflow skills are in `.agents/skills/` and discovered by Codex; `.claude/skills/` links Claude Code to the same files. See [`docs/ai-agents.md`](docs/ai-agents.md) for setup and tool fallbacks.
+
 ## Contributions are welcome, and what that means
 
 Pull requests, bug reports, suggestions and ideas are welcome. Smart Beat is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE) and may also be licensed commercially ([`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)). So that this stays possible, contributing works like this:
