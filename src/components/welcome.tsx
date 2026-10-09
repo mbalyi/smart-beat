@@ -42,8 +42,9 @@ export function Welcome({
   onShowLicenses?: () => void;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-14 px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
-      <section aria-labelledby="welcome-title" className="flex flex-col pt-[clamp(8px,3vw,40px)]">
+    <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-14 px-4 pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-14 lg:px-8 lg:pt-8">
+      {/* The space above the badge equals the page's side padding (the container's padding). */}
+      <section aria-labelledby="welcome-title" className="flex flex-col">
         <span className="inline-flex min-h-7 w-fit items-center rounded-full border bg-card px-3 py-1 text-[13px] leading-snug font-semibold">
           Early preview
         </span>
