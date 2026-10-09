@@ -25,7 +25,7 @@ To try the pipeline without a tag, run the workflow by hand (Actions › Release
 The updater only installs updates signed with our key. This is separate from Apple and Windows code signing ([`code-signing.md`](code-signing.md)).
 
 - **Created once** with `pnpm tauri signer generate -w ~/.tauri/smart-beat-updater.key`. It asks for a password.
-- **The public key** (`~/.tauri/smart-beat-updater.key.pub`) is in [`tauri.conf.json`](../src-tauri/tauri.conf.json) under `plugins.updater.pubkey`. Installed apps trust exactly this key.
+- **The public key** (`~/.tauri/smart-beat-updater.key.pub`, key id `5A8A7AAC23156B53`) is in [`tauri.conf.json`](../src-tauri/tauri.conf.json) under `plugins.updater.pubkey`. Installed apps trust exactly this key.
 - **The private key and its password** are GitHub Actions secrets and nowhere else in the cloud:
 
   | Secret                               | Value                                     |
@@ -80,7 +80,7 @@ While the repository is private, `latest.json` cannot be downloaded without a lo
 
 Not done by code, so on the list:
 
-- [ ] Create the updater key and add the two secrets (above); back the key up.
+- [ ] Add the two updater secrets on GitHub (the key exists and its public half is in `tauri.conf.json`); back the key file and its password up offline.
 - [ ] Apple Developer ID signing and notarization, and Windows code signing ([`code-signing.md`](code-signing.md)). Updates work without them, but installers show warnings.
 - [ ] Lawyer review of `LICENSE` use, `COMMERCIAL-LICENSE.md` and `EULA.md` ([ADR 0002](adr/0002-source-available-noncommercial-license.md)).
 - [ ] Scan the repository **and its git history** for secrets (for example `gitleaks detect`), then re-run `pnpm licenses:check`.

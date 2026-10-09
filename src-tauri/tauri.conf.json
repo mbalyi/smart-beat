@@ -54,7 +54,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ3ODczOTJCQTExNzAxRDQKUldUVUFSZWhLem1IUnozZXhwRkZRcGpJT21GYlBSY0dGNUE0Y0EyUWtZT0hJc3Q1aU9Jak5lTUIK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVBOEE3QUFDMjMxNTZCNTMKUldSVGF4VWpySHFLV3NtR09IbDExWkdyUWRENU5CbnpIbXlOZnp1R2hWSnhCdWlFUGlmYVM4TEkK",
       "endpoints": ["https://github.com/mbalyi/smart-beat/releases/latest/download/latest.json"]
     }
   },
