@@ -10,6 +10,18 @@ A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with op
 
 > **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3) and in [`high-level-plan.md`](high-level-plan.md).
 
+## Built with
+
+Smart Beat stands on the shoulders of open-source projects. Thank you to everyone who builds them.
+
+<p align="center">
+  <a href="https://alphatab.net/"><img src="docs/brand/alphatab-logo-horizontal.svg" height="48" alt="alphaTab"></a>
+</p>
+
+**[alphaTab](https://alphatab.net/)** ([source](https://github.com/CoderLine/alphaTab), MPL-2.0) is the heart of Smart Beat. It reads Guitar Pro files, draws the standard notation and the tablature, and powers the score, the cursor and parts of playback. Smart Beat would not exist without it. If you like what Smart Beat does with scores, please give alphaTab a star, try it in your own project, and thank its maintainer, [Danielku15](https://github.com/Danielku15) and the contributors. alphaTab's logo is shown with the maintainers' permission. Smart Beat is an independent project, not affiliated with or endorsed by alphaTab.
+
+Also essential: [Tauri](https://tauri.app/) (the desktop shell), [React](https://react.dev/), [Vite](https://vite.dev/), [Tailwind CSS](https://tailwindcss.com/), [shadcn/ui](https://ui.shadcn.com/) and [Radix UI](https://www.radix-ui.com/), [Lucide](https://lucide.dev/) icons, and on the Rust side [rustysynth](https://github.com/sinshu/rustysynth) (SoundFont synthesis), [cpal](https://github.com/RustAudio/cpal) (audio output), [Symphonia](https://github.com/pdeljanov/Symphonia) (audio decoding) and [nam-rs](https://crates.io/crates/nam-rs) (amp capture playback). Every notice is listed in the app under Help › Open-Source Licenses.
+
 ## Download
 
 <p>
