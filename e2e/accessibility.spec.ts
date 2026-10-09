@@ -7,6 +7,7 @@ import {
   scoreRegion,
   tabKey,
   test,
+  waitForAnimations,
 } from "./fixtures";
 
 test.describe("accessibility", () => {
@@ -16,6 +17,8 @@ test.describe("accessibility", () => {
       const html = app.locator("html");
       if (colorScheme === "dark") await expect(html).toHaveClass(/dark/);
       else await expect(html).not.toHaveClass(/dark/);
+      // Scan the settled colours, not a fade between the themes.
+      await waitForAnimations(app);
 
       await expectNoA11yViolations(app);
     });
@@ -46,6 +49,8 @@ test.describe("accessibility", () => {
     test(`editing, practice and track screens have no WCAG violations in ${colorScheme} mode`, async ({
       app,
     }) => {
+      // Many steps with a scan after each: give it more time on a busy machine.
+      test.slow();
       await app.emulateMedia({ colorScheme });
       await newSong(app);
       await app.keyboard.press("3");
@@ -78,6 +83,8 @@ test.describe("accessibility", () => {
     test(`structure, effects, lyrics and chord screens have no WCAG violations in ${colorScheme} mode`, async ({
       app,
     }) => {
+      // Many steps with a scan after each: give it more time on a busy machine.
+      test.slow();
       await app.emulateMedia({ colorScheme });
       await newSong(app);
       await app.keyboard.press("5");

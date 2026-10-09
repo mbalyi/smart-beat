@@ -8,6 +8,7 @@ import {
   scoreRegion,
   tabNumbers,
   test,
+  waitForAnimations,
 } from "./fixtures";
 
 /** The drum tab (#49): drum numbers on six lines, drawn by alphaTab through a mirror staff. */
@@ -62,6 +63,9 @@ test.describe("drum tab (#49)", () => {
     await openSong(app);
     await showDrums(app, "Tab");
     await app.getByRole("button", { name: "Edit" }).click();
+    // The score redraws when edit mode opens: click once it has settled.
+    await expect(app.getByRole("toolbar", { name: "Edit" })).toBeVisible();
+    await waitForAnimations(app);
     const firstHit = scoreRegion(app)
       .locator(".at-surface svg text")
       .filter({ hasText: DRUM_NUMBERS })
