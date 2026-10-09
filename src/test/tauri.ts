@@ -198,6 +198,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           send({ event: "Finished" });
           return null;
         }
+        case "plugin:opener|open_url":
         case "plugin:process|restart":
         case "plugin:resources|close":
           return null;

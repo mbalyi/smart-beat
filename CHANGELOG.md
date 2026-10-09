@@ -5,6 +5,7 @@ Release notes for every version. The release workflow publishes the section that
 ## [Unreleased]
 
 - Added: Help › Check for Updates…, an automatic update check at startup (at most once a day), and an update dialog with release notes and download progress.
+- Added: a "Built with" section on the start page that thanks and promotes alphaTab and the other libraries; its links open in the system browser.
 - Changed: Smart Beat's source is now available under the PolyForm Noncommercial License 1.0.0. Commercial use needs a separate agreement (see `COMMERCIAL-LICENSE.md`).
 
 ## [0.1.0]

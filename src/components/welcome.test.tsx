@@ -24,6 +24,23 @@ describe("Welcome", () => {
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(FEATURES.length);
   });
 
+  it("thanks alphaTab first, after the features, with its logo and links", () => {
+    renderWelcome();
+
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings.slice(-2)).toEqual(["Features", "Built with"]);
+    const section = screen.getByRole("heading", { name: "Built with" }).closest("section")!;
+    const links = within(section).getAllByRole("link");
+    expect(links[0]).toHaveAccessibleName("alphaTab");
+    expect(links[0]).toHaveAttribute("href", "https://alphatab.net/");
+    expect(within(section).getByRole("link", { name: "star alphaTab on GitHub" })).toHaveAttribute(
+      "href",
+      "https://github.com/CoderLine/alphaTab",
+    );
+    expect(section).toHaveTextContent("not affiliated with or endorsed by alphaTab");
+    expect(within(section).getByRole("link", { name: "Tauri" })).toBeInTheDocument();
+  });
+
   it("lists every upcoming feature", () => {
     renderWelcome();
 

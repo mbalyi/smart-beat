@@ -1,5 +1,6 @@
 import { FileMusicIcon, FilePlusIcon, FolderOpenIcon, KeyboardIcon } from "lucide-react";
 
+import { BuiltWith } from "@/components/built-with";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,6 +119,8 @@ export function Welcome({
           ))}
         </ul>
       </section>
+
+      <BuiltWith />
     </div>
   );
 }
