@@ -131,6 +131,7 @@ function Fretboard({
   cursorString,
   scale,
   onFret,
+  onFretDelete,
   onPlayString,
   onOpenTuner,
 }: {
@@ -141,6 +142,8 @@ function Fretboard({
   cursorString: number | null;
   scale: Scale | null;
   onFret: (string: number, fretFromNut: number) => void;
+  /** Double-click on a note: deletes it (#90). */
+  onFretDelete?: (string: number, fretFromNut: number) => void;
   /** Plays an open string's note, to tune by ear (#83). */
   onPlayString?: (pitch: number) => void;
   onOpenTuner?: () => void;
@@ -150,6 +153,7 @@ function Fretboard({
   const isActive = (string: number, fret: number) =>
     positions.some((p) => p.string === string && p.fret === fret);
   const boardRef = useRef<HTMLDivElement>(null);
+  const hadNote = useRef(false);
   const [focus, setFocus] = useState({
     string: cursorString ?? strings[0]?.string ?? 1,
     fret: capo,
@@ -299,9 +303,15 @@ function Fretboard({
                   onMouseEnter={() => setHint(`String ${s.number}, ${label.toLowerCase()}`)}
                   onFocus={() => setHint(`String ${s.number}, ${label.toLowerCase()}`)}
                   onMouseLeave={() => setHint(null)}
-                  onClick={() => {
+                  onClick={(event) => {
+                    // A double-click deletes only a note that was there before its first click.
+                    if (event.detail <= 1) hadNote.current = on;
                     setFocus({ string: s.string, fret });
                     onFret(s.string, fret);
+                  }}
+                  onDoubleClick={() => {
+                    if (hadNote.current) onFretDelete?.(s.string, fret);
+                    hadNote.current = false;
                   }}
                   onKeyDown={(event) => move(event, s.string, fret)}
                   className={cn(
@@ -563,6 +573,7 @@ export function InstrumentPanel({
   scalePickerRef,
   onScaleChange,
   onFret,
+  onFretDelete,
   onPitch,
   onDrum,
   drumKit = [],
@@ -586,6 +597,8 @@ export function InstrumentPanel({
   scalePickerRef?: RefObject<HTMLButtonElement | null>;
   onScaleChange?: (scale: Scale | null) => void;
   onFret: (string: number, fretFromNut: number) => void;
+  /** Double-click on a fretboard note deletes it. */
+  onFretDelete?: (string: number, fretFromNut: number) => void;
   onPitch: (pitch: number) => void;
   onDrum: (sound: number) => void;
   /** Drums: every articulation the Virtual Drumkit lists. */
@@ -656,6 +669,7 @@ export function InstrumentPanel({
           cursorString={cursorString}
           scale={shownScale}
           onFret={onFret}
+          onFretDelete={onFretDelete}
           onPlayString={onPlayString}
           onOpenTuner={onOpenTuner}
         />

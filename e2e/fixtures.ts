@@ -9,6 +9,7 @@ type MenuAction =
   | "open"
   | "save"
   | "save-as"
+  | "export-all"
   | "export-musicxml"
   | "export-midi"
   | "export-alphatex"

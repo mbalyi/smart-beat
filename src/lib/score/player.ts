@@ -911,22 +911,24 @@ export class ScorePlayer {
    * Plays a reference note with an instrument (a GM program), whether or not the song plays:
    * the open strings of the tuner (#83). It rings for `REFERENCE_NOTE_MS`.
    */
-  previewNote(pitch: number, program: number) {
+  previewNote(pitch: number, program: number, durationMs = ScorePlayer.REFERENCE_NOTE_MS) {
     const channel = REFERENCE_CHANNEL;
     if (this.engine) {
       const engine = this.engine;
+      // A new note cuts the previous one off, so fast entry never piles previews up (#90).
+      if (this.referenceTimer !== undefined) engine.previewStop(channel);
       engine.preview(channel, pitch, 100, program);
       clearTimeout(this.referenceTimer);
-      this.referenceTimer = setTimeout(
-        () => engine.previewStop(channel),
-        ScorePlayer.REFERENCE_NOTE_MS,
-      );
+      this.referenceTimer = setTimeout(() => {
+        this.referenceTimer = undefined;
+        engine.previewStop(channel);
+      }, durationMs);
       return;
     }
     if (!this.hasSounds) return;
     const file = new midi.MidiFile();
     // At alphaTab's default 120 BPM a quarter is 0.5 s.
-    const ticks = Math.round((file.division * ScorePlayer.REFERENCE_NOTE_MS) / 500);
+    const ticks = Math.round((file.division * durationMs) / 500);
     file.addEvent(new midi.ProgramChangeEvent(0, 0, channel, program));
     file.addEvent(new midi.NoteOnEvent(0, 0, channel, pitch, 100));
     file.addEvent(new midi.NoteOffEvent(0, ticks, channel, pitch, 0));

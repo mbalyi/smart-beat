@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 
 const gainText = (db: number) => `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
 const freqText = (hz: number) =>
-  hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${Math.round(hz)} Hz`;
+  hz >= 1000 ? `${Number((hz / 1000).toFixed(1))} kHz` : `${Math.round(hz)} Hz`;
 
 /** The channel EQ: low, mid (sweepable) and high, or a 10-band graphic EQ. */
 export function EqControls({
@@ -63,6 +63,7 @@ export function EqControls({
               key={freq}
               size="sm"
               label={`${name}, EQ ${freqText(freq)}`}
+              caption={freqText(freq)}
               valueText={gainText(eq.graphic![i] ?? 0)}
               value={eq.graphic![i] ?? 0}
               min={-15}

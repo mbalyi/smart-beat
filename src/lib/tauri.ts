@@ -19,6 +19,7 @@ export type MenuAction =
   | "clear-recent"
   | "save"
   | "save-as"
+  | "export-all"
   | "export-musicxml"
   | "export-midi"
   | "export-alphatex"

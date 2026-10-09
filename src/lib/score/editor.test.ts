@@ -507,6 +507,42 @@ describe("ScoreEditor: undo and redo", () => {
   });
 });
 
+describe("ScoreEditor: removing the cursor's note (#90)", () => {
+  it("removes the note on the cursor's string, and undo and redo restore it", () => {
+    const { editor } = newSong();
+    editor.setString(2);
+    editor.setFret(5);
+    expect(voice(editor).beats[0]!.notes).toHaveLength(1);
+
+    expect(editor.removeCursorNote()).toBe(true);
+    expect(voice(editor).beats[0]!.notes).toHaveLength(0);
+    editor.undo();
+    expect(voice(editor).beats[0]!.notes.map((n) => n.fret)).toEqual([5]);
+    editor.redo();
+    expect(voice(editor).beats[0]!.notes).toHaveLength(0);
+  });
+
+  it("does nothing on an empty string and leaves other notes", () => {
+    const { editor } = newSong();
+    editor.setString(2);
+    editor.setFret(5);
+    editor.setString(3);
+    expect(editor.removeCursorNote()).toBe(false);
+    expect(voice(editor).beats[0]!.notes).toHaveLength(1);
+  });
+
+  it("does not add an undo step when the same fret is entered again", () => {
+    const { editor } = newSong();
+    editor.setFret(5);
+    editor.setFret(5);
+    editor.removeCursorNote();
+    editor.undo();
+    expect(voice(editor).beats[0]!.notes.map((n) => n.fret)).toEqual([5]);
+    editor.undo();
+    expect(voice(editor).beats[0]!.notes).toHaveLength(0);
+  });
+});
+
 describe("ScoreEditor: saved state", () => {
   it("is edited after a change and clean again when saved", () => {
     const { editor, changes } = newSong();

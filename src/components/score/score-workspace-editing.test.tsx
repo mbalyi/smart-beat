@@ -4,7 +4,11 @@
  */
 import { act, screen, waitFor, within } from "@testing-library/react";
 
-import { INSTRUMENT_VIEW_STORAGE_KEY, ScoreWorkspace } from "@/components/score/score-workspace";
+import {
+  AUDITION_STORAGE_KEY,
+  INSTRUMENT_VIEW_STORAGE_KEY,
+  ScoreWorkspace,
+} from "@/components/score/score-workspace";
 import { Toaster } from "@/components/ui/sonner";
 import type { ScoreDocument } from "@/hooks/use-score-document";
 import { fileKey } from "@/lib/score/format";
@@ -175,6 +179,44 @@ describe("ScoreWorkspace: instrument view", () => {
     await user.click(screen.getByRole("button", { name: "Fret 12, E5" }));
     expect(frets()[0]).toBe("1:0 6:12");
     await expectNoA11yViolations();
+  });
+
+  it("deletes a fretboard note by double-clicking it, with undo and redo (#90)", async () => {
+    const { user, frets } = await setup();
+    await user.click(screen.getByRole("button", { name: "Fretboard" }));
+    await startEditing(user);
+    await user.click(screen.getByRole("button", { name: "Fret 12, E5" }));
+    expect(frets()[0]).toBe("1:0 6:12");
+
+    await user.dblClick(screen.getByRole("button", { name: "Fret 12, E5" }));
+    expect(frets()[0]).toBe("1:0");
+
+    await user.click(screen.getByRole("button", { name: "Undo Delete note" }));
+    expect(frets()[0]).toBe("1:0 6:12");
+    await user.click(screen.getByRole("button", { name: "Redo Delete note" }));
+    expect(frets()[0]).toBe("1:0");
+
+    // Double-clicking an empty fret enters the note once and never deletes it.
+    await user.dblClick(screen.getByRole("button", { name: "Fret 9, C sharp5" }));
+    expect(frets()[0]).toBe("1:0 6:9");
+  });
+
+  it("previews a note when it is entered, unless turned off (#90)", async () => {
+    const { user, player } = await setup();
+    await user.click(screen.getByRole("button", { name: "Fretboard" }));
+    await startEditing(user);
+    const toggle = screen.getByRole("switch", { name: "Play notes while editing" });
+    expect(toggle).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Fret 12, E5" }));
+    expect(player.previewNote).toHaveBeenLastCalledWith(76, expect.any(Number), expect.any(Number));
+    expect(player.playPause).not.toHaveBeenCalled();
+
+    player.previewNote.mockClear();
+    await user.click(toggle);
+    expect(localStorage.getItem(AUDITION_STORAGE_KEY)).toBe("off");
+    await user.click(screen.getByRole("button", { name: "Fret 5, A4" }));
+    expect(player.previewNote).not.toHaveBeenCalled();
   });
 
   it("keeps the focus and the arrow keys in the score after clicking the fretboard or a drum pad", async () => {

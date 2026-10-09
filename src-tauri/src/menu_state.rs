@@ -260,6 +260,7 @@ mod tests {
         let song_items = [
             MenuAction::Save,
             MenuAction::SaveAs,
+            MenuAction::ExportAll,
             MenuAction::ExportMusicXml,
             MenuAction::ExportMidi,
             MenuAction::ExportAlphaTex,

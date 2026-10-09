@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tip } from "@/components/ui/tip";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { BeatInfo, ToggleState } from "@/lib/score/editor";
@@ -78,6 +79,8 @@ export function EditToolbar({
   statusId,
   dots,
   tie,
+  auditionNotes,
+  onAuditionNotesChange,
 }: {
   beat: BeatInfo;
   /** Dotted / double-dotted on the selection (or the cursor's beat). */
@@ -91,8 +94,12 @@ export function EditToolbar({
   message: string;
   actions: EditActions;
   statusId: string;
+  /** "Play notes while editing": hear a short preview of each entered note (#90). */
+  auditionNotes: boolean;
+  onAuditionNotesChange: (on: boolean) => void;
 }) {
   const tupletLabelId = useId();
+  const auditionId = useId();
   const [nestedOpen, setNestedOpen] = useState(false);
   // A nested (or other) ratio the list does not name is shown under its own ratio.
   const customTuplet = TUPLETS.some((t) => tupletKey(t) === tupletKey(beat.tuplet))
@@ -248,6 +255,14 @@ export function EditToolbar({
             <Columns3CogIcon className="size-4" aria-hidden="true" />
           </PaletteButton>
         </PaletteSection>
+        <label
+          htmlFor={auditionId}
+          className="flex items-center gap-2 text-xs"
+          title="Hear a short preview when entering or changing a note."
+        >
+          <Switch id={auditionId} checked={auditionNotes} onCheckedChange={onAuditionNotesChange} />
+          Play notes while editing
+        </label>
         <p id={statusId} className="text-xs text-muted-foreground tabular-nums">
           {status}
         </p>

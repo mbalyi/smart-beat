@@ -23,7 +23,7 @@ test.describe("mixer (#37)", () => {
     await expectNoA11yViolations(app);
     await expect.poll(() => app.evaluate(() => window.__engineConfig.eq[1]?.lowDb)).toBe(3);
     await app.getByRole("switch", { name: "10-band EQ, Bass" }).click();
-    await expect(app.getByRole("slider", { name: "Bass, EQ 1.0 kHz" })).toBeVisible();
+    await expect(app.getByRole("slider", { name: "Bass, EQ 1 kHz" })).toBeVisible();
     await expect
       .poll(() => app.evaluate(() => window.__engineConfig.eq[1]?.graphic?.length))
       .toBe(10);
