@@ -6,27 +6,40 @@
 export interface Credit {
   name: string;
   url: string;
-  what: string;
+  /** What exactly it does for Smart Beat (shown when hovering or focusing its tile). */
+  description: string;
 }
 
-export const ALPHATAB = {
+export const ALPHATAB: Credit & { source: string } = {
   name: "alphaTab",
   url: "https://alphatab.net/",
   source: "https://github.com/CoderLine/alphaTab",
-} as const;
+  description:
+    "Reads Guitar Pro files, draws the standard notation and the tablature, and drives the score, the cursor and parts of playback.",
+};
 
 export const OTHER_CREDITS: readonly Credit[] = [
-  { name: "Tauri", url: "https://tauri.app/", what: "the desktop shell" },
-  { name: "React", url: "https://react.dev/", what: "the interface" },
-  { name: "Vite", url: "https://vite.dev/", what: "the build tool" },
-  { name: "Tailwind CSS", url: "https://tailwindcss.com/", what: "styling" },
-  { name: "shadcn/ui", url: "https://ui.shadcn.com/", what: "components" },
-  { name: "Radix UI", url: "https://www.radix-ui.com/", what: "accessible primitives" },
-  { name: "Lucide", url: "https://lucide.dev/", what: "icons" },
-  { name: "rustysynth", url: "https://github.com/sinshu/rustysynth", what: "SoundFont synthesis" },
-  { name: "cpal", url: "https://github.com/RustAudio/cpal", what: "audio output" },
-  { name: "Symphonia", url: "https://github.com/pdeljanov/Symphonia", what: "audio decoding" },
-  { name: "nam-rs", url: "https://crates.io/crates/nam-rs", what: "amp capture playback" },
+  {
+    name: "rustysynth",
+    url: "https://github.com/sinshu/rustysynth",
+    description:
+      "Turns notes and SoundFonts into sound: the software synthesizer of the audio engine.",
+  },
+  {
+    name: "cpal",
+    url: "https://github.com/RustAudio/cpal",
+    description: "Sends the sound to your speakers or headphones on macOS, Windows and Linux.",
+  },
+  {
+    name: "Symphonia",
+    url: "https://github.com/pdeljanov/Symphonia",
+    description: "Decodes audio files (MP3, WAV, FLAC, Ogg, AIFF) for the audio track.",
+  },
+  {
+    name: "nam-rs",
+    url: "https://crates.io/crates/nam-rs",
+    description: "Plays Neural Amp Modeler captures, which model real guitar amplifiers.",
+  },
 ];
 
 /** Every address the "Built with" section can open. */

@@ -16,7 +16,7 @@ describe("credits", () => {
     expect(new Set(CREDIT_URLS).size).toBe(CREDIT_URLS.length);
     for (const credit of OTHER_CREDITS) {
       expect(credit.name).not.toBe("");
-      expect(credit.what).not.toBe("");
+      expect(credit.description.length).toBeGreaterThan(20);
     }
   });
 
