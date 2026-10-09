@@ -5,11 +5,11 @@ description: Build the Smart Beat macOS bundle and install it into /Applications
 
 Reply in English.
 
-1. Build in the background (LTO makes it take minutes) and keep working meanwhile:
+1. Build in a background terminal session when supported (LTO makes it take minutes):
    ```bash
    source ~/.cargo/env && pnpm tauri build
    ```
-   Use `run_in_background`; do not poll in a loop, wait for the completion notification.
+   Use the provider's background task support when available. Otherwise use a terminal session and check it occasionally, without a tight polling loop.
    Note: heavy builds starve timing-sensitive tests, so re-run any test that fails only while the build runs.
 2. When done, quit the running app if open (`osascript -e 'quit app "Smart Beat"'`), then replace `/Applications/Smart Beat.app` with the new bundle from `src-tauri/target/release/bundle/macos/` (or the universal target dir if built that way).
 3. Verify: `codesign --verify --deep --strict "/Applications/Smart Beat.app"`, then launch it with `open` and confirm the process starts.

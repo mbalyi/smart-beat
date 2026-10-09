@@ -1,7 +1,6 @@
 ---
 name: process-asset
 description: Prepare a logo/wordmark/animation for Smart Beat (transparent background, alpha check) and wire it into the header and startup splash.
-argument-hint: <image or video path>
 ---
 
 Reply in English.
