@@ -7,12 +7,15 @@ import { cn } from "@/lib/utils";
 export function AppHeader({
   onShowDialog,
   onCheckForUpdates,
+  onHome,
   wide = false,
   centerRef,
 }: {
   onShowDialog: (dialog: AppDialog, returnFocusTo: HTMLElement | null) => void;
   /** Help › Check for Updates… (desktop app only). */
   onCheckForUpdates?: () => void;
+  /** The logo: back to the start screen (the app closes the open songs, after asking). */
+  onHome: () => void;
   /** Span the whole window (a song is open) instead of the centred column. */
   wide?: boolean;
   /** Receives the element between the logo and the icons, where an open song puts its main controls. */
@@ -27,12 +30,19 @@ export function AppHeader({
         )}
       >
         <div className="flex shrink-0 items-center">
-          <img
-            src={wordmark}
-            alt="Smart Beat"
-            draggable={false}
-            className={cn("w-auto", wide ? "h-11" : "h-9")}
-          />
+          <button
+            type="button"
+            title="Back to the start screen"
+            onClick={onHome}
+            className="rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <img
+              src={wordmark}
+              alt="Smart Beat"
+              draggable={false}
+              className={cn("w-auto", wide ? "h-11" : "h-9")}
+            />
+          </button>
         </div>
         {wide && (
           <div

@@ -48,6 +48,18 @@ describe("Welcome", () => {
     expect(within(section).queryByRole("link", { name: "React" })).not.toBeInTheDocument();
   });
 
+  it("orders the features: what works first, the AI ideas last, Hum to accompaniment at the end", () => {
+    expect(FEATURES.map((f) => `${f.title} (${f.badge})`)).toEqual([
+      "Open, play and practice (Available)",
+      "Write tabs and scores (Available)",
+      "Learning mode (Available)",
+      "Audio to tab (Available)",
+      "Record to tab (AI · Coming soon)",
+      "Speech to tab (AI · Coming soon)",
+      "Hum to accompaniment (AI · Coming soon)",
+    ]);
+  });
+
   it("lists every upcoming feature", () => {
     renderWelcome();
 

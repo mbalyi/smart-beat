@@ -1,20 +1,55 @@
-import { FileMusicIcon, MicIcon, PencilLineIcon } from "lucide-react";
+import {
+  AudioLinesIcon,
+  CircleDotIcon,
+  FileMusicIcon,
+  GraduationCapIcon,
+  MessageSquareTextIcon,
+  MicIcon,
+  PencilLineIcon,
+} from "lucide-react";
 
 /** Feature highlights (available and upcoming) shown on the welcome screen. */
 export const FEATURES = [
   {
     title: "Open, play and practice",
     description:
-      "View GP3–GP7 songs as tab and standard notation, play them with a cursor, a mixer and a fretboard, and practice with loops, the Speed Trainer, a metronome and count-in.",
+      "View GP3–GP8 songs as tab and standard notation, play them with a cursor, a mixer and a fretboard, and practice with loops, the Speed Trainer, a metronome and count-in.",
     Icon: FileMusicIcon,
     badge: "Available",
   },
   {
     title: "Write tabs and scores",
     description:
-      "Write notes on tab or staff with full undo and redo, for guitars, basses, drums and any MIDI instrument. Saving to GP5 and MusicXML is next.",
+      "Write notes on tab or staff with full undo and redo, for guitars, basses, drums and any MIDI instrument, and save to Guitar Pro, MusicXML, MIDI and more.",
     Icon: PencilLineIcon,
-    badge: "Preview",
+    badge: "Available",
+  },
+  {
+    title: "Learning mode",
+    description:
+      "Learn a song step by step: loop the hard bars, slow it down with the Speed Trainer, hear only your track or everything but it, follow the fretboard, keyboard and drum pads, and check the scale tool and the tuner.",
+    Icon: GraduationCapIcon,
+    badge: "Available",
+  },
+  {
+    title: "Audio to tab",
+    description:
+      "Upload an audio file and get MIDI and tab generated from it, ready to edit and practice.",
+    Icon: AudioLinesIcon,
+    badge: "Available",
+  },
+  {
+    title: "Record to tab",
+    description:
+      "Record what you play on your instrument inside the app, and get MIDI and tab generated from the recording.",
+    Icon: CircleDotIcon,
+    badge: "AI · Coming soon",
+  },
+  {
+    title: "Speech to tab",
+    description: "Say what you want, and the AI generates a few sample tabs to start from.",
+    Icon: MessageSquareTextIcon,
+    badge: "AI · Coming soon",
   },
   {
     title: "Hum to accompaniment",

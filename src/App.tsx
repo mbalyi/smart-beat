@@ -6,6 +6,7 @@ import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { DocumentTabs } from "@/components/shell/document-tabs";
 import { DiscardDialog } from "@/components/discard-dialog";
+import { LeaveDialog } from "@/components/leave-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
 import { UpdateDialog } from "@/components/update-dialog";
@@ -51,6 +52,7 @@ export function App() {
     song,
     activate,
     close,
+    closeAll,
     openPath,
     openFile,
     newSong,
@@ -89,6 +91,26 @@ export function App() {
     setEdited(id, false);
     close(id);
   };
+
+  /** The logo: back to the start screen. Unsaved changes are asked about first. */
+  const [leaving, setLeaving] = useState(false);
+  const goHome = () => {
+    if (songs.length === 0) return;
+    if (edited.current.size > 0) {
+      setLeaving(true);
+      return;
+    }
+    closeAll();
+  };
+  const leaveAndGoHome = () => {
+    setLeaving(false);
+    edited.current.clear();
+    setEditedIds(new Set());
+    closeAll();
+  };
+  const unsavedNames = songs
+    .filter((s) => editedIds.has(s.id))
+    .map((s) => s.summary.title || s.name);
 
   const startNewSong = () => void newSong();
 
@@ -197,6 +219,7 @@ export function App() {
         <AppHeader
           onShowDialog={showDialog}
           onCheckForUpdates={isTauri() ? updater.checkNow : undefined}
+          onHome={goHome}
           wide={song !== null}
           centerRef={setHeaderSlot}
         />
@@ -261,6 +284,12 @@ export function App() {
         open={closing !== null}
         onCancel={() => setPendingClose(null)}
         onDiscard={() => closing && discardAndClose(closing.id)}
+      />
+      <LeaveDialog
+        songNames={unsavedNames}
+        open={leaving}
+        onCancel={() => setLeaving(false)}
+        onLeave={leaveAndGoHome}
       />
       <AppDialogs open={dialog} onOpenChange={setDialog} returnFocusTo={returnFocusTo} />
       <UpdateDialog updater={updater} />

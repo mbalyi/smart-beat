@@ -7,7 +7,7 @@ import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 
 describe("Toggle", () => {
-  it("is filled green with an inset ring when on, so it never looks like an idle grey one", () => {
+  it("is filled with the purple of the logo and an inset ring when on, so it never looks like an idle grey one", () => {
     renderWithProviders(
       <Toggle pressed variant="outline">
         Loop
@@ -15,14 +15,15 @@ describe("Toggle", () => {
     );
     const toggle = screen.getByRole("button", { name: "Loop" });
     expect(toggle).toHaveAttribute("aria-pressed", "true");
-    expect(toggle.className).toContain("data-[state=on]:bg-green-700");
-    expect(toggle.className).toContain("dark:data-[state=on]:bg-green-700");
+    expect(toggle.className).toContain("data-[state=on]:bg-[#9a2ae6]");
+    expect(toggle.className).toContain("dark:data-[state=on]:bg-[#9a2ae6]");
+    expect(toggle.className).not.toContain("green");
     // The ring does not depend on telling the colours apart.
     expect(toggle.className).toContain("data-[state=on]:inset-ring-2");
     expect(toggle.className).not.toContain("data-[state=on]:bg-muted");
   });
 
-  it("lets a toggle with its own pressed colour replace the green completely", () => {
+  it("lets a toggle with its own pressed colour replace the purple completely", () => {
     renderWithProviders(
       <>
         <Toggle pressed className={EDIT_PRESSED}>
@@ -35,10 +36,10 @@ describe("Toggle", () => {
     );
     const edit = screen.getByRole("button", { name: "Edit" });
     expect(edit.className).toContain("dark:data-[state=on]:bg-sky-700");
-    expect(edit.className).not.toContain("green");
+    expect(edit.className).not.toContain("9a2ae6");
     const mute = screen.getByRole("button", { name: "Mute" });
     expect(mute.className).toContain("dark:data-[state=on]:bg-red-700");
-    expect(mute.className).not.toContain("green");
+    expect(mute.className).not.toContain("9a2ae6");
   });
 
   it("styles the chosen item of a toggle group the same way", async () => {
@@ -50,7 +51,7 @@ describe("Toggle", () => {
     );
     const chosen = screen.getByRole("radio", { name: "Horizontal" });
     expect(chosen).toHaveAttribute("data-state", "on");
-    expect(chosen.className).toContain("data-[state=on]:bg-green-700");
+    expect(chosen.className).toContain("data-[state=on]:bg-[#9a2ae6]");
     await expectNoA11yViolations(container);
   });
 });
