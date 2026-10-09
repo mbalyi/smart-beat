@@ -16,6 +16,8 @@
       html:has(#splash),
       html:has(#splash) body {
         background: #000;
+        /* No scrollbar behind the logo: the page is not meant to scroll yet. */
+        overflow: hidden;
       }
       #splash {
         position: fixed;

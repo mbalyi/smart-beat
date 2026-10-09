@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 
 import { BuiltWith } from "@/components/built-with";
+import { SectionKicker } from "@/components/section-kicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FEATURES } from "@/components/welcome-features";
@@ -18,6 +19,10 @@ function folderOf(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts.length > 1 ? parts[parts.length - 2]! : "";
 }
+
+/** The hero buttons: taller, rounder, and a little lift on hover. */
+const HERO_BUTTON =
+  "h-12 rounded-[15px] px-[15px] text-base font-semibold transition-[background-color,border-color,transform] duration-150 hover:-translate-y-px motion-reduce:hover:translate-y-0 max-sm:h-[46px] max-sm:px-3 max-sm:text-sm";
 
 export function Welcome({
   onOpenFile,
@@ -37,38 +42,36 @@ export function Welcome({
   onShowLicenses?: () => void;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-12 px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
-      <section aria-labelledby="welcome-title" className="flex flex-col gap-6">
-        <div className="flex flex-col gap-3">
-          <Badge variant="secondary" className="w-fit">
-            Early preview
-          </Badge>
-          <h1
-            id="welcome-title"
-            className="font-heading text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
-          >
-            Write, play and arrange guitar music
-          </h1>
-          <p className="max-w-2xl text-base text-pretty text-muted-foreground sm:text-lg">
-            Smart Beat is a tablature editor for macOS, Windows and Linux, with optional self-hosted
-            AI that turns a hummed melody into a full accompaniment.
-          </p>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-          <Button size="lg" onClick={onOpenFile}>
+    <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-14 px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
+      <section aria-labelledby="welcome-title" className="flex flex-col pt-[clamp(8px,3vw,40px)]">
+        <span className="inline-flex min-h-7 w-fit items-center rounded-full border bg-card px-3 py-1 text-[13px] leading-snug font-semibold">
+          Early preview
+        </span>
+        <h1
+          id="welcome-title"
+          className="mt-5 mb-4 max-w-[1120px] font-heading text-[clamp(40px,6vw,68px)] leading-[1.04] font-bold tracking-[-0.06em] text-balance max-sm:mt-[18px] max-sm:text-[clamp(40px,10vw,58px)]"
+        >
+          Write, play and arrange guitar music
+        </h1>
+        <p className="max-w-[900px] text-[18px] leading-[1.55] text-pretty text-muted-foreground sm:text-[clamp(18px,2.1vw,27px)]">
+          Smart Beat is a tablature editor for macOS, Windows and Linux, with optional self-hosted
+          AI that turns a hummed melody into a full accompaniment.
+        </p>
+        <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:gap-3">
+          <Button size="lg" className={HERO_BUTTON} onClick={onOpenFile}>
             <FolderOpenIcon data-icon="inline-start" />
             Open a file…
           </Button>
-          <Button size="lg" variant="outline" onClick={onNewSong}>
+          <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onNewSong}>
             <FilePlusIcon data-icon="inline-start" />
             New song
           </Button>
-          <Button size="lg" variant="outline" onClick={onShowShortcuts}>
+          <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onShowShortcuts}>
             <KeyboardIcon data-icon="inline-start" />
             Keyboard shortcuts
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="mt-5 max-w-[1260px] text-[13px] leading-relaxed text-muted-foreground sm:mt-6 sm:text-sm">
           Opens Guitar Pro 3–8 files (.gp3, .gp4, .gp5, .gpx, .gp), MusicXML (.musicxml, .mxl),
           MIDI, MuseScore (.mscx, .mscz), alphaTex (.atex), Capella (.capx) and text tab (.txt)
           files. You can also drop a file anywhere in this window.
@@ -77,9 +80,9 @@ export function Welcome({
 
       {recent.length > 0 && onOpenRecent && (
         <section aria-labelledby="recent-title" className="flex flex-col gap-3">
-          <h2 id="recent-title" className="font-heading text-xl font-semibold">
+          <SectionKicker as="h2" id="recent-title">
             Recent songs
-          </h2>
+          </SectionKicker>
           <ul className="grid gap-3 sm:grid-cols-2">
             {recent.map((path, index) => (
               <li key={path} className="min-w-0">
@@ -115,9 +118,9 @@ export function Welcome({
       <section aria-labelledby="roadmap-title" className="flex flex-col gap-5">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <p className="mb-2 text-xs font-bold tracking-[0.12em] text-muted-foreground uppercase">
-              Made for the way you play
-            </p>
+            <div className="mb-2">
+              <SectionKicker>Made for the way you play</SectionKicker>
+            </div>
             <h2
               id="roadmap-title"
               className="font-heading text-[clamp(26px,3vw,32px)] leading-tight font-bold tracking-tight"

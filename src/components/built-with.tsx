@@ -3,6 +3,7 @@ import { ArrowUpRightIcon } from "lucide-react";
 import alphaTabLogo from "@/assets/alphatab-logo-horizontal.svg";
 import rustAudioLogo from "@/assets/rustaudio-logo.png";
 import { ExternalLink } from "@/components/external-link";
+import { SectionKicker } from "@/components/section-kicker";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ALPHATAB, OTHER_CREDITS, type Credit } from "@/lib/credits";
 import { cn } from "@/lib/utils";
@@ -59,10 +60,7 @@ export function BuiltWith({ onShowLicenses }: { onShowLicenses?: () => void }) {
   return (
     <section aria-labelledby="built-with-title" className="flex flex-col gap-6">
       <div className="flex max-w-3xl flex-col gap-3">
-        <p className="flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-muted-foreground uppercase">
-          <span aria-hidden="true" className="h-0.5 w-5 bg-brand-yellow" />
-          Built together
-        </p>
+        <SectionKicker>Built with</SectionKicker>
         <h2
           id="built-with-title"
           className="font-heading text-4xl leading-[1.08] font-bold tracking-tight text-balance sm:text-5xl"

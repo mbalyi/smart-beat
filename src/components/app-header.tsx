@@ -26,7 +26,7 @@ export function AppHeader({
       <div
         className={cn(
           "mx-auto flex w-full items-center justify-between gap-x-4 px-4 sm:px-6",
-          wide ? "min-h-16 flex-wrap py-1 lg:flex-nowrap" : "h-14 max-w-5xl lg:px-8",
+          wide ? "min-h-16 flex-wrap py-1 lg:flex-nowrap" : "h-14 max-w-[1536px] lg:px-8",
         )}
       >
         <div className="flex shrink-0 items-center">
