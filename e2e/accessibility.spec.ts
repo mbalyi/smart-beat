@@ -207,6 +207,7 @@ test.describe("accessibility", () => {
   test("tab order follows the visual order", async ({ app, browserName }) => {
     const expected = [
       "Skip to main content",
+      "Smart Beat", // the logo: back to the start screen
       "Theme",
       "Help",
       "Open a file…",

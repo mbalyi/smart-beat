@@ -10,8 +10,9 @@ targets = [
 ]
 
 [licenses]
-# Smart Beat is distributed as closed-source freeware: only permissive licenses
-# and MPL-2.0 (file-level copyleft, fine for unmodified crates) are allowed.
+# Smart Beat's source is under PolyForm Noncommercial and its binaries may be sold under a
+# separate commercial license (ADR 0002), so only permissive licenses and MPL-2.0 (file-level
+# copyleft, fine for unmodified crates) are allowed.
 # Rust links statically, so LGPL/GPL/AGPL crates are not allowed at all.
 allow = [
     "0BSD",
@@ -36,7 +37,8 @@ confidence-threshold = 0.9
 unused-allowed-license = "allow"
 
 [licenses.private]
-# Our own crate is proprietary (publish = false).
+# Our own crate is under PolyForm Noncommercial, which is not an allowed dependency license
+# (publish = false).
 ignore = true
 
 [bans]

@@ -1,6 +1,6 @@
 # ADR 0001: Smart Beat is proprietary freeware
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0002](0002-source-available-noncommercial-license.md) (2026-10-08). The dependency rules in section 2 and 3 of the decision still apply.
 - **Date:** 2026-09-29
 - **Issue:** [#3](https://github.com/mbalyi/smart-beat/issues/3)
 

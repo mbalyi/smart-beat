@@ -3,7 +3,7 @@ import { emitMenuAction, expect, newSong, openSong, test } from "./fixtures";
 const VIEWPORTS = [
   { name: "narrow window", width: 375, height: 700, columns: 1 },
   { name: "medium window", width: 768, height: 800, columns: 2 },
-  { name: "wide window", width: 1280, height: 800, columns: 3 },
+  { name: "wide window", width: 1280, height: 800, columns: 4 },
 ] as const;
 
 /** Song screen at every size, down to the app's minimum window (480×360). */
@@ -166,8 +166,13 @@ for (const { name, width, height, columns } of VIEWPORTS) {
     });
 
     test(`lays out feature cards in ${columns} column(s)`, async ({ app }) => {
-      const cards = app.getByRole("list").getByRole("listitem");
-      await expect(cards).toHaveCount(3);
+      // The features list (not the lists inside a card).
+      const cards = app
+        .getByRole("region", { name: "Features" })
+        .getByRole("list")
+        .first()
+        .locator("> li");
+      await expect(cards).toHaveCount(7); // every feature of the start page
 
       const tops = await cards.evaluateAll((items) =>
         items.map((item) => Math.round(item.getBoundingClientRect().top)),
@@ -226,5 +231,30 @@ test.describe("narrow window (800px)", () => {
     await expect(inspector).toBeVisible();
     await inspector.getByRole("button", { name: "Close inspector" }).click();
     await expect(inspector).toHaveCount(0);
+  });
+});
+
+/** The update dialog (#82) fits the smallest window the app allows, with long release notes. */
+test.describe("update dialog at the minimum window (480×360)", () => {
+  test.use({ viewport: { width: 480, height: 360 } });
+
+  test("keeps its buttons on screen and scrolls the notes inside", async ({ app }) => {
+    await app.evaluate(() => {
+      window.__update = { version: "0.2.0", body: "- A change in the new version.\n".repeat(60) };
+    });
+    await emitMenuAction(app, "check-for-updates");
+
+    const dialog = app.getByRole("dialog", { name: "Update available" });
+    await expect(dialog).toBeVisible();
+    for (const name of ["Later", "Download & Install"]) {
+      await expect(dialog.getByRole("button", { name })).toBeInViewport();
+    }
+    const box = (await dialog.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(480);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(360);
+    const overflow = await dialog.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
   });
 });

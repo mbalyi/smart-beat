@@ -30,10 +30,10 @@ test.describe("active toggle states (#83)", () => {
       await app.mouse.move(0, 0);
       for (const [i, toggle] of toggles.entries()) {
         await expect(toggle).toHaveAttribute("aria-pressed", "true");
-        // The colours fade in: wait for the end (green-700).
+        // The colours fade in: wait for the end (the purple of the logo, #9a2ae6).
         await expect
           .poll(async () => (await look(toggle)).background)
-          .toContain("oklch(0.527 0.154 150");
+          .toContain("rgb(154, 42, 230)");
         const on = await look(toggle);
         expect(on.background).not.toBe(idle[i]!.background);
         // Not only a different colour: the pressed button also gets an inset ring.

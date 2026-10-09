@@ -72,6 +72,7 @@ export type MenuAction =
   | "toggle-count-in"
   | "shortcuts"
   | "licenses"
+  | "check-for-updates"
   | "about";
 
 /** Mirrors `MENU_EVENT` in `src-tauri/src/menu.rs`. */

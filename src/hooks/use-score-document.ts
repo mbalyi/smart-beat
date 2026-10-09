@@ -292,12 +292,21 @@ export function useScoreDocuments() {
     );
   }, []);
 
+  /** Closes every tab and shows the start screen. */
+  const closeAll = useCallback(() => {
+    songsRef.current = [];
+    setSongs([]);
+    sources.current.clear();
+    setActiveId(null);
+  }, []);
+
   const song = songs.find((s) => s.id === activeId) ?? null;
   return {
     songs,
     song,
     activate: setActiveId,
     close,
+    closeAll,
     openPath,
     openFile,
     newSong,

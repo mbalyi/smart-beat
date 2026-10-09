@@ -22,6 +22,13 @@ export const EDIT_PRESSED =
 /**
  * How every other toggle looks when it is on (Loop, Metronome, Count-in, panel switches…): the
  * base style of `Toggle` and `ToggleGroupItem`, so a pressed toggle never looks like an idle
- * grey one. A toggle with its own pressed colour overrides it with the same classes.
+ * grey one. It is the purple of the "BEAT" in the logo, a little deeper (#9a2ae6 instead of
+ * #aa36fc) so that the white label keeps a contrast of 5:1. A toggle with its own pressed colour
+ * (Mute, Solo, Edit) overrides it with the same classes.
  */
-export const ON_GREEN = SOLO_PRESSED;
+export const ON_BRAND =
+  "data-[state=on]:border-[#9a2ae6] data-[state=on]:bg-[#9a2ae6] aria-pressed:bg-[#9a2ae6] dark:data-[state=on]:bg-[#9a2ae6] dark:aria-pressed:bg-[#9a2ae6] data-[state=on]:text-white data-[state=on]:hover:bg-[#8420cc] data-[state=on]:hover:text-white dark:data-[state=on]:hover:bg-[#8420cc] " +
+  PRESSED_CUE;
+/** The same purple for a button that shows a mode instead of an on/off state (Practice mix). */
+export const ACTIVE_BRAND =
+  "border-[#9a2ae6] bg-[#9a2ae6] text-white inset-ring-2 inset-ring-white/40 hover:bg-[#8420cc] hover:text-white dark:border-[#9a2ae6] dark:bg-[#9a2ae6] dark:hover:bg-[#8420cc]";

@@ -96,10 +96,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows and Linux are switched off for pull requests and pushes: they only run when
-        # started by hand (Actions > CI > Run workflow). To switch them on again, replace this
-        # expression by the full list.
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"name":"macOS","os":"macos-latest"},{"name":"Windows","os":"windows-latest"},{"name":"Linux","os":"ubuntu-22.04"}]' || '[{"name":"macOS","os":"macos-latest"}]') }}
+        include:
+          - name: macOS
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -151,9 +154,6 @@ jobs:
 
   licenses:
     name: License policy
-    # Not run automatically (pull requests and pushes): start it by hand (Actions > CI > Run
-    # workflow), or run `pnpm licenses:check` locally. Remove this line to switch it on again.
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

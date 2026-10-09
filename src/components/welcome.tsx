@@ -1,10 +1,18 @@
-import { FileMusicIcon, FilePlusIcon, FolderOpenIcon, KeyboardIcon } from "lucide-react";
+import {
+  AudioLinesIcon,
+  FileMusicIcon,
+  FilePlusIcon,
+  FolderOpenIcon,
+  KeyboardIcon,
+} from "lucide-react";
 
+import { BuiltWith } from "@/components/built-with";
+import { SectionKicker } from "@/components/section-kicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FEATURES } from "@/components/welcome-features";
 import { baseName } from "@/lib/score/format";
+import { cn } from "@/lib/utils";
 
 /** The folder a path is in ("Songs" for `/Users/me/Songs/riff.gp5`), to tell equal names apart. */
 function folderOf(path: string): string {
@@ -12,12 +20,17 @@ function folderOf(path: string): string {
   return parts.length > 1 ? parts[parts.length - 2]! : "";
 }
 
+/** The hero buttons: taller, rounder, and a little lift on hover. */
+const HERO_BUTTON =
+  "h-12 rounded-[15px] px-[15px] text-base font-semibold transition-[background-color,border-color,transform] duration-150 hover:-translate-y-px motion-reduce:hover:translate-y-0 max-sm:h-[46px] max-sm:px-3 max-sm:text-sm";
+
 export function Welcome({
   onOpenFile,
   onNewSong,
   onShowShortcuts,
   recent = [],
   onOpenRecent,
+  onShowLicenses,
 }: {
   onOpenFile: () => void;
   onNewSong: () => void;
@@ -25,40 +38,41 @@ export function Welcome({
   /** Recently opened songs (paths), most recent first. */
   recent?: string[];
   onOpenRecent?: (path: string) => void;
+  /** "View open-source notices": opens Help › Open-Source Licenses. */
+  onShowLicenses?: () => void;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-12 px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
-      <section aria-labelledby="welcome-title" className="flex flex-col gap-6">
-        <div className="flex flex-col gap-3">
-          <Badge variant="secondary" className="w-fit">
-            Early preview
-          </Badge>
-          <h1
-            id="welcome-title"
-            className="font-heading text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
-          >
-            Write, play and arrange guitar music
-          </h1>
-          <p className="max-w-2xl text-base text-pretty text-muted-foreground sm:text-lg">
-            Smart Beat is a tablature editor for macOS, Windows and Linux, with optional self-hosted
-            AI that turns a hummed melody into a full accompaniment.
-          </p>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-          <Button size="lg" onClick={onOpenFile}>
+    <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-14 px-4 pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-14 lg:px-8 lg:pt-8">
+      {/* The space above the badge equals the page's side padding (the container's padding). */}
+      <section aria-labelledby="welcome-title" className="flex flex-col">
+        <span className="inline-flex min-h-7 w-fit items-center rounded-full border bg-card px-3 py-1 text-[13px] leading-snug font-semibold">
+          Early preview
+        </span>
+        <h1
+          id="welcome-title"
+          className="mt-5 mb-4 max-w-[1120px] font-heading text-[clamp(40px,6vw,68px)] leading-[1.04] font-bold tracking-[-0.06em] text-balance max-sm:mt-[18px] max-sm:text-[clamp(40px,10vw,58px)]"
+        >
+          Write, play and arrange guitar music
+        </h1>
+        <p className="max-w-[900px] text-[18px] leading-[1.55] text-pretty text-muted-foreground sm:text-[clamp(18px,2.1vw,27px)]">
+          Smart Beat is a tablature editor for macOS, Windows and Linux, with optional self-hosted
+          AI that turns a hummed melody into a full accompaniment.
+        </p>
+        <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:gap-3">
+          <Button size="lg" className={HERO_BUTTON} onClick={onOpenFile}>
             <FolderOpenIcon data-icon="inline-start" />
             Open a file…
           </Button>
-          <Button size="lg" variant="outline" onClick={onNewSong}>
+          <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onNewSong}>
             <FilePlusIcon data-icon="inline-start" />
             New song
           </Button>
-          <Button size="lg" variant="outline" onClick={onShowShortcuts}>
+          <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onShowShortcuts}>
             <KeyboardIcon data-icon="inline-start" />
             Keyboard shortcuts
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="mt-5 max-w-[1260px] text-[13px] leading-relaxed text-muted-foreground sm:mt-6 sm:text-sm">
           Opens Guitar Pro 3–8 files (.gp3, .gp4, .gp5, .gpx, .gp), MusicXML (.musicxml, .mxl),
           MIDI, MuseScore (.mscx, .mscz), alphaTex (.atex), Capella (.capx) and text tab (.txt)
           files. You can also drop a file anywhere in this window.
@@ -67,57 +81,105 @@ export function Welcome({
 
       {recent.length > 0 && onOpenRecent && (
         <section aria-labelledby="recent-title" className="flex flex-col gap-3">
-          <h2 id="recent-title" className="font-heading text-xl font-semibold">
+          <SectionKicker as="h2" id="recent-title">
             Recent songs
-          </h2>
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {recent.map((path) => (
+          </SectionKicker>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {recent.map((path, index) => (
               <li key={path} className="min-w-0">
-                <Button
-                  variant="outline"
-                  className="h-auto w-full min-w-0 justify-start gap-3 overflow-hidden px-3 py-2 text-left"
+                <button
+                  type="button"
+                  className={cn(
+                    "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card px-4 py-3 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
+                    index % 2 === 0
+                      ? "hover:border-brand-yellow/60 focus-visible:border-brand-yellow/60"
+                      : "hover:border-brand/60 focus-visible:border-brand/60",
+                  )}
                   onClick={() => onOpenRecent(path)}
                   title={path}
                 >
-                  <FileMusicIcon data-icon="inline-start" aria-hidden="true" />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate font-medium">{baseName(path)}</span>
-                    <span className="truncate text-xs font-normal text-muted-foreground">
-                      {folderOf(path)}
-                    </span>
+                  <FileMusicIcon
+                    className={cn(
+                      "size-[22px] shrink-0",
+                      index % 2 === 0 ? "text-brand-yellow" : "text-brand",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate text-[17px] font-bold">{baseName(path)}</span>
+                    <span className="truncate text-sm text-muted-foreground">{folderOf(path)}</span>
                   </span>
-                </Button>
+                </button>
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      <section aria-labelledby="roadmap-title" className="flex flex-col gap-4">
-        <h2 id="roadmap-title" className="font-heading text-xl font-semibold">
-          Features
-        </h2>
-        <ul className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map(({ title, description, Icon, badge }) => (
-            <li key={title}>
-              <Card className="h-full">
-                <CardHeader className="gap-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <Icon className="size-5" aria-hidden="true" />
-                    </span>
-                    <Badge variant="outline">{badge}</Badge>
-                  </div>
-                  <CardTitle>
-                    <h3>{title}</h3>
-                  </CardTitle>
-                  <CardDescription>{description}</CardDescription>
-                </CardHeader>
-              </Card>
+      <section aria-labelledby="roadmap-title" className="flex flex-col gap-5">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <div className="mb-2">
+              <SectionKicker>Made for the way you play</SectionKicker>
+            </div>
+            <h2
+              id="roadmap-title"
+              className="font-heading text-[clamp(26px,3vw,32px)] leading-tight font-bold tracking-tight"
+            >
+              Features
+            </h2>
+          </div>
+          <span
+            aria-hidden="true"
+            className="grid size-[42px] shrink-0 place-items-center rounded-[13px] border text-brand"
+          >
+            <AudioLinesIcon className="size-[21px]" />
+          </span>
+        </div>
+        <ul className="grid gap-[18px] md:grid-cols-2 lg:grid-cols-12">
+          {FEATURES.map((feature, index) => (
+            <li
+              key={feature.title}
+              // Four cards in the first row, three (wider) in the second.
+              className={cn("min-w-0", index < 4 ? "lg:col-span-3" : "lg:col-span-4")}
+            >
+              <article className="flex h-full flex-col gap-4 rounded-[19px] border border-foreground/10 bg-card p-4">
+                <h3 className="sr-only">{feature.title}</h3>
+                <img
+                  src={feature.image}
+                  alt={feature.title}
+                  loading="lazy"
+                  draggable={false}
+                  className="aspect-[558/447] w-full object-contain"
+                />
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "w-fit rounded-full px-3 py-0.5",
+                    feature.status === "available"
+                      ? "border-green-600/60 bg-green-600/10 text-green-800 dark:border-green-500/60 dark:bg-green-500/10 dark:text-green-400"
+                      : "border-brand/60 bg-brand/10 text-brand dark:text-[#e29bff]",
+                  )}
+                >
+                  {feature.badge}
+                </Badge>
+                <div className="text-[15px] leading-relaxed text-muted-foreground">
+                  <p>{feature.description}</p>
+                  {feature.items && (
+                    <ul className="mt-1 list-disc pl-5">
+                      {feature.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </article>
             </li>
           ))}
         </ul>
       </section>
+
+      <BuiltWith onShowLicenses={onShowLicenses} />
     </div>
   );
 }

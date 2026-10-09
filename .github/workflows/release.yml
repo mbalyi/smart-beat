@@ -7,7 +7,10 @@ name: Release
 # - Run manually to build installers as workflow artifacts only.
 # - PRs that change packaging configuration also build the installers (as
 #   artifacts, never a release) so bundling problems surface before a tag.
-# Signing turns on automatically once the secrets in docs/code-signing.md exist.
+# - Release builds also create signed updater bundles and a `latest.json` that the in-app
+#   updater reads. That needs the TAURI_SIGNING_PRIVATE_KEY secret (docs/release.md); a build
+#   for a release fails without it, other builds just skip the updater bundles.
+# Apple signing turns on automatically once the secrets in docs/code-signing.md exist.
 
 on:
   push:
@@ -41,10 +44,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows and Linux installers are not built for pull requests that touch the packaging
-        # files: they are built for release tags and when the workflow is started by hand. To build
-        # them for pull requests again, replace this expression by the full list.
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"macOS (universal)","os":"macos-latest","rust-targets":"aarch64-apple-darwin,x86_64-apple-darwin","tauri-args":"--target universal-apple-darwin"}]' || '[{"name":"macOS (universal)","os":"macos-latest","rust-targets":"aarch64-apple-darwin,x86_64-apple-darwin","tauri-args":"--target universal-apple-darwin"},{"name":"Windows (x64)","os":"windows-latest","rust-targets":"","tauri-args":""},{"name":"Linux (x64)","os":"ubuntu-22.04","rust-targets":"","tauri-args":""}]') }}
+        include:
+          - name: macOS (universal)
+            os: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            tauri-args: --target universal-apple-darwin
+          - name: Windows (x64)
+            os: windows-latest
+            rust-targets: ""
+            tauri-args: ""
+          - name: Linux (x64)
+            os: ubuntu-22.04
+            rust-targets: ""
+            tauri-args: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -112,19 +124,68 @@ jobs:
             echo "::warning::App Store Connect API key not set: the app will be signed but not notarized."
           fi
 
+      - name: Release tag and notes
+        id: release
+        # A release is only created for tags, or when requested manually.
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.draft-release
+        shell: bash
+        run: |
+          # One canonical version: the tag must be v<version in package.json>, and CHANGELOG.md
+          # needs a section for it (that text becomes the release notes and the update dialog).
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(node -p "require('./package.json').version")"
+          fi
+          node scripts/release-notes.mjs "$tag" --check
+          # The key in the repository while the updater was built (key id 4787392BA11701D4) is a
+          # throwaway one: apps built with it could never be updated by the real key.
+          if grep -q "IDQ3ODczOTJCQTExNzAxRDQK" src-tauri/tauri.conf.json; then
+            echo "::error::plugins.updater.pubkey in tauri.conf.json is still the development key. Put the public key of the real updater key in it (docs/release.md)."
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "body<<RELEASE_NOTES_EOF"
+            node scripts/release-notes.mjs "$tag"
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure updater signing
+        id: updater
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          # The overlay turns on bundle.createUpdaterArtifacts, which needs the private key.
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "args=--config src-tauri/tauri.updater.conf.json" >> "$GITHUB_OUTPUT"
+          elif [ -n "$RELEASE_TAG" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set, so $RELEASE_TAG would have no updater bundles. Add the secrets described in docs/release.md."
+            exit 1
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without updater bundles."
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build installers
         id: tauri
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: ${{ matrix.tauri-args }}
-          # A release is only created for tags, or when requested manually.
-          tagName: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.draft-release) && 'v__VERSION__' || '' }}
+          args: ${{ matrix.tauri-args }} ${{ steps.updater.outputs.args }}
+          tagName: ${{ steps.release.outputs.tag }}
           releaseName: Smart Beat v__VERSION__
-          releaseBody: See the assets below to download Smart Beat for your platform.
+          releaseBody: ${{ steps.release.outputs.body }}
           releaseDraft: true
           prerelease: false
+          # Stable names without the version, so the website can link to
+          # https://github.com/mbalyi/smart-beat/releases/latest/download/<name> (docs/release.md).
+          releaseAssetNamePattern: SmartBeat_[platform]_[arch][setup][ext]
 
       - name: Check that license notices were bundled
         shell: bash
@@ -143,3 +204,44 @@ jobs:
             src-tauri/target/**/release/bundle/appimage/*.AppImage
             src-tauri/target/**/release/bundle/deb/*.deb
             src-tauri/target/**/release/bundle/rpm/*.rpm
+            src-tauri/target/**/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/**/release/bundle/**/*.sig
+
+  verify-release:
+    name: Check the draft release
+    needs: installers
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.draft-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: List the assets and check latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(node -p "require('./package.json').version")"
+          fi
+          # Drafts are not found by tag, so list all releases.
+          release=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" | jq -s --arg tag "$tag" 'add | map(select(.tag_name == $tag)) | .[0]')
+          if [ "$release" = "null" ]; then
+            echo "::error::No release for $tag was found."
+            exit 1
+          fi
+          echo "Assets of $tag:"
+          echo "$release" | jq -r '.assets[].name' | sort
+          id=$(echo "$release" | jq -r '.assets[] | select(.name == "latest.json") | .id')
+          if [ -z "$id" ]; then
+            echo "::error::latest.json was not uploaded to $tag."
+            exit 1
+          fi
+          gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "$RUNNER_TEMP/latest.json"
+          node scripts/verify-latest-json.mjs "$tag" "$RUNNER_TEMP/latest.json"

@@ -73,6 +73,9 @@ describe("App", () => {
     expect(skip).toHaveAttribute("href", "#main");
     expect(screen.getByRole("main")).toHaveAttribute("id", "main");
 
+    // The logo is a button now: back to the start screen.
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Smart Beat" })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("button", { name: "Theme" })).toHaveFocus();
   });
@@ -104,6 +107,55 @@ describe("App", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Open-source licenses" });
     expect(await within(dialog).findByText(/tauri — MIT OR Apache-2.0/)).toBeInTheDocument();
+  });
+
+  it("Help → Check for Updates… says when this is the latest version", async () => {
+    await renderApp();
+
+    await menu("check-for-updates");
+
+    const dialog = await screen.findByRole("dialog", { name: "You're up to date" });
+    expect(dialog).toHaveTextContent(`Smart Beat ${APP_INFO.version} is the latest version.`);
+  });
+
+  it("Help → Check for Updates… offers a new version and installs it only when asked", async () => {
+    const { calls, user } = await renderApp();
+    backend.update = { version: "0.2.0", body: "- Update dialog." };
+
+    await menu("check-for-updates");
+
+    const dialog = await screen.findByRole("dialog", { name: "Update available" });
+    expect(within(dialog).getByText("0.2.0")).toBeInTheDocument();
+    expect(within(dialog).getByRole("region", { name: "Release notes" })).toHaveTextContent(
+      "- Update dialog.",
+    );
+    expect(calls.some((c) => c.cmd === "plugin:updater|download_and_install")).toBe(false);
+
+    await user.click(within(dialog).getByRole("button", { name: "Download & Install" }));
+
+    await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:process|restart")).toBe(true));
+    expect(calls.map((c) => c.cmd)).toContain("plugin:updater|download_and_install");
+  });
+
+  it("Help → Check for Updates… reports a failed check", async () => {
+    await renderApp();
+    backend.updateError = { during: "check", message: "Could not fetch a valid release JSON." };
+
+    await menu("check-for-updates");
+
+    const dialog = await screen.findByRole("dialog", { name: "Couldn't update Smart Beat" });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Could not fetch a valid release JSON.",
+    );
+  });
+
+  it("the in-window Help menu has Check for Updates… in the desktop app", async () => {
+    const { user } = await renderApp();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Check for Updates…" }));
+
+    expect(await screen.findByRole("dialog", { name: "You're up to date" })).toBeInTheDocument();
   });
 
   it("View → Toggle Dark Mode switches the theme and the native title bar", async () => {

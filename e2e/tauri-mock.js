@@ -191,6 +191,34 @@
         return null;
       case "plugin:window|set_theme":
         return null;
+      // The updater plugin: tests set `window.__update` ({ version, body }) to have a new version
+      // found, `__updateError` ({ during: "check" | "install", message }) to make it fail, and
+      // `__updateHold = true` to keep a download open until `__releaseUpdate()` is called.
+      case "plugin:updater|check":
+        if (window.__updateError?.during === "check") throw window.__updateError.message;
+        if (!window.__update) return null;
+        return {
+          rid: 7,
+          currentVersion: APP_INFO.version,
+          version: window.__update.version,
+          date: "2026-11-01T00:00:00Z",
+          body: window.__update.body,
+          rawJson: {},
+        };
+      case "plugin:updater|download_and_install": {
+        const send = (message) => args.onEvent.onmessage(message);
+        send({ event: "Started", data: { contentLength: 3000 } });
+        send({ event: "Progress", data: { chunkLength: 1000 } });
+        if (window.__updateHold) await new Promise((resolve) => (window.__releaseUpdate = resolve));
+        if (window.__updateError?.during === "install") throw window.__updateError.message;
+        send({ event: "Progress", data: { chunkLength: 2000 } });
+        send({ event: "Finished" });
+        return null;
+      }
+      case "plugin:opener|open_url":
+      case "plugin:process|restart":
+      case "plugin:resources|close":
+        return null;
       case "plugin:event|listen": {
         const handlers = listeners.get(args.event) ?? [];
         handlers.push(args.handler);

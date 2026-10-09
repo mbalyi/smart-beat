@@ -6,8 +6,10 @@ import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { DocumentTabs } from "@/components/shell/document-tabs";
 import { DiscardDialog } from "@/components/discard-dialog";
+import { LeaveDialog } from "@/components/leave-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
+import { UpdateDialog } from "@/components/update-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
 import { useFileDrop } from "@/hooks/use-file-drop";
@@ -16,6 +18,7 @@ import { useRecentFiles } from "@/hooks/use-recent-files";
 import { initLayoutPrefs } from "@/lib/score/layout";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
+import { useUpdater } from "@/hooks/use-updater";
 import { errorText } from "@/lib/errors";
 import { hasScoreExtension } from "@/lib/score/errors";
 import { baseName } from "@/lib/score/format";
@@ -43,11 +46,13 @@ export function App() {
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const { toggleTheme } = useTheme();
+  const updater = useUpdater();
   const {
     songs,
     song,
     activate,
     close,
+    closeAll,
     openPath,
     openFile,
     newSong,
@@ -86,6 +91,26 @@ export function App() {
     setEdited(id, false);
     close(id);
   };
+
+  /** The logo: back to the start screen. Unsaved changes are asked about first. */
+  const [leaving, setLeaving] = useState(false);
+  const goHome = () => {
+    if (songs.length === 0) return;
+    if (edited.current.size > 0) {
+      setLeaving(true);
+      return;
+    }
+    closeAll();
+  };
+  const leaveAndGoHome = () => {
+    setLeaving(false);
+    edited.current.clear();
+    setEditedIds(new Set());
+    closeAll();
+  };
+  const unsavedNames = songs
+    .filter((s) => editedIds.has(s.id))
+    .map((s) => s.summary.title || s.name);
 
   const startNewSong = () => void newSong();
 
@@ -177,6 +202,9 @@ export function App() {
       case "licenses":
         showDialog(action);
         break;
+      case "check-for-updates":
+        updater.checkNow();
+        break;
       default:
         // Window actions (zoom, full screen, quit) are handled natively;
         // song actions (undo, loop, tracks...) by the workspace.
@@ -188,7 +216,13 @@ export function App() {
     <>
       <SkipLink />
       <div className={cn("flex flex-col", song ? "h-svh" : "min-h-svh")}>
-        <AppHeader onShowDialog={showDialog} wide={song !== null} centerRef={setHeaderSlot} />
+        <AppHeader
+          onShowDialog={showDialog}
+          onCheckForUpdates={isTauri() ? updater.checkNow : undefined}
+          onHome={goHome}
+          wide={song !== null}
+          centerRef={setHeaderSlot}
+        />
         <main
           id="main"
           tabIndex={-1}
@@ -225,6 +259,7 @@ export function App() {
               onOpenFile={open}
               onNewSong={startNewSong}
               onShowShortcuts={() => showDialog("shortcuts")}
+              onShowLicenses={() => showDialog("licenses")}
               recent={recent}
               onOpenRecent={(path) => void openPath(path)}
             />
@@ -251,7 +286,14 @@ export function App() {
         onCancel={() => setPendingClose(null)}
         onDiscard={() => closing && discardAndClose(closing.id)}
       />
+      <LeaveDialog
+        songNames={unsavedNames}
+        open={leaving}
+        onCancel={() => setLeaving(false)}
+        onLeave={leaveAndGoHome}
+      />
       <AppDialogs open={dialog} onOpenChange={setDialog} returnFocusTo={returnFocusTo} />
+      <UpdateDialog updater={updater} />
       <Toaster position="bottom-right" />
     </>
   );

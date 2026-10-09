@@ -63,13 +63,9 @@ GitHub secrets for Azure Artifact Signing: `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECR
 - **AppImage:** optionally GPG-sign it by setting `SIGN=1`, `SIGN_KEY` and `APPIMAGETOOL_SIGN_PASSPHRASE` in the release job. Few users verify these signatures, so this is low priority.
 - **.deb/.rpm:** signatures matter once we publish an apt or dnf repository. Until then, users install the files directly.
 
-## Auto-updates (later)
+## Auto-updates
 
-`tauri-plugin-updater` verifies updates with its own Ed25519 key, independent of OS code signing. When updates are added:
-
-1. Run `pnpm tauri signer generate` and store the private key as `TAURI_SIGNING_PRIVATE_KEY` and its password as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-2. Put the public key in `tauri.conf.json` under `plugins.updater.pubkey`.
-3. Back up the private key offline. **If it is lost, installed apps can never be updated again.**
+The in-app updater (#82) verifies updates with its own Ed25519 key, independent of OS code signing. It is set up; the key, secrets and release steps are in [`release.md`](release.md). Without OS signing (above), the updater still works, but a freshly downloaded first install shows the warnings from the table at the top.
 
 ## Cost summary
 

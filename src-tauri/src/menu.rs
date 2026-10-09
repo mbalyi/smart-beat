@@ -89,11 +89,12 @@ pub enum MenuAction {
     ToggleCountIn,
     Shortcuts,
     Licenses,
+    CheckForUpdates,
     About,
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 59] = [
+    pub const ALL: [Self; 60] = [
         Self::NewSong,
         Self::Open,
         Self::ClearRecent,
@@ -152,6 +153,7 @@ impl MenuAction {
         Self::ToggleCountIn,
         Self::Shortcuts,
         Self::Licenses,
+        Self::CheckForUpdates,
         Self::About,
     ];
 
@@ -216,6 +218,7 @@ impl MenuAction {
             Self::ToggleCountIn => "playback.toggle-count-in",
             Self::Shortcuts => "help.shortcuts",
             Self::Licenses => "help.licenses",
+            Self::CheckForUpdates => "help.check-for-updates",
             Self::About => "help.about",
         }
     }
@@ -280,7 +283,7 @@ impl MenuAction {
             Self::ToggleLoop | Self::SpeedTrainer | Self::ToggleMetronome | Self::ToggleCountIn => {
                 "Playback"
             }
-            Self::Shortcuts | Self::Licenses | Self::About => "Help",
+            Self::Shortcuts | Self::Licenses | Self::CheckForUpdates | Self::About => "Help",
         }
     }
 
@@ -344,6 +347,7 @@ impl MenuAction {
             Self::ToggleCountIn => "Count-In",
             Self::Shortcuts => "Keyboard Shortcuts",
             Self::Licenses => "Open-Source Licenses",
+            Self::CheckForUpdates => "Check for Updates…",
             Self::About => "About Smart Beat",
         }
     }
@@ -403,6 +407,7 @@ impl MenuAction {
             | Self::SpeedTrainer
             | Self::ToggleCountIn
             | Self::Licenses
+            | Self::CheckForUpdates
             | Self::ClearRecent
             | Self::ExportMusicXml
             | Self::ExportMidi
@@ -665,6 +670,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let fullscreen = item(app, ToggleFullscreen)?;
     let shortcuts = item(app, Shortcuts)?;
     let licenses = item(app, Licenses)?;
+    let updates = item(app, CheckForUpdates)?;
 
     crate::recent::ensure_store(app)?;
     let recent = Submenu::with_id(app, RECENT_MENU_ID, "Open Recent", true)?;
@@ -815,7 +821,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let mut help = SubmenuBuilder::new(app, "Help")
         .item(&shortcuts)
-        .item(&licenses);
+        .item(&licenses)
+        .item(&updates);
     if !cfg!(target_os = "macos") {
         help = help.separator().item(&about);
     }
@@ -1177,6 +1184,23 @@ mod tests {
         let (keys, spoken) = format_accelerator("Shift+CmdOrCtrl+Z", "macos");
         assert_eq!(keys, ["⇧", "⌘", "Z"]);
         assert_eq!(spoken, "Shift+Command+Z");
+    }
+
+    #[test]
+    fn check_for_updates_is_a_help_item_the_ui_handles() {
+        let action = MenuAction::CheckForUpdates;
+        assert_eq!(action.id(), "help.check-for-updates");
+        assert_eq!(action.menu(), "Help");
+        assert_eq!(action.label(), "Check for Updates…");
+        assert_eq!(
+            serde_json::to_string(&action).unwrap(),
+            "\"check-for-updates\""
+        );
+        // The UI shows the dialog; it works without a song and has no shortcut.
+        assert!(!action.is_native());
+        assert!(!action.needs_song());
+        assert_eq!(action.accelerator_for("macos"), None);
+        assert_eq!(action.accelerator_for("windows"), None);
     }
 
     #[test]

@@ -24,14 +24,115 @@ describe("Welcome", () => {
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(FEATURES.length);
   });
 
-  it("lists every upcoming feature", () => {
+  it("thanks alphaTab first, after the features, with its logo, and says who made cpal", async () => {
+    const onShowLicenses = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onShowLicenses={onShowLicenses}
+      />,
+    );
+
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings[headings.length - 2]).toBe("Features");
+    expect(headings[headings.length - 1]).toBe("Made possible by open source.");
+    const section = screen
+      .getByRole("heading", { name: "Made possible by open source." })
+      .closest("section")!;
+    const links = within(section).getAllByRole("link");
+    expect(links[0]).toHaveAccessibleName("alphaTab");
+    expect(links[0]).toHaveAttribute("href", "https://alphatab.net/");
+    expect(within(section).getByRole("link", { name: "star alphaTab on GitHub" })).toHaveAttribute(
+      "href",
+      "https://github.com/CoderLine/alphaTab",
+    );
+    expect(section).toHaveTextContent("not affiliated with or endorsed by alphaTab");
+    // alphaTab, four libraries and the star link.
+    expect(links).toHaveLength(1 + 4 + 1);
+    expect(within(section).getByRole("link", { name: "RustySynth" })).toBeInTheDocument();
+    expect(within(section).getByRole("link", { name: "cpal by RustAudio" })).toHaveAttribute(
+      "href",
+      "https://github.com/RustAudio/cpal",
+    );
+    expect(within(section).queryByRole("link", { name: "React" })).not.toBeInTheDocument();
+
+    await user.click(within(section).getByRole("button", { name: /View open-source notices/ }));
+    expect(onShowLicenses).toHaveBeenCalledOnce();
+  });
+
+  it("opens a card with the details and a link when a library is focused", async () => {
+    const { user } = renderWelcome();
+
+    await user.tab(); // reaches the first controls; go straight to the library instead
+    screen.getByRole("link", { name: "RustySynth" }).focus();
+
+    expect(await screen.findByText(/Turns notes and SoundFonts into sound/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Explore project/ })).toHaveAttribute(
+      "href",
+      "https://github.com/sinshu/rustysynth",
+    );
+  });
+
+  it("orders the features: what works first, the AI ideas last, Hum to accompaniment at the end", () => {
+    expect(FEATURES.map((f) => `${f.title} (${f.badge})`)).toEqual([
+      "Open, play and practice (Available)",
+      "Write tabs and scores (Available)",
+      "Learning mode (Available)",
+      "Audio to tab (Available)",
+      "Record to tab (AI · Coming soon)",
+      "Speech to tab (AI · Coming soon)",
+      "Hum to accompaniment (AI · Coming soon)",
+    ]);
+  });
+
+  it("shows a card with the artwork, the status and the text for every feature", () => {
     renderWelcome();
 
-    const list = screen.getByRole("list");
-    const items = within(list).getAllByRole("listitem");
-    expect(items).toHaveLength(FEATURES.length);
-    for (const feature of FEATURES) {
-      expect(within(list).getByRole("heading", { name: feature.title })).toBeInTheDocument();
+    const list = within(screen.getByRole("region", { name: "Features" })).getAllByRole("list")[0]!;
+    const cards = list.querySelectorAll(":scope > li");
+    expect(cards).toHaveLength(FEATURES.length);
+    for (const [index, feature] of FEATURES.entries()) {
+      const card = within(cards[index] as HTMLElement);
+      // The artwork carries the title, so the title is its text alternative (and a heading for screen readers).
+      expect(card.getByRole("img", { name: feature.title })).toHaveAttribute("src");
+      expect(card.getByRole("heading", { level: 3, name: feature.title })).toBeInTheDocument();
+      expect(card.getByText(feature.badge)).toBeInTheDocument();
+      expect(card.getByText(feature.description)).toBeInTheDocument();
+    }
+  });
+
+  it("lists the tools of Learning mode", () => {
+    renderWelcome();
+
+    const card = screen.getByRole("heading", { name: "Learning mode" }).closest("article")!;
+    expect(
+      within(card)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Speed Trainer", "Loops", "Metronome", "Fretboard view", "Follow mode"]);
+  });
+
+  it("has the artwork of every feature, named after it", () => {
+    // src/assets/features/<feature title as a file name>.png
+    const names = FEATURES.map((f) =>
+      f.title
+        .toLowerCase()
+        .replace(/[^a-z]+/g, "-")
+        .replace(/^-|-$/g, ""),
+    );
+    expect(names).toEqual([
+      "open-play-and-practice",
+      "write-tabs-and-scores",
+      "learning-mode",
+      "audio-to-tab",
+      "record-to-tab",
+      "speech-to-tab",
+      "hum-to-accompaniment",
+    ]);
+    for (const [index, feature] of FEATURES.entries()) {
+      expect(feature.image).toContain(names[index]!);
     }
   });
 

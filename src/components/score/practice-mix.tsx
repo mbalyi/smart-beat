@@ -3,6 +3,7 @@ import { useId } from "react";
 
 import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
+import { ACTIVE_BRAND } from "@/components/ui/mixer-toggle-styles";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
@@ -76,10 +77,7 @@ export function PracticeMix({
           size="sm"
           title="Practice mix: hear only your track, or everything but it"
           aria-label={`Practice mix: ${modeLabel(mode)}${mode === "normal" ? "" : `, ${name}`}`}
-          className={cn(
-            mode !== "normal" &&
-              "border-green-700 bg-green-700 text-white inset-ring-2 inset-ring-white/40 hover:bg-green-800 hover:text-white dark:border-green-700 dark:bg-green-700 dark:hover:bg-green-800",
-          )}
+          className={cn(mode !== "normal" && ACTIVE_BRAND)}
         >
           <HeadphonesIcon data-icon="inline-start" />
           <span className="max-2xl:sr-only">

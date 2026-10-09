@@ -89,3 +89,19 @@ Save a song (try `practice-song.gp` from `e2e/fixtures`, and a song of your own 
 | `.m4a`          | QuickTime Player, Music, a phone     | plays; length matches the song; no clipping                                                                                                 |
 
 Write down which version of each program you used.
+
+## Updates (needs two published releases)
+
+### 6. Update from one release to the next (#82)
+
+The automated tests mock the update server. Only two real releases prove the whole path: key, signature, URLs and permissions. Do it on **each OS** (on Linux, with the AppImage).
+
+1. Publish release N from a tag (for example `v0.2.0`; see [release.md](release.md)) and install it from the GitHub Release page.
+2. Publish release N+1 (`v0.2.1`) with a distinct line in its `CHANGELOG.md` section.
+3. In the installed app, open Help › Check for Updates…. It must offer N+1 with the installed and the available version and N+1's release notes.
+4. Click **Later**: nothing is downloaded, and the app keeps working.
+5. Check again and click **Download & Install**. The progress bar fills, the app restarts, and About shows N+1.
+6. Check once more: "You're up to date".
+7. Automatic check: install N again, quit, wait or clear the `smart-beat:last-update-check` entry (or reinstall), and start the app. A few seconds after startup the update dialog must appear by itself, only because there is a newer version. With no newer version, nothing must appear.
+
+Also try a failure: switch off the network and use Help › Check for Updates…; it must show an error with **Try again**, and the automatic check must stay silent.

@@ -36,6 +36,24 @@ test("the page is black, not white, from the first frame", async ({ page }) => {
   }
 });
 
+test("the page has no scrollbar behind the splash, and scrolls again afterwards", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator("#splash")).toHaveCount(1);
+  for (const element of ["documentElement", "body"] as const) {
+    const overflow = await page.evaluate(
+      (name) => getComputedStyle(document[name]).overflow,
+      element,
+    );
+    expect(overflow).toBe("hidden");
+  }
+
+  await expect(page.locator("#splash")).toHaveCount(0, { timeout: 10_000 });
+  const after = await page.evaluate(() => getComputedStyle(document.documentElement).overflow);
+  expect(after).not.toBe("hidden");
+});
+
 test("shows the still logo when the animation cannot load", async ({ page }) => {
   await page.route("**/splash.webp", (route) => route.fulfill({ status: 404 }));
   await page.goto("/");

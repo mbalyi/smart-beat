@@ -56,6 +56,7 @@ type MenuAction =
   | "toggle-count-in"
   | "shortcuts"
   | "licenses"
+  | "check-for-updates"
   | "about";
 
 interface MenuState {
@@ -116,6 +117,12 @@ declare global {
     __mixes: Map<string, MixerSettings>;
     __ipcCalls: { cmd: string; args: unknown }[];
     __menuState: MenuState | null;
+    /** The update the mocked updater plugin finds (none by default). */
+    __update?: { version: string; body?: string } | null;
+    __updateError?: { during: "check" | "install"; message: string } | null;
+    /** Keeps the download open until `__releaseUpdate()` is called. */
+    __updateHold?: boolean;
+    __releaseUpdate?: () => void;
   }
 }
 

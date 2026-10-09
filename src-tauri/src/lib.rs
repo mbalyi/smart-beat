@@ -94,6 +94,11 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 /// Starts the desktop application.
 pub fn run() {
     setup(Builder::default())
+        // Not in `setup`: the updater needs its public key and endpoint from tauri.conf.json,
+        // which the integration tests' mock context does not have.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .menu(menu::build)
         .run(tauri::generate_context!())
         .expect("error while running Smart Beat");

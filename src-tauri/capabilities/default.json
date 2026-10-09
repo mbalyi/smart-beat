@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main window. App commands (app_info, menu_shortcuts, read_score_file, load_mixer_settings, save_mixer_settings) are allowed for local content by default. The UI may open the native Open dialog, set the window title (song name) and print (window.print() goes through the webview plugin on macOS).",
+  "description": "Permissions for the main window. App commands (app_info, menu_shortcuts, read_score_file, load_mixer_settings, save_mixer_settings) are allowed for local content by default. The UI may open the native Open dialog, set the window title (song name), print (window.print() goes through the webview plugin on macOS), check for updates, install one and restart, and open the credit links of the start page in the browser.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,6 +9,32 @@
     "core:window:allow-set-title",
     "core:webview:allow-print",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:allow-restart",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://alphatab.net/"
+        },
+        {
+          "url": "https://github.com/CoderLine/alphaTab"
+        },
+        {
+          "url": "https://github.com/sinshu/rustysynth"
+        },
+        {
+          "url": "https://github.com/RustAudio/cpal"
+        },
+        {
+          "url": "https://github.com/pdeljanov/Symphonia"
+        },
+        {
+          "url": "https://crates.io/crates/nam-rs"
+        }
+      ]
+    }
   ]
 }
