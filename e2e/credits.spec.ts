@@ -35,7 +35,7 @@ test.describe("Built with (start page)", () => {
 test("hovering a credit opens a card you can move into and click", async ({ app }) => {
   const section = app.getByRole("region", { name: "Made possible by open source." });
 
-  await section.getByRole("link", { name: "rustysynth" }).hover();
+  await section.getByRole("link", { name: "RustySynth" }).hover();
   const card = app.locator("[data-slot=hover-card-content]");
   await expect(card).toContainText("SoundFonts");
 

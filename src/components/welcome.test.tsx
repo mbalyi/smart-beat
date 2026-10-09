@@ -51,7 +51,7 @@ describe("Welcome", () => {
     expect(section).toHaveTextContent("not affiliated with or endorsed by alphaTab");
     // alphaTab, four libraries and the star link.
     expect(links).toHaveLength(1 + 4 + 1);
-    expect(within(section).getByRole("link", { name: "rustysynth" })).toBeInTheDocument();
+    expect(within(section).getByRole("link", { name: "RustySynth" })).toBeInTheDocument();
     expect(within(section).getByRole("link", { name: "cpal by RustAudio" })).toHaveAttribute(
       "href",
       "https://github.com/RustAudio/cpal",
@@ -66,7 +66,7 @@ describe("Welcome", () => {
     const { user } = renderWelcome();
 
     await user.tab(); // reaches the first controls; go straight to the library instead
-    screen.getByRole("link", { name: "rustysynth" }).focus();
+    screen.getByRole("link", { name: "RustySynth" }).focus();
 
     expect(await screen.findByText(/Turns notes and SoundFonts into sound/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Explore project/ })).toHaveAttribute(

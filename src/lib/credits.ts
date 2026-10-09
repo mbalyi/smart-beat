@@ -22,7 +22,7 @@ export const ALPHATAB: Credit & { source: string } = {
 
 export const OTHER_CREDITS: readonly Credit[] = [
   {
-    name: "rustysynth",
+    name: "RustySynth",
     url: "https://github.com/sinshu/rustysynth",
     description:
       "Turns notes and SoundFonts into sound: the software synthesizer of the audio engine.",
