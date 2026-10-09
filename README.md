@@ -18,7 +18,7 @@ A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with op
   <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux%20(.AppImage%20%2F%20.deb%20%2F%20.rpm)-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
 </p>
 
-The buttons open the [latest release](https://github.com/mbalyi/smart-beat/releases/latest), where every installer is attached. While the repository is private they only work for people with access; they work for everyone once it is public. The app updates itself from the same releases (Help › Check for Updates…).
+The buttons open the [latest release](https://github.com/mbalyi/smart-beat/releases/latest), where every installer is attached.
 
 ## Features
 
@@ -40,13 +40,13 @@ The buttons open the [latest release](https://github.com/mbalyi/smart-beat/relea
       <p>Learn and improve with:</p>
 <ul><li>Speed Trainer</li><li>Loops</li><li>Metronome</li><li>Fretboard view</li><li>Follow mode</li></ul>
     </td>
+  </tr>
+  <tr>
     <td valign="top" width="25%">
       <img src="src/assets/features/audio-to-tab.png" alt="Audio to tab" width="100%">
       <p><b>🟢 Available</b></p>
       <p>Upload an audio file and let AI generate MIDI and tab for you.</p>
     </td>
-  </tr>
-  <tr>
     <td valign="top" width="33%">
       <img src="src/assets/features/record-to-tab.png" alt="Record to tab" width="100%">
       <p><b>🟣 AI · Coming soon</b></p>
@@ -57,6 +57,7 @@ The buttons open the [latest release](https://github.com/mbalyi/smart-beat/relea
       <p><b>🟣 AI · Coming soon</b></p>
       <p>Tell the app what you want and let AI generate a few matching tab ideas.</p>
     </td>
+  <tr>
     <td valign="top" width="33%">
       <img src="src/assets/features/hum-to-accompaniment.png" alt="Hum to accompaniment" width="100%">
       <p><b>🟣 AI · Coming soon</b></p>
