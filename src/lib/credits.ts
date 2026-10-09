@@ -26,7 +26,7 @@ export const OTHER_CREDITS: readonly Credit[] = [
       "Turns notes and SoundFonts into sound: the software synthesizer of the audio engine.",
   },
   {
-    name: "cpal",
+    name: "cpal by RustAudio",
     url: "https://github.com/RustAudio/cpal",
     description: "Sends the sound to your speakers or headphones on macOS, Windows and Linux.",
   },

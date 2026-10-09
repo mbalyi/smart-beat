@@ -9,4 +9,12 @@
 - **Never** present Smart Beat as affiliated with, sponsored by or endorsed by alphaTab.
 - If Smart Beat's commercial plans change, ask again (the permission was given for a free application).
 
+## cpal
+
+cpal has **no logo of its own**. Its maintainers answered in <https://github.com/RustAudio/cpal/discussions/1395>:
+
+- Naming cpal for attribution needs no permission (and its Apache-2.0 licence asks for attribution; the notices are in Help › Open-Source Licenses).
+- Do not stand in for cpal with the RustAudio logo directly. Writing "cpal by RustAudio" and showing the RustAudio logo next to that is fine; otherwise keep it text.
+- So Smart Beat shows the text "cpal by RustAudio" and no logo. Add the RustAudio logo only next to that wording.
+
 Logos of other projects are not used here: plain names and links only, unless their owners allow more ([#82](https://github.com/mbalyi/smart-beat/issues/82)).

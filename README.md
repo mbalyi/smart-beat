@@ -18,7 +18,7 @@ A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with op
 
 <p align="center">
   <a href="https://github.com/sinshu/rustysynth" title="Turns notes and SoundFonts into sound: the software synthesizer of the audio engine."><img alt="rustysynth" src="https://img.shields.io/badge/-rustysynth-2b2b2b?style=for-the-badge"></a>
-  <a href="https://github.com/RustAudio/cpal" title="Sends the sound to your speakers or headphones on macOS, Windows and Linux."><img alt="cpal" src="https://img.shields.io/badge/-cpal-2b2b2b?style=for-the-badge"></a>
+  <a href="https://github.com/RustAudio/cpal" title="Sends the sound to your speakers or headphones on macOS, Windows and Linux."><img alt="cpal by RustAudio" src="https://img.shields.io/badge/-cpal%20by%20RustAudio-2b2b2b?style=for-the-badge"></a>
   <a href="https://github.com/pdeljanov/Symphonia" title="Decodes audio files (MP3, WAV, FLAC, Ogg, AIFF) for the audio track."><img alt="Symphonia" src="https://img.shields.io/badge/-Symphonia-2b2b2b?style=for-the-badge"></a>
   <a href="https://crates.io/crates/nam-rs" title="Plays Neural Amp Modeler captures, which model real guitar amplifiers."><img alt="nam-rs" src="https://img.shields.io/badge/-nam-rs-2b2b2b?style=for-the-badge"></a>
 </p>
