@@ -1,7 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128@2x.png" width="128" height="128" alt="Smart Beat app icon">
-  <br>
-  <img src="src/assets/smart-beat-wordmark.png" height="64" alt="Smart Beat">
+  <img src="src/assets/smart-beat-wordmark.png" height="128" alt="Smart Beat">
 </p>
 
 # Smart Beat
