@@ -3,7 +3,7 @@ import { emitMenuAction, expect, newSong, openSong, test } from "./fixtures";
 const VIEWPORTS = [
   { name: "narrow window", width: 375, height: 700, columns: 1 },
   { name: "medium window", width: 768, height: 800, columns: 2 },
-  { name: "wide window", width: 1280, height: 800, columns: 3 },
+  { name: "wide window", width: 1280, height: 800, columns: 4 },
 ] as const;
 
 /** Song screen at every size, down to the app's minimum window (480×360). */
@@ -166,7 +166,12 @@ for (const { name, width, height, columns } of VIEWPORTS) {
     });
 
     test(`lays out feature cards in ${columns} column(s)`, async ({ app }) => {
-      const cards = app.getByRole("list").getByRole("listitem");
+      // The features list (not the lists inside a card).
+      const cards = app
+        .getByRole("region", { name: "Features" })
+        .getByRole("list")
+        .first()
+        .locator("> li");
       await expect(cards).toHaveCount(7); // every feature of the start page
 
       const tops = await cards.evaluateAll((items) =>

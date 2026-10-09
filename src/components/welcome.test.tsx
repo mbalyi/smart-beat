@@ -87,14 +87,52 @@ describe("Welcome", () => {
     ]);
   });
 
-  it("lists every upcoming feature", () => {
+  it("shows a card with the artwork, the status and the text for every feature", () => {
     renderWelcome();
 
-    const list = screen.getByRole("list");
-    const items = within(list).getAllByRole("listitem");
-    expect(items).toHaveLength(FEATURES.length);
-    for (const feature of FEATURES) {
-      expect(within(list).getByRole("heading", { name: feature.title })).toBeInTheDocument();
+    const list = within(screen.getByRole("region", { name: "Features" })).getAllByRole("list")[0]!;
+    const cards = list.querySelectorAll(":scope > li");
+    expect(cards).toHaveLength(FEATURES.length);
+    for (const [index, feature] of FEATURES.entries()) {
+      const card = within(cards[index] as HTMLElement);
+      // The artwork carries the title, so the title is its text alternative (and a heading for screen readers).
+      expect(card.getByRole("img", { name: feature.title })).toHaveAttribute("src");
+      expect(card.getByRole("heading", { level: 3, name: feature.title })).toBeInTheDocument();
+      expect(card.getByText(feature.badge)).toBeInTheDocument();
+      expect(card.getByText(feature.description)).toBeInTheDocument();
+    }
+  });
+
+  it("lists the tools of Learning mode", () => {
+    renderWelcome();
+
+    const card = screen.getByRole("heading", { name: "Learning mode" }).closest("article")!;
+    expect(
+      within(card)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Speed Trainer", "Loops", "Metronome", "Fretboard view", "Follow mode"]);
+  });
+
+  it("has the artwork of every feature, named after it", () => {
+    // src/assets/features/<feature title as a file name>.png
+    const names = FEATURES.map((f) =>
+      f.title
+        .toLowerCase()
+        .replace(/[^a-z]+/g, "-")
+        .replace(/^-|-$/g, ""),
+    );
+    expect(names).toEqual([
+      "open-play-and-practice",
+      "write-tabs-and-scores",
+      "learning-mode",
+      "audio-to-tab",
+      "record-to-tab",
+      "speech-to-tab",
+      "hum-to-accompaniment",
+    ]);
+    for (const [index, feature] of FEATURES.entries()) {
+      expect(feature.image).toContain(names[index]!);
     }
   });
 

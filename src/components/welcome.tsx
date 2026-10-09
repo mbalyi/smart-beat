@@ -132,26 +132,43 @@ export function Welcome({
             <AudioLinesIcon className="size-[21px]" />
           </span>
         </div>
-        <ul className="grid gap-[18px] md:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map(({ title, description, Icon, badge }, index) => (
-            <li key={title} className="min-w-0">
-              <article className="h-full min-h-[266px] rounded-[19px] border border-foreground/10 bg-card p-[22px] max-md:min-h-0 max-md:p-[19px]">
-                <div className="mb-[19px] flex items-center justify-between gap-3">
-                  <span
-                    className={cn(
-                      "grid size-11 place-items-center rounded-[13px] bg-foreground/10",
-                      index === 0 && "text-brand-yellow",
-                      index === 1 && "text-brand",
-                    )}
-                  >
-                    <Icon className="size-[23px]" aria-hidden="true" />
-                  </span>
-                  <Badge variant="outline">{badge}</Badge>
+        <ul className="grid gap-[18px] md:grid-cols-2 lg:grid-cols-12">
+          {FEATURES.map((feature, index) => (
+            <li
+              key={feature.title}
+              // Four cards in the first row, three (wider) in the second.
+              className={cn("min-w-0", index < 4 ? "lg:col-span-3" : "lg:col-span-4")}
+            >
+              <article className="flex h-full flex-col gap-4 rounded-[19px] border border-foreground/10 bg-card p-4">
+                <h3 className="sr-only">{feature.title}</h3>
+                <img
+                  src={feature.image}
+                  alt={feature.title}
+                  loading="lazy"
+                  draggable={false}
+                  className="aspect-[558/447] w-full object-contain"
+                />
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "w-fit rounded-full px-3 py-0.5",
+                    feature.status === "available"
+                      ? "border-green-600/60 bg-green-600/10 text-green-800 dark:border-green-500/60 dark:bg-green-500/10 dark:text-green-400"
+                      : "border-brand/60 bg-brand/10 text-brand dark:text-[#e29bff]",
+                  )}
+                >
+                  {feature.badge}
+                </Badge>
+                <div className="text-[15px] leading-relaxed text-muted-foreground">
+                  <p>{feature.description}</p>
+                  {feature.items && (
+                    <ul className="mt-1 list-disc pl-5">
+                      {feature.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                <h3 className="mb-[11px] font-heading text-[clamp(19px,2vw,23px)] leading-snug font-bold tracking-tight">
-                  {title}
-                </h3>
-                <p className="text-[15px] leading-relaxed text-muted-foreground">{description}</p>
               </article>
             </li>
           ))}
