@@ -58,6 +58,26 @@ describe("InstrumentPanel: fretboard", () => {
     await expectNoA11yViolations();
   });
 
+  it("deletes a note by double-clicking it, and ignores empty frets (#90)", async () => {
+    const onFretDelete = vi.fn();
+    const { user, props } = setup({
+      editing: true,
+      cursorString: 6,
+      active: [note(6, 3, 69)],
+      onFretDelete,
+    });
+    const string1 = screen.getByRole("group", { name: "String 1 (E4)" });
+
+    await user.dblClick(within(string1).getByRole("button", { name: "Fret 3, G4" }));
+    expect(onFretDelete).toHaveBeenCalledOnce();
+    expect(onFretDelete).toHaveBeenCalledWith(6, 3);
+
+    onFretDelete.mockClear();
+    await user.dblClick(within(string1).getByRole("button", { name: "Fret 7, B4" }));
+    expect(onFretDelete).not.toHaveBeenCalled();
+    expect(props.onFret).toHaveBeenCalled();
+  });
+
   it("moves between frets and strings with the arrow keys", async () => {
     const { user } = setup({ editing: true, cursorString: 6 });
     const start = screen.getByRole("button", { name: "Fret 0, E4" });

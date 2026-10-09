@@ -39,6 +39,8 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     message: "Fret 3 on string 1",
     actions,
     statusId: "status",
+    auditionNotes: true,
+    onAuditionNotesChange: vi.fn(),
     ...overrides,
   };
   return { ...renderWithProviders(<EditToolbar {...props} />), actions };
@@ -141,6 +143,17 @@ describe("EditToolbar", () => {
       "aria-pressed",
       "false",
     );
+  });
+});
+
+describe("EditToolbar: play notes while editing (#90)", () => {
+  it("shows the setting on and switches it off", async () => {
+    const onAuditionNotesChange = vi.fn();
+    const { user } = setup({ onAuditionNotesChange });
+    const toggle = screen.getByRole("switch", { name: "Play notes while editing" });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    expect(onAuditionNotesChange).toHaveBeenCalledWith(false);
   });
 });
 

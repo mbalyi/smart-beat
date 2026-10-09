@@ -77,7 +77,10 @@ test.describe("song layout (#35)", () => {
             height: Math.round(b.getBoundingClientRect().height),
           })),
       );
-    const toolbar = sizes.filter((s) => !["Theme", "Help"].includes(s.name) && s.name !== "Track");
+    // The wordmark (the "Smart Beat" button that goes back to the start screen) is a logo, not a toolbar button.
+    const toolbar = sizes.filter(
+      (s) => !["Theme", "Help", "Smart Beat"].includes(s.name) && s.name !== "Track",
+    );
     for (const name of ["Open…", "File", "Tools", "Undo", "Play", "Stop", "Edit", "Mixer"]) {
       expect(toolbar.map((s) => s.name)).toContain(name);
     }

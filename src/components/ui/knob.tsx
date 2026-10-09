@@ -45,6 +45,7 @@ export function Knob({
   disabled,
   size = "md",
   showLabel = true,
+  caption,
   className,
 }: {
   /** Accessible name, e.g. "Drive gain". */
@@ -64,6 +65,8 @@ export function Knob({
   size?: "sm" | "md";
   /** Show the label under the knob (the accessible name is set either way). */
   showLabel?: boolean;
+  /** The visible label, when it should differ from the end of `label` (e.g. "1 kHz"). */
+  caption?: string;
   className?: string;
 }) {
   const drag = useRef<{ y: number; value: number; moved: boolean } | null>(null);
@@ -179,7 +182,7 @@ export function Knob({
       {showLabel && (
         <>
           <span className="max-w-16 truncate text-[11px] leading-tight">
-            {label.split(", ").pop()}
+            {caption ?? label.split(", ").pop()}
           </span>
           <span className="text-[10px] leading-tight text-muted-foreground tabular-nums">
             {valueText}

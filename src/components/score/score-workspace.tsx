@@ -30,11 +30,13 @@ import {
   type EffectActions,
   type PaletteState,
 } from "@/components/score/effects-toolbar";
+import { ExportDialog } from "@/components/score/export-dialog";
 import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
 import { LyricsStrip } from "@/components/score/lyrics-strip";
 import { PracticeMix } from "@/components/score/practice-mix";
 import { ScoreContextMenu, type ScoreMenuActions } from "@/components/score/score-context-menu";
+import { exportGroups } from "@/lib/export/choices";
 import { baseName } from "@/lib/score/format";
 import { useTheme } from "@/hooks/use-theme";
 import { TunerDialog } from "@/components/score/tuner-dialog";
@@ -235,6 +237,28 @@ function readInstrumentView(): boolean {
   }
 }
 
+/** How long a note entered while editing sounds (ms). */
+const EDIT_NOTE_MS = 700;
+
+export const AUDITION_STORAGE_KEY = "smart-beat:audition-notes";
+
+/** "Play notes while editing" is on unless the user turned it off. */
+function readAuditionNotes(): boolean {
+  try {
+    return localStorage.getItem(AUDITION_STORAGE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function storeAuditionNotes(on: boolean) {
+  try {
+    localStorage.setItem(AUDITION_STORAGE_KEY, on ? "on" : "off");
+  } catch {
+    // Not remembered: on next time.
+  }
+}
+
 function storeInstrumentView(shown: boolean) {
   try {
     localStorage.setItem(INSTRUMENT_VIEW_STORAGE_KEY, shown ? "shown" : "hidden");
@@ -398,6 +422,7 @@ export function ScoreWorkspace({
   /** Beats of the shown track being played (or clicked while paused). */
   const [activeBeats, setActiveBeats] = useState<Beat[]>([]);
   const [instrumentView, setInstrumentView] = useState(readInstrumentView);
+  const [auditionNotes, setAuditionNotes] = useState(readAuditionNotes);
 
   // The mix follows the tracks (not their positions) through reordering and undo.
   const [mix, setMix] = useState(song.mix);
@@ -507,6 +532,7 @@ export function ScoreWorkspace({
   const [transposeOpen, setTransposeOpen] = useState(false);
   const [tempoOpen, setTempoOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [printSettings, setPrintSettings] = useState(readPrintSettings);
   /** Runs once the score has been drawn again (printing needs the page layout). */
   const afterRender = useRef<(() => void) | null>(null);
@@ -781,6 +807,18 @@ export function ScoreWorkspace({
   });
 
   const onCursorChange = useEffectEvent(() => updateOverlay());
+
+  // Hear each note as it is entered: a short preview, never the song (#90).
+  const auditionNote = useEffectEvent((pitch: number) => {
+    if (!auditionNotes || !editing) return;
+    playerRef.current?.previewNote(pitch, track.program, EDIT_NOTE_MS);
+  });
+  useEffect(() => {
+    editor.onNoteEntered(auditionNote);
+    return () => {
+      editor.onNoteEntered(null);
+    };
+  }, [editor]);
 
   useEffect(
     () =>
@@ -1686,6 +1724,9 @@ export function ScoreWorkspace({
       case "save-as":
         void fileActions.saveAs();
         break;
+      case "export-all":
+        setExportOpen(true);
+        break;
       case "export-musicxml":
         void fileActions.exportAs("musicxml");
         break;
@@ -1800,6 +1841,7 @@ export function ScoreWorkspace({
         onExport={(format) => void fileActions.exportAs(format)}
         onExportAudio={() => void fileActions.exportAudio()}
         onExportM4a={m4aSupported ? () => void fileActions.exportAudio("m4a") : undefined}
+        onExportAll={() => setExportOpen(true)}
         onPrint={() => setPrintOpen(true)}
         encoding={
           song.encoding && onReopenWithEncoding
@@ -1919,6 +1961,11 @@ export function ScoreWorkspace({
             message={editor.message}
             actions={editActions}
             statusId={statusId}
+            auditionNotes={auditionNotes}
+            onAuditionNotesChange={(on) => {
+              setAuditionNotes(on);
+              storeAuditionNotes(on);
+            }}
           />
           <EffectsToolbar
             effects={effects}
@@ -1963,6 +2010,11 @@ export function ScoreWorkspace({
               onFret={(string, fret) => {
                 editor.setString(string);
                 editor.setFret(fret - track.capo);
+                if (editing) focusScore();
+              }}
+              onFretDelete={(string) => {
+                editor.setString(string);
+                editor.removeCursorNote();
                 if (editing) focusScore();
               }}
               onPitch={(pitch) => {
@@ -2289,6 +2341,17 @@ export function ScoreWorkspace({
         initial={lyricsTrack ? lyricsOf(lyricsTrack) : []}
         barCount={score.masterBars.length}
         onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        groups={exportGroups({ m4a: m4aSupported, pdf: true })}
+        onChoose={({ target }) => {
+          if (target.kind === "format") void fileActions.exportAs(target.format);
+          else if (target.kind === "audio") void fileActions.exportAudio(target.audio);
+          else setPrintOpen(true);
+        }}
         onCloseAutoFocus={returnFocusToScore}
       />
       <PrintDialog

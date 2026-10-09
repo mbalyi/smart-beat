@@ -53,6 +53,7 @@ export function FileMenu({
   onExport,
   onExportAudio,
   onExportM4a,
+  onExportAll,
   onPrint,
   encoding,
 }: {
@@ -64,6 +65,8 @@ export function FileMenu({
   onExportAudio: () => void;
   /** Renders the mix to an M4A file (only where the desktop app can: macOS). */
   onExportM4a?: () => void;
+  /** Opens the Export dialog, which lists every format (#90). */
+  onExportAll: () => void;
   /** Opens the print dialog (which also saves a PDF). */
   onPrint: () => void;
 }) {
@@ -88,6 +91,7 @@ export function FileMenu({
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel>Export</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={onExportAll}>All formats…</DropdownMenuItem>
           {EXPORTS.map(({ format, label }) => (
             <DropdownMenuItem key={format} onSelect={() => onExport(format)}>
               {label}

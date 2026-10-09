@@ -33,6 +33,7 @@ pub enum MenuAction {
     ClearRecent,
     Save,
     SaveAs,
+    ExportAll,
     // The UI knows these two by the names below (not "export-music-xml" / "export-alpha-tex").
     #[serde(rename = "export-musicxml")]
     ExportMusicXml,
@@ -94,12 +95,13 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 60] = [
+    pub const ALL: [Self; 61] = [
         Self::NewSong,
         Self::Open,
         Self::ClearRecent,
         Self::Save,
         Self::SaveAs,
+        Self::ExportAll,
         Self::ExportMusicXml,
         Self::ExportMidi,
         Self::ExportAlphaTex,
@@ -165,6 +167,7 @@ impl MenuAction {
             Self::ClearRecent => "file.clear-recent",
             Self::Save => "file.save",
             Self::SaveAs => "file.save-as",
+            Self::ExportAll => "file.export-all",
             Self::ExportMusicXml => "file.export-musicxml",
             Self::ExportMidi => "file.export-midi",
             Self::ExportAlphaTex => "file.export-alphatex",
@@ -235,6 +238,7 @@ impl MenuAction {
             | Self::ClearRecent
             | Self::Save
             | Self::SaveAs
+            | Self::ExportAll
             | Self::ExportMusicXml
             | Self::ExportMidi
             | Self::ExportAlphaTex
@@ -294,6 +298,7 @@ impl MenuAction {
             Self::ClearRecent => "Clear Menu",
             Self::Save => "Save",
             Self::SaveAs => "Save As…",
+            Self::ExportAll => "All Formats…",
             Self::ExportMusicXml => "MusicXML…",
             Self::ExportMidi => "MIDI…",
             Self::ExportAlphaTex => "alphaTex…",
@@ -409,6 +414,7 @@ impl MenuAction {
             | Self::Licenses
             | Self::CheckForUpdates
             | Self::ClearRecent
+            | Self::ExportAll
             | Self::ExportMusicXml
             | Self::ExportMidi
             | Self::ExportAlphaTex
@@ -493,6 +499,7 @@ impl MenuAction {
                 | Self::Redo
                 | Self::Save
                 | Self::SaveAs
+                | Self::ExportAll
                 | Self::ExportMusicXml
                 | Self::ExportMidi
                 | Self::ExportAlphaTex
@@ -677,6 +684,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     fill_recent_menu(app, &recent, &app.state::<RecentStore>().load())?;
     app.manage(RecentMenu(recent.clone()));
     let mut export = SubmenuBuilder::new(app, "Export")
+        .item(&item(app, ExportAll)?)
+        .separator()
         .item(&item(app, ExportMusicXml)?)
         .item(&item(app, ExportMidi)?)
         .item(&item(app, ExportAlphaTex)?)
@@ -1149,6 +1158,7 @@ mod tests {
         for action in [
             MenuAction::Save,
             MenuAction::SaveAs,
+            MenuAction::ExportAll,
             MenuAction::ExportMusicXml,
             MenuAction::ExportMidi,
             MenuAction::ExportAlphaTex,
@@ -1170,6 +1180,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&MenuAction::ExportAsciiTab).unwrap(),
             "\"export-ascii-tab\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MenuAction::ExportAll).unwrap(),
+            "\"export-all\""
         );
     }
 

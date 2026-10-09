@@ -321,6 +321,17 @@ export class ScoreEditor {
     return isStringed(this.staff) ? tuningOf(this.staff).length : 0;
   }
 
+  /**
+   * Called with the sounding pitch of every note entered or changed on a pitched track (fret,
+   * keyboard, staff or typed digit), so the app can preview it (#90). Not set: silent.
+   */
+  private noteEntered: ((pitch: number) => void) | null = null;
+
+  /** Sets (or, with null, clears) the listener of {@link noteEntered}. */
+  onNoteEntered(listener: ((pitch: number) => void) | null) {
+    this.noteEntered = listener;
+  }
+
   subscribe = (listener: (change: EditorChange) => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -937,6 +948,9 @@ export class ScoreEditor {
   setFret(fret: number) {
     if (this.kind !== "stringed" || fret < 0 || fret > MAX_FRET) return;
     const existing = this.noteAtCursor();
+    this.noteEntered?.(this.openPitch(this._cursor.string) + fret);
+    // The same fret again (the first click of a double-click delete) changes nothing.
+    if (existing && existing.fret === fret && !existing.isTieDestination) return;
     this.run(
       existing ? "Change note" : "Add note",
       this.cursorTargets,
@@ -1004,6 +1018,7 @@ export class ScoreEditor {
       return;
     }
     const beat = this.beatAt();
+    this.noteEntered?.(pitch);
     if (beat?.notes.some((note) => note.realValue === pitch)) {
       this._cursor.pitch = pitch;
       this.moved();
@@ -1135,6 +1150,20 @@ export class ScoreEditor {
       return;
     }
     if (!beat.isEmpty && beat.voice.beats.length > 1) this.deleteBeats();
+  }
+
+  /**
+   * Removes only the note under the cursor (a double-click on the fretboard): no selection
+   * handling, and an empty beat stays. Returns whether a note was removed.
+   */
+  removeCursorNote(): boolean {
+    if (!this.noteAtCursor()) return false;
+    this.run("Delete note", this.cursorTargets, () => {
+      const target = this.noteAtCursor();
+      if (target) target.beat.removeNote(target);
+      this._cursor.pitch = null;
+    });
+    return true;
   }
 
   /** Turns the selected beats (or the cursor's) into rests of the same length. */

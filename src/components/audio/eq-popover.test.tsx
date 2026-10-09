@@ -37,7 +37,22 @@ describe("EqControls", () => {
     const knobs = within(group).getAllByRole("slider");
     expect(knobs).toHaveLength(10);
     const texts = knobs.map(readout);
-    expect(texts[0]).toContain("EQ 31 Hz");
+    expect(texts.map((t) => t.split("0.0 dB")[0]!.trim())).toEqual([
+      "31 Hz",
+      "62 Hz",
+      "125 Hz",
+      "250 Hz",
+      "500 Hz",
+      "1 kHz",
+      "2 kHz",
+      "4 kHz",
+      "8 kHz",
+      "16 kHz",
+    ]);
+    expect(screen.getByRole("slider", { name: `${LONG_NAME}, EQ 1 kHz` })).toHaveAttribute(
+      "title",
+      expect.stringContaining("0.0 dB"),
+    );
     for (const text of texts) expect(text).not.toContain("Bass");
   });
 
