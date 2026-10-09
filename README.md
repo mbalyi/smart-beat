@@ -10,23 +10,6 @@ A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with op
 
 > **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3) and in [`high-level-plan.md`](high-level-plan.md).
 
-## Many thanks to the open-source library maintainers, without whom this application could not have been born. It is built with:
-
-<p align="center">
-  <a href="https://alphatab.net/" title="Reads Guitar Pro files, draws the standard notation and the tablature, and drives the score, the cursor and parts of playback."><img src="docs/brand/alphatab-logo-horizontal.svg" height="48" alt="alphaTab"></a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/sinshu/rustysynth" title="Turns notes and SoundFonts into sound: the software synthesizer of the audio engine."><img alt="RustySynth" src="https://img.shields.io/badge/-RustySynth-2b2b2b?style=for-the-badge"></a>
-  <a href="https://github.com/RustAudio/cpal" title="Sends the sound to your speakers or headphones on macOS, Windows and Linux."><img src="docs/brand/rustaudio-logo.png" height="30" alt="RustAudio logo"> <img alt="cpal by RustAudio" src="https://img.shields.io/badge/-cpal%20by%20RustAudio-2b2b2b?style=for-the-badge"></a>
-  <a href="https://github.com/pdeljanov/Symphonia" title="Decodes audio files (MP3, WAV, FLAC, Ogg, AIFF) for the audio track."><img alt="Symphonia" src="https://img.shields.io/badge/-Symphonia-2b2b2b?style=for-the-badge"></a>
-  <a href="https://crates.io/crates/nam-rs" title="Plays Neural Amp Modeler captures, which model real guitar amplifiers."><img alt="nam-rs" src="https://img.shields.io/badge/-nam-rs-2b2b2b?style=for-the-badge"></a>
-</p>
-
-Hover over a name to see what it does for Smart Beat.
-
-**[alphaTab](https://alphatab.net/)** ([source](https://github.com/CoderLine/alphaTab), MPL-2.0) is the heart of Smart Beat. It reads Guitar Pro files, draws the standard notation and the tablature, and powers the score, the cursor and parts of playback. Smart Beat would not exist without it. If you like what Smart Beat does with scores, please give alphaTab a star, try it in your own project, and thank its maintainer, [Danielku15](https://github.com/Danielku15) and the contributors. alphaTab's logo is shown with the maintainers' permission. Smart Beat is an independent project, not affiliated with or endorsed by alphaTab or any of these projects. All notices are in Help › Open-Source Licenses.
-
 ## Download
 
 <p>
@@ -37,22 +20,52 @@ Hover over a name to see what it does for Smart Beat.
 
 The buttons open the [latest release](https://github.com/mbalyi/smart-beat/releases/latest), where every installer is attached. While the repository is private they only work for people with access; they work for everyone once it is public. The app updates itself from the same releases (Help › Check for Updates…).
 
-## Quality at a glance
-
-A snapshot of the last full local run, **not a live status**: CI cannot run at the moment (the GitHub account's billing is blocked), so everything below was run by hand on a Mac.
-
-| Check                                                                | Result (2026-10-09, branch `feat/82-public-release-prep` on `main` at `3f88c8c`)                                                                                                                        |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Code signing                                                         | `Smart Beat_0.1.0_aarch64.dmg` and the app inside are signed by **Developer ID Application: Mark Balyi (FZTCX6RF28)** with the hardened runtime. `codesign --verify --deep --strict` passes.            |
-| Apple notarization                                                   | **Accepted** by Apple's notary service; the ticket is stapled to the DMG. Gatekeeper (`spctl`) reports **Notarized Developer ID**, so the installer opens without the "cannot verify" warning on macOS. |
-| Unit tests (Vitest)                                                  | **1,493 passed**, 0 failed (131 files). Coverage thresholds hold.                                                                                                                                       |
-| Rust tests (cargo)                                                   | **306 passed**, 0 failed. `rustfmt` and `clippy -D warnings` are clean.                                                                                                                                 |
-| Browser tests (Playwright, Chromium and WebKit, with WCAG axe scans) | **581 passed**, 2 skipped, 1 failed on WebKit under load (`drum-tab.spec.ts:59`); it passes when run alone.                                                                                             |
-| Licence policy                                                       | Pass: all 93 shipped npm packages and every Rust crate are on the allowlist (`pnpm licenses:check`).                                                                                                    |
-
-Windows and Linux installers are built by the release workflow, which has not run yet; they are not covered by the signing result above (Windows code signing is not set up).
-
 ## Features
+
+<table>
+  <tr>
+    <td valign="top" width="25%">
+      <img src="src/assets/features/open-play-and-practice.png" alt="Open, play and practice" width="100%">
+      <p><b>🟢 Available</b></p>
+      <p>View GP3–GP8 songs as tab and standard notation, play them with a cursor, a mixer and a fretboard, and practice with loops, the Speed Trainer, a metronome and count-in.</p>
+    </td>
+    <td valign="top" width="25%">
+      <img src="src/assets/features/write-tabs-and-scores.png" alt="Write tabs and scores" width="100%">
+      <p><b>🟢 Available</b></p>
+      <p>Write notes on tab or staff with full undo and redo, for guitars, basses, drums and any MIDI instrument, and save to Guitar Pro, MusicXML, MIDI and more.</p>
+    </td>
+    <td valign="top" width="25%">
+      <img src="src/assets/features/learning-mode.png" alt="Learning mode" width="100%">
+      <p><b>🟢 Available</b></p>
+      <p>Learn and improve with:</p>
+<ul><li>Speed Trainer</li><li>Loops</li><li>Metronome</li><li>Fretboard view</li><li>Follow mode</li></ul>
+    </td>
+    <td valign="top" width="25%">
+      <img src="src/assets/features/audio-to-tab.png" alt="Audio to tab" width="100%">
+      <p><b>🟢 Available</b></p>
+      <p>Upload an audio file and let AI generate MIDI and tab for you.</p>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top" width="33%">
+      <img src="src/assets/features/record-to-tab.png" alt="Record to tab" width="100%">
+      <p><b>🟣 AI · Coming soon</b></p>
+      <p>Record yourself playing and let AI generate MIDI and tab from your performance.</p>
+    </td>
+    <td valign="top" width="33%">
+      <img src="src/assets/features/speech-to-tab.png" alt="Speech to tab" width="100%">
+      <p><b>🟣 AI · Coming soon</b></p>
+      <p>Tell the app what you want and let AI generate a few matching tab ideas.</p>
+    </td>
+    <td valign="top" width="33%">
+      <img src="src/assets/features/hum-to-accompaniment.png" alt="Hum to accompaniment" width="100%">
+      <p><b>🟣 AI · Coming soon</b></p>
+      <p>Hum a melody and get chords plus drum, bass, piano and guitar parts, generated by AI on your own machine.</p>
+    </td>
+  </tr>
+</table>
+
+### More about the features
 
 - **Open Guitar Pro files** (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`) with File › Open… (⌘O / Ctrl+O) or by dropping them on the window. Damaged or unsupported files get a clear message.
 - **Read the music** as standard notation, tablature, or both, per track, optionally with rhythm under the tab. Choose the track, and a page or a continuous (horizontal) layout.
@@ -64,6 +77,40 @@ Windows and Linux installers are built by the release workflow, which has not ru
 - **Write music** (Edit › Edit Mode, ⌘E; File › New, ⌘N): an edit cursor on tab and staff. Type frets (two quick digits for 10–29) and pitches by letter (A–G), set note values, dots, rests, ties and tuplets (nested ones too), odd time signatures such as 7/8 and 11/16, write a second voice, select beats (Shift+arrows, drag, ⌘A) to copy, cut and paste them, with unlimited undo and redo (the Edit menu names what it will undo). Moving past the end of a bar or of the song adds beats and bars. The full key list is in Help › Keyboard Shortcuts.
 - **Tracks and instruments** (the Tracks panel and the Track menu): add, remove, reorder and duplicate tracks. Guitars with 3–10 strings (7, 8 and 9-string presets for djent and deathcore), basses with 4–6, banjo, ukulele, drums and any General MIDI instrument, with tuning presets (drop D, C, B, A, A#, F# standard, drop E…), custom tunings (string by string) and a capo. A note appears when the lowest string is far below what the sound was recorded at. See [docs/extended-range-guitars.md](docs/extended-range-guitars.md). Drum tracks use the standard Guitar Pro drum-kit notation, shown in the track settings.
 - **Stays up to date** (desktop app): a quiet check for a new version at most once a day, and Help › Check for Updates… on request. A new version shows its release notes and downloads only after you click **Download & Install**.
+
+## Made possible by open source
+
+A heartfelt thank you to the maintainers whose work makes Smart Beat possible. Meet a few of the projects behind the music (hover over a name to see what it does for Smart Beat).
+
+<p align="center">
+  <a href="https://alphatab.net/" title="Reads Guitar Pro files, draws the standard notation and the tablature, and drives the score, the cursor and parts of playback."><img src="docs/brand/alphatab-logo-horizontal.svg" height="48" alt="alphaTab"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/sinshu/rustysynth" title="Turns notes and SoundFonts into sound: the software synthesizer of the audio engine."><img alt="RustySynth" src="https://img.shields.io/badge/-RustySynth-2b2b2b?style=for-the-badge"></a>
+  <a href="https://github.com/RustAudio/cpal" title="Sends the sound to your speakers or headphones on macOS, Windows and Linux."><img src="docs/brand/rustaudio-logo.png" height="30" alt="RustAudio logo"> <img alt="cpal by RustAudio" src="https://img.shields.io/badge/-cpal%20by%20RustAudio-2b2b2b?style=for-the-badge"></a>
+  <a href="https://github.com/pdeljanov/Symphonia" title="Decodes audio files (MP3, WAV, FLAC, Ogg, AIFF) for the audio track."><img alt="Symphonia" src="https://img.shields.io/badge/-Symphonia-2b2b2b?style=for-the-badge"></a>
+  <a href="https://crates.io/crates/nam-rs" title="Plays Neural Amp Modeler captures, which model real guitar amplifiers."><img alt="nam-rs" src="https://img.shields.io/badge/-nam--rs-2b2b2b?style=for-the-badge"></a>
+</p>
+
+Special thanks to **[alphaTab](https://alphatab.net/)** ([source](https://github.com/CoderLine/alphaTab), MPL-2.0), the heart of Smart Beat: this project would not exist without it. If you like what Smart Beat does with scores, please give alphaTab a star, try it in your own project, and thank its maintainer, [Danielku15](https://github.com/Danielku15), and the contributors. alphaTab's logo and the RustAudio logo are shown with the maintainers' permission. Smart Beat is independent and is not affiliated with or endorsed by alphaTab or any of these projects. All notices are in Help › Open-Source Licenses.
+
+## Installing
+
+Download the installer for your system from the [latest release](https://github.com/mbalyi/smart-beat/releases/latest).
+
+- **macOS:** the DMG is **signed with a Developer ID and notarized by Apple**, so it opens without a warning. Open the DMG and drag Smart Beat to Applications.
+- **Windows and Linux: the installers are not signed.** You can still install them, but Windows will warn you first. Signing a Windows installer needs a code-signing certificate or a signing service from Microsoft, which is a paid subscription (about 10 USD a month, plus an identity check), and Smart Beat is a free project without a foundation or funding behind it yet. The plan to sign them later is in [`docs/code-signing.md`](docs/code-signing.md).
+
+**Windows (`.exe` or `.msi`) without a signature:** Windows SmartScreen shows "Windows protected your PC". Click **More info**, then **Run anyway**, and the installer starts as usual.
+
+**Linux without a signature:** Linux shows no warning.
+
+- AppImage: make it executable and run it: `chmod +x ./*.AppImage && ./*.AppImage` (in the folder where you saved it)
+- Debian and Ubuntu (`.deb`): `sudo apt install ./<downloaded file>.deb`
+- Fedora and similar (`.rpm`): `sudo dnf install ./<downloaded file>.rpm`
+
+Only install files you downloaded from the releases page of this repository. Once installed, the app updates itself (Help › Check for Updates…).
 
 ## Tech stack
 
