@@ -1,10 +1,16 @@
 # Contributing
 
-## Code contributions are paused
+## Contributions are welcome, and what that means
 
-Smart Beat is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE) and may also be licensed commercially ([`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)). To keep that possible, **pull requests with code from outside the project are not accepted for now**. Issues, bug reports and ideas are welcome. Code contributions open up once a contributor licence agreement (CLA) is in place.
+Pull requests, bug reports, suggestions and ideas are welcome. Smart Beat is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE) and may also be licensed commercially ([`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)). So that this stays possible, contributing works like this:
 
-The workflow below is for the maintainer and anyone the maintainer has agreed terms with.
+- **You get no rights in the product.** Sending a pull request, a patch, an idea or any other help does not give you a licence to reuse, redistribute, sell or wrap Smart Beat. The [license](LICENSE) is the only thing that applies to you, like everybody else.
+- **You do not become a part of the product.** You are not an owner or co-owner, you have no share in it or in what it earns, and you cannot claim any right in Smart Beat, its name, its code base as a whole or its future licensing because you contributed.
+- **What you give.** By opening a pull request or sending a patch you confirm that you wrote it (or may send it) and that it contains nothing you may not share. You keep the copyright in your own contribution, and you give the maintainer a worldwide, perpetual, irrevocable, royalty-free right to use, change, copy, distribute and sublicense it as part of Smart Beat, including under other licences and in commercial licences, without asking you again and without paying you.
+- **No obligation either way.** The maintainer may decline, change or remove any contribution, and does not have to give a reason. Contributions are unpaid.
+- Ideas and suggestions given in issues and discussions can be used freely, without credit or payment.
+
+These terms are a draft and have not been reviewed by a lawyer yet. If you cannot agree to them, please open an issue instead of a pull request.
 
 ## Workflow
 

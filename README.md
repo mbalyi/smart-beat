@@ -1,5 +1,7 @@
 <p align="center">
   <img src="src-tauri/icons/128x128@2x.png" width="128" height="128" alt="Smart Beat app icon">
+  <br>
+  <img src="src/assets/smart-beat-wordmark.png" height="64" alt="Smart Beat">
 </p>
 
 # Smart Beat
@@ -7,6 +9,31 @@
 A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with optional **self-hosted AI** that turns a hummed melody into drums, bass, piano and guitar parts. Runs on macOS (Apple Silicon and Intel), Windows and Linux.
 
 > **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3) and in [`high-level-plan.md`](high-level-plan.md).
+
+## Download
+
+<p>
+  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS%20(.dmg)-000000?style=for-the-badge&logo=apple&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20(.exe%20%2F%20.msi)-0078D4?style=for-the-badge&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux%20(.AppImage%20%2F%20.deb%20%2F%20.rpm)-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
+</p>
+
+The buttons open the [latest release](https://github.com/mbalyi/smart-beat/releases/latest), where every installer is attached. While the repository is private they only work for people with access; they work for everyone once it is public. The app updates itself from the same releases (Help › Check for Updates…).
+
+## Quality at a glance
+
+A snapshot of the last full local run, **not a live status**: CI cannot run at the moment (the GitHub account's billing is blocked), so everything below was run by hand on a Mac.
+
+| Check                                                                | Result (2026-10-09, branch `feat/82-public-release-prep` on `main` at `3f88c8c`)                                                                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Code signing                                                         | `Smart Beat_0.1.0_aarch64.dmg` and the app inside are signed by **Developer ID Application: Mark Balyi (FZTCX6RF28)** with the hardened runtime. `codesign --verify --deep --strict` passes.            |
+| Apple notarization                                                   | **Accepted** by Apple's notary service; the ticket is stapled to the DMG. Gatekeeper (`spctl`) reports **Notarized Developer ID**, so the installer opens without the "cannot verify" warning on macOS. |
+| Unit tests (Vitest)                                                  | **1,486 passed**, 0 failed (129 files). Coverage thresholds hold.                                                                                                                                       |
+| Rust tests (cargo)                                                   | **306 passed**, 0 failed. `rustfmt` and `clippy -D warnings` are clean.                                                                                                                                 |
+| Browser tests (Playwright, Chromium and WebKit, with WCAG axe scans) | **581 passed**, 2 skipped, 1 failed on WebKit under load (`drum-tab.spec.ts:59`); it passes when run alone.                                                                                             |
+| Licence policy                                                       | Pass: all 93 shipped npm packages and every Rust crate are on the allowlist (`pnpm licenses:check`).                                                                                                    |
+
+Windows and Linux installers are built by the release workflow, which has not run yet; they are not covered by the signing result above (Windows code signing is not set up).
 
 ## Features
 
@@ -163,4 +190,4 @@ We only use dependencies whose licenses allow commercial, closed-source distribu
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Pull requests, bug reports and ideas are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md) for what contributing does and does not give you.

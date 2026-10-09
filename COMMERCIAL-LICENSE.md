@@ -28,4 +28,4 @@ Terms are agreed individually. I will answer with a price or a refusal; there is
 
 ## Contributions
 
-Because Smart Beat may be licensed commercially under separate terms, code contributions from outside are not accepted for now. Issues and ideas are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Pull requests, suggestions and ideas are welcome. Contributing does not give anyone a right to reuse the product or a stake in it, and contributors let the owner relicense their contributions, including commercially. See [`CONTRIBUTING.md`](CONTRIBUTING.md).

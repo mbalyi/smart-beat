@@ -17,7 +17,7 @@ ADR 0001 kept the source closed. Issue #82 prepares a public repository and GitH
 1. The source code is licensed under the **[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)** ([`LICENSE`](../../LICENSE)). It permits personal, hobby, educational and research use, and use by charities, schools, public research bodies and government institutions. It does not permit use for commercial advantage, which covers selling, wrapping, paid services and a company using the software for its business.
 2. Commercial use needs a separate agreement. [`COMMERCIAL-LICENSE.md`](../../COMMERCIAL-LICENSE.md) says what counts as commercial and how to ask.
 3. The released installers stay free to download and are covered by the freeware [`EULA.md`](../../EULA.md) (still a draft). The EULA is a separate grant for the binary; it does not widen the source licence.
-4. External code contributions are paused until a contributor licence agreement (CLA) exists. Without one, the owner could not license contributed code commercially.
+4. Pull requests, suggestions and ideas are welcome, on the terms in [`CONTRIBUTING.md`](../../CONTRIBUTING.md): contributing gives nobody a right to reuse the product or a stake in it, and the contributor grants the owner a perpetual, irrevocable right to use and relicense the contribution (including commercially). Those terms are a draft until a lawyer has reviewed them.
 5. **The dependency rules from ADR 0001 stay in force**, because the owner may ship Smart Beat commercially under other terms:
    - permissive licenses (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode, CC0, OFL for fonts) and MPL-2.0 are allowed;
    - LGPL only as a separate, replaceable component, never statically linked or bundled into our JavaScript;
@@ -32,7 +32,7 @@ ADR 0001 kept the source closed. Issue #82 prepares a public repository and GitH
 - PolyForm Noncommercial is **source-available, not open source** (the Open Source Definition forbids field-of-use limits). The README and website must not call Smart Beat "open source".
 - The licence does not define "commercial" itself. [`COMMERCIAL-LICENSE.md`](../../COMMERCIAL-LICENSE.md) states the owner's reading; a lawyer should confirm it, especially for "internal use inside a company".
 - Anyone may share modified copies for noncommercial purposes if they pass on the licence terms. If that is not wanted, PolyForm Strict 1.0.0 is the stricter alternative.
-- Before accepting substantial external code, introduce a CLA or another inbound licensing mechanism.
+- The contributor terms in `CONTRIBUTING.md` are the inbound licensing mechanism for now. Before accepting substantial external code, have a lawyer review them or replace them with a proper CLA.
 
 ## Still open (not done by this change)
 
