@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 
 import { setNativeTheme } from "@/lib/tauri";
+import { track } from "@/lib/telemetry";
 import { ThemeContext, type ResolvedTheme, type Theme } from "@/providers/theme-context";
 
 export const THEME_STORAGE_KEY = "smart-beat:theme";
@@ -56,6 +57,7 @@ export function ThemeProvider({
   }, [theme]);
 
   const setTheme = useCallback((next: Theme) => {
+    if (next === "dark" || next === "light") track(next === "dark" ? "theme_dark" : "theme_light");
     setThemeState(next);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, next);

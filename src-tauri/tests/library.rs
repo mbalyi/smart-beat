@@ -230,22 +230,22 @@ fn imported_sounds_stay_on_this_computer() {
         .collect();
     assert!(stored.contains(&format!("{id}.nam")), "{stored:?}");
 
-    // No network client in the app, no fs/http/shell permission, no remote host in the CSP.
+    // The only network client is `ureq`, used by the usage counters (src/telemetry.rs, sent from
+    // Rust, never from the page). No other client, no fs/http/shell permission, no remote host in
+    // the CSP. The updater plugin makes its own request from Rust.
     let manifest = env!("CARGO_MANIFEST_DIR");
     let cargo = std::fs::read_to_string(format!("{manifest}/Cargo.toml")).unwrap();
-    for client in [
-        "reqwest",
-        "ureq",
-        "hyper",
-        "curl",
-        "isahc",
-        "surf",
-        "attohttpc",
-    ] {
+    for client in ["reqwest", "hyper", "curl", "isahc", "surf", "attohttpc"] {
         assert!(
             !cargo.contains(client),
             "network client {client} in Cargo.toml"
         );
+    }
+    let sources = ["telemetry.rs", "lib.rs", "commands.rs"];
+    for name in sources {
+        let code = std::fs::read_to_string(format!("{manifest}/src/{name}")).unwrap();
+        // The endpoint comes from the build (SMART_BEAT_ANALYTICS_URL), never a literal host.
+        assert!(!code.contains("https://"), "hard-coded URL in src/{name}");
     }
     let capabilities =
         std::fs::read_to_string(format!("{manifest}/capabilities/default.json")).unwrap();

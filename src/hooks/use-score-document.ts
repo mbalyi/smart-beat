@@ -17,6 +17,7 @@ import {
   type CommandError,
   type MixerSettings,
 } from "@/lib/tauri";
+import { track } from "@/lib/telemetry";
 
 /** A song opened in the workspace. */
 export interface ScoreDocument {
@@ -195,6 +196,7 @@ export function useScoreDocuments() {
             duration: 12_000,
           });
         }
+        track("open_file", name.split(".").pop());
         if (path) await rememberRecent(path, true, () => setRecentsVersion((v) => v + 1));
       } catch (error) {
         // A file that is gone is not worth offering again.
@@ -251,6 +253,7 @@ export function useScoreDocuments() {
         mix: mixFromScore(summary),
         isNew: true,
       });
+      track("new_song");
     } catch (error) {
       toast.error("Couldn't create a new song", { description: String(error) });
     }

@@ -1,0 +1,23 @@
+{
+  "name": "smart-beat-analytics",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cloudflare Worker that stores anonymous Smart Beat usage counters in D1.",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "type": "module",
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply smart-beat-analytics --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261006.1",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.2",
+    "wrangler": "^4.149.0"
+  }
+}

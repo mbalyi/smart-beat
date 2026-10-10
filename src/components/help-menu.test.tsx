@@ -7,6 +7,7 @@ import { renderWithProviders } from "@/test/render";
 describe("HelpMenu", () => {
   it.each([
     ["Keyboard Shortcuts", "shortcuts"],
+    ["Settings…", "settings"],
     ["Open-Source Licenses", "licenses"],
     ["About Smart Beat", "about"],
   ])("selecting %s opens the %s dialog", async (label, dialog) => {

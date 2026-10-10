@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { errorText } from "@/lib/errors";
 import { getAppInfo, isTauri } from "@/lib/tauri";
+import { track } from "@/lib/telemetry";
 import {
   AUTO_CHECK_DELAY_MS,
   checkForUpdate,
@@ -66,6 +67,7 @@ export function useUpdater({ autoCheck = true }: { autoCheck?: boolean } = {}): 
       }
       if (running.current) return;
       running.current = true;
+      track("update_check");
 
       try {
         const found = await checkForUpdate();
@@ -116,7 +118,10 @@ export function useUpdater({ autoCheck = true }: { autoCheck?: boolean } = {}): 
     update
       .install(
         (progress) => setState({ status: "downloading", info, progress }),
-        () => setState({ status: "installing", info }),
+        () => {
+          track("update_installed");
+          setState({ status: "installing", info });
+        },
       )
       .catch((error: unknown) => {
         // The update was used up by the attempt: "Try again" checks anew.

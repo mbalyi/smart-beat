@@ -13,6 +13,7 @@ pub mod recent;
 pub mod score_file;
 pub mod score_write;
 pub mod startup;
+pub mod telemetry;
 pub mod zoom;
 
 pub use commands::AppInfo;
@@ -43,6 +44,18 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 app.manage(audio::AudioState::new(dir));
             }
             recent::ensure_store(app.handle())?;
+            if app
+                .try_state::<std::sync::Arc<telemetry::Telemetry>>()
+                .is_none()
+            {
+                let dir = app.path().app_data_dir()?;
+                let version = app.package_info().version.to_string();
+                app.manage(std::sync::Arc::new(telemetry::Telemetry::new(
+                    dir,
+                    telemetry::ENDPOINT,
+                    &version,
+                )));
+            }
             startup::show_later(app.handle());
             Ok(())
         })
@@ -63,6 +76,9 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::remove_recent_file,
             commands::clear_recent_files,
             commands::update_menu_state,
+            commands::track_event,
+            commands::get_usage_settings,
+            commands::set_usage_settings,
             audio::audio_load_soundfont,
             audio::audio_start,
             audio::audio_stop,

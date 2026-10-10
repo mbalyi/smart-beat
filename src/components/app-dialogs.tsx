@@ -1,8 +1,9 @@
 import { AboutDialog } from "@/components/about-dialog";
 import { LicensesDialog } from "@/components/licenses-dialog";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 
-export type AppDialog = "about" | "shortcuts" | "licenses";
+export type AppDialog = "about" | "shortcuts" | "licenses" | "settings";
 
 export interface AppDialogProps {
   open: boolean;
@@ -43,6 +44,7 @@ export function AppDialogs({
       <AboutDialog {...props("about")} />
       <ShortcutsDialog {...props("shortcuts")} />
       <LicensesDialog {...props("licenses")} />
+      <SettingsDialog {...props("settings")} />
     </>
   );
 }

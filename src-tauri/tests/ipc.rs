@@ -1296,3 +1296,88 @@ fn sound_library_commands_import_tag_rename_and_remove() {
     assert!(!stored.exists());
     assert!(invoke_with(&window, "library_remove", json!({ "id": id })).is_err());
 }
+
+/// An app whose usage counters live in `dir` and could send to a (here unreachable) server.
+fn app_with_telemetry(dir: &Path, endpoint: Option<&str>) -> App<MockRuntime> {
+    use smart_beat_lib::telemetry::Telemetry;
+    use std::sync::Arc;
+    smart_beat_lib::setup(mock_builder().manage(Arc::new(Telemetry::new(dir, endpoint, "9.9.9"))))
+        .build(mock_context(noop_assets()))
+        .expect("failed to build app")
+}
+
+#[test]
+fn usage_counters_are_recorded_and_can_be_switched_off_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_telemetry(dir.path(), Some("http://127.0.0.1:1/v1/batch"));
+    let window = main_window(&app);
+
+    let settings = invoke(&window, "get_usage_settings").unwrap();
+    assert_eq!(
+        settings,
+        json!({ "enabled": true, "available": true, "noticeSeen": false })
+    );
+
+    invoke_with(&window, "track_event", json!({ "event": "loop_on" })).unwrap();
+    invoke_with(
+        &window,
+        "track_event",
+        json!({ "event": "export", "format": "pdf" }),
+    )
+    .unwrap();
+    let stored = std::fs::read_to_string(dir.path().join("usage.json")).unwrap();
+    assert!(stored.contains("loop_on|"), "{stored}");
+    assert!(stored.contains("export|pdf"), "{stored}");
+    // Nothing identifying is stored: only days and counts.
+    let parsed: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(
+        parsed.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["days"]
+    );
+
+    let off = invoke_with(
+        &window,
+        "set_usage_settings",
+        json!({ "enabled": false, "noticeSeen": true }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(
+        off,
+        json!({ "enabled": false, "available": true, "noticeSeen": true })
+    );
+    assert!(!dir.path().join("usage.json").exists());
+    invoke_with(&window, "track_event", json!({ "event": "play" })).unwrap();
+    assert!(!dir.path().join("usage.json").exists());
+}
+
+#[test]
+fn unknown_usage_events_and_formats_are_refused_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_telemetry(dir.path(), Some("http://127.0.0.1:1/v1/batch"));
+    let window = main_window(&app);
+
+    assert!(invoke_with(&window, "track_event", json!({ "event": "my_song" })).is_err());
+    assert!(
+        invoke_with(
+            &window,
+            "track_event",
+            json!({ "event": "open_file", "format": "/Users/me/song.gp5" })
+        )
+        .is_err()
+    );
+    assert!(!dir.path().join("usage.json").exists());
+}
+
+#[test]
+fn builds_without_an_endpoint_count_and_send_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_telemetry(dir.path(), None);
+    let window = main_window(&app);
+
+    let settings = invoke(&window, "get_usage_settings").unwrap();
+    assert_eq!(settings["available"], false);
+    invoke_with(&window, "track_event", json!({ "event": "loop_on" })).unwrap();
+    assert!(!dir.path().join("usage.json").exists());
+}

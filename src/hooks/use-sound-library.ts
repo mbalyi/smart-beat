@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { errorText } from "@/lib/errors";
+import { track } from "@/lib/telemetry";
 import {
   importLibraryFile,
   isTauri,
@@ -52,6 +53,7 @@ export function useSoundLibrary() {
       }
       try {
         const item = await importLibraryFile(path, kind);
+        track("sound_library_import");
         toast.success(
           `Imported “${item.name}”`,
           item.note ? { description: item.note } : undefined,
