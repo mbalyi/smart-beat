@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { AudioTranscriptionDialog } from "./audio-transcription-dialog";
 import { muscriptorProvider } from "@/lib/muscriptor";
 import type {
@@ -29,16 +30,12 @@ function setup(overrides: Partial<AudioTranscriptionProvider> = {}) {
   const onImport = vi.fn().mockResolvedValue(undefined);
   const onSave = vi.fn().mockResolvedValue(undefined);
   const onOpenChange = vi.fn();
-  const ui = renderWithProviders(
-    <AudioTranscriptionDialog
-      open
-      provider={provider}
-      onOpenChange={onOpenChange}
-      onImport={onImport}
-      onSave={onSave}
-    />,
-  );
-  return { ...ui, provider, onImport, onSave, onOpenChange };
+  const props = { provider, onOpenChange, onImport, onSave };
+  const ui = renderWithProviders(<AudioTranscriptionDialog open {...props} />);
+  /** Renders the dialog again with other props, as App does. */
+  const update = (changes: Partial<ComponentProps<typeof AudioTranscriptionDialog>>) =>
+    ui.rerender(<AudioTranscriptionDialog open {...props} {...changes} />);
+  return { ...ui, provider, onImport, onSave, onOpenChange, update };
 }
 /** Transcribe is enabled once the dialog knows this build can transcribe. */
 async function transcribe(user: ReturnType<typeof setup>["user"]) {
@@ -122,6 +119,38 @@ describe("audio transcription", () => {
     expect(options!.signal.aborted).toBe(true);
     expect(screen.getByRole("button", { name: "Transcribe" })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+  it("stops the transcription when another dialog replaces this one", async () => {
+    let options: TranscriptionOptions | undefined;
+    const { user, update } = setup({
+      transcribe: vi.fn((_file, _instruments, opts: TranscriptionOptions) => {
+        options = opts;
+        return new Promise<TranscriptionResult>(() => {});
+      }),
+    });
+    await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
+    await transcribe(user);
+    await screen.findByRole("button", { name: "Cancel transcription" });
+    // The native menu opens About: App hides this dialog without a Close.
+    update({ open: false });
+    expect(options!.signal.aborted).toBe(true);
+    update({ open: true });
+    expect(await screen.findByRole("button", { name: "Transcribe" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Cancel transcription" })).not.toBeInTheDocument();
+  });
+  it("ignores a dropped recording that finishes reading after Transcribe", async () => {
+    let finishRead!: (file: File) => void;
+    const { user, update } = setup({
+      readFile: vi.fn(() => new Promise<File>((resolve) => (finishRead = resolve))),
+      transcribe: vi.fn(() => new Promise<TranscriptionResult>(() => {})),
+    });
+    await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
+    update({ droppedRecording: { path: "/music/other.wav", nonce: 1 } });
+    await transcribe(user);
+    await act(async () => finishRead(new File(["audio"], "other.wav", { type: "audio/wav" })));
+    expect(screen.getByText("my-song.wav")).toBeInTheDocument();
+    expect(screen.queryByText("other.wav")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel transcription" })).toBeInTheDocument();
   });
   it("keeps the recording selected when the transcription fails, so it can be tried again", async () => {
     const { user, provider } = setup({

@@ -37,6 +37,8 @@ export interface ScoreDocument {
   mix: MixerSettings;
   /** Created with File › New rather than opened. */
   isNew?: boolean;
+  /** Exists only in memory, like an audio transcription: unsaved until the first save. */
+  unsaved?: boolean;
   /** Guitar Pro 3–5 files: the encoding the text was read with (#53). */
   encoding?: TextEncodingId;
   /** The encoding the user picked for this file, or "auto". */
@@ -79,6 +81,8 @@ interface Source {
   name: string;
   /** Where the song is saved (desktop app). */
   path?: string;
+  /** The bytes exist only in memory (an audio transcription). */
+  unsaved?: boolean;
   read: () => Promise<Uint8Array>;
 }
 
@@ -144,7 +148,7 @@ export function useScoreDocuments() {
 
   const open = useCallback(
     async (source: Source, replace?: { id: number; encoding: EncodingChoice }) => {
-      const { name, read, path, title } = source;
+      const { name, read, path, title, unsaved } = source;
       // Opening a song that is already open shows its tab.
       const already = path && !replace ? songsRef.current.find((s) => s.path === path) : undefined;
       if (already) {
@@ -186,6 +190,7 @@ export function useScoreDocuments() {
           score,
           summary,
           mix: initialMix(summary, saved),
+          ...(unsaved && { unsaved }),
           ...(encoding && { encoding, encodingChoice: choice }),
         };
         if (replace) {
@@ -225,10 +230,11 @@ export function useScoreDocuments() {
   );
 
   const openFile = useCallback(
-    (file: File, title?: string) =>
+    (file: File, title?: string, unsaved?: boolean) =>
       open({
         name: file.name,
         title,
+        unsaved,
         read: async () => {
           if (!hasScoreExtension(file.name)) {
             // The same check the desktop app does in Rust.
@@ -277,7 +283,9 @@ export function useScoreDocuments() {
     const { path } = saved;
     if (path) sources.current.set(id, { name: saved.name, path, read: () => readScoreFile(path) });
     setSongs((list) =>
-      list.map((song) => (song.id === id ? { ...song, ...saved, isNew: false } : song)),
+      list.map((song) =>
+        song.id === id ? { ...song, ...saved, isNew: false, unsaved: false } : song,
+      ),
     );
   }, []);
 

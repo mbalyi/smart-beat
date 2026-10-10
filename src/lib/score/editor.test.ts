@@ -545,6 +545,16 @@ describe("ScoreEditor: removing the cursor's note (#90)", () => {
 });
 
 describe("ScoreEditor: saved state", () => {
+  it("keeps a song that exists only in memory edited until it is saved", () => {
+    const { editor } = newSong();
+    editor.markUnsaved();
+    expect(editor.edited).toBe(true);
+    editor.setFret(3);
+    editor.undo();
+    expect(editor.edited).toBe(true);
+    editor.markSaved();
+    expect(editor.edited).toBe(false);
+  });
   it("is edited after a change and clean again when saved", () => {
     const { editor, changes } = newSong();
     expect(editor.edited).toBe(false);

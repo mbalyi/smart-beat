@@ -227,8 +227,11 @@ const EDIT_EVENTS: Record<string, TrackedEvent> = {
 export class ScoreEditor {
   readonly score: Score;
   private readonly history = new History<HistoryExtra>();
-  /** The history state that is on disk (null: the state the song was opened in). */
-  private savedAt: ReturnType<History<HistoryExtra>["undo"]> = null;
+  /**
+   * The history state that is on disk (null: the state the song was opened in; undefined:
+   * never saved, see `markUnsaved`).
+   */
+  private savedAt: ReturnType<History<HistoryExtra>["undo"]> | undefined = null;
   private readonly listeners = new Set<(change: EditorChange) => void>();
   private _cursor: Cursor;
   private _selection: Selection | null = null;
@@ -307,6 +310,15 @@ export class ScoreEditor {
   /** Marks the current music as saved: `edited` is false until the next change. */
   markSaved() {
     this.savedAt = this.history.top;
+    this.emit("cursor");
+  }
+
+  /**
+   * Marks a song that exists only in memory, such as an audio transcription: `edited` is
+   * true until the first save, even after undoing every change.
+   */
+  markUnsaved() {
+    this.savedAt = undefined;
     this.emit("cursor");
   }
 

@@ -48,6 +48,9 @@ export function AudioTranscriptionDialog({
   onSave: (midi: Uint8Array<ArrayBuffer>, name: string) => Promise<void>;
 }) {
   const seenDrop = useRef<number | null>(null);
+  // Counts recording choices. A dropped file that finishes reading after a newer choice,
+  // or after Transcribe, is stale and never replaces the recording.
+  const choice = useRef(0);
   const input = useRef<HTMLInputElement>(null);
   const operation = useRef<AbortController | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -88,6 +91,16 @@ export function AudioTranscriptionDialog({
     };
   }, [open, provider]);
   useEffect(() => () => operation.current?.abort(), []);
+  // The native menu can show another dialog in place of this one without a Close.
+  // Hiding the dialog stops the transcription, as Close does.
+  const [shown, setShown] = useState(open);
+  if (shown !== open) {
+    setShown(open);
+    if (!open && busy) setPhase("select");
+  }
+  useEffect(() => {
+    if (!open) operation.current?.abort();
+  }, [open]);
   // Shows the duration before upload. A file the webview cannot measure fails
   // when it is transcribed instead, with the reason.
   useEffect(() => {
@@ -103,12 +116,14 @@ export function AudioTranscriptionDialog({
     if (!open || !droppedRecording || locked || seenDrop.current === droppedRecording.nonce) return;
     seenDrop.current = droppedRecording.nonce;
     let alive = true;
+    const token = ++choice.current;
+    const current = () => alive && token === choice.current;
     const read = droppedRecording.file
       ? Promise.resolve(droppedRecording.file)
       : provider.readFile(droppedRecording.path!);
     read
       .then((next) => {
-        if (alive) {
+        if (current()) {
           validateAudio(next, provider);
           setFile(next);
           setError("");
@@ -116,7 +131,7 @@ export function AudioTranscriptionDialog({
         }
       })
       .catch((cause) => {
-        if (alive) setError(errorText(cause));
+        if (current()) setError(errorText(cause));
       });
     return () => {
       alive = false;
@@ -127,6 +142,7 @@ export function AudioTranscriptionDialog({
 
   const choose = (next?: File) => {
     if (!next || locked) return;
+    choice.current++;
     try {
       validateAudio(next, provider);
       setFile(next);
@@ -149,6 +165,7 @@ export function AudioTranscriptionDialog({
   };
   const transcribe = async () => {
     if (!file || busy) return;
+    choice.current++;
     const opts = options();
     setError("");
     setPhase("transcribing");
@@ -283,6 +300,7 @@ export function AudioTranscriptionDialog({
                     size="sm"
                     disabled={locked}
                     onClick={() => {
+                      choice.current++;
                       setFile(null);
                       setError("");
                       setPhase("select");

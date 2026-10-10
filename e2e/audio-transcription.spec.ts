@@ -86,6 +86,11 @@ test.describe("Import from Audio (#88)", () => {
     await dialog.getByRole("button", { name: "Import MIDI into Smart Beat" }).click();
     await expect(dialog).toBeHidden();
     await expect(app.getByRole("heading", { name: "backing-a440" })).toBeVisible();
+
+    // The song exists only in memory, so closing it asks first.
+    await expect(app.getByText("Edited")).toBeVisible();
+    await app.getByRole("button", { name: "Close backing-a440" }).click();
+    await expect(app.getByRole("alertdialog")).toBeVisible();
   });
 
   test("opens from the File menu while a song is open, works by keyboard and keeps that song", async ({

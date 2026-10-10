@@ -411,7 +411,7 @@ export function ScoreWorkspace({
   droppedAudio?: { path: string; nonce: number } | null;
 }) {
   const score = song.score;
-  const editor = useScoreEditor(score);
+  const editor = useScoreEditor(score, song.unsaved);
   const summary = summarizeScore(score);
   const statusId = useId();
 
@@ -876,6 +876,11 @@ export function ScoreWorkspace({
       }),
     [editor],
   );
+  // A song that exists only in memory (an audio transcription) is unsaved from the start.
+  const reportUnsaved = useEffectEvent(() => {
+    if (editor.edited) onEditedChange?.(true);
+  });
+  useEffect(() => reportUnsaved(), []);
 
   // --- Structure, effects, lyrics and chords ----------------------------------
 

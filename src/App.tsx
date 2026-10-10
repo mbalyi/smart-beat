@@ -322,9 +322,11 @@ export function App() {
         audioProvider={muscriptorProvider}
         droppedRecording={transcriptionDrop}
         onAudioImport={async (midi, name) => {
+          // Only in memory until saved: closing the song asks first.
           const opened = await openFile(
             new File([midi], name, { type: "audio/midi" }),
             name.replace(/\.mid$/i, ""),
+            true,
           );
           if (!opened)
             throw new Error(
