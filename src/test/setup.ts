@@ -4,6 +4,7 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach } from "vitest";
 
 import { installMatchMedia } from "@/test/match-media";
+import { removeMediaDevices } from "@/test/media-devices";
 
 // jsdom gaps that Radix UI relies on.
 class ResizeObserverStub {
@@ -28,6 +29,7 @@ afterEach(() => {
   cleanup();
   clearMocks();
   localStorage.clear();
+  removeMediaDevices();
   document.documentElement.className = "";
   document.documentElement.removeAttribute("style");
 });

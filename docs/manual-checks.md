@@ -49,6 +49,16 @@ Install the bundled app (the browser and `pnpm tauri dev` skip the entitlement).
 - Stop listening, or close the dialog: the microphone indicator in the menu bar goes off.
 - **Reference notes:** each button plays the string's note with the track's instrument, also while the song is stopped.
 
+### 2d. The audio input
+
+Plug an audio interface in (a Focusrite Scarlett or similar) with a guitar in its instrument input. Open Help › Settings….
+
+- Under **Audio**, the **Input** list shows only **System default** at first. **Show all inputs** asks for the microphone, then lists the built-in microphone and the interface by name. The menu bar's microphone indicator goes off again straight away.
+- Choose the interface. Open the tuner, **Microphone** › **Listen with the microphone**: the status names the interface, and the needle follows the guitar, not the room.
+- **Change input…** in the tuner opens Settings on top of it. Choose **System default** and close Settings: the tuner switches to the built-in microphone without being stopped.
+- Quit and start Smart Beat again: the interface is still the input.
+- Unplug the interface and listen again: the tuner says it is not connected. Settings lists it as "(not connected)" until it is plugged in again.
+
 ### 3. The right drum for every drum number
 
 [drum-midi-support.md](drum-midi-support.md) says which numbers sound, not whether the sample is the right instrument. Judge by ear:

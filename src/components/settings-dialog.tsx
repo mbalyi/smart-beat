@@ -1,7 +1,8 @@
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
+import { AudioInputSetting } from "@/components/audio-input-setting";
 import {
   Dialog,
   DialogBody,
@@ -76,12 +77,38 @@ export function SettingsDialog({ open, onOpenChange, onCloseAutoFocus }: AppDial
       <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Privacy and usage statistics.</DialogDescription>
+          <DialogDescription>Audio input, privacy and usage statistics.</DialogDescription>
         </DialogHeader>
-        <DialogBody>{open && <LoadedSettings />}</DialogBody>
+        <DialogBody>
+          {open && (
+            <div className="flex flex-col gap-6">
+              <SettingsSection title="Audio">
+                <AudioInputSetting />
+              </SettingsSection>
+              <SettingsSection title="Privacy">
+                <LoadedSettings />
+              </SettingsSection>
+            </div>
+          )}
+        </DialogBody>
         <DialogFooter showCloseButton />
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <section aria-labelledby={id}>
+      <h3
+        id={id}
+        className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        {title}
+      </h3>
+      {children}
+    </section>
   );
 }
 

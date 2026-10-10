@@ -388,6 +388,7 @@ export function ScoreWorkspace({
   onReopenWithEncoding,
   startEditing = false,
   droppedAudio = null,
+  onOpenSettings,
 }: {
   song: ScoreDocument;
   /** The song's tab is shown. Other songs stay loaded (edits, undo, playback position) but hidden. */
@@ -407,6 +408,8 @@ export function ScoreWorkspace({
   startEditing?: boolean;
   /** An audio file dropped on the window while this song is shown (`nonce` changes per drop). */
   droppedAudio?: { path: string; nonce: number } | null;
+  /** Opens the app's Settings (the tuner's audio input); focus comes back to `from`. */
+  onOpenSettings?: (from: HTMLElement) => void;
 }) {
   const score = song.score;
   const editor = useScoreEditor(score);
@@ -2231,6 +2234,7 @@ export function ScoreWorkspace({
           trackName={track.name}
           tuning={track.tuning}
           onPlay={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
+          onOpenSettings={onOpenSettings}
         />
       )}
       <PedalboardDialog
