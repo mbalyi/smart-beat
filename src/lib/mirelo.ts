@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import instrumentIds from "@/lib/audio-transcription/instrument-ids.json";
 import { audioDurationMs } from "@/lib/audio-transcription/duration";
 import { errorText } from "@/lib/errors";
-import { isTauri, NotInDesktopAppError } from "@/lib/tauri";
+import { isTauri } from "@/lib/tauri";
 import {
   TranscriptionError,
   validateAudio,
@@ -24,7 +24,6 @@ const MIME: Record<string, string> = {
 const PAGES = {
   privacy: "https://mirelo.ai/privacy",
   terms: "https://mirelo.ai/terms",
-  account: "https://mirelo.ai/studio/",
 };
 function aborted(): Error {
   return new DOMException(
@@ -83,7 +82,7 @@ export async function waitForMirelo(
     });
   }
   throw new Error(
-    "This job is taking longer than expected. Resume later to check the same job without paying again.",
+    "This job is taking longer than expected. Resume later to check the same job without starting a new one.",
   );
 }
 async function recoverable(cause: unknown): Promise<never> {
@@ -94,19 +93,13 @@ async function recoverable(cause: unknown): Promise<never> {
 }
 export const mireloProvider: AudioTranscriptionProvider = {
   name: "Mirelo Audio-to-MIDI Pro",
-  credentialName: "Mirelo",
-  accountLabel: "Mirelo Studio",
   extensions: Object.keys(MIME),
   instruments: instrumentIds,
   maxBytes: 100 * 1024 * 1024,
   maxDurationMs: 30 * 60_000,
   retention:
-    "Mirelo says API uploads are deleted after 24 hours, and API results expire after 24 hours and are deleted within 7 days. Training copies may remain until account deletion. Paid accounts can opt out of future training in Studio; free accounts cannot. Check the provider privacy policy before uploading sensitive audio.",
+    "Mirelo says API uploads are deleted after 24 hours, and API results expire after 24 hours and are deleted within 7 days. Mirelo may keep training copies. Check the provider privacy policy before uploading sensitive audio.",
   configured: () => (isTauri() ? invoke<boolean>("mirelo_configured") : Promise.resolve(false)),
-  // Nothing else is reachable without a saved key.
-  saveKey: (key) =>
-    isTauri() ? invoke("mirelo_save_key", { key }) : Promise.reject(new NotInDesktopAppError()),
-  forgetKey: () => invoke("mirelo_forget_key"),
   async openPage(page) {
     if (isTauri()) return invoke("mirelo_open_page", { page });
     window.open(PAGES[page], "_blank", "noopener");
@@ -137,7 +130,8 @@ export const mireloProvider: AudioTranscriptionProvider = {
       return await withAbort(
         invoke<TranscriptionQuote>("quote_audio", body, {
           headers: {
-            "content-type": MIME[file.name.split(".").pop()?.toLowerCase() ?? ""]!,
+            // Not Content-Type: Tauri sets that to application/octet-stream for a raw body.
+            "audio-type": MIME[file.name.split(".").pop()?.toLowerCase() ?? ""]!,
             "duration-ms": String(durationMs),
             "operation-id": operationId,
           },

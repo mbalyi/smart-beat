@@ -33,18 +33,15 @@ export interface TranscriptionOptions {
 
 export interface AudioTranscriptionProvider {
   name: string;
-  credentialName: string;
-  accountLabel: string;
   extensions: readonly string[];
   instruments: readonly string[];
   maxBytes: number;
   maxDurationMs: number;
   retention: string;
+  /** False when this build has no access to the provider (no API key compiled in). */
   configured(): Promise<boolean>;
-  saveKey(key: string): Promise<void>;
-  forgetKey(): Promise<void>;
-  /** Opens the provider's privacy policy, terms or account page in the browser. */
-  openPage(page: "privacy" | "terms" | "account"): Promise<void>;
+  /** Opens the provider's privacy policy or terms in the browser. */
+  openPage(page: "privacy" | "terms"): Promise<void>;
   readFile(path: string): Promise<File>;
   quote(file: File, options: TranscriptionOptions): Promise<TranscriptionQuote>;
   transcribe(

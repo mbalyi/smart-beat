@@ -87,8 +87,6 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             mirelo::transcribe_audio,
             mirelo::poll_audio,
             mirelo::mirelo_configured,
-            mirelo::mirelo_save_key,
-            mirelo::mirelo_forget_key,
             mirelo::mirelo_pending,
             mirelo::mirelo_discard_pending,
             mirelo::read_transcription_audio,

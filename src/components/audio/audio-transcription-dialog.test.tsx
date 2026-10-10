@@ -25,8 +25,6 @@ function setup(overrides: Partial<AudioTranscriptionProvider> = {}) {
     ...mireloProvider,
     configured: vi.fn().mockResolvedValue(true),
     pending: vi.fn().mockResolvedValue(null),
-    saveKey: vi.fn().mockResolvedValue(undefined),
-    forgetKey: vi.fn().mockResolvedValue(undefined),
     quote: vi.fn().mockResolvedValue(QUOTE),
     transcribe: vi.fn().mockResolvedValue(MIDI),
     resume: vi.fn().mockResolvedValue(MIDI),
@@ -48,33 +46,33 @@ function setup(overrides: Partial<AudioTranscriptionProvider> = {}) {
   );
   return { ...ui, provider, onImport, onSave, onOpenChange };
 }
+/** Upload is enabled once the dialog knows this build can transcribe. */
+async function clickUpload(user: ReturnType<typeof setup>["user"]) {
+  const button = screen.getByRole("button", { name: "Upload recording" });
+  await waitFor(() => expect(button).toBeEnabled());
+  await user.click(button);
+}
 async function upload(user: ReturnType<typeof setup>["user"]) {
-  await screen.findByText("Personal Mirelo account connected");
   await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
-  await user.click(screen.getByRole("button", { name: "Upload and check cost" }));
-  await screen.findByRole("button", { name: "Confirm and transcribe" });
+  await clickUpload(user);
+  await screen.findByRole("button", { name: "Transcribe" });
 }
 describe("audio transcription", () => {
-  it("requires personal credentials and preserves native auth/quota error messages", async () => {
-    const { user, provider } = setup({
-      configured: vi.fn().mockResolvedValue(false),
-      saveKey: vi.fn().mockRejectedValue({ kind: "audio", message: "Unlock your keychain." }),
-    });
-    await user.type(screen.getByLabelText("Personal Mirelo API key"), "secret");
-    await user.click(screen.getByRole("button", { name: "Connect Mirelo" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Unlock your keychain.");
-    expect(provider.saveKey).toHaveBeenCalledWith("secret");
-    expect(screen.getByRole("button", { name: "Upload and check cost" })).toBeDisabled();
+  it("disables transcription when the build has no API key", async () => {
+    const { user } = setup({ configured: vi.fn().mockResolvedValue(false) });
+    expect(
+      await screen.findByText("Audio transcription is not available in this build."),
+    ).toBeInTheDocument();
+    await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
+    expect(screen.getByRole("button", { name: "Upload recording" })).toBeDisabled();
   });
   it("shows the recording's duration before upload and opens provider pages in the browser", async () => {
     const { user, provider } = setup();
-    await screen.findByText("Personal Mirelo account connected");
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
     expect(await screen.findByText(/· 4:32/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Provider privacy policy" }));
     await user.click(screen.getByRole("button", { name: "Provider terms" }));
-    await user.click(screen.getByRole("button", { name: "Mirelo Studio" }));
-    expect(vi.mocked(provider.openPage).mock.calls).toEqual([["privacy"], ["terms"], ["account"]]);
+    expect(vi.mocked(provider.openPage).mock.calls).toEqual([["privacy"], ["terms"]]);
     expect(provider.quote).not.toHaveBeenCalled();
   });
   it("validates dropped formats, size and empty files before upload", async () => {
@@ -97,17 +95,16 @@ describe("audio transcription", () => {
   });
   it("searches upstream aliases, selects multiple valid instrument ids, previews, saves and imports", async () => {
     const { user, provider, onImport, onSave, onOpenChange } = setup();
-    await screen.findByText("Personal Mirelo account connected");
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
     await user.type(screen.getByLabelText("Search instruments"), "rhodes");
     await user.click(screen.getByRole("button", { name: "electric piano" }));
     await user.clear(screen.getByLabelText("Search instruments"));
     await user.type(screen.getByLabelText("Search instruments"), "kit");
     await user.click(screen.getByRole("button", { name: "drums" }));
-    await user.click(screen.getByRole("button", { name: "Upload and check cost" }));
-    await screen.findByRole("button", { name: "Confirm and transcribe" });
+    await clickUpload(user);
+    await screen.findByRole("button", { name: "Transcribe" });
     expect(provider.transcribe).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Confirm and transcribe" }));
+    await user.click(screen.getByRole("button", { name: "Transcribe" }));
     expect(provider.transcribe).toHaveBeenCalledWith(
       QUOTE,
       ["electric_piano", "drums"],
@@ -127,9 +124,8 @@ describe("audio transcription", () => {
     const { user, provider } = setup({
       quote: vi.fn().mockRejectedValue({ kind: "audio", message: "Add 10 credits in Studio." }),
     });
-    await screen.findByText("Personal Mirelo account connected");
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
-    await user.click(screen.getByRole("button", { name: "Upload and check cost" }));
+    await clickUpload(user);
     expect(await screen.findByRole("alert")).toHaveTextContent("Add 10 credits");
     expect(provider.transcribe).not.toHaveBeenCalled();
   });
@@ -137,7 +133,7 @@ describe("audio transcription", () => {
     const { user, onImport, onOpenChange } = setup();
     onImport.mockRejectedValue(new Error("Invalid MIDI"));
     await upload(user);
-    await user.click(screen.getByRole("button", { name: "Confirm and transcribe" }));
+    await user.click(screen.getByRole("button", { name: "Transcribe" }));
     await user.click(await screen.findByRole("button", { name: "Import MIDI into Smart Beat" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid MIDI");
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -157,11 +153,9 @@ describe("audio transcription", () => {
       transcribe: vi.fn().mockRejectedValue(new TranscriptionError("Connection interrupted", true)),
     });
     await upload(user);
-    await user.click(screen.getByRole("button", { name: "Confirm and transcribe" }));
+    await user.click(screen.getByRole("button", { name: "Transcribe" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Connection interrupted");
-    expect(
-      screen.queryByRole("button", { name: "Confirm and transcribe" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Transcribe" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dismiss saved attempt" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Resume saved job" }));
     await screen.findByRole("heading", { name: "Generated MIDI preview" });

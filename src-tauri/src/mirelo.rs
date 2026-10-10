@@ -1,4 +1,4 @@
-//! User-owned Mirelo credentials and resumable Audio-to-MIDI jobs.
+//! Mirelo Audio-to-MIDI: uploads, paid jobs that survive a restart, and results.
 //! Job creation is NOT idempotent. Journal the attempt before sending it.
 use crate::error::{CommandError, ErrorKind};
 use base64::Engine;
@@ -28,52 +28,21 @@ const INSTRUMENTS: &str = include_str!("../../src/lib/audio-transcription/instru
 fn error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
 }
-fn entry() -> Result<keyring::Entry, CommandError> {
-    keyring::Entry::new("com.mbalyi.smartbeat.mirelo", "api-key")
-        .map_err(|_| error("Could not access your OS credential store."))
-}
-fn api_key() -> Result<String, CommandError> {
-    match entry()?.get_password() {
-        Ok(key) if !key.trim().is_empty() => Ok(key),
-        Ok(_) | Err(keyring::Error::NoEntry) => {
-            // Only debug builds may use a developer's environment credential.
-            if cfg!(debug_assertions)
-                && let Ok(key) = std::env::var("MIRELO_AI_API_KEY")
-                && !key.trim().is_empty()
-            {
-                return Ok(key);
-            }
-            Err(error(
-                "Connect your Mirelo account using a personal Studio API key.",
-            ))
-        }
-        Err(_) => Err(error(
-            "Unlock your OS credential store, then reconnect Mirelo.",
-        )),
-    }
+/// Smart Beat's own key, compiled in from the `MIRELO_AI_API_KEY` environment variable:
+/// the GitHub secret in release builds, `.env` or the shell locally (build.rs). Users never
+/// enter a key. Anyone with the app can extract it, so the key needs a spending cap
+/// (docs/mirelo-audio-to-midi.md).
+const API_KEY: Option<&str> = option_env!("MIRELO_AI_API_KEY");
+
+fn api_key() -> Result<&'static str, CommandError> {
+    API_KEY
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .ok_or_else(|| error("Audio transcription is not available in this build."))
 }
 #[tauri::command(async)]
 pub fn mirelo_configured() -> bool {
     api_key().is_ok()
-}
-#[tauri::command(async)]
-pub fn mirelo_save_key(key: String) -> Result<(), CommandError> {
-    let key = key.trim();
-    if key.is_empty() || key.len() > 4096 || key.chars().any(char::is_control) {
-        return Err(error("Enter a valid personal Mirelo API key."));
-    }
-    entry()?.set_password(key).map_err(|_| {
-        error("Could not save the key. Unlock your OS credential store and try again.")
-    })
-}
-#[tauri::command(async)]
-pub fn mirelo_forget_key() -> Result<(), CommandError> {
-    match entry()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(_) => Err(error(
-            "Could not remove the key from your OS credential store.",
-        )),
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,7 +98,11 @@ impl JobStore {
             return Ok(Some(pending));
         }
         match fs::read(&self.path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| error("The saved job reference is damaged. Check Mirelo Studio before starting another paid job.")),
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| {
+                error(
+                    "The saved job reference is damaged. Dismiss it to start a new transcription.",
+                )
+            }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(_) => Err(error("Could not read the saved job reference.")),
         }
@@ -266,9 +239,11 @@ struct FailureDetail {
 }
 fn failure_message(status: u16, code: &str) -> &'static str {
     match (status, code) {
-        (401 | 403, _) => "Your Mirelo API key was rejected. Reconnect with a personal Studio key.",
+        (401 | 403, _) => {
+            "The transcription service rejected this build's key. Update Smart Beat or try again later."
+        }
         (402, _) => {
-            "Mirelo requires an eligible plan or more credits. Check your balance and subscription in Mirelo Studio."
+            "Transcription is unavailable: the service has no credits left. Try again later."
         }
         (429, _) => "Mirelo's rate or concurrent-job limit was reached. Wait before trying again.",
         (_, "invalid_audio" | "audio_format_unsupported" | "invalid_asset") => {
@@ -320,14 +295,13 @@ fn affordable(quote: &Preflight) -> Result<(), CommandError> {
         .is_some_and(|state| state != "ready")
     {
         return Err(error(
-            "Mirelo account credits are pending or stalled. Check your account in Mirelo Studio.",
+            "Transcription is unavailable: the service has no credits ready. Try again later.",
         ));
     }
     if quote.credit_shortfall > 0 {
-        return Err(error(format!(
-            "This recording needs {} credits. Add at least {} credits in Mirelo Studio.",
-            quote.credits, quote.credit_shortfall
-        )));
+        return Err(error(
+            "Transcription is unavailable: the service has too few credits left. Try a shorter recording or try again later.",
+        ));
     }
     Ok(())
 }
@@ -376,7 +350,8 @@ pub async fn quote_audio<R: Runtime>(
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| error(format!("Missing {name}.")))
     };
-    let content_type = header("content-type")?;
+    // The webview's Content-Type is always application/octet-stream for a raw body.
+    let content_type = header("audio-type")?;
     let duration_ms = header("duration-ms")?
         .parse()
         .map_err(|_| error("Could not read the recording duration."))?;
@@ -394,13 +369,13 @@ pub async fn quote_audio<R: Runtime>(
     };
     let key = api_key()?;
     let client = client()?;
-    emit("quoting", "Checking transcription cost…");
+    emit("quoting", "Checking the transcription service…");
     let preflight: Preflight = checked(
         client
             .get(format!(
                 "{API_BASE}/v2/audio-to-midi/v1.0/preflight?duration_ms={duration_ms}"
             ))
-            .bearer_auth(&key)
+            .bearer_auth(key)
             .send()
             .await,
     )
@@ -412,7 +387,7 @@ pub async fn quote_audio<R: Runtime>(
     let ticket: AssetTicket = checked(
         client
             .post(format!("{API_BASE}/v3/assets"))
-            .bearer_auth(&key)
+            .bearer_auth(key)
             .json(&serde_json::json!({"content_type": content_type}))
             .send()
             .await,
@@ -510,7 +485,7 @@ pub async fn transcribe_audio(
     {
         store.write(None)?;
     }
-    let accepted: Accepted = checked(response).await?.json().await.map_err(|_| error("The job may have started, but its reference was unreadable. Check Mirelo Studio before submitting again."))?;
+    let accepted: Accepted = checked(response).await?.json().await.map_err(|_| error("The job may have started, but its reference was unreadable. Dismiss it before submitting again."))?;
     let url = job_url(&accepted.job_url)?;
     store.write(Some(Pending {
         quote,
@@ -572,7 +547,7 @@ pub async fn poll_audio(store: State<'_, JobStore>) -> Result<Snapshot, CommandE
     let pending = store
         .read()?
         .ok_or_else(|| error("There is no saved transcription to recover."))?;
-    let url = pending.job_url.ok_or_else(|| error("The create request had an uncertain outcome. Check jobs and credits in Mirelo Studio before explicitly dismissing this attempt."))?;
+    let url = pending.job_url.ok_or_else(|| error("The transcription may or may not have started. Dismiss this attempt to start a new one."))?;
     let client = client()?;
     let status: JobStatus = checked(
         client
@@ -623,9 +598,7 @@ pub async fn poll_audio(store: State<'_, JobStore>) -> Result<Snapshot, CommandE
             let message = failure
                 .as_ref()
                 .map(|f| failure_message(0, &f.code))
-                .unwrap_or(
-                    "The transcription failed. Check the recording and your Mirelo account.",
-                );
+                .unwrap_or("The transcription failed. Check the recording and try again.");
             Err(error(message))
         }
         // `processing`, or a state added later: the API marks the list as open.
@@ -645,7 +618,6 @@ pub fn mirelo_open_page(page: String) -> Result<(), CommandError> {
     let url = match page.as_str() {
         "privacy" => "https://mirelo.ai/privacy",
         "terms" => "https://mirelo.ai/terms",
-        "account" => "https://mirelo.ai/studio/",
         _ => return Err(error("Unknown provider page.")),
     };
     #[cfg(target_os = "macos")]

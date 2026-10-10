@@ -62,10 +62,6 @@ async function openDialog(app: Page) {
 test.describe("Import from Audio (#88)", () => {
   test("transcribes a recording, previews it and opens the MIDI as a new song", async ({ app }) => {
     const dialog = await openDialog(app);
-    await dialog.getByLabel("Personal Mirelo API key").fill("sk-test");
-    await dialog.getByRole("button", { name: "Connect Mirelo" }).click();
-    await expect(dialog.getByText("Personal Mirelo account connected")).toBeVisible();
-
     await dialog.getByRole("button", { name: "Provider privacy policy" }).click();
     expect(await app.evaluate(() => window.__mirelo.opened)).toEqual(["privacy"]);
 
@@ -78,9 +74,9 @@ test.describe("Import from Audio (#88)", () => {
     await dialog.getByRole("button", { name: "electric bass" }).click();
     await expect(dialog.getByRole("button", { name: "Remove electric bass" })).toBeVisible();
 
-    await dialog.getByRole("button", { name: "Upload and check cost" }).click();
-    await expect(dialog.getByText(/estimated 8 credits/)).toBeVisible();
-    await dialog.getByRole("button", { name: "Confirm and transcribe" }).click();
+    await dialog.getByRole("button", { name: "Upload recording" }).click();
+    await expect(dialog.getByText(/\d+:\d\d recording uploaded/)).toBeVisible();
+    await dialog.getByRole("button", { name: "Transcribe" }).click();
     await expect(dialog.getByRole("heading", { name: "Generated MIDI preview" })).toBeVisible();
     await expect(
       dialog.getByRole("img", { name: "Transcribed notes by instrument" }),
@@ -112,16 +108,12 @@ test.describe("Import from Audio (#88)", () => {
 
     await emitMenuAction(app, "import-audio");
     await expect(dialog).toBeVisible();
-    const key = dialog.getByLabel("Personal Mirelo API key");
-    for (let i = 0; i < 6 && !(await key.evaluate((e) => e === document.activeElement)); i++) {
+    // Keyboard only: Tab reaches the recording picker inside the dialog, Escape closes it.
+    const choose = dialog.getByRole("button", { name: "Choose recording…" });
+    for (let i = 0; i < 6 && !(await choose.evaluate((e) => e === document.activeElement)); i++) {
       await app.keyboard.press(tabKey(browserName));
     }
-    await expect(key).toBeFocused();
-    await app.keyboard.type("sk-test");
-    await app.keyboard.press(tabKey(browserName));
-    await expect(dialog.getByRole("button", { name: "Connect Mirelo" })).toBeFocused();
-    await app.keyboard.press("Enter");
-    await expect(dialog.getByText("Personal Mirelo account connected")).toBeVisible();
+    await expect(choose).toBeFocused();
     await app.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expect(app.getByRole("heading", { name: "Practice Song" })).toBeVisible();
@@ -134,14 +126,9 @@ test.describe("Import from Audio (#88)", () => {
       const dialog = await openDialog(app);
       await expectNoA11yViolations(app, { popup: "[role=dialog]" });
 
-      await app.evaluate(() => {
-        window.__mirelo.configured = true;
-      });
-      await app.keyboard.press("Escape");
-      await app.getByRole("button", { name: "Import from Audio…" }).click();
       await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
-      await dialog.getByRole("button", { name: "Upload and check cost" }).click();
-      await dialog.getByRole("button", { name: "Confirm and transcribe" }).click();
+      await dialog.getByRole("button", { name: "Upload recording" }).click();
+      await dialog.getByRole("button", { name: "Transcribe" }).click();
       await expect(dialog.getByRole("heading", { name: "Generated MIDI preview" })).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[role=dialog]" });
       expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);

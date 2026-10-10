@@ -58,9 +58,8 @@ export function AudioTranscriptionDialog({
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [phase, setPhase] = useState<Phase>("select");
   const [error, setError] = useState("");
-  const [configured, setConfigured] = useState(false);
-  const [key, setKey] = useState("");
-  const [connecting, setConnecting] = useState(false);
+  // null while the dialog asks whether this build can transcribe.
+  const [configured, setConfigured] = useState<boolean | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [progress, setProgress] = useState<TranscriptionProgress | null>(null);
@@ -160,7 +159,7 @@ export function AudioTranscriptionDialog({
     const opts = options();
     setError("");
     setPhase("quoting");
-    setProgress({ phase: "quoting", message: "Reading recording and checking cost…" });
+    setProgress({ phase: "quoting", message: "Reading recording…" });
     try {
       const next = await provider.quote(file, opts);
       if (!opts.signal.aborted) {
@@ -206,21 +205,7 @@ export function AudioTranscriptionDialog({
   const close = () => {
     if (saving || importing) return;
     if (busy) stop();
-    setKey("");
     onOpenChange(false);
-  };
-  const connect = async () => {
-    setConnecting(true);
-    setError("");
-    try {
-      await provider.saveKey(key);
-      setKey("");
-      setConfigured(true);
-    } catch (cause) {
-      setError(errorText(cause));
-    } finally {
-      setConnecting(false);
-    }
   };
   const reset = async () => {
     try {
@@ -283,21 +268,19 @@ export function AudioTranscriptionDialog({
               </p>
               <p className="mt-2">
                 Limit: {provider.maxBytes / 1024 / 1024} MiB and {provider.maxDurationMs / 60_000}{" "}
-                minutes. Your personal account pays for transcription. The cost estimate may differ
-                from the final charge if the provider measures a different duration.
+                minutes.
               </p>
               <p className="mt-2 flex flex-wrap gap-x-4">
                 {(
                   [
                     ["privacy", "Provider privacy policy"],
                     ["terms", "Provider terms"],
-                    ["account", provider.accountLabel],
                   ] as const
                 ).map(([page, text]) => (
                   <Button
                     key={page}
                     variant="link"
-                    className="h-6 px-0 underline"
+                    className="h-6 px-0 text-foreground underline"
                     onClick={() =>
                       void provider.openPage(page).catch((cause) => setError(errorText(cause)))
                     }
@@ -307,41 +290,10 @@ export function AudioTranscriptionDialog({
                 ))}
               </p>
             </div>
-            {!configured ? (
-              <section className="flex flex-col gap-2" aria-label="Provider access">
-                <label htmlFor="mirelo-key">Personal {provider.credentialName} API key</label>
-                <Input
-                  id="mirelo-key"
-                  type="password"
-                  autoComplete="off"
-                  value={key}
-                  onChange={(e) => setKey(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Create a key in {provider.accountLabel}. Smart Beat saves it in your OS credential
-                  store.
-                </p>
-                <Button onClick={() => void connect()} disabled={!key.trim() || connecting}>
-                  {connecting ? "Connecting…" : `Connect ${provider.credentialName}`}
-                </Button>
-              </section>
-            ) : (
-              <div className="flex items-center justify-between text-sm">
-                <span>Personal {provider.credentialName} account connected</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy || saving || importing}
-                  onClick={() =>
-                    void provider
-                      .forgetKey()
-                      .then(() => setConfigured(false))
-                      .catch((cause) => setError(errorText(cause)))
-                  }
-                >
-                  Disconnect
-                </Button>
-              </div>
+            {configured === false && (
+              <p className="text-sm text-muted-foreground">
+                Audio transcription is not available in this build.
+              </p>
             )}
             <div
               className="rounded-md border border-dashed p-4"
@@ -446,7 +398,7 @@ export function AudioTranscriptionDialog({
             )}
             {phase === "select" && (
               <Button disabled={!file || !configured} onClick={() => void upload()}>
-                Upload and check cost
+                Upload recording
               </Button>
             )}
             {busy && (
@@ -463,20 +415,18 @@ export function AudioTranscriptionDialog({
               </div>
             )}
             {quote && (
-              <p className="text-sm">
-                {durationText(quote.durationMs)} recording · estimated {quote.credits} credits
-              </p>
+              <p className="text-sm">{durationText(quote.durationMs)} recording uploaded</p>
             )}
             {phase === "quoted" && (
               <Button disabled={!configured} onClick={() => void transcribe()}>
-                Confirm and transcribe
+                Transcribe
               </Button>
             )}
             {phase === "paused" && (
               <div className="flex flex-col gap-3">
                 <p className="text-sm">
-                  A paid job may still be running. Resume checks the saved job and never submits a
-                  new transcription.
+                  A job may still be running. Resume checks the saved job and never submits a new
+                  transcription.
                 </p>
                 <Button disabled={!configured} onClick={() => void transcribe(true)}>
                   Resume saved job
@@ -487,8 +437,7 @@ export function AudioTranscriptionDialog({
                     checked={verified}
                     onChange={(e) => setVerified(e.target.checked)}
                   />{" "}
-                  I checked the job and credits in {provider.accountLabel} and want to dismiss this
-                  attempt.
+                  I understand the saved job may still be running, and want to dismiss it.
                 </label>
                 <Button variant="outline" disabled={!verified} onClick={() => void reset()}>
                   Dismiss saved attempt

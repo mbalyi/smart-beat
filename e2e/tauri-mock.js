@@ -63,7 +63,7 @@
   window.__mixes = mixes;
   /** Every command the UI sent, for assertions. */
   window.__ipcCalls = [];
-  window.__mirelo = { configured: false, pending: null, opened: [], midiBase64: "" };
+  window.__mirelo = { configured: true, pending: null, opened: [], midiBase64: "" };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -454,12 +454,6 @@
       // Audio-to-MIDI (src-tauri/src/mirelo.rs). Tests set `midiBase64` to the result.
       case "mirelo_configured":
         return window.__mirelo.configured;
-      case "mirelo_save_key":
-        window.__mirelo.configured = true;
-        return null;
-      case "mirelo_forget_key":
-        window.__mirelo.configured = false;
-        return null;
       case "mirelo_open_page":
         window.__mirelo.opened.push(args.page);
         return null;
@@ -469,6 +463,10 @@
         window.__mirelo.pending = null;
         return null;
       case "quote_audio":
+        // Like Tauri's IPC: a raw body always goes as application/octet-stream.
+        if (!/^audio\//.test(options.headers["audio-type"] ?? "")) {
+          throw { kind: "audio", message: "Mirelo accepts MP3, WAV, FLAC, OGG, and AAC audio." };
+        }
         return {
           assetId: "e2e-asset",
           durationMs: Number(options.headers["duration-ms"]),

@@ -1,29 +1,31 @@
 # Audio-to-MIDI transcription
 
-Smart Beat uses hosted **Mirelo Audio-to-MIDI Pro**, with the user's own Mirelo
-Studio API key and account credits. The app contains no shared production key
-and needs no Smart Beat inference server. It does not run the original
-MuScriptor small/medium models or distribute their research weights.
+Smart Beat uses hosted **Mirelo Audio-to-MIDI Pro** with Smart Beat's own
+Mirelo API key and credits. Users need no Mirelo account. Smart Beat runs no
+inference server, and it neither runs the original MuScriptor small/medium
+models nor distributes their research weights.
 
-## Access and credentials
+## API key
 
-Create a personal API key in [Mirelo Studio](https://mirelo.ai/studio/), then
-connect it in Import from Audio. Keys are stored using macOS Keychain, Windows
-Credential Manager, or Linux Secret Service. Linux needs a running, unlocked
-Secret Service, such as GNOME Keyring or KWallet, and links the system libdbus;
-building on Linux needs `libdbus-1-dev`. A locked or unavailable store
-produces an error; the app never falls back to plaintext storage. Disconnect
-removes the saved key. Keys are not returned by native commands or logged.
+The Rust core compiles the key in from the `MIRELO_AI_API_KEY` environment
+variable (`option_env!` in `src-tauri/src/mirelo.rs`):
 
-Debug builds may also read `MIRELO_AI_API_KEY` from the native process environment
-for development. Release builds ignore it. Never bundle that variable or use a
-frontend build variable for credentials.
+- **Release builds:** `.github/workflows/release.yml` passes the
+  `MIRELO_AI_API_KEY` GitHub secret to the build step.
+- **Local development:** put `MIRELO_AI_API_KEY=...` in the repository's `.env`
+  (git ignores it), or export it in the shell. An exported variable wins.
+  `src-tauri/build.rs` reads `.env`, and Cargo rebuilds when either changes. If
+  you create `.env` after a build, run `touch src-tauri/build.rs` once.
+- **No key:** the dialog says transcription is not available in this build.
+  Users never enter a key.
 
-Account eligibility, credits and quotas belong to the user. Smart Beat does not
-promise a free transcription tier, partner access, or included credits. Those
-arrangements require a separate Mirelo account/agreement and are not established
-by this implementation. The credit preflight runs before uploading, and a
-separate confirmation precedes the paid create request.
+Every request runs in Rust, so the webview never sees the key. The key is not
+secret from users, though. Anyone with an installer can extract it from the
+binary, or read the `Authorization` header through a proxy they trust. They can
+then spend Smart Beat's credits outside the app until the key is rotated, and
+rotating needs a new release. Keep a spending cap on the key in Mirelo Studio.
+If abuse becomes a problem, move the key to a small proxy service that holds it
+and limits use per install.
 
 ## Service contract and limits
 
@@ -54,9 +56,8 @@ Before sending a create request, Rust atomically saves an attempt marker in the
 app data directory. After acceptance it saves the provider job URL. Resume only
 polls that URL and downloads that job's result. A stopped wait, network error,
 restart or polling deadline never creates a second paid job. An uncertain create
-response cannot be recovered automatically; the user must check Studio jobs and
-credits before explicitly dismissing the attempt. Dismissal is blocked while a
-create request is still in flight. The journal contains no credentials, audio
+response cannot be recovered automatically; the user must explicitly dismiss
+the attempt. Dismissal is blocked while a create request is still in flight. The journal contains no credentials, audio
 content or source filename. Import or an explicit new transcription clears it.
 
 Stop waiting and Close stop local waiting. The chosen endpoint has no documented
@@ -89,7 +90,7 @@ are not persisted in the job journal.
 
 Audio travels directly from the native app to Mirelo's signed storage endpoint;
 Smart Beat has no remote audio store or transcription analytics. The dialog's
-privacy, terms and Studio links open fixed URLs in the system browser through a
+privacy and terms links open fixed URLs in the system browser through a
 native command, because the webview ignores `target="_blank"`.
 
 Mirelo's [privacy policy](https://mirelo.ai/privacy), updated 2026-10-02, says API
@@ -122,7 +123,7 @@ against mocked native commands: connect, upload, cost check, transcribe,
 preview, and import through the real MIDI importer. It also scans the dialog
 with axe at 375 px in light and dark mode and walks it by keyboard.
 
-Live transcription with an eligible personal account still needs a manual smoke
+Live transcription with the production key still needs a manual smoke
 test on macOS, Windows and Linux, including longer files, conditioned/automatic
 instruments, quota exhaustion and network interruption. No account has been
 registered, charged or assumed to have partner access by this implementation.

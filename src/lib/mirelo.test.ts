@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { waitForMirelo, withAbort } from "./mirelo";
+import { mireloProvider, waitForMirelo, withAbort } from "./mirelo";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock("@/lib/audio-transcription/duration", () => ({
+  audioDurationMs: vi.fn().mockResolvedValue(3000),
+}));
 const quote = { assetId: "one", durationMs: 3000, credits: 8, estimatedMs: 1000 };
 afterEach(() => {
   vi.useRealTimers();
@@ -49,4 +53,14 @@ it("allows local cancellation while an IPC call is still pending", async () => {
   controller.abort();
   await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   resolve(1);
+});
+it("sends the audio type in its own header: Tauri overwrites Content-Type for raw bodies", async () => {
+  vi.mocked(invoke).mockResolvedValue(quote);
+  const file = new File(["mp3"], "Song.MP3");
+  await mireloProvider.quote(file, { signal: new AbortController().signal, onProgress: vi.fn() });
+  const [command, body, options] = vi.mocked(invoke).mock.calls[0]!;
+  expect(command).toBe("quote_audio");
+  expect(body).toEqual(new Uint8Array(new TextEncoder().encode("mp3")));
+  expect(options?.headers).toEqual(expect.objectContaining({ "audio-type": "audio/mpeg" }));
+  expect(options?.headers).not.toHaveProperty("content-type");
 });

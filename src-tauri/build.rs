@@ -10,6 +10,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SMART_BEAT_ANALYTICS_URL");
     println!("cargo:rerun-if-env-changed=SMART_BEAT_INSTALLER");
     embed_windows_manifest_in_tests();
+    mirelo_api_key();
 
     let windows = tauri_build::WindowsAttributes::new()
         .app_manifest(include_str!("windows-app-manifest.xml"));
@@ -37,4 +38,34 @@ fn embed_windows_manifest_in_tests() {
         "cargo:rustc-link-arg-tests=/MANIFESTINPUT:{}",
         manifest.display()
     );
+}
+
+/// Import from Audio compiles in Smart Beat's Mirelo key (`option_env!` in src/mirelo.rs).
+/// Release builds get it from the environment (the GitHub secret). Locally, an exported
+/// variable wins, else the repository's `.env` provides it.
+fn mirelo_api_key() {
+    const KEY: &str = "MIRELO_AI_API_KEY";
+    println!("cargo:rerun-if-env-changed={KEY}");
+    if env::var(KEY).is_ok_and(|key| !key.trim().is_empty()) {
+        return;
+    }
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo");
+    let dotenv = Path::new(&manifest_dir).join("../.env");
+    let Ok(text) = std::fs::read_to_string(&dotenv) else {
+        return;
+    };
+    println!("cargo:rerun-if-changed={}", dotenv.display());
+    for line in text.lines() {
+        let line = line.trim();
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        if let Some(value) = line
+            .strip_prefix(KEY)
+            .and_then(|v| v.trim_start().strip_prefix('='))
+        {
+            let value = value.trim().trim_matches(['"', '\'']);
+            if !value.is_empty() {
+                println!("cargo:rustc-env={KEY}={value}");
+            }
+        }
+    }
 }

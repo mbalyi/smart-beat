@@ -50,6 +50,10 @@ TAURI_SIGNING_PRIVATE_KEY=/tmp/test-updater.key TAURI_SIGNING_PRIVATE_KEY_PASSWO
 
 The build reads the key from `TAURI_SIGNING_PRIVATE_KEY`, which can be the key text or the path to the key file. The `.app.tar.gz` and its `.sig` appear under `src-tauri/target/release/bundle/macos/`.
 
+## Mirelo API key
+
+Import from Audio compiles Smart Beat's Mirelo key into the app ([`mirelo-audio-to-midi.md`](mirelo-audio-to-midi.md)). Add it as the `MIRELO_AI_API_KEY` GitHub Actions secret. A build for a release fails without it. Other builds warn and ship without Import from Audio.
+
 ## What a release contains
 
 | Platform | Installer for people                                      | Used by the updater         |
@@ -85,6 +89,7 @@ While the repository is private, `latest.json` cannot be downloaded without a lo
 Not done by code, so on the list:
 
 - [ ] Add the two updater secrets on GitHub (the key exists and its public half is in `tauri.conf.json`); back the key file and its password up offline.
+- [ ] Add the `MIRELO_AI_API_KEY` secret on GitHub, with a spending cap on the key in Mirelo Studio.
 - [ ] Apple Developer ID signing and notarization, and Windows code signing ([`code-signing.md`](code-signing.md)). Updates work without them, but installers show warnings.
 - [ ] Lawyer review of `LICENSE` use, `COMMERCIAL-LICENSE.md` and `EULA.md` ([ADR 0002](adr/0002-source-available-noncommercial-license.md)).
 - [ ] Scan the repository **and its git history** for secrets (for example `gitleaks detect`), then re-run `pnpm licenses:check`.
