@@ -61,6 +61,7 @@ export class FakeScorePlayer {
   setSpeed = vi.fn();
   setMetronome = vi.fn();
   setCountIn = vi.fn();
+  setRestartOnStop = vi.fn();
   seekToBeat = vi.fn();
   /** The bar under a right click (#83): bar 3 by default. */
   barAt = vi.fn((): number | null => 2);

@@ -77,6 +77,16 @@ pub enum Event {
     UpdateInstalled,
     ThemeDark,
     ThemeLight,
+    ShiftSelect,
+    Copy,
+    Cut,
+    DeleteSelection,
+    LoopSelection,
+    PractiseSelection,
+    PlaySelection,
+    RestartOnStopOn,
+    RestartOnStopOff,
+    RestartOnStopUsed,
 }
 
 /// File formats that may accompany `open_file` and `export`.
@@ -649,5 +659,24 @@ mod tests {
             "speed_trainer_start"
         );
         assert!(serde_json::from_value::<Event>("my_song".into()).is_err());
+    }
+
+    #[test]
+    fn selection_and_restart_events_are_known() {
+        for name in [
+            "shift_select",
+            "copy",
+            "cut",
+            "delete_selection",
+            "loop_selection",
+            "practise_selection",
+            "play_selection",
+            "restart_on_stop_on",
+            "restart_on_stop_off",
+            "restart_on_stop_used",
+        ] {
+            let event: Event = serde_json::from_value(name.into()).unwrap();
+            assert_eq!(serde_json::to_value(event).unwrap(), name);
+        }
     }
 }

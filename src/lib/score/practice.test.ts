@@ -21,6 +21,7 @@ describe("practice", () => {
       trainer: null,
       metronome: false,
       countIn: false,
+      restartOnStop: true,
     });
     expect(initialPractice({ metronome: true, countIn: true })).toMatchObject({
       metronome: true,
@@ -133,11 +134,17 @@ describe("practice", () => {
   });
 
   it("remembers the metronome and count-in", () => {
-    expect(readPracticePrefs()).toEqual({ metronome: false, countIn: false });
-    storePracticePrefs({ metronome: true, countIn: false });
-    expect(readPracticePrefs()).toEqual({ metronome: true, countIn: false });
+    expect(readPracticePrefs()).toEqual({ metronome: false, countIn: false, restartOnStop: true });
+    storePracticePrefs({ metronome: true, countIn: false, restartOnStop: false });
+    expect(readPracticePrefs()).toEqual({ metronome: true, countIn: false, restartOnStop: false });
     localStorage.setItem("smart-beat:practice", "{broken");
-    expect(readPracticePrefs()).toEqual({ metronome: false, countIn: false });
+    expect(readPracticePrefs()).toEqual({ metronome: false, countIn: false, restartOnStop: true });
+  });
+
+  it("switches restarting the loop after Stop on and off (#93)", () => {
+    const off = practiceReducer(start(), { type: "restart-on-stop", value: false });
+    expect(off.restartOnStop).toBe(false);
+    expect(practiceReducer(off, { type: "restart-on-stop", value: true }).restartOnStop).toBe(true);
   });
 });
 

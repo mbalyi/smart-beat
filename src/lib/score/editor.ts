@@ -1727,7 +1727,7 @@ export class ScoreEditor {
 
   // --- Clipboard ---------------------------------------------------------------
 
-  copy() {
+  copy(record = true) {
     const bars = this.selectedPositions()
       .map((positions) =>
         positions
@@ -1739,13 +1739,17 @@ export class ScoreEditor {
     const count = bars.flat().length;
     if (count === 0) return;
     this.clipboard = { kind: this.kind, bars };
+    if (record) track("copy");
     this._message = `Copied ${count} ${count === 1 ? "beat" : "beats"}`;
     this.emit("cursor");
   }
 
   cut() {
-    this.copy();
-    if (this.clipboard) this.clearNotes("Cut");
+    this.copy(false);
+    if (this.clipboard) {
+      track("cut");
+      this.clearNotes("Cut");
+    }
   }
 
   /**

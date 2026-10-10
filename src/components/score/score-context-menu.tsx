@@ -1,5 +1,14 @@
 import { useState, type ReactNode } from "react";
-import { GaugeIcon, PlayIcon, Repeat2Icon, RepeatIcon, TargetIcon } from "lucide-react";
+import {
+  ClipboardCopyIcon,
+  GaugeIcon,
+  PlayIcon,
+  Repeat2Icon,
+  RepeatIcon,
+  ScissorsIcon,
+  TargetIcon,
+  Trash2Icon,
+} from "lucide-react";
 
 import {
   ContextMenu,
@@ -9,6 +18,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { describeRange } from "@/lib/score/practice";
 import { sectionAt, type SongSection } from "@/lib/score/structure";
 
 export interface ScoreMenuActions {
@@ -20,6 +30,19 @@ export interface ScoreMenuActions {
   onPracticeSection: (section: SongSection) => void;
   /** Opens the Speed Trainer for these bars. */
   onTrainer: (range: { start: number; end: number }) => void;
+  /** The selected beats (Shift+click extends a selection; #92). */
+  onCopy: () => void;
+  onCut: () => void;
+  onDelete: () => void;
+  onLoopSelection: () => void;
+  onPracticeSelection: () => void;
+  onPlaySelection: () => void;
+}
+
+/** The bars a score selection covers (0-based, inclusive). */
+export interface SelectionBars {
+  start: number;
+  end: number;
 }
 
 /**
@@ -32,12 +55,18 @@ export function ScoreContextMenu({
   barAt,
   sections,
   actions,
+  selection = null,
+  editing = false,
 }: {
   children: ReactNode;
   /** The bar (0-based) under a point of the window, or null. */
   barAt: (clientX: number, clientY: number) => number | null;
   sections: readonly SongSection[];
   actions: ScoreMenuActions;
+  /** The selected range: its actions are offered while there is one. */
+  selection?: SelectionBars | null;
+  /** Cut and Delete change the score, so they need Edit Mode. */
+  editing?: boolean;
 }) {
   const [bar, setBar] = useState<number | null>(null);
   const section = bar === null ? null : sectionAt(sections, bar);
@@ -56,6 +85,37 @@ export function ScoreContextMenu({
         <div className="contents">{children}</div>
       </ContextMenuTrigger>
       <ContextMenuContent aria-label="Score actions">
+        {selection && (
+          <>
+            <ContextMenuLabel>{`Selection · ${describeRange(selection)}`}</ContextMenuLabel>
+            <ContextMenuItem onSelect={actions.onCopy}>
+              <ClipboardCopyIcon />
+              Copy
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!editing} onSelect={actions.onCut}>
+              <ScissorsIcon />
+              Cut
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!editing} onSelect={actions.onDelete}>
+              <Trash2Icon />
+              Delete
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={actions.onLoopSelection}>
+              <Repeat2Icon />
+              Loop Selection
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={actions.onPracticeSelection}>
+              <TargetIcon />
+              Practice Selection…
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={actions.onPlaySelection}>
+              <PlayIcon />
+              Play Selection
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
         <ContextMenuLabel>
           {on
             ? `Bar ${bar + 1}${section ? ` · ${section.name}` : ""}`

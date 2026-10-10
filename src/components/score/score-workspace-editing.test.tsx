@@ -295,7 +295,14 @@ describe("ScoreWorkspace: practice", () => {
     expect(JSON.parse(localStorage.getItem("smart-beat:practice")!)).toEqual({
       metronome: true,
       countIn: true,
+      restartOnStop: true,
     });
+
+    // Auto-restart (#93) is on by default, and can be switched off.
+    expect(player.setRestartOnStop).toHaveBeenLastCalledWith(true);
+    await user.click(screen.getByRole("button", { name: "Auto-restart" }));
+    expect(player.setRestartOnStop).toHaveBeenLastCalledWith(false);
+    expect(JSON.parse(localStorage.getItem("smart-beat:practice")!).restartOnStop).toBe(false);
 
     await user.click(screen.getByRole("button", { name: "Loop" }));
     expect(player.setLoop).toHaveBeenLastCalledWith(null);

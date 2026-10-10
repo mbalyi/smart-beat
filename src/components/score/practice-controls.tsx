@@ -131,6 +131,7 @@ export function PracticeControls({
   onSpeedChange,
   onMetronomeChange,
   onCountInChange,
+  onRestartOnStopChange,
   onOpenTrainer,
   onStopTrainer,
   onHoldTrainer,
@@ -143,6 +144,8 @@ export function PracticeControls({
   onSpeedChange: (percent: number) => void;
   onMetronomeChange: (on: boolean) => void;
   onCountInChange: (on: boolean) => void;
+  /** Stop inside a loop restarts it from the loop start (#93). */
+  onRestartOnStopChange?: (on: boolean) => void;
   onOpenTrainer: () => void;
   onStopTrainer: () => void;
   /** "Stay at this speed" (true) or go on speeding up (#83). */
@@ -270,6 +273,18 @@ export function PracticeControls({
         >
           Count-in
         </Toggle>
+        {onRestartOnStopChange && practice.loop && (
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={practice.restartOnStop}
+            onPressedChange={onRestartOnStopChange}
+            title="With a loop on, Stop sends the next Play back to the loop start. Pause still resumes where you were."
+          >
+            <Repeat2Icon data-icon="inline-start" />
+            <span className="max-xl:sr-only">Auto-restart</span>
+          </Toggle>
+        )}
       </div>
     </div>
   );
