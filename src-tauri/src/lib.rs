@@ -6,6 +6,7 @@ pub mod error;
 pub mod m4a;
 pub mod menu;
 pub mod menu_state;
+pub mod mirelo;
 pub mod mixer;
 pub mod pdf;
 pub mod project;
@@ -43,6 +44,13 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 let dir = app.path().app_data_dir()?.join(LIBRARY_DIR);
                 app.manage(audio::AudioState::new(dir));
             }
+            if app.try_state::<mirelo::JobStore>().is_none() {
+                app.manage(mirelo::JobStore::new(
+                    app.path()
+                        .app_data_dir()?
+                        .join("transcription-pending.json"),
+                ));
+            }
             recent::ensure_store(app.handle())?;
             if app
                 .try_state::<std::sync::Arc<telemetry::Telemetry>>()
@@ -75,6 +83,16 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::add_recent_file,
             commands::remove_recent_file,
             commands::clear_recent_files,
+            mirelo::quote_audio,
+            mirelo::transcribe_audio,
+            mirelo::poll_audio,
+            mirelo::mirelo_configured,
+            mirelo::mirelo_save_key,
+            mirelo::mirelo_forget_key,
+            mirelo::mirelo_pending,
+            mirelo::mirelo_discard_pending,
+            mirelo::read_transcription_audio,
+            mirelo::mirelo_open_page,
             commands::update_menu_state,
             commands::track_event,
             commands::get_usage_settings,

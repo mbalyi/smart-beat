@@ -47,6 +47,7 @@ async function setup({ desktop = false, startEditing = false } = {}) {
   const utils = renderWithProviders(
     <>
       <ScoreWorkspace
+        onImportAudio={vi.fn()}
         song={song}
         onOpen={vi.fn()}
         onEditedChange={onEditedChange}

@@ -7,6 +7,7 @@ import { test as base, expect, type Page } from "@playwright/test";
 type MenuAction =
   | "new-song"
   | "open"
+  | "import-audio"
   | "save"
   | "save-as"
   | "export-all"

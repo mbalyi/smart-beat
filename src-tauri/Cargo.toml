@@ -23,6 +23,11 @@ tauri-plugin-updater = "2.12"
 tauri-plugin-process = "2.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Audio-to-MIDI (src/mirelo.rs): the user's API key stays in the OS credential
+# store and every request runs here, so the webview never sees the key.
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+base64 = "0.22"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy", "json", "multipart"] }
 tempfile = "3"
 rustysynth = "1.3"
 lewton = "0.10"

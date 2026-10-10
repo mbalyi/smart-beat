@@ -63,6 +63,7 @@
   window.__mixes = mixes;
   /** Every command the UI sent, for assertions. */
   window.__ipcCalls = [];
+  window.__mirelo = { configured: false, pending: null, opened: [], midiBase64: "" };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -450,6 +451,50 @@
       }
       case "audio_render":
         return new Float32Array(2 * 4410).buffer;
+      // Audio-to-MIDI (src-tauri/src/mirelo.rs). Tests set `midiBase64` to the result.
+      case "mirelo_configured":
+        return window.__mirelo.configured;
+      case "mirelo_save_key":
+        window.__mirelo.configured = true;
+        return null;
+      case "mirelo_forget_key":
+        window.__mirelo.configured = false;
+        return null;
+      case "mirelo_open_page":
+        window.__mirelo.opened.push(args.page);
+        return null;
+      case "mirelo_pending":
+        return window.__mirelo.pending;
+      case "mirelo_discard_pending":
+        window.__mirelo.pending = null;
+        return null;
+      case "quote_audio":
+        return {
+          assetId: "e2e-asset",
+          durationMs: Number(options.headers["duration-ms"]),
+          credits: 8,
+          estimatedMs: 1000,
+        };
+      case "transcribe_audio":
+        window.__mirelo.pending = args.quote;
+        return null;
+      case "poll_audio":
+        return {
+          status: "succeeded",
+          percent: 100,
+          result: {
+            midiBase64: window.__mirelo.midiBase64,
+            notes: [60, 64, 67].map((pitch, i) => ({
+              pitch,
+              start: i * 0.5,
+              end: i * 0.5 + 0.5,
+              instrument: "clean_electric_guitar",
+              velocity: 96,
+            })),
+            durationSeconds: 1.5,
+            model: "audio-to-midi-pro",
+          },
+        };
       default:
         throw new Error(`Unmocked Tauri command: ${cmd}`);
     }

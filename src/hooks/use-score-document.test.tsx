@@ -147,7 +147,7 @@ describe("useScoreDocuments in the desktop app", () => {
     });
     const { result } = setup();
 
-    let slow: Promise<void> = Promise.resolve();
+    let slow: Promise<boolean> = Promise.resolve(false);
     act(() => {
       slow = result.current.openPath("/slow.gp");
     });
@@ -297,6 +297,41 @@ describe("useScoreDocuments: recent files and saving", () => {
       fileKey: "k",
       isNew: false,
     });
+  });
+});
+
+describe("generated MIDI imports", () => {
+  it("opens a new score with the audio filename as title", async () => {
+    mockTauri();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    const { result } = setup();
+    await act(() => result.current.openPath(SONG));
+    const source = texScore(
+      String.raw`\track "G" \staff {score tabs} \instrument 25 :4 3.6 5.6 7.6 5.6`,
+    );
+    const midi = exportScore(source, "midi").bytes.slice();
+    let opened = false;
+    await act(async () => {
+      opened = await result.current.openFile(new File([midi], "my-recording.mid"), "my-recording");
+    });
+    expect(opened).toBe(true);
+    expect(result.current.songs).toHaveLength(2);
+    expect(result.current.song?.summary.title).toBe("my-recording");
+    expect(result.current.song?.score.title).toBe("my-recording");
+  });
+  it("reports failed import and preserves the active score", async () => {
+    mockTauri();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    const { result } = setup();
+    await act(() => result.current.openPath(SONG));
+    const active = result.current.song!.id;
+    let opened = true;
+    await act(async () => {
+      opened = await result.current.openFile(new File(["corrupt"], "generated.mid"));
+    });
+    expect(opened).toBe(false);
+    expect(result.current.song!.id).toBe(active);
+    expect(result.current.songs).toHaveLength(1);
   });
 });
 

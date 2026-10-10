@@ -30,6 +30,7 @@ pub const MAIN_WINDOW: &str = "main";
 pub enum MenuAction {
     NewSong,
     Open,
+    ImportAudio,
     ClearRecent,
     Save,
     SaveAs,
@@ -95,9 +96,10 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 61] = [
+    pub const ALL: [Self; 62] = [
         Self::NewSong,
         Self::Open,
+        Self::ImportAudio,
         Self::ClearRecent,
         Self::Save,
         Self::SaveAs,
@@ -164,6 +166,7 @@ impl MenuAction {
         match self {
             Self::NewSong => "file.new",
             Self::Open => "file.open",
+            Self::ImportAudio => "file.import-audio",
             Self::ClearRecent => "file.clear-recent",
             Self::Save => "file.save",
             Self::SaveAs => "file.save-as",
@@ -235,6 +238,7 @@ impl MenuAction {
         match self {
             Self::NewSong
             | Self::Open
+            | Self::ImportAudio
             | Self::ClearRecent
             | Self::Save
             | Self::SaveAs
@@ -295,6 +299,7 @@ impl MenuAction {
         match self {
             Self::NewSong => "New",
             Self::Open => "Open…",
+            Self::ImportAudio => "Import from Audio…",
             Self::ClearRecent => "Clear Menu",
             Self::Save => "Save",
             Self::SaveAs => "Save As…",
@@ -391,6 +396,7 @@ impl MenuAction {
             // The note effects have plain keys in the score (H, P, L...); menu
             // accelerators would take those keys away from text fields.
             Self::AddAudioTrack
+            | Self::ImportAudio
             | Self::DuplicateTrack
             | Self::RemoveTrack
             | Self::TrackSettings
@@ -670,6 +676,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let about = item(app, About)?;
     let new_song = item(app, NewSong)?;
     let open = item(app, Open)?;
+    let import_audio = item(app, ImportAudio)?;
     let toggle_theme = item(app, ToggleTheme)?;
     let zoom_in = item(app, ZoomIn)?;
     let zoom_out = item(app, ZoomOut)?;
@@ -724,6 +731,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         SubmenuBuilder::new(app, "File")
             .item(&new_song)
             .item(&open)
+            .item(&import_audio)
             .item(&recent)
             .separator()
             .item(&item(app, Save)?)
@@ -737,6 +745,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         SubmenuBuilder::new(app, "File")
             .item(&new_song)
             .item(&open)
+            .item(&import_audio)
             .item(&recent)
             .separator()
             .item(&item(app, Save)?)

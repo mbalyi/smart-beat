@@ -51,6 +51,27 @@ async function menu(action: MenuAction) {
 }
 
 describe("App", () => {
+  it("launches transcription from welcome, the native menu and the open song's File menu", async () => {
+    const { user } = await renderApp();
+    await user.click(screen.getByRole("button", { name: "Import from Audio…" }));
+    expect(await screen.findByRole("dialog", { name: "Import from Audio" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await menu("import-audio");
+    expect(await screen.findByRole("dialog", { name: "Import from Audio" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { name: "Practice Song" });
+    // Beside Open, in the File menu.
+    const fileButtons = screen.getAllByRole("button", { name: "File" });
+    await user.click(fileButtons[fileButtons.length - 1]!);
+    await user.click(await screen.findByRole("menuitem", { name: "Import from Audio…" }));
+    expect(await screen.findByRole("dialog", { name: "Import from Audio" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(openTabs()).toHaveLength(1);
+  });
+
   it("renders the app shell with landmarks", async () => {
     await renderApp();
 

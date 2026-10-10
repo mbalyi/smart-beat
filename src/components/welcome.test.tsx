@@ -6,13 +6,19 @@ import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 
 function renderWelcome() {
+  const onImportAudio = vi.fn();
   const onOpenFile = vi.fn();
   const onNewSong = vi.fn();
   const onShowShortcuts = vi.fn();
   const utils = renderWithProviders(
-    <Welcome onOpenFile={onOpenFile} onNewSong={onNewSong} onShowShortcuts={onShowShortcuts} />,
+    <Welcome
+      onImportAudio={onImportAudio}
+      onOpenFile={onOpenFile}
+      onNewSong={onNewSong}
+      onShowShortcuts={onShowShortcuts}
+    />,
   );
-  return { ...utils, onOpenFile, onNewSong, onShowShortcuts };
+  return { ...utils, onImportAudio, onOpenFile, onNewSong, onShowShortcuts };
 }
 
 describe("Welcome", () => {
@@ -29,6 +35,7 @@ describe("Welcome", () => {
     const { user } = renderWithProviders(
       <Welcome
         onOpenFile={vi.fn()}
+        onImportAudio={vi.fn()}
         onNewSong={vi.fn()}
         onShowShortcuts={vi.fn()}
         onShowLicenses={onShowLicenses}
@@ -137,12 +144,14 @@ describe("Welcome", () => {
   });
 
   it("wires up the primary actions", async () => {
-    const { user, onOpenFile, onNewSong, onShowShortcuts } = renderWelcome();
+    const { user, onImportAudio, onOpenFile, onNewSong, onShowShortcuts } = renderWelcome();
 
     await user.click(screen.getByRole("button", { name: "Open a file…" }));
     await user.click(screen.getByRole("button", { name: "New song" }));
     await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
 
+    await user.click(screen.getByRole("button", { name: "Import from Audio…" }));
+    expect(onImportAudio).toHaveBeenCalledOnce();
     expect(onOpenFile).toHaveBeenCalledOnce();
     expect(onNewSong).toHaveBeenCalledOnce();
     expect(onShowShortcuts).toHaveBeenCalledOnce();
@@ -170,6 +179,7 @@ describe("Welcome: recent songs", () => {
     const onOpenRecent = vi.fn();
     const { user } = renderWithProviders(
       <Welcome
+        onImportAudio={vi.fn()}
         onOpenFile={vi.fn()}
         onNewSong={vi.fn()}
         onShowShortcuts={vi.fn()}
@@ -189,6 +199,7 @@ describe("Welcome: recent songs", () => {
   it("has no accessibility violations", async () => {
     renderWithProviders(
       <Welcome
+        onImportAudio={vi.fn()}
         onOpenFile={vi.fn()}
         onNewSong={vi.fn()}
         onShowShortcuts={vi.fn()}

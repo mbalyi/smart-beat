@@ -212,7 +212,7 @@ fn garbage_files_never_reach_the_audio_engine() {
 }
 
 /// Imported sounds are copied into the app data folder and nowhere else,
-/// and nothing in the app can send them anywhere.
+/// and the sound-library module has no upload path.
 #[test]
 fn imported_sounds_stay_on_this_computer() {
     let dir = tempfile::tempdir().unwrap();
@@ -230,15 +230,24 @@ fn imported_sounds_stay_on_this_computer() {
         .collect();
     assert!(stored.contains(&format!("{id}.nam")), "{stored:?}");
 
-    // The only network client is `ureq`, used by the usage counters (src/telemetry.rs, sent from
-    // Rust, never from the page). No other client, no fs/http/shell permission, no remote host in
-    // the CSP. The updater plugin makes its own request from Rust.
+    // Two network clients, both used from Rust, never from the page: `ureq` for the usage
+    // counters (src/telemetry.rs) and `reqwest` for audio transcription (src/mirelo.rs).
+    // Sound-library imports stay local. No fs/http/shell permission, no remote host in the CSP.
+    // The updater plugin makes its own request from Rust.
     let manifest = env!("CARGO_MANIFEST_DIR");
     let cargo = std::fs::read_to_string(format!("{manifest}/Cargo.toml")).unwrap();
-    for client in ["reqwest", "hyper", "curl", "isahc", "surf", "attohttpc"] {
+    for client in ["hyper", "curl", "isahc", "surf", "attohttpc"] {
         assert!(
             !cargo.contains(client),
             "network client {client} in Cargo.toml"
+        );
+    }
+    let library_source =
+        std::fs::read_to_string(format!("{manifest}/src/audio/library.rs")).unwrap();
+    for client in ["reqwest", "ureq", "mirelo"] {
+        assert!(
+            !library_source.contains(client),
+            "{client} in the sound-library module"
         );
     }
     let sources = ["telemetry.rs", "lib.rs", "commands.rs"];

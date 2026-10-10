@@ -218,6 +218,7 @@ test.describe("accessibility", () => {
       "Theme",
       "Help",
       "Open a file…",
+      "Import from Audio…",
       "New song",
       "Keyboard shortcuts",
     ];

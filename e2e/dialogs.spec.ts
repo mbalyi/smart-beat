@@ -26,6 +26,7 @@ const DIALOGS: [name: string | RegExp, open: Opener][] = [
       await emitMenuAction(app, "check-for-updates");
     },
   ],
+  ["Import from Audio", (app) => emitMenuAction(app, "import-audio")],
 ];
 
 /** The dialog's own box must stay inside the viewport, and so must `part`. */

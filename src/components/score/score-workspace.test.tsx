@@ -41,7 +41,7 @@ async function setup({
   const onOpen = vi.fn();
   const utils = renderWithProviders(
     <>
-      <ScoreWorkspace song={song} onOpen={onOpen} />
+      <ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={onOpen} />
       <Toaster />
     </>,
   );

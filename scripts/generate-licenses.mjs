@@ -87,6 +87,12 @@ const ALPHATAB_DIST = path.join(ROOT, "node_modules", "@coderline", "alphatab", 
  */
 const ASSETS = [
   {
+    name: "MuScriptor instrument search helpers",
+    license: "MIT",
+    homepage: "https://github.com/muscriptor/muscriptor",
+    files: [path.join(ROOT, "src", "lib", "audio-transcription", "upstream", "LICENSE")],
+  },
+  {
     name: "Sonivox EAS SoundFont (default instrument sounds, via alphaTab)",
     license: "Apache-2.0 (full text in the Rust crates section)",
     files: [

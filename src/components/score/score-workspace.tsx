@@ -383,6 +383,7 @@ export function ScoreWorkspace({
   tabs,
   headerSlot,
   onOpen,
+  onImportAudio,
   onEditedChange,
   onSaved,
   onReopenWithEncoding,
@@ -397,6 +398,7 @@ export function ScoreWorkspace({
   /** The app header's centre, where the main controls are shown. */
   headerSlot?: HTMLElement | null;
   onOpen: () => void;
+  onImportAudio: () => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
   onSaved?: (saved: SavedAs) => void;
   /** Guitar Pro 3–5 songs: read the file again with another text encoding (#53). */
@@ -1927,6 +1929,7 @@ export function ScoreWorkspace({
   const fileActionsMenu = (
     <>
       <FileMenu
+        onImportAudio={onImportAudio}
         onSave={() => void fileActions.save()}
         onSaveAs={() => void fileActions.saveAs()}
         onExport={(format) => void fileActions.exportAs(format)}

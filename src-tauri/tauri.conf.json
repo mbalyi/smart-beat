@@ -35,7 +35,8 @@
         "object-src": "'none'",
         "base-uri": "'self'",
         "form-action": "'none'",
-        "frame-ancestors": "'none'"
+        "frame-ancestors": "'none'",
+        "media-src": "'self' blob:"
       },
       "devCsp": {
         "default-src": "'self'",
@@ -47,7 +48,8 @@
         "object-src": "'none'",
         "base-uri": "'self'",
         "form-action": "'none'",
-        "frame-ancestors": "'none'"
+        "frame-ancestors": "'none'",
+        "media-src": "'self' blob:"
       },
       "dangerousDisableAssetCspModification": ["style-src"]
     }

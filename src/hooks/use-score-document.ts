@@ -75,6 +75,7 @@ export interface SavedAs {
 }
 
 interface Source {
+  title?: string;
   name: string;
   /** Where the song is saved (desktop app). */
   path?: string;
@@ -143,12 +144,12 @@ export function useScoreDocuments() {
 
   const open = useCallback(
     async (source: Source, replace?: { id: number; encoding: EncodingChoice }) => {
-      const { name, read, path } = source;
+      const { name, read, path, title } = source;
       // Opening a song that is already open shows its tab.
       const already = path && !replace ? songsRef.current.find((s) => s.path === path) : undefined;
       if (already) {
         setActiveId(already.id);
-        return;
+        return true;
       }
       const id = ++counter.current;
       const toastId = toast.loading(`Opening “${name}”…`);
@@ -163,6 +164,10 @@ export function useScoreDocuments() {
           name,
           choice,
         );
+        if (title) {
+          score.title = title;
+          summary.title = title;
+        }
         if (replace) storeEncoding(key, choice);
         const saved = await savedMix(key, path);
         if (saved?.drumLines) {
@@ -198,6 +203,7 @@ export function useScoreDocuments() {
         }
         track("open_file", name.split(".").pop());
         if (path) await rememberRecent(path, true, () => setRecentsVersion((v) => v + 1));
+        return true;
       } catch (error) {
         // A file that is gone is not worth offering again.
         if (path && isCommandError(error) && error.kind === "not-found") {
@@ -207,6 +213,7 @@ export function useScoreDocuments() {
           id: toastId,
           description: describeOpenError(error),
         });
+        return false;
       }
     },
     [add],
@@ -218,9 +225,10 @@ export function useScoreDocuments() {
   );
 
   const openFile = useCallback(
-    (file: File) =>
+    (file: File, title?: string) =>
       open({
         name: file.name,
+        title,
         read: async () => {
           if (!hasScoreExtension(file.name)) {
             // The same check the desktop app does in Rust.
