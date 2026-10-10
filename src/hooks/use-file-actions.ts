@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { errorText } from "@/lib/errors";
+import { track } from "@/lib/telemetry";
 import {
   exportScore,
   formatFromName,
@@ -158,7 +159,11 @@ export function useFileActions({
     }
   }
 
-  async function saveTo(format: ExportFormat, path: string | null) {
+  async function saveTo(
+    format: ExportFormat,
+    path: string | null,
+    saveEvent: "save" | "save_as" = "save",
+  ) {
     const result = build(format);
     const name = await deliver(format, path, result);
     const key =
@@ -168,6 +173,7 @@ export function useFileActions({
     editor.markSaved();
     onEditedChange?.(false);
     onSaved({ name, path, fileKey: key });
+    track(saveEvent, FORMATS[format].extension);
     toast.success(path ? `Saved “${name}”` : `Downloaded “${name}”`);
     reportWarnings(`“${name}” was saved with limits`, result);
   }
@@ -193,7 +199,7 @@ export function useFileActions({
           path = `${picked}.gp`;
         }
       }
-      await saveTo(format, path);
+      await saveTo(format, path, "save_as");
     });
 
   const save = () => {
@@ -225,6 +231,7 @@ export function useFileActions({
       }
       const result = build(format);
       const name = await deliver(format, path, result);
+      track("export", FORMATS[format].extension);
       toast.success(path ? `Exported “${name}”` : `Downloaded “${name}”`);
       reportWarnings(`“${name}” was exported with limits`, result);
     });
@@ -260,6 +267,7 @@ export function useFileActions({
         if (path && kind === "m4a") await writeM4aFile(path, bytes);
         else if (path) await writeScoreFile(path, bytes);
         else download(bytes, name, mime);
+        track("export", extension);
         toast.success(path ? `Exported “${baseName(path)}”` : `Downloaded “${name}”`, {
           id: toastId,
         });

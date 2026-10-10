@@ -86,6 +86,7 @@
   window.__menuState = null;
   /** Recently opened songs (see `src-tauri/src/recent.rs`). */
   window.__recent = [];
+  window.__usage = { enabled: true, available: false, noticeSeen: true };
   /** Path the native Save dialog "picks" (`null` = Cancel). Set by tests. */
   window.__saveResult = null;
   /** Files written by `write_score_file`, by path: they can be opened again. */
@@ -179,6 +180,19 @@
         if (window.__pdfFail) throw { kind: "io", message: window.__pdfFail };
         return null;
       }
+      // Usage counters (#99): tests read `window.__ipcCalls` for `track_event` and set
+      // `window.__usage` ({ enabled, available, noticeSeen }) to simulate a release build.
+      case "track_event":
+        return null;
+      case "get_usage_settings":
+        return window.__usage;
+      case "set_usage_settings":
+        window.__usage = {
+          ...window.__usage,
+          enabled: args.enabled ?? window.__usage.enabled,
+          noticeSeen: args.noticeSeen ?? window.__usage.noticeSeen,
+        };
+        return window.__usage;
       case "plugin:dialog|save":
         return window.__saveResult;
       case "update_menu_state":

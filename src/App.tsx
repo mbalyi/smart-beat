@@ -9,6 +9,7 @@ import { DiscardDialog } from "@/components/discard-dialog";
 import { LeaveDialog } from "@/components/leave-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
+import { useUsageNotice } from "@/hooks/use-usage-notice";
 import { UpdateDialog } from "@/components/update-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
@@ -47,6 +48,7 @@ export function App() {
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const { toggleTheme } = useTheme();
   const updater = useUpdater();
+  useUsageNotice(() => setDialog("settings"));
   const {
     songs,
     song,

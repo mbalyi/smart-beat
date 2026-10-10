@@ -1,5 +1,12 @@
 import { useRef } from "react";
-import { CircleHelpIcon, DownloadIcon, InfoIcon, KeyboardIcon, ScaleIcon } from "lucide-react";
+import {
+  CircleHelpIcon,
+  DownloadIcon,
+  InfoIcon,
+  KeyboardIcon,
+  ScaleIcon,
+  SettingsIcon,
+} from "lucide-react";
 
 import type { AppDialog } from "@/components/app-dialogs";
 import { Button } from "@/components/ui/button";
@@ -41,6 +48,10 @@ export function HelpMenu({
         <DropdownMenuItem onSelect={() => select("shortcuts")}>
           <KeyboardIcon />
           Keyboard Shortcuts
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => select("settings")}>
+          <SettingsIcon />
+          Settings…
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => select("licenses")}>
           <ScaleIcon />

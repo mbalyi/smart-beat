@@ -1,0 +1,17 @@
+name = "smart-beat-analytics"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "smart-beat-analytics"
+# Filled in by the deploy workflow (.github/workflows/analytics-deploy.yml) after it creates the database.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[triggers]
+# Daily at 03:17 UTC: drop counters older than six months.
+crons = ["17 3 * * *"]
+
+# Secret (never in this file): ANALYTICS_SUMMARY_TOKEN, set with `wrangler secret put`.

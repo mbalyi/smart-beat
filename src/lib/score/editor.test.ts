@@ -10,6 +10,7 @@ import {
 import { parseScore } from "@/lib/score/score";
 import { createSong, createTrack, insertTrack } from "@/lib/score/tracks";
 import { fixtureBytes } from "@/test/score";
+import { mockTauri } from "@/test/tauri";
 
 const { Duration } = model;
 
@@ -777,5 +778,44 @@ describe("ScoreEditor: drum numbers and rests", () => {
     editor.setDuration(Duration.Half);
     editor.fillWithRests();
     expect(voice(editor).beats.map((b) => b.duration)).toEqual([Duration.Half, Duration.Half]);
+  });
+});
+
+describe("usage counters (#99)", () => {
+  const events = (calls: ReturnType<typeof mockTauri>) =>
+    calls.filter((c) => c.cmd === "track_event").map((c) => (c.args as { event: string }).event);
+
+  it("counts an edit, an undo and a redo, without saying what was edited", () => {
+    const calls = mockTauri();
+    const { editor } = newSong();
+    editor.run(
+      "Change lyrics",
+      () => [editor.score],
+      () => {},
+    );
+    editor.undo();
+    editor.redo();
+    expect(events(calls)).toEqual(["edit", "undo", "redo"]);
+    expect(JSON.stringify(calls)).not.toContain("lyrics");
+  });
+
+  it("counts transposing, pasting and chords under their own names", () => {
+    const calls = mockTauri();
+    const { editor } = newSong();
+    for (const label of ["Transpose", "Paste", "Add chord", "Change chord"]) {
+      editor.run(
+        label,
+        () => [editor.score],
+        () => {},
+      );
+    }
+    expect(events(calls)).toEqual(["transpose", "copy_paste", "chord_insert", "chord_insert"]);
+  });
+
+  it("does not count an undo with nothing to undo", () => {
+    const calls = mockTauri();
+    const { editor } = newSong();
+    editor.undo();
+    expect(events(calls)).toEqual([]);
   });
 });

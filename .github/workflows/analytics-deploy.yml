@@ -1,0 +1,110 @@
+# Tests the usage-counter Worker (analytics/) and, on main, deploys it to Cloudflare.
+# Needs the repository secrets CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and
+# ANALYTICS_SUMMARY_TOKEN (docs/analytics.md). Without them the deploy job is skipped.
+name: Analytics Worker
+
+on:
+  pull_request:
+    paths: ["analytics/**", ".github/workflows/analytics-deploy.yml"]
+  push:
+    branches: [main]
+    paths: ["analytics/**", ".github/workflows/analytics-deploy.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: analytics-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: analytics
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: analytics/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  deploy:
+    name: Deploy
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check the secrets
+        id: secrets
+        working-directory: .
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set: skipping the deploy (docs/analytics.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.secrets.outputs.ready == 'true'
+      - uses: pnpm/action-setup@v6
+        if: steps.secrets.outputs.ready == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.secrets.outputs.ready == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: analytics/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        if: steps.secrets.outputs.ready == 'true'
+
+      - name: Find or create the D1 database
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          find_id() {
+            pnpm exec wrangler d1 list --json | node -e '
+              const list = JSON.parse(require("fs").readFileSync(0, "utf8"));
+              const db = list.find((d) => d.name === "smart-beat-analytics");
+              if (db) console.log(db.uuid);'
+          }
+          ID="$(find_id)"
+          if [ -z "$ID" ]; then
+            pnpm exec wrangler d1 create smart-beat-analytics
+            ID="$(find_id)"
+          fi
+          test -n "$ID"
+          sed -i "s/^database_id = .*/database_id = \"$ID\"/" wrangler.toml
+
+      - name: Apply migrations
+        if: steps.secrets.outputs.ready == 'true'
+        run: pnpm exec wrangler d1 migrations apply smart-beat-analytics --remote
+
+      - name: Deploy the Worker
+        if: steps.secrets.outputs.ready == 'true'
+        run: pnpm exec wrangler deploy
+
+      - name: Set the summary token
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          SUMMARY_TOKEN: ${{ secrets.ANALYTICS_SUMMARY_TOKEN }}
+        run: |
+          if [ -z "$SUMMARY_TOKEN" ]; then
+            echo "::warning::ANALYTICS_SUMMARY_TOKEN is not set: /v1/summary stays locked."
+          else
+            printf '%s' "$SUMMARY_TOKEN" | pnpm exec wrangler secret put ANALYTICS_SUMMARY_TOKEN
+          fi

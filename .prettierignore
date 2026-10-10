@@ -5,6 +5,8 @@ test-results
 pnpm-lock.yaml
 src-tauri/target
 src-tauri/gen
+analytics/node_modules
+analytics/.wrangler
 src-tauri/icons
 public/third-party-licenses.txt
 public/font

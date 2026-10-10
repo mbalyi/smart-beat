@@ -51,6 +51,13 @@ use the Software.
    with the Software. The Software processes your content locally on your
    device unless you configure it to use a remote AI service.
 
+   The Software also counts, anonymously, how often its features are used
+   (for example Loop, Metronome or Export), per day, together with the
+   version of the Software, your operating system and the installer type.
+   The counts contain no identifier, no file names and no content, and are
+   sent over the internet to a server operated by Licensor, which keeps them
+   for six months. You can switch this off at any time in Help > Settings.
+
 6. UPDATES
    Licensor may provide updates. This Agreement applies to them unless they
    come with different terms.

@@ -6,6 +6,9 @@ use std::path::Path;
 const WINDOWS_MANIFEST: &str = "windows-app-manifest.xml";
 
 fn main() {
+    // Set by the release pipeline (docs/analytics.md); without them the usage counters are off.
+    println!("cargo:rerun-if-env-changed=SMART_BEAT_ANALYTICS_URL");
+    println!("cargo:rerun-if-env-changed=SMART_BEAT_INSTALLER");
     embed_windows_manifest_in_tests();
 
     let windows = tauri_build::WindowsAttributes::new()

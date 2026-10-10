@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useId,
@@ -10,6 +11,8 @@ import {
 } from "react";
 import { XIcon } from "lucide-react";
 import { toast } from "sonner";
+
+import { track as trackUsage } from "@/lib/telemetry";
 
 import { AudioTrackPanel } from "@/components/audio/audio-track-panel";
 import { DrumMixerDialog } from "@/components/audio/drum-mixer-dialog";
@@ -140,6 +143,7 @@ import {
   withTrackStates,
   type MixerChange,
   type TrackState,
+  type MixerAction,
 } from "@/lib/score/mixer";
 import {
   CLASSIC_LAYOUT,
@@ -161,6 +165,7 @@ import {
   readPracticePrefs,
   storePracticePrefs,
   type LoopRange,
+  type PracticeAction,
 } from "@/lib/score/practice";
 import type { Scale } from "@/lib/score/scales";
 import { summarizeScore, trackMix, type TrackView } from "@/lib/score/score";
@@ -222,6 +227,32 @@ import {
 
 /** Mixer changes are saved this long after the last one. */
 export const SAVE_DELAY_MS = 500;
+
+/** Counts the mixer changes that are tracked (docs/analytics.md); parameters are not counted. */
+function trackMixChange(action: MixerAction) {
+  switch (action.type) {
+    case "mute":
+      if (action.value) trackUsage("mute_track");
+      break;
+    case "solo":
+      if (action.value) trackUsage("solo_track");
+      break;
+    case "effects":
+    case "sound-effects":
+    case "master-effects":
+      trackUsage("effect_pedal");
+      break;
+    case "sounds":
+    case "drum-kit":
+      trackUsage("sound_change");
+      break;
+    case "focus":
+      if (action.track !== null) trackUsage("practice_mix");
+      break;
+    default:
+      break;
+  }
+}
 
 /** Remembers whether the fretboard (keyboard, drum pads) is shown. */
 export const INSTRUMENT_VIEW_STORAGE_KEY = "smart-beat:instrument-view";
@@ -540,9 +571,17 @@ export function ScoreWorkspace({
   const [problemRects, setProblemRects] = useState<Rect[]>([]);
   const [scale, setScale] = useState<Scale | null>(null);
   const scalePickerRef = useRef<HTMLButtonElement>(null);
-  const [practice, dispatchPractice] = useReducer(practiceReducer, undefined, () =>
+  const [practice, dispatchPracticeAction] = useReducer(practiceReducer, undefined, () =>
     initialPractice(readPracticePrefs()),
   );
+  /** Every practice change goes through here so switching a tool on is counted once. */
+  const dispatchPractice = useCallback((action: PracticeAction) => {
+    if (action.type === "loop" && action.value) trackUsage("loop_on");
+    else if (action.type === "metronome" && action.value) trackUsage("metronome_on");
+    else if (action.type === "count-in" && action.value) trackUsage("count_in_on");
+    else if (action.type === "start-trainer") trackUsage("speed_trainer_start");
+    dispatchPracticeAction(action);
+  }, []);
   /** Bars last dragged across in the score (what Loop starts with). */
   const [pickedRange, setPickedRange] = useState<LoopRange | null>(null);
 
@@ -569,6 +608,7 @@ export function ScoreWorkspace({
   });
 
   const changeSoundFont = (id: SoundFontId) => {
+    trackUsage("sound_change");
     setSoundFont(id);
     storeSoundFontPreference(id);
     void playerRef.current?.setSoundFont(getSoundFont(id).url);
@@ -727,7 +767,7 @@ export function ScoreWorkspace({
       setBackingInfo(null);
       setPlayedBars(null);
     };
-  }, [song.score, audioEngine]);
+  }, [song.score, audioEngine, dispatchPractice]);
 
   // A song in a hidden tab does not keep playing.
   useEffect(() => {
@@ -1007,6 +1047,7 @@ export function ScoreWorkspace({
   };
 
   const changeView = (next: TrackView) => {
+    if (next.notation !== view.notation) trackUsage("notation_mode_switch");
     setViews((current) => new Map(current).set(trackObject, next));
     playerRef.current?.setView(next);
   };
@@ -1022,6 +1063,7 @@ export function ScoreWorkspace({
   };
 
   const changeMix: MixerChange = (action, { commit } = { commit: true }) => {
+    if (commit) trackMixChange(action);
     const next = mixerReducer(mixRef.current, action);
     mixRef.current = next;
     trackStates(next).forEach((state, i) => {
@@ -1060,6 +1102,7 @@ export function ScoreWorkspace({
   const toggleMixer = () => {
     const next = practiceView ? true : !mixerOpen;
     leavePracticeView();
+    if (next) trackUsage("mixer_open");
     setMixerOpen(next);
     rememberPanels({ mixer: next });
   };
@@ -1084,7 +1127,10 @@ export function ScoreWorkspace({
       },
     });
 
-  const playPause = () => playerRef.current?.playPause();
+  const playPause = () => {
+    trackUsage(playing ? "pause" : "play");
+    playerRef.current?.playPause();
+  };
   useSpaceToPlay(playPause, ready && active);
 
   // --- Effects and the native audio engine -------------------------------------
@@ -1130,6 +1176,7 @@ export function ScoreWorkspace({
   );
   /** Applies a preset from the browser to what it was opened for (#42). */
   const applyPreset = (preset: Preset) => {
+    trackUsage("sound_change");
     const { track, sound } = presetBrowser;
     if (preset.kind === "drumMix") {
       if (track === null) return;
@@ -1348,6 +1395,7 @@ export function ScoreWorkspace({
       leavePracticeView();
       if (instrumentView) return;
     }
+    if (!instrumentView) trackUsage(track.kind === "stringed" ? "fretboard_view" : "piano_view");
     setInstrumentView((shown) => {
       storeInstrumentView(!shown);
       return !shown;
@@ -1397,6 +1445,7 @@ export function ScoreWorkspace({
     onRemove: (index) => {
       const name = summary.tracks[index]?.name ?? "the track";
       changeTracks("Remove track", () => removeTrack(score, index));
+      trackUsage("track_delete");
       toast(`Removed “${name}”`, { action: { label: "Undo", onClick: () => editor.undo() } });
     },
     onSettings: (index) => {
@@ -1458,6 +1507,7 @@ export function ScoreWorkspace({
       },
       false,
     );
+    trackUsage("track_add");
   };
 
   const editedTrack = trackDialog?.mode === "edit" ? trackDialog.track : null;
@@ -1609,6 +1659,7 @@ export function ScoreWorkspace({
   };
 
   const submitTempo = (request: TempoRequest) => {
+    trackUsage("tempo_change");
     const range = tempoScope(score, request);
     const what =
       request.scope === "song"
@@ -1906,7 +1957,10 @@ export function ScoreWorkspace({
         bar={bar}
         barCount={score.masterBars.length}
         onPlayPause={playPause}
-        onStop={() => playerRef.current?.stop()}
+        onStop={() => {
+          trackUsage("stop");
+          playerRef.current?.stop();
+        }}
         onTempo={() => setTempoOpen(true)}
         tempo={{ songBpm: tempoAt(score, bar), speed: practice.speed }}
         onSeekBar={(index) => playerRef.current?.seekToBar(index)}
@@ -2006,7 +2060,10 @@ export function ScoreWorkspace({
               cursorString={track.kind === "stringed" ? editor.cursor.string : null}
               drumSounds={shownNotes.map((n) => n.pitch)}
               onPlayString={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
-              onOpenTuner={() => setTunerOpen(true)}
+              onOpenTuner={() => {
+                trackUsage("tuner");
+                setTunerOpen(true);
+              }}
               onFret={(string, fret) => {
                 editor.setString(string);
                 editor.setFret(fret - track.capo);

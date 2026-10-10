@@ -10,6 +10,7 @@
  * after every change. Listeners (the workspace) then re-render and regenerate
  * the MIDI.
  */
+import { track, type TrackedEvent } from "@/lib/telemetry";
 import { model } from "@coderline/alphatab";
 
 import { restsFor } from "@/lib/score/bar-duration";
@@ -214,6 +215,14 @@ function plainNote(source: Note): Note {
   }
   return note;
 }
+
+/** Edits that are counted under their own name (docs/analytics.md); every other edit is `edit`. */
+const EDIT_EVENTS: Record<string, TrackedEvent> = {
+  Transpose: "transpose",
+  Paste: "copy_paste",
+  "Add chord": "chord_insert",
+  "Change chord": "chord_insert",
+};
 
 export class ScoreEditor {
   readonly score: Score;
@@ -757,6 +766,7 @@ export class ScoreEditor {
    * re-finishes the model and notifies listeners.
    */
   run(label: string, targets: () => Iterable<object>, apply: () => void, message = label) {
+    track(EDIT_EVENTS[label] ?? "edit");
     // Any edit ends a two-digit fret: its second digit must not undo this edit.
     this.pendingDigit = null;
     this.pendingDrum = null;
@@ -785,6 +795,7 @@ export class ScoreEditor {
   undo() {
     const entry = this.history.undo();
     if (!entry) return;
+    track("undo");
     this.pendingDigit = null;
     this.pendingDrum = null;
     this._cursor = { ...entry.extra.before.cursor };
@@ -795,6 +806,7 @@ export class ScoreEditor {
   redo() {
     const entry = this.history.redo();
     if (!entry) return;
+    track("redo");
     this.pendingDigit = null;
     this.pendingDrum = null;
     this._cursor = { ...entry.extra.after.cursor };

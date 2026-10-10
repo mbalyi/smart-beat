@@ -74,6 +74,8 @@ export const backend = {
   written: new Map<string, Uint8Array>(),
   /** Settings stored inside saved `.gp` files, by path. */
   projectSettings: new Map<string, MixerSettings>(),
+  /** Usage counter settings (see `src-tauri/src/telemetry.rs`); builds without an endpoint have none. */
+  usage: { enabled: true, available: false, noticeSeen: true },
   /** The update the updater plugin finds, or `null` when this is the latest version. */
   update: null as { version: string; body?: string } | null,
   /** Makes `check` or the download fail with this message. */
@@ -115,6 +117,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.saveResult = null;
   backend.written.clear();
   backend.projectSettings.clear();
+  backend.usage = { enabled: true, available: false, noticeSeen: true };
   backend.update = null;
   backend.updateError = null;
   backend.updateBytes = 3000;
@@ -163,6 +166,22 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         }
         case "export_pdf":
           return null;
+        case "track_event":
+          return null;
+        case "get_usage_settings":
+          return backend.usage;
+        case "set_usage_settings": {
+          const { enabled, noticeSeen } = args as {
+            enabled: boolean | null;
+            noticeSeen: boolean | null;
+          };
+          backend.usage = {
+            ...backend.usage,
+            enabled: enabled ?? backend.usage.enabled,
+            noticeSeen: noticeSeen ?? backend.usage.noticeSeen,
+          };
+          return backend.usage;
+        }
         case "plugin:dialog|save":
           return backend.saveResult;
         case "update_menu_state":

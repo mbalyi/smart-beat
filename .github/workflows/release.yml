@@ -49,14 +49,17 @@ jobs:
             os: macos-latest
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
             tauri-args: --target universal-apple-darwin
+            installer: dmg
           - name: Windows (x64)
             os: windows-latest
             rust-targets: ""
             tauri-args: ""
+            installer: windows
           - name: Linux (x64)
             os: ubuntu-22.04
             rust-targets: ""
             tauri-args: ""
+            installer: linux
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -176,6 +179,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Anonymous usage counters (docs/analytics.md). The installer type is baked into the
+          # build; pull-request builds get no address, which turns the counters off in them.
+          SMART_BEAT_INSTALLER: ${{ matrix.installer }}
+          SMART_BEAT_ANALYTICS_URL: ${{ github.event_name != 'pull_request' && vars.ANALYTICS_URL || '' }}
         with:
           args: ${{ matrix.tauri-args }} ${{ steps.updater.outputs.args }}
           tagName: ${{ steps.release.outputs.tag }}

@@ -240,7 +240,12 @@ docs/                Licensing, code signing, releases and updates, ADRs
   - Playwright, one job per browser (Chromium and WebKit);
   - Rust fmt, clippy and tests, plus an app compile on **macOS, Windows and Linux**;
   - the license policy (npm and cargo-deny, including advisories).
+- **[Analytics Worker](.github/workflows/analytics-deploy.yml)** tests the usage-counter backend in [`analytics/`](analytics) and deploys it to Cloudflare from `main` ([`docs/analytics.md`](docs/analytics.md)).
 - **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts. A release also contains signed updater bundles and `latest.json`, which the app's **Help › Check for Updates…** and its daily automatic check read: see [`docs/release.md`](docs/release.md) for how to cut a release, the signing key and the stable download links.
+
+## Privacy and usage statistics
+
+Smart Beat counts anonymously how often features are used (Loop, Metronome, Export and so on), per day, together with the app version, your operating system and the installer type. There is **no identifier** of any kind, so the counts cannot be tied to you or your computer, and nothing about your songs, file names or sounds is sent. Counts are kept on your computer while you are offline and sent in one batch later. Turn it off in **Help › Settings…**; that also deletes counts that have not been sent. Development and pull-request builds never send anything. Details, the exact list of counted features and the backend: [`docs/analytics.md`](docs/analytics.md).
 
 ## Licensing
 

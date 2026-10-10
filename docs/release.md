@@ -20,6 +20,10 @@ GitHub Releases is the only place Smart Beat's installers are downloaded from. T
 
 To try the pipeline without a tag, run the workflow by hand (Actions › Release › Run workflow) with _Also create a draft GitHub Release_ ticked. It uses the version in `package.json` and does not publish anything.
 
+## Usage counters
+
+Release builds send anonymous usage counters to the Cloudflare Worker in [`analytics/`](../analytics) ([`analytics.md`](analytics.md)). The address comes from the repository **variable** `ANALYTICS_URL` (Settings › Secrets and variables › Actions › Variables), for example `https://smart-beat-analytics.<account>.workers.dev/v1/batch`; the workflow bakes it into the build together with the installer type. Without the variable, or in a pull request, the build has no address and never sends anything.
+
 ## Updater signing key
 
 The updater only installs updates signed with our key. This is separate from Apple and Windows code signing ([`code-signing.md`](code-signing.md)).

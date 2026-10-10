@@ -18,6 +18,7 @@ use crate::project;
 use crate::recent::RecentStore;
 use crate::score_file;
 use crate::score_write;
+use crate::telemetry::{Event, Telemetry, UsageSettings};
 
 /// Build and platform details shown in the About dialog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -221,6 +222,35 @@ pub fn clear_recent_files<R: Runtime>(
     let paths = store.clear()?;
     menu::refresh_recent_menu(&app, &paths);
     Ok(paths)
+}
+
+/// Counts one use of a feature (docs/analytics.md). Never fails the UI: errors are swallowed
+/// except an unknown file format, which is a bug in the caller.
+#[tauri::command(async)]
+pub fn track_event(
+    telemetry: State<'_, std::sync::Arc<Telemetry>>,
+    event: Event,
+    format: Option<String>,
+) -> Result<(), CommandError> {
+    telemetry.record(event, format.as_deref())?;
+    telemetry.flush_in_background();
+    Ok(())
+}
+
+/// Whether anonymous usage counters are on, available in this build, and explained to the user.
+#[tauri::command]
+pub fn get_usage_settings(telemetry: State<'_, std::sync::Arc<Telemetry>>) -> UsageSettings {
+    telemetry.settings()
+}
+
+/// Switches the usage counters on or off and/or marks the one-time notice as shown.
+#[tauri::command(async)]
+pub fn set_usage_settings(
+    telemetry: State<'_, std::sync::Arc<Telemetry>>,
+    enabled: Option<bool>,
+    notice_seen: Option<bool>,
+) -> Result<UsageSettings, CommandError> {
+    telemetry.update_settings(enabled, notice_seen)
 }
 
 /// Updates the menu bar to match the UI (undo labels, check marks, enabled items).
