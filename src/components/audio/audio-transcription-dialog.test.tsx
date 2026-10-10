@@ -1,10 +1,10 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { AudioTranscriptionDialog } from "./audio-transcription-dialog";
-import { mireloProvider } from "@/lib/mirelo";
-import {
-  TranscriptionError,
-  type AudioTranscriptionProvider,
-  type TranscriptionResult,
+import { muscriptorProvider } from "@/lib/muscriptor";
+import type {
+  AudioTranscriptionProvider,
+  TranscriptionOptions,
+  TranscriptionResult,
 } from "@/lib/audio-transcription/provider";
 import { renderWithProviders } from "@/test/render";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -18,18 +18,12 @@ const MIDI: TranscriptionResult = {
   notes: [{ pitch: 60, start: 0, end: 1, instrument: "acoustic_piano", velocity: 90 }],
   durationSeconds: 3,
 };
-const QUOTE = { assetId: "one", durationMs: 3000, credits: 8, estimatedMs: 1000 };
 const recording = () => new File(["audio"], "my-song.wav", { type: "audio/wav" });
 function setup(overrides: Partial<AudioTranscriptionProvider> = {}) {
   const provider = {
-    ...mireloProvider,
+    ...muscriptorProvider,
     configured: vi.fn().mockResolvedValue(true),
-    pending: vi.fn().mockResolvedValue(null),
-    quote: vi.fn().mockResolvedValue(QUOTE),
     transcribe: vi.fn().mockResolvedValue(MIDI),
-    resume: vi.fn().mockResolvedValue(MIDI),
-    discardPending: vi.fn().mockResolvedValue(undefined),
-    openPage: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
   const onImport = vi.fn().mockResolvedValue(undefined);
@@ -46,34 +40,28 @@ function setup(overrides: Partial<AudioTranscriptionProvider> = {}) {
   );
   return { ...ui, provider, onImport, onSave, onOpenChange };
 }
-/** Upload is enabled once the dialog knows this build can transcribe. */
-async function clickUpload(user: ReturnType<typeof setup>["user"]) {
-  const button = screen.getByRole("button", { name: "Upload recording" });
+/** Transcribe is enabled once the dialog knows this build can transcribe. */
+async function transcribe(user: ReturnType<typeof setup>["user"]) {
+  const button = screen.getByRole("button", { name: "Transcribe" });
   await waitFor(() => expect(button).toBeEnabled());
   await user.click(button);
 }
-async function upload(user: ReturnType<typeof setup>["user"]) {
-  await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
-  await clickUpload(user);
-  await screen.findByRole("button", { name: "Transcribe" });
-}
 describe("audio transcription", () => {
-  it("disables transcription when the build has no API key", async () => {
+  it("disables transcription when the build has no transcription server", async () => {
     const { user } = setup({ configured: vi.fn().mockResolvedValue(false) });
     expect(
       await screen.findByText("Audio transcription is not available in this build."),
     ).toBeInTheDocument();
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
-    expect(screen.getByRole("button", { name: "Upload recording" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Transcribe" })).toBeDisabled();
   });
-  it("shows the recording's duration before upload and opens provider pages in the browser", async () => {
+  it("says where the recording goes and shows its duration before upload", async () => {
     const { user, provider } = setup();
+    expect(screen.getByText(/uploaded to Smart Beat's transcription server/)).toBeInTheDocument();
+    expect(screen.getByText(/by Kyutai and Mirelo/)).toBeInTheDocument();
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
     expect(await screen.findByText(/· 4:32/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Provider privacy policy" }));
-    await user.click(screen.getByRole("button", { name: "Provider terms" }));
-    expect(vi.mocked(provider.openPage).mock.calls).toEqual([["privacy"], ["terms"]]);
-    expect(provider.quote).not.toHaveBeenCalled();
+    expect(provider.transcribe).not.toHaveBeenCalled();
   });
   it("validates dropped formats, size and empty files before upload", async () => {
     const { provider } = setup();
@@ -81,8 +69,8 @@ describe("audio transcription", () => {
       fireEvent.drop(screen.getByRole("button", { name: "Choose recording…" }), {
         dataTransfer: { files: [file] },
       });
-    drop(new File(["bad"], "bad.txt"));
-    expect(screen.getByRole("alert")).toHaveTextContent("Choose mp3");
+    drop(new File(["bad"], "song.m4a"));
+    expect(screen.getByRole("alert")).toHaveTextContent("Choose MP3, WAV, FLAC, OGG audio.");
     drop(new File([], "empty.wav"));
     expect(screen.getByRole("alert")).toHaveTextContent("empty");
     const large = recording();
@@ -91,9 +79,9 @@ describe("audio transcription", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("100 MiB");
     drop(recording());
     expect(screen.getByText("my-song.wav")).toBeInTheDocument();
-    expect(provider.quote).not.toHaveBeenCalled();
+    expect(provider.transcribe).not.toHaveBeenCalled();
   });
-  it("searches upstream aliases, selects multiple valid instrument ids, previews, saves and imports", async () => {
+  it("searches upstream aliases, selects multiple instruments, previews, saves and imports", async () => {
     const { user, provider, onImport, onSave, onOpenChange } = setup();
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
     await user.type(screen.getByLabelText("Search instruments"), "rhodes");
@@ -101,12 +89,9 @@ describe("audio transcription", () => {
     await user.clear(screen.getByLabelText("Search instruments"));
     await user.type(screen.getByLabelText("Search instruments"), "kit");
     await user.click(screen.getByRole("button", { name: "drums" }));
-    await clickUpload(user);
-    await screen.findByRole("button", { name: "Transcribe" });
-    expect(provider.transcribe).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+    await transcribe(user);
     expect(provider.transcribe).toHaveBeenCalledWith(
-      QUOTE,
+      expect.objectContaining({ name: "my-song.wav" }),
       ["electric_piano", "drums"],
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
@@ -120,45 +105,55 @@ describe("audio transcription", () => {
     await waitFor(() => expect(onImport).toHaveBeenCalledWith(MIDI.midi, "my-song.mid"));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
-  it("shows quote errors without submitting a paid job", async () => {
-    const { user, provider } = setup({
-      quote: vi.fn().mockRejectedValue({ kind: "audio", message: "Add 10 credits in Studio." }),
+  it("shows the server's progress, and Cancel stops the transcription", async () => {
+    let options: TranscriptionOptions | undefined;
+    const { user } = setup({
+      transcribe: vi.fn((_file, _instruments, opts: TranscriptionOptions) => {
+        options = opts;
+        opts.onProgress({ phase: "processing", message: "Transcribing recording…", percent: 40 });
+        return new Promise<TranscriptionResult>(() => {});
+      }),
     });
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
-    await clickUpload(user);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Add 10 credits");
-    expect(provider.transcribe).not.toHaveBeenCalled();
+    await transcribe(user);
+    expect(await screen.findByText("Transcribing recording…")).toBeInTheDocument();
+    expect(screen.getByText("40%")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel transcription" }));
+    expect(options!.signal.aborted).toBe(true);
+    expect(screen.getByRole("button", { name: "Transcribe" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+  it("keeps the recording selected when the transcription fails, so it can be tried again", async () => {
+    const { user, provider } = setup({
+      transcribe: vi
+        .fn()
+        .mockRejectedValueOnce({ kind: "audio", message: "The transcription server is busy." })
+        .mockResolvedValue(MIDI),
+    });
+    await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
+    await transcribe(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("busy");
+    expect(screen.getByText("my-song.wav")).toBeInTheDocument();
+    await transcribe(user);
+    await screen.findByRole("heading", { name: "Generated MIDI preview" });
+    expect(provider.transcribe).toHaveBeenCalledTimes(2);
   });
   it("keeps the result when import fails", async () => {
     const { user, onImport, onOpenChange } = setup();
     onImport.mockRejectedValue(new Error("Invalid MIDI"));
-    await upload(user);
-    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+    await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
+    await transcribe(user);
     await user.click(await screen.findByRole("button", { name: "Import MIDI into Smart Beat" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid MIDI");
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Save MIDI As…" })).toBeEnabled();
   });
-  it("recovers a saved job and never creates it again", async () => {
-    const { user, provider } = setup({ pending: vi.fn().mockResolvedValue(QUOTE) });
-    await user.click(await screen.findByRole("button", { name: "Resume saved job" }));
-    expect(
-      await screen.findByRole("heading", { name: "Generated MIDI preview" }),
-    ).toBeInTheDocument();
-    expect(provider.resume).toHaveBeenCalledOnce();
-    expect(provider.transcribe).not.toHaveBeenCalled();
-  });
-  it("allows stop and resume while protecting uncertain paid attempts", async () => {
-    const { user, provider } = setup({
-      transcribe: vi.fn().mockRejectedValue(new TranscriptionError("Connection interrupted", true)),
-    });
-    await upload(user);
-    await user.click(screen.getByRole("button", { name: "Transcribe" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Connection interrupted");
-    expect(screen.queryByRole("button", { name: "Transcribe" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dismiss saved attempt" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Resume saved job" }));
-    await screen.findByRole("heading", { name: "Generated MIDI preview" });
-    expect(provider.transcribe).toHaveBeenCalledOnce();
+  it("starts over with New transcription", async () => {
+    const { user } = setup();
+    await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
+    await transcribe(user);
+    await user.click(await screen.findByRole("button", { name: "New transcription" }));
+    expect(screen.queryByText("my-song.wav")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose recording…" })).toBeEnabled();
   });
 });

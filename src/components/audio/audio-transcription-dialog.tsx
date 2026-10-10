@@ -12,11 +12,9 @@ import {
 } from "@/components/ui/dialog";
 import { TranscriptionPreview } from "./transcription-preview";
 import {
-  TranscriptionError,
   validateAudio,
   type AudioTranscriptionProvider,
   type TranscriptionProgress,
-  type TranscriptionQuote,
   type TranscriptionResult,
 } from "@/lib/audio-transcription/provider";
 import { audioDurationMs } from "@/lib/audio-transcription/duration";
@@ -28,7 +26,7 @@ export interface DroppedRecording {
   path?: string;
   nonce: number;
 }
-type Phase = "select" | "quoting" | "quoted" | "transcribing" | "paused" | "complete";
+type Phase = "select" | "transcribing" | "complete";
 const durationText = (ms: number) =>
   `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
@@ -54,7 +52,6 @@ export function AudioTranscriptionDialog({
   const operation = useRef<AbortController | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [measured, setMeasured] = useState<{ file: File; ms: number } | null>(null);
-  const [quote, setQuote] = useState<TranscriptionQuote | null>(null);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [phase, setPhase] = useState<Phase>("select");
   const [error, setError] = useState("");
@@ -65,9 +62,8 @@ export function AudioTranscriptionDialog({
   const [progress, setProgress] = useState<TranscriptionProgress | null>(null);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [verified, setVerified] = useState(false);
-  const busy = phase === "quoting" || phase === "transcribing";
-  const locked = busy || phase === "paused" || phase === "complete" || saving || importing;
+  const busy = phase === "transcribing";
+  const locked = busy || phase === "complete" || saving || importing;
   const candidates = provider.instruments
     .map((id) => ({ id, score: scoreInstrument(id, query) }))
     .filter((v) => v.score > 0 && !selected.includes(v.id))
@@ -76,25 +72,24 @@ export function AudioTranscriptionDialog({
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    Promise.all([provider.configured(), provider.pending()])
-      .then(([access, pending]) => {
-        if (!alive) return;
-        setConfigured(access);
-        if (pending && !quote && !result) {
-          setQuote(pending);
-          setPhase("paused");
+    provider.configured().then(
+      (access) => {
+        if (alive) setConfigured(access);
+      },
+      (cause) => {
+        if (alive) {
+          setConfigured(false);
+          setError(errorText(cause));
         }
-      })
-      .catch((cause) => {
-        if (alive) setError(errorText(cause));
-      });
+      },
+    );
     return () => {
       alive = false;
     };
-  }, [open, provider, quote, result]);
+  }, [open, provider]);
   useEffect(() => () => operation.current?.abort(), []);
   // Shows the duration before upload. A file the webview cannot measure fails
-  // at the cost check instead, with the reason.
+  // when it is transcribed instead, with the reason.
   useEffect(() => {
     if (!file) return;
     const controller = new AbortController();
@@ -116,7 +111,6 @@ export function AudioTranscriptionDialog({
         if (alive) {
           validateAudio(next, provider);
           setFile(next);
-          setQuote(null);
           setError("");
           setPhase("select");
         }
@@ -136,7 +130,6 @@ export function AudioTranscriptionDialog({
     try {
       validateAudio(next, provider);
       setFile(next);
-      setQuote(null);
       setError("");
       setPhase("select");
     } catch (cause) {
@@ -154,17 +147,17 @@ export function AudioTranscriptionDialog({
       },
     };
   };
-  const upload = async () => {
+  const transcribe = async () => {
     if (!file || busy) return;
     const opts = options();
     setError("");
-    setPhase("quoting");
-    setProgress({ phase: "quoting", message: "Reading recording…" });
+    setPhase("transcribing");
+    setProgress({ phase: "uploading", message: "Reading recording…" });
     try {
-      const next = await provider.quote(file, opts);
+      const next = await provider.transcribe(file, selected, opts);
       if (!opts.signal.aborted) {
-        setQuote(next);
-        setPhase("quoted");
+        setResult(next);
+        setPhase("complete");
       }
     } catch (cause) {
       if (!opts.signal.aborted) {
@@ -173,64 +166,32 @@ export function AudioTranscriptionDialog({
       }
     }
   };
-  const transcribe = async (resume = false) => {
-    if (!quote || busy) return;
-    const opts = options();
-    setError("");
-    setPhase("transcribing");
-    setProgress({
-      phase: "processing",
-      message: resume ? "Checking the saved job…" : "Starting transcription…",
-    });
-    try {
-      const next = await (resume
-        ? provider.resume(opts)
-        : provider.transcribe(quote, selected, opts));
-      if (!opts.signal.aborted) {
-        setResult(next);
-        setPhase("complete");
-      }
-    } catch (cause) {
-      if (!opts.signal.aborted) {
-        const recover = cause instanceof TranscriptionError ? cause.recoverable : true;
-        setPhase(recover ? "paused" : "quoted");
-        setError(errorText(cause));
-      }
-    }
-  };
-  const stop = () => {
+  const cancel = () => {
     operation.current?.abort();
-    setPhase(phase === "transcribing" ? "paused" : "select");
+    setPhase("select");
   };
   const close = () => {
     if (saving || importing) return;
-    if (busy) stop();
+    if (busy) cancel();
     onOpenChange(false);
   };
-  const reset = async () => {
-    try {
-      await provider.discardPending();
-      setFile(null);
-      setQuote(null);
-      setResult(null);
-      setSelected([]);
-      setQuery("");
-      setPhase("select");
-      setError("");
-      setVerified(false);
-    } catch (cause) {
-      setError(errorText(cause));
-    }
+  const reset = () => {
+    setFile(null);
+    setResult(null);
+    setSelected([]);
+    setQuery("");
+    setPhase("select");
+    setError("");
   };
-  const shownDuration = quote?.durationMs ?? (measured?.file === file ? measured.ms : null);
-  const name = `${file?.name.replace(/\.[^.]+$/, "") || "Recovered transcription"}.mid`;
+  const shownDuration = measured?.file === file ? measured.ms : null;
+  const name = `${file?.name.replace(/\.[^.]+$/, "") || "Transcription"}.mid`;
   const importMidi = async () => {
     if (!result) return;
     setImporting(true);
     setError("");
     try {
       await onImport(result.midi, name);
-      await reset();
+      reset();
       onOpenChange(false);
     } catch (cause) {
       setError(errorText(cause));
@@ -256,38 +217,20 @@ export function AudioTranscriptionDialog({
         <DialogHeader>
           <DialogTitle>Import from Audio</DialogTitle>
           <DialogDescription>
-            Upload a recording to {provider.name}, preview the generated MIDI, then open it in Smart
-            Beat.
+            Transcribe a recording with {provider.name}, preview the generated MIDI, then open it in
+            Smart Beat.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="flex flex-col gap-5">
             <div className="rounded-md border p-3 text-sm">
               <p>
-                Your recording will be uploaded to {provider.name}. {provider.retention}
+                Your recording will be uploaded to Smart Beat&apos;s transcription server.{" "}
+                {provider.privacy}
               </p>
               <p className="mt-2">
                 Limit: {provider.maxBytes / 1024 / 1024} MiB and {provider.maxDurationMs / 60_000}{" "}
-                minutes.
-              </p>
-              <p className="mt-2 flex flex-wrap gap-x-4">
-                {(
-                  [
-                    ["privacy", "Provider privacy policy"],
-                    ["terms", "Provider terms"],
-                  ] as const
-                ).map(([page, text]) => (
-                  <Button
-                    key={page}
-                    variant="link"
-                    className="h-6 px-0 text-foreground underline"
-                    onClick={() =>
-                      void provider.openPage(page).catch((cause) => setError(errorText(cause)))
-                    }
-                  >
-                    {text}
-                  </Button>
-                ))}
+                minutes. {provider.credit}
               </p>
             </div>
             {configured === false && (
@@ -341,7 +284,6 @@ export function AudioTranscriptionDialog({
                     disabled={locked}
                     onClick={() => {
                       setFile(null);
-                      setQuote(null);
                       setError("");
                       setPhase("select");
                     }}
@@ -397,50 +339,16 @@ export function AudioTranscriptionDialog({
               </fieldset>
             )}
             {phase === "select" && (
-              <Button disabled={!file || !configured} onClick={() => void upload()}>
-                Upload recording
+              <Button disabled={!file || !configured} onClick={() => void transcribe()}>
+                Transcribe
               </Button>
             )}
             {busy && (
               <div role="status" className="text-sm">
                 <p>{progress?.message}</p>
-                {progress?.percent !== undefined && <p>Provider estimate: {progress.percent}%</p>}
-                <Button variant="outline" className="mt-2" onClick={stop}>
-                  Stop waiting
-                </Button>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Stopping or closing does not cancel a job at the provider. You can resume the same
-                  job.
-                </p>
-              </div>
-            )}
-            {quote && (
-              <p className="text-sm">{durationText(quote.durationMs)} recording uploaded</p>
-            )}
-            {phase === "quoted" && (
-              <Button disabled={!configured} onClick={() => void transcribe()}>
-                Transcribe
-              </Button>
-            )}
-            {phase === "paused" && (
-              <div className="flex flex-col gap-3">
-                <p className="text-sm">
-                  A job may still be running. Resume checks the saved job and never submits a new
-                  transcription.
-                </p>
-                <Button disabled={!configured} onClick={() => void transcribe(true)}>
-                  Resume saved job
-                </Button>
-                <label className="text-xs">
-                  <input
-                    type="checkbox"
-                    checked={verified}
-                    onChange={(e) => setVerified(e.target.checked)}
-                  />{" "}
-                  I understand the saved job may still be running, and want to dismiss it.
-                </label>
-                <Button variant="outline" disabled={!verified} onClick={() => void reset()}>
-                  Dismiss saved attempt
+                {typeof progress?.percent === "number" && <p>{progress.percent}%</p>}
+                <Button variant="outline" className="mt-2" onClick={cancel}>
+                  Cancel transcription
                 </Button>
               </div>
             )}
@@ -450,7 +358,7 @@ export function AudioTranscriptionDialog({
               </p>
             )}
             {phase === "complete" && result && (
-              <TranscriptionPreview key={quote?.assetId} result={result} active={open} />
+              <TranscriptionPreview result={result} active={open} />
             )}
           </div>
         </DialogBody>
@@ -467,7 +375,7 @@ export function AudioTranscriptionDialog({
               <Button disabled={saving || importing} onClick={() => void importMidi()}>
                 {importing ? "Importing…" : "Import MIDI into Smart Beat"}
               </Button>
-              <Button variant="ghost" disabled={saving || importing} onClick={() => void reset()}>
+              <Button variant="ghost" disabled={saving || importing} onClick={reset}>
                 New transcription
               </Button>
             </>

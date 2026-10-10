@@ -3958,6 +3958,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-updater",
  "tempfile",
+ "tokio",
  "ureq",
  "zip 8.6.0",
 ]

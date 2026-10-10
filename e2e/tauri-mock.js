@@ -63,7 +63,7 @@
   window.__mixes = mixes;
   /** Every command the UI sent, for assertions. */
   window.__ipcCalls = [];
-  window.__mirelo = { configured: true, pending: null, opened: [], midiBase64: "" };
+  window.__transcription = { configured: true, midiBase64: "", cancelled: [], requests: [] };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -451,47 +451,28 @@
       }
       case "audio_render":
         return new Float32Array(2 * 4410).buffer;
-      // Audio-to-MIDI (src-tauri/src/mirelo.rs). Tests set `midiBase64` to the result.
-      case "mirelo_configured":
-        return window.__mirelo.configured;
-      case "mirelo_open_page":
-        window.__mirelo.opened.push(args.page);
+      // Import from Audio (src-tauri/src/transcription.rs). Tests set `midiBase64` to the result.
+      case "transcription_configured":
+        return window.__transcription.configured;
+      case "cancel_transcription":
+        window.__transcription.cancelled.push(args.operationId);
         return null;
-      case "mirelo_pending":
-        return window.__mirelo.pending;
-      case "mirelo_discard_pending":
-        window.__mirelo.pending = null;
-        return null;
-      case "quote_audio":
-        // Like Tauri's IPC: a raw body always goes as application/octet-stream.
-        if (!/^audio\//.test(options.headers["audio-type"] ?? "")) {
-          throw { kind: "audio", message: "Mirelo accepts MP3, WAV, FLAC, OGG, and AAC audio." };
-        }
-        return {
-          assetId: "e2e-asset",
-          durationMs: Number(options.headers["duration-ms"]),
-          credits: 8,
-          estimatedMs: 1000,
-        };
       case "transcribe_audio":
-        window.__mirelo.pending = args.quote;
-        return null;
-      case "poll_audio":
+        // Like Tauri's IPC: the recording is the raw body, its details are headers.
+        if (!["mp3", "wav", "flac", "ogg"].includes(options.headers["file-type"])) {
+          throw { kind: "audio", message: "Choose MP3, WAV, FLAC or OGG audio." };
+        }
+        window.__transcription.requests.push(options.headers);
         return {
-          status: "succeeded",
-          percent: 100,
-          result: {
-            midiBase64: window.__mirelo.midiBase64,
-            notes: [60, 64, 67].map((pitch, i) => ({
-              pitch,
-              start: i * 0.5,
-              end: i * 0.5 + 0.5,
-              instrument: "clean_electric_guitar",
-              velocity: 96,
-            })),
-            durationSeconds: 1.5,
-            model: "audio-to-midi-pro",
-          },
+          midiBase64: window.__transcription.midiBase64,
+          notes: [60, 64, 67].map((pitch, i) => ({
+            pitch,
+            start: i * 0.5,
+            end: i * 0.5 + 0.5,
+            instrument: "clean_electric_guitar",
+            velocity: null,
+          })),
+          durationSeconds: Number(options.headers["duration-ms"]) / 1000,
         };
       default:
         throw new Error(`Unmocked Tauri command: ${cmd}`);

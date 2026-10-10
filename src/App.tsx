@@ -33,7 +33,7 @@ import {
   writeScoreFile,
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
-import { mireloProvider } from "@/lib/mirelo";
+import { muscriptorProvider } from "@/lib/muscriptor";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
 
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
@@ -319,7 +319,7 @@ export function App() {
         open={dialog}
         onOpenChange={setDialog}
         returnFocusTo={returnFocusTo}
-        audioProvider={mireloProvider}
+        audioProvider={muscriptorProvider}
         droppedRecording={transcriptionDrop}
         onAudioImport={async (midi, name) => {
           const opened = await openFile(

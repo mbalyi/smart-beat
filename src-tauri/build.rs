@@ -10,7 +10,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SMART_BEAT_ANALYTICS_URL");
     println!("cargo:rerun-if-env-changed=SMART_BEAT_INSTALLER");
     embed_windows_manifest_in_tests();
-    mirelo_api_key();
+    transcription_service();
 
     let windows = tauri_build::WindowsAttributes::new()
         .app_manifest(include_str!("windows-app-manifest.xml"));
@@ -40,32 +40,56 @@ fn embed_windows_manifest_in_tests() {
     );
 }
 
-/// Import from Audio compiles in Smart Beat's Mirelo key (`option_env!` in src/mirelo.rs).
-/// Release builds get it from the environment (the GitHub secret). Locally, an exported
-/// variable wins, else the repository's `.env` provides it.
-fn mirelo_api_key() {
-    const KEY: &str = "MIRELO_AI_API_KEY";
-    println!("cargo:rerun-if-env-changed={KEY}");
-    if env::var(KEY).is_ok_and(|key| !key.trim().is_empty()) {
-        return;
-    }
+/// Import from Audio's server: Smart Beat's self-hosted MuScriptor (`option_env!` in
+/// src/transcription.rs). Release builds get `TRANSCRIPTION_SERVICE_URL` from a GitHub
+/// variable. Locally, an exported variable wins, else the repository's `.env` provides it.
+/// Without one, transcription is off.
+fn transcription_service() {
+    const NAME: &str = "TRANSCRIPTION_SERVICE_URL";
+    println!("cargo:rerun-if-env-changed={NAME}");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo");
     let dotenv = Path::new(&manifest_dir).join("../.env");
-    let Ok(text) = std::fs::read_to_string(&dotenv) else {
+    let dotenv_text = std::fs::read_to_string(&dotenv).ok();
+    if dotenv_text.is_some() {
+        println!("cargo:rerun-if-changed={}", dotenv.display());
+    }
+    let url = env::var(NAME)
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            dotenv_text
+                .as_deref()
+                .and_then(|text| dotenv_value(text, NAME))
+        });
+    let Some(url) = url else {
         return;
     };
-    println!("cargo:rerun-if-changed={}", dotenv.display());
-    for line in text.lines() {
+    let url = url.trim_end_matches('/');
+    let local = ["http://localhost:", "http://127.0.0.1:"]
+        .iter()
+        .any(|prefix| url.starts_with(prefix));
+    assert!(
+        url.starts_with("https://") || local,
+        "{NAME} must be an https:// URL, or http://localhost:<port> for a local server"
+    );
+    println!("cargo:rustc-env={NAME}={url}");
+}
+
+/// `NAME=value` from a `.env` file. Accepts `export`, quotes and a trailing ` # comment`.
+fn dotenv_value(text: &str, name: &str) -> Option<String> {
+    text.lines().rev().find_map(|line| {
         let line = line.trim();
         let line = line.strip_prefix("export ").unwrap_or(line);
-        if let Some(value) = line
-            .strip_prefix(KEY)
-            .and_then(|v| v.trim_start().strip_prefix('='))
-        {
-            let value = value.trim().trim_matches(['"', '\'']);
-            if !value.is_empty() {
-                println!("cargo:rustc-env={KEY}={value}");
-            }
-        }
-    }
+        let value = line
+            .strip_prefix(name)?
+            .trim_start()
+            .strip_prefix('=')?
+            .trim();
+        let value = match value.chars().next() {
+            Some(quote @ ('"' | '\'')) => value[1..].split(quote).next().unwrap_or(""),
+            _ => value.split(" #").next().unwrap_or("").trim(),
+        };
+        (!value.is_empty()).then(|| value.to_owned())
+    })
 }

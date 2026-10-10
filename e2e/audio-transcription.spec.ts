@@ -14,16 +14,16 @@ import {
 
 declare global {
   interface Window {
-    __mirelo: {
+    __transcription: {
       configured: boolean;
-      pending: unknown;
-      opened: string[];
       midiBase64: string;
+      cancelled: string[];
+      requests: Record<string, string>[];
     };
   }
 }
 
-/** Import from Audio (#88), with the Mirelo commands mocked in e2e/tauri-mock.js. */
+/** Import from Audio (#88), with the transcription commands mocked in e2e/tauri-mock.js. */
 
 /** A one-track Standard MIDI File: C4, E4, G4 as guitar quarter notes at 120 BPM. */
 function midiBase64(): string {
@@ -45,7 +45,7 @@ const RECORDING = path.join(FIXTURES_DIR, "backing-a440.mp3");
 
 async function openDialog(app: Page) {
   await app.evaluate((midi) => {
-    window.__mirelo.midiBase64 = midi;
+    window.__transcription.midiBase64 = midi;
   }, midiBase64());
   const welcome = app.getByRole("button", { name: "Import from Audio…" });
   if (await welcome.isVisible()) await welcome.click();
@@ -62,8 +62,7 @@ async function openDialog(app: Page) {
 test.describe("Import from Audio (#88)", () => {
   test("transcribes a recording, previews it and opens the MIDI as a new song", async ({ app }) => {
     const dialog = await openDialog(app);
-    await dialog.getByRole("button", { name: "Provider privacy policy" }).click();
-    expect(await app.evaluate(() => window.__mirelo.opened)).toEqual(["privacy"]);
+    await expect(dialog.getByText(/uploaded to Smart Beat's transcription server/)).toBeVisible();
 
     await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
     await expect(dialog.getByText("backing-a440.mp3")).toBeVisible();
@@ -74,26 +73,19 @@ test.describe("Import from Audio (#88)", () => {
     await dialog.getByRole("button", { name: "electric bass" }).click();
     await expect(dialog.getByRole("button", { name: "Remove electric bass" })).toBeVisible();
 
-    await dialog.getByRole("button", { name: "Upload recording" }).click();
-    await expect(dialog.getByText(/\d+:\d\d recording uploaded/)).toBeVisible();
     await dialog.getByRole("button", { name: "Transcribe" }).click();
     await expect(dialog.getByRole("heading", { name: "Generated MIDI preview" })).toBeVisible();
     await expect(
       dialog.getByRole("img", { name: "Transcribed notes by instrument" }),
     ).toBeVisible();
 
-    const transcribe = await app.evaluate(() =>
-      window.__ipcCalls.filter((c) => c.cmd === "transcribe_audio").map((c) => c.args),
-    );
-    expect(transcribe).toEqual([
-      { quote: expect.objectContaining({ assetId: "e2e-asset" }), instruments: ["electric_bass"] },
+    expect(await app.evaluate(() => window.__transcription.requests)).toEqual([
+      expect.objectContaining({ "file-type": "mp3", instruments: "electric_bass" }),
     ]);
 
     await dialog.getByRole("button", { name: "Import MIDI into Smart Beat" }).click();
     await expect(dialog).toBeHidden();
     await expect(app.getByRole("heading", { name: "backing-a440" })).toBeVisible();
-    // Importing clears the saved job, so the next transcription starts fresh.
-    expect(await app.evaluate(() => window.__mirelo.pending)).toBeNull();
   });
 
   test("opens from the File menu while a song is open, works by keyboard and keeps that song", async ({
@@ -127,7 +119,6 @@ test.describe("Import from Audio (#88)", () => {
       await expectNoA11yViolations(app, { popup: "[role=dialog]" });
 
       await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
-      await dialog.getByRole("button", { name: "Upload recording" }).click();
       await dialog.getByRole("button", { name: "Transcribe" }).click();
       await expect(dialog.getByRole("heading", { name: "Generated MIDI preview" })).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[role=dialog]" });

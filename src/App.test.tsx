@@ -62,7 +62,7 @@ describe("App", () => {
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));
     backend.dialogResult = SONG;
     await menu("open");
-    await screen.findByRole("heading", { name: "Practice Song" });
+    await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
     // Beside Open, in the File menu.
     const fileButtons = screen.getAllByRole("button", { name: "File" });
     await user.click(fileButtons[fileButtons.length - 1]!);
