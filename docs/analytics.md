@@ -69,6 +69,26 @@ Because there is no identifier, the counts say how often a feature is used, not 
 3. Merge to `main`. [`analytics-deploy.yml`](../.github/workflows/analytics-deploy.yml) tests the Worker, creates the D1 database if it is missing, applies the migrations, deploys and sets the summary token. Without the secrets the deploy job is skipped with a warning.
 4. Copy the Worker address from the job log (`https://smart-beat-analytics.<account>.workers.dev`) and add the repository **variable** `ANALYTICS_URL` = that address + `/v1/batch`. The next release build uses it ([`release.md`](release.md)).
 
+## Trying it locally
+
+No Cloudflare account or secrets needed: run the Worker with a local D1 database and build the app against it.
+
+```bash
+cd analytics
+printf 'ANALYTICS_SUMMARY_TOKEN=local-dev-token\n' > .dev.vars   # git-ignored
+pnpm exec wrangler d1 migrations apply smart-beat-analytics --local
+pnpm exec wrangler dev --port 8787 --ip 127.0.0.1
+```
+
+In another terminal, from the repository root:
+
+```bash
+SMART_BEAT_ANALYTICS_URL=http://127.0.0.1:8787/v1/batch SMART_BEAT_INSTALLER=dmg pnpm tauri build
+curl -s -H 'Authorization: Bearer local-dev-token' 'http://127.0.0.1:8787/v1/summary?days=1' | jq
+```
+
+Use the app, then read the summary. The app uploads at startup and then at most hourly.
+
 ## Tests
 
 Worker: `pnpm --dir analytics test` (the real SQL runs on Node's built-in SQLite). Rust: `src/telemetry.rs` unit tests (counting, offline, 30-day cap, upload shape against a local test server, off switch), `tests/ipc.rs` (commands) and `tests/library.rs` (the only network client is `ureq`, there is no hard-coded address, the content security policy and capabilities stay closed). UI: `src/lib/telemetry.test.ts`, the Settings dialog, the startup notice and `e2e/analytics.spec.ts`.

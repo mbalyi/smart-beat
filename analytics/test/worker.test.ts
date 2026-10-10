@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import worker, { cleanup, MAX_ENTRIES, type Env } from "../src/index";
+import worker from "../src/index";
+import { cleanup, MAX_ENTRIES, type Env } from "../src/logic";
 import { fakeD1 } from "./d1";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -178,5 +179,12 @@ describe("retention", () => {
       .run();
     await worker.scheduled({} as ScheduledController, env);
     expect(rows()).toEqual([]);
+  });
+});
+
+describe("entry module", () => {
+  it("exports only the handler: the Workers runtime refuses anything else", async () => {
+    const entry = await import("../src/index");
+    expect(Object.keys(entry)).toEqual(["default"]);
   });
 });
