@@ -67,21 +67,20 @@ export const muscriptorProvider: AudioTranscriptionProvider = {
     );
     // Closing the connection makes the server stop working on this recording.
     const cancel = () => void invoke("cancel_transcription", { operationId }).catch(() => {});
-    options.signal.addEventListener("abort", cancel, { once: true });
     try {
       const body = new Uint8Array(await file.arrayBuffer());
       options.signal.throwIfAborted();
-      const result = await withAbort(
-        invoke<NativeResult>("transcribe_audio", body, {
-          headers: {
-            "operation-id": operationId,
-            "file-type": file.name.split(".").pop()!.toLowerCase(),
-            "duration-ms": String(durationMs),
-            instruments: instruments.join(","),
-          },
-        }),
-        options.signal,
-      );
+      // Rust measures the length again: the limit does not depend on this check.
+      const request = invoke<NativeResult>("transcribe_audio", body, {
+        headers: {
+          "operation-id": operationId,
+          "file-type": file.name.split(".").pop()!.toLowerCase(),
+          instruments: instruments.join(","),
+        },
+      });
+      // Only a request that was sent needs a Cancel in Rust.
+      options.signal.addEventListener("abort", cancel, { once: true });
+      const result = await withAbort(request, options.signal);
       const binary = atob(result.midiBase64);
       return {
         notes: result.notes,

@@ -12,6 +12,8 @@ pub mod project;
 pub mod recent;
 pub mod score_file;
 pub mod score_write;
+#[cfg(test)]
+mod service_url;
 pub mod startup;
 pub mod telemetry;
 pub mod transcription;
@@ -35,6 +37,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .plugin(tauri_plugin_dialog::init())
         .manage(zoom::ZoomState::default())
         .manage(menu_state::MenuStateStore::default())
+        .manage(transcription::Dropped::default())
         .setup(|app| {
             if app.try_state::<mixer::MixerStore>().is_none() {
                 let dir = app.path().app_data_dir()?.join(MIXER_DIR);
@@ -64,6 +67,12 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             Ok(())
         })
         .on_page_load(startup::on_page_load)
+        .on_window_event(|window, event| {
+            // Import from Audio reads only files the user dropped (src/transcription.rs).
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                window.state::<transcription::Dropped>().record(paths);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::menu_shortcuts,

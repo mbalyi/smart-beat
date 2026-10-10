@@ -91,16 +91,6 @@ export function AudioTranscriptionDialog({
     };
   }, [open, provider]);
   useEffect(() => () => operation.current?.abort(), []);
-  // The native menu can show another dialog in place of this one without a Close.
-  // Hiding the dialog stops the transcription, as Close does.
-  const [shown, setShown] = useState(open);
-  if (shown !== open) {
-    setShown(open);
-    if (!open && busy) setPhase("select");
-  }
-  useEffect(() => {
-    if (!open) operation.current?.abort();
-  }, [open]);
   // Shows the duration before upload. A file the webview cannot measure fails
   // when it is transcribed instead, with the reason.
   useEffect(() => {
@@ -156,6 +146,11 @@ export function AudioTranscriptionDialog({
     const controller = new AbortController();
     operation.current?.abort();
     operation.current = controller;
+    // Every way to stop aborts: Cancel, Close, another dialog, unmounting. The dialog then
+    // shows the recording again.
+    controller.signal.addEventListener("abort", () =>
+      setPhase((current) => (current === "transcribing" ? "select" : current)),
+    );
     return {
       signal: controller.signal,
       onProgress: (next: TranscriptionProgress) => {
@@ -183,15 +178,16 @@ export function AudioTranscriptionDialog({
       }
     }
   };
-  const cancel = () => {
-    operation.current?.abort();
-    setPhase("select");
-  };
+  const cancel = () => operation.current?.abort();
   const close = () => {
     if (saving || importing) return;
-    if (busy) cancel();
     onOpenChange(false);
   };
+  // Close, Escape and another dialog opened from the native menu all hide this one. Hiding
+  // it stops the transcription.
+  useEffect(() => {
+    if (!open) operation.current?.abort();
+  }, [open]);
   const reset = () => {
     setFile(null);
     setResult(null);

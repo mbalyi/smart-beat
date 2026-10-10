@@ -9,8 +9,10 @@ needs no API key, no account and no credits.
 ## Server address
 
 `src-tauri/build.rs` compiles the server address in from `TRANSCRIPTION_SERVICE_URL`. The
-address must use `https://`. Only a local server may use `http://localhost:<port>` or
-`http://127.0.0.1:<port>`.
+address must use `https://`. Only a server on this computer may use `http://`: the host must
+be exactly `localhost`, `127.0.0.1` or `[::1]`. `src-tauri/src/service_url.rs` parses the
+URL, so an address such as `http://localhost:80@example.com`, whose host is `example.com`,
+fails the build. A user name, password, query or fragment also fails it.
 
 - **Release builds:** `.github/workflows/release.yml` passes the `TRANSCRIPTION_SERVICE_URL`
   GitHub Actions variable. A tagged release fails without it ([`release.md`](release.md)).
@@ -40,25 +42,35 @@ Rust (`src-tauri/src/transcription.rs`), so the webview's CSP still allows no re
     local file name.
   - `instruments`: one field per expected instrument. None means automatic detection.
   - `detect_tempo=best-effort`.
-  - Header `X-Client-Id`: one random id per app run. A new request from the same id stops
-    that id's earlier run, so a retry after Cancel does not wait for it.
+  - No `X-Client-Id` header and no other identifier. MuScriptor uses that header to let a
+    client's new request stop its earlier run. The app's Cancel closes the connection
+    instead.
 - The response is `text/event-stream`. The app reads `progress` (`completed`, `total`),
   note `start` and `end`, and the final `transcription_complete` event. The app imports
   `quantized_midi`, the notes snapped to the detected beat grid, because notation needs
   them. Without a beat grid it imports `data`, the performance timing. The preview shifts
   the streamed notes back by `beat_grid.onset_delay` to match the file.
 - A stream that ends without `transcription_complete` is a failure. The app says so and
-  keeps the recording selected.
+  keeps the recording selected. The app also reads a last event that has no blank line
+  after it.
 - `400`: the server could not decode the audio, or an instrument name is unknown.
-- `503`: this server instance is busy. MuScriptor runs one transcription per process. The
-  app asks again every 10 seconds for up to 3 minutes, so a load balancer can send the
-  retry to an idle instance. Each retry uploads the recording again.
+- `503`: this server instance is busy. MuScriptor runs one transcription per process. It
+  reads the whole upload before it answers 503, so each retry uploads the recording again.
+  The app asks again after 10, 20 and then every 40 seconds, for up to 3 minutes, so a load
+  balancer can send the retry to an idle instance. A rate limit in front of the server
+  answers `429`, and the app waits the same way.
 - Cancel closes the connection. The server stops at the next chunk and frees the instance.
   Nothing is billed, so the app keeps no job journal: after a restart, transcribe again.
 
 Formats: MP3, WAV, FLAC and OGG. The server decodes them with libsndfile, which cannot read
 AAC or M4A. The app's limits are 100 MiB and 15 minutes; 15 minutes matches MuScriptor's
-own limit for its blocking route. The instrument ids in
+own limit for its blocking route. MuScriptor's streaming route has no length limit, so Rust
+measures the length itself with symphonia before the upload. The webview's measurement only
+shows the length early.
+
+The page sends the recording to Rust as the request body. A file dropped on the window
+reaches Rust as a path instead: Rust records the paths of each drop and reads only those,
+once per drop, so the page cannot choose another file on disk to upload. The instrument ids in
 `src/lib/audio-transcription/instrument-ids.json` are MuScriptor's 35 instrument groups,
 the same list `GET /instruments` returns. Keep them in sync when the server is updated.
 
@@ -129,8 +141,10 @@ file name.
 
 Automated tests cover:
 
-- **Rust:** the event stream parser, note pairing, choosing quantized MIDI, busy retries,
-  error messages, generic file names, cancel, file validation and the network-client guard.
+- **Rust:** the event stream parser, note pairing, choosing quantized MIDI, busy and
+  rate-limit retries, error messages, generic file names, cancel, file validation, the
+  length measurement, dropped-file reads, the server address check and the network-client
+  guard.
 - **Vitest:** the provider's headers, progress and cancel, plus the dialog's validation,
   instruments, progress, cancel, retry, preview, save and import.
 - **e2e:** `e2e/audio-transcription.spec.ts` runs the whole flow in Chromium and WebKit

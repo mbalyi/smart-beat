@@ -33,11 +33,11 @@ it("sends the recording as the raw body with its details in headers and returns 
   expect(init?.headers).toEqual(
     expect.objectContaining({
       "file-type": "mp3",
-      "duration-ms": "3000",
       instruments: "electric_bass,drums",
       "operation-id": expect.any(String),
     }),
   );
+  expect(init?.headers).not.toHaveProperty("duration-ms");
   expect(unlisten).toHaveBeenCalledOnce();
 });
 it("reports only its own operation's progress", async () => {
@@ -69,6 +69,18 @@ it("cancels on the server when the signal aborts", async () => {
   expect(invoke).toHaveBeenCalledWith("cancel_transcription", {
     operationId: headers["operation-id"],
   });
+});
+it("sends no Cancel when it stops before the request", async () => {
+  const controller = new AbortController();
+  const file = song();
+  file.arrayBuffer = async () => {
+    controller.abort();
+    return new ArrayBuffer(3);
+  };
+  await expect(
+    muscriptorProvider.transcribe(file, [], options(controller.signal)),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(invoke).not.toHaveBeenCalled();
 });
 it("refuses recordings over 15 minutes before uploading", async () => {
   vi.mocked(audioDurationMs).mockResolvedValue(15 * 60_000 + 1);

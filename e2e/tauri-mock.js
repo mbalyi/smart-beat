@@ -472,7 +472,7 @@
             instrument: "clean_electric_guitar",
             velocity: null,
           })),
-          durationSeconds: Number(options.headers["duration-ms"]) / 1000,
+          durationSeconds: 1.5,
         };
       default:
         throw new Error(`Unmocked Tauri command: ${cmd}`);

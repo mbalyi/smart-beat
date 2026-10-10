@@ -4,19 +4,25 @@
 //! repeat, and Cancel stops the server's work by closing the connection.
 use crate::error::{CommandError, ErrorKind};
 use base64::Engine;
+use bytes::Bytes;
 use reqwest::{
-    Client, Response, StatusCode,
+    Body, Client, Response, StatusCode,
     multipart::{Form, Part},
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
-    io::Read,
-    path::Path,
-    sync::{Mutex, OnceLock},
+    io::{Cursor, Read},
+    path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard},
     time::{Duration, Instant},
 };
+use symphonia::core::errors::Error as DemuxError;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, TrackType};
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -28,12 +34,17 @@ const MAX_DURATION_MS: u32 = 15 * 60 * 1000;
 /// What MuScriptor's decoder (libsndfile) reads. It cannot read AAC or M4A.
 const EXTENSIONS: [&str; 4] = ["mp3", "wav", "flac", "ogg"];
 const INSTRUMENTS: &str = include_str!("../../src/lib/audio-transcription/instrument-ids.json");
-/// One MuScriptor instance transcribes one recording at a time and turns others away with
-/// 503 at once. Asking again may reach an idle instance behind the load balancer.
+/// One MuScriptor instance transcribes one recording at a time. It reads the whole upload,
+/// then turns the request away with 503 when it is busy. Asking again may reach an idle
+/// instance behind the load balancer. The wait doubles each time, so a long wait uploads the
+/// recording fewer times. A rate limit in front of the server answers 429.
 const BUSY: Retry = Retry {
-    every: Duration::from_secs(10),
+    first: Duration::from_secs(10),
+    longest: Duration::from_secs(40),
     limit: Duration::from_secs(3 * 60),
 };
+/// How long a Cancel that arrived before its transcription started is kept.
+const EARLY_CANCEL: Duration = Duration::from_secs(60);
 const STOPPED: &str = "Transcription stopped.";
 
 fn error(message: impl Into<String>) -> CommandError {
@@ -50,20 +61,78 @@ pub fn transcription_configured() -> bool {
     service().is_ok()
 }
 
-fn validate(bytes: &[u8], duration_ms: u32, extension: &str) -> Result<(), CommandError> {
+fn validate(bytes: &[u8], extension: &str) -> Result<(), CommandError> {
     if bytes.is_empty() {
         return Err(error("The audio file is empty."));
     }
     if bytes.len() > MAX_BYTES {
         return Err(error("The audio file exceeds the 100 MiB limit."));
     }
-    if duration_ms == 0 || duration_ms > MAX_DURATION_MS {
-        return Err(error("Choose a recording up to 15 minutes long."));
-    }
     if !EXTENSIONS.contains(&extension) {
         return Err(error("Choose MP3, WAV, FLAC or OGG audio."));
     }
     Ok(())
+}
+fn check_duration(duration_ms: u32) -> Result<(), CommandError> {
+    if duration_ms > MAX_DURATION_MS {
+        return Err(error("Choose a recording up to 15 minutes long."));
+    }
+    Ok(())
+}
+/// The recording's length in milliseconds. Rust reads it itself, so a wrong length from the
+/// page cannot pass the limit. Uses the container's frame count when it has one, else adds
+/// up the packets without decoding them.
+fn duration_ms(bytes: Bytes, extension: &str) -> Result<u32, CommandError> {
+    let unreadable = || error("Could not read this recording. Re-export it as WAV or MP3.");
+    let mut hint = Hint::new();
+    hint.with_extension(extension);
+    let stream = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
+    let mut format = symphonia::default::get_probe()
+        .probe(
+            &hint,
+            stream,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
+        .map_err(|_| unreadable())?;
+    let track = format
+        .default_track(TrackType::Audio)
+        .ok_or_else(unreadable)?;
+    let (id, time_base, length) = (track.id, track.time_base, track.duration);
+    let rate = track
+        .codec_params
+        .as_ref()
+        .and_then(|params| params.audio())
+        .and_then(|audio| audio.sample_rate)
+        .filter(|&rate| rate > 0);
+    let seconds = match (track.num_frames, rate, length) {
+        (Some(frames), Some(rate), _) => frames as f64 / f64::from(rate),
+        (_, _, Some(length)) => time_base
+            .ok_or_else(unreadable)?
+            .calc_duration_saturating(length)
+            .as_secs_f64(),
+        _ => {
+            let time_base = time_base.ok_or_else(unreadable)?;
+            let mut ticks = 0u64;
+            loop {
+                match format.next_packet() {
+                    Ok(Some(packet)) if packet.track_id == id => {
+                        ticks = ticks.saturating_add(packet.dur.get());
+                    }
+                    Ok(Some(_)) => {}
+                    Ok(None) | Err(DemuxError::IoError(_)) => break,
+                    Err(_) => return Err(unreadable()),
+                }
+            }
+            time_base
+                .calc_duration_saturating(symphonia::core::units::Duration::new(ticks))
+                .as_secs_f64()
+        }
+    };
+    if !seconds.is_finite() || seconds <= 0.0 {
+        return Err(unreadable());
+    }
+    Ok((seconds * 1000.0).round().min(f64::from(u32::MAX)) as u32)
 }
 /// The comma-separated instrument ids the user expects, all from the supported list.
 fn instruments(header: &str) -> Result<Vec<String>, CommandError> {
@@ -81,9 +150,31 @@ fn instruments(header: &str) -> Result<Vec<String>, CommandError> {
     }
     Ok(chosen)
 }
+
+/// The files of the last drop on the window (lib.rs records them). `read_transcription_audio`
+/// reads only these, so the page cannot choose a file on disk to send to the server.
+#[derive(Default)]
+pub struct Dropped(Mutex<HashSet<PathBuf>>);
+impl Dropped {
+    pub fn record(&self, paths: &[PathBuf]) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = paths.iter().cloned().collect();
+    }
+    /// True once for each dropped file.
+    fn take(&self, path: &Path) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(path)
+    }
+}
 #[tauri::command(async)]
-pub fn read_transcription_audio(path: String) -> Result<tauri::ipc::Response, CommandError> {
-    let path = Path::new(&path);
+pub fn read_transcription_audio(
+    dropped: State<'_, Dropped>,
+    path: String,
+) -> Result<tauri::ipc::Response, CommandError> {
+    read_dropped(&dropped, Path::new(&path)).map(tauri::ipc::Response::new)
+}
+fn read_dropped(dropped: &Dropped, path: &Path) -> Result<Vec<u8>, CommandError> {
     let extension = path
         .extension()
         .and_then(|v| v.to_str())
@@ -91,6 +182,9 @@ pub fn read_transcription_audio(path: String) -> Result<tauri::ipc::Response, Co
         .to_lowercase();
     if !EXTENSIONS.contains(&extension.as_str()) {
         return Err(error("Choose MP3, WAV, FLAC or OGG audio."));
+    }
+    if !dropped.take(path) {
+        return Err(error("Drop the recording on the window again."));
     }
     let file = fs::File::open(path).map_err(|_| error("Could not open the dropped recording."))?;
     let meta = file
@@ -106,7 +200,7 @@ pub fn read_transcription_audio(path: String) -> Result<tauri::ipc::Response, Co
     if bytes.len() > MAX_BYTES {
         return Err(error("The audio file exceeds the 100 MiB limit."));
     }
-    Ok(tauri::ipc::Response::new(bytes))
+    Ok(bytes)
 }
 
 fn client() -> Result<Client, CommandError> {
@@ -117,20 +211,10 @@ fn client() -> Result<Client, CommandError> {
         .build()
         .map_err(|_| error("Could not initialize the transcription connection."))
 }
-/// Sent as `X-Client-Id`. MuScriptor lets a new request from the same client stop that
-/// client's earlier run, so a retry after Cancel never waits for the abandoned one.
-fn client_id() -> &'static str {
-    static ID: OnceLock<String> = OnceLock::new();
-    ID.get_or_init(|| {
-        use std::hash::{BuildHasher, Hasher};
-        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-        hasher.write_u32(std::process::id());
-        format!("smart-beat-{:016x}", hasher.finish())
-    })
-}
 
 struct Upload {
-    bytes: Vec<u8>,
+    /// Shared by every upload attempt, so a retry does not copy the recording.
+    bytes: Bytes,
     extension: String,
     duration_ms: u32,
     instruments: Vec<String>,
@@ -139,7 +223,8 @@ impl Upload {
     fn form(&self) -> Form {
         // A generic name: the server never learns the local file name.
         let file =
-            Part::bytes(self.bytes.clone()).file_name(format!("recording.{}", self.extension));
+            Part::stream_with_length(Body::from(self.bytes.clone()), self.bytes.len() as u64)
+                .file_name(format!("recording.{}", self.extension));
         let mut form = Form::new()
             .part("file", file)
             .text("detect_tempo", "best-effort");
@@ -152,29 +237,44 @@ impl Upload {
 
 /// Stops one running transcription.
 type Abort = Box<dyn Fn() + Send>;
-/// Transcriptions in flight by operation id, so Cancel can stop one. `None` marks a Cancel
-/// that arrived before its transcription started.
+enum Slot {
+    Running(Abort),
+    /// A Cancel that arrived before its transcription started.
+    Cancelled(Instant),
+}
+/// Transcriptions in flight by operation id, so Cancel can stop one.
 #[derive(Default)]
-pub struct Running(Mutex<HashMap<String, Option<Abort>>>);
+pub struct Running(Mutex<HashMap<String, Slot>>);
 impl Running {
+    /// The slots, without early Cancels older than `EARLY_CANCEL`. A Cancel for a
+    /// transcription that already finished leaves such a slot, and nothing else removes it.
+    fn slots(&self, now: Instant) -> MutexGuard<'_, HashMap<String, Slot>> {
+        let mut slots = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        slots.retain(|_, slot| match slot {
+            Slot::Cancelled(at) => now.duration_since(*at) <= EARLY_CANCEL,
+            Slot::Running(_) => true,
+        });
+        slots
+    }
     /// Registers how to stop an operation. False when it was cancelled already.
     fn start(&self, id: &str, abort: Abort) -> bool {
-        let mut running = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if matches!(running.remove(id), Some(None)) {
+        let mut slots = self.slots(Instant::now());
+        if matches!(slots.remove(id), Some(Slot::Cancelled(_))) {
             return false;
         }
-        running.insert(id.to_owned(), Some(abort));
+        slots.insert(id.to_owned(), Slot::Running(abort));
         true
     }
     fn finish(&self, id: &str) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        self.slots(Instant::now()).remove(id);
     }
     fn cancel(&self, id: &str) {
-        let mut running = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        match running.remove(id) {
-            Some(Some(abort)) => abort(),
+        let now = Instant::now();
+        let mut slots = self.slots(now);
+        match slots.remove(id) {
+            Some(Slot::Running(abort)) => abort(),
             _ => {
-                running.insert(id.to_owned(), None);
+                slots.insert(id.to_owned(), Slot::Cancelled(now));
             }
         }
     }
@@ -193,7 +293,7 @@ struct Progress<'a> {
     percent: Option<u8>,
 }
 /// The recording is the raw body. Headers carry the rest: `operation-id`, `file-type` (the
-/// extension), `duration-ms` (measured by the webview) and `instruments`.
+/// extension) and `instruments`.
 #[tauri::command]
 pub async fn transcribe_audio<R: Runtime>(
     app: AppHandle<R>,
@@ -201,7 +301,7 @@ pub async fn transcribe_audio<R: Runtime>(
     request: Request<'_>,
 ) -> Result<Transcription, CommandError> {
     let base = service()?;
-    let InvokeBody::Raw(bytes) = request.body() else {
+    let InvokeBody::Raw(body) = request.body() else {
         return Err(error("The recording is missing."));
     };
     let header = |name: &str| {
@@ -212,15 +312,25 @@ pub async fn transcribe_audio<R: Runtime>(
             .ok_or_else(|| error(format!("Missing {name}.")))
     };
     let operation = header("operation-id")?.to_owned();
-    let upload = Upload {
-        extension: header("file-type")?.to_lowercase(),
-        duration_ms: header("duration-ms")?
-            .parse()
-            .map_err(|_| error("Could not read the recording duration."))?,
-        instruments: instruments(header("instruments").unwrap_or(""))?,
-        bytes: bytes.clone(),
+    let extension = header("file-type")?.to_lowercase();
+    let instruments = instruments(header("instruments").unwrap_or(""))?;
+    validate(body, &extension)?;
+    // The one copy of the recording, for the length check and every upload attempt.
+    let bytes = Bytes::copy_from_slice(body);
+    let measure = {
+        let (bytes, extension) = (bytes.clone(), extension.clone());
+        tauri::async_runtime::spawn_blocking(move || duration_ms(bytes, &extension))
     };
-    validate(&upload.bytes, upload.duration_ms, &upload.extension)?;
+    let duration_ms = measure
+        .await
+        .map_err(|_| error("Could not read the recording."))??;
+    check_duration(duration_ms)?;
+    let upload = Upload {
+        bytes,
+        extension,
+        duration_ms,
+        instruments,
+    };
     let client = client()?;
     let id = operation.clone();
     let emit = move |phase, message, percent| {
@@ -248,7 +358,8 @@ pub async fn transcribe_audio<R: Runtime>(
 
 #[derive(Clone, Copy)]
 struct Retry {
-    every: Duration,
+    first: Duration,
+    longest: Duration,
     limit: Duration,
 }
 fn checked(response: Response) -> Result<Response, CommandError> {
@@ -265,6 +376,11 @@ fn checked(response: Response) -> Result<Response, CommandError> {
     };
     Err(error(message))
 }
+/// Progress for the dialog. It stops at 99: the tempo and the MIDI file still take a few
+/// seconds after the last chunk.
+fn percent(completed: u32, total: u32) -> u8 {
+    (u64::from(completed.min(total)) * 99 / u64::from(total.max(1))) as u8
+}
 async fn transcribe(
     base: &str,
     client: &Client,
@@ -273,26 +389,29 @@ async fn transcribe(
     emit: impl Fn(&'static str, &'static str, Option<u8>),
 ) -> Result<Transcription, CommandError> {
     let started = Instant::now();
+    let mut wait = retry.first;
     let mut response = loop {
         emit("uploading", "Uploading recording…", None);
         let response = client
             .post(format!("{base}/transcribe"))
-            .header("x-client-id", client_id())
             .multipart(upload.form())
             .send()
             .await
             .map_err(|_| {
                 error("Could not reach the transcription server. Check your connection and try again.")
             })?;
-        if response.status() == StatusCode::SERVICE_UNAVAILABLE
-            && started.elapsed() + retry.every <= retry.limit
-        {
+        let busy = matches!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS
+        );
+        if busy && started.elapsed() + wait <= retry.limit {
             emit(
                 "waiting",
                 "The transcription server is busy with another recording. Trying again…",
                 None,
             );
-            tokio::time::sleep(retry.every).await;
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(retry.longest);
             continue;
         }
         break checked(response)?;
@@ -300,10 +419,15 @@ async fn transcribe(
     emit("processing", "Transcribing recording…", Some(0));
     let mut events = Events::default();
     let mut notes = Notes::default();
-    while let Some(chunk) = response.chunk().await.map_err(|_| {
-        error("The connection to the transcription server was interrupted. Try again.")
-    })? {
-        for event in events.push(&chunk) {
+    loop {
+        let chunk = response.chunk().await.map_err(|_| {
+            error("The connection to the transcription server was interrupted. Try again.")
+        })?;
+        let batch = match &chunk {
+            Some(chunk) => events.push(chunk),
+            None => events.finish(),
+        };
+        for event in batch {
             match event {
                 Event::Start {
                     pitch,
@@ -316,14 +440,12 @@ async fn transcribe(
                     start_event_index,
                 } => notes.end(start_event_index, end_time),
                 Event::Progress { completed, total } if total > 0 => {
-                    // The tempo and the MIDI file still take a few seconds after the last chunk.
-                    let percent = (completed.min(total) * 99 / total) as u8;
                     let message = if completed >= total {
                         "Building MIDI…"
                     } else {
                         "Transcribing recording…"
                     };
-                    emit("processing", message, Some(percent));
+                    emit("processing", message, Some(percent(completed, total)));
                 }
                 Event::TranscriptionComplete {
                     data,
@@ -350,6 +472,9 @@ async fn transcribe(
                 }
                 Event::Progress { .. } | Event::Other => {}
             }
+        }
+        if chunk.is_none() {
+            break;
         }
     }
     Err(error(
@@ -408,6 +533,10 @@ impl Events {
             }
         }
         events
+    }
+    /// The last event, when the stream ends without the blank line after it.
+    fn finish(&mut self) -> Vec<Event> {
+        self.push(b"\n\n")
     }
 }
 
@@ -498,11 +627,30 @@ mod tests {
 
     fn upload() -> Upload {
         Upload {
-            bytes: b"audio".to_vec(),
+            bytes: Bytes::from_static(b"audio"),
             extension: "mp3".into(),
             duration_ms: 3000,
             instruments: vec!["electric_bass".into(), "drums".into()],
         }
+    }
+    /// A mono 16-bit WAV file of silence.
+    fn wav(rate: u32, seconds: u32) -> Bytes {
+        let data = rate * seconds * 2;
+        let mut file = Vec::new();
+        file.extend_from_slice(b"RIFF");
+        file.extend_from_slice(&(36 + data).to_le_bytes());
+        file.extend_from_slice(b"WAVEfmt ");
+        file.extend_from_slice(&16u32.to_le_bytes());
+        file.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        file.extend_from_slice(&1u16.to_le_bytes()); // mono
+        file.extend_from_slice(&rate.to_le_bytes());
+        file.extend_from_slice(&(rate * 2).to_le_bytes());
+        file.extend_from_slice(&2u16.to_le_bytes());
+        file.extend_from_slice(&16u16.to_le_bytes());
+        file.extend_from_slice(b"data");
+        file.extend_from_slice(&data.to_le_bytes());
+        file.resize(file.len() + data as usize, 0);
+        Bytes::from(file)
     }
     /// Reads one HTTP request, head and body, as text.
     fn read_request(stream: &mut TcpStream) -> String {
@@ -575,25 +723,49 @@ mod tests {
         (result, phases)
     }
     const NO_RETRY: Retry = Retry {
-        every: Duration::from_millis(10),
+        first: Duration::from_millis(10),
+        longest: Duration::from_millis(10),
         limit: Duration::ZERO,
+    };
+    const QUICK_RETRY: Retry = Retry {
+        first: Duration::from_millis(10),
+        longest: Duration::from_millis(20),
+        limit: Duration::from_secs(5),
     };
 
     #[test]
     fn validates_recordings_and_instruments() {
-        assert!(validate(b"a", 1000, "mp3").is_ok());
-        assert!(validate(b"", 1000, "mp3").is_err());
-        assert!(validate(b"a", MAX_DURATION_MS + 1, "mp3").is_err());
-        assert!(
-            validate(b"a", 1000, "m4a").is_err(),
-            "libsndfile cannot read AAC"
-        );
+        assert!(validate(b"a", "mp3").is_ok());
+        assert!(validate(b"", "mp3").is_err());
+        assert!(validate(b"a", "m4a").is_err(), "libsndfile cannot read AAC");
+        assert!(check_duration(MAX_DURATION_MS).is_ok());
+        assert!(check_duration(MAX_DURATION_MS + 1).is_err());
         assert_eq!(
             instruments(" electric_bass,drums ").unwrap(),
             ["electric_bass", "drums"]
         );
         assert!(instruments("").unwrap().is_empty());
         assert!(instruments("guitar").is_err());
+    }
+    #[test]
+    fn measures_the_recording_itself() {
+        assert_eq!(duration_ms(wav(8000, 2), "wav").unwrap(), 2000);
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let mp3 = fs::read(format!("{manifest}/../e2e/fixtures/backing-a440.mp3")).unwrap();
+        let ms = duration_ms(Bytes::from(mp3), "mp3").unwrap();
+        assert!((1900..=2100).contains(&ms), "{ms}");
+        assert!(duration_ms(Bytes::from_static(b"not audio"), "wav").is_err());
+    }
+    #[test]
+    fn reads_only_the_files_the_user_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let song = dir.path().join("song.wav");
+        fs::write(&song, wav(8000, 1)).unwrap();
+        let dropped = Dropped::default();
+        assert!(read_dropped(&dropped, &song).is_err(), "never dropped");
+        dropped.record(std::slice::from_ref(&song));
+        assert_eq!(read_dropped(&dropped, &song).unwrap().len(), 44 + 16000);
+        assert!(read_dropped(&dropped, &song).is_err(), "read once per drop");
     }
     #[test]
     fn reads_events_split_anywhere_and_ignores_unknown_ones() {
@@ -615,6 +787,14 @@ mod tests {
             matches!(&all[2], Event::Start { index: 0, instrument, .. } if instrument == "drums")
         );
         assert_eq!(all.len(), 3);
+    }
+    #[test]
+    fn computes_progress_without_overflow() {
+        assert_eq!(percent(0, 4), 0);
+        assert_eq!(percent(2, 4), 49);
+        assert_eq!(percent(4, 4), 99);
+        assert_eq!(percent(u32::MAX - 1, u32::MAX), 98);
+        assert_eq!(percent(u32::MAX, u32::MAX), 99);
     }
     #[test]
     fn pairs_notes_and_removes_the_onset_delay() {
@@ -658,9 +838,11 @@ mod tests {
         let request = requests.recv().unwrap();
         assert!(request.starts_with("POST /transcribe "), "{request}");
         assert!(request.contains("filename=\"recording.mp3\""));
-        assert!(request.to_lowercase().contains("x-client-id: smart-beat-"));
+        assert!(request.contains("\r\n\r\naudio\r\n"), "the recording");
         assert_eq!(request.matches("name=\"instruments\"").count(), 2);
-        assert!(!request.to_lowercase().contains("authorization"), "no keys");
+        let head = request.to_lowercase();
+        assert!(!head.contains("authorization"), "no keys");
+        assert!(!head.contains("x-client-id"), "no identifier");
     }
     #[test]
     fn falls_back_to_performance_timing_without_a_beat_grid() {
@@ -668,20 +850,30 @@ mod tests {
         assert_eq!(run(base, NO_RETRY).0.unwrap().midi_base64, MIDI);
     }
     #[test]
-    fn waits_while_the_server_is_busy_then_gives_up() {
+    fn keeps_the_last_event_when_the_stream_ends_without_a_blank_line() {
+        let (base, _) = serve(vec![(200, format!("data: {}\n", complete(None, 0.0)))]);
+        assert_eq!(run(base, NO_RETRY).0.unwrap().midi_base64, MIDI);
+    }
+    #[test]
+    fn waits_while_the_server_is_busy_or_rate_limited_then_gives_up() {
         let busy = r#"{"detail":"server busy: another transcription is in progress"}"#.to_owned();
-        let retry = Retry {
-            every: Duration::from_millis(10),
-            limit: Duration::from_secs(5),
-        };
         let (base, requests) = serve(vec![
             (503, busy.clone()),
+            (429, "{}".into()),
             (200, sse(&[&complete(None, 0.0)])),
         ]);
-        let (result, phases) = run(base, retry);
+        let (result, phases) = run(base, QUICK_RETRY);
         assert!(result.is_ok());
-        assert_eq!(requests.iter().take(2).count(), 2);
-        assert!(phases.lock().unwrap().contains(&"waiting"));
+        assert_eq!(requests.iter().take(3).count(), 3);
+        assert_eq!(
+            phases
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|p| **p == "waiting")
+                .count(),
+            2
+        );
 
         let (base, _) = serve(vec![(503, busy)]);
         let message = run(base, NO_RETRY).0.err().unwrap().message;
@@ -740,5 +932,13 @@ mod tests {
         assert!(running.start("three", Box::new(|| {})));
         running.finish("three");
         assert!(running.0.lock().unwrap().is_empty());
+    }
+    #[test]
+    fn forgets_a_cancel_for_a_transcription_that_never_starts() {
+        let running = Running::default();
+        running.cancel("finished-already");
+        assert_eq!(running.slots(Instant::now()).len(), 1);
+        let later = Instant::now() + EARLY_CANCEL + Duration::from_secs(1);
+        assert!(running.slots(later).is_empty());
     }
 }

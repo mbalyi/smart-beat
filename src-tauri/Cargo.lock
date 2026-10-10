@@ -3936,6 +3936,7 @@ name = "smart-beat"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "bytes",
  "cpal",
  "hound",
  "lewton",
@@ -3960,6 +3961,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "ureq",
+ "url",
  "zip 8.6.0",
 ]
 

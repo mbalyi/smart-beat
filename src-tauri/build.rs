@@ -1,6 +1,9 @@
 use std::env;
 use std::path::Path;
 
+#[path = "src/service_url.rs"]
+mod service_url;
+
 /// Windows application manifest selecting Common Controls v6. Shared by the
 /// app binary (via tauri-build) and the test executables (below).
 const WINDOWS_MANIFEST: &str = "windows-app-manifest.xml";
@@ -65,14 +68,7 @@ fn transcription_service() {
     let Some(url) = url else {
         return;
     };
-    let url = url.trim_end_matches('/');
-    let local = ["http://localhost:", "http://127.0.0.1:"]
-        .iter()
-        .any(|prefix| url.starts_with(prefix));
-    assert!(
-        url.starts_with("https://") || local,
-        "{NAME} must be an https:// URL, or http://localhost:<port> for a local server"
-    );
+    let url = service_url::check(&url).unwrap_or_else(|reason| panic!("{NAME} {reason}"));
     println!("cargo:rustc-env={NAME}={url}");
 }
 
