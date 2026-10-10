@@ -99,6 +99,14 @@ describe("App", () => {
     expect(await within(dialog).findByText("Toggle Dark Mode")).toBeInTheDocument();
   });
 
+  it("Smart Beat → Settings… opens the settings", async () => {
+    await renderApp();
+
+    await menu("settings");
+
+    expect(await screen.findByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+  });
+
   it("Help → Open-Source Licenses shows the notices", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("tauri — MIT OR Apache-2.0")));
     await renderApp();

@@ -201,6 +201,7 @@ export function App() {
         break;
       case "about":
       case "shortcuts":
+      case "settings":
       case "licenses":
         showDialog(action);
         break;
