@@ -34,6 +34,16 @@ test.describe("anonymous usage counters (#99)", () => {
     expect((await tracked(app)).filter((e) => e === "loop_on")).toHaveLength(1);
   });
 
+  test("counts the restart-after-Stop option (#93)", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("button", { name: "Loop", exact: true }).click();
+    await app.getByRole("button", { name: "Auto-restart" }).click();
+    await app.getByRole("button", { name: "Auto-restart" }).click();
+    const events = await tracked(app);
+    expect(events).toContain("restart_on_stop_off");
+    expect(events).toContain("restart_on_stop_on");
+  });
+
   test("counts the mixer, a new song and a theme change, and never sends names or values", async ({
     app,
   }) => {

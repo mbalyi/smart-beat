@@ -76,6 +76,35 @@ test.describe("practice tools (#7)", () => {
     await expect(app.getByRole("spinbutton", { name: "Bar" })).toHaveValue("1");
   });
 
+  test("Stop in a loop sends the next Play back to the loop start, Pause does not (#93)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await goToBar(app, 3);
+    await app.getByRole("button", { name: "Loop" }).click();
+    await expect(app.getByRole("button", { name: "Auto-restart" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(9);
+    await app.getByRole("button", { name: "Pause" }).click();
+    const paused = await playedSeconds(app);
+    await app.getByRole("button", { name: "Play" }).click();
+    expect(Math.abs((await playedSeconds(app)) - paused)).toBeLessThanOrEqual(1);
+
+    await app.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect.poll(() => playedSeconds(app)).toBe(8);
+
+    // The option can be switched off (the native engine then stops at the song start).
+    await app.getByRole("button", { name: "Auto-restart" }).click();
+    await expect(app.getByRole("button", { name: "Auto-restart" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
   test("counts in before playing", async ({ app }) => {
     await openSong(app);
     await app.getByRole("button", { name: "Count-in" }).click();

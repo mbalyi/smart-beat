@@ -40,12 +40,14 @@ export interface PracticeState {
   trainer: (SpeedTrainer & { loopsAtSpeed: number; holding: boolean }) | null;
   metronome: boolean;
   countIn: boolean;
+  /** Stop inside a loop makes the next Play start at the loop start; Pause still resumes (#93). */
+  restartOnStop: boolean;
 }
 
 export const DEFAULT_TRAINER: SpeedTrainer = { from: 60, to: 100, step: 10, loopsPerStep: 1 };
 
 export const initialPractice = (
-  prefs: { metronome?: boolean; countIn?: boolean } = {},
+  prefs: { metronome?: boolean; countIn?: boolean; restartOnStop?: boolean } = {},
 ): PracticeState => ({
   loop: false,
   range: { start: 0, end: 0 },
@@ -53,6 +55,7 @@ export const initialPractice = (
   trainer: null,
   metronome: prefs.metronome ?? false,
   countIn: prefs.countIn ?? false,
+  restartOnStop: prefs.restartOnStop ?? true,
 });
 
 export type PracticeAction =
@@ -67,6 +70,7 @@ export type PracticeAction =
   | { type: "loop-completed" }
   | { type: "metronome"; value: boolean }
   | { type: "count-in"; value: boolean }
+  | { type: "restart-on-stop"; value: boolean }
   /** The song's bars changed (edits): keep the range inside it. */
   | { type: "bar-count"; count: number };
 
@@ -143,6 +147,8 @@ export function practiceReducer(state: PracticeState, action: PracticeAction): P
       return { ...state, metronome: action.value };
     case "count-in":
       return { ...state, countIn: action.value };
+    case "restart-on-stop":
+      return { ...state, restartOnStop: action.value };
     case "bar-count":
       return { ...state, range: normalizeRange(state.range, action.count) };
   }
@@ -156,16 +162,26 @@ export function describeRange({ start, end }: LoopRange): string {
 const STORAGE_KEY = "smart-beat:practice";
 
 /** Metronome and count-in are remembered, like in Guitar Pro. */
-export function readPracticePrefs(): { metronome: boolean; countIn: boolean } {
+export interface PracticePrefs {
+  metronome: boolean;
+  countIn: boolean;
+  restartOnStop: boolean;
+}
+
+export function readPracticePrefs(): PracticePrefs {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, unknown>;
-    return { metronome: stored.metronome === true, countIn: stored.countIn === true };
+    return {
+      metronome: stored.metronome === true,
+      countIn: stored.countIn === true,
+      restartOnStop: stored.restartOnStop !== false,
+    };
   } catch {
-    return { metronome: false, countIn: false };
+    return { metronome: false, countIn: false, restartOnStop: true };
   }
 }
 
-export function storePracticePrefs(prefs: { metronome: boolean; countIn: boolean }): void {
+export function storePracticePrefs(prefs: PracticePrefs): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
   } catch {

@@ -580,6 +580,8 @@ export function ScoreWorkspace({
     else if (action.type === "metronome" && action.value) trackUsage("metronome_on");
     else if (action.type === "count-in" && action.value) trackUsage("count_in_on");
     else if (action.type === "start-trainer") trackUsage("speed_trainer_start");
+    else if (action.type === "restart-on-stop")
+      trackUsage(action.value ? "restart_on_stop_on" : "restart_on_stop_off");
     dispatchPracticeAction(action);
   }, []);
   /** Bars last dragged across in the score (what Loop starts with). */
@@ -633,9 +635,10 @@ export function ScoreWorkspace({
   /** Where the edit cursor, its note and the selection are drawn now. */
   const updateOverlay = useEffectEvent(() => {
     const player = playerRef.current;
-    if (!player || !editing) return;
-    const beat = editor.cursorBeat();
-    const note = editor.cursorNote();
+    if (!player) return;
+    // Outside edit mode only a range selected with Shift is drawn (#92).
+    const beat = editing ? editor.cursorBeat() : null;
+    const note = editing ? editor.cursorNote() : null;
     setOverlay({
       cursor: beat ? union(player.beatRects(beat)) : null,
       notes: note ? player.noteRects(note) : [],
@@ -663,6 +666,7 @@ export function ScoreWorkspace({
     ({ beat, note, extend }: Parameters<NonNullable<ScorePlayerCallbacks["onBeatClick"]>>[0]) => {
       // Outside edit mode too, so a selection made there is kept for edit mode (#53).
       if (beat.voice.bar.staff.track !== trackObject) return;
+      if (extend) trackUsage("shift_select");
       editor.setCursorTo(
         { bar: beat.voice.bar.index, beat: beat.index, voice: beat.voice.index, note },
         extend,
@@ -698,6 +702,7 @@ export function ScoreWorkspace({
     player.setSpeed(practice.speed);
     player.setMetronome(practice.metronome);
     player.setCountIn(practice.countIn);
+    player.setRestartOnStop(practice.restartOnStop);
     player.setLoopCountIn(!!practice.trainer?.countInBetween && audioEngine === "native");
     player.setFocusCut(focusCutDb);
   });
@@ -775,7 +780,7 @@ export function ScoreWorkspace({
   }, [active]);
 
   // Practice settings go to the player whenever they change.
-  const { loop, range, speed, metronome, countIn } = practice;
+  const { loop, range, speed, metronome, countIn, restartOnStop } = practice;
   useEffect(() => {
     playerRef.current?.setLoop(loop ? range : null);
   }, [loop, range]);
@@ -783,8 +788,9 @@ export function ScoreWorkspace({
   useEffect(() => {
     playerRef.current?.setMetronome(metronome);
     playerRef.current?.setCountIn(countIn);
-    storePracticePrefs({ metronome, countIn });
-  }, [metronome, countIn]);
+    playerRef.current?.setRestartOnStop(restartOnStop);
+    storePracticePrefs({ metronome, countIn, restartOnStop });
+  }, [metronome, countIn, restartOnStop]);
   useEffect(() => playerRef.current?.setEditing(editing), [editing]);
   useEffect(() => playerRef.current?.setFocusCut(focusCutDb), [focusCutDb]);
   useEffect(() => playerRef.current?.setTheme(resolvedTheme), [resolvedTheme]);
@@ -1408,7 +1414,7 @@ export function ScoreWorkspace({
   const suggestedRange = (): LoopRange => {
     if (practice.loop) return practice.range;
     const selection = editor.selection;
-    if (editing && selection) {
+    if (selection) {
       const [start, end] = selectionRange(selection);
       return { start: start.bar, end: end.bar };
     }
@@ -1687,6 +1693,14 @@ export function ScoreWorkspace({
     focusScore();
   };
 
+  /** The bars the Shift-selected range covers, or null. */
+  const selectedBars = (): LoopRange | null => {
+    const selection = editor.selection;
+    if (!selection) return null;
+    const [start, end] = selectionRange(selection);
+    return { start: start.bar, end: end.bar };
+  };
+
   /** The score's right-click menu (#83). */
   const loopBars = (start: number, end: number) =>
     dispatchPractice({ type: "loop", value: true, range: { start, end } });
@@ -1705,6 +1719,32 @@ export function ScoreWorkspace({
     onTrainer: (range) => {
       setTrainerRange(range);
       setTrainerOpen(true);
+    },
+    onCopy: () => editor.copy(),
+    onCut: () => editor.cut(),
+    onDelete: () => {
+      trackUsage("delete_selection");
+      editor.deleteAtCursor();
+    },
+    onLoopSelection: () => {
+      const range = selectedBars();
+      if (!range) return;
+      trackUsage("loop_selection");
+      loopBars(range.start, range.end);
+    },
+    onPracticeSelection: () => {
+      const range = selectedBars();
+      if (!range) return;
+      trackUsage("practise_selection");
+      setTrainerRange(range);
+      setTrainerOpen(true);
+    },
+    onPlaySelection: () => {
+      const range = selectedBars();
+      if (!range) return;
+      trackUsage("play_selection");
+      playerRef.current?.seekToBar(range.start);
+      if (!playing && ready) playPause();
     },
   };
 
@@ -1959,7 +1999,7 @@ export function ScoreWorkspace({
         onPlayPause={playPause}
         onStop={() => {
           trackUsage("stop");
-          playerRef.current?.stop();
+          if (playerRef.current?.stop()) trackUsage("restart_on_stop_used");
         }}
         onTempo={() => setTempoOpen(true)}
         tempo={{ songBpm: tempoAt(score, bar), speed: practice.speed }}
@@ -1973,6 +2013,7 @@ export function ScoreWorkspace({
             onSpeedChange={(value) => dispatchPractice({ type: "speed", value })}
             onMetronomeChange={(value) => dispatchPractice({ type: "metronome", value })}
             onCountInChange={(value) => dispatchPractice({ type: "count-in", value })}
+            onRestartOnStopChange={(value) => dispatchPractice({ type: "restart-on-stop", value })}
             onOpenTrainer={() => setTrainerOpen(true)}
             onStopTrainer={() => dispatchPractice({ type: "stop-trainer" })}
             onHoldTrainer={(value) => dispatchPractice({ type: "hold-trainer", value })}
@@ -2037,6 +2078,8 @@ export function ScoreWorkspace({
             }}
             sections={sections}
             actions={scoreMenuActions}
+            selection={selectedBars()}
+            editing={editing}
           >
             <ScoreView
               viewportRef={viewportRef}

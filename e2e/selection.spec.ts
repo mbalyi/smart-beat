@@ -34,6 +34,32 @@ async function drag(app: Page, from: { x: number; y: number }, to: { x: number; 
 /** alphaTab's highlight of a range dragged outside edit mode. */
 const highlight = (app: Page) => app.locator(".at-selection div");
 
+/** Shift+click selects a range outside edit mode, for copying and looping (#92). */
+test.describe("Shift selection (#92)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("Shift+click selects a range that the menu can loop and copy", async ({ app }) => {
+    await openSong(app);
+    const notes = await tabNoteCenters(app);
+    await app.mouse.click(notes[1]!.x, notes[1]!.y);
+    await app.keyboard.down("Shift");
+    await app.mouse.click(notes[9]!.x, notes[9]!.y);
+    await app.keyboard.up("Shift");
+    await expect(app.getByTestId("edit-selection")).not.toHaveCount(0);
+
+    await app.mouse.click(notes[5]!.x, notes[5]!.y, { button: "right" });
+    await expect(app.getByRole("menuitem", { name: "Copy" })).toBeVisible();
+    await expect(app.getByRole("menuitem", { name: "Cut" })).toBeDisabled();
+    await expect(app.getByRole("menuitem", { name: "Delete" })).toBeDisabled();
+    await expect(app.getByTestId("edit-selection")).not.toHaveCount(0); // stays
+
+    await app.getByRole("menuitem", { name: "Loop Selection" }).click();
+    await expect(app.getByRole("spinbutton", { name: "Loop from bar" })).toHaveValue("1");
+    await expect(app.getByRole("spinbutton", { name: "Loop to bar" })).toHaveValue("3");
+    await expect(app.getByTestId("edit-selection")).not.toHaveCount(0);
+  });
+});
+
 /** A mouse selection stays after the button is released (#53). */
 test.describe("drag selection (#53)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });

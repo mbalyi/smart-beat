@@ -126,7 +126,7 @@ export function ScoreView({
                 ))}
               </div>
             )}
-            {editing && overlay && <EditOverlayLayer overlay={overlay} />}
+            {overlay && <EditOverlayLayer overlay={overlay} />}
           </div>
         </div>
       </div>

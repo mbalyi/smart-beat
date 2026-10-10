@@ -43,7 +43,17 @@ export type TrackedEvent =
   | "update_check"
   | "update_installed"
   | "theme_dark"
-  | "theme_light";
+  | "theme_light"
+  | "shift_select"
+  | "copy"
+  | "cut"
+  | "delete_selection"
+  | "loop_selection"
+  | "practise_selection"
+  | "play_selection"
+  | "restart_on_stop_on"
+  | "restart_on_stop_off"
+  | "restart_on_stop_used";
 
 /** File formats that may accompany `open_file` and `export` (`FORMATS` in the Rust core). */
 const KNOWN_FORMATS = [

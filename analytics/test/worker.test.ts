@@ -57,6 +57,27 @@ describe("POST /v1/batch", () => {
     expect(rows()).toMatchObject([{ event: "export", format: "pdf" }]);
   });
 
+  it("accepts the selection and restart-after-Stop events (#92, #93)", async () => {
+    const events = [
+      "shift_select",
+      "copy",
+      "cut",
+      "delete_selection",
+      "loop_selection",
+      "practise_selection",
+      "play_selection",
+      "restart_on_stop_on",
+      "restart_on_stop_off",
+      "restart_on_stop_used",
+    ];
+    await post(batch(events.map((event) => ({ day: today, event, count: 1 }))));
+    expect(
+      rows()
+        .map((row: { event: string }) => row.event)
+        .sort(),
+    ).toEqual([...events].sort());
+  });
+
   it("rejects unknown events, formats, installers, systems and versions", async () => {
     for (const body of [
       batch([{ day: today, event: "my_song_title", count: 1 }]),

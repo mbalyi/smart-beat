@@ -805,7 +805,7 @@ export class ScorePlayer {
       api.isLooping = true;
       this.highlightLoop();
       const tick = api.tickPosition;
-      if (tick < range.startTick || tick >= range.endTick) {
+      if (this.restartPending || tick < range.startTick || tick >= range.endTick) {
         api.tickPosition = range.startTick;
         if (this.resume) this.resume.tick = range.startTick;
       }
@@ -1026,6 +1026,7 @@ export class ScorePlayer {
     const tick = this.api.tickCache?.getBeatStart(beat);
     if (tick === undefined) return;
     this.delayer.clear();
+    this.restartPending = false;
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick;
     this.reportBar(beat.voice.bar.index);
@@ -1098,6 +1099,7 @@ export class ScorePlayer {
   playPause() {
     if (!this.ready) return;
     this.flushMidi();
+    this.restartPending = false;
     this.playing = !this.playing;
     this.api.playPause();
   }
@@ -1126,12 +1128,27 @@ export class ScorePlayer {
     this.api.render();
   }
 
-  stop() {
-    if (this.resume) this.resume = { tick: 0, play: false };
+  /** Practice: Stop inside a loop makes the next Play start at the loop start (#93). */
+  private restartOnStop = false;
+  /** Stopped at the loop start: a changed loop moves the restart point with it. */
+  private restartPending = false;
+  setRestartOnStop(on: boolean) {
+    this.restartOnStop = on;
+    if (!on) this.restartPending = false;
+  }
+
+  /** Stops playback; true when the next Play will start at the loop start. */
+  stop(): boolean {
+    const restart = this.restartOnStop && this.loop !== null && this.appliedRange !== null;
+    if (this.resume)
+      this.resume = { tick: restart ? this.appliedRange!.startTick : 0, play: false };
     this.playing = false;
     this.delayer.clear();
     this.api.stop();
+    if (restart) this.api.tickPosition = this.appliedRange!.startTick;
+    this.restartPending = restart;
     this.callbacks.onActiveBeatsChange?.([]);
+    return restart;
   }
 
   /** Moves the playback cursor to the start of a bar (0-based). */
@@ -1140,6 +1157,7 @@ export class ScorePlayer {
     if (!masterBar) return;
     const tick = this.api.tickCache?.getMasterBarStart(masterBar) ?? masterBar.start;
     this.delayer.clear();
+    this.restartPending = false;
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick; // seeking while new sounds load
     this.reportBar(barIndex);

@@ -689,6 +689,66 @@ describe("ScorePlayer", () => {
       expect(api.clearPlaybackRangeHighlight).toHaveBeenCalled();
     });
 
+    describe("restart after Stop (#93)", () => {
+      it("sends the next Play back to the loop start after Stop", async () => {
+        const { player, api } = await readySetup();
+        player.setRestartOnStop(true);
+        player.setLoop({ start: 1, end: 2 });
+        api.tickPosition = 5000;
+
+        expect(player.stop()).toBe(true);
+        expect(api.tickPosition).toBe(3840);
+      });
+
+      it("leaves Pause alone, so it resumes where it was", async () => {
+        const { player, api } = await readySetup();
+        player.setRestartOnStop(true);
+        player.setLoop({ start: 1, end: 2 });
+        player.playPause();
+        api.tickPosition = 5000;
+        player.playPause();
+
+        expect(api.tickPosition).toBe(5000);
+      });
+
+      it("respects a seek made after Stop", async () => {
+        const { player, api } = await readySetup();
+        player.setRestartOnStop(true);
+        player.setLoop({ start: 1, end: 2 });
+        player.stop();
+        player.seekToBar(2);
+        // Loop edited afterwards: the explicit seek stays.
+        player.setLoop({ start: 1, end: 3 });
+
+        expect(api.tickPosition).toBe(7680);
+      });
+
+      it("does nothing without a loop, or when the option is off", async () => {
+        const { player, api } = await readySetup();
+        player.setRestartOnStop(true);
+        api.tickPosition = 5000;
+        expect(player.stop()).toBe(false);
+
+        player.setLoop({ start: 1, end: 2 });
+        api.tickPosition = 5000;
+        player.setRestartOnStop(false);
+        const before = api.tickPosition;
+        expect(player.stop()).toBe(false);
+        expect(api.tickPosition).toBe(before);
+      });
+
+      it("uses the new loop start when the loop changes after Stop", async () => {
+        const { player, api } = await readySetup();
+        player.setRestartOnStop(true);
+        player.setLoop({ start: 1, end: 2 });
+        api.tickPosition = 5000;
+        player.stop();
+
+        player.setLoop({ start: 2, end: 3 });
+        expect(api.tickPosition).toBe(7680);
+      });
+    });
+
     it("applies a loop set before the song is loaded once it is", async () => {
       const { player, api, becomeReady } = await setup();
       const cache = api.tickCache;
