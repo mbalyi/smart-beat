@@ -11,13 +11,12 @@ A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with op
 ## Download
 
 <p>
-  <a href="https://github.com/mbalyi/smart-beat/releases/latest/download/SmartBeat_darwin_universal.dmg"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS%20(.dmg)-000000?style=for-the-badge&logo=apple&logoColor=white"></a>
-  <a href="https://github.com/mbalyi/smart-beat/releases/latest/download/SmartBeat_windows_x64.msi"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20(.msi)-0078D4?style=for-the-badge&logo=windows&logoColor=white"></a>
-  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux%20(.AppImage%20%2F%20.deb%20%2F%20.rpm)-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
-  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Open the latest release" src="https://img.shields.io/badge/Latest%20release-all%20installers-555555?style=for-the-badge&logo=github&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS%20(.dmg)-000000?style=for-the-badge&logo=apple&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20(.exe%20%2F%20.msi)-0078D4?style=for-the-badge&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux%20(.AppImage%20%2F%20.deb%20%2F%20.rpm)-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
 </p>
 
-The macOS and Windows buttons start the download of the newest release's installer (`.dmg`, `.msi`) right away. The Linux and **Latest release** buttons open the [newest release](https://github.com/mbalyi/smart-beat/releases/latest), where every installer (including the Windows `.exe` and the Linux `.AppImage`, `.deb` and `.rpm`) is attached. All versions are on the [releases page](https://github.com/mbalyi/smart-beat/releases).
+The buttons open the [releases page](https://github.com/mbalyi/smart-beat/releases); every installer is attached to the newest release. Smart Beat is in **beta**: GitHub marks beta versions as prereleases, so pick the newest one at the top.
 
 ⭐ **Enjoying Smart Beat?** Please [give the project a star on GitHub](https://github.com/mbalyi/smart-beat/stargazers). It helps other musicians find it, and we are always very grateful for every one.
 
