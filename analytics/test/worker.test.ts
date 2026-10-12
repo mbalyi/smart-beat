@@ -33,7 +33,11 @@ const post = (body: unknown, headers: Record<string, string> = {}) =>
     env,
   );
 
-const rows = () => sqlite.prepare("SELECT * FROM daily_counts ORDER BY event, format").all();
+const rows = () =>
+  sqlite.prepare("SELECT * FROM daily_counts ORDER BY event, format").all() as Array<{
+    event: string;
+    day: string;
+  }>;
 
 describe("POST /v1/batch", () => {
   it("counts valid events and adds up repeated batches", async () => {
@@ -73,7 +77,7 @@ describe("POST /v1/batch", () => {
     await post(batch(events.map((event) => ({ day: today, event, count: 1 }))));
     expect(
       rows()
-        .map((row: { event: string }) => row.event)
+        .map((row) => row.event)
         .sort(),
     ).toEqual([...events].sort());
   });

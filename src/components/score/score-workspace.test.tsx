@@ -290,11 +290,12 @@ describe("ScoreWorkspace", () => {
   });
 
   it("saves the mix shortly after it changes (desktop app)", async () => {
-    const { user, song, saves } = await setup({ desktop: true });
+    const { song, saves } = await setup({ desktop: true });
     expect(screen.getByText("Mix changes are saved for this song.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Mute Guitar" }));
-    await user.click(screen.getByRole("button", { name: "Mute Bass" }));
+    // Synchronous clicks: awaiting between them can outlast the debounce on a slow CI runner.
+    fireEvent.click(screen.getByRole("button", { name: "Mute Guitar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mute Bass" }));
     expect(saves()).toHaveLength(0);
 
     await waitFor(() => expect(saves()).toHaveLength(1));
