@@ -93,6 +93,16 @@ const ASSETS = [
     files: [path.join(ROOT, "src", "lib", "audio-transcription", "upstream", "LICENSE")],
   },
   {
+    name: "Basic Pitch note detection model (Record to tab)",
+    license: "Apache-2.0",
+    homepage: "https://github.com/spotify/basic-pitch",
+    // The model and its notice are embedded in the app (src-tauri/src/recording).
+    files: [
+      path.join(ROOT, "src-tauri", "models", "basic-pitch", "LICENSE"),
+      path.join(ROOT, "src-tauri", "models", "basic-pitch", "NOTICE"),
+    ],
+  },
+  {
     name: "Sonivox EAS SoundFont (default instrument sounds, via alphaTab)",
     license: "Apache-2.0 (full text in the Rust crates section)",
     files: [
