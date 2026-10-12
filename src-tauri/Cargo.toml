@@ -21,10 +21,10 @@ url = "2"
 
 [dependencies]
 tauri = { version = "2.12", features = [] }
-tauri-plugin-dialog = "2.7"
+tauri-plugin-dialog = "2.8"
 # In-app updates from GitHub Releases (docs/release.md) and the relaunch after installing one.
-tauri-plugin-updater = "2.12"
-tauri-plugin-process = "2.3"
+tauri-plugin-updater = "2.13"
+tauri-plugin-process = "2.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Import from Audio (src/transcription.rs) talks to Smart Beat's MuScriptor server from here,
@@ -44,7 +44,7 @@ hound = "3.5"
 nam-rs = "0.4"
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "aiff"] }
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-tauri-plugin-opener = "2.5.5"
+tauri-plugin-opener = "2.7"
 ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 
 # macOS: the system's AAC encoder (AVFoundation) writes `.m4a` exports (src/m4a.rs).
