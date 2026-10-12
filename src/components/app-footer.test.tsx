@@ -14,4 +14,18 @@ describe("AppFooter", () => {
     expect(screen.queryByText(/early preview/i)).not.toBeInTheDocument();
     await expectNoA11yViolations();
   });
+
+  it("names the owner, not a company, and links the GitHub profile", async () => {
+    renderWithProviders(<AppFooter />);
+
+    expect(screen.getByRole("contentinfo")).toHaveTextContent(/© \d{4} @mbalyi/);
+    expect(screen.getByRole("contentinfo")).not.toHaveTextContent(
+      /All rights reserved|Smart Beat\.|Mark Balyi/,
+    );
+    expect(screen.getByRole("link", { name: "@mbalyi" })).toHaveAttribute(
+      "href",
+      "https://github.com/mbalyi",
+    );
+    await expectNoA11yViolations();
+  });
 });

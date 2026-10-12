@@ -93,7 +93,7 @@ describe("Welcome", () => {
       "Open, play and practice (Available)",
       "Write tabs and scores (Available)",
       "Learning mode (Available)",
-      "Audio to tab (Available)",
+      "Audio to tab (AI · Coming soon)",
       "Record to tab (AI · Coming soon)",
       "Speech to tab (AI · Coming soon)",
       "Hum to accompaniment (AI · Coming soon)",

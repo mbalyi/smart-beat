@@ -1,6 +1,7 @@
 {
   "name": "Smart Beat",
-  "owner": "Mark Balyi",
+  "ownerHandle": "@mbalyi",
+  "ownerProfile": "https://github.com/mbalyi",
   "email": "smart-beat@outlook.com",
   "repository": "https://github.com/mbalyi/smart-beat",
   "releases": "https://github.com/mbalyi/smart-beat/releases",

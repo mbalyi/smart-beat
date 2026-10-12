@@ -2,6 +2,7 @@ import wordmark from "@/assets/smart-beat-wordmark.png";
 import { AppLogo } from "@/components/app-logo";
 import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
+import { CopyrightNotice } from "@/components/copyright-notice";
 import { ExternalLink } from "@/components/external-link";
 import {
   Dialog,
@@ -68,8 +69,7 @@ export function AboutDialog({ open, onOpenChange, onCloseAutoFocus }: AppDialogP
         </DialogBody>
         <DialogFooter showCloseButton>
           <p className="mr-auto self-center text-xs text-muted-foreground">
-            © {new Date().getFullYear()} {PROJECT.owner}. Source code under PolyForm Noncommercial
-            1.0.0.
+            <CopyrightNotice />. Source code under PolyForm Noncommercial 1.0.0.
           </p>
         </DialogFooter>
       </DialogContent>

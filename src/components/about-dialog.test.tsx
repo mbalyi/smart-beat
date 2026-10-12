@@ -33,7 +33,13 @@ describe("AboutDialog", () => {
       "href",
       "https://github.com/mbalyi/smart-beat",
     );
-    expect(screen.getByText(/Mark Balyi\. Source code under PolyForm Noncommercial/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "@mbalyi" })).toHaveAttribute(
+      "href",
+      "https://github.com/mbalyi",
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      /© \d{4} @mbalyi\. Source code under PolyForm Noncommercial 1\.0\.0\./,
+    );
   });
 
   it("announces loading, then an error when details are unavailable", async () => {

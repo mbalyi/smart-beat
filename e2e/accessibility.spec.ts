@@ -23,6 +23,9 @@ test.describe("accessibility", () => {
       await waitForAnimations(app);
       await expect(app.getByRole("contentinfo")).toContainText(/Version \d+\.\d+\.\d+/);
       await expect(app.getByText(/early preview/i)).toHaveCount(0);
+      await expect(
+        app.getByRole("contentinfo").getByRole("link", { name: "@mbalyi" }),
+      ).toHaveAttribute("href", "https://github.com/mbalyi");
 
       await expectNoA11yViolations(app);
     });

@@ -11,7 +11,7 @@ export const PROJECT = info;
 export const CONTACT_MAILTO = `mailto:${PROJECT.email}`;
 
 /** The project links the app opens (About dialog); each is allowed in the app's capability. */
-export const PROJECT_LINKS = [PROJECT.repository, CONTACT_MAILTO];
+export const PROJECT_LINKS = [PROJECT.repository, PROJECT.ownerProfile, CONTACT_MAILTO];
 
 /** The app version (package.json, the one canonical version; see docs/release.md). */
 export const APP_VERSION = version;

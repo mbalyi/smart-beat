@@ -282,7 +282,7 @@ Pull requests, bug reports and ideas are welcome: see [`CONTRIBUTING.md`](CONTRI
 
 ## Contributors
 
-Thank you to everyone who has helped build Smart Beat.
+Smart Beat is a personal project, not a company: it is created and maintained by **[@mbalyi](https://github.com/mbalyi)**, and everything is published under that GitHub account. Thank you to everyone who has helped build it.
 
 <table>
   <tr>
