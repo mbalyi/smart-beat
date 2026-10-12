@@ -84,6 +84,28 @@ export function verifyLatestJson(manifest, { tag, version }) {
 }
 
 /**
+ * While a release is a draft, tauri-action writes API asset URLs
+ * (`https://api.github.com/repos/<owner>/<repo>/releases/assets/<id>`) into `latest.json`. The
+ * updater needs the public download URL, which only depends on the tag and the asset name, so
+ * this swaps each API URL for it. Other URLs stay as they are. Returns the number of changes.
+ * `assets` is the release's asset list (`id` and `name`).
+ */
+export function useDownloadUrls(manifest, assets, tag) {
+  const names = new Map(assets.map((asset) => [String(asset.id), asset.name]));
+  let changed = 0;
+  for (const entry of Object.values(manifest?.platforms ?? {})) {
+    const match = /^https:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+\/releases\/assets\/(\d+)$/.exec(
+      entry?.url ?? "",
+    );
+    const name = match && names.get(match[1]);
+    if (!name) continue;
+    entry.url = `${RELEASE_URL_PREFIX}${tag}/${name}`;
+    changed += 1;
+  }
+  return changed;
+}
+
+/**
  * Tauri writes both `<os>-<arch>` and `<os>-<arch>-<bundle>` keys (for example `darwin-aarch64`
  * and `darwin-aarch64-app`). Either form counts.
  */
