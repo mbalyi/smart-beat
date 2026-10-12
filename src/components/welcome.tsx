@@ -34,7 +34,8 @@ export function Welcome({
   onShowLicenses,
 }: {
   onOpenFile: () => void;
-  onImportAudio: () => void;
+  /** Import from Audio; left out while the `audio-2-tab` feature is off. */
+  onImportAudio?: () => void;
   onNewSong: () => void;
   onShowShortcuts: () => void;
   /** Recently opened songs (paths), most recent first. */
@@ -65,10 +66,12 @@ export function Welcome({
             <FolderOpenIcon data-icon="inline-start" />
             Open a file…
           </Button>
-          <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onImportAudio}>
-            <AudioLinesIcon data-icon="inline-start" />
-            Import from Audio…
-          </Button>
+          {onImportAudio && (
+            <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onImportAudio}>
+              <AudioLinesIcon data-icon="inline-start" />
+              Import from Audio…
+            </Button>
+          )}
           <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onNewSong}>
             <FilePlusIcon data-icon="inline-start" />
             New song

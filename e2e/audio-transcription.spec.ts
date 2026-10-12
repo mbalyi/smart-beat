@@ -2,6 +2,8 @@ import path from "node:path";
 
 import type { Page } from "@playwright/test";
 
+import features from "../src/lib/features.json" with { type: "json" };
+
 import {
   emitMenuAction,
   expect,
@@ -59,7 +61,10 @@ async function openDialog(app: Page) {
   return dialog;
 }
 
+// Import from Audio is hidden until the audio-2-tab feature is switched on.
 test.describe("Import from Audio (#88)", () => {
+  test.skip(!features["audio-2-tab"], "audio-2-tab is off in src/lib/features.json");
+
   test("transcribes a recording, previews it and opens the MIDI as a new song", async ({ app }) => {
     const dialog = await openDialog(app);
     await expect(dialog.getByText(/uploaded to Smart Beat's transcription server/)).toBeVisible();

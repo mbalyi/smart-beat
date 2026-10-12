@@ -669,6 +669,41 @@ fn check_item<R: Runtime>(
     )
 }
 
+/// The File menu start. Import from Audio shows only while `audio-2-tab` is on.
+fn file_menu<'a, R: Runtime>(
+    app: &'a AppHandle<R>,
+    new_song: &MenuItem<R>,
+    open: &MenuItem<R>,
+    import_audio: &MenuItem<R>,
+    recent: &Submenu<R>,
+) -> SubmenuBuilder<'a, R, AppHandle<R>> {
+    let mut file = SubmenuBuilder::new(app, "File").item(new_song).item(open);
+    if crate::features::enabled("audio-2-tab") {
+        file = file.item(import_audio);
+    }
+    file.item(recent)
+}
+
+/// The AI menu: one disabled entry for each feature that is not out yet.
+fn ai_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Option<Submenu<R>>> {
+    let soon = crate::features::coming_soon();
+    if soon.is_empty() {
+        return Ok(None);
+    }
+    let mut ai = SubmenuBuilder::new(app, "AI");
+    for (id, label) in soon {
+        let text = format!("{label} — AI coming soon");
+        ai = ai.item(&MenuItem::with_id(
+            app,
+            format!("ai.{id}"),
+            text,
+            false,
+            None::<&str>,
+        )?);
+    }
+    ai.build().map(Some)
+}
+
 /// Builds the application menu bar.
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     use MenuAction::*;
@@ -728,11 +763,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .build()?;
         menu = menu.item(&app_menu);
 
-        SubmenuBuilder::new(app, "File")
-            .item(&new_song)
-            .item(&open)
-            .item(&import_audio)
-            .item(&recent)
+        file_menu(app, &new_song, &open, &import_audio, &recent)
             .separator()
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
@@ -742,11 +773,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .close_window()
             .build()?
     } else {
-        SubmenuBuilder::new(app, "File")
-            .item(&new_song)
-            .item(&open)
-            .item(&import_audio)
-            .item(&recent)
+        file_menu(app, &new_song, &open, &import_audio, &recent)
             .separator()
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
@@ -846,8 +873,11 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     }
     let help = help.build()?;
 
-    menu.items(&[&file, &edit, &view, &track, &bar, &note, &playback, &help])
-        .build()
+    menu = menu.items(&[&file, &edit, &view, &track, &bar, &note, &playback]);
+    if let Some(ai) = ai_menu(app)? {
+        menu = menu.item(&ai);
+    }
+    menu.item(&help).build()
 }
 
 /// Id of the File › Open Recent submenu.

@@ -3,6 +3,7 @@
 pub mod audio;
 mod commands;
 pub mod error;
+pub mod features;
 pub mod m4a;
 pub mod menu;
 pub mod menu_state;

@@ -1,5 +1,7 @@
 import type { Locator, Page } from "@playwright/test";
 
+import features from "../src/lib/features.json" with { type: "json" };
+
 import { emitMenuAction, expect, openSong, test, waitForAnimations } from "./fixtures";
 
 type Opener = (app: Page) => Promise<void>;
@@ -26,7 +28,14 @@ const DIALOGS: [name: string | RegExp, open: Opener][] = [
       await emitMenuAction(app, "check-for-updates");
     },
   ],
-  ["Import from Audio", (app) => emitMenuAction(app, "import-audio")],
+  ...(features["audio-2-tab"]
+    ? [
+        ["Import from Audio", (app: Page) => emitMenuAction(app, "import-audio")] as [
+          string,
+          Opener,
+        ],
+      ]
+    : []),
 ];
 
 /** The dialog's own box must stay inside the viewport, and so must `part`. */

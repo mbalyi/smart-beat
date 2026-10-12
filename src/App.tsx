@@ -34,6 +34,7 @@ import {
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { muscriptorProvider } from "@/lib/muscriptor";
+import { isEnabled } from "@/lib/features";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
 
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
@@ -156,7 +157,10 @@ export function App() {
   };
 
   const open = () => void showOpenDialog();
-  const importAudio = () => showDialog("audio-transcription");
+  // Import from Audio stays out of reach until the feature is switched on.
+  const importAudio = isEnabled("audio-2-tab")
+    ? () => showDialog("audio-transcription")
+    : undefined;
   const recent = useRecentFiles((path) => void openPath(path), recentsVersion);
   // A new install starts with a quiet layout; earlier users keep their panels (#83).
   useEffect(() => {
@@ -213,7 +217,7 @@ export function App() {
         open();
         break;
       case "import-audio":
-        importAudio();
+        importAudio?.();
         break;
       case "toggle-theme":
         toggleTheme();

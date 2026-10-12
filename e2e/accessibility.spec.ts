@@ -10,6 +10,8 @@ import {
   waitForAnimations,
 } from "./fixtures";
 
+import features from "../src/lib/features.json" with { type: "json" };
+
 test.describe("accessibility", () => {
   for (const colorScheme of ["light", "dark"] as const) {
     test(`welcome screen has no WCAG violations in ${colorScheme} mode`, async ({ app }) => {
@@ -218,7 +220,7 @@ test.describe("accessibility", () => {
       "Theme",
       "Help",
       "Open a file…",
-      "Import from Audio…",
+      ...(features["audio-2-tab"] ? ["Import from Audio…"] : []),
       "New song",
       "Keyboard shortcuts",
     ];

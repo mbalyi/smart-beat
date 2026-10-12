@@ -26,6 +26,12 @@ vi.mock("@/lib/score/player", async () => ({
   ScorePlayer: (await import("@/test/fake-score-player")).FakeScorePlayer,
 }));
 
+// Import from Audio is behind the audio-2-tab flag, which is off in src/lib/features.json.
+const flags = vi.hoisted(() => ({ audio: true }));
+vi.mock("@/lib/features", () => ({
+  isEnabled: (id: string) => id === "audio-2-tab" && flags.audio,
+}));
+
 const SONG = "/Users/me/Songs/practice-song.gp";
 const OTHER_SONG = "/Users/me/Songs/structure-song.gp";
 
@@ -51,6 +57,18 @@ async function menu(action: MenuAction) {
 }
 
 describe("App", () => {
+  it("hides Import from Audio while the audio-2-tab feature is off", async () => {
+    flags.audio = false;
+    try {
+      await renderApp();
+      expect(screen.queryByRole("button", { name: "Import from Audio…" })).not.toBeInTheDocument();
+      await menu("import-audio");
+      expect(screen.queryByRole("dialog", { name: "Import from Audio" })).not.toBeInTheDocument();
+    } finally {
+      flags.audio = true;
+    }
+  });
+
   it("launches transcription from welcome, the native menu and the open song's File menu", async () => {
     const { user } = await renderApp();
     await user.click(screen.getByRole("button", { name: "Import from Audio…" }));
