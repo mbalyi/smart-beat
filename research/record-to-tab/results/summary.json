@@ -1,0 +1,70 @@
+{
+ "fretnet": {
+  "engine": "fretnet",
+  "player": "00",
+  "accuracy": {
+   "clips": 60,
+   "micro": {
+    "note_f1": {
+     "precision": 0.917887432536623,
+     "recall": 0.36013007638206157,
+     "f1": 0.5172994405518441,
+     "tp": 4762,
+     "n_est": 5188,
+     "n_ref": 13223
+    },
+    "note_f1_with_offset": {
+     "precision": 0.5123361603700848,
+     "recall": 0.20101338576722377,
+     "f1": 0.2887404269186899,
+     "tp": 2658,
+     "n_est": 5188,
+     "n_ref": 13223
+    },
+    "tab_f1": {
+     "precision": 0.7939475713184272,
+     "recall": 0.3115026847160251,
+     "f1": 0.4474498940850578,
+     "tp": 4119,
+     "n_est": 5188,
+     "n_ref": 13223
+    }
+   },
+   "mean_per_clip": {
+    "note_f1": 0.5784265792533254,
+    "note_f1_with_offset": 0.3505385284466665,
+    "tab_f1": 0.5079111961313459
+   }
+  },
+  "performance": {
+   "clip_seconds": 60.0,
+   "onnx": {
+    "rtf": 0.102212727783323,
+    "rtf_network_only": 0.029187570833285766,
+    "seconds": {
+     "features": 4.3299214170001505,
+     "network": 1.751254249997146,
+     "post": 0.0515880000020843,
+     "total": 6.132763666999381
+    },
+    "peak_ram_mb_cli": 886.472704
+   },
+   "mps": {
+    "rtf": 0.05225929929996103,
+    "rtf_network_only": 0.003942468050020883,
+    "seconds": {
+     "features": 2.8389950829987356,
+     "network": 0.23654808300125296,
+     "post": 0.060014791997673456,
+     "total": 3.135557957997662
+    },
+    "peak_ram_mb_cli": 544.391168
+   }
+  },
+  "sizes": {
+   "onnx_model_bytes": 19407358,
+   "onnxruntime_python_package_bytes": 78030688,
+   "note": "Python onnxruntime wheel. A Rust ort build would be smaller. HCQT would need a Rust port."
+  }
+ }
+}
