@@ -162,7 +162,7 @@ export function releaseChangelog(changelog, version) {
 }
 
 /** Problems when the version-bearing files disagree with package.json (the canonical version). */
-export function checkVersionFiles({ packageJson, cargoToml, cargoLock }) {
+export function checkVersionFiles({ packageJson, cargoToml, cargoLock, tauriConf }) {
   const version = JSON.parse(packageJson).version;
   const problems = [];
   try {
@@ -178,13 +178,24 @@ export function checkVersionFiles({ packageJson, cargoToml, cargoLock }) {
   if (locked !== version) {
     problems.push(`src-tauri/Cargo.lock: smart-beat is ${locked}, package.json says ${version}.`);
   }
+  const msi = JSON.parse(tauriConf).bundle?.windows?.wix?.version;
+  const expected = msiVersion(version);
+  if (msi !== expected) {
+    problems.push(
+      `src-tauri/tauri.conf.json: bundle.windows.wix.version is ${msi}, expected ${expected} for ${version}.`,
+    );
+  }
   return problems;
 }
 
 /** The same files with the version set to `version`. */
-export function setVersion({ packageJson, cargoToml, cargoLock }, version) {
+export function setVersion({ packageJson, cargoToml, cargoLock, tauriConf }, version) {
   parseVersion(version);
   return {
+    tauriConf: tauriConf.replace(
+      /("wix":\s*\{\s*"version":\s*")[^"]+(")/,
+      `$1${msiVersion(version)}$2`,
+    ),
     packageJson: packageJson.replace(/("version":\s*")[^"]+(")/, `$1${version}$2`),
     cargoToml: cargoToml.replace(/^(\[package\][^[]*?^version\s*=\s*")[^"]+(")/m, `$1${version}$2`),
     cargoLock: cargoLock.replace(/^(name = "smart-beat"\nversion = ")[^"]+(")/m, `$1${version}$2`),
@@ -206,4 +217,24 @@ export function versionedAssetName(stableName, version) {
   if (!match) return null;
   const platform = PLATFORM_NAMES[match[1].toLowerCase()] ?? match[1];
   return `SmartBeat-${version}-${platform}-${match[2]}`;
+}
+
+const PRERELEASE_OFFSETS = { alpha: 1000, beta: 2000, rc: 3000 };
+
+/**
+ * The Windows MSI version for an app version. MSI only takes numbers (`major.minor.build.revision`,
+ * revision up to 65535), so Tauri cannot derive it from `1.0.0-beta.1`. A release keeps its own
+ * version; a prerelease puts its label and number in the fourth field: alpha.N → 1000+N,
+ * beta.N → 2000+N, rc.N → 3000+N (`1.0.0-beta.1` → `1.0.0.2001`).
+ */
+export function msiVersion(version) {
+  const { major, minor, patch, prerelease } = parseVersion(version);
+  if (major > 255 || minor > 255) throw new Error(`${version} is too large for an MSI version.`);
+  if (!prerelease) return `${major}.${minor}.${patch}`;
+  const match = /^(alpha|beta|rc)(?:\.(\d+))?$/.exec(prerelease);
+  if (!match)
+    throw new Error(`Prerelease "${prerelease}" must be alpha.N, beta.N or rc.N for Windows.`);
+  const number = Number(match[2] ?? 0);
+  if (number > 999) throw new Error(`Prerelease number ${number} is too large for an MSI version.`);
+  return `${major}.${minor}.${patch}.${PRERELEASE_OFFSETS[match[1]] + number}`;
 }

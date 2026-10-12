@@ -11,6 +11,7 @@ Smart Beat uses [semantic versioning](https://semver.org): `MAJOR.MINOR.PATCH`.
 - **Before 1.0:** a patch release (`0.1.1`) fixes bugs or makes small improvements; a minor release (`0.2.0`) adds features and may change behaviour. `1.0.0` is reserved for the first release with a stable file format and settings.
 - **Prereleases** (`0.2.0-beta.1`, `0.2.0-rc.1`) are published as GitHub prereleases. `releases/latest` never points at a prerelease, so the updater and the website's download links never offer one.
 - **One canonical version:** `package.json`. `tauri.conf.json` reads it from there (the About dialog, the bundle metadata, installer names and `latest.json` follow), and `src-tauri/Cargo.toml` and `Cargo.lock` must match it. `pnpm version:check` (part of `pnpm check`, and the release workflow with the tag) fails when they drift. A Rust test checks the same.
+- **Prerelease labels:** only `alpha.N`, `beta.N` and `rc.N`. Windows MSI installers take numbers only, so the bump script also writes `bundle.windows.wix.version` in `tauri.conf.json`: the release's own version, or the label and number in a fourth field (`1.0.0-beta.1` → `1.0.0.2001`, alpha 1000+N, beta 2000+N, rc 3000+N).
 - **Never reuse a version:** the bump script refuses a version that is not newer, and a tag that already exists locally or on GitHub.
 
 | Command                                                  | Does                                                                                                                    |

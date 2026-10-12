@@ -25,6 +25,7 @@ const FILES = {
   packageJson: "package.json",
   cargoToml: "src-tauri/Cargo.toml",
   cargoLock: "src-tauri/Cargo.lock",
+  tauriConf: "src-tauri/tauri.conf.json",
 };
 
 const read = (file) => readFileSync(path.join(root, file), "utf8");
@@ -80,7 +81,7 @@ function bump(kind) {
 
   console.log(`✓ ${current} → ${version}${isPrerelease(version) ? " (prerelease)" : ""}`);
   console.log(
-    "  Updated package.json, src-tauri/Cargo.toml, src-tauri/Cargo.lock and CHANGELOG.md.",
+    "  Updated package.json, Cargo.toml, Cargo.lock, the MSI version in tauri.conf.json and CHANGELOG.md.",
   );
   console.log("  Next: review the CHANGELOG section, merge the change to main, then:");
   console.log(`    git tag ${tag} && git push origin ${tag}`);

@@ -77,6 +77,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "wix": {
+        "version": "1.0.0.2001"
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "11.0",
       "signingIdentity": "-",

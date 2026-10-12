@@ -6,6 +6,7 @@ import {
   compareVersions,
   extractReleaseNotes,
   isPrerelease,
+  msiVersion,
   nextVersion,
   parseVersion,
   RELEASE_URL_PREFIX,
@@ -239,6 +240,8 @@ describe("checkVersionFiles and setVersion", () => {
       '[package]\nname = "smart-beat"\nversion = "0.1.0"\n\n[dependencies]\nfoo = { version = "9" }\n',
     cargoLock:
       '[[package]]\nname = "serde"\nversion = "1.0.0"\n\n[[package]]\nname = "smart-beat"\nversion = "0.1.0"\n',
+    tauriConf:
+      '{\n  "version": "../package.json",\n  "bundle": {\n    "windows": {\n      "wix": {\n        "version": "0.1.0"\n      }\n    }\n  }\n}\n',
   };
 
   it("accepts files that agree", () => {
@@ -257,12 +260,52 @@ describe("checkVersionFiles and setVersion", () => {
     ]);
   });
 
+  it("needs the numeric MSI version that belongs to the app version", () => {
+    const beta = { ...files, packageJson: files.packageJson.replace("0.1.0", "1.0.0-beta.1") };
+    beta.cargoToml = files.cargoToml.replace('"0.1.0"', '"1.0.0-beta.1"');
+    beta.cargoLock = files.cargoLock.replace(
+      'smart-beat"\nversion = "0.1.0"',
+      'smart-beat"\nversion = "1.0.0-beta.1"',
+    );
+    expect(checkVersionFiles(beta)).toEqual([
+      "src-tauri/tauri.conf.json: bundle.windows.wix.version is 0.1.0, expected 1.0.0.2001 for 1.0.0-beta.1.",
+    ]);
+    expect(checkVersionFiles(setVersion(beta, "1.0.0-beta.1"))).toEqual([]);
+  });
+
   it("sets only Smart Beat's own version", () => {
     const updated = setVersion(files, "0.2.0");
     expect(checkVersionFiles(updated)).toEqual([]);
     expect(JSON.parse(updated.packageJson).version).toBe("0.2.0");
     expect(updated.cargoToml).toContain('foo = { version = "9" }');
     expect(updated.cargoLock).toContain('name = "serde"\nversion = "1.0.0"');
+    expect(JSON.parse(updated.tauriConf).bundle.windows.wix.version).toBe("0.2.0");
+    expect(JSON.parse(updated.tauriConf).version).toBe("../package.json");
+  });
+});
+
+describe("msiVersion", () => {
+  it.each([
+    ["0.2.0", "0.2.0"],
+    ["1.0.0-alpha.3", "1.0.0.1003"],
+    ["1.0.0-beta.1", "1.0.0.2001"],
+    ["1.0.0-beta.12", "1.0.0.2012"],
+    ["1.0.0-rc.2", "1.0.0.3002"],
+    ["1.0.0-beta", "1.0.0.2000"],
+  ])("%s -> %s", (version, msi) => {
+    expect(msiVersion(version)).toBe(msi);
+  });
+
+  it("orders alpha < beta < rc within one version", () => {
+    const revision = (version) => Number(msiVersion(version).split(".")[3]);
+    expect(revision("1.0.0-alpha.9")).toBeLessThan(revision("1.0.0-beta.1"));
+    expect(revision("1.0.0-beta.9")).toBeLessThan(revision("1.0.0-rc.1"));
+  });
+
+  it("refuses what Windows cannot hold", () => {
+    expect(() => msiVersion("1.0.0-preview.1")).toThrow(/alpha.N, beta.N or rc.N/);
+    expect(() => msiVersion("1.0.0-beta.1000")).toThrow(/too large/);
+    expect(() => msiVersion("256.0.0")).toThrow(/too large/);
   });
 });
 
