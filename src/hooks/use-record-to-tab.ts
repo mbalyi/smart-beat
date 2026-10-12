@@ -15,12 +15,13 @@ import {
 import { errorText } from "@/lib/errors";
 import {
   alignOffset,
+  recordingTargets,
   recordingToSong,
   writeRecording,
   type RecordedNote,
 } from "@/lib/import/recording";
 import type { ScoreEditor } from "@/lib/score/editor";
-import { trackContent, type Score } from "@/lib/score/model";
+import type { Score } from "@/lib/score/model";
 import { getPreset } from "@/lib/score/music";
 import type { ScorePlayer } from "@/lib/score/player";
 import type { LoopRange } from "@/lib/score/practice";
@@ -418,7 +419,11 @@ function addToScore(
   let index = setup.track ?? -1;
   editor.run(
     "Record to tab",
-    () => [...editor.structureTargets(), ...(target ? trackContent(target) : [])],
+    () =>
+      // A new track does not exist before the edit: then the structure is what changes.
+      index >= 0 && score.tracks[index]
+        ? recordingTargets(score, index, setup.startBar)
+        : editor.structureTargets(),
     () => {
       if (setup.track === null) {
         target = createTrack(score, {

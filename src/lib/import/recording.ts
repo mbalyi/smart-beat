@@ -31,3 +31,8 @@ export function writeRecording(
 ): { warnings: string[] } {
   throw new Error("stub");
 }
+
+/** Everything an undo step of `writeRecording` must record (a stub, like the rest). */
+export function recordingTargets(_score: Score, _trackIndex: number, _startBar: number): object[] {
+  throw new Error("stub");
+}

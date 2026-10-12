@@ -146,7 +146,10 @@ function RecordForm({
         ? String(targets[0].index)
         : NEW_TRACK,
   );
-  const [bar, setBar] = useState(Math.min(Math.max(defaultBar, 0), Math.max(barCount - 1, 0)) + 1);
+  // Text, so that the field can be emptied while a number is typed.
+  const [bar, setBar] = useState(
+    String(Math.min(Math.max(defaultBar, 0), Math.max(barCount - 1, 0)) + 1),
+  );
   const [playOthers, setPlayOthers] = useState(readPlayOthers);
   const [tuningChoice, setTuningChoice] = useState<TuningChoice>(readTuningChoice);
 
@@ -171,7 +174,7 @@ function RecordForm({
     onRecord({
       mode,
       track: mode === "click" && track !== NEW_TRACK ? Number(track) : null,
-      startBar: Math.min(Math.max(bar, 1), Math.max(barCount, 1)) - 1,
+      startBar: Math.min(Math.max(Number.parseInt(bar, 10) || 1, 1), Math.max(barCount, 1)) - 1,
       playOthers,
       tuning: tuningOf(tuningChoice),
     });
@@ -254,9 +257,7 @@ function RecordForm({
                   min={1}
                   max={Math.max(barCount, 1)}
                   value={bar}
-                  onChange={(event) =>
-                    setBar(Math.min(barCount, Math.max(1, event.target.valueAsNumber || 1)))
-                  }
+                  onChange={(event) => setBar(event.target.value)}
                 />
               </Field>
             </div>
