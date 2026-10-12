@@ -1,6 +1,6 @@
 import { act, screen, waitFor } from "@testing-library/react";
 
-import { TunerDialog } from "@/components/score/tuner-dialog";
+import { HOLD_MS, TunerDialog } from "@/components/score/tuner-dialog";
 import { readAudioInput, storeAudioInput } from "@/lib/audio/input";
 import { STANDARD_GUITAR } from "@/lib/score/music";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -12,22 +12,31 @@ const RATE = 48_000;
 const BUILT_IN = { deviceId: "built-in", label: "MacBook Pro Microphone" };
 const SCARLETT = { deviceId: "scarlett", label: "Scarlett 2i2 USB" };
 
-/** Fake audio inputs that "hear" a sine wave of `hz`. */
+/**
+ * Fake audio inputs that "hear" a sine wave of `hz` (null: silence). As in WebKit, the samples
+ * come at the input's rate, whatever rate the audio context says it runs at.
+ */
 function installMicrophone(
   hz: number | null,
   options: Parameters<typeof installMediaDevices>[0] = {},
 ) {
   const devices = installMediaDevices(options);
+  const deviceRate = options.sampleRate ?? RATE;
   const close = vi.fn(async () => {});
+  const heard = { hz };
   class FakeAudioContext {
-    sampleRate = RATE;
+    sampleRate: number;
     close = close;
+    constructor(options?: AudioContextOptions) {
+      this.sampleRate = options?.sampleRate ?? RATE;
+    }
     createAnalyser() {
       return {
         fftSize: 2048,
         getFloatTimeDomainData(buffer: Float32Array) {
           for (let i = 0; i < buffer.length; i++) {
-            buffer[i] = hz === null ? 0 : 0.5 * Math.sin((2 * Math.PI * hz * i) / RATE);
+            buffer[i] =
+              heard.hz === null ? 0 : 0.5 * Math.sin((2 * Math.PI * heard.hz * i) / deviceRate);
           }
         },
       };
@@ -37,7 +46,14 @@ function installMicrophone(
     }
   }
   vi.stubGlobal("AudioContext", FakeAudioContext);
-  return { ...devices, close };
+  return {
+    ...devices,
+    close,
+    /** Changes the sound the input hears. */
+    play(next: number | null) {
+      heard.hz = next;
+    },
+  };
 }
 
 function setup({ onOpenSettings }: { onOpenSettings?: (from: HTMLElement) => void } = {}) {
@@ -123,6 +139,25 @@ describe("TunerDialog (#83)", () => {
     await expectNoA11yViolations();
   });
 
+  it("stops showing the last note once the string dies away", async () => {
+    const mic = installMicrophone(110);
+    const { user } = setup();
+    await listen(user);
+    const meter = screen.getByRole("meter", { name: "Tuning" });
+    expect(meter).toHaveAttribute("aria-valuetext", "In tune");
+
+    mic.play(null);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(HOLD_MS / 2);
+    });
+    expect(meter).toHaveAttribute("aria-valuetext", "In tune");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(HOLD_MS);
+    });
+    expect(meter).toHaveAttribute("aria-valuetext", "No note heard");
+    expect(screen.queryByText(/^Closest string/)).not.toBeInTheDocument();
+  });
+
   it("explains how to allow the microphone when it is blocked", async () => {
     installMicrophone(null, { denied: true });
     const { user } = setup();
@@ -170,6 +205,21 @@ describe("TunerDialog: the audio input", () => {
       "In tune",
     );
   });
+
+  it.each([44_100, 96_000])(
+    "reads the pitch right from an interface at %i Hz",
+    async (sampleRate) => {
+      storeAudioInput(SCARLETT);
+      installMicrophone(110, { inputs: [BUILT_IN, SCARLETT], sampleRate });
+      const { user } = setup();
+      await listen(user);
+      expect(screen.getByRole("meter", { name: "Tuning" })).toHaveAttribute(
+        "aria-valuetext",
+        "In tune",
+      );
+      expect(screen.getByText("A2")).toBeInTheDocument();
+    },
+  );
 
   it("listens to the system default input until one is chosen", async () => {
     const mic = installMicrophone(110, { inputs: [BUILT_IN, SCARLETT] });

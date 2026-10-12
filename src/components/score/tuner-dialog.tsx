@@ -13,6 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   audioInputErrorText,
+  listeningContext,
   openAudioInput,
   useAudioInput,
   type AudioInput,
@@ -23,6 +24,9 @@ import { cn } from "@/lib/utils";
 
 /** Within this many cents a string counts as in tune. */
 export const IN_TUNE_CENTS = 5;
+
+/** How long (ms) the tuner keeps showing the last note once it hears none. */
+export const HOLD_MS = 500;
 
 type MicState =
   | { kind: "off" }
@@ -70,7 +74,7 @@ function useMicrophonePitch(on: boolean, tuning: readonly number[], input: Audio
           return;
         }
         stream = opened;
-        context = new AudioContext();
+        context = listeningContext(stream);
         const analyser = context.createAnalyser();
         // A power of two that holds two periods of a bass's low B.
         let size = 2048;
@@ -79,11 +83,17 @@ function useMicrophonePitch(on: boolean, tuning: readonly number[], input: Audio
         context.createMediaStreamSource(stream).connect(analyser);
         const buffer = new Float32Array(analyser.fftSize);
         setState({ kind: "listening", device: stream.getAudioTracks()[0]?.label ?? "" });
+        let lastHeard = 0;
         timer = setInterval(() => {
           analyser.getFloatTimeDomainData(buffer);
           const pitch = detectPitch(buffer, context!.sampleRate);
           const near = pitch && nearestString(pitch.hz, strings.current);
-          if (!pitch || !near) return;
+          if (!pitch || !near) {
+            // The string died away: stop showing its last reading.
+            if (Date.now() - lastHeard >= HOLD_MS) setHeard(null);
+            return;
+          }
+          lastHeard = Date.now();
           setHeard({
             string: near.index,
             cents: near.cents,

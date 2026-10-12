@@ -3,13 +3,15 @@ import type { AudioInput } from "@/lib/audio/input";
 /**
  * A fake `navigator.mediaDevices` with these audio inputs (the first is the system default).
  * With `hidden`, the inputs and their names stay hidden until the microphone was opened once,
- * as in WebKit. `src/test/setup.ts` removes it after each test.
+ * as in WebKit. `sampleRate` is the rate the inputs run at, as their tracks report it.
+ * `src/test/setup.ts` removes it after each test.
  */
 export function installMediaDevices({
   inputs: initial = [],
   hidden: initiallyHidden = false,
   denied = false,
-}: { inputs?: AudioInput[]; hidden?: boolean; denied?: boolean } = {}) {
+  sampleRate = 48_000,
+}: { inputs?: AudioInput[]; hidden?: boolean; denied?: boolean; sampleRate?: number } = {}) {
   let inputs = initial;
   let hidden = initiallyHidden;
   const events = new EventTarget();
@@ -23,7 +25,7 @@ export function installMediaDevices({
       throw new DOMException("No such input", "OverconstrainedError");
     }
     hidden = false;
-    const track = { label: device?.label ?? "", stop };
+    const track = { label: device?.label ?? "", stop, getSettings: () => ({ sampleRate }) };
     return { getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream;
   });
   const enumerateDevices = vi.fn(
