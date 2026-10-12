@@ -30,6 +30,12 @@ describe("Welcome", () => {
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(FEATURES.length);
   });
 
+  it("starts with the title, without a preview badge", () => {
+    renderWelcome();
+
+    expect(screen.queryByText(/early preview/i)).not.toBeInTheDocument();
+  });
+
   it("thanks alphaTab first, after the features, with its logo, and says who made cpal", async () => {
     const onShowLicenses = vi.fn();
     const { user } = renderWithProviders(

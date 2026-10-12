@@ -21,6 +21,8 @@ test.describe("accessibility", () => {
       else await expect(html).not.toHaveClass(/dark/);
       // Scan the settled colours, not a fade between the themes.
       await waitForAnimations(app);
+      await expect(app.getByRole("contentinfo")).toContainText(/Version \d+\.\d+\.\d+/);
+      await expect(app.getByText(/early preview/i)).toHaveCount(0);
 
       await expectNoA11yViolations(app);
     });

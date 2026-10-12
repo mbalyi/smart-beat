@@ -46,14 +46,11 @@ export function Welcome({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-14 px-4 pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-14 lg:px-8 lg:pt-8">
-      {/* The space above the badge equals the page's side padding (the container's padding). */}
+      {/* The space above the title equals the page's side padding (the container's padding). */}
       <section aria-labelledby="welcome-title" className="flex flex-col">
-        <span className="inline-flex min-h-7 w-fit items-center rounded-full border bg-card px-3 py-1 text-[13px] leading-snug font-semibold">
-          Early preview
-        </span>
         <h1
           id="welcome-title"
-          className="mt-5 mb-4 max-w-[1120px] font-heading text-[clamp(40px,6vw,68px)] leading-[1.04] font-bold tracking-[-0.06em] text-balance max-sm:mt-[18px] max-sm:text-[clamp(40px,10vw,58px)]"
+          className="mb-4 max-w-[1120px] font-heading text-[clamp(40px,6vw,68px)] leading-[1.04] font-bold tracking-[-0.06em] text-balance max-sm:text-[clamp(40px,10vw,58px)]"
         >
           Write, play and arrange guitar music
         </h1>
