@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+results/*
+!results/.gitignore
+!results/summary.json
+*.egg-info/
