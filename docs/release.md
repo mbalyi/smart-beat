@@ -93,7 +93,7 @@ The workflow names assets without the version (`releaseAssetNamePattern` in `rel
 https://github.com/mbalyi/smart-beat/releases/latest/download/<asset name>
 ```
 
-and to <https://github.com/mbalyi/smart-beat/releases> for all versions. The website lives in its own repository and must not host binaries. **Check the exact asset names on the first draft release** (the last job prints them) and copy them into the website; they are stable from then on.
+and to <https://github.com/mbalyi/smart-beat/releases> for all versions. The README's download buttons use these links: macOS `SmartBeat_darwin_universal.dmg` and Windows `SmartBeat_windows_x64.msi` start the download of the newest release, Linux and "Latest release" open `releases/latest`. They only work once the release is published (a draft or a prerelease is not "latest"), so publish the draft of 1.0.0 first. Keep the names in sync if `releaseAssetNamePattern` changes. The website lives in its own repository and must not host binaries. **Check the exact asset names on the first draft release** (the last job prints them) and copy them into the website; they are stable from then on.
 
 ## How the app updates itself
 
