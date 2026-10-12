@@ -53,7 +53,8 @@ export type TrackedEvent =
   | "play_selection"
   | "restart_on_stop_on"
   | "restart_on_stop_off"
-  | "restart_on_stop_used";
+  | "restart_on_stop_used"
+  | "record_to_tab";
 
 /** File formats that may accompany `open_file` and `export` (`FORMATS` in the Rust core). */
 const KNOWN_FORMATS = [

@@ -82,6 +82,11 @@ describe("POST /v1/batch", () => {
     ).toEqual([...events].sort());
   });
 
+  it("accepts the Record to Tab event", async () => {
+    await post(batch([{ day: today, event: "record_to_tab", count: 1 }]));
+    expect(rows()).toMatchObject([{ event: "record_to_tab" }]);
+  });
+
   it("rejects unknown events, formats, installers, systems and versions", async () => {
     for (const body of [
       batch([{ day: today, event: "my_song_title", count: 1 }]),

@@ -87,6 +87,7 @@ pub enum Event {
     RestartOnStopOn,
     RestartOnStopOff,
     RestartOnStopUsed,
+    RecordToTab,
 }
 
 /// File formats that may accompany `open_file` and `export`.
@@ -678,5 +679,11 @@ mod tests {
             let event: Event = serde_json::from_value(name.into()).unwrap();
             assert_eq!(serde_json::to_value(event).unwrap(), name);
         }
+    }
+
+    #[test]
+    fn record_to_tab_is_known() {
+        let event: Event = serde_json::from_value("record_to_tab".into()).unwrap();
+        assert_eq!(serde_json::to_value(event).unwrap(), "record_to_tab");
     }
 }
