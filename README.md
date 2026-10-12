@@ -6,17 +6,17 @@
 
 A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with optional **self-hosted AI** that turns a hummed melody into drums, bass, piano and guitar parts. Runs on macOS (Apple Silicon and Intel), Windows and Linux.
 
-> **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3).
+> **Status:** public beta (1.0.0-beta.1). Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3).
 
 ## Download
 
 <p>
-  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS%20(.dmg)-000000?style=for-the-badge&logo=apple&logoColor=white"></a>
-  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20(.exe%20%2F%20.msi)-0078D4?style=for-the-badge&logo=windows&logoColor=white"></a>
-  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux%20(.AppImage%20%2F%20.deb%20%2F%20.rpm)-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS%20(.dmg)-000000?style=for-the-badge&logo=apple&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20(.exe%20%2F%20.msi)-0078D4?style=for-the-badge&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux%20(.AppImage%20%2F%20.deb%20%2F%20.rpm)-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
 </p>
 
-The buttons open the [latest release](https://github.com/mbalyi/smart-beat/releases/latest), where every installer is attached.
+The buttons open the [releases page](https://github.com/mbalyi/smart-beat/releases); every installer is attached to the newest release. Smart Beat is in **beta**: GitHub marks beta versions as prereleases, so pick the newest one at the top.
 
 ⭐ **Enjoying Smart Beat?** Please [give the project a star on GitHub](https://github.com/mbalyi/smart-beat/stargazers). It helps other musicians find it, and we are always very grateful for every one.
 
@@ -79,7 +79,7 @@ The buttons open the [latest release](https://github.com/mbalyi/smart-beat/relea
 - **Fretboard, keyboard and drum pads** (View › Fretboard and Keyboard, ⇧⌘F): the notes being played on the track's instrument, following its tuning and capo. In edit mode, click a fret, key or pad to write that note.
 - **Write music** (Edit › Edit Mode, ⌘E; File › New, ⌘N): an edit cursor on tab and staff. Type frets (two quick digits for 10–29) and pitches by letter (A–G), set note values, dots, rests, ties and tuplets (nested ones too), odd time signatures such as 7/8 and 11/16, write a second voice, select beats (Shift+arrows, drag, ⌘A) to copy, cut and paste them, with unlimited undo and redo (the Edit menu names what it will undo). Moving past the end of a bar or of the song adds beats and bars. The full key list is in Help › Keyboard Shortcuts.
 - **Tracks and instruments** (the Tracks panel and the Track menu): add, remove, reorder and duplicate tracks. Guitars with 3–10 strings (7, 8 and 9-string presets for djent and deathcore), basses with 4–6, banjo, ukulele, drums and any General MIDI instrument, with tuning presets (drop D, C, B, A, A#, F# standard, drop E…), custom tunings (string by string) and a capo. A note appears when the lowest string is far below what the sound was recorded at. See [docs/extended-range-guitars.md](docs/extended-range-guitars.md). Drum tracks use the standard Guitar Pro drum-kit notation, shown in the track settings.
-- **Stays up to date** (desktop app): a quiet check for a new version at most once a day, and Help › Check for Updates… on request. A new version shows its release notes and downloads only after you click **Download & Install**.
+- **Stays up to date** (desktop app): a quiet check for a new version at most once a day, and Help › Check for Updates… on request. A new version shows its release notes and downloads only after you click **Download & Install**. During the beta, new beta versions are not offered automatically: download them from the releases page.
 
 ## Made possible by open source
 
@@ -112,7 +112,7 @@ Not a sponsor? A [star on GitHub](https://github.com/mbalyi/smart-beat/stargazer
 
 ## Installing
 
-Download the installer for your system from the [latest release](https://github.com/mbalyi/smart-beat/releases/latest).
+Download the installer for your system from the newest release on the [releases page](https://github.com/mbalyi/smart-beat/releases).
 
 - **macOS:** the DMG is **signed with a Developer ID and notarized by Apple**, so it opens without a warning. Open the DMG and drag Smart Beat to Applications.
 - **Windows and Linux: the installers are not signed.** You can still install them, but Windows will warn you first. Signing a Windows installer needs a code-signing certificate or a signing service from Microsoft, which is a paid subscription (about 10 USD a month, plus an identity check), and Smart Beat is a free project without a foundation or funding behind it yet. The plan to sign them later is in [`docs/code-signing.md`](docs/code-signing.md).
@@ -261,7 +261,7 @@ docs/                Licensing, code signing, releases and updates, ADRs
   - the license policy (npm and cargo-deny, including advisories);
   - a secret scan of the files and the full git history ([gitleaks](https://github.com/gitleaks/gitleaks), settings in [`.gitleaks.toml`](.gitleaks.toml)).
 - **[Analytics Worker](.github/workflows/analytics-deploy.yml)** tests the usage-counter backend in [`analytics/`](analytics) and deploys it to Cloudflare from `main` ([`docs/analytics.md`](docs/analytics.md)).
-- **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts. A release also contains signed updater bundles and `latest.json`, which the app's **Help › Check for Updates…** and its daily automatic check read: see [`docs/release.md`](docs/release.md) for how to cut a release, the signing key and the stable download links.
+- **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v1.0.0-beta.1 && git push origin v1.0.0-beta.1`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts. A release also contains signed updater bundles and `latest.json`, which the app's **Help › Check for Updates…** and its daily automatic check read: see [`docs/release.md`](docs/release.md) for how to cut a release, the signing key and the stable download links.
 
 ## Privacy and usage statistics
 

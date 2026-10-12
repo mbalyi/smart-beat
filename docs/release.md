@@ -84,6 +84,8 @@ Linux: only the AppImage updates itself. People who installed the `.deb` or `.rp
 
 ### Stable download links for the website
 
+**While only prereleases exist (the 1.0.0 betas),** `releases/latest` returns 404, so these links and the updater find nothing. Until 1.0.0 is published, the website and the README link to <https://github.com/mbalyi/smart-beat/releases> instead, and beta testers update by downloading the next beta.
+
 The workflow names assets without the version (`releaseAssetNamePattern` in `release.yml`: `SmartBeat_<platform>_<arch><setup><ext>`), so the website can always link to
 
 ```
