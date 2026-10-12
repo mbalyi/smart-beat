@@ -70,7 +70,7 @@ The build reads the key from `TAURI_SIGNING_PRIVATE_KEY`, which can be the key t
 
 ## Transcription server
 
-Import from Audio compiles in the address of Smart Beat's MuScriptor server ([`audio-to-midi.md`](audio-to-midi.md)). Add it as the `TRANSCRIPTION_SERVICE_URL` GitHub Actions variable (Settings › Secrets and variables › Actions › Variables), for example `https://transcribe.example.com`. It is not a secret. A build for a release fails without it. Other builds warn and ship without Import from Audio.
+Import from Audio compiles in the address of Smart Beat's MuScriptor server ([`audio-to-midi.md`](audio-to-midi.md)). Add it as the `TRANSCRIPTION_SERVICE_URL` GitHub Actions variable (Settings › Secrets and variables › Actions › Variables), for example `https://transcribe.example.com`. It is not a secret. While `audio-2-tab` in `src/lib/features.json` is `false` the feature is hidden and the variable is not needed. Once the flag is `true`, a build for a release fails without it. Other builds warn and ship without Import from Audio.
 
 ## What a release contains
 
@@ -93,7 +93,7 @@ The workflow names assets without the version (`releaseAssetNamePattern` in `rel
 https://github.com/mbalyi/smart-beat/releases/latest/download/<asset name>
 ```
 
-and to <https://github.com/mbalyi/smart-beat/releases> for all versions. The website lives in its own repository and must not host binaries. **Check the exact asset names on the first draft release** (the last job prints them) and copy them into the website; they are stable from then on.
+and to <https://github.com/mbalyi/smart-beat/releases> for all versions. The README's download buttons use these links: macOS `SmartBeat_darwin_universal.dmg` and Windows `SmartBeat_windows_x64.msi` start the download of the newest release, Linux and "Latest release" open `releases/latest`. They only work once the release is published (a draft or a prerelease is not "latest"), so publish the draft of 1.0.0 first. Keep the names in sync if `releaseAssetNamePattern` changes. The website lives in its own repository and must not host binaries. **Check the exact asset names on the first draft release** (the last job prints them) and copy them into the website; they are stable from then on.
 
 ## How the app updates itself
 

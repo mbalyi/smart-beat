@@ -184,7 +184,10 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           # Import from Audio only works when the build knows Smart Beat's MuScriptor server.
-          if [ -n "$TRANSCRIPTION_SERVICE_URL" ]; then
+          # While its flag in src/lib/features.json is off, the feature is hidden and needs no server.
+          if [ "$(node -p "require('./src/lib/features.json')['audio-2-tab'] === true")" != "true" ]; then
+            echo "Audio to Tab is off in src/lib/features.json: no transcription server needed."
+          elif [ -n "$TRANSCRIPTION_SERVICE_URL" ]; then
             exit 0
           elif [ -n "$RELEASE_TAG" ]; then
             echo "::error::The TRANSCRIPTION_SERVICE_URL variable is not set, so $RELEASE_TAG would ship without Import from Audio. See docs/release.md."
@@ -274,6 +277,11 @@ jobs:
             exit 1
           fi
           gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "$RUNNER_TEMP/latest.json"
+          # tauri-action writes API asset URLs while the release is a draft; the updater needs
+          # the public download URLs.
+          echo "$release" | jq '[.assets[] | {id, name}]' > "$RUNNER_TEMP/assets.json"
+          node scripts/fix-latest-json.mjs "$tag" "$RUNNER_TEMP/latest.json" "$RUNNER_TEMP/assets.json"
+          gh release upload "$tag" "$RUNNER_TEMP/latest.json" --repo "$GITHUB_REPOSITORY" --clobber
           node scripts/verify-latest-json.mjs "$tag" "$RUNNER_TEMP/latest.json"
 
       - name: Add versioned copies of the installers

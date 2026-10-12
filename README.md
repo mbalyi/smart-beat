@@ -6,17 +6,18 @@
 
 A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with optional **self-hosted AI** that turns a hummed melody into drums, bass, piano and guitar parts. Runs on macOS (Apple Silicon and Intel), Windows and Linux.
 
-> **Status:** public beta (1.0.0-beta.1). Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3).
+> **Status:** stable release (1.0.0). Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3).
 
 ## Download
 
 <p>
-  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS%20(.dmg)-000000?style=for-the-badge&logo=apple&logoColor=white"></a>
-  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20(.exe%20%2F%20.msi)-0078D4?style=for-the-badge&logo=windows&logoColor=white"></a>
-  <a href="https://github.com/mbalyi/smart-beat/releases"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux%20(.AppImage%20%2F%20.deb%20%2F%20.rpm)-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases/latest/download/SmartBeat_darwin_universal.dmg"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS%20(.dmg)-000000?style=for-the-badge&logo=apple&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases/latest/download/SmartBeat_windows_x64.msi"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20(.msi)-0078D4?style=for-the-badge&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Download for Linux" src="https://img.shields.io/badge/Download-Linux%20(.AppImage%20%2F%20.deb%20%2F%20.rpm)-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
+  <a href="https://github.com/mbalyi/smart-beat/releases/latest"><img alt="Open the latest release" src="https://img.shields.io/badge/Latest%20release-all%20installers-555555?style=for-the-badge&logo=github&logoColor=white"></a>
 </p>
 
-The buttons open the [releases page](https://github.com/mbalyi/smart-beat/releases); every installer is attached to the newest release. Smart Beat is in **beta**: GitHub marks beta versions as prereleases, so pick the newest one at the top.
+The macOS and Windows buttons start the download of the newest release's installer (`.dmg`, `.msi`) right away. The Linux and **Latest release** buttons open the [newest release](https://github.com/mbalyi/smart-beat/releases/latest), where every installer (including the Windows `.exe` and the Linux `.AppImage`, `.deb` and `.rpm`) is attached. All versions are on the [releases page](https://github.com/mbalyi/smart-beat/releases).
 
 ⭐ **Enjoying Smart Beat?** Please [give the project a star on GitHub](https://github.com/mbalyi/smart-beat/stargazers). It helps other musicians find it, and we are always very grateful for every one.
 
@@ -261,7 +262,7 @@ docs/                Licensing, code signing, releases and updates, ADRs
   - the license policy (npm and cargo-deny, including advisories);
   - a secret scan of the files and the full git history ([gitleaks](https://github.com/gitleaks/gitleaks), settings in [`.gitleaks.toml`](.gitleaks.toml)).
 - **[Analytics Worker](.github/workflows/analytics-deploy.yml)** tests the usage-counter backend in [`analytics/`](analytics) and deploys it to Cloudflare from `main` ([`docs/analytics.md`](docs/analytics.md)).
-- **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v1.0.0-beta.1 && git push origin v1.0.0-beta.1`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts. A release also contains signed updater bundles and `latest.json`, which the app's **Help › Check for Updates…** and its daily automatic check read: see [`docs/release.md`](docs/release.md) for how to cut a release, the signing key and the stable download links.
+- **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v1.0.0 && git push origin v1.0.0`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts. A release also contains signed updater bundles and `latest.json`, which the app's **Help › Check for Updates…** and its daily automatic check read: see [`docs/release.md`](docs/release.md) for how to cut a release, the signing key and the stable download links.
 
 ## Privacy and usage statistics
 

@@ -13,6 +13,7 @@ import {
   releaseChangelog,
   setVersion,
   UPDATER_TARGETS,
+  useDownloadUrls,
   verifyLatestJson,
   versionedAssetName,
   versionFromTag,
@@ -328,5 +329,45 @@ describe("versionedAssetName", () => {
     "other.dmg",
   ])("leaves %s alone", (name) => {
     expect(versionedAssetName(name, "0.2.0")).toBeNull();
+  });
+});
+
+describe("useDownloadUrls", () => {
+  const tag = "v1.0.0";
+  const assets = [
+    { id: 11, name: "SmartBeat_linux_amd64.AppImage" },
+    { id: 12, name: "SmartBeat_darwin_universal.app.tar.gz" },
+  ];
+
+  it("swaps API asset URLs for the public download URLs", () => {
+    const manifest = {
+      platforms: {
+        "linux-x86_64": {
+          url: "https://api.github.com/repos/mbalyi/smart-beat/releases/assets/11",
+        },
+        "darwin-aarch64": {
+          url: "https://api.github.com/repos/mbalyi/smart-beat/releases/assets/12",
+        },
+      },
+    };
+    expect(useDownloadUrls(manifest, assets, tag)).toBe(2);
+    expect(manifest.platforms["linux-x86_64"].url).toBe(
+      `${RELEASE_URL_PREFIX}${tag}/SmartBeat_linux_amd64.AppImage`,
+    );
+    expect(manifest.platforms["darwin-aarch64"].url).toBe(
+      `${RELEASE_URL_PREFIX}${tag}/SmartBeat_darwin_universal.app.tar.gz`,
+    );
+  });
+
+  it("leaves other URLs and unknown assets alone", () => {
+    const manifest = {
+      platforms: {
+        a: { url: `${RELEASE_URL_PREFIX}${tag}/x` },
+        b: { url: "https://api.github.com/repos/mbalyi/smart-beat/releases/assets/99" },
+        c: {},
+      },
+    };
+    expect(useDownloadUrls(manifest, assets, tag)).toBe(0);
+    expect(manifest.platforms.a.url).toBe(`${RELEASE_URL_PREFIX}${tag}/x`);
   });
 });

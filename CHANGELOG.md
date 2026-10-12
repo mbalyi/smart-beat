@@ -4,6 +4,12 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+## [1.0.0]
+
+The first stable release of Smart Beat. It is the first public beta plus updated dependencies:
+
+- Updated the Tauri runtime and plugins (including the updater), Radix UI, shadcn, lucide icons and the test tooling.
+
 ## [1.0.0-beta.1]
 
 The first public beta of Smart Beat, a free tablature editor for macOS, Windows and Linux. Please report problems at https://github.com/mbalyi/smart-beat/issues or write to smart-beat@outlook.com.

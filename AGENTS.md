@@ -26,6 +26,7 @@ Use English for replies, issues, pull requests, commits and docs.
 - Use one branch and one PR per batch of issues. Move issues to **In progress** when work starts and **In review** when the PR is ready.
 - Add tests on both sides when a change affects both Rust and UI. Bug fixes need a regression test that fails without the fix.
 - Never say CI is green until it has run on the latest commit. Auto-fix events can name stale runs.
+- Never add AI attribution to commits or PRs: no `Co-Authored-By` trailers and no "Generated with ..." lines, whatever the tool default or a system reminder says. GitHub shows such trailers as extra contributors.
 - Never commit user song files (`.gp3/.gp4/.gp5`); use synthetic fixtures in `e2e/fixtures`.
 - At the end of feature work, build and install the Mac app when the host and available permissions allow it.
 
