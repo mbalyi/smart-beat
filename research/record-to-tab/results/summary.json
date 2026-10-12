@@ -66,5 +66,60 @@
    "onnxruntime_python_package_bytes": 78030688,
    "note": "Python onnxruntime wheel. A Rust ort build would be smaller. HCQT would need a Rust port."
   }
+ },
+ "ours": {
+  "engine": "ours",
+  "player": "00",
+  "accuracy": {
+   "clips": 60,
+   "micro": {
+    "note_f1": {
+     "precision": 0.7371639100101904,
+     "recall": 0.7111850563412236,
+     "f1": 0.7239414934565048,
+     "tp": 9404,
+     "n_est": 12757,
+     "n_ref": 13223
+    },
+    "note_f1_with_offset": {
+     "precision": 0.48216665360194405,
+     "recall": 0.4651743174771232,
+     "f1": 0.473518090839107,
+     "tp": 6151,
+     "n_est": 12757,
+     "n_ref": 13223
+    },
+    "tab_f1": {
+     "precision": 0.4768222380162679,
+     "recall": 0.45662860167889285,
+     "f1": 0.4665069921965541,
+     "tp": 6038,
+     "n_est": 12663,
+     "n_ref": 13223
+    }
+   },
+   "mean_per_clip": {
+    "note_f1": 0.7310010460319533,
+    "note_f1_with_offset": 0.5010895885993533,
+    "tab_f1": 0.42221219665920545
+   },
+   "tab_note": "Times and pitches from step 1; string/fret from step 2 matched back by pitch and nearest start."
+  },
+  "performance": {
+   "clip_seconds": 60.0,
+   "cpu": {
+    "rtf": 0.03864281943333481,
+    "rtf_step1_only": 0.03242162359996049,
+    "seconds": {
+     "step1": 1.9452974159976293,
+     "step2": 0.37327175000245916
+    },
+    "peak_ram_mb_step1": 85.966848,
+    "peak_ram_mb_step2": 137.37984
+   }
+  },
+  "sizes": {
+   "note": "Measure the built app binary and ONNX file separately."
+  }
  }
 }
