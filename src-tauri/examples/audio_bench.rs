@@ -1,4 +1,4 @@
-//! Measurements for ADR 0002 (audio engine). Run with:
+//! Measurements for ADR 0003 (audio engine). Run with:
 //!
 //! ```sh
 //! cargo run --release --example audio_bench --manifest-path src-tauri/Cargo.toml

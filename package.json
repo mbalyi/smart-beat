@@ -1,9 +1,16 @@
 {
   "name": "smart-beat",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0-beta.1",
   "description": "Smart Beat – a modern cross-platform tablature editor with self-hosted AI accompaniment.",
   "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "Mark Balyi <smart-beat@outlook.com>",
+  "homepage": "https://github.com/mbalyi/smart-beat",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mbalyi/smart-beat.git"
+  },
+  "bugs": "https://github.com/mbalyi/smart-beat/issues",
   "type": "module",
   "packageManager": "pnpm@12.6.0",
   "engines": {
@@ -27,8 +34,13 @@
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "licenses:check": "node scripts/check-licenses.mjs && cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources",
     "licenses:generate": "node scripts/generate-licenses.mjs",
+    "docs:check": "node scripts/check-docs.mjs",
+    "version:check": "node scripts/version.mjs check",
+    "release:patch": "node scripts/version.mjs patch",
+    "release:minor": "node scripts/version.mjs minor",
+    "release:major": "node scripts/version.mjs major",
     "soundfonts:fetch": "node scripts/fetch-soundfonts.mjs",
-    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:fmt && pnpm rust:lint && pnpm rust:test",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm docs:check && pnpm version:check && pnpm test && pnpm rust:fmt && pnpm rust:lint && pnpm rust:test",
     "drums:report": "node scripts/drum-support.mjs && prettier --write docs/drum-midi-support.md",
     "ranges:report": "node scripts/sound-ranges.mjs && prettier --write src/lib/audio/sound-ranges.json"
   },

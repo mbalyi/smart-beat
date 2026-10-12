@@ -8,6 +8,13 @@ test.describe("native menu integration", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText("0.1.0")).toBeVisible();
     await expect(dialog.getByText("macOS (Apple Silicon)")).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "smart-beat@outlook.com" })).toHaveAttribute(
+      "href",
+      "mailto:smart-beat@outlook.com",
+    );
+    await expect(
+      dialog.getByRole("link", { name: "github.com/mbalyi/smart-beat" }),
+    ).toHaveAttribute("href", "https://github.com/mbalyi/smart-beat");
   });
 
   test("Help → Keyboard Shortcuts lists menu shortcuts", async ({ app }) => {

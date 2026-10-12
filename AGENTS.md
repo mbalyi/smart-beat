@@ -1,6 +1,6 @@
 # Smart Beat agent guide
 
-Desktop Guitar Pro alternative: Tauri 2 (Rust) + React/TypeScript/Tailwind/shadcn UI, alphaTab for score rendering and playback. See `high-level-plan.md` for the roadmap and `CONTRIBUTING.md`.
+Desktop Guitar Pro alternative: Tauri 2 (Rust) + React/TypeScript/Tailwind/shadcn UI, alphaTab for score rendering and playback. The roadmap is the GitHub project board (https://github.com/users/mbalyi/projects/3); see `CONTRIBUTING.md`.
 
 ## Language
 

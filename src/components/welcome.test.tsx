@@ -30,6 +30,12 @@ describe("Welcome", () => {
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(FEATURES.length);
   });
 
+  it("starts with the title, without a preview badge", () => {
+    renderWelcome();
+
+    expect(screen.queryByText(/early preview/i)).not.toBeInTheDocument();
+  });
+
   it("thanks alphaTab first, after the features, with its logo, and says who made cpal", async () => {
     const onShowLicenses = vi.fn();
     const { user } = renderWithProviders(
@@ -87,7 +93,7 @@ describe("Welcome", () => {
       "Open, play and practice (Available)",
       "Write tabs and scores (Available)",
       "Learning mode (Available)",
-      "Audio to tab (Available)",
+      "Audio to tab (AI · Coming soon)",
       "Record to tab (AI · Coming soon)",
       "Speech to tab (AI · Coming soon)",
       "Hum to accompaniment (AI · Coming soon)",

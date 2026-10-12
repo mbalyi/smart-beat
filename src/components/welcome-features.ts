@@ -46,8 +46,8 @@ export const FEATURES: readonly Feature[] = [
   {
     title: "Audio to tab",
     image: audioToTab,
-    badge: "Available",
-    status: "available",
+    badge: "AI · Coming soon",
+    status: "soon",
     description: "Upload an audio file and let AI generate MIDI and tab for you.",
   },
   {

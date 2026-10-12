@@ -141,6 +141,8 @@ jobs:
             tag="v$(node -p "require('./package.json').version")"
           fi
           node scripts/release-notes.mjs "$tag" --check
+          # package.json, Cargo.toml and Cargo.lock must all carry this version.
+          node scripts/version.mjs check --tag "$tag"
           # The key in the repository while the updater was built (key id 4787392BA11701D4) is a
           # throwaway one: apps built with it could never be updated by the real key.
           if grep -q "IDQ3ODczOTJCQTExNzAxRDQK" src-tauri/tauri.conf.json; then
@@ -149,6 +151,9 @@ jobs:
           fi
           {
             echo "tag=$tag"
+            # 0.2.0-beta.1 and the like are GitHub prereleases, which releases/latest (and so the
+            # updater's latest.json) never points at: they cannot reach the stable channel.
+            node -e 'import("./scripts/release-lib.mjs").then((m) => console.log(`prerelease=${m.isPrerelease(process.argv[1])}`))' "$tag"
             echo "body<<RELEASE_NOTES_EOF"
             node scripts/release-notes.mjs "$tag"
             echo "RELEASE_NOTES_EOF"
@@ -207,7 +212,7 @@ jobs:
           releaseName: Smart Beat v__VERSION__
           releaseBody: ${{ steps.release.outputs.body }}
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ steps.release.outputs.prerelease == 'true' }}
           # Stable names without the version, so the website can link to
           # https://github.com/mbalyi/smart-beat/releases/latest/download/<name> (docs/release.md).
           releaseAssetNamePattern: SmartBeat_[platform]_[arch][setup][ext]
@@ -270,3 +275,29 @@ jobs:
           fi
           gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "$RUNNER_TEMP/latest.json"
           node scripts/verify-latest-json.mjs "$tag" "$RUNNER_TEMP/latest.json"
+
+      - name: Add versioned copies of the installers
+        # The stable names (SmartBeat_macos_universal.dmg) keep the website's
+        # releases/latest/download links working; the copies carry the version
+        # (SmartBeat-0.2.0-macOS-universal.dmg) for people who keep several versions.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(node -p "require('./package.json').version")"
+          fi
+          dir="$RUNNER_TEMP/installers"
+          mkdir -p "$dir"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+            --pattern '*.dmg' --pattern '*.exe' --pattern '*.msi' \
+            --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm'
+          for file in "$dir"/*; do
+            name=$(node -e 'import("./scripts/release-lib.mjs").then((m) => console.log(m.versionedAssetName(process.argv[1], process.argv[2]) ?? ""))' "$(basename "$file")" "${tag#v}")
+            [ -n "$name" ] || continue
+            echo "$(basename "$file") -> $name"
+            mkdir -p "$dir/versioned"
+            cp "$file" "$dir/versioned/$name"
+            gh release upload "$tag" "$dir/versioned/$name" --repo "$GITHUB_REPOSITORY" --clobber
+          done

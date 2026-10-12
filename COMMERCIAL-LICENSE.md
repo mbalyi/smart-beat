@@ -14,11 +14,11 @@ This page explains how I read the licence, so you know where you stand. The lice
 
 ## The released app
 
-The ready-made installers on the GitHub Releases page are covered by the separate [End User License Agreement](EULA.md), not by the source licence above. The EULA is a draft until a lawyer has reviewed it.
+The ready-made installers on the GitHub Releases page are covered by the separate [End User License Agreement](EULA.md), not by the source licence above. It has not been reviewed by a lawyer yet ([`docs/licensing.md`](docs/licensing.md#legal-review)).
 
 ## How to ask for a commercial licence
 
-Write to **smartbeat@outlook.com** with:
+Write to **smart-beat@outlook.com** with:
 
 1. who you are (person or company);
 2. what you want to do with Smart Beat (use inside a company, ship it in a product, offer a service, resell it, …);

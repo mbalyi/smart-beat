@@ -1,5 +1,5 @@
 /* global OfflineAudioContext, AudioContext -- these run in the browser page */
-// Measurement for ADR 0002: the cost of the same effect chain built from
+// Measurement for ADR 0003: the cost of the same effect chain built from
 // WebAudio nodes (compressor, 10-band EQ, cab convolver) in Chromium and
 // WebKit, rendered offline. Run with `node scripts/audio-bench-web.mjs`.
 import { chromium, webkit } from "@playwright/test";

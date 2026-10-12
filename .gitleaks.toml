@@ -1,0 +1,13 @@
+# Secret scan settings (gitleaks). CI runs `gitleaks git` on every PR and push to main.
+# Each allowlisted value below was reviewed by hand and is not a secret.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Reviewed false positives"
+regexes = [
+  # SHA-256 of the string "test", used as a fake file key in the IPC tests.
+  '''9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08''',
+  # Placeholder token for the analytics Worker running locally (docs/analytics.md).
+  '''local-dev-token''',
+]

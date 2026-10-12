@@ -3933,7 +3933,7 @@ checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 
 [[package]]
 name = "smart-beat"
-version = "0.1.0"
+version = "1.0.0-beta.1"
 dependencies = [
  "base64 0.22.1",
  "bytes",

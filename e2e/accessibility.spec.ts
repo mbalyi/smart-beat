@@ -21,6 +21,11 @@ test.describe("accessibility", () => {
       else await expect(html).not.toHaveClass(/dark/);
       // Scan the settled colours, not a fade between the themes.
       await waitForAnimations(app);
+      await expect(app.getByRole("contentinfo")).toContainText(/Version \d+\.\d+\.\d+/);
+      await expect(app.getByText(/early preview/i)).toHaveCount(0);
+      await expect(
+        app.getByRole("contentinfo").getByRole("link", { name: "@mbalyi" }),
+      ).toHaveAttribute("href", "https://github.com/mbalyi");
 
       await expectNoA11yViolations(app);
     });
@@ -186,6 +191,18 @@ test.describe("accessibility", () => {
     await app.getByRole("button", { name: "New song" }).focus(); // last control before the score
     await app.keyboard.press(tab);
     await expect(app.getByRole("region", { name: /^Score:/ })).toBeFocused();
+  });
+
+  test("about dialog with its contact links has no WCAG violations in dark mode", async ({
+    app,
+  }) => {
+    await app.emulateMedia({ colorScheme: "dark" });
+    await expect(app.locator("html")).toHaveClass(/dark/);
+    await emitMenuAction(app, "about");
+    const dialog = app.getByRole("dialog", { name: "Smart Beat" });
+    await expect(dialog.getByRole("link", { name: "smart-beat@outlook.com" })).toBeVisible();
+
+    await expectNoA11yViolations(app);
   });
 
   for (const action of ["about", "shortcuts", "licenses"] as const) {

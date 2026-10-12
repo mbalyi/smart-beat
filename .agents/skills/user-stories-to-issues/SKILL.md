@@ -5,7 +5,7 @@ description: Split a plan into user stories and create GitHub issues in mbalyi/s
 
 Reply in English. Issues and stories are written in English.
 
-1. Read the plan file or topic provided by the user (for example `high-level-plan.md`). Write stories as "As a … I want … so that …" with an acceptance-criteria checklist.
+1. Read the plan file or topic provided by the user (for example a plan the user pasted or a document in the private extensions repository). Write stories as "As a … I want … so that …" with an acceptance-criteria checklist.
 2. Show the story list to the user and get approval before creating anything.
 3. Check `gh auth status` (needs the `project` scope; `gh` may live at `~/bin/gh`). Never open Jira.
 4. List existing issues first (`gh issue list --limit 200`) and skip duplicates.

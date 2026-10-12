@@ -2,6 +2,8 @@ import wordmark from "@/assets/smart-beat-wordmark.png";
 import { AppLogo } from "@/components/app-logo";
 import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
+import { CopyrightNotice } from "@/components/copyright-notice";
+import { ExternalLink } from "@/components/external-link";
 import {
   Dialog,
   DialogBody,
@@ -13,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { usePromise } from "@/hooks/use-promise";
 import { errorText } from "@/lib/errors";
+import { CONTACT_MAILTO, PROJECT } from "@/lib/project-info";
 import { describePlatform, getAppInfo } from "@/lib/tauri";
 
 function AppDetails() {
@@ -32,6 +35,18 @@ function AppDetails() {
           <dd className="font-medium">{describePlatform(info)}</dd>
           <dt className="text-muted-foreground">Tauri</dt>
           <dd className="font-medium tabular-nums">{info.tauriVersion}</dd>
+          <dt className="text-muted-foreground">Contact</dt>
+          <dd className="font-medium">
+            <ExternalLink href={CONTACT_MAILTO} className="underline">
+              {PROJECT.email}
+            </ExternalLink>
+          </dd>
+          <dt className="text-muted-foreground">Source</dt>
+          <dd className="font-medium">
+            <ExternalLink href={PROJECT.repository} className="underline">
+              github.com/mbalyi/smart-beat
+            </ExternalLink>
+          </dd>
         </dl>
       )}
     </AsyncContent>
@@ -54,7 +69,7 @@ export function AboutDialog({ open, onOpenChange, onCloseAutoFocus }: AppDialogP
         </DialogBody>
         <DialogFooter showCloseButton>
           <p className="mr-auto self-center text-xs text-muted-foreground">
-            © {new Date().getFullYear()} Smart Beat. All rights reserved.
+            <CopyrightNotice />. Source code under PolyForm Noncommercial 1.0.0.
           </p>
         </DialogFooter>
       </DialogContent>

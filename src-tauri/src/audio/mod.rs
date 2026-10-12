@@ -1,4 +1,4 @@
-//! Native audio engine (ADR 0002): plays the score's MIDI with per-track
+//! Native audio engine (ADR 0003): plays the score's MIDI with per-track
 //! synthesizers and effect chains, and the user's sound library.
 //!
 //! The UI keeps alphaTab for notation and timing; when the native engine is
