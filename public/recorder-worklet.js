@@ -20,10 +20,9 @@ class RecorderProcessor extends AudioWorkletProcessor {
   send() {
     if (this.filled === 0) return;
     const samples = this.block.slice(0, this.filled);
-    this.port.postMessage(
-      { type: "samples", samples, peak: this.peak, time: this.blockTime },
-      [samples.buffer],
-    );
+    this.port.postMessage({ type: "samples", samples, peak: this.peak, time: this.blockTime }, [
+      samples.buffer,
+    ]);
     this.filled = 0;
     this.peak = 0;
   }
