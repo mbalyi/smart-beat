@@ -122,6 +122,8 @@ test.describe("Record to Tab (#108)", () => {
   });
 
   test("free mode: records, transcribes and opens the take as a new song", async ({ app }) => {
+    // Renders two songs (the new song, then the take): WebKit can need more than 30 s.
+    test.slow();
     await newSong(app);
     const dialog = await openRecordDialog(app);
     await dialog.getByRole("radio", { name: "Free" }).click();
