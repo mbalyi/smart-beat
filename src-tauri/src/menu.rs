@@ -97,7 +97,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 62] = [
+    pub const ALL: [Self; 63] = [
         Self::NewSong,
         Self::Open,
         Self::ImportAudio,
