@@ -276,6 +276,7 @@ export function App() {
                     onReopenWithEncoding={(choice) => reopenWithEncoding(s.id, choice)}
                     startEditing={s.isNew}
                     droppedAudio={s.id === song.id ? droppedAudio : null}
+                    onOpenSettings={(from) => showDialog("settings", from)}
                   />
                 ))}
               </div>

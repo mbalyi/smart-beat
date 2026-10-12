@@ -11,6 +11,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  audioInputErrorText,
+  openAudioInput,
+  useAudioInput,
+  type AudioInput,
+} from "@/lib/audio/input";
 import { detectPitch, midiOf, nearestString, samplesNeeded } from "@/lib/audio/pitch";
 import { pitchName, tuningLabel } from "@/lib/score/music";
 import { cn } from "@/lib/utils";
@@ -21,7 +27,8 @@ export const IN_TUNE_CENTS = 5;
 type MicState =
   | { kind: "off" }
   | { kind: "asking" }
-  | { kind: "listening" }
+  /** `device`: the name of the input heard (it may be empty). */
+  | { kind: "listening"; device: string }
   | { kind: "blocked"; message: string };
 
 interface Heard {
@@ -33,10 +40,11 @@ interface Heard {
 }
 
 /**
- * Listens to the microphone while `on` and reports the pitch heard. The microphone is asked
- * for only when listening starts, and released as soon as it stops (#83).
+ * Listens to the input chosen in Settings while `on` and reports the pitch heard. The input is
+ * asked for only when listening starts, and released as soon as it stops (#83). Choosing
+ * another input while listening switches to it.
  */
-function useMicrophonePitch(on: boolean, tuning: readonly number[]) {
+function useMicrophonePitch(on: boolean, tuning: readonly number[], input: AudioInput | null) {
   const [state, setState] = useState<MicState>({ kind: "off" });
   const [heard, setHeard] = useState<Heard | null>(null);
   const strings = useRef(tuning);
@@ -50,15 +58,18 @@ function useMicrophonePitch(on: boolean, tuning: readonly number[]) {
     let stream: MediaStream | null = null;
     let context: AudioContext | null = null;
     let timer: ReturnType<typeof setInterval> | undefined;
+    const release = (s: MediaStream) => s.getTracks().forEach((track) => track.stop());
     (async () => {
       setState({ kind: "asking" });
       setHeard(null);
       try {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error("No microphone here.");
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        });
-        if (stopped) return;
+        const opened = await openAudioInput(input);
+        // Stopped while the system was still asking: let go of the input straight away.
+        if (stopped) {
+          release(opened);
+          return;
+        }
+        stream = opened;
         context = new AudioContext();
         const analyser = context.createAnalyser();
         // A power of two that holds two periods of a bass's low B.
@@ -67,7 +78,7 @@ function useMicrophonePitch(on: boolean, tuning: readonly number[]) {
         analyser.fftSize = size;
         context.createMediaStreamSource(stream).connect(analyser);
         const buffer = new Float32Array(analyser.fftSize);
-        setState({ kind: "listening" });
+        setState({ kind: "listening", device: stream.getAudioTracks()[0]?.label ?? "" });
         timer = setInterval(() => {
           analyser.getFloatTimeDomainData(buffer);
           const pitch = detectPitch(buffer, context!.sampleRate);
@@ -81,22 +92,16 @@ function useMicrophonePitch(on: boolean, tuning: readonly number[]) {
         }, 100);
       } catch (error) {
         if (stopped) return;
-        const denied = error instanceof DOMException && error.name === "NotAllowedError";
-        setState({
-          kind: "blocked",
-          message: denied
-            ? "Smart Beat may not use the microphone. Allow it in System Settings › Privacy & Security › Microphone, then try again."
-            : `The microphone could not be opened: ${error instanceof Error ? error.message : String(error)}`,
-        });
+        setState({ kind: "blocked", message: audioInputErrorText(error) });
       }
     })();
     return () => {
       stopped = true;
       clearInterval(timer);
-      stream?.getTracks().forEach((track) => track.stop());
+      if (stream) release(stream);
       void context?.close();
     };
-  }, [on]);
+  }, [on, input]);
 
   return on ? { state, heard } : { state: { kind: "off" } as MicState, heard: null };
 }
@@ -145,7 +150,7 @@ function CentsMeter({ cents }: { cents: number | null }) {
 
 /**
  * The tuner (#83): the open strings of the track to play and tune to by ear, and, if the
- * player wants it, the microphone to show how far each string is off.
+ * player wants it, the audio input chosen in Settings to show how far each string is off.
  */
 export function TunerDialog({
   open,
@@ -153,6 +158,7 @@ export function TunerDialog({
   trackName,
   tuning,
   onPlay,
+  onOpenSettings,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -161,10 +167,13 @@ export function TunerDialog({
   tuning: readonly number[];
   /** Plays a reference note. */
   onPlay: (pitch: number) => void;
+  /** Opens Settings, where the audio input is chosen; focus comes back to `from`. */
+  onOpenSettings?: (from: HTMLElement) => void;
 }) {
   const [tab, setTab] = useState("notes");
   const [listening, setListening] = useState(false);
-  const mic = useMicrophonePitch(open && tab === "mic" && listening, tuning);
+  const input = useAudioInput();
+  const mic = useMicrophonePitch(open && tab === "mic" && listening, tuning, input);
   // Low string first, as a player tunes.
   const strings = tuning.map((pitch, i) => ({ pitch, number: i + 1 })).reverse();
 
@@ -224,8 +233,24 @@ export function TunerDialog({
                 <span role="status" className="text-sm text-muted-foreground">
                   {mic.state.kind === "off" && "The microphone is off."}
                   {mic.state.kind === "asking" && "Asking for the microphone…"}
-                  {mic.state.kind === "listening" && "Listening. Play one string at a time."}
+                  {mic.state.kind === "listening" &&
+                    (mic.state.device
+                      ? `Listening to ${mic.state.device}. Play one string at a time.`
+                      : "Listening. Play one string at a time.")}
                 </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2 text-sm">
+                <span>Input: {input?.label ?? "System default"}</span>
+                {onOpenSettings && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="px-0"
+                    onClick={(event) => onOpenSettings(event.currentTarget)}
+                  >
+                    Change input…
+                  </Button>
+                )}
               </div>
               {mic.state.kind === "blocked" && (
                 <p className="rounded-md border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-sm">
