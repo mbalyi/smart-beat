@@ -255,13 +255,19 @@ export class ScorePlayer {
    * not when it is heard: what the UI shows while playing is delayed by the
    * output latency (see lib/score/sync.ts).
    */
-  private readonly delayer = new Delayer(() =>
-    !this.playing
-      ? 0
-      : this.engine
-        ? Math.max(0, readSyncOffset())
-        : outputLatencyMs(this.latencyInfo, readSyncOffset()),
-  );
+  private readonly delayer = new Delayer(() => (this.playing ? this.outputDelayMs() : 0));
+  /** How long after the player hands over sound it is heard: the cursor is delayed by it (ms). */
+  private outputDelayMs(): number {
+    return this.engine
+      ? Math.max(0, readSyncOffset())
+      : outputLatencyMs(this.latencyInfo, readSyncOffset());
+  }
+
+  /** The same delay in seconds, for Record to Tab: the click is heard this long after it starts. */
+  outputLatencySeconds(): number {
+    return this.outputDelayMs() / 1000;
+  }
+
   private lastPosition: PlaybackPosition | null = null;
   private lastBar = -1;
   /** Where (and whether) to continue once a new SoundFont is loaded. */

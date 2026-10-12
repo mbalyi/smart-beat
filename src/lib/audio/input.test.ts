@@ -5,6 +5,7 @@ import {
   AudioInputMissingError,
   audioInputErrorText,
   listAudioInputs,
+  looksBuiltIn,
   openAudioInput,
   readAudioInput,
   revealAudioInputs,
@@ -143,5 +144,32 @@ describe("openAudioInput", () => {
     expect(audioInputErrorText(error)).toBe(
       "The microphone could not be opened: No microphone here.",
     );
+  });
+});
+
+describe("looksBuiltIn", () => {
+  it.each([
+    "MacBook Pro Microphone",
+    "MacBook Air Microphone",
+    "Built-in Microphone",
+    "Built-in Audio Analog Stereo",
+    "Internal Microphone",
+    "iMac Microphone",
+    "Microphone Array (Realtek High Definition Audio)",
+  ])("recognises %s", (label) => {
+    expect(looksBuiltIn(label)).toBe(true);
+  });
+
+  it.each(["Scarlett 2i2 USB", "Focusrite USB Audio", "AirPods Pro", "Rocksmith Real Tone Cable"])(
+    "does not take %s for one",
+    (label) => {
+      expect(looksBuiltIn(label)).toBe(false);
+    },
+  );
+
+  it("does not guess when the name is hidden", () => {
+    expect(looksBuiltIn("")).toBe(false);
+    expect(looksBuiltIn(null)).toBe(false);
+    expect(looksBuiltIn(undefined)).toBe(false);
   });
 });

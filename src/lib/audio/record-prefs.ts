@@ -1,0 +1,72 @@
+/** What Record to Tab remembers between takes: the last choices in its dialog. */
+import { STANDARD_GUITAR, tuningPresets } from "@/lib/score/music";
+
+const PLAY_OTHERS_KEY = "smart-beat:record-play-others";
+const TUNING_KEY = "smart-beat:record-tuning";
+
+/** Guitars the tuning picker offers; 7 and 8 strings are the extended-range guitars. */
+export const RECORD_STRING_COUNTS = [6, 7, 8] as const;
+
+/** A tuning picked by its string count and its preset's name. */
+export interface TuningChoice {
+  strings: number;
+  name: string;
+}
+
+/** Play the song's other tracks along with the click (default: yes). */
+export function readPlayOthers(): boolean {
+  try {
+    return localStorage.getItem(PLAY_OTHERS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function storePlayOthers(value: boolean) {
+  try {
+    localStorage.setItem(PLAY_OTHERS_KEY, value ? "1" : "0");
+  } catch {
+    // Not remembered: the default is used next time.
+  }
+}
+
+const standard = (strings: number): TuningChoice => ({
+  strings,
+  name: tuningPresets(strings)[0]?.name ?? "",
+});
+
+/** The tuning of a choice; the standard tuning of that many strings if the name is unknown. */
+export function tuningOf({ strings, name }: TuningChoice): number[] {
+  const presets = tuningPresets(strings);
+  const found = presets.find((preset) => preset.name === name) ?? presets[0];
+  return found ? [...found.tuning] : STANDARD_GUITAR.slice(0, strings);
+}
+
+/** The last tuning picked, or standard six-string. */
+export function readTuningChoice(): TuningChoice {
+  try {
+    const value = JSON.parse(localStorage.getItem(TUNING_KEY) ?? "null") as Partial<TuningChoice>;
+    if (
+      value &&
+      (RECORD_STRING_COUNTS as readonly number[]).includes(value.strings as number) &&
+      typeof value.name === "string" &&
+      tuningPresets(value.strings!).some((preset) => preset.name === value.name)
+    ) {
+      return { strings: value.strings!, name: value.name };
+    }
+  } catch {
+    // Unreadable or no storage: standard.
+  }
+  return standard(6);
+}
+
+export function storeTuningChoice(choice: TuningChoice) {
+  try {
+    localStorage.setItem(TUNING_KEY, JSON.stringify(choice));
+  } catch {
+    // Not remembered: standard next time.
+  }
+}
+
+/** The standard tuning's choice for a string count. */
+export const standardTuningChoice = standard;
