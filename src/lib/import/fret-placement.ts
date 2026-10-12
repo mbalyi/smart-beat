@@ -180,7 +180,8 @@ export function placeFrets(
       const position = fretted.length
         ? fretted.reduce((sum, note) => sum + note.fret, 0) / fretted.length
         : null;
-      const height = notes.reduce((sum, note) => sum + note.fret ** 2, 0) / Math.max(1, notes.length);
+      const height =
+        notes.reduce((sum, note) => sum + note.fret ** 2, 0) / Math.max(1, notes.length);
       const opens = notes.length - fretted.length;
       return {
         notes,
@@ -244,7 +245,11 @@ export function placeFrets(
   for (let i = 1; i < cost.length; i++) if (cost[i]! < cost[pick]!) pick = i;
   for (let g = all.length - 1; g >= 0; g--) {
     const { notes, dropped, shifted } = all[g]![pick]!;
-    result[g] = { notes: notes.map((n) => ({ ...n })), dropped: [...dropped], shifted: [...shifted] };
+    result[g] = {
+      notes: notes.map((n) => ({ ...n })),
+      dropped: [...dropped],
+      shifted: [...shifted],
+    };
     pick = back[g]![pick]!;
   }
   return result;

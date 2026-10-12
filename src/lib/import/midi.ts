@@ -12,7 +12,7 @@
 import { importer, model, Settings } from "@coderline/alphatab";
 
 import { placeFrets, type PlacedGroup } from "@/lib/import/fret-placement";
-import { findGrid } from "@/lib/import/midi-grid";
+import { findGrid, fitsGrid, gridError } from "@/lib/import/midi-grid";
 import { fillDurations } from "@/lib/score/bar-duration";
 import { ScoreLoadError } from "@/lib/score/errors";
 import { newBeat, placeholderBeats, refinish, type Score, type Track } from "@/lib/score/model";
@@ -322,7 +322,7 @@ function planBars(parsed: Parsed): BarPlan[] {
  * Only files with one tempo and one time signature are checked: files with changes
  * were written to a grid on purpose. Returns the detected tempo, or null.
  */
-function regrid(parsed: Parsed): number | null {
+export function regrid(parsed: Parsed): number | null {
   const bpms = new Set(parsed.tempos.map((t) => Math.round(t.bpm * 1000)));
   const signatures = new Set(parsed.timeSignatures.map((t) => `${t.numerator}/${t.denominator}`));
   if (bpms.size > 1 || signatures.size > 1) return null;
@@ -347,6 +347,17 @@ function regrid(parsed: Parsed): number | null {
   parsed.tempos = [{ tick: 0, bpm }];
   parsed.timeSignatures = parsed.timeSignatures.slice(0, 1).map((t) => ({ ...t, tick: 0 }));
   return bpm;
+}
+
+/**
+ * How the notes sit on the file's own sixteenth notes: the mean distance in sixteenths (0 = on
+ * the grid) and whether that is close enough to need no regrid. The error is null for few notes.
+ */
+export function gridFit(parsed: Parsed): { error: number | null; follows: boolean } {
+  const onsets = parsed.parts.flatMap((part) =>
+    part.notes.map((note) => ({ tick: note.start, pitch: note.pitch, drum: part.channel === 9 })),
+  );
+  return { error: gridError(onsets, GRID), follows: fitsGrid(onsets, GRID) };
 }
 
 /** The largest single note value (dotted or not) that fits in `ticks`. */
@@ -403,7 +414,8 @@ function splitLead(part: Part): Part[] {
 }
 
 function trackSpec(part: Part, name: string): NewTrack {
-  if (part.tuning) return { kind: "stringed", name, program: part.program, tuning: [...part.tuning] };
+  if (part.tuning)
+    return { kind: "stringed", name, program: part.program, tuning: [...part.tuning] };
   if (part.channel === 9) return { kind: "drums", name, program: 0 };
   if (isGuitarProgram(part.program)) {
     return { kind: "stringed", name, program: part.program, tuning: [...STANDARD_GUITAR] };
@@ -541,6 +553,9 @@ function clearVoices(bar: model.Bar, from: number) {
   }
 }
 
+/** Notes this far (semitones) below the lowest string may come from a lower tuning: the warning asks. */
+const TUNING_HINT_RANGE = 7;
+
 /** Warnings for notes the placement moved an octave or left out. */
 function reportPlacement(
   track: Track,
@@ -548,29 +563,51 @@ function reportPlacement(
   lowest: number,
   warnings: Set<string>,
 ) {
-  let moved = false;
-  let other = false;
   const below: number[] = [];
+  let belowMoved = false;
+  let belowLeftOut = false;
+  let moved = false;
+  let leftOut = false;
   for (const group of placed) {
-    if (group.shifted.length > 0) moved = true;
+    for (const pitch of group.shifted) {
+      if (pitch < lowest) {
+        below.push(pitch);
+        belowMoved = true;
+      } else {
+        moved = true;
+      }
+    }
     for (const pitch of group.dropped) {
-      if (pitch < lowest) below.push(pitch);
-      else other = true;
+      if (pitch < lowest) {
+        below.push(pitch);
+        belowLeftOut = true;
+      } else {
+        leftOut = true;
+      }
     }
   }
   if (moved) {
     warnings.add(`Some notes of “${track.name}” were moved an octave to fit the strings.`);
   }
+  if (leftOut) {
+    warnings.add(`Some notes of “${track.name}” are outside the strings' range and were left out.`);
+  }
   if (below.length > 0) {
-    const low = pitchName(lowest, { octave: false });
-    const lowestDropped = pitchName(Math.min(...below), { octave: false });
+    const lowestBelow = Math.min(...below);
+    const what =
+      belowMoved && belowLeftOut
+        ? "moved up an octave or left out"
+        : belowMoved
+          ? "moved up an octave"
+          : "left out";
+    const hint =
+      lowest - lowestBelow <= TUNING_HINT_RANGE
+        ? ` Was the guitar tuned down to ${pitchName(lowestBelow, { octave: false })}?`
+        : "";
     const many = below.length > 1;
     warnings.add(
-      `${below.length} ${many ? "notes" : "note"} below the low ${low} of “${track.name}” ${many ? "were" : "was"} left out. Was the guitar tuned down to ${lowestDropped}?`,
+      `${below.length} ${many ? "notes" : "note"} below the low ${pitchName(lowest, { octave: false })} of “${track.name}” ${many ? "were" : "was"} ${what}.${hint}`,
     );
-  }
-  if (other) {
-    warnings.add(`Some notes of “${track.name}” are outside the strings' range and were left out.`);
   }
 }
 
