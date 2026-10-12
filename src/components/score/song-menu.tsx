@@ -1,5 +1,6 @@
 import {
   ArrowUpDownIcon,
+  AudioLinesIcon,
   ChevronDownIcon,
   FileDownIcon,
   GaugeIcon,
@@ -48,6 +49,7 @@ const EXPORTS: { format: ExportFormat; label: string }[] = [
 
 /** In-window mirror of the native File › Save, Save As and Export items. */
 export function FileMenu({
+  onImportAudio,
   onSave,
   onSaveAs,
   onExport,
@@ -58,6 +60,8 @@ export function FileMenu({
   encoding,
 }: {
   encoding?: EncodingMenu;
+  /** Import from Audio (#88). In this menu, beside Open: the header has no room for another button. */
+  onImportAudio?: () => void;
   onSave: () => void;
   onSaveAs: () => void;
   onExport: (format: ExportFormat) => void;
@@ -73,13 +77,22 @@ export function FileMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" title="Save and export">
+        <Button variant="outline" size="sm" title="Import, save and export">
           <FileDownIcon data-icon="inline-start" />
           <span className="max-2xl:sr-only">File</span>
           <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-52">
+        {onImportAudio && (
+          <>
+            <DropdownMenuItem onSelect={onImportAudio}>
+              <AudioLinesIcon />
+              Import from Audio…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem onSelect={onSave}>
           <SaveIcon />
           Save

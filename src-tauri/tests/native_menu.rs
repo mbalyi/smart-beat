@@ -41,7 +41,19 @@ fn in_menu(action: &MenuAction) -> bool {
     match action {
         MenuAction::ExportAudioM4a => smart_beat_lib::m4a::SUPPORTED,
         MenuAction::ExportPdf => smart_beat_lib::pdf::SUPPORTED,
+        MenuAction::ImportAudio => smart_beat_lib::features::enabled("audio-2-tab"),
         _ => true,
+    }
+}
+
+/// A feature that is off shows as a disabled "AI coming soon" item and nothing else.
+fn features_that_are_off_show_as_coming_soon(menu: &Menu<MockRuntime>) {
+    for (id, _) in smart_beat_lib::features::coming_soon() {
+        let found = find_in(menu.items().unwrap(), &format!("ai.{id}"))
+            .unwrap_or_else(|| panic!("{id} is not in the AI menu"));
+        let item = found.as_menuitem().expect("a plain item");
+        assert!(!item.is_enabled().unwrap(), "{id}");
+        assert!(item.text().unwrap().ends_with("AI coming soon"), "{id}");
     }
 }
 
@@ -211,7 +223,11 @@ fn main() {
     open_recent_follows_the_list(app.handle(), &menu);
     println!("test open_recent_follows_the_list ... ok");
 
-    let tests: [MenuTest; 5] = [
+    let tests: [MenuTest; 6] = [
+        (
+            "features_that_are_off_show_as_coming_soon",
+            features_that_are_off_show_as_coming_soon,
+        ),
         (
             "every_custom_item_is_in_the_menu",
             every_custom_item_is_in_the_menu,

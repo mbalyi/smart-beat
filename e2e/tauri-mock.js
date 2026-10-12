@@ -63,6 +63,7 @@
   window.__mixes = mixes;
   /** Every command the UI sent, for assertions. */
   window.__ipcCalls = [];
+  window.__transcription = { configured: true, midiBase64: "", cancelled: [], requests: [] };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -450,6 +451,29 @@
       }
       case "audio_render":
         return new Float32Array(2 * 4410).buffer;
+      // Import from Audio (src-tauri/src/transcription.rs). Tests set `midiBase64` to the result.
+      case "transcription_configured":
+        return window.__transcription.configured;
+      case "cancel_transcription":
+        window.__transcription.cancelled.push(args.operationId);
+        return null;
+      case "transcribe_audio":
+        // Like Tauri's IPC: the recording is the raw body, its details are headers.
+        if (!["mp3", "wav", "flac", "ogg"].includes(options.headers["file-type"])) {
+          throw { kind: "audio", message: "Choose MP3, WAV, FLAC or OGG audio." };
+        }
+        window.__transcription.requests.push(options.headers);
+        return {
+          midiBase64: window.__transcription.midiBase64,
+          notes: [60, 64, 67].map((pitch, i) => ({
+            pitch,
+            start: i * 0.5,
+            end: i * 0.5 + 0.5,
+            instrument: "clean_electric_guitar",
+            velocity: null,
+          })),
+          durationSeconds: 1.5,
+        };
       default:
         throw new Error(`Unmocked Tauri command: ${cmd}`);
     }

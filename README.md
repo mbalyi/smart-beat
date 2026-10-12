@@ -42,7 +42,7 @@ The buttons open the [latest release](https://github.com/mbalyi/smart-beat/relea
   <tr>
     <td valign="top" width="25%">
       <img src="src/assets/features/audio-to-tab.png" alt="Audio to tab" width="100%">
-      <p><b>🟢 Available</b></p>
+      <p><b>🟣 AI · Coming soon</b></p>
       <p>Upload an audio file and let AI generate MIDI and tab for you.</p>
     </td>
     <td valign="top" width="33%">

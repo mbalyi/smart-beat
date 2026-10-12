@@ -43,7 +43,7 @@ async function setup({ desktop = true } = {}) {
   const song = await makeSong();
   const utils = renderWithProviders(
     <>
-      <ScoreWorkspace song={song} onOpen={vi.fn()} startEditing />
+      <ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} startEditing />
       <Toaster />
     </>,
   );

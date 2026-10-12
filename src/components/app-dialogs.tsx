@@ -2,8 +2,11 @@ import { AboutDialog } from "@/components/about-dialog";
 import { LicensesDialog } from "@/components/licenses-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
+import { AudioTranscriptionDialog } from "@/components/audio/audio-transcription-dialog";
+import type { AudioTranscriptionProvider } from "@/lib/audio-transcription/provider";
+import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
 
-export type AppDialog = "about" | "shortcuts" | "licenses" | "settings";
+export type AppDialog = "about" | "shortcuts" | "licenses" | "settings" | "audio-transcription";
 
 export interface AppDialogProps {
   open: boolean;
@@ -16,6 +19,10 @@ export function AppDialogs({
   open,
   onOpenChange,
   returnFocusTo,
+  audioProvider,
+  droppedRecording,
+  onAudioImport,
+  onAudioSave,
 }: {
   open: AppDialog | null;
   onOpenChange: (dialog: AppDialog | null) => void;
@@ -25,6 +32,10 @@ export function AppDialogs({
    * When `null`, Radix restores focus to whatever was focused before.
    */
   returnFocusTo: HTMLElement | null;
+  audioProvider: AudioTranscriptionProvider;
+  droppedRecording?: DroppedRecording | null;
+  onAudioImport: (midi: Uint8Array<ArrayBuffer>, name: string) => Promise<void>;
+  onAudioSave: (midi: Uint8Array<ArrayBuffer>, name: string) => Promise<void>;
 }) {
   const restoreFocus = (event: Event) => {
     if (returnFocusTo?.isConnected) {
@@ -45,6 +56,15 @@ export function AppDialogs({
       <ShortcutsDialog {...props("shortcuts")} />
       <LicensesDialog {...props("licenses")} />
       <SettingsDialog {...props("settings")} />
+      <AudioTranscriptionDialog
+        open={open === "audio-transcription"}
+        onOpenChange={(isOpen) => onOpenChange(isOpen ? "audio-transcription" : null)}
+        onCloseAutoFocus={restoreFocus}
+        provider={audioProvider}
+        droppedRecording={droppedRecording}
+        onImport={onAudioImport}
+        onSave={onAudioSave}
+      />
     </>
   );
 }

@@ -383,6 +383,7 @@ export function ScoreWorkspace({
   tabs,
   headerSlot,
   onOpen,
+  onImportAudio,
   onEditedChange,
   onSaved,
   onReopenWithEncoding,
@@ -397,6 +398,8 @@ export function ScoreWorkspace({
   /** The app header's centre, where the main controls are shown. */
   headerSlot?: HTMLElement | null;
   onOpen: () => void;
+  /** Import from Audio; left out while the `audio-2-tab` feature is off. */
+  onImportAudio?: () => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
   onSaved?: (saved: SavedAs) => void;
   /** Guitar Pro 3–5 songs: read the file again with another text encoding (#53). */
@@ -409,7 +412,7 @@ export function ScoreWorkspace({
   droppedAudio?: { path: string; nonce: number } | null;
 }) {
   const score = song.score;
-  const editor = useScoreEditor(score);
+  const editor = useScoreEditor(score, song.unsaved);
   const summary = summarizeScore(score);
   const statusId = useId();
 
@@ -874,6 +877,11 @@ export function ScoreWorkspace({
       }),
     [editor],
   );
+  // A song that exists only in memory (an audio transcription) is unsaved from the start.
+  const reportUnsaved = useEffectEvent(() => {
+    if (editor.edited) onEditedChange?.(true);
+  });
+  useEffect(() => reportUnsaved(), []);
 
   // --- Structure, effects, lyrics and chords ----------------------------------
 
@@ -1927,6 +1935,7 @@ export function ScoreWorkspace({
   const fileActionsMenu = (
     <>
       <FileMenu
+        onImportAudio={onImportAudio}
         onSave={() => void fileActions.save()}
         onSaveAs={() => void fileActions.saveAs()}
         onExport={(format) => void fileActions.exportAs(format)}

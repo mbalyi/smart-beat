@@ -26,11 +26,16 @@ import { baseName } from "@/lib/score/format";
 import {
   AUDIO_EXTENSIONS,
   isTauri,
+  pickSavePath,
   pickScoreFile,
   SCORE_EXTENSIONS,
   setWindowTitle,
+  writeScoreFile,
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
+import { muscriptorProvider } from "@/lib/muscriptor";
+import { isEnabled } from "@/lib/features";
+import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
 
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
@@ -44,6 +49,7 @@ const ScoreWorkspace = lazy(() =>
 );
 
 export function App() {
+  const [transcriptionDrop, setTranscriptionDrop] = useState<DroppedRecording | null>(null);
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const { toggleTheme } = useTheme();
@@ -151,6 +157,10 @@ export function App() {
   };
 
   const open = () => void showOpenDialog();
+  // Import from Audio stays out of reach until the feature is switched on.
+  const importAudio = isEnabled("audio-2-tab")
+    ? () => showDialog("audio-transcription")
+    : undefined;
   const recent = useRecentFiles((path) => void openPath(path), recentsVersion);
   // A new install starts with a quiet layout; earlier users keep their panels (#83).
   useEffect(() => {
@@ -160,6 +170,11 @@ export function App() {
   const [droppedAudio, setDroppedAudio] = useState<{ path: string; nonce: number } | null>(null);
   const dragging = useFileDrop({
     onDropPaths: (paths) => {
+      if (dialog === "audio-transcription") {
+        if (paths[0])
+          setTranscriptionDrop((current) => ({ path: paths[0], nonce: (current?.nonce ?? 0) + 1 }));
+        return;
+      }
       const score = paths.find((p) => hasScoreExtension(baseName(p)));
       if (score) {
         void openPath(score);
@@ -176,6 +191,11 @@ export function App() {
       if (paths[0]) void openPath(paths[0]);
     },
     onDropFiles: (files) => {
+      if (dialog === "audio-transcription") {
+        if (files[0])
+          setTranscriptionDrop((current) => ({ file: files[0], nonce: (current?.nonce ?? 0) + 1 }));
+        return;
+      }
       const file = firstScoreFile(files, (f) => f.name);
       if (file) void openFile(file);
     },
@@ -195,6 +215,9 @@ export function App() {
         break;
       case "open":
         open();
+        break;
+      case "import-audio":
+        importAudio?.();
         break;
       case "toggle-theme":
         toggleTheme();
@@ -247,6 +270,7 @@ export function App() {
                     tabs={tabs}
                     headerSlot={headerSlot}
                     onOpen={open}
+                    onImportAudio={importAudio}
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}
                     onReopenWithEncoding={(choice) => reopenWithEncoding(s.id, choice)}
@@ -259,6 +283,7 @@ export function App() {
           ) : (
             <Welcome
               onOpenFile={open}
+              onImportAudio={importAudio}
               onNewSong={startNewSong}
               onShowShortcuts={() => showDialog("shortcuts")}
               onShowLicenses={() => showDialog("licenses")}
@@ -281,7 +306,7 @@ export function App() {
           if (file) void openFile(file);
         }}
       />
-      <DropOverlay visible={dragging} />
+      <DropOverlay visible={dragging && dialog !== "audio-transcription"} />
       <DiscardDialog
         songName={closing ? closing.summary.title || closing.name : ""}
         open={closing !== null}
@@ -294,7 +319,33 @@ export function App() {
         onCancel={() => setLeaving(false)}
         onLeave={leaveAndGoHome}
       />
-      <AppDialogs open={dialog} onOpenChange={setDialog} returnFocusTo={returnFocusTo} />
+      <AppDialogs
+        open={dialog}
+        onOpenChange={setDialog}
+        returnFocusTo={returnFocusTo}
+        audioProvider={muscriptorProvider}
+        droppedRecording={transcriptionDrop}
+        onAudioImport={async (midi, name) => {
+          // Only in memory until saved: closing the song asks first.
+          const opened = await openFile(
+            new File([midi], name, { type: "audio/midi" }),
+            name.replace(/\.mid$/i, ""),
+            true,
+          );
+          if (!opened)
+            throw new Error(
+              "The generated MIDI could not be imported. Your transcription is still available to save or retry.",
+            );
+        }}
+        onAudioSave={async (midi, name) => {
+          const path = await pickSavePath(
+            name,
+            [{ name: "MIDI files", extensions: ["mid"] }],
+            "Save MIDI As",
+          );
+          if (path) await writeScoreFile(path, midi);
+        }}
+      />
       <UpdateDialog updater={updater} />
       <Toaster position="bottom-right" />
     </>

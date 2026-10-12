@@ -16,6 +16,7 @@ import type { Interpretation } from "@/lib/score/interpretation";
 export type MenuAction =
   | "new-song"
   | "open"
+  | "import-audio"
   | "clear-recent"
   | "save"
   | "save-as"

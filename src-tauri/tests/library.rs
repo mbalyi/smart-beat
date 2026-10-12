@@ -211,8 +211,22 @@ fn garbage_files_never_reach_the_audio_engine() {
     }
 }
 
-/// Imported sounds are copied into the app data folder and nowhere else,
-/// and nothing in the app can send them anywhere.
+/// Every Rust source file under `dir`, recursively.
+fn rust_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files.extend(rust_sources(&path));
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            files.push(path);
+        }
+    }
+    files
+}
+
+/// Imported sounds are copied into the app data folder and nowhere else, and only the
+/// usage counters and audio transcription can send anything anywhere.
 #[test]
 fn imported_sounds_stay_on_this_computer() {
     let dir = tempfile::tempdir().unwrap();
@@ -230,21 +244,32 @@ fn imported_sounds_stay_on_this_computer() {
         .collect();
     assert!(stored.contains(&format!("{id}.nam")), "{stored:?}");
 
-    // The only network client is `ureq`, used by the usage counters (src/telemetry.rs, sent from
-    // Rust, never from the page). No other client, no fs/http/shell permission, no remote host in
-    // the CSP. The updater plugin makes its own request from Rust.
+    // Two network clients, both used from Rust, never from the page: `ureq` for the usage
+    // counters (src/telemetry.rs) and `reqwest` for audio transcription (src/transcription.rs).
+    // No other client, no fs/http/shell permission, no remote host in the CSP. The updater
+    // plugin makes its own request from Rust.
     let manifest = env!("CARGO_MANIFEST_DIR");
     let cargo = std::fs::read_to_string(format!("{manifest}/Cargo.toml")).unwrap();
-    for client in ["reqwest", "hyper", "curl", "isahc", "surf", "attohttpc"] {
+    for client in ["hyper", "curl", "isahc", "surf", "attohttpc"] {
         assert!(
             !cargo.contains(client),
             "network client {client} in Cargo.toml"
         );
     }
-    let sources = ["telemetry.rs", "lib.rs", "commands.rs"];
-    for name in sources {
-        let code = std::fs::read_to_string(format!("{manifest}/src/{name}")).unwrap();
-        // The endpoint comes from the build (SMART_BEAT_ANALYTICS_URL), never a literal host.
+    let src = std::path::Path::new(manifest).join("src");
+    for file in rust_sources(&src) {
+        let source = std::fs::read_to_string(&file).unwrap();
+        for (client, owner) in [("reqwest", "transcription.rs"), ("ureq", "telemetry.rs")] {
+            assert!(
+                file == src.join(owner) || !source.contains(client),
+                "{client} in {}: only src/{owner} may use it",
+                file.display()
+            );
+        }
+    }
+    for name in ["telemetry.rs", "transcription.rs", "lib.rs", "commands.rs"] {
+        let code = std::fs::read_to_string(src.join(name)).unwrap();
+        // The endpoints come from the build, never a literal host.
         assert!(!code.contains("https://"), "hard-coded URL in src/{name}");
     }
     let capabilities =
