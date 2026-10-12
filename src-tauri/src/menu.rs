@@ -90,6 +90,7 @@ pub enum MenuAction {
     ToggleMetronome,
     ToggleCountIn,
     Shortcuts,
+    Settings,
     Licenses,
     CheckForUpdates,
     About,
@@ -156,6 +157,7 @@ impl MenuAction {
         Self::ToggleMetronome,
         Self::ToggleCountIn,
         Self::Shortcuts,
+        Self::Settings,
         Self::Licenses,
         Self::CheckForUpdates,
         Self::About,
@@ -223,6 +225,7 @@ impl MenuAction {
             Self::ToggleMetronome => "playback.toggle-metronome",
             Self::ToggleCountIn => "playback.toggle-count-in",
             Self::Shortcuts => "help.shortcuts",
+            Self::Settings => "help.settings",
             Self::Licenses => "help.licenses",
             Self::CheckForUpdates => "help.check-for-updates",
             Self::About => "help.about",
@@ -291,7 +294,11 @@ impl MenuAction {
             Self::ToggleLoop | Self::SpeedTrainer | Self::ToggleMetronome | Self::ToggleCountIn => {
                 "Playback"
             }
-            Self::Shortcuts | Self::Licenses | Self::CheckForUpdates | Self::About => "Help",
+            Self::Shortcuts
+            | Self::Settings
+            | Self::Licenses
+            | Self::CheckForUpdates
+            | Self::About => "Help",
         }
     }
 
@@ -356,6 +363,7 @@ impl MenuAction {
             Self::ToggleMetronome => "Metronome",
             Self::ToggleCountIn => "Count-In",
             Self::Shortcuts => "Keyboard Shortcuts",
+            Self::Settings => "Settings…",
             Self::Licenses => "Open-Source Licenses",
             Self::CheckForUpdates => "Check for Updates…",
             Self::About => "About Smart Beat",
@@ -393,6 +401,7 @@ impl MenuAction {
             Self::ToggleLoop => Some("CmdOrCtrl+L"),
             Self::ToggleMetronome => Some("CmdOrCtrl+Shift+M"),
             Self::Shortcuts => Some("CmdOrCtrl+/"),
+            Self::Settings => Some("CmdOrCtrl+,"),
             // The note effects have plain keys in the score (H, P, L...); menu
             // accelerators would take those keys away from text fields.
             Self::AddAudioTrack
@@ -636,6 +645,7 @@ pub fn format_accelerator(accelerator: &str, os: &str) -> (Vec<String>, String) 
         "-" => "Minus".to_string(),
         "+" => "Plus".to_string(),
         "/" => "Slash".to_string(),
+        "," => "Comma".to_string(),
         other => other.to_uppercase(),
     };
     spoken.push(&spoken_key);
@@ -718,6 +728,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let zoom_reset = item(app, ZoomReset)?;
     let fullscreen = item(app, ToggleFullscreen)?;
     let shortcuts = item(app, Shortcuts)?;
+    let settings = item(app, Settings)?;
     let licenses = item(app, Licenses)?;
     let updates = item(app, CheckForUpdates)?;
 
@@ -746,12 +757,14 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let mut menu = MenuBuilder::new(app);
 
-    // macOS convention: an app menu named after the app, holding About and Quit.
+    // macOS convention: an app menu named after the app, holding About, Settings and Quit.
     // Close/Quit use the predefined items there; Linux does not support those,
     // and Windows/Linux keep them in the File menu as custom items.
     let file = if cfg!(target_os = "macos") {
         let app_menu = SubmenuBuilder::new(app, "Smart Beat")
             .item(&about)
+            .separator()
+            .item(&settings)
             .separator()
             .services()
             .separator()
@@ -864,14 +877,22 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&check_item(app, ToggleCountIn)?)
         .build()?;
 
-    let mut help = SubmenuBuilder::new(app, "Help")
-        .item(&shortcuts)
-        .item(&licenses)
-        .item(&updates);
-    if !cfg!(target_os = "macos") {
-        help = help.separator().item(&about);
+    // On macOS, Settings and About live in the app menu instead.
+    let help = if cfg!(target_os = "macos") {
+        SubmenuBuilder::new(app, "Help")
+            .item(&shortcuts)
+            .item(&licenses)
+            .item(&updates)
+    } else {
+        SubmenuBuilder::new(app, "Help")
+            .item(&shortcuts)
+            .item(&settings)
+            .item(&licenses)
+            .item(&updates)
+            .separator()
+            .item(&about)
     }
-    let help = help.build()?;
+    .build()?;
 
     menu = menu.items(&[&file, &edit, &view, &track, &bar, &note, &playback]);
     if let Some(ai) = ai_menu(app)? {
@@ -1254,6 +1275,29 @@ mod tests {
         assert!(!action.needs_song());
         assert_eq!(action.accelerator_for("macos"), None);
         assert_eq!(action.accelerator_for("windows"), None);
+    }
+
+    #[test]
+    fn settings_is_an_app_menu_item_the_ui_handles() {
+        let action = MenuAction::Settings;
+        assert_eq!(action.id(), "help.settings");
+        assert_eq!(action.label(), "Settings…");
+        assert_eq!(serde_json::to_string(&action).unwrap(), "\"settings\"");
+        // The UI shows the dialog; it works without a song.
+        assert!(!action.is_native());
+        assert!(!action.needs_song());
+        assert!(!action.is_toggle());
+        // ⌘, is the macOS convention for Settings.
+        for os in ["macos", "windows", "linux"] {
+            assert_eq!(action.accelerator_for(os), Some("CmdOrCtrl+,"));
+        }
+        let (keys, spoken) = format_accelerator("CmdOrCtrl+,", "macos");
+        assert_eq!(keys, ["⌘", ","]);
+        assert_eq!(spoken, "Command+Comma");
+        assert_eq!(
+            format_accelerator("CmdOrCtrl+,", "windows").1,
+            "Control+Comma"
+        );
     }
 
     #[test]

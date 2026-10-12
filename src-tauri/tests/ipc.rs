@@ -193,6 +193,12 @@ fn menu_events_are_routed_by_item_id() {
         rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         "\"about\""
     );
+
+    click(MenuAction::Settings.id());
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "\"settings\""
+    );
 }
 
 #[test]

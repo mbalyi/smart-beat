@@ -73,6 +73,7 @@ export type MenuAction =
   | "toggle-metronome"
   | "toggle-count-in"
   | "shortcuts"
+  | "settings"
   | "licenses"
   | "check-for-updates"
   | "about";
