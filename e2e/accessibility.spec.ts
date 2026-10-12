@@ -188,6 +188,18 @@ test.describe("accessibility", () => {
     await expect(app.getByRole("region", { name: /^Score:/ })).toBeFocused();
   });
 
+  test("about dialog with its contact links has no WCAG violations in dark mode", async ({
+    app,
+  }) => {
+    await app.emulateMedia({ colorScheme: "dark" });
+    await expect(app.locator("html")).toHaveClass(/dark/);
+    await emitMenuAction(app, "about");
+    const dialog = app.getByRole("dialog", { name: "Smart Beat" });
+    await expect(dialog.getByRole("link", { name: "smart-beat@outlook.com" })).toBeVisible();
+
+    await expectNoA11yViolations(app);
+  });
+
   for (const action of ["about", "shortcuts", "licenses"] as const) {
     test(`${action} dialog has no WCAG violations`, async ({ app }) => {
       await emitMenuAction(app, action);

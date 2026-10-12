@@ -41,3 +41,13 @@ blob-report/
 # Paid extension kit (AI features, extra functions): lives here for now, never committed.
 # It will move to its own private repository.
 /extensions/
+
+# Signing material and credentials: never commit (CI reads them from GitHub secrets)
+*.key
+*.key.pub
+*.p8
+*.p12
+*.pfx
+*.pem
+*.cer
+*.mobileprovision

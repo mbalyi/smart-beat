@@ -1,6 +1,6 @@
 # Guitar Pro 5 to Smart Beat mapping
 
-Feature-by-feature reference: where each GP5 capability lives in Smart Beat, what state it is in, and which GitHub issue covers it. GP8 additions are listed at the end. Details: [guitar-pro-5-reference.md](guitar-pro-5-reference.md), [guitar-pro-8-features.md](guitar-pro-8-features.md), [tab-formats-and-sound-research.md](tab-formats-and-sound-research.md).
+Feature-by-feature reference: where each GP5 capability lives in Smart Beat, what state it is in, and which GitHub issue covers it. GP8 additions are listed at the end. Planned work is on the [project board](https://github.com/users/mbalyi/projects/3).
 
 Status: **Done** shipped on `main`, **Partial** some of it exists, **Open** planned issue, **Later** not scheduled, **Skip** deliberately not planned.
 

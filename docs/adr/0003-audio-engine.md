@@ -1,4 +1,4 @@
-# ADR 0002: A native audio engine next to alphaTab (hybrid)
+# ADR 0003: A native audio engine next to alphaTab (hybrid)
 
 - **Status:** Accepted (the native engine ships as an opt-in, experimental switch)
 - **Date:** 2026-10-01
@@ -91,7 +91,7 @@ The compressor converts levels to decibels per sample. That conversion is most o
 | `hound` 3.5                      | Apache-2.0                                                       | Reading IR WAV files                      |
 | `symphonia` (later, audio track) | MPL-2.0                                                          | Decoding MP3/FLAC/OGG; allowed unmodified |
 
-Not allowed: Guitarix, ChowDSP BYOD, dm-TubeScreamer, AmpForge (GPL-3), LSP (LGPL), lamejs (LGPL). See [`docs/sound-presets-research.md`](../sound-presets-research.md).
+Not allowed: Guitarix, ChowDSP BYOD, dm-TubeScreamer, AmpForge (GPL-3), LSP (LGPL), lamejs (LGPL). (The research notes behind this list are kept outside this repository.)
 
 ## Consequences
 

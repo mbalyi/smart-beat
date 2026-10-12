@@ -23,6 +23,19 @@ describe("AboutDialog", () => {
     await expectNoA11yViolations();
   });
 
+  it("links the project's contact address and source code", async () => {
+    mockTauri();
+    renderAbout();
+
+    const contact = await screen.findByRole("link", { name: "smart-beat@outlook.com" });
+    expect(contact).toHaveAttribute("href", "mailto:smart-beat@outlook.com");
+    expect(screen.getByRole("link", { name: "github.com/mbalyi/smart-beat" })).toHaveAttribute(
+      "href",
+      "https://github.com/mbalyi/smart-beat",
+    );
+    expect(screen.getByText(/Mark Balyi\. Source code under PolyForm Noncommercial/)).toBeVisible();
+  });
+
   it("announces loading, then an error when details are unavailable", async () => {
     renderAbout();
 

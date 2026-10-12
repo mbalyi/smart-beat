@@ -1,6 +1,6 @@
 # The sound library: your own amps, pedals and cabinets (#41)
 
-Users bring their own sounds; Smart Beat never ships or uploads them (see [sound-presets-research.md](sound-presets-research.md) for why).
+Users bring their own sounds; Smart Beat never ships or uploads them, because most free amp, pedal and cabinet captures do not allow redistribution inside software.
 
 ## What can be imported
 

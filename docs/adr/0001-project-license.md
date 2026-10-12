@@ -12,7 +12,7 @@ Smart Beat will be:
 - **free to download** as a desktop app, without AI features;
 - possibly **paid** for an AI tier: self-hosted accompaniment generation and chat assistant.
 
-We still want to reuse as much open-source software as possible, especially the projects named in `high-level-plan.md`: alphaTab, PyGuitarPro, TuxGuitar, MuseScore and a range of AI models. Their licenses decide what we can use and how. The full component review is in [`docs/licensing.md`](../licensing.md).
+We still want to reuse as much open-source software as possible, especially the projects named in the original project plan: alphaTab, PyGuitarPro, TuxGuitar, MuseScore and a range of AI models. Their licenses decide what we can use and how. The full component review is in [`docs/licensing.md`](../licensing.md).
 
 ## Decision
 

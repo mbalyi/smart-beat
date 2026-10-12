@@ -1,12 +1,22 @@
 # License review
 
-Issue: [#3](https://github.com/mbalyi/smart-beat/issues/3). Decision record: [ADR 0001](adr/0001-project-license.md).
+Issues: [#3](https://github.com/mbalyi/smart-beat/issues/3), [#97](https://github.com/mbalyi/smart-beat/issues/97). Decision records: [ADR 0001](adr/0001-project-license.md) (dependency rules), [ADR 0002](adr/0002-source-available-noncommercial-license.md) (Smart Beat's own licence).
 
-> This is an engineering review, not legal advice. Have a lawyer review the EULA and this checklist before the first public release.
+> This is an engineering review, not legal advice. See [Legal review](#legal-review) for what a lawyer should check before any commercial launch.
+
+## Five separate things
+
+| #   | What                              | Where                                                                 | In short                                                                                                          |
+| --- | --------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1   | Smart Beat's source code          | [`LICENSE`](../LICENSE)                                               | PolyForm Noncommercial 1.0.0: free for personal use, learning and research; source-available, **not open source** |
+| 2   | The released app (end-user terms) | [`EULA.md`](../EULA.md)                                               | Free to install and use, including for making and selling your own music; Dutch law, EU consumer rights kept      |
+| 3   | Third-party code                  | Help › Open-Source Licenses, the tables below                         | Each library under its own licence, which wins for that library                                                   |
+| 4   | Third-party models and content    | Bundled SoundFonts and fonts (below); AI models shown before download | Each under its own licence (for example MuScriptor, the audio-to-tab model: **CC BY-NC 4.0 weights**, see below)  |
+| 5   | Commercial licensing              | [`COMMERCIAL-LICENSE.md`](../COMMERCIAL-LICENSE.md)                   | Selling, wrapping, company use or paid services need a separate, paid agreement                                   |
 
 ## Summary
 
-- **Smart Beat's license:** source-available under PolyForm Noncommercial 1.0.0 ([`LICENSE`](../LICENSE), [ADR 0002](adr/0002-source-available-noncommercial-license.md)); commercial use needs a separate agreement ([`COMMERCIAL-LICENSE.md`](../COMMERCIAL-LICENSE.md)). The released app is free under the draft [`EULA.md`](../EULA.md). The app is free without AI; a paid AI tier may follow.
+- **Smart Beat's license:** source-available under PolyForm Noncommercial 1.0.0 ([`LICENSE`](../LICENSE), [ADR 0002](adr/0002-source-available-noncommercial-license.md)); commercial use needs a separate agreement ([`COMMERCIAL-LICENSE.md`](../COMMERCIAL-LICENSE.md)). The released app is free under the [`EULA.md`](../EULA.md). The app is free without AI; a paid AI tier may follow.
 - **What we can reuse:**
   - permissive libraries (MIT, Apache-2.0, BSD and similar) and fonts under OFL-1.1;
   - MPL-2.0 libraries, in particular **alphaTab**, our planned score renderer and player;
@@ -65,18 +75,19 @@ Licenses were checked against each project's upstream repository or model card o
 
 Weights are licensed separately from the code that runs them. The paid tier may only use weights that allow commercial use.
 
-| Model                                      | Weights license                                                                                         | Free app | Paid tier | Notes                                                                                                                       |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------- | -------- | --------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Basic Pitch                                | Apache-2.0                                                                                              | ✅       | ✅        |                                                                                                                             |
-| Anticipatory Music Transformer checkpoints | Apache-2.0                                                                                              | ✅       | ✅        | Trained on the Lakh MIDI dataset (CC-BY-4.0). Credit the dataset in the notices                                             |
-| ChatMusician                               | Model card says MIT, but it is fine-tuned from LLaMA 2-7B, so the **Llama 2 Community License** applies | ⚠️       | ⚠️        | Commercial use is allowed under 700M monthly users, subject to the Acceptable Use Policy                                    |
-| NotaGen                                    | MIT                                                                                                     | ✅       | ✅        | Classical-style ABC generation                                                                                              |
-| MuPT                                       | Apache-2.0                                                                                              | ✅       | ✅        |                                                                                                                             |
-| CLaMP 3                                    | MIT                                                                                                     | ✅       | ✅        | Music retrieval                                                                                                             |
-| MusicGen (audiocraft)                      | **CC-BY-NC-4.0** (code: MIT)                                                                            | ❌       | ❌        | Non-commercial. It also generates audio, not notation                                                                       |
-| YuE                                        | Apache-2.0                                                                                              | ✅       | ✅        | Audio generation (not notation), so low priority                                                                            |
-| Qwen3 (LLM for the chat assistant)         | Apache-2.0 (model cards; the GitHub repo has no license file)                                           | ✅       | ✅        | Some older Qwen2.5 sizes use the custom Qwen License. Check the exact checkpoint                                            |
-| Llama 3.x                                  | Llama 3.1/3.x Community License                                                                         | ⚠️       | ⚠️        | Commercial use is allowed with "Built with Llama" attribution, the Acceptable Use Policy, and a limit of 700M monthly users |
+| Model                                      | Weights license                                                                                         | Free app | Paid tier | Notes                                                                                                                                                                                                                           |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------- | -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Basic Pitch                                | Apache-2.0                                                                                              | ✅       | ✅        |                                                                                                                                                                                                                                 |
+| Anticipatory Music Transformer checkpoints | Apache-2.0                                                                                              | ✅       | ✅        | Trained on the Lakh MIDI dataset (CC-BY-4.0). Credit the dataset in the notices                                                                                                                                                 |
+| ChatMusician                               | Model card says MIT, but it is fine-tuned from LLaMA 2-7B, so the **Llama 2 Community License** applies | ⚠️       | ⚠️        | Commercial use is allowed under 700M monthly users, subject to the Acceptable Use Policy                                                                                                                                        |
+| NotaGen                                    | MIT                                                                                                     | ✅       | ✅        | Classical-style ABC generation                                                                                                                                                                                                  |
+| MuPT                                       | Apache-2.0                                                                                              | ✅       | ✅        |                                                                                                                                                                                                                                 |
+| CLaMP 3                                    | MIT                                                                                                     | ✅       | ✅        | Music retrieval                                                                                                                                                                                                                 |
+| MuScriptor (audio-to-tab server)           | **CC BY-NC 4.0** (code: MIT)                                                                            | ⚠️       | ❌        | Used by the free app's audio-to-tab through Smart Beat's server. Non-commercial only: needs a commercial licence from the authors (Kyutai, Mirelo) before any paid tier or sponsored hosting. See [Legal review](#legal-review) |
+| MusicGen (audiocraft)                      | **CC-BY-NC-4.0** (code: MIT)                                                                            | ❌       | ❌        | Non-commercial. It also generates audio, not notation                                                                                                                                                                           |
+| YuE                                        | Apache-2.0                                                                                              | ✅       | ✅        | Audio generation (not notation), so low priority                                                                                                                                                                                |
+| Qwen3 (LLM for the chat assistant)         | Apache-2.0 (model cards; the GitHub repo has no license file)                                           | ✅       | ✅        | Some older Qwen2.5 sizes use the custom Qwen License. Check the exact checkpoint                                                                                                                                                |
+| Llama 3.x                                  | Llama 3.1/3.x Community License                                                                         | ⚠️       | ⚠️        | Commercial use is allowed with "Built with Llama" attribution, the Acceptable Use Policy, and a limit of 700M monthly users                                                                                                     |
 
 ### This repository's stack
 
@@ -125,4 +136,15 @@ The SFZ reader, the sampler and the kit library are our own code (`src-tauri/src
 - [ ] LGPL components (AI service) are listed with a link to their source and can be replaced by the user.
 - [ ] No model weights are included in the desktop installers. Models are downloaded on demand, and their license is shown (and accepted where required) first.
 - [ ] If a Llama-based model is offered: "Built with Llama" attribution, and the Acceptable Use Policy is linked in the AI terms.
-- [ ] The EULA has been reviewed by a lawyer, including the governing-law and contact sections.
+- [ ] Before any paid offer: the points under [Legal review](#legal-review) have been checked by a lawyer.
+
+## Legal review
+
+Points a lawyer should check before Smart Beat offers paid licences or a paid AI tier. The first public release keeps the texts short and conservative instead.
+
+1. **EULA** ([`EULA.md`](../EULA.md)): Dutch governing law with the consumer carve-out (Rome I art. 6, Brussels I bis), the warranty and liability wording against Directive (EU) 2019/770 and Dutch consumer law, and the termination clause.
+2. **What counts as commercial** in [`COMMERCIAL-LICENSE.md`](../COMMERCIAL-LICENSE.md), in particular "internal use inside a company", since PolyForm Noncommercial does not define it.
+3. **Contributor terms** in [`CONTRIBUTING.md`](../CONTRIBUTING.md): whether they are enough to relicense contributions commercially, or whether a signed CLA is needed before accepting substantial outside code.
+4. **AI terms**: whether running MuScriptor (CC BY-NC 4.0 weights) for the free app on Smart Beat's own server is noncommercial use, and a commercial licence from its authors before a paid tier or sponsorship; the licence of each other model the audio-to-tab server (MuScriptor) and future AI features use, the terms for a paid AI tier, and the privacy notice for audio sent to a server (GDPR).
+5. **Content provenance**: the Sonivox SoundFont's history (see the table above) and the permissions for third-party logos in the README ([`docs/brand/README.md`](brand/README.md)).
+6. **Trademark**: whether to register "Smart Beat" before a commercial launch.

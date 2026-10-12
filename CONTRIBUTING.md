@@ -14,6 +14,11 @@ Pull requests, bug reports, suggestions and ideas are welcome. Smart Beat is sou
 
 These terms are a draft and have not been reviewed by a lawyer yet. If you cannot agree to them, please open an issue instead of a pull request.
 
+## Contact and security
+
+- Questions, licensing and privacy: [smart-beat@outlook.com](mailto:smart-beat@outlook.com).
+- **Security problems:** please do not open a public issue. Write to the same address with the details, and we will reply before anything is published.
+
 ## Workflow
 
 1. Pick an issue from the [project board](https://github.com/users/mbalyi/projects/3) and move it to **In progress**.

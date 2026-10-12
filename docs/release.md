@@ -1,21 +1,38 @@
 # Releases and updates
 
-Issue: [#82](https://github.com/mbalyi/smart-beat/issues/82)
+Issues: [#82](https://github.com/mbalyi/smart-beat/issues/82), [#97](https://github.com/mbalyi/smart-beat/issues/97)
 
 GitHub Releases is the only place Smart Beat's installers are downloaded from. The same release feeds the website (links to the newest installers) and the in-app updater (`latest.json`). There is no download server of our own.
 
+## Versions
+
+Smart Beat uses [semantic versioning](https://semver.org): `MAJOR.MINOR.PATCH`.
+
+- **Before 1.0:** a patch release (`0.1.1`) fixes bugs or makes small improvements; a minor release (`0.2.0`) adds features and may change behaviour. `1.0.0` is reserved for the first release with a stable file format and settings.
+- **Prereleases** (`0.2.0-beta.1`, `0.2.0-rc.1`) are published as GitHub prereleases. `releases/latest` never points at a prerelease, so the updater and the website's download links never offer one.
+- **One canonical version:** `package.json`. `tauri.conf.json` reads it from there (the About dialog, the bundle metadata, installer names and `latest.json` follow), and `src-tauri/Cargo.toml` and `Cargo.lock` must match it. `pnpm version:check` (part of `pnpm check`, and the release workflow with the tag) fails when they drift. A Rust test checks the same.
+- **Never reuse a version:** the bump script refuses a version that is not newer, and a tag that already exists locally or on GitHub.
+
+| Command                                                  | Does                                                                                                                    |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `pnpm release:patch` / `release:minor` / `release:major` | Bumps `package.json`, `Cargo.toml` and `Cargo.lock`, and turns `## [Unreleased]` in the changelog into `## [<version>]` |
+| `node scripts/version.mjs 0.3.0-beta.1`                  | The same for an explicit (pre)release version                                                                           |
+| `pnpm version:check`                                     | Checks that every file carries the same version                                                                         |
+
+Release assets come in two names: a stable one without the version (`SmartBeat_macos_universal.dmg`, for the website's links) and a versioned copy (`SmartBeat-0.2.0-macOS-universal.dmg`, `SmartBeat-0.2.0-Windows-x64-setup.exe`, `SmartBeat-0.2.0-Linux-x86_64.AppImage`, …), added by the last job of the release workflow.
+
 ## How a release is made
 
-1. Pick the version and put it in `package.json` (`"version"`). Tauri reads it from there.
-2. In [`CHANGELOG.md`](../CHANGELOG.md), rename `## [Unreleased]` to `## [<version>]` and start a new empty `## [Unreleased]` above it. This text becomes the release notes and what the update dialog shows.
+1. On a clean branch from `main`, run `pnpm release:patch` (or `release:minor`, `release:major`). It sets the version everywhere and moves the `## [Unreleased]` notes in [`CHANGELOG.md`](../CHANGELOG.md) under `## [<version>]`. That text becomes the release notes and what the update dialog shows: read it and tidy it up.
+2. Run `pnpm check`, `pnpm test:e2e` and `pnpm licenses:check`, and open a PR. CI also runs the secret scan.
 3. Merge to `main`, then tag and push. The tag must be `v` + the version:
 
    ```bash
    git tag v0.2.0 && git push origin v0.2.0
    ```
 
-4. [`release.yml`](../.github/workflows/release.yml) builds every installer and the updater bundles, and uploads them to a **draft** release. It fails early if the tag does not match `package.json`, if `CHANGELOG.md` has no section for the version, or if the updater signing key is missing.
-5. The last job (`Check the draft release`) lists the assets and checks `latest.json` with [`scripts/verify-latest-json.mjs`](../scripts/verify-latest-json.mjs): every target has a signature and a download URL inside this repository's release.
+4. [`release.yml`](../.github/workflows/release.yml) builds every installer and the updater bundles, and uploads them to a **draft** release. It fails early if the tag does not match `package.json` (or `Cargo.toml` disagrees), if `CHANGELOG.md` has no section for the version, or if the updater signing key is missing.
+5. The last job (`Check the draft release`) lists the assets and checks `latest.json` with [`scripts/verify-latest-json.mjs`](../scripts/verify-latest-json.mjs): every target has a signature and a download URL inside this repository's release. Then it adds the versioned copies of the installers.
 6. Open the draft on GitHub, look at the assets and the notes, and **publish** it. Publishing is what makes `releases/latest/...` point at it, so only then do the website and the updater see it.
 
 To try the pipeline without a tag, run the workflow by hand (Actions › Release › Run workflow) with _Also create a draft GitHub Release_ ticked. It uses the version in `package.json` and does not publish anything.
@@ -92,8 +109,9 @@ Not done by code, so on the list:
 - [ ] Deploy the MuScriptor server on AWS and add the `TRANSCRIPTION_SERVICE_URL` variable on GitHub ([`audio-to-midi.md`](audio-to-midi.md)).
 - [ ] Clear the CC BY-NC 4.0 licence of the MuScriptor weights for Smart Beat's use ([`audio-to-midi.md`](audio-to-midi.md#licensing)).
 - [ ] Apple Developer ID signing and notarization, and Windows code signing ([`code-signing.md`](code-signing.md)). Updates work without them, but installers show warnings.
-- [ ] Lawyer review of `LICENSE` use, `COMMERCIAL-LICENSE.md` and `EULA.md` ([ADR 0002](adr/0002-source-available-noncommercial-license.md)).
-- [ ] Scan the repository **and its git history** for secrets (for example `gitleaks detect`), then re-run `pnpm licenses:check`.
+- [ ] Before any paid offer: lawyer review of `LICENSE` use, `COMMERCIAL-LICENSE.md` and `EULA.md` ([licensing.md](licensing.md#legal-review)).
+- [x] Scan the repository **and its git history** for secrets: done for #97 on 2026-10-12 (gitleaks, nothing found); CI repeats it on every PR. Re-run `pnpm licenses:check` right before going public.
+- [ ] Make the project board public too (README and CONTRIBUTING link to it), and check that `smart-beat@outlook.com` receives mail.
 - [ ] Publish a first release (N), then a second one (N+1), and check on each OS: the app finds N+1, shows the notes, verifies, installs and restarts. Only an install from a published release can prove the whole path (signature, URLs, permissions).
 - [ ] Create the website repository and deploy it with GitHub Pages.
 - [ ] Make the repository public.

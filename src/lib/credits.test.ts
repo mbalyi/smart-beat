@@ -1,5 +1,6 @@
 import capability from "../../src-tauri/capabilities/default.json";
 import { ALPHATAB, CREDIT_URLS, OTHER_CREDITS } from "@/lib/credits";
+import { PROJECT_LINKS } from "@/lib/project-info";
 
 describe("credits", () => {
   const opener = capability.permissions.find(
@@ -22,6 +23,8 @@ describe("credits", () => {
 
   it("is exactly what the app is allowed to open: no link that does nothing, no extra address", () => {
     expect(opener).toBeDefined();
-    expect(opener!.allow.map((entry) => entry.url).sort()).toEqual([...CREDIT_URLS].sort());
+    expect(opener!.allow.map((entry) => entry.url).sort()).toEqual(
+      [...CREDIT_URLS, ...PROJECT_LINKS].sort(),
+    );
   });
 });

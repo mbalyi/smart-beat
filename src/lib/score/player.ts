@@ -135,7 +135,7 @@ export interface ScorePlayerCallbacks {
 
 /**
  * Who makes the sound: alphaTab's synthesizer in the webview, or the native
- * engine with effect chains (desktop app only, ADR 0002).
+ * engine with effect chains (desktop app only, ADR 0003).
  */
 export type AudioEngineKind = "alphatab" | "native";
 

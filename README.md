@@ -6,7 +6,7 @@
 
 A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with optional **self-hosted AI** that turns a hummed melody into drums, bass, piano and guitar parts. Runs on macOS (Apple Silicon and Intel), Windows and Linux.
 
-> **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3) and in [`high-level-plan.md`](high-level-plan.md).
+> **Status:** early preview. Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3).
 
 ## Download
 
@@ -17,6 +17,10 @@ A modern, cross-platform tablature editor in the spirit of Guitar Pro 5, with op
 </p>
 
 The buttons open the [latest release](https://github.com/mbalyi/smart-beat/releases/latest), where every installer is attached.
+
+⭐ **Enjoying Smart Beat?** Please [give the project a star on GitHub](https://github.com/mbalyi/smart-beat/stargazers). It helps other musicians find it, and we are always very grateful for every one.
+
+<a href="https://github.com/mbalyi/smart-beat/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/mbalyi/smart-beat?style=social"></a>
 
 ## Features
 
@@ -94,6 +98,18 @@ A heartfelt thank you to the maintainers whose work makes Smart Beat possible. M
 
 Special thanks to **[alphaTab](https://alphatab.net/)** ([source](https://github.com/CoderLine/alphaTab), MPL-2.0), the heart of Smart Beat: this project would not exist without it. If you like what Smart Beat does with scores, please give alphaTab a star, try it in your own project, and thank its maintainer, [Danielku15](https://github.com/Danielku15), and the contributors. alphaTab's logo and the RustAudio logo are shown with the maintainers' permission. Smart Beat is independent and is not affiliated with or endorsed by alphaTab or any of these projects. All notices are in Help › Open-Source Licenses.
 
+## Sponsors
+
+**We are looking for sponsors.** Smart Beat is free, and we want to keep it that way, including the features that cost money to run. Sponsorship would pay for the server and AI work behind them, for example:
+
+- **signing the Windows installer**, so Windows stops warning people before they install;
+- **hosting an AI model** and making it available in the app, so the AI features work without a powerful computer of your own;
+- **training our own model** for turning audio, recordings and humming into tab.
+
+If you or your company would like to support Smart Beat, write to **[smart-beat@outlook.com](mailto:smart-beat@outlook.com)**. Sponsors will be thanked here.
+
+Not a sponsor? A [star on GitHub](https://github.com/mbalyi/smart-beat/stargazers) helps too, and we are very grateful for it.
+
 ## Installing
 
 Download the installer for your system from the [latest release](https://github.com/mbalyi/smart-beat/releases/latest).
@@ -151,19 +167,22 @@ pnpm tauri dev      # desktop app with hot reload
 
 ## Scripts
 
-| Command                                                | What it does                                                                                                                                          |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm tauri dev`                                       | Run the desktop app in development mode                                                                                                               |
-| `pnpm tauri build`                                     | Build installers for the current OS (see [Packaging](#packaging))                                                                                     |
-| `pnpm lint` / `pnpm format` / `pnpm format:check`      | ESLint / Prettier                                                                                                                                     |
-| `pnpm typecheck`                                       | TypeScript project check                                                                                                                              |
-| `pnpm test` / `pnpm test:watch` / `pnpm test:coverage` | Vitest unit and integration tests (UI)                                                                                                                |
-| `pnpm test:e2e`                                        | Playwright browser integration tests (Chromium and WebKit, a11y and responsive checks). Run `pnpm exec playwright install chromium webkit` once first |
-| `pnpm rust:test` / `pnpm rust:lint` / `pnpm rust:fmt`  | Rust tests, clippy (`-D warnings`), rustfmt check                                                                                                     |
-| `pnpm licenses:check`                                  | Enforce the license policy for npm packages and Rust crates                                                                                           |
-| `pnpm licenses:generate`                               | Regenerate `public/third-party-licenses.txt` (runs automatically before `tauri build`)                                                                |
-| `pnpm soundfonts:fetch`                                | Download the FluidR3 SoundFont into `public/soundfont/` (runs automatically before `tauri dev` and `tauri build`)                                     |
-| `pnpm check`                                           | Everything CI runs, except Playwright and the license gate                                                                                            |
+| Command                                                  | What it does                                                                                                                                          |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm tauri dev`                                         | Run the desktop app in development mode                                                                                                               |
+| `pnpm tauri build`                                       | Build installers for the current OS (see [Packaging](#packaging))                                                                                     |
+| `pnpm lint` / `pnpm format` / `pnpm format:check`        | ESLint / Prettier                                                                                                                                     |
+| `pnpm typecheck`                                         | TypeScript project check                                                                                                                              |
+| `pnpm test` / `pnpm test:watch` / `pnpm test:coverage`   | Vitest unit and integration tests (UI)                                                                                                                |
+| `pnpm test:e2e`                                          | Playwright browser integration tests (Chromium and WebKit, a11y and responsive checks). Run `pnpm exec playwright install chromium webkit` once first |
+| `pnpm rust:test` / `pnpm rust:lint` / `pnpm rust:fmt`    | Rust tests, clippy (`-D warnings`), rustfmt check                                                                                                     |
+| `pnpm licenses:check`                                    | Enforce the license policy for npm packages and Rust crates                                                                                           |
+| `pnpm licenses:generate`                                 | Regenerate `public/third-party-licenses.txt` (runs automatically before `tauri build`)                                                                |
+| `pnpm soundfonts:fetch`                                  | Download the FluidR3 SoundFont into `public/soundfont/` (runs automatically before `tauri dev` and `tauri build`)                                     |
+| `pnpm docs:check`                                        | Fail on a stale contact address or repository URL, or a broken relative link in the Markdown docs                                                     |
+| `pnpm version:check`                                     | Check that `package.json`, `Cargo.toml` and `Cargo.lock` carry the same version                                                                       |
+| `pnpm release:patch` / `release:minor` / `release:major` | Bump the version everywhere and start the changelog section (see [`docs/release.md`](docs/release.md#versions))                                       |
+| `pnpm check`                                             | Everything CI runs, except Playwright and the license gate                                                                                            |
 
 ## Testing
 
@@ -194,7 +213,7 @@ Output lands in `src-tauri/target/<target>/release/bundle/`:
 | Windows | `msi/*.msi`, `nsis/*-setup.exe`                               |
 | Linux   | `appimage/*.AppImage`, `deb/*.deb`, `rpm/*.rpm`               |
 
-Local macOS builds are ad-hoc signed. See [`docs/code-signing.md`](docs/code-signing.md) for signing and notarization.
+The release workflow renames the installers it publishes: a stable name for the website's links (`SmartBeat_macos_universal.dmg`) and a versioned copy (`SmartBeat-0.2.0-macOS-universal.dmg`), see [`docs/release.md`](docs/release.md#versions). Local macOS builds are ad-hoc signed. See [`docs/code-signing.md`](docs/code-signing.md) for signing and notarization.
 
 ## Project layout
 
@@ -239,7 +258,8 @@ docs/                Licensing, code signing, releases and updates, ADRs
   - lint, format, types and Vitest with coverage;
   - Playwright, one job per browser (Chromium and WebKit);
   - Rust fmt, clippy and tests, plus an app compile on **macOS, Windows and Linux**;
-  - the license policy (npm and cargo-deny, including advisories).
+  - the license policy (npm and cargo-deny, including advisories);
+  - a secret scan of the files and the full git history ([gitleaks](https://github.com/gitleaks/gitleaks), settings in [`.gitleaks.toml`](.gitleaks.toml)).
 - **[Analytics Worker](.github/workflows/analytics-deploy.yml)** tests the usage-counter backend in [`analytics/`](analytics) and deploys it to Cloudflare from `main` ([`docs/analytics.md`](docs/analytics.md)).
 - **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts. A release also contains signed updater bundles and `latest.json`, which the app's **Help › Check for Updates…** and its daily automatic check read: see [`docs/release.md`](docs/release.md) for how to cut a release, the signing key and the stable download links.
 
@@ -249,13 +269,26 @@ Smart Beat counts anonymously how often features are used (Loop, Metronome, Expo
 
 ## Licensing
 
-Smart Beat is **source-available, not open source**. The code is under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use it for personal use, learning and research. Selling it, wrapping it in another product, offering it as a service, or using it inside a company needs permission or a fee: see [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md). The released installers are free to download under the draft [`EULA.md`](EULA.md).
+Smart Beat is **source-available, not open source**. The code is under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use it for personal use, learning and research. Selling it, wrapping it in another product, offering it as a service, or using it inside a company needs permission or a fee: see [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md). The released installers are free to download and use, including for making and selling your own music, under the [`EULA.md`](EULA.md). Questions about licensing: [smart-beat@outlook.com](mailto:smart-beat@outlook.com).
 
 We only use dependencies whose licenses allow commercial, closed-source distribution, and CI enforces this.
 
-- [`docs/licensing.md`](docs/licensing.md): the component review, obligations, and the list of projects we must not copy code from.
+- [`docs/licensing.md`](docs/licensing.md): how the source licence, the EULA, third-party licences, model licences and commercial licences fit together, the component review, and the list of projects we must not copy code from.
 - [ADR 0002](docs/adr/0002-source-available-noncommercial-license.md): why we chose this license (it replaces [ADR 0001](docs/adr/0001-project-license.md)).
 
 ## Contributing
 
 Pull requests, bug reports and ideas are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md) for what contributing does and does not give you.
+
+## Contributors
+
+Thank you to everyone who has helped build Smart Beat.
+
+<table>
+  <tr>
+    <td align="center" width="120">
+      <a href="https://github.com/danielagg"><img src="https://github.com/danielagg.png?size=100" width="80" height="80" alt=""><br><b>Daniel Agg</b></a><br>
+      <sub>@danielagg</sub>
+    </td>
+  </tr>
+</table>

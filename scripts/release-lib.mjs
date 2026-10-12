@@ -92,3 +92,118 @@ function findPlatform(platforms, target) {
   const key = Object.keys(platforms).find((name) => name.startsWith(`${target}-`));
   return key ? platforms[key] : undefined;
 }
+
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
+
+/** `1.2.3-beta.1` -> `{ major: 1, minor: 2, patch: 3, prerelease: "beta.1" }`. Throws on anything else. */
+export function parseVersion(version) {
+  const match = SEMVER.exec(version ?? "");
+  if (!match) throw new Error(`"${version}" is not a version like 1.2.3 or 1.2.3-beta.1`);
+  const [, major, minor, patch, prerelease] = match;
+  return { major: Number(major), minor: Number(minor), patch: Number(patch), prerelease };
+}
+
+/** Whether a version or tag is a prerelease (`0.2.0-beta.1`), which never goes to the stable channel. */
+export function isPrerelease(versionOrTag) {
+  return Boolean(parseVersion(String(versionOrTag).replace(/^v/, "")).prerelease);
+}
+
+/** Semantic-version order: negative when `a` is older than `b`. A prerelease is older than its release. */
+export function compareVersions(a, b) {
+  const x = parseVersion(a);
+  const y = parseVersion(b);
+  for (const part of ["major", "minor", "patch"]) {
+    if (x[part] !== y[part]) return x[part] - y[part];
+  }
+  if (x.prerelease === y.prerelease) return 0;
+  if (!x.prerelease) return 1;
+  if (!y.prerelease) return -1;
+  const xs = x.prerelease.split(".");
+  const ys = y.prerelease.split(".");
+  for (let i = 0; i < Math.max(xs.length, ys.length); i++) {
+    if (xs[i] === undefined) return -1;
+    if (ys[i] === undefined) return 1;
+    const numeric = /^\d+$/.test(xs[i]) && /^\d+$/.test(ys[i]);
+    const order = numeric ? Number(xs[i]) - Number(ys[i]) : xs[i].localeCompare(ys[i]);
+    if (order !== 0) return order;
+  }
+  return 0;
+}
+
+/**
+ * The next version: `patch`, `minor` or `major`, or an explicit version that must be newer.
+ * A prerelease bumped by `patch` becomes its release (`0.2.0-beta.1` -> `0.2.0`).
+ */
+export function nextVersion(current, kind) {
+  const { major, minor, patch, prerelease } = parseVersion(current);
+  let next;
+  if (kind === "major") next = `${major + 1}.0.0`;
+  else if (kind === "minor") next = `${major}.${minor + 1}.0`;
+  else if (kind === "patch")
+    next = prerelease ? `${major}.${minor}.${patch}` : `${major}.${minor}.${patch + 1}`;
+  else next = kind;
+  if (compareVersions(next, current) <= 0) {
+    throw new Error(`${next} is not newer than the current version ${current}.`);
+  }
+  return next;
+}
+
+/**
+ * Starts the CHANGELOG.md section for a release: the `## [Unreleased]` notes become
+ * `## [<version>]`, and a new, empty `## [Unreleased]` goes above it.
+ */
+export function releaseChangelog(changelog, version) {
+  const heading = /^## \[Unreleased\][^\n]*\n/m;
+  if (!heading.test(changelog)) throw new Error("CHANGELOG.md has no ## [Unreleased] section.");
+  if (new RegExp(`^## \\[${version.replace(/\./g, "\\.")}\\]`, "m").test(changelog)) {
+    throw new Error(`CHANGELOG.md already has a section for ${version}.`);
+  }
+  return changelog.replace(heading, `## [Unreleased]\n\n## [${version}]\n`);
+}
+
+/** Problems when the version-bearing files disagree with package.json (the canonical version). */
+export function checkVersionFiles({ packageJson, cargoToml, cargoLock }) {
+  const version = JSON.parse(packageJson).version;
+  const problems = [];
+  try {
+    parseVersion(version);
+  } catch (error) {
+    return [`package.json: ${error.message}`];
+  }
+  const cargo = /^\[package\][^[]*?^version\s*=\s*"([^"]+)"/m.exec(cargoToml)?.[1];
+  if (cargo !== version) {
+    problems.push(`src-tauri/Cargo.toml: version is ${cargo}, package.json says ${version}.`);
+  }
+  const locked = /^name = "smart-beat"\nversion = "([^"]+)"/m.exec(cargoLock)?.[1];
+  if (locked !== version) {
+    problems.push(`src-tauri/Cargo.lock: smart-beat is ${locked}, package.json says ${version}.`);
+  }
+  return problems;
+}
+
+/** The same files with the version set to `version`. */
+export function setVersion({ packageJson, cargoToml, cargoLock }, version) {
+  parseVersion(version);
+  return {
+    packageJson: packageJson.replace(/("version":\s*")[^"]+(")/, `$1${version}$2`),
+    cargoToml: cargoToml.replace(/^(\[package\][^[]*?^version\s*=\s*")[^"]+(")/m, `$1${version}$2`),
+    cargoLock: cargoLock.replace(/^(name = "smart-beat"\nversion = ")[^"]+(")/m, `$1${version}$2`),
+  };
+}
+
+const INSTALLER_EXTENSIONS = [".dmg", ".exe", ".msi", ".AppImage", ".deb", ".rpm"];
+const PLATFORM_NAMES = { macos: "macOS", darwin: "macOS", windows: "Windows", linux: "Linux" };
+
+/**
+ * The versioned copy of a stable installer name, or null for files that are not installers
+ * (updater bundles, signatures, latest.json):
+ * `SmartBeat_macos_universal.dmg` -> `SmartBeat-0.2.0-macOS-universal.dmg`.
+ */
+export function versionedAssetName(stableName, version) {
+  parseVersion(version);
+  if (!INSTALLER_EXTENSIONS.some((extension) => stableName.endsWith(extension))) return null;
+  const match = /^SmartBeat_([A-Za-z]+)_(.+)$/.exec(stableName);
+  if (!match) return null;
+  const platform = PLATFORM_NAMES[match[1].toLowerCase()] ?? match[1];
+  return `SmartBeat-${version}-${platform}-${match[2]}`;
+}

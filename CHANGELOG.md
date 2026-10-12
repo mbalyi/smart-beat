@@ -6,6 +6,9 @@ Release notes for every version. The release workflow publishes the section that
 
 - Added: choose the audio input in Help › Settings…, for example an audio interface with your guitar plugged in. The tuner listens to it, and Smart Beat remembers it. The tuner shows the input and links to the setting.
 - Fixed: stopping the tuner while macOS was still asking for the microphone left the microphone on.
+- Added: Help › About shows the contact address (smart-beat@outlook.com) and a link to the source code.
+- Changed: the End User License Agreement is now version 1.0, written for the EU (Dutch law, your local consumer rights kept).
+- Changed: release installers also come with the version in their name, for example `SmartBeat-0.2.0-macOS-universal.dmg`. Versions like `0.2.0-beta.1` are published as prereleases and never offered by the updater.
 - Added: anonymous usage counters. Smart Beat counts, per day, how often features such as Loop, Metronome, Count-in, Export or Open are used, with the app version, the operating system and the installer type. There is no identifier, and nothing about your songs, files or sounds is sent. Counts are kept while you are offline and sent later. Switch them off in Help › Settings…, which also deletes counts that were not sent yet. See `docs/analytics.md`.
 - Added: Smart Beat › Settings… (⌘,) in the macOS menu bar, under About. On Windows and Linux it is in the Help menu (Ctrl+,).
 - Added: Help › Check for Updates…, an automatic update check at startup (at most once a day), and an update dialog with release notes and download progress.

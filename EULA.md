@@ -1,86 +1,125 @@
 SMART BEAT END USER LICENSE AGREEMENT
 
-DRAFT: this agreement has not been reviewed by a lawyer yet. It must be
-reviewed before the first public release (see docs/licensing.md).
+Version 1.0, 12 October 2026
 
-Last updated: 2026-09-29
+This text was written for a free application released from the European
+Union. It is not legal advice, and it has not yet been reviewed by a lawyer.
+The points that need review before any paid or commercial offer are listed in
+docs/licensing.md ("Legal review").
 
 This End User License Agreement ("Agreement") is between you and Mark Balyi
-("Licensor") and governs your use of the Smart Beat application, including
-updates and documentation (the "Software"). By installing or using the
-Software you agree to this Agreement. If you do not agree, do not install or
-use the Software.
+("Licensor") and governs your use of the Smart Beat application as released
+by Licensor, including its updates and documentation (the "Software"). By
+installing or using the Software you agree to this Agreement. If you do not
+agree, do not install or use the Software.
 
-1. LICENSE GRANT
-   Licensor grants you a free, non-exclusive, non-transferable, revocable
-   license to install and use the Software on devices you own or control, for
-   personal or commercial purposes.
+1. WHAT THIS AGREEMENT COVERS
+   This Agreement covers the official installers published on
+   https://github.com/mbalyi/smart-beat/releases and the application they
+   install. It does not cover the source code. The source code is licensed
+   separately under the PolyForm Noncommercial License 1.0.0 (see LICENSE),
+   and any commercial use of the source code, or of a build made from it,
+   needs a separate written agreement with Licensor (see
+   COMMERCIAL-LICENSE.md). Nothing in this Agreement widens or narrows that
+   source licence.
 
-   This Agreement covers the released installers and the application they
-   install. The source code is licensed separately under the PolyForm
-   Noncommercial License 1.0.0 (see LICENSE). Using the source code or a build
-   made from it for commercial purposes needs a separate written agreement
-   with Licensor (see COMMERCIAL-LICENSE.md).
+2. LICENSE GRANT
+   Licensor grants you a free, worldwide, non-exclusive, non-transferable
+   license to install and use the Software on devices you own or control,
+   for personal or professional purposes, including making and selling your
+   own music with it. The Software is provided free of charge.
 
-2. RESTRICTIONS
-   Except as expressly permitted by this Agreement or by applicable law, you
-   may not:
+3. RESTRICTIONS
+   Except where this Agreement, the source licence or mandatory law allows
+   it, you may not:
    (a) sell, rent, lease or sublicense the Software;
    (b) redistribute the Software, except by sharing the unmodified official
        installer free of charge;
-   (c) modify the Software or create derivative works of it;
-   (d) decompile, disassemble or reverse engineer the Software;
-   (e) remove or alter any copyright, trademark or license notice.
+   (c) modify the official binaries, or rebrand, repackage or bundle them
+       into another product or service;
+   (d) remove or alter any copyright, trademark or license notice.
+   These restrictions do not limit what mandatory law allows you to do,
+   for example decompiling for interoperability under Article 6 of
+   Directive 2009/24/EC, or replacing an LGPL-licensed library as its
+   licence allows.
 
-3. OPEN-SOURCE COMPONENTS
-   The Software includes open-source components licensed under their own
-   terms, which are listed in the Software under Help > Open-Source Licenses.
-   Nothing in this Agreement limits the rights those licenses grant you. Where
-   such a license conflicts with this Agreement, that license prevails for the
-   component concerned.
+4. THIRD-PARTY COMPONENTS
+   The Software contains open-source components licensed under their own
+   terms, listed in the Software under Help > Open-Source Licenses. Nothing
+   in this Agreement limits the rights those licenses give you. Where such a
+   license conflicts with this Agreement, that license prevails for the
+   component concerned. SoundFonts, fonts and other content shipped with the
+   Software are covered in the same way.
 
-4. AI FEATURES
-   Optional AI features may be offered separately, possibly for a fee, and
-   may be governed by additional terms. AI models are downloaded separately
-   and are subject to their own licenses, which are shown before download.
-   AI-generated content is provided without any warranty of originality or
-   fitness for a particular purpose.
+5. AI FEATURES AND MODELS
+   Optional AI features may use models that are downloaded separately or
+   run on a server. Each model has its own license, which is shown before
+   download or first use. Some AI features may later be offered for a fee
+   under additional terms, which will be shown before you agree to them.
+   Licensor does not claim any rights in what you create with the AI
+   features. Licensor cannot guarantee that AI-generated music is original
+   or free of third-party rights, so check it before you publish it.
 
-5. YOUR CONTENT
-   You keep all rights to the music, scores and recordings you create or open
-   with the Software. The Software processes your content locally on your
-   device unless you configure it to use a remote AI service.
+6. YOUR CONTENT AND PRIVACY
+   You keep all rights to the music, scores and recordings you create or
+   open with the Software. The Software processes your files on your own
+   device, unless you choose a feature that sends audio to a server, which
+   says so before it sends anything.
 
-   The Software also counts, anonymously, how often its features are used
-   (for example Loop, Metronome or Export), per day, together with the
-   version of the Software, your operating system and the installer type.
-   The counts contain no identifier, no file names and no content, and are
-   sent over the internet to a server operated by Licensor, which keeps them
-   for six months. You can switch this off at any time in Help > Settings.
+   The Software counts, anonymously, how often its features are used (for
+   example Loop, Metronome or Export), per day, together with the version of
+   the Software, your operating system and the installer type. The counts
+   contain no identifier, no file names and no content. They are sent to a
+   server operated by Licensor and kept for six months. You can switch this
+   off at any time in Help > Settings. Details: docs/analytics.md in the
+   source repository.
 
-6. UPDATES
-   Licensor may provide updates. This Agreement applies to them unless they
-   come with different terms.
+7. UPDATES
+   The Software checks for a new version at most once a day, and when you
+   choose Help > Check for Updates. It downloads and installs an update
+   only after you confirm it. An update is covered by this Agreement unless
+   it comes with different terms, which will be shown to you first. You are
+   not obliged to install updates, but older versions may stop receiving
+   fixes.
 
-7. TERMINATION
-   This license ends automatically if you breach this Agreement. On
-   termination you must stop using and delete the Software.
+8. TERMINATION
+   You may stop using the Software at any time by uninstalling it. This
+   license ends if you materially breach this Agreement and do not stop the
+   breach within 30 days after Licensor asks you to. When the license ends
+   you must stop using the Software and delete it. Sections 4, 6, 9, 10 and
+   11 continue to apply after it ends.
 
-8. NO WARRANTY
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-   PARTICULAR PURPOSE AND NON-INFRINGEMENT, TO THE MAXIMUM EXTENT PERMITTED BY
-   LAW.
+9. WARRANTY
+   The Software is provided free of charge and "as is". To the extent the
+   law allows, Licensor gives no warranty that the Software is free of
+   errors, fits a particular purpose or will always be available. If you
+   are a consumer, this does not limit any rights you have under the
+   mandatory consumer law of the country where you live, including the
+   rules on digital content in Directive (EU) 2019/770 where they apply.
 
-9. LIMITATION OF LIABILITY
-   TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR IS NOT LIABLE FOR ANY
-   INDIRECT, INCIDENTAL, SPECIAL OR CONSEQUENTIAL DAMAGES, OR FOR LOSS OF
-   DATA, ARISING FROM THE USE OF THE SOFTWARE. Nothing in this Agreement
-   limits liability that cannot be limited under applicable law, including
-   consumer protection law.
+10. LIABILITY
+    Licensor is not liable for indirect or consequential loss, or for loss
+    of data you could have prevented by keeping backups, except where the
+    law does not allow this to be excluded. Nothing in this Agreement limits
+    liability for death or personal injury caused by negligence, for fraud,
+    for intent or gross negligence, or any other liability that cannot be
+    limited under the law that applies.
 
-10. GOVERNING LAW
-    [To be decided with legal counsel.]
+11. GOVERNING LAW AND DISPUTES
+    This Agreement is governed by the law of the Netherlands, excluding the
+    United Nations Convention on Contracts for the International Sale of
+    Goods. Disputes are decided by the competent court in the Netherlands.
+    If you are a consumer living in another country of the European Union
+    or the European Economic Area, you also keep the protection of the
+    mandatory consumer law of that country, and you may bring a claim in
+    the courts where you live.
 
-11. CONTACT
-    Questions about this Agreement: [contact address to be added].
+12. CHANGES TO THIS AGREEMENT
+    Licensor may publish a new version of this Agreement with a new version
+    of the Software. The version number and date at the top show which
+    version applies. A new version applies only to Software versions
+    released with it.
+
+13. CONTACT
+    Questions about this Agreement, licensing or privacy:
+    smart-beat@outlook.com

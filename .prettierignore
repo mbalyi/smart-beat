@@ -11,7 +11,6 @@ src-tauri/icons
 public/third-party-licenses.txt
 public/font
 public/soundfont
-high-level-plan.md
 # Plain-text templates and legal text: whitespace is significant.
 about.hbs
 EULA.md
