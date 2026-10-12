@@ -134,6 +134,7 @@ function Fretboard({
   onFretDelete,
   onPlayString,
   onOpenTuner,
+  onOpenRecord,
 }: {
   tuning: number[];
   capo: number;
@@ -147,6 +148,8 @@ function Fretboard({
   /** Plays an open string's note, to tune by ear (#83). */
   onPlayString?: (pitch: number) => void;
   onOpenTuner?: () => void;
+  /** Opens Record to Tab for this track (#108). */
+  onOpenRecord?: () => void;
 }) {
   const strings = fretboardStrings(tuning);
   const positions = fretPositions(active, capo);
@@ -203,6 +206,15 @@ function Fretboard({
             className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             Tuner…
+          </button>
+        )}
+        {onOpenRecord && (
+          <button
+            type="button"
+            onClick={onOpenRecord}
+            className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            Record…
           </button>
         )}
         {editing && (
@@ -582,6 +594,7 @@ export function InstrumentPanel({
   onPreviewDrum,
   onPlayString,
   onOpenTuner,
+  onOpenRecord,
 }: {
   kind: TrackKind;
   tuning: number[];
@@ -610,6 +623,8 @@ export function InstrumentPanel({
   /** Plays an open string's note (#83). */
   onPlayString?: (pitch: number) => void;
   onOpenTuner?: () => void;
+  /** Stringed tracks: opens Record to Tab for this track (#108). */
+  onOpenRecord?: () => void;
 }) {
   const name = instrumentViewName(kind);
   const [drumView, setDrumView] = useState<"pads" | "kit">("pads");
@@ -672,6 +687,7 @@ export function InstrumentPanel({
           onFretDelete={onFretDelete}
           onPlayString={onPlayString}
           onOpenTuner={onOpenTuner}
+          onOpenRecord={onOpenRecord}
         />
       ) : kind === "drums" ? (
         <div className="flex flex-col gap-2">

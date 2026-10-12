@@ -165,3 +165,12 @@ export function audioInputErrorText(error: unknown): string {
   if (errorName(error) === "NotAllowedError") return MICROPHONE_BLOCKED;
   return `The microphone could not be opened: ${error instanceof Error ? error.message : String(error)}`;
 }
+
+/**
+ * Whether an input looks like a laptop's own microphone, from its name ("MacBook Pro
+ * Microphone", "Built-in Microphone", "Microphone Array"). Its pickup hears the speakers, so
+ * the click would be in a recording. An unknown (empty) name is not a built-in microphone.
+ */
+export function looksBuiltIn(label: string | null | undefined): boolean {
+  return /built-?in|internal|macbook|imac|mac (mini|studio)|microphone array/i.test(label ?? "");
+}

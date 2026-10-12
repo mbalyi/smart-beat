@@ -32,6 +32,24 @@ const note = (string: number | null, fret: number | null, pitch: number): NoteIn
   tied: false,
 });
 
+describe("InstrumentPanel: Record to Tab (#108)", () => {
+  it("has a Record link beside Tuner when the feature is on", async () => {
+    const onOpenRecord = vi.fn();
+    const { user } = setup({ onOpenTuner: vi.fn(), onOpenRecord });
+    const panel = screen.getByRole("region", { name: "Fretboard" });
+    const tuner = within(panel).getByRole("button", { name: "Tuner…" });
+    const record = within(panel).getByRole("button", { name: "Record…" });
+    expect(tuner.compareDocumentPosition(record) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(record);
+    expect(onOpenRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no Record link when the feature is off", () => {
+    setup({ onOpenTuner: vi.fn() });
+    expect(screen.queryByRole("button", { name: "Record…" })).not.toBeInTheDocument();
+  });
+});
+
 describe("InstrumentPanel: fretboard", () => {
   it("shows the tuning, capo and the notes being played", async () => {
     setup({ capo: 2, active: [note(6, 3, 69), note(1, 0, 42)] });
