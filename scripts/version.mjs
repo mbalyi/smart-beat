@@ -28,7 +28,12 @@ const FILES = {
 };
 
 const read = (file) => readFileSync(path.join(root, file), "utf8");
-const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+const git = (...args) =>
+  execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 
 function readAll() {
   return Object.fromEntries(Object.entries(FILES).map(([key, file]) => [key, read(file)]));
