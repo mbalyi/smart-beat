@@ -11,13 +11,15 @@
  */
 import { importer, model, Settings } from "@coderline/alphatab";
 
+import { placeFrets, type PlacedGroup } from "@/lib/import/fret-placement";
 import { findGrid } from "@/lib/import/midi-grid";
 import { fillDurations } from "@/lib/score/bar-duration";
 import { ScoreLoadError } from "@/lib/score/errors";
-import { newBeat, refinish, type Score, type Track } from "@/lib/score/model";
+import { newBeat, placeholderBeats, refinish, type Score, type Track } from "@/lib/score/model";
 import {
   durationTicks,
-  MAX_FRET,
+  lowestPitch,
+  pitchName,
   QUARTER_TICKS,
   STANDARD_GUITAR,
   type Duration,
@@ -48,15 +50,17 @@ export interface MidiImport {
   warnings: string[];
 }
 
-interface RawNote {
+export interface RawNote {
   start: number;
   end: number;
   pitch: number;
   velocity: number;
 }
 
-interface Part {
+export interface Part {
   trackName: string;
+  /** Strings of a guitar part, highest first. Set for recordings; files get a tuning from the sound. */
+  tuning?: number[];
   channel: number;
   program: number;
   volume: number | null;
@@ -109,7 +113,7 @@ class Reader {
   }
 }
 
-interface Parsed {
+export interface Parsed {
   division: number;
   tempos: { tick: number; bpm: number }[];
   timeSignatures: { tick: number; numerator: number; denominator: number }[];
@@ -118,7 +122,7 @@ interface Parsed {
   endTick: number;
 }
 
-function parse(bytes: Uint8Array): Parsed {
+export function parse(bytes: Uint8Array): Parsed {
   const reader = new Reader(bytes);
   if (reader.u32() !== 0x4d546864) throw new ScoreLoadError("This is not a MIDI file.");
   const headerLength = reader.u32();
@@ -282,7 +286,7 @@ function parse(bytes: Uint8Array): Parsed {
 
 // --- Building the score ----------------------------------------------------------------
 
-interface BarPlan {
+export interface BarPlan {
   start: number;
   length: number;
   numerator: number;
@@ -399,6 +403,7 @@ function splitLead(part: Part): Part[] {
 }
 
 function trackSpec(part: Part, name: string): NewTrack {
+  if (part.tuning) return { kind: "stringed", name, program: part.program, tuning: [...part.tuning] };
   if (part.channel === 9) return { kind: "drums", name, program: 0 };
   if (isGuitarProgram(part.program)) {
     return { kind: "stringed", name, program: part.program, tuning: [...STANDARD_GUITAR] };
@@ -409,26 +414,27 @@ function trackSpec(part: Part, name: string): NewTrack {
   return { kind: "pitched", name, program: part.program };
 }
 
-/** A string and fret for `pitch`, preferring low frets and strings not in `used`. */
-function fretFor(tuning: readonly number[], pitch: number, used: ReadonlySet<number>) {
-  let best: { string: number; fret: number } | null = null;
-  tuning.forEach((open, index) => {
-    const fret = pitch - open;
-    const string = tuning.length - index;
-    if (fret < 0 || fret > MAX_FRET || used.has(string)) return;
-    if (!best || fret < best.fret) best = { string, fret };
-  });
-  return best as { string: number; fret: number } | null;
-}
-
 interface Group {
   start: number;
   length: number;
   pitches: number[];
 }
 
+export interface FillOptions {
+  /** The track's bar that the first planned bar is written to. */
+  firstBar?: number;
+  /** Replace bars that get no notes with rests (punching a take over old music). */
+  overwrite?: boolean;
+}
+
 /** Fills the bars of a track with the notes of a part. */
-function fillTrack(track: Track, part: Part, bars: BarPlan[], warnings: Set<string>) {
+export function fillTrack(
+  track: Track,
+  part: Part,
+  bars: BarPlan[],
+  warnings: Set<string>,
+  { firstBar = 0, overwrite = false }: FillOptions = {},
+) {
   const staff = track.staves[0]!;
   const tuning = staff.stringTuning.tunings;
   const drums = part.channel === 9;
@@ -454,11 +460,29 @@ function fillTrack(track: Track, part: Part, bars: BarPlan[], warnings: Set<stri
       groups.push({ start, length, pitches: [note.pitch] });
     }
   }
+  for (const groups of perBar) groups.sort((a, b) => a.start - b.start);
 
-  staff.bars.forEach((bar, index) => {
-    const plan = bars[index]!;
-    const groups = perBar[index]!.sort((a, b) => a.start - b.start);
-    if (groups.length === 0) return; // the track's bar keeps its rests
+  // Strings and frets for the whole part at once, so the hand stays near one position.
+  let placed: PlacedGroup[] | null = null;
+  if (!drums && tuning.length > 0) {
+    placed = placeFrets(
+      tuning,
+      perBar.flatMap((groups) => groups.map((g) => ({ pitches: g.pitches }))),
+      { capo: staff.capo },
+    );
+    reportPlacement(track, placed, lowestPitch(tuning, staff.capo), warnings);
+  }
+  let placedIndex = 0;
+
+  bars.forEach((plan, index) => {
+    const bar = staff.bars[firstBar + index];
+    if (!bar) return;
+    const groups = perBar[index]!;
+    if (groups.length === 0) {
+      // The bar keeps its rests, or loses its old music when a take is punched in.
+      if (overwrite) clearVoices(bar, 0);
+      return;
+    }
     const voice = bar.voices[0]!;
     const beats: model.Beat[] = [];
     const rests = (ticks: number) => {
@@ -471,38 +495,24 @@ function fillTrack(track: Track, part: Part, bars: BarPlan[], warnings: Set<stri
       const room = next - group.start;
       const fit = largestFit(Math.min(group.length, room)) ?? { duration: D.SixtyFourth, dots: 0 };
       const beat = newBeat(fit.duration, fit.dots);
-      const used = new Set<number>();
-      for (const pitch of [...group.pitches].sort((a, b) => b - a)) {
-        const note = new model.Note();
-        if (drums) {
-          note.percussionArticulation = pitch;
-        } else if (tuning.length > 0) {
-          let spot = fretFor(tuning, pitch, used);
-          if (!spot) {
-            for (const shift of [12, -12, 24, -24]) {
-              spot = fretFor(tuning, pitch + shift, used);
-              if (spot) {
-                warnings.add(
-                  `Some notes of “${track.name}” were moved an octave to fit the strings.`,
-                );
-                break;
-              }
-            }
-          }
-          if (!spot) {
-            warnings.add(
-              `Some notes of “${track.name}” are outside the strings' range and were left out.`,
-            );
-            continue;
-          }
-          used.add(spot.string);
+      if (placed) {
+        for (const spot of placed[placedIndex++]!.notes) {
+          const note = new model.Note();
           note.string = spot.string;
           note.fret = spot.fret;
-        } else {
-          note.octave = Math.floor(pitch / 12);
-          note.tone = pitch % 12;
+          beat.addNote(note);
         }
-        beat.addNote(note);
+      } else {
+        for (const pitch of [...group.pitches].sort((a, b) => b - a)) {
+          const note = new model.Note();
+          if (drums) {
+            note.percussionArticulation = pitch;
+          } else {
+            note.octave = Math.floor(pitch / 12);
+            note.tone = pitch % 12;
+          }
+          beat.addNote(note);
+        }
       }
       if (beat.notes.length === 0) {
         beats.push(newBeat(fit.duration, fit.dots));
@@ -518,24 +528,83 @@ function fillTrack(track: Track, part: Part, bars: BarPlan[], warnings: Set<stri
     if (position < plan.length) rests(plan.length - position);
     voice.beats = [];
     for (const beat of beats) voice.addBeat(beat);
+    if (overwrite) clearVoices(bar, 1);
   });
+}
+
+/** Empties the voices of a bar, from voice `from` on, back to rests. */
+function clearVoices(bar: model.Bar, from: number) {
+  for (let index = from; index < bar.voices.length; index++) {
+    const voice = bar.voices[index]!;
+    voice.beats = [];
+    for (const beat of placeholderBeats(bar.masterBar, index)) voice.addBeat(beat);
+  }
+}
+
+/** Warnings for notes the placement moved an octave or left out. */
+function reportPlacement(
+  track: Track,
+  placed: readonly PlacedGroup[],
+  lowest: number,
+  warnings: Set<string>,
+) {
+  let moved = false;
+  let other = false;
+  const below: number[] = [];
+  for (const group of placed) {
+    if (group.shifted.length > 0) moved = true;
+    for (const pitch of group.dropped) {
+      if (pitch < lowest) below.push(pitch);
+      else other = true;
+    }
+  }
+  if (moved) {
+    warnings.add(`Some notes of “${track.name}” were moved an octave to fit the strings.`);
+  }
+  if (below.length > 0) {
+    const low = pitchName(lowest, { octave: false });
+    const lowestDropped = pitchName(Math.min(...below), { octave: false });
+    const many = below.length > 1;
+    warnings.add(
+      `${below.length} ${many ? "notes" : "note"} below the low ${low} of “${track.name}” ${many ? "were" : "was"} left out. Was the guitar tuned down to ${lowestDropped}?`,
+    );
+  }
+  if (other) {
+    warnings.add(`Some notes of “${track.name}” are outside the strings' range and were left out.`);
+  }
 }
 
 /** Builds a Smart Beat score from a MIDI file. Throws {@link ScoreLoadError} for damaged files. */
 export function importMidi(bytes: Uint8Array): MidiImport {
   const parsed = parse(bytes);
   if (parsed.parts.length === 0) throw new ScoreLoadError("The MIDI file has no notes.");
+  return buildScore(parsed);
+}
+
+export interface BuildOptions {
+  /** The notes come from a recording, not a file: other wording, and no lead split. */
+  recording?: boolean;
+}
+
+/** Builds a score from parsed notes: finds the real grid, plans the bars and writes the tracks. */
+export function buildScore(parsed: Parsed, { recording = false }: BuildOptions = {}): MidiImport {
   const warnings = new Set<string>();
   const fileBpm = Math.round(parsed.tempos[0]?.bpm ?? 120);
   const detected = regrid(parsed);
   if (detected !== null) {
     warnings.add(
-      `The notes did not follow the file's tempo (${fileBpm} BPM): the tempo was measured as ${detected} BPM and the bars were lined up with the music.`,
+      recording
+        ? `The tempo was measured as ${detected} BPM and the bars were lined up with the playing.`
+        : `The notes did not follow the file's tempo (${fileBpm} BPM): the tempo was measured as ${detected} BPM and the bars were lined up with the music.`,
     );
   }
   const bars = planBars(parsed);
   if (parsed.endTick > bars.at(-1)!.start + bars.at(-1)!.length) {
-    warnings.add("The file is very long: the end was cut off.");
+    warnings.add(
+      recording
+        ? "The take is very long: the end was cut off."
+        : "The file is very long: the end was cut off.",
+    );
   }
 
   // Scaffold: a song of empty bars with the right time signatures and tempos.
@@ -572,7 +641,7 @@ export function importMidi(bytes: Uint8Array): MidiImport {
   if (tempos.length > bars.length)
     warnings.add("Tempo changes inside a bar start at the beginning of the bar.");
 
-  const parts = parsed.parts.flatMap(splitLead);
+  const parts = recording ? parsed.parts : parsed.parts.flatMap(splitLead);
   if (parts.length > parsed.parts.length) {
     warnings.add(
       "Chords with a lead line on top were split into two tracks (rhythm and lead), as a MIDI file keeps them in one track.",
@@ -597,7 +666,9 @@ export function importMidi(bytes: Uint8Array): MidiImport {
   refinish(score);
 
   warnings.add(
-    "MIDI has sounds, not notation: notes were snapped to sixteenth notes and triplets are not detected.",
+    recording
+      ? "Notes were snapped to sixteenth notes and triplets are not detected."
+      : "MIDI has sounds, not notation: notes were snapped to sixteenth notes and triplets are not detected.",
   );
   return { score, warnings: [...warnings] };
 }
