@@ -428,7 +428,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Close Practice Song" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open a file…" })).toBeInTheDocument();
-  });
+  }, 60_000); // Opens, edits and closes tabs and runs an axe scan: over 20 s on a slow CI runner.
 
   it("ignores actions the Rust core handles natively", async () => {
     await renderApp();

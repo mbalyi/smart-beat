@@ -190,6 +190,9 @@ jobs:
         env:
           GITLEAKS_VERSION: 8.30.1
         run: |
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz -C "$RUNNER_TEMP" gitleaks
+          # Download to a file first so curl can retry a flaky GitHub download (a 504 once failed this job).
+          curl -sSfL --retry 5 --retry-delay 5 --retry-all-errors -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xz -C "$RUNNER_TEMP" -f "$RUNNER_TEMP/gitleaks.tar.gz" gitleaks
           "$RUNNER_TEMP/gitleaks" git --log-opts=--all --redact --no-banner .
           "$RUNNER_TEMP/gitleaks" dir --redact --no-banner .
