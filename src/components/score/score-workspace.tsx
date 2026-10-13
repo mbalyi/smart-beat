@@ -66,6 +66,7 @@ import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
+import { usePianoModel } from "@/hooks/use-piano-model";
 import { recordTargets, useRecordToTab } from "@/hooks/use-record-to-tab";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import {
@@ -1184,6 +1185,7 @@ export function ScoreWorkspace({
     },
     onOpenScore: (opened, name) => onOpenScore?.(opened, name),
   });
+  const pianoModel = usePianoModel(recordEnabled && recording.dialogOpen);
   const recordBusy = recording.phase.kind !== "idle";
   const [recordDrop, setRecordDrop] = useState<DroppedTake | null>(null);
 
@@ -2351,6 +2353,7 @@ export function ScoreWorkspace({
             onRecord={recording.start}
             onRecordFile={recording.fromFile}
             droppedFile={recordDrop}
+            pianoModel={pianoModel}
           />
           <RecordBar
             phase={recording.phase}

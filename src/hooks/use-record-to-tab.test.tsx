@@ -44,6 +44,7 @@ const click = (over: Partial<RecordSetup> = {}): RecordSetup => ({
   alignToBeat: true,
   tuning: TUNING,
   instrument: "guitar",
+  engine: "standard",
   ...over,
 });
 
@@ -228,6 +229,7 @@ describe("click mode", () => {
       48_000,
       expect.any(Function),
       "guitar",
+      "standard",
     );
     expect(hook.editor.run).toHaveBeenCalledTimes(1);
     expect(hook.editor.run.mock.calls[0]![0]).toBe("Record to tab");
@@ -411,6 +413,11 @@ describe("keys", () => {
 });
 
 describe("piano", () => {
+  // The take starts at 900 ms and playback at 1000 ms, as in the click mode tests: with the real
+  // clock the notes could land before the first bar on a fast machine.
+  beforeEach(() => {
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+  });
   const highNote = { start: 3.15, end: 3.5, pitch: 72, velocity: 90 };
   const lowNote = { start: 3.15, end: 3.5, pitch: 40, velocity: 90 };
 
@@ -422,11 +429,14 @@ describe("piano", () => {
     fakeRecorder();
     await begin(hook, click({ mode: "free", track: null, instrument: "piano" }));
     await stop(hook);
+    await waitFor(() => expect(transcribeRecording).toHaveBeenCalled());
+    await waitFor(() => expect(hook.onOpenScore).toHaveBeenCalled());
     expect(transcribeRecording).toHaveBeenCalledWith(
       expect.any(Float32Array),
       48_000,
       expect.any(Function),
       "piano",
+      "standard",
     );
     expect(recordingToSong).toHaveBeenCalledWith(expect.anything(), {
       tuning: undefined,
@@ -434,6 +444,26 @@ describe("piano", () => {
       program: 0,
     });
     expect(hook.onOpenScore).toHaveBeenCalledWith(song.score, "Recording");
+  });
+
+  it("asks for the high-accuracy model when it was chosen", async () => {
+    vi.mocked(recordingToSong).mockReturnValue({ score: {}, warnings: [] } as never);
+    vi.mocked(transcribeRecording).mockResolvedValue([highNote] as never);
+    const hook = setup();
+    fakeRecorder();
+    await begin(
+      hook,
+      click({ mode: "free", track: null, instrument: "piano", engine: "accurate" }),
+    );
+    await stop(hook);
+    await waitFor(() => expect(transcribeRecording).toHaveBeenCalled());
+    expect(transcribeRecording).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      48_000,
+      expect.any(Function),
+      "piano",
+      "accurate",
+    );
   });
 
   it("writes a new piano take on a track for each hand, in one undo step", async () => {
@@ -445,7 +475,7 @@ describe("piano", () => {
     fakeRecorder();
     await begin(hook, click({ track: null, instrument: "piano" }));
     await stop(hook);
-    expect(hook.editor.run).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(hook.editor.run).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createTrack).mock.calls.map(([, spec]) => spec)).toEqual([
       expect.objectContaining({ kind: "pitched", name: "Recording", program: 0, bass: false }),
       expect.objectContaining({
@@ -469,7 +499,7 @@ describe("piano", () => {
     fakeRecorder();
     await begin(hook, click({ track: null, instrument: "piano" }));
     await stop(hook);
-    expect(createTrack).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(createTrack).toHaveBeenCalledTimes(1));
   });
 });
 
@@ -639,7 +669,7 @@ describe("an existing recording", () => {
     });
     const hook = setup();
     act(() => hook.result.current.open());
-    act(() => hook.result.current.fromFile(file("Solo take.wav"), TUNING, "guitar"));
+    act(() => hook.result.current.fromFile(file("Solo take.wav"), TUNING, "guitar", "standard"));
     expect(hook.result.current.dialogOpen).toBe(false);
     await waitFor(() => expect(hook.onOpenScore).toHaveBeenCalledWith(song.score, "Solo take"));
     expect(transcribeRecording).toHaveBeenCalledWith(
@@ -647,6 +677,7 @@ describe("an existing recording", () => {
       22_050,
       expect.any(Function),
       "guitar",
+      "standard",
     );
     expect(recordingToSong).toHaveBeenCalledWith(
       expect.anything(),
@@ -657,6 +688,7 @@ describe("an existing recording", () => {
       22_050,
       expect.any(Function),
       "guitar",
+      "standard",
     );
     expect(hook.player.playPause).not.toHaveBeenCalled();
     expect(track).toHaveBeenCalledWith("record_to_tab");
@@ -666,7 +698,7 @@ describe("an existing recording", () => {
   it("reports a file that can't be read, and opens nothing", async () => {
     vi.mocked(decodeTake).mockRejectedValue(new Error("Couldn't read this file as audio."));
     const hook = setup();
-    act(() => hook.result.current.fromFile(file(), TUNING, "guitar"));
+    act(() => hook.result.current.fromFile(file(), TUNING, "guitar", "standard"));
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
         "Couldn't turn this recording into tab",

@@ -888,6 +888,7 @@ export async function transcribeRecording(
   sampleRate: number,
   onProgress?: (fraction: number) => void,
   instrument: "guitar" | "piano" = "guitar",
+  engine: "standard" | "accurate" = "standard",
 ): Promise<RecordedNote[]> {
   if (!isTauri()) throw new NotInDesktopAppError();
   const stopListening = onProgress
@@ -899,7 +900,11 @@ export async function transcribeRecording(
     // The samples are the raw request body (little-endian f32); the rate travels in a header.
     const body = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
     const result = await invoke<{ notes: RecordedNote[] }>("transcribe_recording", body, {
-      headers: { "x-sample-rate": String(sampleRate), "x-instrument": instrument },
+      headers: {
+        "x-sample-rate": String(sampleRate),
+        "x-instrument": instrument,
+        ...(instrument === "piano" && engine === "accurate" ? { "x-engine": "transkun" } : {}),
+      },
     });
     return result.notes;
   } finally {
@@ -911,6 +916,39 @@ export async function transcribeRecording(
 export async function readDroppedAudio(path: string): Promise<ArrayBuffer> {
   if (!isTauri()) throw new NotInDesktopAppError();
   return invoke<ArrayBuffer>("read_transcription_audio", { path });
+}
+
+const PIANO_MODEL_PROGRESS_EVENT = "piano-model-download-progress";
+
+/** Mirrors `PianoModelStatus` in `src-tauri/src/recording/piano_model.rs`. */
+export interface PianoModelStatus {
+  installed: boolean;
+  /** The size of the download. */
+  bytes: number;
+}
+
+/** Whether the high-accuracy piano model is on this computer, and what its download is. */
+export async function pianoModelStatus(): Promise<PianoModelStatus> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<PianoModelStatus>("piano_model_status");
+}
+
+/**
+ * Downloads the high-accuracy piano model, once, and checks it. `onProgress` gets the fraction
+ * done (0…1).
+ */
+export async function downloadPianoModel(onProgress?: (fraction: number) => void): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<{ fraction: number }>(PIANO_MODEL_PROGRESS_EVENT, (event) =>
+        onProgress(event.payload.fraction),
+      )
+    : () => {};
+  try {
+    await invoke<void>("download_piano_model");
+  } finally {
+    stopListening();
+  }
 }
 
 /** Stops the running {@link transcribeRecording}, which then rejects. */

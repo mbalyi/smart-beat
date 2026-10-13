@@ -2,7 +2,7 @@
 //! `transcribe_recording` command, and the notes come back at the right pitches and times.
 
 use smart_beat_lib::recording::{
-    BasicPitch, Instrument, RecordedNote, Transcriber, transcribe_take,
+    BasicPitch, Instrument, RecordedNote, Transcriber, Transkun, transcribe_take,
 };
 use std::f64::consts::PI;
 
@@ -150,4 +150,49 @@ fn a_stop_request_returns_the_stopped_error() {
         .transcribe(&take(), RATE, &mut |_| {}, &|| true)
         .unwrap_err();
     assert_eq!(error.message, "Transcription stopped.");
+}
+
+/// Runs the real piano model, which is not in the repository (55 MB, downloaded by the app):
+/// `TRANSKUN_DIR=<folder with the three files> cargo test --release --test recording -- --ignored`.
+#[test]
+#[ignore = "needs the piano model files in TRANSKUN_DIR"]
+fn the_piano_model_finds_the_played_notes_and_reports_progress() {
+    let dir = std::env::var("TRANSKUN_DIR").expect("set TRANSKUN_DIR");
+    let model = Transkun::load(std::path::Path::new(&dir)).unwrap();
+    let mut fractions = Vec::new();
+    let notes =
+        transcribe_take(&model, &take(), RATE, &mut |f| fractions.push(f), &|| false).unwrap();
+    for (start, pitches) in SCORE {
+        for &pitch in pitches {
+            assert!(
+                notes
+                    .iter()
+                    .any(|n| n.pitch == pitch && (n.start - start).abs() <= 0.1),
+                "no note {pitch} near {start} s in {notes:#?}"
+            );
+        }
+    }
+    assert!(
+        notes
+            .iter()
+            .all(|n| (21..=108).contains(&n.pitch) && n.end > n.start)
+    );
+    assert!(fractions.windows(2).all(|w| w[0] <= w[1]));
+    assert_eq!(fractions.last(), Some(&1.0));
+}
+
+#[test]
+#[ignore = "needs the piano model files in TRANSKUN_DIR"]
+fn the_piano_model_stops_when_asked() {
+    let dir = std::env::var("TRANSKUN_DIR").expect("set TRANSKUN_DIR");
+    let model = Transkun::load(std::path::Path::new(&dir)).unwrap();
+    let error = transcribe_take(&model, &take(), RATE, &mut |_| {}, &|| true).unwrap_err();
+    assert_eq!(error.message, "Transcription stopped.");
+}
+
+#[test]
+fn a_missing_piano_model_is_a_clear_error() {
+    let dir = std::env::temp_dir().join("smart-beat-no-such-piano-model");
+    let error = Transkun::load(&dir).err().expect("no model there");
+    assert!(error.message.starts_with("Could not load the piano model"));
 }

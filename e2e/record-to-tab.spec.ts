@@ -22,13 +22,14 @@ test.skip(!features["record-2-tab"], "record-2-tab is off in src/lib/features.js
 declare global {
   interface Window {
     __recordTranscription: {
-      requests: { sampleRate: number; bytes: number; instrument?: string }[];
+      requests: { sampleRate: number; bytes: number; instrument?: string; engine?: string }[];
       cancelled: number;
       hold: boolean;
       fail: string | null;
       shift: number;
       release: (() => void) | null;
     };
+    __pianoModel: { installed: boolean; downloads: number; fail: string | null };
   }
 }
 
@@ -119,6 +120,66 @@ test.describe("Record to Tab (#108)", () => {
       await expectNoA11yViolations(app);
     });
   }
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`the high-accuracy piano model choice has no WCAG violations in ${colorScheme} mode`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await newSong(app);
+      const dialog = await openRecordDialog(app);
+      await dialog.getByRole("radio", { name: "Piano" }).click();
+      await dialog.getByRole("radio", { name: "High accuracy" }).click();
+      await expect(dialog.getByRole("button", { name: "Download the model" })).toBeVisible();
+      await expectNoA11yViolations(app);
+    });
+  }
+
+  test("piano: the high-accuracy model is downloaded once, then used", async ({ app }) => {
+    test.slow();
+    await newSong(app);
+    const dialog = await openRecordDialog(app);
+    await dialog.getByRole("radio", { name: "Piano" }).click();
+    await dialog.getByRole("radio", { name: "High accuracy" }).click();
+    // Without the model, recording waits for the download.
+    await expect(dialog.getByText(/one-time download of 57 MB/)).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Record" })).toBeDisabled();
+    await dialog.getByRole("button", { name: "Download the model" }).click();
+    await expect(dialog.getByRole("button", { name: "Download the model" })).toBeHidden();
+    await expect(dialog.getByRole("button", { name: "Record" })).toBeEnabled();
+    expect(await app.evaluate(() => window.__pianoModel.downloads)).toBe(1);
+
+    await dialog.getByRole("radio", { name: "Free" }).click();
+    await dialog.getByRole("button", { name: "Record" }).click();
+    const bar = app.getByRole("region", { name: "Recording" });
+    await expect(bar.getByRole("status")).toHaveText("Recording");
+    await untilRecorded(app);
+    await bar.getByRole("button", { name: "Stop" }).click();
+    await expect
+      .poll(() => app.evaluate(() => window.__recordTranscription.requests.length))
+      .toBe(1);
+    const [request] = await app.evaluate(() => window.__recordTranscription.requests);
+    expect(request).toMatchObject({ instrument: "piano", engine: "transkun" });
+    await expect(app.getByRole("heading", { level: 1, name: "Recording" })).toBeVisible();
+  });
+
+  test("piano: a failed model download is reported and can be tried again", async ({ app }) => {
+    await newSong(app);
+    await app.evaluate(() => {
+      window.__pianoModel.fail = "The downloaded piano model is not the expected file.";
+    });
+    const dialog = await openRecordDialog(app);
+    await dialog.getByRole("radio", { name: "Piano" }).click();
+    await dialog.getByRole("radio", { name: "High accuracy" }).click();
+    await dialog.getByRole("button", { name: "Download the model" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText(/not the expected file/);
+    await expect(dialog.getByRole("button", { name: "Record" })).toBeDisabled();
+    await app.evaluate(() => {
+      window.__pianoModel.fail = null;
+    });
+    await dialog.getByRole("button", { name: "Download the model" }).click();
+    await expect(dialog.getByRole("button", { name: "Record" })).toBeEnabled();
+  });
 
   test("piano: free mode opens a right-hand and a left-hand track", async ({ app }) => {
     test.slow();

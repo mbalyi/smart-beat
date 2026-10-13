@@ -1,4 +1,4 @@
-import { AudioLinesIcon, CircleIcon, HeadphonesIcon } from "lucide-react";
+import { AudioLinesIcon, CircleIcon, DownloadIcon, HeadphonesIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { AudioInputSetting } from "@/components/audio-input-setting";
@@ -27,20 +27,24 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useInputLevel } from "@/hooks/use-input-level";
+import type { PianoModel } from "@/hooks/use-piano-model";
 import { isTakeFile, TAKE_FILE_EXTENSIONS } from "@/lib/audio/decode-take";
 import { looksBuiltIn, useAudioInput } from "@/lib/audio/input";
 import {
   RECORD_STRING_COUNTS,
   readAlignToBeat,
   readInstrument,
+  readPianoEngine,
   readPlayOthers,
   readTuningChoice,
   standardTuningChoice,
   storeAlignToBeat,
   storeInstrument,
+  storePianoEngine,
   storePlayOthers,
   storeTuningChoice,
   tuningOf,
+  type PianoEngine,
   type RecordInstrument,
   type TuningChoice,
 } from "@/lib/audio/record-prefs";
@@ -64,6 +68,8 @@ export interface RecordSetup {
   /** The tuning of a new track, or of the new song in free mode. Unused for a piano. */
   tuning: number[];
   instrument: RecordInstrument;
+  /** A piano: the built-in note finder, or the downloaded high-accuracy model. */
+  engine: PianoEngine;
 }
 
 /** An audio file dropped on the window while the dialog is open. */
@@ -81,6 +87,9 @@ export interface RecordTarget {
 }
 
 const NEW_TRACK = "new";
+
+/** Megabytes of a download, rounded up to a whole number. */
+const megabytes = (bytes: number) => Math.ceil(bytes / 1_000_000);
 
 function Field({ label, children, id }: { label: string; id: string; children: ReactNode }) {
   return (
@@ -108,6 +117,7 @@ export function RecordDialog({
   onRecord,
   onRecordFile,
   droppedFile = null,
+  pianoModel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -122,8 +132,15 @@ export function RecordDialog({
   supported: boolean;
   onRecord: (setup: RecordSetup) => void;
   /** Turns an existing recording into tab or staves, as a new song with this tuning. */
-  onRecordFile: (file: File, tuning: number[], instrument: RecordInstrument) => void;
+  onRecordFile: (
+    file: File,
+    tuning: number[],
+    instrument: RecordInstrument,
+    engine: PianoEngine,
+  ) => void;
   droppedFile?: DroppedTake | null;
+  /** The high-accuracy piano model. Without it, the dialog offers only the built-in one. */
+  pianoModel?: PianoModel;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -140,6 +157,7 @@ export function RecordDialog({
             onRecord={onRecord}
             onRecordFile={onRecordFile}
             droppedFile={droppedFile}
+            pianoModel={pianoModel}
           />
         )}
       </DialogContent>
@@ -157,6 +175,7 @@ function RecordForm({
   onRecord,
   onRecordFile,
   droppedFile,
+  pianoModel,
 }: {
   targets: readonly RecordTarget[];
   defaultTrack: number | null;
@@ -165,8 +184,14 @@ function RecordForm({
   supported: boolean;
   onCancel: () => void;
   onRecord: (setup: RecordSetup) => void;
-  onRecordFile: (file: File, tuning: number[], instrument: RecordInstrument) => void;
+  onRecordFile: (
+    file: File,
+    tuning: number[],
+    instrument: RecordInstrument,
+    engine: PianoEngine,
+  ) => void;
   droppedFile: DroppedTake | null;
+  pianoModel: PianoModel | undefined;
 }) {
   const ids = {
     track: useId(),
@@ -175,9 +200,15 @@ function RecordForm({
     tuning: useId(),
     others: useId(),
     align: useId(),
+    engine: useId(),
   };
   const [instrument, setInstrument] = useState<RecordInstrument>(readInstrument);
   const piano = instrument === "piano";
+  const [chosenEngine, setEngine] = useState<PianoEngine>(readPianoEngine);
+  // The choice only exists where the model can be looked up: the desktop app.
+  const offersModel = piano && pianoModel?.ready === true;
+  const engine: PianoEngine = offersModel ? chosenEngine : "standard";
+  const needsModel = offersModel && engine === "accurate" && !pianoModel.installed;
   const [mode, setMode] = useState<Source>("click");
   const fromFile = mode === "file";
   const input = useAudioInput();
@@ -242,6 +273,10 @@ function RecordForm({
     setInstrument(value);
     storeInstrument(value);
   };
+  const changeEngine = (value: PianoEngine) => {
+    setEngine(value);
+    storePianoEngine(value);
+  };
   const changeOthers = (value: boolean) => {
     setPlayOthers(value);
     storePlayOthers(value);
@@ -254,7 +289,7 @@ function RecordForm({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (fromFile) {
-      if (file) onRecordFile(file, tuningOf(tuningChoice), instrument);
+      if (file) onRecordFile(file, tuningOf(tuningChoice), instrument, engine);
       return;
     }
     onRecord({
@@ -265,6 +300,7 @@ function RecordForm({
       alignToBeat,
       tuning: tuningOf(tuningChoice),
       instrument,
+      engine,
     });
   };
 
@@ -426,6 +462,61 @@ function RecordForm({
               </>
             )}
 
+            {offersModel && (
+              <div className="flex flex-col gap-2">
+                <span id={ids.engine} className="text-sm font-medium">
+                  Piano model
+                </span>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  size="sm"
+                  spacing={0}
+                  aria-labelledby={ids.engine}
+                  value={engine}
+                  onValueChange={(value) => value && changeEngine(value as PianoEngine)}
+                  className="self-start"
+                >
+                  <ToggleGroupItem value="standard">Standard</ToggleGroupItem>
+                  <ToggleGroupItem value="accurate">High accuracy</ToggleGroupItem>
+                </ToggleGroup>
+                <p className="text-sm text-muted-foreground">
+                  {engine === "standard"
+                    ? "Built in and fast. Finds most notes."
+                    : "Finds nearly every note. Runs on this computer, but takes about half as long as the recording."}
+                </p>
+                {needsModel && (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm">
+                      The model is a one-time download of {megabytes(pianoModel.bytes)} MB. Your
+                      recordings are never uploaded.
+                    </p>
+                    {pianoModel.progress === null ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="self-start"
+                        onClick={pianoModel.download}
+                      >
+                        <DownloadIcon data-icon="inline-start" />
+                        Download the model
+                      </Button>
+                    ) : (
+                      <p role="status" className="text-sm">
+                        Downloading… {Math.round(pianoModel.progress * 100)}%
+                      </p>
+                    )}
+                    {pianoModel.error && (
+                      <p role="alert" className="text-sm text-destructive">
+                        {pianoModel.error}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {askTuning && (
               <div className="grid grid-cols-[7rem_1fr] gap-4">
                 <Field label="Strings" id={ids.strings}>
@@ -479,12 +570,12 @@ function RecordForm({
           Cancel
         </Button>
         {fromFile ? (
-          <Button type="submit" disabled={!supported || file === null}>
+          <Button type="submit" disabled={!supported || file === null || needsModel}>
             <AudioLinesIcon data-icon="inline-start" />
             Make tab
           </Button>
         ) : (
-          <Button type="submit" disabled={!supported || heard.kind === "blocked"}>
+          <Button type="submit" disabled={!supported || heard.kind === "blocked" || needsModel}>
             <CircleIcon data-icon="inline-start" className="fill-current text-destructive" />
             Record
           </Button>
