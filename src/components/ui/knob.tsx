@@ -42,6 +42,7 @@ export function Knob({
   defaultValue,
   onValueChange,
   onValueCommit,
+  onDraggingChange,
   disabled,
   size = "md",
   showLabel = true,
@@ -61,6 +62,8 @@ export function Knob({
   onValueChange: (value: number) => void;
   /** When a change is finished (pointer up, or each key press). */
   onValueCommit?: (value: number) => void;
+  /** Whether the user is dragging the dial (a pointer is down on it). */
+  onDraggingChange?: (dragging: boolean) => void;
   disabled?: boolean;
   size?: "sm" | "md";
   /** Show the label under the knob (the accessible name is set either way). */
@@ -105,6 +108,7 @@ export function Knob({
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.currentTarget.focus();
     drag.current = { y: event.clientY, value, moved: false };
+    onDraggingChange?.(true);
   };
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const start = drag.current;
@@ -117,6 +121,7 @@ export function Knob({
   const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
     const start = drag.current;
     drag.current = null;
+    onDraggingChange?.(false);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     if (start?.moved) onValueCommit?.(value);
   };

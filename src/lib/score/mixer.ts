@@ -542,17 +542,26 @@ export function isAudible(mix: MixerSettings, index: number): boolean {
   return track.solo || (!mix.tracks.some((t) => t.solo) && !audioSolo);
 }
 
-/** Spoken/visible pan value, e.g. "Centre", "40% left". */
+/** Spoken pan value for screen readers, e.g. "Centre", "Left 80%". */
 export function describePan(pan: number): string {
   const percent = Math.round(Math.abs(pan) * 100);
   if (percent === 0) return "Centre";
-  return `${percent}% ${pan < 0 ? "left" : "right"}`;
+  return `${pan < 0 ? "Left" : "Right"} ${percent}%`;
 }
 
-/** Short pan label as Guitar Pro shows it: "C", "30L", "100R". */
-export function shortPan(pan: number): string {
+/** Visible pan badge, e.g. "L 80%", "C", "R 70%". */
+export function panLabel(pan: number): string {
   const percent = Math.round(Math.abs(pan) * 100);
-  return percent === 0 ? "C" : `${percent}${pan < 0 ? "L" : "R"}`;
+  if (percent === 0) return "C";
+  return `${pan < 0 ? "L" : "R"} ${percent}%`;
+}
+
+/** A pan this close to the middle snaps onto it (5%). */
+export const PAN_SNAP = 0.05;
+
+/** Pan with the centre snap applied, so the middle is easy to hit again. */
+export function snapPan(pan: number): number {
+  return Math.abs(pan) < PAN_SNAP ? 0 : pan;
 }
 
 export const describeVolume = (volume: number) => `${Math.round(volume * 100)}%`;

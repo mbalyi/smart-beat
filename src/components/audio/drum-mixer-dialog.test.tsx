@@ -69,8 +69,8 @@ describe("DrumMixerDialog", () => {
     const pan = within(dialog).getByRole("slider", { name: "Pan, Ride" });
     pan.focus();
     await user.keyboard("{ArrowRight}{ArrowRight}");
-    expect(mixer()!.elements.find((e) => e.id === "ride")!.pan).toBeCloseTo(0.1);
-    expect(within(dialog).getByText("10R")).toBeInTheDocument();
+    expect(mixer()!.elements.find((e) => e.id === "ride")!.pan).toBeCloseTo(0.02);
+    expect(within(dialog).getByText("R 2%")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("radio", { name: "Mono" }));
     expect(mixer()!.stereo).toBe(false);
     expect(within(dialog).getByRole("slider", { name: "Pan, Ride" })).toHaveAttribute(

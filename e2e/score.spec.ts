@@ -229,7 +229,7 @@ test.describe("mixer (#6)", () => {
     );
     await expect(mixer.getByRole("slider", { name: "Pan, Bass" })).toHaveAttribute(
       "aria-valuetext",
-      "50% left",
+      "Left 50%",
     );
     await expect(mixer.getByRole("button", { name: "Mute Piano" })).toHaveAttribute(
       "aria-pressed",
@@ -284,7 +284,7 @@ test.describe("mixer (#6)", () => {
     await expect(app.getByText(/Pan changes are applied when you pause/)).toBeHidden();
     await expect(app.getByRole("slider", { name: "Pan, Drums" })).toHaveAttribute(
       "aria-valuetext",
-      "13% right",
+      "Right 1%",
     );
     // Applied in place: the position survives regenerating the MIDI.
     await expect.poll(() => playedSeconds(app)).toBeGreaterThanOrEqual(afterPan);

@@ -57,7 +57,7 @@ test.describe("mixer (#37)", () => {
     const pan = app.getByRole("slider", { name: "Master pan" });
     await pan.focus();
     await app.keyboard.press("ArrowLeft");
-    await expect(pan).toHaveAttribute("aria-valuetext", "13% left");
+    await expect(pan).toHaveAttribute("aria-valuetext", "Left 1%");
     await app.getByRole("button", { name: "Actions for Drums" }).click();
     await app.getByRole("menuitem", { name: "Focus (turn the others down)" }).click();
     await expect(app.getByRole("button", { name: "Show Drums (in focus)" })).toBeVisible();
@@ -75,6 +75,27 @@ test.describe("mixer (#37)", () => {
       .poll(() => app.getByRole("meter", { name: "Level, master" }).getAttribute("aria-valuenow"))
       .not.toBe("0");
     await app.getByRole("button", { name: "Stop" }).click();
+  });
+
+  test("shows the L/C/R value while hovering and recentres on double-click (#129)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    const pan = app.getByRole("slider", { name: "Pan, Guitar" });
+    await pan.scrollIntoViewIfNeeded();
+    await pan.hover();
+    const bubble = app.getByTestId("pan-value");
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toHaveText("C");
+
+    await pan.focus();
+    await app.keyboard.press("ArrowRight");
+    await expect(pan).toHaveAttribute("aria-valuetext", "Right 1%");
+    await expect(bubble).toHaveText("R 1%");
+
+    await pan.dblclick();
+    await expect(pan).toHaveAttribute("aria-valuetext", "Centre");
+    await expect(bubble).toHaveText("C");
   });
 
   test("pressed Mute is red and Solo green in the dark theme too (mixer and practice bar)", async ({
