@@ -1,6 +1,6 @@
 import { CircleIcon, SquareIcon } from "lucide-react";
 
-import { LevelMeter } from "@/components/score/level-meter";
+import { LiveWaveform } from "@/components/audio/live-waveform";
 import { Button } from "@/components/ui/button";
 import type { RecordPhase } from "@/hooks/use-record-to-tab";
 import { formatElapsed } from "@/lib/audio/level";
@@ -39,7 +39,7 @@ export function RecordBar({
           <span className="text-sm tabular-nums" aria-label="Time recorded">
             {formatElapsed(phase.elapsed)}
           </span>
-          <LevelMeter level={level} className="min-w-16 flex-1" />
+          <LiveWaveform level={level} bars={32} className="h-6 min-w-16 flex-1" />
           <Button size="sm" onClick={onStop}>
             <SquareIcon data-icon="inline-start" className="fill-current" />
             Stop

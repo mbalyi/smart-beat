@@ -63,10 +63,15 @@ async function installMicrophone(page: Page) {
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 }
 
+/** Waits until the take holds a second of sound: a fixed wait can end it too soon on a busy machine. */
+async function untilRecorded(page: Page) {
+  await expect(page.getByLabel("Time recorded")).not.toHaveText("0:00", { timeout: 10_000 });
+}
+
 async function openRecordDialog(page: Page) {
   await page.getByRole("button", { name: "File" }).click();
-  await page.getByRole("menuitem", { name: "Record to Tab…" }).click();
-  const dialog = page.getByRole("dialog", { name: "Record to Tab" });
+  await page.getByRole("menuitem", { name: /^Record to Tab…/ }).click();
+  const dialog = page.getByRole("dialog", { name: /^Record to Tab/ });
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -85,6 +90,9 @@ test.describe("Record to Tab (#108)", () => {
       const dialog = await openRecordDialog(app);
       await expect(dialog.getByRole("meter", { name: "Input level" })).toBeVisible();
       await expect(dialog.getByText("Play a few notes to check the level.")).toBeVisible();
+      await expectNoA11yViolations(app);
+      await dialog.getByRole("radio", { name: "File" }).click();
+      await expect(dialog.getByRole("region", { name: "Audio drop area" })).toBeVisible();
       await expectNoA11yViolations(app);
       await dialog.getByRole("radio", { name: "Free" }).click();
       await expectNoA11yViolations(app);
@@ -108,14 +116,33 @@ test.describe("Record to Tab (#108)", () => {
     await expect(dialog.getByRole("button", { name: "Record" })).toBeVisible();
   });
 
+  test("the dialog fits a laptop screen without a scrollbar", async ({ app }) => {
+    await app.setViewportSize({ width: 1280, height: 800 });
+    await newSong(app);
+    const dialog = await openRecordDialog(app);
+    // A new track asks for the tuning too: the tallest the click mode gets.
+    await dialog.getByRole("combobox", { name: "Track" }).click();
+    await app.getByRole("option", { name: "New track" }).click();
+    await expect(dialog.getByRole("combobox", { name: "Tuning" })).toBeVisible();
+    const body = dialog.locator("[data-slot=dialog-body]");
+    for (const mode of ["Click", "Free", "File"]) {
+      await dialog.getByRole("radio", { name: mode }).click();
+      const { scroll, client } = await body.evaluate((el) => ({
+        scroll: el.scrollHeight,
+        client: el.clientHeight,
+      }));
+      expect(scroll, `${mode} mode`).toBeLessThanOrEqual(client);
+    }
+  });
+
   test("the Record link next to Tuner opens the dialog for that track", async ({ app }) => {
     await openSong(app);
     await app.getByRole("button", { name: "Fretboard" }).click();
     await app
       .getByRole("region", { name: "Fretboard" })
-      .getByRole("button", { name: "Record…" })
+      .getByRole("button", { name: /^Record…/ })
       .click();
-    const dialog = app.getByRole("dialog", { name: "Record to Tab" });
+    const dialog = app.getByRole("dialog", { name: /^Record to Tab/ });
     await expect(dialog.getByRole("combobox", { name: "Track" })).toHaveText("Guitar");
     await app.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
@@ -132,7 +159,7 @@ test.describe("Record to Tab (#108)", () => {
 
     const bar = app.getByRole("region", { name: "Recording" });
     await expect(bar.getByRole("status")).toHaveText("Recording");
-    await app.waitForTimeout(1200);
+    await untilRecorded(app);
     await bar.getByRole("button", { name: "Stop" }).click();
 
     // The mocked core got the samples (little-endian f32) and the rate.
@@ -216,7 +243,7 @@ test.describe("Record to Tab (#108)", () => {
     await dialog.getByRole("button", { name: "Record" }).click();
     const bar = app.getByRole("region", { name: "Recording" });
     await expect(bar.getByRole("status")).toHaveText("Recording");
-    await app.waitForTimeout(800);
+    await untilRecorded(app);
     await app.keyboard.press("Space");
     await expect(bar.getByRole("status")).toHaveText("Transcribing…");
     await bar.getByRole("button", { name: "Cancel" }).click();
@@ -237,7 +264,7 @@ test.describe("Record to Tab (#108)", () => {
     await expect(app.getByRole("region", { name: "Recording" }).getByRole("status")).toHaveText(
       "Recording",
     );
-    await app.waitForTimeout(800);
+    await untilRecorded(app);
     await app.keyboard.press("Space");
     await expect(app.getByText("Couldn't turn your take into tab")).toBeVisible();
     await expect(app.getByText("The model could not be loaded.")).toBeVisible();
@@ -248,7 +275,7 @@ test.describe("Record to Tab (#108)", () => {
     const dialog = await openRecordDialog(app);
     await dialog.getByRole("radio", { name: "Free" }).click();
     await dialog.getByRole("button", { name: "Record" }).click();
-    await app.waitForTimeout(1000);
+    await untilRecorded(app);
     await app.keyboard.press("Space");
     // Needs the merged recording.ts: a take that is not turned into tab is not counted.
     await expect

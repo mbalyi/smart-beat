@@ -107,9 +107,10 @@ fn decode_samples(body: &[u8]) -> Result<Vec<f32>, CommandError> {
     if !body.len().is_multiple_of(4) {
         return Err(error("The recording is not 32-bit float audio."));
     }
-    Ok(body
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    let (chunks, _) = body.as_chunks::<4>();
+    Ok(chunks
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
         .collect())
 }
 

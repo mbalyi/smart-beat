@@ -1,6 +1,9 @@
 // Runs on the audio thread. Mixes the input down to mono and sends it to the page in blocks,
 // with the loudest sample of each block (for the level meter). Loaded by src/lib/audio/recorder.ts;
 // it is a plain file in public/ so that it also loads under the app's content security policy.
+/** The frames of one call of `process`. */
+const RENDER_QUANTUM = 128;
+
 class RecorderProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -28,15 +31,15 @@ class RecorderProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs) {
-    const channels = inputs[0];
-    // No input connected yet (or the input was lost): keep the processor alive.
-    if (!channels || channels.length === 0) return true;
-    const frames = channels[0].length;
+    // No input connected yet, or the input was lost: record silence, so the take keeps pace
+    // with the context clock and later notes keep their time.
+    const channels = inputs[0] ?? [];
+    const frames = channels.length > 0 ? channels[0].length : RENDER_QUANTUM;
     if (this.filled === 0) this.blockTime = currentTime;
     for (let i = 0; i < frames; i++) {
       let sum = 0;
       for (let c = 0; c < channels.length; c++) sum += channels[c][i];
-      const value = sum / channels.length;
+      const value = channels.length > 0 ? sum / channels.length : 0;
       this.block[this.filled++] = value;
       const magnitude = Math.abs(value);
       if (magnitude > this.peak) this.peak = magnitude;

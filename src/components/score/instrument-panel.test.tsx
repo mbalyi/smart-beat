@@ -38,7 +38,7 @@ describe("InstrumentPanel: Record to Tab (#108)", () => {
     const { user } = setup({ onOpenTuner: vi.fn(), onOpenRecord });
     const panel = screen.getByRole("region", { name: "Fretboard" });
     const tuner = within(panel).getByRole("button", { name: "Tuner…" });
-    const record = within(panel).getByRole("button", { name: "Record…" });
+    const record = within(panel).getByRole("button", { name: /^Record…/ });
     expect(tuner.compareDocumentPosition(record) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await user.click(record);
     expect(onOpenRecord).toHaveBeenCalledTimes(1);
@@ -46,7 +46,7 @@ describe("InstrumentPanel: Record to Tab (#108)", () => {
 
   it("has no Record link when the feature is off", () => {
     setup({ onOpenTuner: vi.fn() });
-    expect(screen.queryByRole("button", { name: "Record…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Record…/ })).not.toBeInTheDocument();
   });
 });
 

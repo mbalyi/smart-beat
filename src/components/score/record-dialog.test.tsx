@@ -1,8 +1,8 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { RecordDialog, type RecordSetup } from "@/components/score/record-dialog";
 import { storeAudioInput } from "@/lib/audio/input";
-import { readTuningChoice } from "@/lib/audio/record-prefs";
+import { readAlignToBeat, readTuningChoice } from "@/lib/audio/record-prefs";
 import { expectNoA11yViolations } from "@/test/axe";
 import { installMediaDevices } from "@/test/media-devices";
 import { renderWithProviders } from "@/test/render";
@@ -22,7 +22,8 @@ function setup(
   const mic = installMediaDevices(devices);
   const onRecord = vi.fn<(setup: RecordSetup) => void>();
   const onOpenChange = vi.fn();
-  const utils = renderWithProviders(
+  const onRecordFile = vi.fn<(file: File, tuning: number[]) => void>();
+  const element = (more: Partial<Parameters<typeof RecordDialog>[0]> = {}) => (
     <RecordDialog
       open
       onOpenChange={onOpenChange}
@@ -32,13 +33,19 @@ function setup(
       barCount={8}
       supported
       onRecord={onRecord}
+      onRecordFile={onRecordFile}
       {...props}
-    />,
+      {...more}
+    />
   );
-  return { ...utils, mic, onRecord, onOpenChange };
+  const utils = renderWithProviders(element());
+  /** Renders the dialog again with some props changed. */
+  const update = (more: Partial<Parameters<typeof RecordDialog>[0]>) =>
+    utils.rerender(element(more));
+  return { ...utils, update, mic, onRecord, onRecordFile, onOpenChange };
 }
 
-const dialog = () => screen.getByRole("dialog", { name: "Record to Tab" });
+const dialog = () => screen.getByRole("dialog", { name: /^Record to Tab/ });
 
 describe("RecordDialog", () => {
   it("starts in click mode on the shown track, at the cursor's bar", async () => {
@@ -58,6 +65,7 @@ describe("RecordDialog", () => {
       track: 2,
       startBar: 3,
       playOthers: true,
+      alignToBeat: true,
       tuning: [64, 59, 55, 50, 45, 40],
     });
   });
@@ -225,11 +233,70 @@ describe("RecordDialog", () => {
     expect(screen.getByText("Record to Tab needs the Smart Beat desktop app.")).toBeVisible();
   });
 
-  it("has no accessibility violations, in click and in free mode", async () => {
+  it("says that it is a beta for guitar, how accurate it is, and to review the tab", () => {
+    setup();
+    expect(within(dialog()).getByText("Beta")).toBeVisible();
+    const note = within(dialog()).getByText(/Guitar only for now/);
+    expect(note).toHaveTextContent("Guitar only for now.");
+    expect(note).toHaveTextContent("Roughly 7 of 10 notes are found");
+    expect(note).toHaveTextContent("Review the tab and correct it.");
+  });
+
+  it("remembers whether the take is lined up with the beat", async () => {
+    const { user, onRecord } = setup();
+    const align = screen.getByRole("checkbox", { name: /Line up with the beat/ });
+    expect(align).toBeChecked();
+    await user.click(align);
+    await user.click(screen.getByRole("button", { name: "Record" }));
+    expect(onRecord).toHaveBeenCalledWith(expect.objectContaining({ alignToBeat: false }));
+    expect(readAlignToBeat()).toBe(false);
+  });
+
+  describe("an existing recording", () => {
+    const wav = () => new File([new Uint8Array(8)], "riff.wav");
+
+    it("turns a chosen file into tab with the tuning, without the microphone", async () => {
+      const { user, onRecordFile, onRecord } = setup();
+      await user.click(screen.getByRole("radio", { name: "File" }));
+      expect(screen.queryByRole("meter", { name: "Input level" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Track" })).not.toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Tuning" })).toBeInTheDocument();
+      const make = screen.getByRole("button", { name: "Make tab" });
+      expect(make).toBeDisabled();
+
+      await user.upload(screen.getByLabelText("Choose an audio recording"), wav());
+      expect(screen.getByText("riff.wav")).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Make tab" }));
+      expect(onRecordFile).toHaveBeenCalledWith(expect.any(File), [64, 59, 55, 50, 45, 40]);
+      expect(onRecord).not.toHaveBeenCalled();
+    });
+
+    it("takes a file dropped on the window, and switches to it", async () => {
+      const { update } = setup();
+      update({ droppedFile: { file: wav(), nonce: 1 } });
+      expect(await screen.findByText("riff.wav")).toBeVisible();
+      expect(screen.getByRole("radio", { name: "File" })).toBeChecked();
+    });
+
+    it("refuses a file that is not audio", async () => {
+      const { user, onRecordFile } = setup();
+      await user.click(screen.getByRole("radio", { name: "File" }));
+      fireEvent.change(screen.getByLabelText("Choose an audio recording"), {
+        target: { files: [new File(["x"], "song.gp5")] },
+      });
+      expect(screen.getByRole("alert")).toHaveTextContent("Choose an MP3, WAV, FLAC or OGG file.");
+      expect(screen.getByRole("button", { name: "Make tab" })).toBeDisabled();
+      expect(onRecordFile).not.toHaveBeenCalled();
+    });
+  });
+
+  it("has no accessibility violations, in click, free and file mode", async () => {
     const { user } = setup();
     await screen.findByText("Play a few notes to check the level.");
     await expectNoA11yViolations(dialog());
     await user.click(screen.getByRole("radio", { name: "Free" }));
+    await expectNoA11yViolations(dialog());
+    await user.click(screen.getByRole("radio", { name: "File" }));
     await expectNoA11yViolations(dialog());
   });
 });

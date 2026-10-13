@@ -3,6 +3,7 @@ import { STANDARD_GUITAR, tuningPresets } from "@/lib/score/music";
 
 const PLAY_OTHERS_KEY = "smart-beat:record-play-others";
 const TUNING_KEY = "smart-beat:record-tuning";
+const ALIGN_KEY = "smart-beat:record-align";
 
 /** Guitars the tuning picker offers; 7 and 8 strings are the extended-range guitars. */
 export const RECORD_STRING_COUNTS = [6, 7, 8] as const;
@@ -25,6 +26,26 @@ export function readPlayOthers(): boolean {
 export function storePlayOthers(value: boolean) {
   try {
     localStorage.setItem(PLAY_OTHERS_KEY, value ? "1" : "0");
+  } catch {
+    // Not remembered: the default is used next time.
+  }
+}
+
+/**
+ * Click mode: shift the take by up to 80 ms so its notes line up with the beat (default: yes).
+ * Off for a player who plays behind or ahead of the beat on purpose.
+ */
+export function readAlignToBeat(): boolean {
+  try {
+    return localStorage.getItem(ALIGN_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function storeAlignToBeat(value: boolean) {
+  try {
+    localStorage.setItem(ALIGN_KEY, value ? "1" : "0");
   } catch {
     // Not remembered: the default is used next time.
   }

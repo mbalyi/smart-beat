@@ -45,7 +45,7 @@ import { baseName } from "@/lib/score/format";
 import { useTheme } from "@/hooks/use-theme";
 import { TunerDialog } from "@/components/score/tuner-dialog";
 import { RecordBar } from "@/components/score/record-bar";
-import { RecordDialog } from "@/components/score/record-dialog";
+import { RecordDialog, type DroppedTake } from "@/components/score/record-dialog";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
@@ -218,6 +218,7 @@ import {
   MIXER_SETTINGS_VERSION,
   pickAudioFile,
   pickSavePath,
+  readDroppedAudio,
   saveMixerSettings,
   writePdfFile,
   type AudioTrackSettings,
@@ -1184,6 +1185,7 @@ export function ScoreWorkspace({
     onOpenScore: (opened, name) => onOpenScore?.(opened, name),
   });
   const recordBusy = recording.phase.kind !== "idle";
+  const [recordDrop, setRecordDrop] = useState<DroppedTake | null>(null);
 
   const playPause = () => {
     trackUsage(playing ? "pause" : "play");
@@ -1435,6 +1437,18 @@ export function ScoreWorkspace({
    * otherwise.
    */
   const routeDroppedFile = (path: string) => {
+    if (recordEnabled && recording.dialogOpen) {
+      // Record to Tab is open: the file is the recording to turn into tab.
+      void readDroppedAudio(path)
+        .then((bytes) => {
+          const file = new File([bytes], baseName(path));
+          setRecordDrop((d) => ({ file, nonce: (d?.nonce ?? 0) + 1 }));
+        })
+        .catch((error: unknown) =>
+          toast.error("Couldn't read the recording", { description: errorText(error) }),
+        );
+      return;
+    }
     if (/\.nam$/i.test(path)) void library.importPath(path, "amp");
     else if (libraryOpen && /\.wav$/i.test(path)) void library.importPath(path, "cab");
     else void addAudioTrack(path);
@@ -2335,6 +2349,8 @@ export function ScoreWorkspace({
             barCount={score.masterBars.length}
             supported={isTauri()}
             onRecord={recording.start}
+            onRecordFile={recording.fromFile}
+            droppedFile={recordDrop}
           />
           <RecordBar
             phase={recording.phase}

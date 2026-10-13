@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { AudioDropArea } from "@/components/audio/audio-drop-area";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -51,7 +52,6 @@ export function AudioTranscriptionDialog({
   // Counts recording choices. A dropped file that finishes reading after a newer choice,
   // or after Transcribe, is stale and never replaces the recording.
   const choice = useRef(0);
-  const input = useRef<HTMLInputElement>(null);
   const operation = useRef<AbortController | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [measured, setMeasured] = useState<{ file: File; ms: number } | null>(null);
@@ -251,39 +251,12 @@ export function AudioTranscriptionDialog({
                 Audio transcription is not available in this build.
               </p>
             )}
-            <div
-              className="rounded-md border border-dashed p-4"
-              role="region"
-              aria-label="Audio drop area"
+            <AudioDropArea
+              extensions={provider.extensions}
+              disabled={locked}
+              chosen={file !== null}
+              onFile={choose}
             >
-              <p className="mb-3 text-sm">
-                Drop an audio file here, or browse. {provider.extensions.join(", ").toUpperCase()}.
-              </p>
-              <input
-                ref={input}
-                type="file"
-                className="sr-only"
-                aria-label="Choose an audio recording"
-                accept={provider.extensions.map((ext) => `.${ext}`).join(",")}
-                disabled={locked}
-                onChange={(e) => {
-                  choose(e.target.files?.[0]);
-                  e.currentTarget.value = "";
-                }}
-              />
-              <Button
-                variant="outline"
-                disabled={locked}
-                onClick={() => input.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  choose(e.dataTransfer.files[0]);
-                }}
-              >
-                {file ? "Replace recording…" : "Choose recording…"}
-              </Button>
               {file && (
                 <div className="mt-3 text-sm">
                   <p>{file.name}</p>
@@ -306,7 +279,7 @@ export function AudioTranscriptionDialog({
                   </Button>
                 </div>
               )}
-            </div>
+            </AudioDropArea>
             {file && phase !== "complete" && (
               <fieldset disabled={locked} className="flex flex-col gap-3">
                 <legend className="text-sm font-medium">Expected instruments, optional</legend>

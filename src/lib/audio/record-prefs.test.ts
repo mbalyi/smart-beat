@@ -1,7 +1,9 @@
 import {
+  readAlignToBeat,
   readPlayOthers,
   readTuningChoice,
   standardTuningChoice,
+  storeAlignToBeat,
   storePlayOthers,
   storeTuningChoice,
   tuningOf,
@@ -15,6 +17,14 @@ describe("record preferences", () => {
     expect(readPlayOthers()).toBe(false);
     storePlayOthers(true);
     expect(readPlayOthers()).toBe(true);
+  });
+
+  it("lines a take up with the beat unless the player said no", () => {
+    expect(readAlignToBeat()).toBe(true);
+    storeAlignToBeat(false);
+    expect(readAlignToBeat()).toBe(false);
+    storeAlignToBeat(true);
+    expect(readAlignToBeat()).toBe(true);
   });
 
   it("starts with the standard six-string tuning", () => {

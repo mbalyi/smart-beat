@@ -906,6 +906,12 @@ export async function transcribeRecording(
   }
 }
 
+/** The bytes of an audio file dropped on the window (MP3, WAV, FLAC or OGG, up to 100 MiB). */
+export async function readDroppedAudio(path: string): Promise<ArrayBuffer> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<ArrayBuffer>("read_transcription_audio", { path });
+}
+
 /** Stops the running {@link transcribeRecording}, which then rejects. */
 export async function cancelRecordingTranscription(): Promise<void> {
   if (!isTauri()) return;

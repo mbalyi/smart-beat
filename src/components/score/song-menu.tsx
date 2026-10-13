@@ -13,6 +13,7 @@ import {
   WrenchIcon,
 } from "lucide-react";
 
+import { BetaBadge } from "@/components/beta-badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -100,6 +101,7 @@ export function FileMenu({
               <DropdownMenuItem onSelect={onRecordToTab}>
                 <MicIcon />
                 Record to Tab…
+                <BetaBadge className="ml-auto" />
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />

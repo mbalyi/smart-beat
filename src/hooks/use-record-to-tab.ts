@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import type { RecordSetup, RecordTarget } from "@/components/score/record-dialog";
 import { audioInputErrorText, readAudioInput } from "@/lib/audio/input";
+import { decodeTake } from "@/lib/audio/decode-take";
 import { meterLevel, smoothLevel } from "@/lib/audio/level";
 import { startRecorder, type Recorder, type Take } from "@/lib/audio/recorder";
 import {
@@ -86,6 +87,8 @@ export interface RecordToTab {
   open: (track?: number) => void;
   close: () => void;
   start: (setup: RecordSetup) => void;
+  /** Turns an existing recording into tab, as a new song with this tuning. */
+  fromFile: (file: File, tuning: number[]) => void;
   /** Ends the take and transcribes it. */
   stop: () => void;
   /** Ends the take and throws it away. */
@@ -161,70 +164,108 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     return current;
   }, []);
 
+  /** Shows the transcription bar while `work` runs, and reports how it ended. */
+  const transcribe = async (work: () => Promise<void>, failure: string) => {
+    transcribing.current = true;
+    setPhase({ kind: "transcribing", fraction: 0 });
+    setLevel(0);
+    try {
+      await work();
+    } catch (error) {
+      if (isRecordingStopped(error)) {
+        toast.info("Transcription stopped", { description: "Your take was not added." });
+      } else {
+        toast.error(failure, { description: errorText(error) });
+      }
+    } finally {
+      transcribing.current = false;
+      setPhase({ kind: "idle" });
+    }
+  };
+
+  const notesOf = (samples: Float32Array, sampleRate: number) =>
+    transcribeRecording(samples, sampleRate, (fraction) =>
+      setPhase({ kind: "transcribing", fraction }),
+    );
+
   const finish = async () => {
     const current = session.current;
     // Stopped while the input was still being opened: there is no take.
     if (!current && starting.current) starting.current.aborted = true;
     if (!current || transcribing.current) return;
     const { setup } = current;
-    const { score, editor } = envRef.current;
-    transcribing.current = true;
-    setPhase({ kind: "transcribing", fraction: 0 });
-    setLevel(0);
-    try {
+    const { score } = envRef.current;
+    // The track itself, so that a track moved during the transcription is still found.
+    const target = setup.track === null ? null : (score.tracks[setup.track] ?? null);
+    await transcribe(async () => {
       // Playback stops with the take.
       const latency = envRef.current.player()?.outputLatencySeconds() ?? 0;
       endTake(false);
       const take = await current.recorder.stop();
+      if (take.capped) toast.info("The take reached the limit of 10 minutes and was stopped.");
       if (take.samples.length < MIN_TAKE_SECONDS * take.sampleRate) {
         toast.info("Nothing was recorded", { description: "Play for a few seconds, then stop." });
         return;
       }
-      const heard = await transcribeRecording(take.samples, take.sampleRate, (fraction) =>
-        setPhase({ kind: "transcribing", fraction }),
-      );
+      const heard = await notesOf(take.samples, take.sampleRate);
       if (heard.length === 0) {
         toast.info("No notes were heard", {
           description: "Check the level in the Record to Tab dialog, then try again.",
         });
         return;
       }
-      if (take.capped) toast.info("The take reached the limit of 10 minutes and was stopped.");
-      const warnings: string[] = [];
       if (setup.mode === "free") {
-        const result = recordingToSong(heard, {
-          tuning: setup.tuning,
-          trackName: RECORDING_NAME,
-          program: getPreset("guitar")?.program ?? 25,
-        });
-        warnings.push(...result.warnings);
-        envRef.current.onOpenScore(result.score, RECORDING_NAME);
+        showWarnings(openAsSong(heard, setup.tuning, RECORDING_NAME));
       } else {
-        const notes = clickNotes(heard, take, current, latency);
-        const added = addToScore(score, editor, notes, setup);
-        warnings.push(...added.warnings);
-        const name = score.tracks[added.track]?.name ?? "the track";
+        // The song may have been edited while the take was transcribed: write into the song
+        // and the track as they are now, or not at all.
+        const now = envRef.current;
+        const index = target ? now.score.tracks.indexOf(target) : null;
+        if (now.score !== score || index === -1) {
+          toast.error("The song changed while your take was transcribed", {
+            description: "Your take was not added. Record it again.",
+          });
+          return;
+        }
+        const notes = clickNotes(heard, take, current, latency, setup.alignToBeat);
+        const added = addToScore(now.score, now.editor, notes, { ...setup, track: index });
+        const name = now.score.tracks[added.track]?.name ?? "the track";
         toast(`Added your take to “${name}”`, {
-          action: { label: "Undo", onClick: () => editor.undo() },
+          action: { label: "Undo", onClick: () => now.editor.undo() },
         });
-      }
-      if (warnings.length > 0) {
-        toast.warning("Your take was simplified", {
-          description: warnings.join(" "),
-          duration: 12_000,
-        });
+        showWarnings(added.warnings);
       }
       track("record_to_tab");
-    } catch (error) {
-      if (isRecordingStopped(error)) {
-        toast.info("Transcription stopped", { description: "Your take was not added." });
-      } else {
-        toast.error("Couldn't turn your take into tab", { description: errorText(error) });
+    }, "Couldn't turn your take into tab");
+  };
+
+  /** Free mode: opens the notes as a new song. Returns what could not be written exactly. */
+  const openAsSong = (heard: readonly RecordedNote[], tuning: number[], name: string) => {
+    const result = recordingToSong(heard, {
+      tuning,
+      trackName: RECORDING_NAME,
+      program: getPreset("guitar")?.program ?? 25,
+    });
+    envRef.current.onOpenScore(result.score, name);
+    return result.warnings;
+  };
+
+  /** An existing recording: turns it into notes and opens them as a new song, like free mode. */
+  const fromFile = (file: File, tuning: number[]) => {
+    if (transcribing.current || session.current) return;
+    setDialog({ open: false, track: null });
+    void transcribe(async () => {
+      const decoded = await decodeTake(await file.arrayBuffer());
+      const heard = await notesOf(decoded.samples, decoded.sampleRate);
+      if (heard.length === 0) {
+        toast.info("No notes were heard", {
+          description: "Choose a recording where the guitar is clear and loud enough.",
+        });
+        return;
       }
-    } finally {
-      transcribing.current = false;
-      setPhase({ kind: "idle" });
-    }
+      showWarnings(openAsSong(heard, tuning, file.name.replace(/\.[^.]+$/, "") || RECORDING_NAME));
+      track("record_to_tab");
+    }, "Couldn't turn this recording into tab");
   };
 
   const begin = async (setup: RecordSetup) => {
@@ -369,6 +410,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     open: (track) => setDialog({ open: true, track: track ?? null }),
     close: () => setDialog({ open: false, track: null }),
     start,
+    fromFile,
     stop,
     discard,
     cancel,
@@ -386,12 +428,13 @@ function countingIn(current: {
   return performance.now() < current.playStartedAt + current.countIn * 1000;
 }
 
-/** The notes of a click-mode take, with time 0 at the start bar's downbeat and on the grid. */
+/** The notes of a click-mode take, with time 0 at the start bar's downbeat, lined up with the beat if asked. */
 function clickNotes(
   heard: readonly RecordedNote[],
   take: Take,
   current: { playStartedAt: number | null; countIn: number; beatSeconds: number; speed: number },
   outputLatency: number,
+  alignToBeat: boolean,
 ): RecordedNote[] {
   const timing: TakeTiming = {
     playStartedAt: current.playStartedAt ?? take.startedAt,
@@ -401,7 +444,7 @@ function clickNotes(
     inputLatency: take.inputLatency,
   };
   const placed = shiftNotes(heard, downbeatInTake(timing), current.speed);
-  return offsetNotes(placed, alignOffset(placed, current.beatSeconds));
+  return alignToBeat ? offsetNotes(placed, alignOffset(placed, current.beatSeconds)) : placed;
 }
 
 /**
@@ -443,6 +486,12 @@ function addToScore(
     },
   );
   return { track: index, warnings };
+}
+
+/** Tells the player what could not be written exactly. */
+function showWarnings(warnings: readonly string[]) {
+  if (warnings.length === 0) return;
+  toast.warning("Your take was simplified", { description: warnings.join(" "), duration: 12_000 });
 }
 
 /** True where Record to Tab can run: it needs the desktop app's transcriber. */

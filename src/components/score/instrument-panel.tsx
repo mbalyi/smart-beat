@@ -8,6 +8,7 @@ import {
   type RefObject,
 } from "react";
 
+import { BetaBadge } from "@/components/beta-badge";
 import {
   Select,
   SelectContent,
@@ -215,6 +216,7 @@ function Fretboard({
             className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             Record…
+            <BetaBadge className="ml-1.5 inline-block align-middle no-underline" />
           </button>
         )}
         {editing && (
