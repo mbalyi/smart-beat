@@ -12,6 +12,7 @@ pub mod kits;
 pub mod library;
 pub mod mixing;
 pub mod output;
+pub mod plugin;
 pub mod sf3;
 pub mod song;
 
@@ -207,6 +208,8 @@ pub struct AudioState {
     pub library: Arc<Library>,
     /// Imported drum kits (#40), next to the sound library.
     pub kits: Arc<kits::KitLibrary>,
+    /// Third-party plugin workers (VST3 and CLAP, #80).
+    pub plugins: plugin::PluginPool,
 }
 
 impl AudioState {
@@ -218,6 +221,7 @@ impl AudioState {
             inner: Mutex::new(Inner::default()),
             library: Arc::new(Library::new(library_dir)),
             kits: Arc::new(kits::KitLibrary::new(kits_dir)),
+            plugins: plugin::PluginPool::default(),
         }
     }
 
@@ -324,6 +328,7 @@ fn build_chain(state: &AudioState, rate: u32, slots: &[EffectSlot], limit: usize
         rate as f32,
         BLOCK,
         &state.library.assets(rate),
+        &state.plugins,
     )
 }
 
@@ -1164,4 +1169,203 @@ pub fn audio_set_track_kit(
     drop(inner);
     drop(old);
     Ok(())
+}
+
+// --- Third-party plugins (VST3 and CLAP, #80) -------------------------------
+
+/// Lists the installed VST3 and CLAP plugins (each probed in isolation; a
+/// crashing file is skipped, never fatal).
+#[tauri::command(async)]
+pub fn plugins_scan(
+    state: State<'_, AudioState>,
+) -> Result<plugin::PluginScanReport, CommandError> {
+    let _ = state;
+    plugin::scan().map_err(audio_error)
+}
+
+/// Switches third-party plugins on or off (off by default: plugins are
+/// third-party code running outside the audio engine).
+#[tauri::command]
+pub fn plugins_set_enabled(enabled: bool, state: State<'_, AudioState>) {
+    state.plugins.set_enabled(enabled);
+}
+
+/// Whether third-party plugin blocks may load.
+#[tauri::command]
+pub fn plugins_enabled(state: State<'_, AudioState>) -> bool {
+    state.plugins.enabled()
+}
+
+/// The plugin block at `index` of a track's sound (`track: null` for the
+/// master bus), with the sample rate it runs at.
+fn plugin_slot(
+    inner: &Inner,
+    track: Option<usize>,
+    sound: usize,
+    index: usize,
+) -> Result<(plugin::PluginSpec, String, f32), CommandError> {
+    let slots = match track {
+        Some(t) => {
+            check_track(t)?;
+            inner
+                .track_sounds
+                .get(&t)
+                .and_then(|sounds| sounds.get(sound))
+                .ok_or_else(|| audio_error("No such sound"))?
+        }
+        None => &inner.master_chain,
+    };
+    let slot = slots
+        .get(index)
+        .ok_or_else(|| audio_error("No such effect"))?;
+    let chain::EffectConfig::Plugin {
+        format,
+        path,
+        name,
+        state,
+    } = &slot.effect
+    else {
+        return Err(audio_error("This block is not a plugin"));
+    };
+    use base64::Engine;
+    let state = if state.is_empty() {
+        Vec::new()
+    } else {
+        base64::engine::general_purpose::STANDARD
+            .decode(state)
+            .map_err(|_| audio_error("This plugin's saved settings are corrupt"))?
+    };
+    let rate = inner
+        .engine
+        .as_ref()
+        .map(|e| e.lock().unwrap().sample_rate())
+        .unwrap_or(48_000.0);
+    Ok((
+        plugin::PluginSpec {
+            format: *format,
+            path: path.clone(),
+            state,
+        },
+        name.clone(),
+        rate,
+    ))
+}
+
+/// Opens the plugin's own editor window (owned by the helper process).
+/// Resolves to the editor size in pixels.
+#[tauri::command(async)]
+pub fn plugin_open_editor(
+    track: Option<usize>,
+    sound: Option<usize>,
+    index: usize,
+    state: State<'_, AudioState>,
+) -> Result<(i32, i32), CommandError> {
+    let inner = state.inner.lock().unwrap();
+    let (spec, _, rate) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
+    let worker = state
+        .plugins
+        .get_or_load(&spec, rate)
+        .map_err(audio_error)?;
+    drop(inner);
+    worker.open_editor().map_err(audio_error)
+}
+
+/// Closes the plugin's editor window.
+#[tauri::command]
+pub fn plugin_close_editor(
+    track: Option<usize>,
+    sound: Option<usize>,
+    index: usize,
+    state: State<'_, AudioState>,
+) -> Result<(), CommandError> {
+    let inner = state.inner.lock().unwrap();
+    let (spec, _, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
+    if let Some(worker) = state.plugins.find(&spec) {
+        worker.close_editor();
+    }
+    Ok(())
+}
+/// Saves the plugin's current settings (preset) as base64: the UI stores it
+/// in the block so the song recalls it.
+#[tauri::command(async)]
+pub fn plugin_save_state(
+    track: Option<usize>,
+    sound: Option<usize>,
+    index: usize,
+    state: State<'_, AudioState>,
+) -> Result<String, CommandError> {
+    let inner = state.inner.lock().unwrap();
+    let (spec, _, rate) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
+    let worker = state
+        .plugins
+        .get_or_load(&spec, rate)
+        .map_err(audio_error)?;
+    drop(inner);
+    let bytes = worker.save_state().map_err(audio_error)?;
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+/// Live status of every plugin block of a chain (latency, health).
+#[tauri::command]
+pub fn audio_plugin_info(
+    track: Option<usize>,
+    sound: Option<usize>,
+    state: State<'_, AudioState>,
+) -> Result<Vec<plugin::PluginSlotInfo>, CommandError> {
+    let inner = state.inner.lock().unwrap();
+    let slots = match track {
+        Some(t) => {
+            check_track(t)?;
+            inner
+                .track_sounds
+                .get(&t)
+                .and_then(|sounds| sounds.get(sound.unwrap_or(0)))
+                .cloned()
+                .unwrap_or_default()
+        }
+        None => inner.master_chain.clone(),
+    };
+    let mut out = Vec::new();
+    for (index, slot) in slots.iter().enumerate() {
+        let chain::EffectConfig::Plugin {
+            format,
+            path,
+            name,
+            state: slot_state,
+        } = &slot.effect
+        else {
+            continue;
+        };
+        use base64::Engine;
+        let state_bytes = if slot_state.is_empty() {
+            Vec::new()
+        } else {
+            base64::engine::general_purpose::STANDARD
+                .decode(slot_state)
+                .unwrap_or_default()
+        };
+        let spec = plugin::PluginSpec {
+            format: *format,
+            path: path.clone(),
+            state: state_bytes,
+        };
+        match state.plugins.find(&spec) {
+            Some(worker) => out.push(plugin::PluginSlotInfo {
+                index,
+                name: name.clone(),
+                latency_samples: worker.latency_samples() + BLOCK as u32,
+                alive: worker.alive(),
+                error: worker.error(),
+            }),
+            None => out.push(plugin::PluginSlotInfo {
+                index,
+                name: name.clone(),
+                latency_samples: 0,
+                alive: false,
+                error: String::new(),
+            }),
+        }
+    }
+    Ok(out)
 }

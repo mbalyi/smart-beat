@@ -120,7 +120,11 @@ export type EffectConfig =
   | ({ type: "reverb" } & ReverbParams)
   | ({ type: "limiter" } & LimiterParams)
   | { type: "amp"; model: string; inputDb: number; outputDb: number; matchLoudness: boolean }
-  | { type: "cab"; ir: string };
+  | { type: "cab"; ir: string }
+  | { type: "plugin"; format: PluginFormat; path: string; name: string; state: string };
+
+/** Mirrors `PluginFormat` in `src-tauri/src/audio/plugin.rs`. */
+export type PluginFormat = "vst3" | "clap";
 
 export type EffectType = EffectConfig["type"];
 
@@ -152,6 +156,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   limiter: "Limiter",
   amp: "Amp (capture)",
   cab: "Cabinet",
+  plugin: "Plugin",
 };
 
 export const EFFECT_DESCRIPTIONS: Record<EffectType, string> = {
@@ -168,6 +173,7 @@ export const EFFECT_DESCRIPTIONS: Record<EffectType, string> = {
   limiter: "Makes the mix loud and keeps its peaks under a ceiling (mastering).",
   amp: "A Neural Amp Modeler capture from your library.",
   cab: "A speaker cabinet (impulse response).",
+  plugin: "A third-party VST3 or CLAP plugin, running isolated from the app.",
 };
 
 export const PARAMS: Partial<Record<EffectType, ParamSpec[]>> = {
@@ -367,6 +373,8 @@ export function defaultEffect(type: EffectType): EffectSlot {
       return { type, enabled: true, model: "", inputDb: 0, outputDb: 0, matchLoudness: false };
     case "cab":
       return { type, enabled: true, ir: "builtin:4x12-modern" };
+    case "plugin":
+      return { type, enabled: true, format: "vst3", path: "", name: "", state: "" };
   }
 }
 
@@ -451,6 +459,7 @@ export const EFFECT_CATEGORIES: { label: string; types: EffectType[] }[] = [
   { label: "Equalizer", types: ["eq"] },
   { label: "Modulation", types: ["chorus", "phaser", "tremolo"] },
   { label: "Time", types: ["delay", "reverb"] },
+  { label: "Plugins", types: ["plugin"] },
 ];
 
 /** Inserts a new block of `type` at `index` (when there is room). */
@@ -481,6 +490,30 @@ export function insertAsset(
     asset.kind === "amp"
       ? { ...(defaultEffect("amp") as AmpBlock), model: asset.id }
       : { ...(defaultEffect("cab") as CabBlock), ir: asset.id };
+  const next = [...chain];
+  next.splice(Math.max(0, Math.min(index, chain.length)), 0, block);
+  return next;
+}
+
+/**
+ * Inserts a plugin block for an installed VST3 or CLAP plugin (from the
+ * plugin scan, not the sound library).
+ */
+export function insertPlugin(
+  chain: readonly EffectSlot[],
+  plugin: { format: PluginFormat; path: string; name: string },
+  index: number,
+  limit: number,
+): EffectSlot[] {
+  if (chain.length >= limit) return [...chain];
+  const block: EffectSlot = {
+    type: "plugin",
+    enabled: true,
+    format: plugin.format,
+    path: plugin.path,
+    name: plugin.name,
+    state: "",
+  };
   const next = [...chain];
   next.splice(Math.max(0, Math.min(index, chain.length)), 0, block);
   return next;

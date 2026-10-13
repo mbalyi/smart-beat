@@ -9,6 +9,7 @@ license = "PolyForm-Noncommercial-1.0.0"
 homepage = "https://github.com/mbalyi/smart-beat"
 repository = "https://github.com/mbalyi/smart-beat"
 publish = false
+default-run = "smart-beat"
 
 [lib]
 # `_lib` suffix avoids a name clash with the binary on Windows.
@@ -42,6 +43,13 @@ cpal = "0.18"
 realfft = "3.5"
 hound = "3.5"
 nam-rs = "0.4"
+# Third-party plugin hosting (#80): VST3 via vst3-host (MIT) with its
+# out-of-process helper, CLAP via clack (MIT OR Apache-2.0) inside the same
+# helper. No default features: we use neither crate's audio backend, only
+# hosting + isolation (AppKit windowing is used directly, no window-handle interop).
+vst3-host = { version = "0.10", default-features = false, features = ["process-isolation"] }
+clack-host = "0.2"
+clack-extensions = { version = "0.2", features = ["audio-ports", "gui", "latency", "state", "clack-host"] }
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "aiff"] }
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 tauri-plugin-opener = "2.7"
