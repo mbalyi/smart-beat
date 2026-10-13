@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { centsFrom, detectPitch, midiOf, nearestString, samplesNeeded } from "@/lib/audio/pitch";
 
 const RATE = 48_000;
@@ -43,6 +46,23 @@ describe("detectPitch", () => {
     const found = detectPitch(tone(hzOf(40 - 0.1), { harmonics: 4 }), RATE)!;
     expect(centsFrom(found.hz, 40)).toBeGreaterThanOrEqual(-12);
     expect(centsFrom(found.hz, 40)).toBeLessThanOrEqual(-8);
+  });
+
+  it("hears a guitar plugged straight into an interface while it rings on", () => {
+    // Three moments of a low E from a real interface, at -42, -47 and -40 dBFS. Its dips stay
+    // over the threshold, and one frame has a deeper harmonic dip and one an octave below.
+    const bytes = readFileSync(path.join(import.meta.dirname, "fixtures/low-e-di.f32"));
+    const recording = new Float32Array(new Uint8Array(bytes).buffer);
+    for (let i = 0; i < 3; i++) {
+      const found = detectPitch(recording.subarray(i * 4096, (i + 1) * 4096), RATE);
+      expect(found, `frame ${i}`).not.toBeNull();
+      expect(Math.abs(centsFrom(found!.hz, 40)), `frame ${i}`).toBeLessThanOrEqual(15);
+    }
+  });
+
+  it("hears a quiet string, down to -55 dBFS", () => {
+    const quiet = tone(hzOf(40), { harmonics: 4 }).map((v) => v * 0.005);
+    expect(Math.abs(centsFrom(detectPitch(quiet, RATE)!.hz, 40))).toBeLessThanOrEqual(3);
   });
 
   it("reports silence and noise as no pitch", () => {

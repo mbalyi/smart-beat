@@ -41,7 +41,7 @@ export interface EncodingMenu {
 }
 
 const EXPORTS: { format: ExportFormat; label: string }[] = [
-  { format: "gp", label: "Guitar Pro…" },
+  { format: "gp", label: "Smart Beat / Guitar Pro 7…" },
   { format: "gp5", label: "Guitar Pro 5…" },
   { format: "gp4", label: "Guitar Pro 4…" },
   { format: "gp3", label: "Guitar Pro 3…" },

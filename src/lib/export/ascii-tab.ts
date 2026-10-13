@@ -1,7 +1,7 @@
 /** ASCII tablature export: a plain-text version of the stringed tracks. */
 import { beatTicks } from "@/lib/score/bar-duration";
 import type { Bar, Score, Track } from "@/lib/score/model";
-import { pitchName } from "@/lib/score/music";
+import { pitchName, tuningNotes } from "@/lib/score/music";
 
 /** Lines are wrapped at this many characters. */
 export const LINE_WIDTH = 80;
@@ -111,10 +111,7 @@ export function writeAsciiTab(score: Score): { text: string; warnings: string[] 
       warnings.push(`“${name}” has no strings, so it is left out of the tab.`);
       continue;
     }
-    const tuning = [...staff.stringTuning.tunings]
-      .reverse()
-      .map((p) => pitchName(p, { octave: false }))
-      .join(" ");
+    const tuning = tuningNotes(staff.stringTuning.tunings);
     lines.push(`${name} (tuning ${tuning}${staff.capo ? `, capo ${staff.capo}` : ""})`, "");
     lines.push(...trackText(track));
   }

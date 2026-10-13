@@ -27,7 +27,9 @@ import {
   pitchName,
   resizeTuning,
   stepDuration,
+  STANDARD_GUITAR,
   tuningName,
+  tuningNotes,
   tuningPresets,
 } from "@/lib/score/music";
 
@@ -256,6 +258,17 @@ describe("extended-range guitars and heavy tunings (#43)", () => {
     }
     expect(tuning).toEqual(tuningPresets(10)[0]!.tuning);
     expect(note(tuning.at(-1)!)).toBe("G#");
+  });
+});
+
+describe("tuning notes (#119)", () => {
+  it("names the open strings from the lowest up, for any string count", () => {
+    expect(tuningNotes(STANDARD_GUITAR)).toBe("E A D G B E");
+    expect(tuningNotes([64, 59, 55, 50, 45, 38])).toBe("D A D G B E");
+    expect(tuningNotes([43, 38, 33, 28])).toBe("E A D G");
+    expect(tuningNotes([43, 38, 33, 28, 23])).toBe("B E A D G");
+    expect(tuningNotes([64, 59, 55, 50, 45, 40, 35])).toBe("B E A D G B E");
+    expect(tuningNotes([64, 59, 55, 50, 45, 40, 35, 30])).toBe("F# B E A D G B E");
   });
 });
 

@@ -313,9 +313,9 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     const { user, onSaved } = await setup();
     await user.click(screen.getByRole("button", { name: "File" }));
     const items = (await screen.findAllByRole("menuitem")).map((i) => i.textContent);
-    const first = items.indexOf("Guitar Pro…");
+    const first = items.indexOf("Smart Beat / Guitar Pro 7…");
     expect(items.slice(first, first + 4)).toEqual([
-      "Guitar Pro…",
+      "Smart Beat / Guitar Pro 7…",
       "Guitar Pro 5…",
       "Guitar Pro 4…",
       "Guitar Pro 3…",

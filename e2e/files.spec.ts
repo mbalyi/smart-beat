@@ -216,9 +216,9 @@ test.describe("saving and exporting (#15, #16)", () => {
     await openSong(app);
     await app.getByRole("button", { name: "File" }).click();
     const items = await app.getByRole("menuitem").allTextContents();
-    const first = items.indexOf("Guitar Pro…");
+    const first = items.indexOf("Smart Beat / Guitar Pro 7…");
     expect(items.slice(first, first + 4)).toEqual([
-      "Guitar Pro…",
+      "Smart Beat / Guitar Pro 7…",
       "Guitar Pro 5…",
       "Guitar Pro 4…",
       "Guitar Pro 3…",

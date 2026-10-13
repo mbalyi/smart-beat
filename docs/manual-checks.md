@@ -42,7 +42,7 @@ Expected: no clicks, dropouts or stuck notes; stopping is immediate; the sound a
 
 ### 2c. The tuner's microphone (#83)
 
-Install the bundled app (the browser and `pnpm tauri dev` skip the entitlement). Open a guitar track, show the fretboard, click **Tuner…**, then **Microphone** › **Listen with the microphone**.
+Install the bundled app (the browser and `pnpm tauri dev` skip the entitlement). Open a guitar track, show the fretboard, click **Tuner…**, then **Input** › **Start listening**.
 
 - macOS asks for the microphone once, with Smart Beat's reason. Saying no shows how to allow it in System Settings.
 - Play each open string of a guitar and a bass (a five-string bass's low B too). The note shown is the string's; the needle settles within a few cents of a clip-on tuner's reading, and reacts within about a fifth of a second.
@@ -54,7 +54,7 @@ Install the bundled app (the browser and `pnpm tauri dev` skip the entitlement).
 Plug an audio interface in (a Focusrite Scarlett or similar) with a guitar in its instrument input. Open Help › Settings….
 
 - Under **Audio**, the **Input** list shows only **System default** at first. **Show all inputs** asks for the microphone, then lists the built-in microphone and the interface by name. The menu bar's microphone indicator goes off again straight away.
-- Choose the interface. Open the tuner, **Microphone** › **Listen with the microphone**: the status names the interface, and the needle follows the guitar, not the room.
+- Choose the interface. Open the tuner, **Input** › **Start listening**: the status names the interface, and the needle follows the guitar, not the room.
 - **Change input…** in the tuner opens Settings on top of it. Choose **System default** and close Settings: the tuner switches to the built-in microphone without being stopped.
 - Quit and start Smart Beat again: the interface is still the input.
 - Unplug the interface and listen again: the tuner says it is not connected. Settings lists it as "(not connected)" until it is plugged in again.

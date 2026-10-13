@@ -291,34 +291,37 @@ function ChordForm({
                 }
               />
             </div>
+            {/* Lowest string first, as a chord shape is read; each keeps its string number. */}
             <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Strings">
-              {diagram.strings.map((fret, index) => {
-                const open = strings.tuning[index]!;
-                const label = `String ${index + 1} (${pitchName(open, { octave: false, spoken: true })})`;
-                return (
-                  <li key={index} className="flex flex-col gap-1">
-                    <span className="text-xs text-muted-foreground" aria-hidden="true">
-                      {index + 1}: {pitchName(open, { octave: false })}
-                    </span>
-                    <Select
-                      value={String(fret)}
-                      onValueChange={(value) => setFret(index, Number(value))}
-                    >
-                      <SelectTrigger size="sm" className="w-full" aria-label={label}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={String(MUTED)}>Not played</SelectItem>
-                        {FRETS.map((f) => (
-                          <SelectItem key={f} value={String(f)}>
-                            {f === 0 ? "Open" : `Fret ${f}`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </li>
-                );
-              })}
+              {diagram.strings
+                .map((fret, index) => {
+                  const open = strings.tuning[index]!;
+                  const label = `String ${index + 1} (${pitchName(open, { octave: false, spoken: true })})`;
+                  return (
+                    <li key={index} className="flex flex-col gap-1">
+                      <span className="text-xs text-muted-foreground" aria-hidden="true">
+                        {index + 1}: {pitchName(open, { octave: false })}
+                      </span>
+                      <Select
+                        value={String(fret)}
+                        onValueChange={(value) => setFret(index, Number(value))}
+                      >
+                        <SelectTrigger size="sm" className="w-full" aria-label={label}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={String(MUTED)}>Not played</SelectItem>
+                          {FRETS.map((f) => (
+                            <SelectItem key={f} value={String(f)}>
+                              {f === 0 ? "Open" : `Fret ${f}`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </li>
+                  );
+                })
+                .reverse()}
             </ol>
             <div className="flex flex-wrap gap-2">
               {notesDiagram && (

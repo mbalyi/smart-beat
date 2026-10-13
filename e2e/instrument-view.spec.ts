@@ -207,11 +207,16 @@ test.describe("tuner (#83)", () => {
 
     await fretboard.getByRole("button", { name: "Tuner…" }).click();
     const tuner = app.getByRole("dialog", { name: "Tuner: Guitar" });
+    // The tuner opens on the input; the reference notes come second.
+    await expect(tuner.getByRole("tab", { name: "Input" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(tuner.getByRole("status")).toHaveText("Not listening.");
+    await tuner.getByRole("tab", { name: "Reference notes" }).click();
     await tuner.getByRole("button", { name: /^Hear string 1/ }).click();
     await expect.poll(async () => (await previews()).at(-1)).toMatchObject({ key: 64 });
     await expectNoA11yViolations(app);
-    await tuner.getByRole("tab", { name: "Microphone" }).click();
-    await expect(tuner.getByRole("status")).toHaveText("The microphone is off.");
   });
 });
 

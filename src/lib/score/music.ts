@@ -561,19 +561,19 @@ export function shortTuningName(tuning: readonly number[]): string | null {
   return known.replace(/^(Guitar|Bass|Banjo|Mandolin|Ukulele)\s+/i, "").replace(/\s+Tuning$/i, "");
 }
 
-/** The tuning's short name, or "Custom tuning" (#83). */
-export const tuningLabel = (tuning: readonly number[]) =>
-  shortTuningName(tuning) ?? "Custom tuning";
-
 /**
- * A tuning's note names the way players say it, lowest string first: "E A D G B E" (#119).
- * (`tuning` itself is highest string first, like the lines of a tab.)
+ * The open strings' notes from the lowest string up, the order players name them in:
+ * "E A D G B E". Tunings are stored highest string first.
  */
 export const tuningNotes = (tuning: readonly number[]) =>
   [...tuning]
     .reverse()
-    .map((pitch) => pitchName(pitch, { octave: false }))
+    .map((p) => pitchName(p, { octave: false }))
     .join(" ");
+
+/** The tuning's short name, or "Custom tuning" (#83). */
+export const tuningLabel = (tuning: readonly number[]) =>
+  shortTuningName(tuning) ?? "Custom tuning";
 
 /** A tuning for a new string count: keeps the top strings, adds strings a fourth lower. */
 export function resizeTuning(tuning: readonly number[], stringCount: number): number[] {

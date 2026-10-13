@@ -327,7 +327,7 @@ impl MenuAction {
             Self::Save => "Save",
             Self::SaveAs => "Save As…",
             Self::ExportAll => "All Formats…",
-            Self::ExportGp => "Guitar Pro…",
+            Self::ExportGp => "Smart Beat / Guitar Pro 7…",
             Self::ExportGp5 => "Guitar Pro 5…",
             Self::ExportGp4 => "Guitar Pro 4…",
             Self::ExportGp3 => "Guitar Pro 3…",
