@@ -74,9 +74,9 @@ function setup({ onOpenSettings }: { onOpenSettings?: (from: HTMLElement) => voi
 
 /** Opens the Microphone tab and starts listening. */
 async function listen(user: ReturnType<typeof setup>["user"]) {
-  await user.click(screen.getByRole("tab", { name: "Microphone" }));
+  await user.click(screen.getByRole("tab", { name: "Input" }));
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  await user.click(screen.getByRole("button", { name: "Listen with the microphone" }));
+  await user.click(screen.getByRole("button", { name: "Start listening" }));
   await act(async () => {
     await vi.advanceTimersByTimeAsync(250);
   });
@@ -88,9 +88,18 @@ describe("TunerDialog (#83)", () => {
     vi.unstubAllGlobals();
   });
 
+  it("opens on the input, with the reference notes second", () => {
+    setup();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["Input", "Reference notes"]);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Not listening.");
+  });
+
   it("plays each open string of the track's tuning, low string first", async () => {
     const { user, onPlay } = setup();
     expect(screen.getByText(/Drop D: D A D G B E/)).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Reference notes" }));
     const buttons = screen.getAllByRole("button", { name: /^Hear string/ });
     expect(buttons.map((b) => b.textContent)).toEqual(["D2", "A2", "D3", "G3", "B3", "E4"]);
     await user.click(screen.getByRole("button", { name: "Hear string 6, D2" }));
@@ -102,12 +111,12 @@ describe("TunerDialog (#83)", () => {
     // 1 % flat of A2 (110 Hz) is about 17 cents.
     const mic = installMicrophone(110 * 0.99);
     const { user } = setup();
-    await user.click(screen.getByRole("tab", { name: "Microphone" }));
+    await user.click(screen.getByRole("tab", { name: "Input" }));
     expect(mic.getUserMedia).not.toHaveBeenCalled();
-    expect(screen.getByRole("status")).toHaveTextContent("The microphone is off.");
+    expect(screen.getByRole("status")).toHaveTextContent("Not listening.");
 
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    await user.click(screen.getByRole("button", { name: "Listen with the microphone" }));
+    await user.click(screen.getByRole("button", { name: "Start listening" }));
     expect(mic.getUserMedia).toHaveBeenCalledTimes(1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
@@ -120,15 +129,15 @@ describe("TunerDialog (#83)", () => {
     await user.click(screen.getByRole("button", { name: "Stop listening" }));
     expect(mic.stop).toHaveBeenCalled();
     expect(mic.close).toHaveBeenCalled();
-    expect(screen.getByRole("status")).toHaveTextContent("The microphone is off.");
+    expect(screen.getByRole("status")).toHaveTextContent("Not listening.");
   });
 
   it("says when the string is in tune", async () => {
     installMicrophone(110);
     const { user } = setup();
-    await user.click(screen.getByRole("tab", { name: "Microphone" }));
+    await user.click(screen.getByRole("tab", { name: "Input" }));
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    await user.click(screen.getByRole("button", { name: "Listen with the microphone" }));
+    await user.click(screen.getByRole("button", { name: "Start listening" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
     });
@@ -155,14 +164,43 @@ describe("TunerDialog (#83)", () => {
       await vi.advanceTimersByTimeAsync(HOLD_MS);
     });
     expect(meter).toHaveAttribute("aria-valuetext", "No note heard");
-    expect(screen.queryByText(/^Closest string/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Closest string:/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the string when one reading catches a harmonic", async () => {
+    const mic = installMicrophone(110);
+    const { user } = setup();
+    await listen(user);
+    mic.play(440);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(screen.getByText("Closest string: 5 (A2)")).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "Tuning" })).toHaveAttribute(
+      "aria-valuetext",
+      "In tune",
+    );
+  });
+
+  it("keeps its height while notes come and go", async () => {
+    const mic = installMicrophone(110);
+    const { user } = setup();
+    await listen(user);
+    const line = screen.getByText("Closest string: 5 (A2)");
+    mic.play(null);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(HOLD_MS + 200);
+    });
+    // The same line stays, empty, so the dialog does not jump.
+    expect(line).toBeInTheDocument();
+    expect(line).toHaveAttribute("aria-hidden", "true");
   });
 
   it("explains how to allow the microphone when it is blocked", async () => {
     installMicrophone(null, { denied: true });
     const { user } = setup();
-    await user.click(screen.getByRole("tab", { name: "Microphone" }));
-    await user.click(screen.getByRole("button", { name: "Listen with the microphone" }));
+    await user.click(screen.getByRole("tab", { name: "Input" }));
+    await user.click(screen.getByRole("button", { name: "Start listening" }));
     expect(await screen.findByText(/Privacy & Security › Microphone/)).toBeInTheDocument();
   });
 
@@ -190,7 +228,7 @@ describe("TunerDialog: the audio input", () => {
     storeAudioInput(SCARLETT);
     const mic = installMicrophone(110, { inputs: [BUILT_IN, SCARLETT] });
     const { user } = setup();
-    await user.click(screen.getByRole("tab", { name: "Microphone" }));
+    await user.click(screen.getByRole("tab", { name: "Input" }));
     expect(screen.getByText("Input: Scarlett 2i2 USB")).toBeInTheDocument();
 
     await listen(user);
@@ -224,7 +262,7 @@ describe("TunerDialog: the audio input", () => {
   it("listens to the system default input until one is chosen", async () => {
     const mic = installMicrophone(110, { inputs: [BUILT_IN, SCARLETT] });
     const { user } = setup();
-    await user.click(screen.getByRole("tab", { name: "Microphone" }));
+    await user.click(screen.getByRole("tab", { name: "Input" }));
     expect(screen.getByText("Input: System default")).toBeInTheDocument();
     await listen(user);
     expect(mic.getUserMedia).toHaveBeenCalledWith({
@@ -268,7 +306,7 @@ describe("TunerDialog: the audio input", () => {
     installMicrophone(110);
     const onOpenSettings = vi.fn();
     const { user } = setup({ onOpenSettings });
-    await user.click(screen.getByRole("tab", { name: "Microphone" }));
+    await user.click(screen.getByRole("tab", { name: "Input" }));
     const change = screen.getByRole("button", { name: "Change input…" });
     await user.click(change);
     expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith(change);
@@ -278,7 +316,7 @@ describe("TunerDialog: the audio input", () => {
   it("has no way to Settings when there is none", async () => {
     installMicrophone(110);
     const { user } = setup();
-    await user.click(screen.getByRole("tab", { name: "Microphone" }));
+    await user.click(screen.getByRole("tab", { name: "Input" }));
     expect(screen.queryByRole("button", { name: "Change input…" })).not.toBeInTheDocument();
   });
 
@@ -292,9 +330,9 @@ describe("TunerDialog: the audio input", () => {
       return open(constraints);
     });
     const { user } = setup();
-    await user.click(screen.getByRole("tab", { name: "Microphone" }));
-    await user.click(screen.getByRole("button", { name: "Listen with the microphone" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Asking for the microphone…");
+    await user.click(screen.getByRole("tab", { name: "Input" }));
+    await user.click(screen.getByRole("button", { name: "Start listening" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Asking for the input…");
     await user.click(screen.getByRole("button", { name: "Stop listening" }));
 
     await act(async () => {
@@ -302,6 +340,6 @@ describe("TunerDialog: the audio input", () => {
       await asked;
     });
     await waitFor(() => expect(mic.stop).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("status")).toHaveTextContent("The microphone is off.");
+    expect(screen.getByRole("status")).toHaveTextContent("Not listening.");
   });
 });

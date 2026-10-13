@@ -37,7 +37,7 @@ describe("InstrumentPanel: fretboard", () => {
     setup({ capo: 2, active: [note(6, 3, 69), note(1, 0, 42)] });
 
     const panel = screen.getByRole("region", { name: "Fretboard" });
-    expect(panel).toHaveTextContent("Standard: E B G D A E · Capo 2");
+    expect(panel).toHaveTextContent("Standard: E A D G B E · Capo 2");
     expect(screen.getByRole("img")).toHaveAccessibleName(
       "Fretboard. string 1 fret 5 (A4), string 6 fret 2 (F sharp2)",
     );

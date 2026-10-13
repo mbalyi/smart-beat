@@ -561,6 +561,16 @@ export function shortTuningName(tuning: readonly number[]): string | null {
   return known.replace(/^(Guitar|Bass|Banjo|Mandolin|Ukulele)\s+/i, "").replace(/\s+Tuning$/i, "");
 }
 
+/**
+ * The open strings' notes from the lowest string up, the order players name them in:
+ * "E A D G B E". Tunings are stored highest string first.
+ */
+export const tuningNotes = (tuning: readonly number[]) =>
+  [...tuning]
+    .reverse()
+    .map((p) => pitchName(p, { octave: false }))
+    .join(" ");
+
 /** The tuning's short name, or "Custom tuning" (#83). */
 export const tuningLabel = (tuning: readonly number[]) =>
   shortTuningName(tuning) ?? "Custom tuning";

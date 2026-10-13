@@ -17,7 +17,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await openSong(app);
     await app.getByRole("button", { name: "Fretboard" }).click();
     const fretboard = app.getByRole("region", { name: "Fretboard" });
-    await expect(fretboard).toContainText("Standard: E B G D A E");
+    await expect(fretboard).toContainText("Standard: E A D G B E");
     const board = fretboard.getByRole("img");
     await expect(board).toHaveAccessibleName("Fretboard. No notes");
 
@@ -37,7 +37,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await app.getByRole("option", { name: "Bass" }).click();
 
     const fretboard = app.getByRole("region", { name: "Fretboard" });
-    await expect(fretboard).toContainText("Standard: G D A E");
+    await expect(fretboard).toContainText("Standard: E A D G");
 
     await emitMenuAction(app, "track-settings");
     const dialog = app.getByRole("dialog", { name: "Track settings" });
@@ -207,11 +207,16 @@ test.describe("tuner (#83)", () => {
 
     await fretboard.getByRole("button", { name: "Tuner…" }).click();
     const tuner = app.getByRole("dialog", { name: "Tuner: Guitar" });
+    // The tuner opens on the input; the reference notes come second.
+    await expect(tuner.getByRole("tab", { name: "Input" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(tuner.getByRole("status")).toHaveText("Not listening.");
+    await tuner.getByRole("tab", { name: "Reference notes" }).click();
     await tuner.getByRole("button", { name: /^Hear string 1/ }).click();
     await expect.poll(async () => (await previews()).at(-1)).toMatchObject({ key: 64 });
     await expectNoA11yViolations(app);
-    await tuner.getByRole("tab", { name: "Microphone" }).click();
-    await expect(tuner.getByRole("status")).toHaveText("The microphone is off.");
   });
 });
 
