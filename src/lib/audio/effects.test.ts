@@ -6,6 +6,7 @@ import {
   formatParam,
   graphicBands,
   insertAsset,
+  insertPlugin,
   MAX_TRACK_EFFECTS,
   moveEffect,
   PARAMS,
@@ -119,5 +120,30 @@ describe("blocks from the sound library", () => {
     expect(on).toMatchObject({ matchLoudness: true });
     // Only the switches the pedal has.
     expect(withOption(amp, "pingPong", true)).toBe(amp);
+  });
+});
+
+describe("blocks from the plugin scan (#80)", () => {
+  const tone = {
+    format: "vst3" as const,
+    path: "/Library/Audio/Plug-Ins/VST3/Amp.vst3",
+    name: "Amp",
+  };
+
+  it("makes a plugin block that points at the installed file", () => {
+    const gate = defaultEffect("gate");
+    const chain = insertPlugin([gate], tone, 0, MAX_TRACK_EFFECTS);
+    expect(chain.map((s) => s.type)).toEqual(["plugin", "gate"]);
+    expect(chain[0]).toMatchObject({ ...tone, enabled: true, state: "" });
+    // A full chain stays as it is.
+    const full = Array.from({ length: MAX_TRACK_EFFECTS }, () => gate);
+    expect(insertPlugin(full, tone, 0, MAX_TRACK_EFFECTS)).toEqual(full);
+  });
+
+  it("starts an empty plugin block and describes chains with it", () => {
+    expect(defaultEffect("plugin")).toMatchObject({ format: "vst3", path: "", state: "" });
+    expect(describeChain([defaultEffect("gate"), defaultEffect("plugin")])).toBe(
+      "Noise gate → Plugin",
+    );
   });
 });

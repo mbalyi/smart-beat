@@ -4,6 +4,8 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+- Third-party plugin hosting (VST3 and CLAP) as opt-in pedalboard blocks. Plugins are off by default, scanned from the standard folders, and each runs in its own helper process outside the app: the audio thread never waits (missed answers pass dry and recover in the background), added latency (plugin plus one engine block) shows under the block, and Save settings stores the preset in the song.
+
 ## [1.0.0]
 
 The first stable release of Smart Beat. It is the first public beta plus updated dependencies:
