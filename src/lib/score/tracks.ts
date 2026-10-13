@@ -40,6 +40,8 @@ export interface NewTrack {
   program: number;
   /** Stringed tracks: MIDI pitches, highest string first. */
   tuning?: number[];
+  /** Write the track in bass clef whatever its sound (the left hand of a piano). */
+  bass?: boolean;
 }
 
 export const trackFromPreset = (preset: InstrumentPreset): NewTrack => ({
@@ -52,6 +54,7 @@ export const trackFromPreset = (preset: InstrumentPreset): NewTrack => ({
 function clefFor(track: NewTrack): model.Clef {
   // Extended-range guitars stay in treble clef; basses and low instruments use bass clef.
   if (track.kind === "drums") return Clef.Neutral;
+  if (track.bass) return Clef.F4;
   return BASS_CLEF_PROGRAMS.has(track.program) ? Clef.F4 : Clef.G2;
 }
 

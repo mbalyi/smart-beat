@@ -56,6 +56,31 @@ pub trait Transcriber {
     ) -> Result<Vec<RecordedNote>, CommandError>;
 }
 
+/// What was played. A piano gets stricter note settings than the default (guitar and bass).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Instrument {
+    #[default]
+    Guitar,
+    Piano,
+}
+impl Instrument {
+    /// The `x-instrument` header value. A missing or unknown value means guitar.
+    pub fn parse(value: Option<&str>) -> Self {
+        match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+            Some("piano") => Self::Piano,
+            _ => Self::Guitar,
+        }
+    }
+    pub fn engine(self) -> BasicPitch {
+        BasicPitch {
+            options: match self {
+                Self::Guitar => NoteOptions::default(),
+                Self::Piano => NoteOptions::piano(),
+            },
+        }
+    }
+}
+
 /// What `transcribe_recording` returns.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Transcribed {
@@ -149,7 +174,8 @@ struct Progress {
 }
 
 /// The take is the raw body: little-endian 32-bit float mono samples. The header
-/// `x-sample-rate` carries their rate in Hz. Emits `recording-transcription-progress`.
+/// `x-sample-rate` carries their rate in Hz, and the optional `x-instrument` (`guitar` or
+/// `piano`) picks the note settings. Emits `recording-transcription-progress`.
 #[tauri::command]
 pub async fn transcribe_recording<R: Runtime>(
     app: AppHandle<R>,
@@ -165,6 +191,12 @@ pub async fn transcribe_recording<R: Runtime>(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u32>().ok())
         .ok_or_else(|| error("Missing x-sample-rate."))?;
+    let instrument = Instrument::parse(
+        request
+            .headers()
+            .get("x-instrument")
+            .and_then(|value| value.to_str().ok()),
+    );
     // The length check comes first, so a huge body is not decoded.
     check_rate(rate)?;
     check_length(body.len() / 4)?;
@@ -184,7 +216,7 @@ pub async fn transcribe_recording<R: Runtime>(
             };
             let cancelled = || stop.load(Ordering::Relaxed);
             let result = transcribe_take(
-                &BasicPitch::default(),
+                &instrument.engine(),
                 &samples,
                 rate,
                 &mut progress,
@@ -228,6 +260,16 @@ mod tests {
     }
     fn take(samples: &[f32], rate: u32) -> Result<Vec<RecordedNote>, CommandError> {
         transcribe_take(&Fixed(vec![]), samples, rate, &mut |_| {}, &|| false)
+    }
+
+    #[test]
+    fn the_instrument_header_picks_the_note_settings() {
+        assert_eq!(Instrument::parse(Some(" Piano ")), Instrument::Piano);
+        assert_eq!(Instrument::parse(Some("guitar")), Instrument::Guitar);
+        assert_eq!(Instrument::parse(Some("kazoo")), Instrument::Guitar);
+        assert_eq!(Instrument::parse(None), Instrument::Guitar);
+        assert_eq!(Instrument::Piano.engine().options, NoteOptions::piano());
+        assert_eq!(Instrument::Guitar.engine().options, NoteOptions::default());
     }
 
     #[test]

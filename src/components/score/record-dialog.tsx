@@ -32,13 +32,16 @@ import { looksBuiltIn, useAudioInput } from "@/lib/audio/input";
 import {
   RECORD_STRING_COUNTS,
   readAlignToBeat,
+  readInstrument,
   readPlayOthers,
   readTuningChoice,
   standardTuningChoice,
   storeAlignToBeat,
+  storeInstrument,
   storePlayOthers,
   storeTuningChoice,
   tuningOf,
+  type RecordInstrument,
   type TuningChoice,
 } from "@/lib/audio/record-prefs";
 import { pitchName, tuningPresets } from "@/lib/score/music";
@@ -58,8 +61,9 @@ export interface RecordSetup {
   playOthers: boolean;
   /** Click mode: shift the take by up to 80 ms so that it lines up with the beat. */
   alignToBeat: boolean;
-  /** The tuning of a new track, or of the new song in free mode. */
+  /** The tuning of a new track, or of the new song in free mode. Unused for a piano. */
   tuning: number[];
+  instrument: RecordInstrument;
 }
 
 /** An audio file dropped on the window while the dialog is open. */
@@ -72,6 +76,8 @@ export interface DroppedTake {
 export interface RecordTarget {
   index: number;
   name: string;
+  /** Strings take a guitar or bass take, pitched tracks (piano and the like) a piano take. */
+  kind: "stringed" | "pitched";
 }
 
 const NEW_TRACK = "new";
@@ -105,7 +111,7 @@ export function RecordDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The song's stringed tracks. */
+  /** The song's stringed and pitched tracks. */
   targets: readonly RecordTarget[];
   /** The track to record on (an index into the song's tracks), if it is one of `targets`. */
   defaultTrack: number | null;
@@ -115,8 +121,8 @@ export function RecordDialog({
   /** False in a plain browser: recording needs the desktop app. */
   supported: boolean;
   onRecord: (setup: RecordSetup) => void;
-  /** Turns an existing recording into tab, as a new song with this tuning. */
-  onRecordFile: (file: File, tuning: number[]) => void;
+  /** Turns an existing recording into tab or staves, as a new song with this tuning. */
+  onRecordFile: (file: File, tuning: number[], instrument: RecordInstrument) => void;
   droppedFile?: DroppedTake | null;
 }) {
   return (
@@ -159,7 +165,7 @@ function RecordForm({
   supported: boolean;
   onCancel: () => void;
   onRecord: (setup: RecordSetup) => void;
-  onRecordFile: (file: File, tuning: number[]) => void;
+  onRecordFile: (file: File, tuning: number[], instrument: RecordInstrument) => void;
   droppedFile: DroppedTake | null;
 }) {
   const ids = {
@@ -170,18 +176,29 @@ function RecordForm({
     others: useId(),
     align: useId(),
   };
+  const [instrument, setInstrument] = useState<RecordInstrument>(readInstrument);
+  const piano = instrument === "piano";
   const [mode, setMode] = useState<Source>("click");
   const fromFile = mode === "file";
   const input = useAudioInput();
   // An existing recording needs no input.
   const heard = useInputLevel(!fromFile, input);
-  const [track, setTrack] = useState<string>(
+  const [chosenTrack, setTrack] = useState<string>(
     defaultTrack !== null && targets.some((t) => t.index === defaultTrack)
       ? String(defaultTrack)
       : targets[0]
         ? String(targets[0].index)
         : NEW_TRACK,
   );
+  // Only the tracks that suit the instrument; the choice falls back when it was for the other one.
+  const kind = piano ? "pitched" : "stringed";
+  const shown = targets.filter((t) => t.kind === kind);
+  const track =
+    chosenTrack === NEW_TRACK || shown.some((t) => String(t.index) === chosenTrack)
+      ? chosenTrack
+      : shown[0]
+        ? String(shown[0].index)
+        : NEW_TRACK;
   // Text, so that the field can be emptied while a number is typed.
   const [bar, setBar] = useState(
     String(Math.min(Math.max(defaultBar, 0), Math.max(barCount - 1, 0)) + 1),
@@ -211,7 +228,7 @@ function RecordForm({
   }, [droppedFile]);
 
   const newTrack = mode === "click" && track === NEW_TRACK;
-  const askTuning = mode !== "click" || newTrack;
+  const askTuning = !piano && (mode !== "click" || newTrack);
   const presets = tuningPresets(tuningChoice.strings);
   // The microphone of a laptop hears the click from its speakers.
   const builtIn = looksBuiltIn(input?.label ?? (heard.kind === "listening" ? heard.device : null));
@@ -220,6 +237,10 @@ function RecordForm({
   const changeTuning = (next: TuningChoice) => {
     setTuningChoice(next);
     storeTuningChoice(next);
+  };
+  const changeInstrument = (value: RecordInstrument) => {
+    setInstrument(value);
+    storeInstrument(value);
   };
   const changeOthers = (value: boolean) => {
     setPlayOthers(value);
@@ -233,7 +254,7 @@ function RecordForm({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (fromFile) {
-      if (file) onRecordFile(file, tuningOf(tuningChoice));
+      if (file) onRecordFile(file, tuningOf(tuningChoice), instrument);
       return;
     }
     onRecord({
@@ -243,13 +264,14 @@ function RecordForm({
       playOthers,
       alignToBeat,
       tuning: tuningOf(tuningChoice),
+      instrument,
     });
   };
 
   const description = {
     click: "Play along with the click. Your take replaces the bars it covers on the track.",
     free: "Play freely. Smart Beat finds the tempo and opens your take as a new song.",
-    file: "Choose a guitar recording. Smart Beat finds the tempo and opens it as a new song.",
+    file: `Choose a ${piano ? "piano" : "guitar"} recording. Smart Beat finds the tempo and opens it as a new song.`,
   }[mode];
 
   return (
@@ -265,6 +287,19 @@ function RecordForm({
         </p>
       </DialogHeader>
       <DialogBody>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          spacing={0}
+          aria-label="Instrument"
+          value={instrument}
+          onValueChange={(value) => value && changeInstrument(value as RecordInstrument)}
+          className="self-start"
+        >
+          <ToggleGroupItem value="guitar">Guitar or bass</ToggleGroupItem>
+          <ToggleGroupItem value="piano">Piano</ToggleGroupItem>
+        </ToggleGroup>
         <ToggleGroup
           type="single"
           variant="outline"
@@ -342,7 +377,7 @@ function RecordForm({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {targets.map((target) => (
+                        {shown.map((target) => (
                           <SelectItem key={target.index} value={String(target.index)}>
                             {target.name}
                           </SelectItem>

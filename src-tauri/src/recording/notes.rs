@@ -98,6 +98,22 @@ impl Default for NoteOptions {
     }
 }
 impl NoteOptions {
+    /// Settings for a piano played on its own: the 88 keys only, and stricter thresholds with
+    /// the frame-only pass off, because a piano's decaying strings and sympathetic resonance
+    /// otherwise add ghost notes. Tuned on rendered public-domain pieces: see
+    /// `docs/record-to-tab-piano.md` (note F1 0.76 with the defaults, 0.86 with these).
+    pub fn piano() -> Self {
+        Self {
+            onset_threshold: 0.7,
+            frame_threshold: 0.4,
+            min_note_ms: 100.0,
+            melodia: false,
+            min_pitch: Some(MIDI_OFFSET),
+            max_pitch: Some(MIDI_OFFSET + N_BINS as u8 - 1),
+            ..Self::default()
+        }
+    }
+
     /// The shortest note in frames, as upstream rounds it.
     fn min_note_frames(&self) -> usize {
         (self.min_note_ms / 1000.0 * f64::from(SAMPLE_RATE) / FFT_HOP as f64)
@@ -353,6 +369,22 @@ mod tests {
         assert_eq!(options.min_note_frames(), 11);
         assert!(options.melodia && options.infer_onsets);
         assert_eq!((options.min_pitch, options.max_pitch), (None, None));
+    }
+
+    #[test]
+    fn piano_options_are_stricter_and_keep_the_88_keys() {
+        let piano = NoteOptions::piano();
+        assert!(piano.onset_threshold > NoteOptions::default().onset_threshold);
+        assert!(!piano.melodia);
+        assert_eq!((piano.min_pitch, piano.max_pitch), (Some(21), Some(108)));
+    }
+
+    #[test]
+    fn a_weak_onset_is_ignored_for_piano_but_kept_by_default() {
+        let frames = matrix(100, &[(19, 10, 49, 0.8)]);
+        let onsets = matrix(100, &[(19, 10, 10, 0.6)]);
+        assert_eq!(frame_notes(&frames, &onsets, &plain()).len(), 1);
+        assert!(frame_notes(&frames, &onsets, &NoteOptions::piano()).is_empty());
     }
 
     #[test]

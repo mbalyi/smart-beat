@@ -881,12 +881,13 @@ export const isRecordingStopped = (error: unknown): boolean =>
 
 /**
  * Turns a take (mono samples as 32-bit floats) into notes, on this computer. `onProgress` gets
- * the fraction done (0…1). Rejects with {@link RECORDING_STOPPED} after a cancel.
+ * the fraction done (0…1). A piano uses stricter note settings than the default. Rejects with {@link RECORDING_STOPPED} after a cancel.
  */
 export async function transcribeRecording(
   samples: Float32Array,
   sampleRate: number,
   onProgress?: (fraction: number) => void,
+  instrument: "guitar" | "piano" = "guitar",
 ): Promise<RecordedNote[]> {
   if (!isTauri()) throw new NotInDesktopAppError();
   const stopListening = onProgress
@@ -898,7 +899,7 @@ export async function transcribeRecording(
     // The samples are the raw request body (little-endian f32); the rate travels in a header.
     const body = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
     const result = await invoke<{ notes: RecordedNote[] }>("transcribe_recording", body, {
-      headers: { "x-sample-rate": String(sampleRate) },
+      headers: { "x-sample-rate": String(sampleRate), "x-instrument": instrument },
     });
     return result.notes;
   } finally {

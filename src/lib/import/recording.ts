@@ -16,6 +16,7 @@ import {
   type Parsed,
   type Part,
 } from "@/lib/import/midi";
+import { splitHands } from "@/lib/import/hand-split";
 import { ScoreLoadError } from "@/lib/score/errors";
 import { appendMasterBar, barContent, type Score, type Track } from "@/lib/score/model";
 import { durationTicks, QUARTER_TICKS } from "@/lib/score/music";
@@ -85,46 +86,58 @@ const NOMINAL_TEMPOS = [120, 95, 145, 75, 175, 60, 210];
 /** A later tempo must leave this share of the error of the best one so far to replace it. */
 const BETTER_FIT = 0.85;
 
-/** The take as notes in ticks, laid out at `bpm`. */
+/** The take as notes in ticks, laid out at `bpm`. A piano take becomes a part per hand. */
 function parsedAt(notes: readonly RecordedNote[], bpm: number, options: FreeOptions): Parsed {
   const ticksPerSecond = (QUARTER_TICKS * bpm) / 60;
-  const ticked = notes.map((n) => {
-    const start = Math.max(0, Math.round(n.start * ticksPerSecond));
-    return {
-      start,
-      end: Math.max(start + 1, Math.round(n.end * ticksPerSecond)),
-      pitch: n.pitch,
-      velocity: n.velocity,
-    };
+  const ticked = (list: readonly RecordedNote[]) =>
+    list.map((n) => {
+      const start = Math.max(0, Math.round(n.start * ticksPerSecond));
+      return {
+        start,
+        end: Math.max(start + 1, Math.round(n.end * ticksPerSecond)),
+        pitch: n.pitch,
+        velocity: n.velocity,
+      };
+    });
+  const part = (trackName: string, list: readonly RecordedNote[]): Part => ({
+    trackName,
+    tuning: options.tuning,
+    channel: 0,
+    program: options.program,
+    volume: null,
+    pan: null,
+    notes: ticked(list),
   });
+  let parts: Part[];
+  if (options.tuning) {
+    parts = [part(options.trackName, notes)];
+  } else {
+    const { right, left } = splitHands(notes);
+    parts = [
+      part(options.trackName, right),
+      { ...part(`${options.trackName} (left hand)`, left), bass: true },
+    ].filter((p) => p.notes.length > 0);
+  }
   return {
     division: QUARTER_TICKS,
     tempos: [{ tick: 0, bpm }],
     timeSignatures: [],
     keySignature: null,
-    parts: [
-      {
-        trackName: options.trackName,
-        tuning: options.tuning,
-        channel: 0,
-        program: options.program,
-        volume: null,
-        pan: null,
-        notes: ticked,
-      },
-    ],
-    endTick: Math.max(...ticked.map((n) => n.end)),
+    parts,
+    endTick: Math.max(...parts.flatMap((p) => p.notes.map((n) => n.end))),
   };
 }
 
 interface FreeOptions {
-  tuning: number[];
+  /** Strings of a guitar or bass, highest first. Leave out for a piano: two tracks, one per hand. */
+  tuning?: number[];
   trackName: string;
   program: number;
 }
 
 /**
- * Free mode: a new song with one guitar track written from the take. The tempo is measured
+ * Free mode: a new song with one guitar track (or a right-hand and a left-hand piano track)
+ * written from the take. The tempo is measured
  * from the notes. A take too short for that stays at 120 BPM, with a warning.
  */
 export function recordingToSong(
@@ -227,7 +240,7 @@ export function recordingTargets(score: Score, trackIndex: number, startBar: num
 }
 
 /**
- * Click mode: writes a take into a guitar track, from the first beat of bar `startBar` (0-based).
+ * Click mode: writes a take into a guitar or piano track, from the first beat of bar `startBar` (0-based).
  * The notes' time 0 is that downbeat: the count-in is gone and latency and `alignOffset` are
  * applied. Time follows the song's tempo changes. Every bar the take covers is replaced, rests
  * included. Bars before it and after it stay. Bars are appended when the take outlasts the song.
@@ -243,9 +256,10 @@ export function writeRecording(
 ): { warnings: string[] } {
   const track: Track | undefined = score.tracks[options.trackIndex];
   const staff = track?.staves[0];
-  if (!track || !staff || staff.stringTuning.tunings.length === 0) {
-    throw new Error("A recording needs a string instrument track.");
+  if (!track || !staff || staff.isPercussion) {
+    throw new Error("A recording needs a string or piano track.");
   }
+  const stringed = staff.stringTuning.tunings.length > 0;
   const startBar = Math.max(0, Math.floor(options.startBar));
   const warnings = new Set<string>();
 
@@ -300,7 +314,7 @@ export function writeRecording(
 
   const part: Part = {
     trackName: track.name,
-    tuning: [...staff.stringTuning.tunings],
+    tuning: stringed ? [...staff.stringTuning.tunings] : undefined,
     channel: 0,
     program: track.playbackInfo.program,
     volume: null,

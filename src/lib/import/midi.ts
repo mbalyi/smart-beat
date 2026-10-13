@@ -65,6 +65,8 @@ export interface Part {
   program: number;
   volume: number | null;
   pan: number | null;
+  /** Written in bass clef: the left hand of a piano recording. */
+  bass?: boolean;
   notes: RawNote[];
 }
 
@@ -414,6 +416,7 @@ function splitLead(part: Part): Part[] {
 }
 
 function trackSpec(part: Part, name: string): NewTrack {
+  if (part.bass) return { kind: "pitched", name, program: part.program, bass: true };
   if (part.tuning)
     return { kind: "stringed", name, program: part.program, tuning: [...part.tuning] };
   if (part.channel === 9) return { kind: "drums", name, program: 0 };

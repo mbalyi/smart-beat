@@ -494,6 +494,7 @@
         state.requests.push({
           sampleRate: Number(options.headers["x-sample-rate"]),
           bytes: args.byteLength,
+          instrument: options.headers["x-instrument"],
         });
         window.__emitTauriEvent("recording-transcription-progress", { fraction: 0.5 });
         if (state.hold) {
@@ -512,13 +513,17 @@
           [47, 1.5, 2.0],
           [52, 1.5, 2.0],
           [56, 1.5, 2.0],
-        ].map(([pitch, start, end]) => ({
-          pitch,
-          start: start + state.shift,
-          end: end + state.shift,
-          velocity: 0.8,
-        }));
-        return { notes };
+        ];
+        // A piano take also has a right-hand melody note above middle C.
+        if (options.headers["x-instrument"] === "piano") notes.push([72, 0.0, 0.5]);
+        return {
+          notes: notes.map(([pitch, start, end]) => ({
+            pitch,
+            start: start + state.shift,
+            end: end + state.shift,
+            velocity: 0.8,
+          })),
+        };
       }
       case "cancel_recording_transcription":
         window.__recordTranscription.cancelled += 1;
