@@ -1,7 +1,9 @@
 //! Record to tab: plucked-string-like tones at known times go through the same path as the
 //! `transcribe_recording` command, and the notes come back at the right pitches and times.
 
-use smart_beat_lib::recording::{BasicPitch, RecordedNote, Transcriber, transcribe_take};
+use smart_beat_lib::recording::{
+    BasicPitch, Instrument, RecordedNote, Transcriber, transcribe_take,
+};
 use std::f64::consts::PI;
 
 const RATE: u32 = 44_100;
@@ -90,6 +92,32 @@ fn finds_plucked_notes_and_a_chord_at_the_right_times() {
         stray.iter().all(|n| n.end - n.start < 0.5 && n.pitch >= 64),
         "stray notes: {stray:#?}"
     );
+}
+
+#[test]
+fn the_piano_settings_keep_the_played_notes_and_do_not_add_strays() {
+    let samples = take();
+    let guitar = transcribe(&samples, RATE);
+    let piano = transcribe_take(
+        &Instrument::Piano.engine(),
+        &samples,
+        RATE,
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+    for (start, pitches) in SCORE {
+        for &pitch in pitches {
+            assert!(
+                piano
+                    .iter()
+                    .any(|n| n.pitch == pitch && (n.start - start).abs() <= 0.05),
+                "no note {pitch} near {start} s in {piano:#?}"
+            );
+        }
+    }
+    assert!(piano.len() <= guitar.len(), "{piano:#?} vs {guitar:#?}");
+    assert!(piano.iter().all(|n| (21..=108).contains(&n.pitch)));
 }
 
 #[test]

@@ -2,7 +2,12 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { RecordDialog, type RecordSetup } from "@/components/score/record-dialog";
 import { storeAudioInput } from "@/lib/audio/input";
-import { readAlignToBeat, readTuningChoice } from "@/lib/audio/record-prefs";
+import {
+  readAlignToBeat,
+  readInstrument,
+  readTuningChoice,
+  type RecordInstrument,
+} from "@/lib/audio/record-prefs";
 import { expectNoA11yViolations } from "@/test/axe";
 import { installMediaDevices } from "@/test/media-devices";
 import { renderWithProviders } from "@/test/render";
@@ -11,8 +16,9 @@ const BUILT_IN = { deviceId: "built-in", label: "MacBook Pro Microphone" };
 const SCARLETT = { deviceId: "scarlett", label: "Scarlett 2i2 USB" };
 
 const TARGETS = [
-  { index: 0, name: "Lead" },
-  { index: 2, name: "Rhythm" },
+  { index: 0, name: "Lead", kind: "stringed" as const },
+  { index: 2, name: "Rhythm", kind: "stringed" as const },
+  { index: 3, name: "Keys", kind: "pitched" as const },
 ];
 
 function setup(
@@ -22,7 +28,8 @@ function setup(
   const mic = installMediaDevices(devices);
   const onRecord = vi.fn<(setup: RecordSetup) => void>();
   const onOpenChange = vi.fn();
-  const onRecordFile = vi.fn<(file: File, tuning: number[]) => void>();
+  const onRecordFile =
+    vi.fn<(file: File, tuning: number[], instrument: RecordInstrument) => void>();
   const element = (more: Partial<Parameters<typeof RecordDialog>[0]> = {}) => (
     <RecordDialog
       open
@@ -67,7 +74,32 @@ describe("RecordDialog", () => {
       playOthers: true,
       alignToBeat: true,
       tuning: [64, 59, 55, 50, 45, 40],
+      instrument: "guitar",
     });
+  });
+
+  it("records a piano: no tuning, only pitched tracks, and remembers the choice", async () => {
+    const { user, onRecord } = setup();
+    await user.click(screen.getByRole("radio", { name: "Piano" }));
+    expect(screen.getByRole("combobox", { name: "Track" })).toHaveTextContent("Keys");
+    expect(screen.queryByRole("combobox", { name: "Tuning" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Track" }));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Keys", "New track"]);
+    await user.click(screen.getByRole("option", { name: "New track" }));
+    // A new piano track has no strings to tune.
+    expect(screen.queryByRole("combobox", { name: "Strings" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Record" }));
+    expect(onRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "click", track: null, instrument: "piano" }),
+    );
+    expect(readInstrument()).toBe("piano");
+  });
+
+  it("starts on the instrument used last, and hides the other instrument's tracks", () => {
+    localStorage.setItem("smart-beat:record-instrument", "piano");
+    setup();
+    expect(screen.getByRole("radio", { name: "Piano" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Track" })).toHaveTextContent("Keys");
   });
 
   it("takes the first guitar track when the shown track is not one", () => {
@@ -267,7 +299,11 @@ describe("RecordDialog", () => {
       await user.upload(screen.getByLabelText("Choose an audio recording"), wav());
       expect(screen.getByText("riff.wav")).toBeVisible();
       await user.click(screen.getByRole("button", { name: "Make tab" }));
-      expect(onRecordFile).toHaveBeenCalledWith(expect.any(File), [64, 59, 55, 50, 45, 40]);
+      expect(onRecordFile).toHaveBeenCalledWith(
+        expect.any(File),
+        [64, 59, 55, 50, 45, 40],
+        "guitar",
+      );
       expect(onRecord).not.toHaveBeenCalled();
     });
 

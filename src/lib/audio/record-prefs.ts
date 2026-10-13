@@ -4,6 +4,10 @@ import { STANDARD_GUITAR, tuningPresets } from "@/lib/score/music";
 const PLAY_OTHERS_KEY = "smart-beat:record-play-others";
 const TUNING_KEY = "smart-beat:record-tuning";
 const ALIGN_KEY = "smart-beat:record-align";
+const INSTRUMENT_KEY = "smart-beat:record-instrument";
+
+/** What Record to Tab listens to: a string instrument (tab) or a piano (two-hand staves). */
+export type RecordInstrument = "guitar" | "piano";
 
 /** Guitars the tuning picker offers; 7 and 8 strings are the extended-range guitars. */
 export const RECORD_STRING_COUNTS = [6, 7, 8] as const;
@@ -91,3 +95,20 @@ export function storeTuningChoice(choice: TuningChoice) {
 
 /** The standard tuning's choice for a string count. */
 export const standardTuningChoice = standard;
+
+/** The last instrument picked (guitar by default). */
+export function readInstrument(): RecordInstrument {
+  try {
+    return localStorage.getItem(INSTRUMENT_KEY) === "piano" ? "piano" : "guitar";
+  } catch {
+    return "guitar";
+  }
+}
+
+export function storeInstrument(value: RecordInstrument) {
+  try {
+    localStorage.setItem(INSTRUMENT_KEY, value);
+  } catch {
+    // Not remembered: guitar next time.
+  }
+}

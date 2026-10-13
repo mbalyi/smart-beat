@@ -4,3 +4,10 @@ results/*
 !results/.gitignore
 !results/summary.json
 *.egg-info/
+
+# Piano accuracy runs (see piano/README.md)
+piano/data/
+piano/clips/
+piano/out/
+piano/render/target/
+piano/render/Cargo.lock
