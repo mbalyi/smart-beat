@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -91,11 +99,32 @@ const formatGain = (db: number) => `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
 /**
  * What is being dragged: a new effect from the library, an amp or cabinet
  * from the user's sound library, or a pedal of the board.
+ *
+ * Dragging is built on pointer events, not HTML5 drag events: on macOS the
+ * window handles file drops natively, so the webview never delivers
+ * `dragstart`/`drop` to elements (#128).
  */
 type Dragged =
   | { kind: "new"; type: EffectType }
-  | { kind: "asset"; asset: { kind: AssetKind; id: string } }
+  | { kind: "asset"; asset: { kind: AssetKind; id: string }; name: string }
   | { kind: "move"; from: number };
+
+/** Where a pointer drag would land: a chain position, or the library (remove). */
+type DropZone = { kind: "board"; index: number } | { kind: "library" };
+
+/** How far the pointer must move before a press turns into a drag. */
+const DRAG_THRESHOLD = 4;
+
+/** Starting a drag on one of these is that control's job, not the drag's. */
+const CONTROL =
+  "button, input, select, textarea, [role='slider'], [role='switch'], [contenteditable='true']";
+
+/** "Reverb", "amp My 5150", "Noise gate 2": what the drag preview shows. */
+const draggedLabel = (item: Dragged, chain: EffectSlot[]): string => {
+  if (item.kind === "new") return EFFECT_LABELS[item.type];
+  if (item.kind === "asset") return item.name;
+  return `${EFFECT_LABELS[chain[item.from]?.type ?? "gate"]} ${item.from + 1}`;
+};
 
 function LibrarySelect({
   kind,
@@ -548,8 +577,13 @@ export function PedalboardDialog({
   const [genre, setGenre] = useState<Genre | "all">("all");
   const [presetName, setPresetName] = useState("");
   const [dragging, setDragging] = useState<Dragged | null>(null);
-  const [dropAt, setDropAt] = useState<number | null>(null);
+  const [dropZone, setDropZone] = useState<DropZone | null>(null);
+  const [dragAt, setDragAt] = useState<{ x: number; y: number } | null>(null);
+  // The active drag and the pointer that ends it live in refs: the window
+  // listeners read them without re-subscribing on every move.
   const dragged = useRef<Dragged | null>(null);
+  const pending = useRef<{ item: Dragged; x: number; y: number } | null>(null);
+  const zone = useRef<DropZone | null>(null);
   const boardRef = useRef<HTMLOListElement>(null);
   const ids = useId();
 
@@ -597,34 +631,114 @@ export function PedalboardDialog({
     setSelected(Math.min(at, chain.length));
   };
 
-  const startDrag = (event: DragEvent, item: Dragged) => {
-    dragged.current = item;
-    setDragging(item);
-    event.dataTransfer?.setData(
-      "text/plain",
-      item.kind === "new" ? item.type : item.kind === "asset" ? item.asset.id : `#${item.from}`,
-    );
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  /**
+   * Where the pointer currently is: the element under it names its zone
+   * (`data-drop-zone`: the library, a pedal, or the board). A pedal takes the
+   * drop just before it; the board appends after the last pedal, and between
+   * pedals picks the nearest gap.
+   */
+  const dropZoneAt = (target: EventTarget | null, x: number, y: number): DropZone | null => {
+    const element =
+      target instanceof Element ? target.closest<HTMLElement>("[data-drop-zone]") : null;
+    if (!element) return null;
+    if (element.dataset.dropZone === "library")
+      return dragged.current?.kind === "move" ? { kind: "library" } : null;
+    if (element.dataset.dropZone === "pedal")
+      return { kind: "board", index: Number(element.dataset.dropIndex ?? 0) };
+    const pedals = Array.from(element.querySelectorAll<HTMLElement>("[data-pedal]"));
+    const last = pedals.at(-1);
+    if (!last || x > last.getBoundingClientRect().right)
+      return { kind: "board", index: pedals.length };
+    let index = 0;
+    let best = Infinity;
+    for (const [i, pedal] of pedals.entries()) {
+      const rect = pedal.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const away = (x - cx) ** 2 + (y - cy) ** 2;
+      if (away < best) {
+        best = away;
+        index = i + (x > cx ? 1 : 0);
+      }
+    }
+    return { kind: "board", index };
   };
-  const endDrag = () => {
+
+  const resetDrag = () => {
+    pending.current = null;
     dragged.current = null;
+    zone.current = null;
     setDragging(null);
-    setDropAt(null);
+    setDropZone(null);
+    setDragAt(null);
   };
-  /** Drops at board position `index` (before the pedal there; `chain.length`: at the end). */
-  const dropOnBoard = (event: DragEvent, index: number) => {
-    event.preventDefault();
+
+  const cancelDrag = () => resetDrag();
+
+  /** Ends the drag: applies it where the pointer left off, then resets. */
+  const endDrag = () => {
     const item = dragged.current;
-    if (item?.kind === "new") add(item.type, index);
-    else if (item?.kind === "asset") addAsset(item.asset, index);
-    else if (item?.kind === "move") move(item.from, item.from < index ? index - 1 : index);
-    endDrag();
+    const at = zone.current;
+    if (item && at) {
+      if (at.kind === "library") {
+        if (item.kind === "move") remove(item.from);
+      } else if (item.kind === "new") add(item.type, at.index);
+      else if (item.kind === "asset") addAsset(item.asset, at.index);
+      // Dropping a pedal back where it was (or just before itself) is a no-op.
+      else move(item.from, item.from < at.index ? at.index - 1 : at.index);
+    }
+    resetDrag();
   };
-  const dropOnLibrary = (event: DragEvent) => {
-    event.preventDefault();
-    const item = dragged.current;
-    if (item?.kind === "move") remove(item.from);
-    endDrag();
+
+  // Ending a drag is a window concern: the pointer may be released anywhere.
+  const dropEvent = useEffectEvent(endDrag);
+  const cancelEvent = useEffectEvent(cancelDrag);
+  useEffect(() => {
+    const onUp = () => {
+      if (dragged.current) dropEvent();
+      else pending.current = null;
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape" && dragged.current) cancelEvent();
+    };
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", cancelEvent);
+    window.addEventListener("blur", cancelEvent);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", cancelEvent);
+      window.removeEventListener("blur", cancelEvent);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  /** A press on a pedal or a library row starts a drag once it moves far enough. */
+  const onDragPointerDown = (event: PointerEvent<HTMLElement>, item: Dragged) => {
+    if (event.button !== 0) return;
+    if (item.kind !== "move" && full) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest(CONTROL)) return;
+    pending.current = { item, x: event.clientX, y: event.clientY };
+  };
+
+  const onDragPointerMove = (event: PointerEvent<HTMLElement>) => {
+    const start = pending.current;
+    if (!dragged.current && start) {
+      if (event.buttons !== 1) {
+        pending.current = null;
+        return;
+      }
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < DRAG_THRESHOLD) return;
+      pending.current = null;
+      dragged.current = start.item;
+      setDragging(start.item);
+    }
+    if (!dragged.current) return;
+    setDragAt({ x: event.clientX, y: event.clientY });
+    const next = dropZoneAt(event.target, event.clientX, event.clientY);
+    zone.current = next;
+    setDropZone(next);
   };
 
   const onPedalKeyDown = (event: KeyboardEvent, index: number) => {
@@ -650,8 +764,8 @@ export function PedalboardDialog({
           <DialogDescription>
             Up to {limit} effects, played from left to right.{" "}
             {target.track === null
-              ? "The mastering chain processes the whole mix."
-              : "Drag effects from the library onto the board, or use their Add buttons."}
+              ? "The mastering chain processes the whole mix. Drag effects from the library onto the board, or use their Add buttons."
+              : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -801,13 +915,21 @@ export function PedalboardDialog({
             </form>
           </div>
 
-          <div className="grid min-w-0 gap-3 md:grid-cols-[14rem_1fr]">
+          <div
+            className={cn("grid min-w-0 gap-3 md:grid-cols-[14rem_1fr]", dragging && "select-none")}
+            onPointerMove={onDragPointerMove}
+            // Leaving the board and the library cancels the drag: the pointer is
+            // no longer over anything that can take the drop.
+            onPointerLeave={() => {
+              if (!dragged.current) return;
+              zone.current = null;
+              setDropZone(null);
+            }}
+          >
             {/* Dropping a pedal here removes it (a mouse shortcut for its Remove button). */}
-            {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
             <section
               aria-labelledby={`${ids}-library`}
-              onDragOver={(e) => dragging?.kind === "move" && e.preventDefault()}
-              onDrop={dropOnLibrary}
+              data-drop-zone="library"
               data-testid="effect-library"
               className={cn(
                 "flex flex-col gap-2 rounded-md border p-2",
@@ -835,16 +957,18 @@ export function PedalboardDialog({
                     const label = `${item.kind === "amp" ? "amp" : "cabinet"} ${item.name}`;
                     return (
                       // Dragging is a mouse shortcut; the Add button does the same.
-                      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
                       <li
                         key={item.id}
-                        draggable={!full}
-                        onDragStart={(e) => startDrag(e, { kind: "asset", asset })}
-                        onDragEnd={endDrag}
+                        onPointerDown={(e) =>
+                          onDragPointerDown(e, { kind: "asset", asset, name: item.name })
+                        }
                         data-testid="library-asset"
                         className={cn(
                           "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
                           !full && "cursor-grab",
+                          dragging?.kind === "asset" &&
+                            dragging.asset.id === item.id &&
+                            "opacity-40",
                         )}
                         title={item.tags.length > 0 ? item.tags.join(", ") : undefined}
                       >
@@ -890,16 +1014,14 @@ export function PedalboardDialog({
               <ul className="flex flex-col gap-1" aria-label="Effects">
                 {libraryTypes.map((type) => (
                   // Dragging is a mouse shortcut; the Add button does the same.
-                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
                   <li
                     key={type}
-                    draggable={!full}
-                    onDragStart={(e) => startDrag(e, { kind: "new", type })}
-                    onDragEnd={endDrag}
+                    onPointerDown={(e) => onDragPointerDown(e, { kind: "new", type })}
                     data-testid="library-effect"
                     className={cn(
                       "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
                       !full && "cursor-grab",
+                      dragging?.kind === "new" && dragging.type === type && "opacity-40",
                     )}
                     title={EFFECT_DESCRIPTIONS[type]}
                   >
@@ -934,22 +1056,22 @@ export function PedalboardDialog({
                   </span>
                 )}
               </h3>
+              <p className="text-xs text-muted-foreground">
+                Keyboard: focus a pedal, Alt+←/→ moves it and Delete removes it. Add effects with
+                the library's Add buttons.
+              </p>
               {/* Dropping on the board is a mouse shortcut for the Add buttons. */}
-              {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
               <ol
                 ref={boardRef}
                 aria-labelledby={`${ids}-board`}
+                data-drop-zone="board"
                 data-testid="pedalboard"
                 className={cn(
                   "flex min-h-40 flex-wrap items-start gap-2 rounded-md border border-dashed p-2",
                   // The pedals can be edited, but nothing is heard until the engine is on.
                   !engineOn && "border-amber-500/60",
+                  dropZone?.kind === "board" && "border-primary",
                 )}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  if (dropAt === null) setDropAt(chain.length);
-                }}
-                onDrop={(e) => dropOnBoard(e, dropAt ?? chain.length)}
               >
                 {chain.length === 0 && (
                   <li className="m-auto text-sm text-muted-foreground">
@@ -960,30 +1082,21 @@ export function PedalboardDialog({
                   const problem = problemOf(i);
                   const name = `${EFFECT_LABELS[slot.type]} ${i + 1}`;
                   return (
-                    // A pedal is focusable so Delete and Alt+←/→ work on it (dragging is
-                    // the mouse shortcut); its controls are inside.
+                    // A pedal is focusable so Delete and Alt+←/→ work on it; the
+                    // header and grip drag it (its controls keep their own pointers).
                     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
                     <li
                       key={i}
                       data-pedal
+                      data-drop-zone="pedal"
+                      data-drop-index={i}
                       data-testid="effect-block"
                       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                       tabIndex={0}
                       aria-label={`${name}${slot.enabled ? "" : " (off)"}`}
                       aria-current={i === selected ? "true" : undefined}
                       aria-keyshortcuts="Delete Alt+ArrowLeft Alt+ArrowRight"
-                      draggable
-                      onDragStart={(e) => startDrag(e, { kind: "move", from: i })}
-                      onDragEnd={endDrag}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDropAt(i);
-                      }}
-                      onDrop={(e) => {
-                        e.stopPropagation();
-                        dropOnBoard(e, i);
-                      }}
+                      onPointerDown={(e) => onDragPointerDown(e, { kind: "move", from: i })}
                       onFocus={() => setSelected(i)}
                       onClick={() => setSelected(i)}
                       onKeyDown={(e) => onPedalKeyDown(e, i)}
@@ -992,11 +1105,15 @@ export function PedalboardDialog({
                         slot.type === "eq" ? "w-[19rem]" : "w-[13.5rem]",
                         i === selected ? "border-primary" : "border-border",
                         !slot.enabled && "opacity-60",
-                        dragging && dropAt === i && "border-l-4 border-l-primary",
+                        dragging?.kind === "move" && dragging.from === i && "opacity-40",
+                        dropZone?.kind === "board" &&
+                          dropZone.index === i &&
+                          "border-l-4 border-l-primary",
                       )}
                     >
                       <div className="flex items-center gap-1">
                         <GripVerticalIcon
+                          data-testid="pedal-grip"
                           className="size-4 shrink-0 cursor-grab text-muted-foreground"
                           aria-hidden="true"
                         />
@@ -1063,6 +1180,16 @@ export function PedalboardDialog({
                     </li>
                   );
                 })}
+                {dragging &&
+                  chain.length > 0 &&
+                  dropZone?.kind === "board" &&
+                  dropZone.index === chain.length && (
+                    <li
+                      aria-hidden="true"
+                      data-testid="drop-indicator"
+                      className="w-1 self-stretch rounded bg-primary"
+                    />
+                  )}
               </ol>
               {full && (
                 <p className="text-xs text-muted-foreground">
@@ -1082,6 +1209,16 @@ export function PedalboardDialog({
           </Button>
           <Button onClick={() => onOpenChange(false)}>Done</Button>
         </DialogFooter>
+        {dragging && dragAt && (
+          <div
+            aria-hidden="true"
+            data-testid="drag-preview"
+            className="pointer-events-none fixed z-50 rounded-md border bg-card px-2 py-1 text-xs shadow-md"
+            style={{ left: dragAt.x + 14, top: dragAt.y + 14 }}
+          >
+            {draggedLabel(dragging, chain)}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
