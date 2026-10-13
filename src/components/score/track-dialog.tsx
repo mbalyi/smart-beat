@@ -37,6 +37,7 @@ import {
   pitchName,
   resizeTuning,
   tuningName,
+  tuningNotes,
   tuningPresets,
   type TrackKind,
 } from "@/lib/score/music";
@@ -332,8 +333,7 @@ function TrackForm({
                 <SelectContent>
                   {tuningPresets(tuning.length).map((preset) => (
                     <SelectItem key={preset.name} value={preset.name}>
-                      {preset.name} (
-                      {preset.tuning.map((p) => pitchName(p, { octave: false })).join(" ")})
+                      {preset.name} ({tuningNotes(preset.tuning)})
                     </SelectItem>
                   ))}
                   {!presetName && <SelectItem value={CUSTOM}>Custom</SelectItem>}

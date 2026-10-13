@@ -1,4 +1,4 @@
-import { shortTuningName, STANDARD_GUITAR, tuningLabel } from "@/lib/score/music";
+import { shortTuningName, STANDARD_GUITAR, tuningLabel, tuningNotes } from "@/lib/score/music";
 
 describe("shortTuningName (#83)", () => {
   it.each([
@@ -26,5 +26,27 @@ describe("shortTuningName (#83)", () => {
     expect(shortTuningName(odd)).toBeNull();
     expect(tuningLabel(odd)).toBe("Custom tuning");
     expect(tuningLabel(STANDARD_GUITAR)).toBe("Standard");
+  });
+});
+
+describe("tuningNotes (#119)", () => {
+  // `tuning` is highest string first, like the tab lines; players say a tuning lowest first.
+  it.each([
+    ["six-string standard", STANDARD_GUITAR, "E A D G B E"],
+    ["drop D", [64, 59, 55, 50, 45, 38], "D A D G B E"],
+    ["open G", [62, 59, 55, 50, 43, 38], "D G D G B D"],
+    ["four-string bass", [43, 38, 33, 28], "E A D G"],
+    ["five-string bass", [43, 38, 33, 28, 23], "B E A D G"],
+    ["seven-string", [64, 59, 55, 50, 45, 40, 35], "B E A D G B E"],
+    ["eight-string", [64, 59, 55, 50, 45, 40, 35, 30], "F# B E A D G B E"],
+    ["custom", [64, 60, 55, 50, 45, 41], "F A D G C E"],
+  ])("lists %s from the lowest string", (_, tuning, notes) => {
+    expect(tuningNotes(tuning)).toBe(notes);
+  });
+
+  it("leaves the tuning itself in tab order", () => {
+    const tuning = [...STANDARD_GUITAR];
+    tuningNotes(tuning);
+    expect(tuning).toEqual(STANDARD_GUITAR);
   });
 });

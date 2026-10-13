@@ -18,7 +18,7 @@ import {
   type AudioInput,
 } from "@/lib/audio/input";
 import { detectPitch, midiOf, nearestString, samplesNeeded } from "@/lib/audio/pitch";
-import { pitchName, tuningLabel } from "@/lib/score/music";
+import { pitchName, tuningLabel, tuningNotes } from "@/lib/score/music";
 import { cn } from "@/lib/utils";
 
 /** Within this many cents a string counts as in tune. */
@@ -188,8 +188,7 @@ export function TunerDialog({
         <DialogHeader>
           <DialogTitle>Tuner: {trackName}</DialogTitle>
           <DialogDescription>
-            {tuningLabel(tuning)}:{" "}
-            {strings.map((s) => pitchName(s.pitch, { octave: false })).join(" ")}
+            {tuningLabel(tuning)}: {tuningNotes(tuning)}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>

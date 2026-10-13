@@ -565,6 +565,16 @@ export function shortTuningName(tuning: readonly number[]): string | null {
 export const tuningLabel = (tuning: readonly number[]) =>
   shortTuningName(tuning) ?? "Custom tuning";
 
+/**
+ * A tuning's note names the way players say it, lowest string first: "E A D G B E" (#119).
+ * (`tuning` itself is highest string first, like the lines of a tab.)
+ */
+export const tuningNotes = (tuning: readonly number[]) =>
+  [...tuning]
+    .reverse()
+    .map((pitch) => pitchName(pitch, { octave: false }))
+    .join(" ");
+
 /** A tuning for a new string count: keeps the top strings, adds strings a fourth lower. */
 export function resizeTuning(tuning: readonly number[], stringCount: number): number[] {
   const standard = tuningPresets(stringCount)[0]?.tuning;

@@ -194,6 +194,39 @@ test.describe("saving and exporting (#15, #16)", () => {
     await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
   });
 
+  test("exports every Guitar Pro version, and opens a file again (#119)", async ({ app }) => {
+    await openSong(app);
+    for (const [action, path] of [
+      ["export-gp", "/Users/me/Music/out.gp"],
+      ["export-gp5", "/Users/me/Music/out.gp5"],
+      ["export-gp4", "/Users/me/Music/out.gp4"],
+      ["export-gp3", "/Users/me/Music/out.gp3"],
+    ] as const) {
+      await app.evaluate((p) => (window.__saveResult = p), path);
+      await emitMenuAction(app, action);
+      await expect.poll(() => written(app, path)).toBeGreaterThan(100);
+    }
+    await app.evaluate(() => (window.__dialogResult = "/Users/me/Music/out.gp5"));
+    await emitMenuAction(app, "open");
+    await waitForScore(app);
+    await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
+  });
+
+  test("lists the Guitar Pro exports before MusicXML in the File menu (#119)", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("button", { name: "File" }).click();
+    const items = await app.getByRole("menuitem").allTextContents();
+    const first = items.indexOf("Guitar Pro…");
+    expect(items.slice(first, first + 4)).toEqual([
+      "Guitar Pro…",
+      "Guitar Pro 5…",
+      "Guitar Pro 4…",
+      "Guitar Pro 3…",
+    ]);
+    expect(first).toBeLessThan(items.indexOf("MusicXML…"));
+    await app.keyboard.press("Escape");
+  });
+
   test("exports alphaTex and compressed MusicXML, and opens both files again", async ({ app }) => {
     await openSong(app);
     for (const [action, path] of [
