@@ -435,6 +435,42 @@
           args.slots;
         window.__engineChains = engine.chains;
         return [];
+      // Third-party plugins (#80): the UI and what it sends.
+      case "plugins_scan":
+        return {
+          plugins: [
+            {
+              format: "vst3",
+              path: "/Library/Audio/Plug-Ins/VST3/TestAmp.vst3",
+              name: "Test Amp",
+              vendor: "Test",
+              version: "1.0",
+              hasGui: true,
+            },
+            {
+              format: "clap",
+              path: "/Library/Audio/Plug-Ins/CLAP/TestCab.clap",
+              name: "Test Cab",
+              vendor: "Test",
+              version: "1.0",
+              hasGui: false,
+            },
+          ],
+          skipped: [],
+        };
+      case "plugins_set_enabled":
+        window.__pluginsEnabled = args.enabled;
+        return null;
+      case "plugins_enabled":
+        return window.__pluginsEnabled ?? false;
+      case "audio_plugin_info":
+        return [];
+      case "plugin_open_editor":
+        return [800, 600];
+      case "plugin_close_editor":
+        return null;
+      case "plugin_save_state":
+        return "aGk=";
       case "audio_transport": {
         const c = args.command;
         if (c.type === "play" && !engine.playing) {

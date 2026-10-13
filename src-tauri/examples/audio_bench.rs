@@ -109,6 +109,7 @@ fn main() {
         RATE,
         BLOCK,
         &library.assets(48_000),
+        &smart_beat_lib::audio::plugin::PluginPool::default(),
     );
     let seconds = 20.0;
     let frames = (seconds * RATE) as usize;
@@ -139,6 +140,7 @@ fn main() {
                             RATE,
                             BLOCK,
                             &library.assets(48_000),
+                            &smart_beat_lib::audio::plugin::PluginPool::default(),
                         ),
                     );
                 }

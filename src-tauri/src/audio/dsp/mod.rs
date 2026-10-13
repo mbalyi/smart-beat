@@ -64,6 +64,11 @@ pub trait Effect: Send {
     fn meter_db(&self) -> Option<f32> {
         None
     }
+    /// Processing latency in samples (plugin blocks report it; the UI shows
+    /// the added latency). Zero for the built-in blocks.
+    fn latency_samples(&self) -> u32 {
+        0
+    }
 }
 
 #[cfg(test)]

@@ -278,6 +278,49 @@ test.describe("pedalboard (#36)", () => {
   });
 });
 
+/** Third-party plugins: VST3 and CLAP blocks (#80). */
+test.describe("plugins (#80)", () => {
+  test("adds a scanned plugin block and saves its settings", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("switch", { name: "Native engine with effects" }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+    const dialog = await openPedalboard(app);
+    await dialog.getByRole("switch", { name: "Use third-party plugins" }).click();
+    await dialog.getByRole("button", { name: /Scan for plugins/ }).click();
+    await dialog.getByRole("button", { name: "Add plugin Test Amp" }).click();
+    await expect(dialog.getByRole("listitem", { name: "Test Amp 1" })).toBeVisible();
+    // The block reaches the engine with its scanned path.
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () => window.__engineChains?.[0] as { type: string; path?: string }[] | undefined,
+        ),
+      )
+      .toEqual([
+        {
+          type: "plugin",
+          enabled: true,
+          format: "vst3",
+          path: expect.any(String),
+          name: "Test Amp",
+          state: "",
+        },
+      ]);
+    // The plugin's own editor opens and its settings land in the block.
+    await dialog.getByRole("button", { name: "Open editor…" }).click();
+    await dialog.getByRole("button", { name: "Save settings" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (window.__engineChains?.[0] as { type: string; state?: string }[] | undefined)?.[0]
+              ?.state,
+        ),
+      )
+      .toBe("aGk=");
+  });
+});
+
 /** Compressor settings and the mastering chain (#39). */
 test.describe("compressor and mastering (#39)", () => {
   async function withEngine(app: Page) {

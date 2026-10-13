@@ -22,6 +22,7 @@ use super::dsp::modulation::{Chorus, ChorusParams, Phaser, PhaserParams, Tremolo
 use super::dsp::resample::StreamResampler;
 use super::dsp::reverb::{Reverb, ReverbParams};
 use super::dsp::{Effect, db_to_gain, flush_denormal};
+use super::plugin::{PluginPool, PluginSpec};
 
 pub const MAX_TRACK_EFFECTS: usize = 6;
 pub const MAX_MASTER_EFFECTS: usize = 3;
@@ -66,6 +67,20 @@ pub enum EffectConfig {
         /// Library id of the IR (`builtin:<name>` for the generated ones).
         ir: String,
     },
+    /// A third-party plugin (VST3 or CLAP) running in the out-of-process
+    /// helper (#80). `state` is the plugin's own preset bytes (base64).
+    #[serde(rename_all = "camelCase")]
+    Plugin {
+        format: super::plugin::PluginFormat,
+        /// Bundle path, as listed by the plugin scan.
+        path: String,
+        /// Display name, as listed by the scan (the file stem when unknown).
+        #[serde(default)]
+        name: String,
+        /// The plugin's preset bytes (base64, empty for the default preset).
+        #[serde(default)]
+        state: String,
+    },
 }
 
 impl EffectConfig {
@@ -84,6 +99,7 @@ impl EffectConfig {
             Self::Limiter(_) => "limiter",
             Self::Amp { .. } => "amp",
             Self::Cab { .. } => "cab",
+            Self::Plugin { .. } => "plugin",
         }
     }
 }
@@ -329,6 +345,76 @@ fn build_amp(
     }))
 }
 
+/// A third-party plugin block: hands stereo blocks to the out-of-process
+/// worker and plays the latest finished output. A missing answer passes
+/// audio through dry — the audio thread never waits, allocates, or fails.
+struct PluginEffect {
+    worker: Arc<super::plugin::PluginWorker>,
+    format: super::plugin::PluginFormat,
+    path: String,
+    state: Vec<u8>,
+    seen: u64,
+}
+
+impl Effect for PluginEffect {
+    fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.worker.push(left, right);
+        if let Some(seq) = self.worker.take_into(self.seen, left, right) {
+            self.seen = seq;
+        }
+        // Else dry: the helper is behind, recovering, or gone.
+    }
+
+    fn reset(&mut self) {
+        // Drop anything the helper finished before the seek: only newer
+        // blocks count from here.
+        if let Some(seq) = self.worker.in_seq() {
+            self.seen = seq;
+        }
+    }
+
+    fn update(&mut self, config: &EffectConfig) -> bool {
+        let EffectConfig::Plugin {
+            format,
+            path,
+            state,
+            ..
+        } = config
+        else {
+            return false;
+        };
+        if *format != self.format || *path != self.path {
+            return false;
+        }
+        let Some(state) = decode_plugin_state(state) else {
+            return false;
+        };
+        // The same plugin keeps its running worker; a new preset is applied
+        // to it (off the audio thread — `update` never runs on it).
+        match self.worker.apply_state(&state) {
+            Ok(()) => {
+                self.state = state;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn latency_samples(&self) -> u32 {
+        self.worker.latency_samples() + super::engine::BLOCK as u32
+    }
+}
+
+/// Decodes a plugin preset from its base64 form in a chain. `None` (used with
+/// `?` in `update`) means the stored text is corrupt: rebuild instead.
+fn decode_plugin_state(state: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+    if state.is_empty() {
+        return Some(Vec::new());
+    }
+    base64::engine::general_purpose::STANDARD.decode(state).ok()
+}
+
 /// Why a block does not run (shown next to it in the UI).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -418,6 +504,7 @@ impl Chain {
         sample_rate: f32,
         max_block: usize,
         assets: &dyn AssetSource,
+        plugins: &PluginPool,
     ) -> Self {
         let mut blocks: Vec<Box<dyn Effect>> = Vec::new();
         let mut layout = Vec::new();
@@ -457,6 +544,31 @@ impl Chain {
                         sample_rate,
                         max_block,
                     ),
+                },
+                EffectConfig::Plugin {
+                    format,
+                    path,
+                    state,
+                    ..
+                } => match decode_plugin_state(state) {
+                    None => Err("This plugin's saved settings are corrupt. Open its editor and save them again.".to_string()),
+                    Some(state) => {
+                        let spec = PluginSpec {
+                            format: *format,
+                            path: path.clone(),
+                            state,
+                        };
+                        match plugins.get_or_load(&spec, sample_rate) {
+                            Ok(worker) => Ok(Box::new(PluginEffect {
+                                worker,
+                                format: *format,
+                                path: path.clone(),
+                                state: spec.state,
+                                seen: 0,
+                            }) as Box<dyn Effect>),
+                            Err(message) => Err(message),
+                        }
+                    }
                 },
             };
             match block {
@@ -501,6 +613,12 @@ impl Chain {
 
     pub fn is_empty(&self) -> bool {
         self.blocks.is_empty()
+    }
+
+    /// The added latency of the running blocks in samples (plugin blocks
+    /// report their own latency plus the handover block; built-ins add none).
+    pub fn latency_samples(&self) -> u32 {
+        self.blocks.iter().map(|b| b.latency_samples()).sum()
     }
 }
 
@@ -599,7 +717,14 @@ mod tests {
 
     #[test]
     fn empty_chain_is_bit_exact_bypass() {
-        let mut chain = Chain::build(&[], MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        let mut chain = Chain::build(
+            &[],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
+        );
         let input = sine(440.0, 0.5, 64);
         let (mut l, mut r) = (input.clone(), input.clone());
         chain.process(&mut l, &mut r);
@@ -616,7 +741,14 @@ mod tests {
                 ..Default::default()
             }),
         }];
-        let chain = Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        let chain = Chain::build(
+            &slots,
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
+        );
         assert!(chain.is_empty());
     }
 
@@ -629,7 +761,14 @@ mod tests {
                 })
             })
             .collect();
-        let chain = Chain::build(&slots, MAX_MASTER_EFFECTS, RATE, 64, &NoAssets);
+        let chain = Chain::build(
+            &slots,
+            MAX_MASTER_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
+        );
         assert_eq!(chain.problems.len(), 3);
         assert!(
             chain.problems[0]
@@ -679,7 +818,14 @@ mod tests {
     }
 
     fn build_one(assets: &dyn AssetSource, slots: &[EffectSlot]) -> Chain {
-        Chain::build(slots, MAX_TRACK_EFFECTS, RATE, 64, assets)
+        Chain::build(
+            slots,
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            assets,
+            &crate::audio::plugin::PluginPool::default(),
+        )
     }
 
     #[test]
@@ -862,7 +1008,14 @@ mod tests {
         assert!(json.contains(r#""pingPong":false"#));
         let back: Vec<EffectSlot> = serde_json::from_str(&json).unwrap();
         assert_eq!(back, slots);
-        let mut chain = Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        let mut chain = Chain::build(
+            &slots,
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
+        );
         assert!(chain.problems.is_empty());
         let mut l = sine(220.0, 0.5, 4_800);
         let mut r = l.clone();
@@ -875,7 +1028,14 @@ mod tests {
     #[test]
     fn parameter_changes_update_in_place_and_structure_changes_do_not() {
         let mut slots = every_kind();
-        let mut chain = Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        let mut chain = Chain::build(
+            &slots,
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
+        );
         // A knob turn on every block.
         slots[0].effect = EffectConfig::AmpSim(AmpSimParams {
             gain: 0.9,
@@ -903,7 +1063,14 @@ mod tests {
             }),
             slot(EffectConfig::Drive(DriveParams::default())),
         ];
-        let mut chain = Chain::build(&basic, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        let mut chain = Chain::build(
+            &basic,
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
+        );
         basic[0].effect = EffectConfig::Gate(GateParams {
             threshold_db: -30.0,
             ..Default::default()
@@ -929,7 +1096,14 @@ mod tests {
             "band count changed"
         );
         let cab = [slot(EffectConfig::Cab { ir: "x".into() })];
-        let mut chain = Chain::build(&cab, MAX_TRACK_EFFECTS, RATE, 64, &NoAssets);
+        let mut chain = Chain::build(
+            &cab,
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
+        );
         assert!(
             !chain.update(&cab, MAX_TRACK_EFFECTS),
             "missing assets rebuild"
@@ -949,6 +1123,7 @@ mod tests {
                 RATE,
                 64,
                 &NoAssets,
+                &crate::audio::plugin::PluginPool::default(),
             )
         };
         let mut player = ChainPlayer::new(gain_chain(0.0), RATE, 64);
@@ -993,6 +1168,7 @@ mod tests {
                 RATE,
                 64,
                 &NoAssets,
+                &crate::audio::plugin::PluginPool::default(),
             )
         };
         let mut player = ChainPlayer::new(build(&squash), RATE, 64);
@@ -1039,7 +1215,14 @@ mod tests {
                 ..Default::default()
             })),
         ];
-        let mut chain = Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, 4_800, &NoAssets);
+        let mut chain = Chain::build(
+            &slots,
+            MAX_TRACK_EFFECTS,
+            RATE,
+            4_800,
+            &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
+        );
         let (mut l, mut r) = (vec![1.0f32; 4_800], vec![1.0f32; 4_800]);
         chain.process(&mut l, &mut r);
         let meters = chain.take_reduction();
@@ -1064,5 +1247,124 @@ mod tests {
         assert_eq!(p.ceiling_db, -0.3);
         assert_eq!(p.input_db, 6.0);
         assert_eq!(p.lookahead_ms, LimiterParams::default().lookahead_ms);
+    }
+
+    fn plugin_slot(path: &str, state: &str) -> EffectSlot {
+        slot(EffectConfig::Plugin {
+            format: super::super::plugin::PluginFormat::Vst3,
+            path: path.into(),
+            name: "Test amp".into(),
+            state: state.into(),
+        })
+    }
+
+    #[test]
+    fn plugin_blocks_round_trip_through_json() {
+        let slots = vec![plugin_slot("/Library/Audio/Plug-Ins/VST3/Amp.vst3", "aGk=")];
+        let json = serde_json::to_string(&slots).unwrap();
+        assert!(json.contains(r#""type":"plugin""#), "{json}");
+        assert!(json.contains(r#""format":"vst3""#), "{json}");
+        let back: Vec<EffectSlot> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, slots);
+        // Missing fields take their defaults (songs saved before names existed).
+        let partial: EffectSlot = serde_json::from_str(
+            r#"{"enabled":true,"type":"plugin","format":"clap","path":"/x/Amp.clap"}"#,
+        )
+        .unwrap();
+        let EffectConfig::Plugin {
+            format,
+            name,
+            state,
+            ..
+        } = partial.effect
+        else {
+            panic!()
+        };
+        assert_eq!(format, super::super::plugin::PluginFormat::Clap);
+        assert_eq!(name, "");
+        assert_eq!(state, "");
+    }
+
+    #[test]
+    fn plugin_blocks_stay_off_until_switched_on() {
+        let pool = crate::audio::plugin::PluginPool::default();
+        let chain = Chain::build(
+            &[plugin_slot("/Library/Audio/Plug-Ins/VST3/Amp.vst3", "")],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &pool,
+        );
+        assert!(chain.is_empty());
+        assert_eq!(chain.problems.len(), 1);
+        assert!(
+            chain.problems[0].message.contains("switched off"),
+            "{}",
+            chain.problems[0].message
+        );
+    }
+
+    #[test]
+    fn a_missing_plugin_is_reported_not_fatal() {
+        let pool = crate::audio::plugin::PluginPool::default();
+        pool.set_enabled(true);
+        let chain = Chain::build(
+            &[plugin_slot("/nonexistent/Amp.vst3", "")],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &pool,
+        );
+        assert!(chain.is_empty());
+        assert_eq!(chain.problems.len(), 1);
+        assert!(
+            chain.problems[0].message.contains("not installed"),
+            "{}",
+            chain.problems[0].message
+        );
+    }
+
+    #[test]
+    fn a_corrupt_plugin_preset_is_reported_not_fatal() {
+        let pool = crate::audio::plugin::PluginPool::default();
+        pool.set_enabled(true);
+        let chain = Chain::build(
+            &[plugin_slot("/Library/Audio/Plug-Ins/VST3/Amp.vst3", "!!!")],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &pool,
+        );
+        assert!(chain.is_empty());
+        assert!(
+            chain.problems[0].message.contains("corrupt"),
+            "{}",
+            chain.problems[0].message
+        );
+    }
+
+    #[test]
+    fn a_plugin_block_passes_audio_dry_without_an_answer() {
+        // No helper involved: a worker whose helper never answers leaves the
+        // signal untouched (this is the crash/timeout path, synchronously).
+        let pool = crate::audio::plugin::PluginPool::default();
+        pool.set_enabled(true);
+        let mut chain = Chain::build(
+            &[plugin_slot("/nonexistent/Amp.vst3", "")],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &pool,
+        );
+        assert!(chain.is_empty());
+        let input = sine(220.0, 0.4, 64);
+        let (mut l, mut r) = (input.clone(), input.clone());
+        chain.process(&mut l, &mut r);
+        assert_eq!(l, input);
+        assert_eq!(r, input);
     }
 }

@@ -865,3 +865,62 @@ export async function pickKitFile(): Promise<string | null> {
     filters: [{ name: "Drum kits (SFZ, SoundFont)", extensions: ["sfz", "sf2", "sf3"] }],
   });
 }
+
+// --- Third-party plugins: VST3 and CLAP (#80) -------------------------------
+
+/** Mirrors `PluginFormat` in `src-tauri/src/audio/plugin.rs`. */
+export type NativePluginFormat = "vst3" | "clap";
+
+/** Mirrors `ScannedPlugin` in `src-tauri/src/audio/plugin.rs`. */
+export interface ScannedPlugin {
+  format: NativePluginFormat;
+  path: string;
+  name: string;
+  vendor: string;
+  version: string;
+  hasGui: boolean;
+}
+
+/** Mirrors `PluginScanReport` in `src-tauri/src/audio/plugin.rs`. */
+export interface PluginScanReport {
+  plugins: ScannedPlugin[];
+  /** Installed files that could not be loaded (one line each). */
+  skipped: string[];
+}
+
+/** Mirrors `PluginSlotInfo` in `src-tauri/src/audio/plugin.rs`. */
+export interface PluginSlotInfo {
+  index: number;
+  name: string;
+  latencySamples: number;
+  alive: boolean;
+  /** The last failure in plain words (empty while healthy). */
+  error: string;
+}
+
+/** Lists the installed VST3 and CLAP plugins (each probed in isolation). */
+export const scanPlugins = () => call<PluginScanReport>("plugins_scan");
+
+/** Switches third-party plugin blocks on or off (off by default). */
+export const setPluginsEnabled = (enabled: boolean) =>
+  call<void>("plugins_set_enabled", { enabled });
+
+export const getPluginsEnabled = () => call<boolean>("plugins_enabled");
+
+/**
+ * Opens the plugin's own editor window (owned by the helper process).
+ * Resolves to the editor size in pixels.
+ */
+export const openPluginEditor = (track: number | null, sound: number, index: number) =>
+  call<[number, number]>("plugin_open_editor", { track, sound, index });
+
+export const closePluginEditor = (track: number | null, sound: number, index: number) =>
+  call<void>("plugin_close_editor", { track, sound, index });
+
+/** Saves the plugin's current settings as base64 (stored in the block). */
+export const savePluginState = (track: number | null, sound: number, index: number) =>
+  call<string>("plugin_save_state", { track, sound, index });
+
+/** Live status of every plugin block of a chain. */
+export const pluginInfo = (track: number | null, sound: number) =>
+  call<PluginSlotInfo[]>("audio_plugin_info", { track, sound });

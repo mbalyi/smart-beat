@@ -93,7 +93,14 @@ fn plays_a_song_through_effect_chains() {
     let mut engine = Engine::new(sonivox(), RATE);
     engine.load(Arc::new(song())).unwrap();
     assert!((engine.duration() - 4.0).abs() < 1e-9);
-    let chain = Chain::build(&heavy_chain(), MAX_TRACK_EFFECTS, RATE, BLOCK, &NoAssets);
+    let chain = Chain::build(
+        &heavy_chain(),
+        MAX_TRACK_EFFECTS,
+        RATE,
+        BLOCK,
+        &NoAssets,
+        &smart_beat_lib::audio::plugin::PluginPool::default(),
+    );
     assert!(chain.problems.is_empty());
     engine.set_track_chain(0, chain);
     engine.play();
@@ -211,7 +218,14 @@ fn renders_much_faster_than_real_time() {
     for t in 0..8 {
         engine.set_track_chain(
             t,
-            Chain::build(&heavy_chain(), MAX_TRACK_EFFECTS, RATE, BLOCK, &NoAssets),
+            Chain::build(
+                &heavy_chain(),
+                MAX_TRACK_EFFECTS,
+                RATE,
+                BLOCK,
+                &NoAssets,
+                &smart_beat_lib::audio::plugin::PluginPool::default(),
+            ),
         );
     }
     engine.play();
@@ -269,7 +283,14 @@ fn every_bundled_preset_builds_and_sounds() {
             MAX_TRACK_EFFECTS
         };
         assert!(slots.len() <= limit, "{id}: too many effects");
-        let mut chain = Chain::build(&slots, limit, RATE, BLOCK, &library.assets(48_000));
+        let mut chain = Chain::build(
+            &slots,
+            limit,
+            RATE,
+            BLOCK,
+            &library.assets(48_000),
+            &smart_beat_lib::audio::plugin::PluginPool::default(),
+        );
         assert!(chain.problems.is_empty(), "{id}: {:?}", chain.problems);
         let mut out = Vec::new();
         for block in 0..1_500 {
@@ -340,7 +361,14 @@ fn chain_of(effects: Vec<EffectConfig>) -> Chain {
             effect,
         })
         .collect();
-    Chain::build(&slots, MAX_TRACK_EFFECTS, RATE, BLOCK, &NoAssets)
+    Chain::build(
+        &slots,
+        MAX_TRACK_EFFECTS,
+        RATE,
+        BLOCK,
+        &NoAssets,
+        &smart_beat_lib::audio::plugin::PluginPool::default(),
+    )
 }
 
 /// A chain that mostly changes the level (a clean boost with an output level).
@@ -406,7 +434,14 @@ fn knob_turns_update_a_running_chain() {
     let mut engine = playing_engine(|e| {
         e.set_track_chain(
             0,
-            Chain::build(&delay(300.0), MAX_TRACK_EFFECTS, RATE, BLOCK, &NoAssets),
+            Chain::build(
+                &delay(300.0),
+                MAX_TRACK_EFFECTS,
+                RATE,
+                BLOCK,
+                &NoAssets,
+                &smart_beat_lib::audio::plugin::PluginPool::default(),
+            ),
         );
     });
     render(&mut engine, 0.2);
@@ -665,7 +700,14 @@ fn every_dynamics_preset_builds_and_sounds() {
         slot["type"] = preset["type"].clone();
         slot["enabled"] = true.into();
         let slot: EffectSlot = serde_json::from_value(slot).unwrap_or_else(|e| panic!("{id}: {e}"));
-        let mut chain = Chain::build(&[slot], MAX_TRACK_EFFECTS, RATE, BLOCK, &NoAssets);
+        let mut chain = Chain::build(
+            &[slot],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            BLOCK,
+            &NoAssets,
+            &smart_beat_lib::audio::plugin::PluginPool::default(),
+        );
         assert!(chain.problems.is_empty() && !chain.is_empty(), "{id}");
         let mut out = Vec::new();
         for block in 0..400 {
