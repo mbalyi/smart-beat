@@ -46,11 +46,22 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Row({
+  label,
+  children,
+  wrap = false,
+}: {
+  label: string;
+  children: ReactNode;
+  /** Let a long value wrap instead of being cut off with an ellipsis. */
+  wrap?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0 truncate text-right">{children}</span>
+      <span className={wrap ? "min-w-0 text-right" : "min-w-0 truncate text-right"}>
+        {children}
+      </span>
     </div>
   );
 }
@@ -439,7 +450,7 @@ export function Inspector({
             </p>
           )}
           {track.kind === "stringed" && (
-            <Row label="Tuning">
+            <Row label="Tuning" wrap>
               <span className="mr-2 font-medium" data-testid="tuning-name">
                 {tuningLabel(track.tuning)}
               </span>

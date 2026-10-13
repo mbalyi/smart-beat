@@ -19,6 +19,7 @@ import {
   DRUM_NOTATION,
   instrumentName,
   pitchName,
+  tuningNotes,
   tuningName,
   type TrackKind,
 } from "@/lib/score/music";
@@ -195,8 +196,7 @@ export function describeInstrument(track: TrackSummary): string {
   const parts: string[] = [instrumentName(track.program)];
   if (track.kind === "stringed") {
     parts.push(
-      tuningName(track.tuning) ??
-        `${track.tuning.length} strings: ${track.tuning.map((p) => pitchName(p, { octave: false })).join(" ")}`,
+      tuningName(track.tuning) ?? `${track.tuning.length} strings: ${tuningNotes(track.tuning)}`,
     );
     if (track.capo > 0) parts.push(`Capo ${track.capo}`);
   }

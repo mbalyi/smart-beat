@@ -17,7 +17,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await openSong(app);
     await app.getByRole("button", { name: "Fretboard" }).click();
     const fretboard = app.getByRole("region", { name: "Fretboard" });
-    await expect(fretboard).toContainText("Standard: E B G D A E");
+    await expect(fretboard).toContainText("Standard: E A D G B E");
     const board = fretboard.getByRole("img");
     await expect(board).toHaveAccessibleName("Fretboard. No notes");
 
@@ -37,7 +37,7 @@ test.describe("fretboard and keyboard (#8)", () => {
     await app.getByRole("option", { name: "Bass" }).click();
 
     const fretboard = app.getByRole("region", { name: "Fretboard" });
-    await expect(fretboard).toContainText("Standard: G D A E");
+    await expect(fretboard).toContainText("Standard: E A D G");
 
     await emitMenuAction(app, "track-settings");
     const dialog = app.getByRole("dialog", { name: "Track settings" });

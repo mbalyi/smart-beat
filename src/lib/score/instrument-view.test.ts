@@ -114,7 +114,7 @@ describe("names", () => {
     expect(describeInstrument(drums!)).toBe("Drums");
     expect(describeInstrument(piano!)).toBe("Acoustic Grand Piano");
     expect(describeInstrument({ ...guitar!, tuning: [64, 59, 55, 50, 45, 39] })).toBe(
-      "Overdriven Guitar · 6 strings: E B G D A D#",
+      "Overdriven Guitar · 6 strings: D# A D G B E",
     );
   });
 });
