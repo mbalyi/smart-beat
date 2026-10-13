@@ -346,13 +346,38 @@ describe("RecordDialog", () => {
     expect(screen.getByText("Record to Tab needs the Smart Beat desktop app.")).toBeVisible();
   });
 
-  it("says that it is a beta for guitar, how accurate it is, and to review the tab", () => {
+  it("says that it is a beta, how accurate it is, and to review the tab", () => {
     setup();
     expect(within(dialog()).getByText("Beta")).toBeVisible();
-    const note = within(dialog()).getByText(/Guitar only for now/);
-    expect(note).toHaveTextContent("Guitar only for now.");
-    expect(note).toHaveTextContent("Roughly 7 of 10 notes are found");
+    const note = within(dialog()).getByText(/Guitar and bass\./);
+    expect(note).toHaveTextContent("Guitar: roughly 7 of 10 notes are found");
     expect(note).toHaveTextContent("Review the tab and correct it.");
+  });
+
+  it("gives the accuracy of the piano model that is chosen", async () => {
+    const pianoModel: PianoModel = {
+      ready: true,
+      installed: true,
+      bytes: 56_799_421,
+      progress: null,
+      error: null,
+      download: vi.fn(),
+    };
+    const { user } = setup({ pianoModel });
+    await user.click(screen.getByRole("radio", { name: "Piano" }));
+    const standard = within(dialog()).getByText(/right-hand and a left-hand track/);
+    expect(standard).toHaveTextContent("Piano, built-in model: roughly 9 of 10 notes");
+    expect(standard).toHaveTextContent("note F1 about 86%");
+    expect(standard).toHaveTextContent("a real recording will score lower");
+    expect(standard).not.toHaveTextContent("Guitar");
+    await user.click(screen.getByRole("radio", { name: "High accuracy" }));
+    const accurate = within(dialog()).getByText(/right-hand and a left-hand track/);
+    expect(accurate).toHaveTextContent("Piano, High accuracy model");
+    expect(accurate).toHaveTextContent("note F1 about 99%");
+    expect(accurate).toHaveTextContent("about half its own length");
+    expect(accurate).not.toHaveTextContent("built-in model");
+    await user.click(screen.getByRole("radio", { name: "Guitar or bass" }));
+    expect(within(dialog()).getByText(/Guitar and bass\./)).toBeVisible();
   });
 
   it("remembers whether the take is lined up with the beat", async () => {

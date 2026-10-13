@@ -59,7 +59,7 @@ export const FEATURES: readonly Feature[] = [
     badge: "Beta",
     status: "beta",
     description:
-      "Record yourself playing guitar, or use a guitar recording, and get tab you can edit.",
+      "Record yourself playing guitar, bass or piano, or use a recording, and get tab or staves you can edit.",
     limits: RECORD_TO_TAB_LIMITS,
   },
   {

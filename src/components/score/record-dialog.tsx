@@ -5,7 +5,7 @@ import { AudioInputSetting } from "@/components/audio-input-setting";
 import { AudioDropArea } from "@/components/audio/audio-drop-area";
 import { LiveWaveform } from "@/components/audio/live-waveform";
 import { BetaBadge } from "@/components/beta-badge";
-import { RECORD_TO_TAB_BETA_NOTE } from "@/components/record-to-tab-notes";
+import { recordToTabBetaNote } from "@/components/record-to-tab-notes";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -319,7 +319,7 @@ function RecordForm({
         </DialogTitle>
         <DialogDescription>{description}</DialogDescription>
         <p role="note" className="text-sm text-muted-foreground">
-          {RECORD_TO_TAB_BETA_NOTE}
+          {recordToTabBetaNote(instrument, engine)}
         </p>
       </DialogHeader>
       <DialogBody>

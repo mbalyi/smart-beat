@@ -53,13 +53,16 @@ The macOS and Windows buttons start the download of the newest release's install
     <td valign="top" width="33%">
       <img src="src/assets/features/record-to-tab.png" alt="Record to tab" width="100%">
       <p><b>🟣 Beta</b></p>
-      <p>Record yourself playing guitar, or use a guitar recording, and get tab you can edit.</p>
+      <p>Record yourself playing guitar, bass or piano, or use a recording, and get tab or staves you can edit.</p>
       <ul>
-        <li>Guitar only for now.</li>
-        <li>No cloud AI: a small note-finding model runs on your computer, and Smart Beat's own rules pick the string and fret.</li>
-        <li>Record inside the app, or use an existing guitar recording.</li>
-        <li>Roughly 7 of 10 notes are found (note F1 about 72%), and the right string is picked for about 64% of them.</li>
-        <li>Review the tab afterwards. You will probably need to correct it by hand.</li>
+        <li>Guitar, bass and piano. A piano take becomes a right-hand and a left-hand track.</li>
+        <li>No cloud AI: a small note-finding model runs on your computer. For strings, Smart Beat's own rules pick the string and fret.</li>
+        <li>Record inside the app, or use an existing recording.</li>
+        <li>Guitar: roughly 7 of 10 notes are found (note F1 about 72%), and the right string is picked for about 64% of them.</li>
+        <li>Piano, built-in model: roughly 9 of 10 notes are found (note F1 about 86%).</li>
+        <li>Piano, High accuracy model (a one-time 55 MB download): nearly every note is found (note F1 about 99%), and a take is processed in about half its own length.</li>
+        <li>Measured on rendered piano music: a real recording will score lower.</li>
+        <li>Review the result afterwards. You will probably need to correct it by hand.</li>
       </ul>
     </td>
     <td valign="top" width="33%">

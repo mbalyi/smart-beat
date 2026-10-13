@@ -70,7 +70,7 @@ Transkun's author publishes both the code and the weights under the MIT licence 
 
 ## Next steps
 
-1. Publish the three model files as the release `piano-model-1` (until then the download button reports an error and the Standard model is used). The sums in `piano_model.rs` must match the files.
+1. The three model files are published as the release `piano-model-1`, marked **pre-release**. Keep it that way, and publish any new model release as a pre-release: the updater reads `releases/latest/download/latest.json`, so a normal release without `latest.json` would break the update check for everyone. The sums in `piano_model.rs` must match the files.
 2. Ask the Transkun author for a short statement on the weights' licence in view of MAESTRO, or train a model on data that is free to use.
 3. Measure on a few real piano recordings with a matching score.
 4. Memory: the peak is about 1.5 GB. Dropping the query and key arrays before the heads run, and running the network with 16-bit weights, would cut it.
