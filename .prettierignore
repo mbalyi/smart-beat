@@ -15,3 +15,8 @@ public/soundfont
 about.hbs
 EULA.md
 .claude
+# Record to tab harness: written by evaluate.py, and local data, weights and venv.
+research/record-to-tab/results
+research/record-to-tab/data
+research/record-to-tab/models
+research/record-to-tab/.venv

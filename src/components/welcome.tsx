@@ -3,14 +3,17 @@ import {
   FileMusicIcon,
   FilePlusIcon,
   FolderOpenIcon,
+  InfoIcon,
   KeyboardIcon,
 } from "lucide-react";
+import { useId } from "react";
 
 import { BuiltWith } from "@/components/built-with";
 import { SectionKicker } from "@/components/section-kicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FEATURES } from "@/components/welcome-features";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { FEATURES, type Feature } from "@/components/welcome-features";
 import { baseName } from "@/lib/score/format";
 import { cn } from "@/lib/utils";
 
@@ -149,37 +152,7 @@ export function Welcome({
               // Four cards in the first row, three (wider) in the second.
               className={cn("min-w-0", index < 4 ? "lg:col-span-3" : "lg:col-span-4")}
             >
-              <article className="flex h-full flex-col gap-4 rounded-[19px] border border-foreground/10 bg-card p-4">
-                <h3 className="sr-only">{feature.title}</h3>
-                <img
-                  src={feature.image}
-                  alt={feature.title}
-                  loading="lazy"
-                  draggable={false}
-                  className="aspect-[558/447] w-full object-contain"
-                />
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "w-fit rounded-full px-3 py-0.5",
-                    feature.status === "available"
-                      ? "border-green-600/60 bg-green-600/10 text-green-800 dark:border-green-500/60 dark:bg-green-500/10 dark:text-green-400"
-                      : "border-brand/60 bg-brand/10 text-brand dark:text-[#e29bff]",
-                  )}
-                >
-                  {feature.badge}
-                </Badge>
-                <div className="text-[15px] leading-relaxed text-muted-foreground">
-                  <p>{feature.description}</p>
-                  {feature.items && (
-                    <ul className="mt-1 list-disc pl-5">
-                      {feature.items.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </article>
+              <FeatureCard feature={feature} />
             </li>
           ))}
         </ul>
@@ -187,5 +160,84 @@ export function Welcome({
 
       <BuiltWith onShowLicenses={onShowLicenses} />
     </div>
+  );
+}
+
+/** The badge colours of each status. */
+const STATUS_BADGE: Record<Feature["status"], string> = {
+  available:
+    "border-green-600/60 bg-green-600/10 text-green-800 dark:border-green-500/60 dark:bg-green-500/10 dark:text-green-400",
+  beta: "border-brand/60 bg-brand/10 text-brand dark:text-[#e29bff]",
+  soon: "border-brand/60 bg-brand/10 text-brand dark:text-[#e29bff]",
+};
+
+/**
+ * One feature on the welcome screen. A feature with limits shows them in a popup when the card
+ * is hovered or its "Limits" button has focus; screen readers get the same list from the button.
+ */
+function FeatureCard({ feature }: { feature: Feature }) {
+  const limitsId = useId();
+  const card = (
+    <article className="flex h-full flex-col gap-4 rounded-[19px] border border-foreground/10 bg-card p-4">
+      <h3 className="sr-only">{feature.title}</h3>
+      <img
+        src={feature.image}
+        alt={feature.title}
+        loading="lazy"
+        draggable={false}
+        className="aspect-[558/447] w-full object-contain"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge
+          variant="outline"
+          className={cn("w-fit rounded-full px-3 py-0.5", STATUS_BADGE[feature.status])}
+        >
+          {feature.badge}
+        </Badge>
+        {feature.limits && (
+          <button
+            type="button"
+            aria-describedby={limitsId}
+            className="inline-flex items-center gap-1 rounded-sm text-sm text-muted-foreground underline-offset-4 outline-none hover:underline focus-visible:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <InfoIcon className="size-4" aria-hidden="true" />
+            Limits
+          </button>
+        )}
+      </div>
+      <div className="text-[15px] leading-relaxed text-muted-foreground">
+        <p>{feature.description}</p>
+        {feature.items && (
+          <ul className="mt-1 list-disc pl-5">
+            {feature.items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {feature.limits && (
+        <ul id={limitsId} className="sr-only">
+          {feature.limits.map((limit) => (
+            <li key={limit}>{limit}</li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+  if (!feature.limits) return card;
+  return (
+    <HoverCard>
+      {/* Hovering the card, or focus on its button (focus events bubble), opens the popup. */}
+      <HoverCardTrigger asChild>{card}</HoverCardTrigger>
+      {/* The button describes itself with the same list: the popup is for the eyes only. */}
+      <HoverCardContent aria-hidden="true" className="w-80">
+        <strong className="mb-1.5 block text-[15px]">{feature.title}: what to expect</strong>
+        <ul className="list-disc pl-5 text-[13px] leading-normal text-muted-foreground">
+          {feature.limits.map((limit) => (
+            <li key={limit}>{limit}</li>
+          ))}
+        </ul>
+      </HoverCardContent>
+    </HoverCard>
   );
 }

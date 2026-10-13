@@ -1,0 +1,25 @@
+[project]
+name = "record-to-tab-harness"
+version = "0.1.0"
+description = "Comparison harness for Smart Beat issue #108: FretNet vs our Basic Pitch pipeline on GuitarSet player 00"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "numpy<2",
+    "scipy<1.12",
+    "setuptools<81",
+    "torch==2.2.2",
+    "librosa==0.9.2",
+    "soundfile==0.12.1",
+    "mir_eval",
+    "jams",
+    "onnx",
+    "onnxruntime",
+    "psutil",
+    "muda",
+    "amt-tools @ https://github.com/cwitkowitz/amt-tools/archive/7822dc253912b7d514143d91c15eaae0e3ce9d56.tar.gz",
+    "guitar-transcription-inhibition @ https://github.com/cwitkowitz/guitar-transcription-with-inhibition/archive/e611c1dc9b7340d35c9a697d1658b3b2afb3978a.tar.gz",
+    "guitar-transcription-continuous @ https://github.com/cwitkowitz/guitar-transcription-continuous/archive/d481054f54184374c04b1cc27a487dc35c87f353.tar.gz",
+]
+
+[tool.uv]
+package = false

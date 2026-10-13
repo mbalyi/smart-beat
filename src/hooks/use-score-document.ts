@@ -274,6 +274,33 @@ export function useScoreDocuments() {
   }, [add]);
 
   /**
+   * Opens a score made in memory (a free Record to Tab take) as a new song. It is unsaved until
+   * the first save, like an audio transcription: closing it asks first.
+   */
+  const openScore = useCallback(
+    async (score: Score, name: string) => {
+      const id = ++counter.current;
+      try {
+        const { summarizeScore } = await import("@/lib/score/score");
+        const summary = summarizeScore(score);
+        add({
+          id,
+          name,
+          path: null,
+          fileKey: null,
+          score,
+          summary,
+          mix: mixFromScore(summary),
+          unsaved: true,
+        });
+      } catch (error) {
+        toast.error(`Couldn't open “${name}”`, { description: describeOpenError(error) });
+      }
+    },
+    [add],
+  );
+
+  /**
    * After a save: the song now lives at `saved.path` (null for a download) and
    * its content hash is `saved.fileKey`. The same document, so the workspace
    * stays open.
@@ -329,6 +356,7 @@ export function useScoreDocuments() {
     openPath,
     openFile,
     newSong,
+    openScore,
     markSaved,
     reopenWithEncoding,
     recentsVersion,

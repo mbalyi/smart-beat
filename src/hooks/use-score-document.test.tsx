@@ -335,6 +335,25 @@ describe("generated MIDI imports", () => {
   });
 });
 
+describe("useScoreDocuments: a score made in memory", () => {
+  it("opens it as an unsaved song with its own tab", async () => {
+    const { createSong } = await import("@/lib/score/tracks");
+    const { result } = setup();
+    const score = createSong();
+
+    await act(() => result.current.openScore(score, "Recording"));
+
+    const song = result.current.song!;
+    expect(song.name).toBe("Recording");
+    expect(song.score).toBe(score);
+    expect(song.unsaved).toBe(true);
+    expect(song.path).toBeNull();
+    expect(song.fileKey).toBeNull();
+    expect(song.summary.tracks).toHaveLength(1);
+    expect(result.current.songs).toHaveLength(1);
+  });
+});
+
 describe("useScoreDocuments: settings inside .gp files", () => {
   it("prefers the settings stored in the song file", async () => {
     mockTauri();

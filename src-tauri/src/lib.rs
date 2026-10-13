@@ -11,6 +11,7 @@ pub mod mixer;
 pub mod pdf;
 pub mod project;
 pub mod recent;
+pub mod recording;
 pub mod score_file;
 pub mod score_write;
 #[cfg(test)]
@@ -39,6 +40,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(zoom::ZoomState::default())
         .manage(menu_state::MenuStateStore::default())
         .manage(transcription::Dropped::default())
+        .manage(recording::RecordingRun::default())
         .setup(|app| {
             if app.try_state::<mixer::MixerStore>().is_none() {
                 let dir = app.path().app_data_dir()?.join(MIXER_DIR);
@@ -93,6 +95,8 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             transcription::read_transcription_audio,
             transcription::transcribe_audio,
             transcription::cancel_transcription,
+            recording::transcribe_recording,
+            recording::cancel_recording_transcription,
             commands::update_menu_state,
             commands::track_event,
             commands::get_usage_settings,
