@@ -217,6 +217,25 @@ describe("PedalboardDialog", () => {
     expect(types(chain())).toEqual(["gate", "cab"]);
   });
 
+  it("selects no text while dragging, but leaves the pedals' controls selectable (#128)", () => {
+    const { dialog } = setup({ initial: [defaultEffect("gate")] });
+    expect(dialog).not.toHaveClass("select-none");
+    // A press on the pedal arms the drag: nothing may be selected on the way.
+    const grip = within(pedal(dialog, "Noise gate 1")).getByTestId("pedal-grip");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 5, clientY: 5, pointerId: 1 });
+    expect(dialog).toHaveClass("select-none");
+    fireEvent.pointerUp(document.body, { pointerId: 1 });
+    expect(dialog).not.toHaveClass("select-none");
+    // A press on a control is that control's, not a drag.
+    fireEvent.pointerDown(within(dialog).getByRole("switch", { name: "Noise gate 1 on" }), {
+      button: 0,
+      clientX: 5,
+      clientY: 5,
+      pointerId: 1,
+    });
+    expect(dialog).not.toHaveClass("select-none");
+  });
+
   it("adds, reorders and removes with the keyboard (#128)", async () => {
     // The library's Add buttons and the pedal's shortcuts work without a mouse.
     const { user, dialog, chain } = setup({

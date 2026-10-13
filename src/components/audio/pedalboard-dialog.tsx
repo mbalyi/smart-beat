@@ -579,6 +579,8 @@ export function PedalboardDialog({
   const [dragging, setDragging] = useState<Dragged | null>(null);
   const [dropZone, setDropZone] = useState<DropZone | null>(null);
   const [dragAt, setDragAt] = useState<{ x: number; y: number } | null>(null);
+  // A press on something draggable: no text may be selected along the way.
+  const [armed, setArmed] = useState(false);
   // The active drag and the pointer that ends it live in refs: the window
   // listeners read them without re-subscribing on every move.
   const dragged = useRef<Dragged | null>(null);
@@ -671,6 +673,7 @@ export function PedalboardDialog({
     setDragging(null);
     setDropZone(null);
     setDragAt(null);
+    setArmed(false);
   };
 
   const cancelDrag = () => resetDrag();
@@ -695,8 +698,14 @@ export function PedalboardDialog({
   const cancelEvent = useEffectEvent(cancelDrag);
   useEffect(() => {
     const onUp = () => {
-      if (dragged.current) dropEvent();
-      else pending.current = null;
+      if (dragged.current) {
+        // A drag can leave a stray selection behind; the label is not a document.
+        if (!window.getSelection()?.isCollapsed) window.getSelection()?.removeAllRanges();
+        dropEvent();
+      } else {
+        pending.current = null;
+        setArmed(false);
+      }
     };
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape" && dragged.current) cancelEvent();
@@ -720,6 +729,7 @@ export function PedalboardDialog({
     const target = event.target;
     if (target instanceof Element && target.closest(CONTROL)) return;
     pending.current = { item, x: event.clientX, y: event.clientY };
+    setArmed(true);
   };
 
   const onDragPointerMove = (event: PointerEvent<HTMLElement>) => {
@@ -758,7 +768,7 @@ export function PedalboardDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="full">
+      <DialogContent size="full" className={cn((dragging || armed) && "select-none")}>
         <DialogHeader>
           <DialogTitle>Pedalboard: {target.name}</DialogTitle>
           <DialogDescription>
@@ -916,7 +926,7 @@ export function PedalboardDialog({
           </div>
 
           <div
-            className={cn("grid min-w-0 gap-3 md:grid-cols-[14rem_1fr]", dragging && "select-none")}
+            className="grid min-w-0 gap-3 md:grid-cols-[14rem_1fr]"
             onPointerMove={onDragPointerMove}
             // Leaving the board and the library cancels the drag: the pointer is
             // no longer over anything that can take the drop.
