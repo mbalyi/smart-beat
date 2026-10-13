@@ -5,11 +5,14 @@
 //! `Transcriber`.
 mod basic_pitch;
 mod notes;
+pub mod piano_model;
 mod resample;
+mod transkun;
 
 pub use basic_pitch::BasicPitch;
 pub use notes::NoteOptions;
 pub use resample::resample;
+pub use transkun::Transkun;
 
 use crate::error::{CommandError, ErrorKind};
 use serde::{Deserialize, Serialize};
@@ -175,7 +178,7 @@ struct Progress {
 
 /// The take is the raw body: little-endian 32-bit float mono samples. The header
 /// `x-sample-rate` carries their rate in Hz, and the optional `x-instrument` (`guitar` or
-/// `piano`) picks the note settings. Emits `recording-transcription-progress`.
+/// `piano`) picks the note settings, and `x-engine: transkun` the downloaded piano model. Emits `recording-transcription-progress`.
 #[tauri::command]
 pub async fn transcribe_recording<R: Runtime>(
     app: AppHandle<R>,
@@ -191,6 +194,21 @@ pub async fn transcribe_recording<R: Runtime>(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u32>().ok())
         .ok_or_else(|| error("Missing x-sample-rate."))?;
+    // `x-engine: transkun` runs the downloaded piano model instead of Basic Pitch.
+    let model_dir = if request
+        .headers()
+        .get("x-engine")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("transkun"))
+    {
+        let folder = piano_model::dir(&app)?;
+        if !piano_model::is_installed(&folder) {
+            return Err(error("Download the piano model first."));
+        }
+        Some(folder)
+    } else {
+        None
+    };
     let instrument = Instrument::parse(
         request
             .headers()
@@ -215,13 +233,18 @@ pub async fn transcribe_recording<R: Runtime>(
                 }
             };
             let cancelled = || stop.load(Ordering::Relaxed);
-            let result = transcribe_take(
-                &instrument.engine(),
-                &samples,
-                rate,
-                &mut progress,
-                &cancelled,
-            );
+            let result = match model_dir {
+                Some(folder) => Transkun::cached(&folder).and_then(|model| {
+                    transcribe_take(&*model, &samples, rate, &mut progress, &cancelled)
+                }),
+                None => transcribe_take(
+                    &instrument.engine(),
+                    &samples,
+                    rate,
+                    &mut progress,
+                    &cancelled,
+                ),
+            };
             if result.is_ok() {
                 progress(1.0);
             }

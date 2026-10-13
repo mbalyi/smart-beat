@@ -5,6 +5,10 @@ const PLAY_OTHERS_KEY = "smart-beat:record-play-others";
 const TUNING_KEY = "smart-beat:record-tuning";
 const ALIGN_KEY = "smart-beat:record-align";
 const INSTRUMENT_KEY = "smart-beat:record-instrument";
+const ENGINE_KEY = "smart-beat:record-piano-engine";
+
+/** The piano note finder: the built-in one, or the downloaded high-accuracy model (Transkun). */
+export type PianoEngine = "standard" | "accurate";
 
 /** What Record to Tab listens to: a string instrument (tab) or a piano (two-hand staves). */
 export type RecordInstrument = "guitar" | "piano";
@@ -110,5 +114,22 @@ export function storeInstrument(value: RecordInstrument) {
     localStorage.setItem(INSTRUMENT_KEY, value);
   } catch {
     // Not remembered: guitar next time.
+  }
+}
+
+/** The last piano model picked (the built-in one by default). */
+export function readPianoEngine(): PianoEngine {
+  try {
+    return localStorage.getItem(ENGINE_KEY) === "accurate" ? "accurate" : "standard";
+  } catch {
+    return "standard";
+  }
+}
+
+export function storePianoEngine(value: PianoEngine) {
+  try {
+    localStorage.setItem(ENGINE_KEY, value);
+  } catch {
+    // Not remembered: the built-in model next time.
   }
 }

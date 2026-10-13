@@ -78,6 +78,8 @@
     release: null,
     abort: null,
   };
+  /** The high-accuracy piano model (src-tauri/src/recording/piano_model.rs): not downloaded at first. */
+  window.__pianoModel = { installed: false, downloads: 0, fail: null };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -495,6 +497,7 @@
           sampleRate: Number(options.headers["x-sample-rate"]),
           bytes: args.byteLength,
           instrument: options.headers["x-instrument"],
+          engine: options.headers["x-engine"],
         });
         window.__emitTauriEvent("recording-transcription-progress", { fraction: 0.5 });
         if (state.hold) {
@@ -525,6 +528,14 @@
           })),
         };
       }
+      case "piano_model_status":
+        return { installed: window.__pianoModel.installed, bytes: 56799421 };
+      case "download_piano_model":
+        window.__pianoModel.downloads += 1;
+        window.__emitTauriEvent("piano-model-download-progress", { fraction: 0.5 });
+        if (window.__pianoModel.fail) throw { kind: "audio", message: window.__pianoModel.fail };
+        window.__pianoModel.installed = true;
+        return null;
       case "cancel_recording_transcription":
         window.__recordTranscription.cancelled += 1;
         window.__recordTranscription.abort?.();

@@ -2,7 +2,9 @@
 //! `{ "notes": [...] }` as JSON on stdout. For comparing engines on recorded takes:
 //! `cargo run --release --example transcribe_wav -- take.wav`.
 
-use smart_beat_lib::recording::{BasicPitch, NoteOptions, Transcribed, transcribe_take};
+use smart_beat_lib::recording::{
+    BasicPitch, NoteOptions, Transcribed, Transcriber, Transkun, transcribe_take,
+};
 
 /// A note option from an environment variable, for tuning runs: `ONSET`, `FRAME`, `MIN_MS`,
 /// `MIN_PITCH`, `MAX_PITCH`, `INSTRUMENT=piano` (the starting point), `INFER` (0 or 1) and `MELODIA` (0 or 1).
@@ -61,10 +63,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     };
     let (samples, rate) = read_wav(&path)?;
+    // `TRANSKUN_DIR=<folder with the three model files>` runs the piano model instead.
+    let basic = BasicPitch {
+        options: env_options(),
+    };
+    let transkun = std::env::var("TRANSKUN_DIR")
+        .ok()
+        .map(|dir| Transkun::load(std::path::Path::new(&dir)))
+        .transpose()?;
+    let engine: &dyn Transcriber = match &transkun {
+        Some(model) => model,
+        None => &basic,
+    };
     let notes = transcribe_take(
-        &BasicPitch {
-            options: env_options(),
-        },
+        engine,
         &samples,
         rate,
         &mut |fraction| eprint!("\r{:3.0}%", fraction * 100.0),

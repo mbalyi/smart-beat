@@ -24,8 +24,11 @@ cargo build --release --manifest-path ../../../src-tauri/Cargo.toml --example tr
 ./run.sh ONSET=0.7 FRAME=0.4 MELODIA=0     # try your own
 ```
 
-Other models (Transkun, run in Python): `transkun clip.wav out.mid`, then `mid2json.py out.mid out.json`
-and `score.py` on that folder.
+Transkun in Python: `transkun clip.wav out.mid`, then `mid2json.py out.mid out.json` and `score.py` on that folder.
+
+Transkun in Rust (what the app runs): make the model files with `export_transkun.py OUT_DIR` (a venv with
+`transkun`, `torch` 2.2, `onnx`, `onnxruntime` and `numpy<2`), then
+`TRANSKUN_DIR=OUT_DIR ./run.sh`.
 
 ## Limits
 

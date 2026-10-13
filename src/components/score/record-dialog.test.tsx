@@ -1,11 +1,14 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { RecordDialog, type RecordSetup } from "@/components/score/record-dialog";
+import type { PianoModel } from "@/hooks/use-piano-model";
 import { storeAudioInput } from "@/lib/audio/input";
 import {
   readAlignToBeat,
   readInstrument,
+  readPianoEngine,
   readTuningChoice,
+  type PianoEngine,
   type RecordInstrument,
 } from "@/lib/audio/record-prefs";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -29,7 +32,9 @@ function setup(
   const onRecord = vi.fn<(setup: RecordSetup) => void>();
   const onOpenChange = vi.fn();
   const onRecordFile =
-    vi.fn<(file: File, tuning: number[], instrument: RecordInstrument) => void>();
+    vi.fn<
+      (file: File, tuning: number[], instrument: RecordInstrument, engine: PianoEngine) => void
+    >();
   const element = (more: Partial<Parameters<typeof RecordDialog>[0]> = {}) => (
     <RecordDialog
       open
@@ -75,6 +80,7 @@ describe("RecordDialog", () => {
       alignToBeat: true,
       tuning: [64, 59, 55, 50, 45, 40],
       instrument: "guitar",
+      engine: "standard",
     });
   });
 
@@ -100,6 +106,81 @@ describe("RecordDialog", () => {
     setup();
     expect(screen.getByRole("radio", { name: "Piano" })).toBeChecked();
     expect(screen.getByRole("combobox", { name: "Track" })).toHaveTextContent("Keys");
+  });
+
+  describe("the piano model", () => {
+    const model = (over: Partial<PianoModel> = {}): PianoModel => ({
+      ready: true,
+      installed: false,
+      bytes: 56_799_421,
+      progress: null,
+      error: null,
+      download: vi.fn(),
+      ...over,
+    });
+
+    it("is not offered for a guitar, or where the model cannot be looked up", async () => {
+      const { user, unmount } = setup({ pianoModel: model() });
+      expect(screen.queryByRole("group", { name: "Piano model" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("radio", { name: "Piano" }));
+      expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
+      unmount();
+      localStorage.setItem("smart-beat:record-instrument", "piano");
+      setup({ pianoModel: model({ ready: false }) });
+      expect(screen.queryByRole("radio", { name: "High accuracy" })).not.toBeInTheDocument();
+    });
+
+    it("asks for the download before the high-accuracy model can record", async () => {
+      const pianoModel = model();
+      const { user, onRecord } = setup({ pianoModel });
+      await user.click(screen.getByRole("radio", { name: "Piano" }));
+      await user.click(screen.getByRole("radio", { name: "High accuracy" }));
+      expect(screen.getByText(/one-time download of 57 MB/)).toBeVisible();
+      expect(screen.getByRole("button", { name: "Record" })).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "Download the model" }));
+      expect(pianoModel.download).toHaveBeenCalledTimes(1);
+      expect(onRecord).not.toHaveBeenCalled();
+    });
+
+    it("shows the progress and the error of a download", async () => {
+      const { user, update } = setup({ pianoModel: model({ progress: 0.42 }) });
+      await user.click(screen.getByRole("radio", { name: "Piano" }));
+      await user.click(screen.getByRole("radio", { name: "High accuracy" }));
+      expect(screen.getByText("Downloading… 42%")).toBeVisible();
+      update({ pianoModel: model({ error: "Could not download the piano model." }) });
+      expect(screen.getByRole("alert")).toHaveTextContent("Could not download the piano model.");
+    });
+
+    it("records with the chosen model once it is installed, and remembers the choice", async () => {
+      const { user, onRecord } = setup({ pianoModel: model({ installed: true }) });
+      await user.click(screen.getByRole("radio", { name: "Piano" }));
+      await user.click(screen.getByRole("radio", { name: "High accuracy" }));
+      expect(screen.queryByRole("button", { name: "Download the model" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      expect(onRecord).toHaveBeenCalledWith(
+        expect.objectContaining({ instrument: "piano", engine: "accurate" }),
+      );
+      expect(readPianoEngine()).toBe("accurate");
+    });
+
+    it("sends a chosen file with the model, and passes the accessibility checks", async () => {
+      const { user, onRecordFile } = setup({ pianoModel: model({ installed: true }) });
+      await user.click(screen.getByRole("radio", { name: "Piano" }));
+      await user.click(screen.getByRole("radio", { name: "High accuracy" }));
+      await expectNoA11yViolations();
+      await user.click(screen.getByRole("radio", { name: "File" }));
+      await user.upload(
+        screen.getByLabelText("Choose an audio recording"),
+        new File([new Uint8Array(4)], "keys.wav", { type: "audio/wav" }),
+      );
+      await user.click(screen.getByRole("button", { name: "Make tab" }));
+      expect(onRecordFile).toHaveBeenCalledWith(
+        expect.any(File),
+        expect.any(Array),
+        "piano",
+        "accurate",
+      );
+    });
   });
 
   it("takes the first guitar track when the shown track is not one", () => {
@@ -303,6 +384,7 @@ describe("RecordDialog", () => {
         expect.any(File),
         [64, 59, 55, 50, 45, 40],
         "guitar",
+        "standard",
       );
       expect(onRecord).not.toHaveBeenCalled();
     });

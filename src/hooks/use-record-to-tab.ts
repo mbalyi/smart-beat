@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { RecordSetup, RecordTarget } from "@/components/score/record-dialog";
 import { audioInputErrorText, readAudioInput } from "@/lib/audio/input";
 import { decodeTake } from "@/lib/audio/decode-take";
-import type { RecordInstrument } from "@/lib/audio/record-prefs";
+import type { PianoEngine, RecordInstrument } from "@/lib/audio/record-prefs";
 import { meterLevel, smoothLevel } from "@/lib/audio/level";
 import { startRecorder, type Recorder, type Take } from "@/lib/audio/recorder";
 import {
@@ -90,7 +90,12 @@ export interface RecordToTab {
   close: () => void;
   start: (setup: RecordSetup) => void;
   /** Turns an existing recording into tab or piano staves, as a new song. */
-  fromFile: (file: File, tuning: number[], instrument: RecordInstrument) => void;
+  fromFile: (
+    file: File,
+    tuning: number[],
+    instrument: RecordInstrument,
+    engine: PianoEngine,
+  ) => void;
   /** Ends the take and transcribes it. */
   stop: () => void;
   /** Ends the take and throws it away. */
@@ -189,12 +194,18 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     }
   };
 
-  const notesOf = (samples: Float32Array, sampleRate: number, instrument: RecordInstrument) =>
+  const notesOf = (
+    samples: Float32Array,
+    sampleRate: number,
+    instrument: RecordInstrument,
+    engine: PianoEngine,
+  ) =>
     transcribeRecording(
       samples,
       sampleRate,
       (fraction) => setPhase({ kind: "transcribing", fraction }),
       instrument,
+      engine,
     );
 
   const finish = async () => {
@@ -216,7 +227,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
         toast.info("Nothing was recorded", { description: "Play for a few seconds, then stop." });
         return;
       }
-      const heard = await notesOf(take.samples, take.sampleRate, setup.instrument);
+      const heard = await notesOf(take.samples, take.sampleRate, setup.instrument, setup.engine);
       if (heard.length === 0) {
         toast.info("No notes were heard", {
           description: "Check the level in the Record to Tab dialog, then try again.",
@@ -266,12 +277,17 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
   };
 
   /** An existing recording: turns it into notes and opens them as a new song, like free mode. */
-  const fromFile = (file: File, tuning: number[], instrument: RecordInstrument) => {
+  const fromFile = (
+    file: File,
+    tuning: number[],
+    instrument: RecordInstrument,
+    engine: PianoEngine,
+  ) => {
     if (transcribing.current || session.current) return;
     setDialog({ open: false, track: null });
     void transcribe(async () => {
       const decoded = await decodeTake(await file.arrayBuffer());
-      const heard = await notesOf(decoded.samples, decoded.sampleRate, instrument);
+      const heard = await notesOf(decoded.samples, decoded.sampleRate, instrument, engine);
       if (heard.length === 0) {
         toast.info("No notes were heard", {
           description: "Choose a recording where the instrument is clear and loud enough.",
