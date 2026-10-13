@@ -18,6 +18,9 @@ use super::engine::Engine;
 
 /// Interleaved scratch size (frames) used when the device asks for more.
 const MAX_FRAMES: usize = 8_192;
+/// The buffer the output asks for while the monitor track listens (frames),
+/// when the device allows it: a short way from the input to the speakers.
+pub const LOW_LATENCY_FRAMES: u32 = 128;
 
 /// What the callback publishes for the UI.
 #[derive(Default)]
@@ -39,6 +42,9 @@ pub struct Published {
 pub struct Output {
     pub sample_rate: u32,
     pub channels: u16,
+    /// Runs with the small buffer of [`LOW_LATENCY_FRAMES`] (asked for; the
+    /// device may not allow it).
+    pub low_latency: bool,
     pub published: Arc<Published>,
     stop: mpsc::Sender<()>,
     thread: Option<JoinHandle<()>>,
@@ -55,13 +61,15 @@ pub fn default_sample_rate() -> Result<u32, String> {
 }
 
 impl Output {
-    pub fn open(engine: Arc<Mutex<Engine>>) -> Result<Self, String> {
+    /// Opens the default output. `low_latency` asks for a small buffer (for
+    /// the monitor track) when the device reports one in its range.
+    pub fn open(engine: Arc<Mutex<Engine>>, low_latency: bool) -> Result<Self, String> {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(u32, u16, Arc<Published>), String>>();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let thread = std::thread::Builder::new()
             .name("smart-beat-audio".into())
             .spawn(move || {
-                let stream = match build_stream(engine) {
+                let stream = match build_stream(engine, low_latency) {
                     Ok((stream, rate, channels, published)) => {
                         if let Err(e) = stream.play() {
                             let _ = ready_tx.send(Err(e.to_string()));
@@ -87,6 +95,7 @@ impl Output {
         Ok(Self {
             sample_rate,
             channels,
+            low_latency,
             published,
             stop: stop_tx,
             thread: Some(thread),
@@ -122,7 +131,7 @@ fn publish(
 
 type Built = (cpal::Stream, u32, u16, Arc<Published>);
 
-fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
+fn build_stream(engine: Arc<Mutex<Engine>>, low_latency: bool) -> Result<Built, String> {
     let host = cpal::default_host();
     let device = host
         .default_output_device()
@@ -134,8 +143,30 @@ fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
             supported.sample_format()
         ));
     }
+    let small = low_latency
+        && matches!(
+            supported.buffer_size(),
+            cpal::SupportedBufferSize::Range { min, max }
+                if (*min..=*max).contains(&LOW_LATENCY_FRAMES)
+        );
     let mut config: cpal::StreamConfig = supported.into();
+    if small {
+        config.buffer_size = cpal::BufferSize::Fixed(LOW_LATENCY_FRAMES);
+        match build_with(&device, &config, engine.clone()) {
+            Ok(built) => return Ok(built),
+            Err(e) => eprintln!("audio output: no small buffer ({e})"),
+        }
+    }
     config.buffer_size = cpal::BufferSize::Default;
+    build_with(&device, &config, engine)
+}
+
+fn build_with(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    engine: Arc<Mutex<Engine>>,
+) -> Result<Built, String> {
+    let config = *config;
     let rate = config.sample_rate;
     let channels = config.channels.max(1);
     let published = Arc::new(Published::default());

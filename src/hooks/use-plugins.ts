@@ -47,7 +47,7 @@ export interface UsePlugins {
 }
 
 export function usePlugins(
-  target: { track: number | null },
+  target: { track: number | "monitor" | null },
   sound: number,
   chain: readonly EffectSlot[],
 ): UsePlugins {

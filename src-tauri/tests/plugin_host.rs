@@ -8,7 +8,7 @@
 
 use smart_beat_lib::audio::chain::{Chain, EffectConfig, EffectSlot, MAX_TRACK_EFFECTS, NoAssets};
 use smart_beat_lib::audio::plugin::{
-    PluginFormat, PluginInstance, PluginPool, PluginSpec, PluginWorker,
+    PluginFormat, PluginInstance, PluginPool, PluginSpec, PluginTarget, PluginWorker,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -116,7 +116,7 @@ fn pool() -> PluginPool {
 }
 fn address(track: usize, sound: usize, index: usize) -> PluginInstance {
     PluginInstance {
-        track: Some(track),
+        track: Some(PluginTarget::Track(track)),
         sound,
         index,
     }
@@ -295,7 +295,7 @@ fn two_blocks_in_one_chain_use_independent_plugin_instances() {
         64,
         &NoAssets,
         &pool,
-        Some((Some(0), 0)),
+        Some((Some(PluginTarget::Track(0)), 0)),
     );
     assert!(chain.problems.is_empty(), "{:?}", chain.problems);
     let mut left = [0.25; 64];
@@ -395,7 +395,7 @@ fn every_block_of_a_render_callback_gets_plugin_output() {
         64,
         &NoAssets,
         &pool,
-        Some((Some(0), 0)),
+        Some((Some(PluginTarget::Track(0)), 0)),
     );
     assert!(chain.problems.is_empty(), "{:?}", chain.problems);
     let mut dry_after_warmup = 0;
@@ -427,4 +427,52 @@ fn every_block_of_a_render_callback_gets_plugin_output() {
         "wet blocks: {wet} of {} ({dry_after_warmup} dry after the first callback)",
         CALLBACKS * BLOCKS
     );
+}
+
+#[test]
+fn monitor_track_and_master_plugins_do_not_share_presets_or_workers() {
+    use smart_beat_lib::audio::plugin::MONITOR_TARGET;
+    let pool = pool().for_offline();
+    let preset = spec(0.5, 0);
+    let monitor = PluginInstance {
+        track: MONITOR_TARGET,
+        sound: 0,
+        index: 0,
+    };
+    let master = PluginInstance {
+        track: None,
+        sound: 0,
+        index: 0,
+    };
+    let track = address(0, 0, 0);
+    let monitor_worker = pool.load(Some(monitor), &preset, 48_000.0).unwrap();
+    let master_worker = pool.load(Some(master), &preset, 48_000.0).unwrap();
+    let track_worker = pool.load(Some(track), &preset, 48_000.0).unwrap();
+    monitor_worker.queue_state(spec(2.0, 0).state).unwrap();
+    let mut left = [0.25; 64];
+    let mut right = left;
+    monitor_worker.process_offline(&mut left, &mut right);
+    assert_eq!(left, [0.5; 64]);
+    for worker in [&master_worker, &track_worker] {
+        left.fill(0.25);
+        right.fill(0.25);
+        worker.process_offline(&mut left, &mut right);
+        assert_eq!(left, [0.125; 64]);
+    }
+    assert!(Arc::ptr_eq(
+        &monitor_worker,
+        &pool.find(monitor, &preset).unwrap()
+    ));
+    assert!(Arc::ptr_eq(
+        &master_worker,
+        &pool.find(master, &preset).unwrap()
+    ));
+    drop(monitor_worker);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while pool.find(monitor, &preset).is_some() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(pool.find(monitor, &preset).is_none());
+    assert!(pool.find(master, &preset).is_some());
+    assert!(pool.find(track, &preset).is_some());
 }

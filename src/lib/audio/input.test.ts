@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 
 import {
+  AUDIO_INPUT_CHANNEL_STORAGE_KEY,
   AUDIO_INPUT_STORAGE_KEY,
   AudioInputMissingError,
   audioInputErrorText,
@@ -8,9 +9,12 @@ import {
   looksBuiltIn,
   openAudioInput,
   readAudioInput,
+  readAudioInputChannel,
   revealAudioInputs,
   storeAudioInput,
+  storeAudioInputChannel,
   useAudioInput,
+  useAudioInputChannel,
 } from "@/lib/audio/input";
 import { installMediaDevices } from "@/test/media-devices";
 
@@ -171,5 +175,30 @@ describe("looksBuiltIn", () => {
     expect(looksBuiltIn("")).toBe(false);
     expect(looksBuiltIn(null)).toBe(false);
     expect(looksBuiltIn(undefined)).toBe(false);
+  });
+});
+
+describe("the chosen input channel (the monitor track's)", () => {
+  it("is the first one until another is chosen, and is remembered", () => {
+    expect(readAudioInputChannel()).toBe(0);
+    storeAudioInputChannel(1);
+    expect(readAudioInputChannel()).toBe(1);
+    storeAudioInputChannel(null);
+    expect(readAudioInputChannel()).toBeNull();
+    expect(localStorage.getItem(AUDIO_INPUT_CHANNEL_STORAGE_KEY)).toBe("all");
+    storeAudioInputChannel(0);
+    expect(localStorage.getItem(AUDIO_INPUT_CHANNEL_STORAGE_KEY)).toBeNull();
+  });
+
+  it.each(["-1", "1.5", "x", "999"])("falls back to the first one for %j", (raw) => {
+    localStorage.setItem(AUDIO_INPUT_CHANNEL_STORAGE_KEY, raw);
+    expect(readAudioInputChannel()).toBe(0);
+  });
+
+  it("keeps hooks up to date", () => {
+    const { result } = renderHook(() => useAudioInputChannel());
+    expect(result.current).toBe(0);
+    act(() => storeAudioInputChannel(1));
+    expect(result.current).toBe(1);
   });
 });

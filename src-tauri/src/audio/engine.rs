@@ -7,6 +7,9 @@
 //! meter) → the effect chain of the active sound → channel EQ → volume and
 //! pan (from the mixer, or from automation) with click-free gain ramps.
 //!
+//! The monitor track (the live input, see `monitor.rs`) plays on its own bus
+//! next to the tracks, whether the song plays or not.
+//!
 //! [`Engine::render`] is plain code with no I/O: the audio output calls it
 //! from its callback, and tests and exports call it directly (offline).
 
@@ -24,6 +27,7 @@ use super::dsp::Effect;
 use super::dsp::db_to_gain;
 use super::dsp::eq::Eq;
 use super::mixing::{Automation, TrackEq, mix_into, pan_gains};
+use super::monitor::Monitor;
 use super::song::Song;
 
 /// Frames rendered at a time; events are placed with this precision.
@@ -380,6 +384,10 @@ pub struct Meters {
     pub drums: Vec<Vec<f32>>,
     /// The audio track.
     pub backing: f32,
+    /// The monitor track, after its fader.
+    pub monitor: f32,
+    /// The monitor track's input, before its effects (is anything coming in?).
+    pub monitor_input: f32,
     /// Gain reduction of compressors and limiters (#39).
     pub reduction: Reduction,
 }
@@ -391,6 +399,8 @@ pub struct Meters {
 pub struct Reduction {
     pub tracks: Vec<Vec<f32>>,
     pub master: Vec<f32>,
+    /// The monitor track's chain (empty without a monitor track).
+    pub monitor: Vec<f32>,
 }
 
 pub struct Engine {
@@ -403,6 +413,8 @@ pub struct Engine {
     master_pan: f32,
     master_gains: (f32, f32),
     backing: Option<Backing>,
+    /// The live input with its own chain (none: no monitor track).
+    monitor: Option<Monitor>,
     /// Song time in seconds.
     position: f64,
     next_event: usize,
@@ -452,6 +464,7 @@ impl Engine {
             master_pan: 0.0,
             master_gains: (1.0, 1.0),
             backing: None,
+            monitor: None,
             position: 0.0,
             next_event: 0,
             next_click: 0,
@@ -847,6 +860,20 @@ impl Engine {
         self.backing.as_mut()
     }
 
+    /// Adds, replaces or removes the monitor track; returns the old one to
+    /// drop elsewhere.
+    pub fn set_monitor(&mut self, monitor: Option<Monitor>) -> Option<Monitor> {
+        std::mem::replace(&mut self.monitor, monitor)
+    }
+
+    pub fn monitor(&self) -> Option<&Monitor> {
+        self.monitor.as_ref()
+    }
+
+    pub fn monitor_mut(&mut self) -> Option<&mut Monitor> {
+        self.monitor.as_mut()
+    }
+
     /// Jumps to `seconds`: stops sounding notes and restores every channel's
     /// controllers, program and pitch bend as they are at that point.
     pub fn seek(&mut self, seconds: f64) {
@@ -903,6 +930,7 @@ impl Engine {
     fn any_solo(&self) -> bool {
         self.tracks.iter().any(|t| t.mix.solo)
             || self.backing.as_ref().is_some_and(Backing::is_solo)
+            || self.monitor.as_ref().is_some_and(Monitor::is_solo)
     }
 
     /// Renders `left.len()` frames (any length) into the buffers.
@@ -1012,6 +1040,11 @@ impl Engine {
             );
         }
 
+        if let Some(monitor) = &mut self.monitor {
+            let audible = !solo || monitor.is_solo();
+            monitor.render(audible, (&mut *out_l, &mut *out_r));
+        }
+
         if let Some(preview) = self.preview.as_mut() {
             let [pl, pr] = &mut self.preview_buf;
             preview.render(&mut pl[..n], &mut pr[..n]);
@@ -1090,6 +1123,9 @@ impl Engine {
             }
         }
         self.master.bypass();
+        if let Some(monitor) = &mut self.monitor {
+            monitor.bypass();
+        }
     }
 
     /// [`Engine::render`] for the audio callback: a panic inside (a broken
@@ -1141,6 +1177,10 @@ impl Engine {
                 })
                 .collect(),
             master: self.master.take_reduction()[..MAX_MASTER_EFFECTS].to_vec(),
+            monitor: self
+                .monitor
+                .as_mut()
+                .map_or_else(Vec::new, |m| m.take_reduction().to_vec()),
         };
         Meters {
             tracks,
@@ -1151,6 +1191,11 @@ impl Engine {
                 .backing
                 .as_mut()
                 .map_or(0.0, |b| std::mem::take(&mut b.peak)),
+            monitor: self
+                .monitor
+                .as_mut()
+                .map_or(0.0, |m| std::mem::take(&mut m.peak)),
+            monitor_input: self.monitor.as_mut().map_or(0.0, Monitor::take_input_peak),
         }
     }
 

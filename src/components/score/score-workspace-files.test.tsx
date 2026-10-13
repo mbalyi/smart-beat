@@ -7,6 +7,9 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { ScoreWorkspace } from "@/components/score/score-workspace";
 import { Toaster } from "@/components/ui/sonner";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
+import { defaultEffect } from "@/lib/audio/effects";
+import { storeAudioInput, storeAudioInputChannel } from "@/lib/audio/input";
+import { DEFAULT_MONITOR, rememberMonitorTrack } from "@/lib/audio/monitor";
 import { barProblems } from "@/lib/score/bar-duration";
 import { fileKey } from "@/lib/score/format";
 import { mixFromScore } from "@/lib/score/mixer";
@@ -831,6 +834,115 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
       await toastWith("“notes.txt” is not an audio file Smart Beat opens"),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("audio-track-row")).toBeNull();
+  });
+
+  it("adds a monitor track that plays the input chosen in Settings through its own pedalboard", async () => {
+    mockTauri();
+    localStorage.setItem("smart-beat:audio-engine", "native");
+    storeAudioInput({ deviceId: "scarlett", label: "Scarlett 2i2 USB" });
+    storeAudioInputChannel(1);
+    const song = await makeSong("/songs/practice-song.gp");
+    const { user } = renderWithProviders(
+      <>
+        <ScoreWorkspace song={song} onOpen={vi.fn()} />
+        <Toaster />
+      </>,
+    );
+    const player = FakeScorePlayer.last;
+    player.usesNativeEngine = true;
+    player.becomeReady();
+    expect(player.options.monitorInput).toEqual({ device: "Scarlett 2i2 USB", channel: 1 });
+
+    await user.click(screen.getByRole("button", { name: "Add monitor track" }));
+    const row = await screen.findByTestId("monitor-track-row");
+    expect(await toastWith("The monitor track plays your audio input live")).toBeInTheDocument();
+    expect(player.setMix).toHaveBeenLastCalledWith(
+      expect.objectContaining({ monitor: expect.objectContaining({ enabled: true }) }),
+    );
+    player.emit("onMonitorStatus", {
+      open: true,
+      device: "Scarlett 2i2 USB",
+      channels: 2,
+      sampleRate: 48_000,
+      latencyMs: 7,
+      error: null,
+    });
+    expect(within(row).getByRole("status")).toHaveTextContent(
+      "Scarlett 2i2 USB · input 2 · about 7 ms delay",
+    );
+
+    // The same pedalboard as the tracks, for the monitor track.
+    await user.click(within(row).getByRole("button", { name: "Actions for the monitor track" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Effects (pedalboard)…" }));
+    const board = await screen.findByRole("dialog", { name: "Pedalboard: Monitor" });
+    expect(within(board).queryByRole("button", { name: "Add sound" })).toBeNull();
+    await user.click(within(board).getByRole("button", { name: "Add Delay" }));
+    expect(within(board).getAllByTestId("effect-block")).toHaveLength(1);
+    expect(player.setMix.mock.lastCall![0].monitor.effects).toHaveLength(1);
+    await user.keyboard("{Escape}");
+
+    // Another channel chosen in Settings goes to the player.
+    act(() => storeAudioInputChannel(0));
+    expect(player.setMonitorInput).toHaveBeenLastCalledWith({
+      device: "Scarlett 2i2 USB",
+      channel: 0,
+    });
+
+    await user.click(within(row).getByRole("button", { name: "Actions for the monitor track" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    expect(screen.queryByTestId("monitor-track-row")).toBeNull();
+    expect(player.setMix.mock.lastCall![0]).not.toHaveProperty("monitor");
+  });
+
+  it("sets up live monitoring in Practice mix and keeps the rig when switching playback or listening off", async () => {
+    mockTauri();
+    const onOpenSettings = vi.fn();
+    rememberMonitorTrack({ ...DEFAULT_MONITOR, volume: 0.4, effects: [defaultEffect("delay")] });
+    const song = await makeSong("/songs/practice-song.gp");
+    const { user } = renderWithProviders(
+      <ScoreWorkspace song={song} onOpen={vi.fn()} onOpenSettings={onOpenSettings} />,
+    );
+    FakeScorePlayer.last.becomeReady();
+    await user.click(screen.getByRole("button", { name: /^Practice mix/ }));
+    const popup = await screen.findByRole("dialog", { name: "Practice mix" });
+    expect(within(popup).getByRole("button", { name: "Input effects…" })).toBeDisabled();
+    await user.click(within(popup).getByRole("switch", { name: "Monitor my input" }));
+    expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native");
+    const player = FakeScorePlayer.last;
+    player.becomeReady();
+    const rig = player.options.mix.monitor;
+    expect(rig).toMatchObject({ enabled: true, volume: 0.4, effects: [defaultEffect("delay")] });
+    await user.click(within(popup).getByRole("radio", { name: /Backing only/ }));
+    expect(player.setMix.mock.lastCall![0]).toMatchObject({ focusMode: "backing", monitor: rig });
+    await user.click(within(popup).getByRole("radio", { name: /Hear only this track/ }));
+    expect(player.setMix.mock.lastCall![0]).toMatchObject({ focusMode: "onlyMe", monitor: rig });
+    await user.click(within(popup).getByRole("switch", { name: "Monitor my input" }));
+    expect(player.setMix.mock.lastCall![0].monitor).toEqual({ ...rig, enabled: false });
+    await user.click(within(popup).getByRole("switch", { name: "Monitor my input" }));
+    expect(player.setMix.mock.lastCall![0].monitor).toEqual(rig);
+    await expectNoA11yViolations();
+    await user.click(within(popup).getByRole("button", { name: "Input settings…" }));
+    expect(onOpenSettings).toHaveBeenCalledWith(expect.any(HTMLElement));
+    await user.click(within(popup).getByRole("button", { name: "Input effects…" }));
+    const board = await screen.findByRole("dialog", { name: "Pedalboard: Monitor" });
+    expect(within(board).getAllByTestId("effect-block")).toHaveLength(1);
+  });
+
+  it("starts a new monitor track from the last one, so the rig comes along", async () => {
+    mockTauri();
+    rememberMonitorTrack({ ...DEFAULT_MONITOR, volume: 0.4, effects: [defaultEffect("delay")] });
+    const { user } = await setup();
+    await user.click(screen.getByRole("button", { name: "Add monitor track" }));
+    // Without the native engine it waits, and says why.
+    expect(
+      await toastWith("The monitor track plays with the native audio engine"),
+    ).toBeInTheDocument();
+    const row = await screen.findByTestId("monitor-track-row");
+    expect(within(row).getByRole("slider", { name: "Volume, monitor track" })).toHaveAttribute(
+      "aria-valuetext",
+      "40%",
+    );
+    expect(within(row).getByRole("status")).toHaveTextContent(/native audio engine/);
   });
 
   it("opens the drum mixer and the pedalboard from a track's menu", async () => {

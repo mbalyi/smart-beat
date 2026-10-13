@@ -1,9 +1,10 @@
 /**
  * Mixer state: master volume and pan, volume, pan, mute and solo per track,
  * and for the native audio engine the effect chains (several sounds per
- * track), channel EQ, automation, focus, the drum mixer and the audio track.
+ * track), channel EQ, automation, focus, the drum mixer, the audio track and the
+ * monitor track.
  */
-import type { EffectSlot } from "@/lib/audio/effects";
+import { MAX_TRACK_EFFECTS, type EffectSlot } from "@/lib/audio/effects";
 import {
   DEFAULT_INTERPRETATION,
   normalizeInterpretation,
@@ -20,6 +21,7 @@ import {
   type DrumMixer,
   type FocusMode,
   type MixerSettings,
+  type MonitorTrackSettings,
   type SongPreset,
   type TrackAutomation,
   type TrackEq,
@@ -60,6 +62,8 @@ export type MixerAction =
   /** Plays a drum track with an imported kit (#40; null: the SoundFont's own). */
   | { type: "drum-kit"; track: number; kit: string | null }
   | { type: "audio-track"; value: AudioTrackSettings | null }
+  /** The monitor track (null removes it). */
+  | { type: "monitor"; value: MonitorTrackSettings | null }
   | { type: "presets"; presets: SongPreset[] }
   /** Volumes, pans, mute and solo back to the file's; effects and the rest stay. */
   | { type: "reset"; mix: MixerSettings };
@@ -317,6 +321,10 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
       if (!action.value) return without(mix, "audioTrack");
       return { ...mix, audioTrack: normalizeAudioTrack(action.value) };
     }
+    case "monitor": {
+      if (!action.value) return without(mix, "monitor");
+      return { ...mix, monitor: normalizeMonitor(action.value) };
+    }
     case "presets":
       return { ...mix, presets: action.presets };
     case "reset":
@@ -402,6 +410,18 @@ function normalizeAudioTrack(a: AudioTrackSettings): AudioTrackSettings {
     cents: clamp(Math.round(a.cents), -100, 100),
     eq: normalizeEq(a.eq),
     sync,
+  };
+}
+
+function normalizeMonitor(m: MonitorTrackSettings): MonitorTrackSettings {
+  return {
+    enabled: m.enabled,
+    volume: clamp(m.volume, 0, 1),
+    pan: clamp(m.pan, -1, 1),
+    mute: m.mute,
+    solo: m.solo,
+    eq: normalizeEq(m.eq),
+    effects: m.effects.slice(0, MAX_TRACK_EFFECTS),
   };
 }
 
@@ -534,12 +554,24 @@ export function removeSound(mix: MixerSettings, track: number, sound: number): T
   };
 }
 
-/** Whether a track is heard: not muted, and soloed if any track (or the audio track) is. */
+/**
+ * Whether a track is heard: not muted, and soloed if any track (or the audio track, or the
+ * monitor track) is.
+ */
 export function isAudible(mix: MixerSettings, index: number): boolean {
   const track = mix.tracks[index];
   if (!track || track.mute) return false;
   const audioSolo = !!mix.audioTrack?.enabled && !!mix.audioTrack.solo;
-  return track.solo || (!mix.tracks.some((t) => t.solo) && !audioSolo);
+  const monitorSolo = !!mix.monitor?.enabled && !!mix.monitor.solo;
+  return track.solo || (!mix.tracks.some((t) => t.solo) && !audioSolo && !monitorSolo);
+}
+
+/** Whether the monitor track is heard: on, not muted, and soloed if anything else is. */
+export function isMonitorAudible(mix: MixerSettings): boolean {
+  const monitor = mix.monitor;
+  if (!monitor?.enabled || monitor.mute) return false;
+  const audioSolo = !!mix.audioTrack?.enabled && !!mix.audioTrack.solo;
+  return monitor.solo || (!mix.tracks.some((t) => t.solo) && !audioSolo);
 }
 
 /** Spoken pan value for screen readers, e.g. "Centre", "Left 80%". */

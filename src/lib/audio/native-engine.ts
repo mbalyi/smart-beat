@@ -21,6 +21,8 @@ import {
   setEngineChain,
   setEngineDrumMix,
   setEngineMix,
+  setEngineMonitor,
+  setEngineMonitorChain,
   setEngineSounds,
   setEngineTrackEq,
   startEngine,
@@ -34,6 +36,8 @@ import {
   type EngineMeters,
   type EngineSong,
   type EngineStatus,
+  type MonitorParams,
+  type MonitorStatus,
   type TrackEq,
   type TransportCommand,
   setEngineTrackKit,
@@ -44,6 +48,17 @@ export interface EngineTrackSounds {
   chains: EffectSlot[][];
   switches: [number, number][];
 }
+
+/** The audio input the monitor track plays: its name (null: the system's default), and channel. */
+export interface MonitorInputChoice {
+  device: string | null;
+  /** 0-based; null: all channels mixed. */
+  channel: number | null;
+}
+
+/** The monitor track as the engine plays it (null: none). */
+export type EngineMonitor =
+  ({ params: MonitorParams; effects: EffectSlot[] } & MonitorInputChoice) | null;
 
 /** Everything the engine plays besides the notes. Sent again after every song load. */
 export interface EngineExtras {
@@ -57,15 +72,21 @@ export interface EngineExtras {
   masterPan: number;
   /** Audio track settings and sync points (null: none loaded). */
   backing: { params: BackingParams; sync: { tick: number; ms: number }[] } | null;
+  /** The monitor track (missing or null: none). */
+  monitor?: EngineMonitor;
 }
 
-/** Blocks that cannot run: per track and sound, and the master's. */
+/** Blocks that cannot run: per track and sound, the master's and the monitor track's. */
 export interface EffectProblems {
   tracks: BlockProblem[][][];
   master: BlockProblem[];
+  monitor?: BlockProblem[];
 }
 
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
+/** The monitor track without its effects (they are sent on their own). */
+const monitorSettings = (m: EngineMonitor) =>
+  m && { params: m.params, device: m.device, channel: m.channel };
 const EMPTY_AUTOMATION: EngineAutomation = { enabled: false, volume: [], pan: [], mute: [] };
 const FLAT: TrackEq = { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 };
 
@@ -156,6 +177,8 @@ export interface NativeEngineCallbacks {
   onError?: (error: Error) => void;
   /** Loops played to the end (the engine starts them again by itself; #83). */
   onLoops?: (count: number) => void;
+  /** The monitor track's input opened, closed or failed (null: no monitor track). */
+  onMonitorStatus?: (status: MonitorStatus | null) => void;
 }
 
 const asError = (error: unknown) =>
@@ -193,6 +216,17 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   private loop: { startTick: number; endTick: number } | null = null;
   private metronomeVolume: number | null = null;
   private backing: BackingSource | null = null;
+  /** The monitor track listens: the engine is read while paused too (its level meter). */
+  private monitoring = false;
+  /** Play was asked for, and the song has not stopped since. */
+  private playRequested = false;
+  /** The monitor status last reported (to report changes only). */
+  private monitorStatus: string | null = null;
+  /**
+   * The monitor track the engine has from this song (undefined: unknown, after another song
+   * used the engine). Loading a song keeps it, so edits do not reopen the input.
+   */
+  private monitorSent: EngineMonitor | undefined = undefined;
 
   /**
    * The clicks to play before the song when it starts (null: none). The engine
@@ -262,6 +296,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     this.enqueue(async () => {
       await loadEngineSong(song);
       this.sent = null;
+      // The engine has the other song's monitor track.
+      this.monitorSent = undefined;
       if (this.backing) await loadEngineBacking(this.backing);
       else await clearEngineBacking();
       await this.sendExtras();
@@ -281,6 +317,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   }
 
   play() {
+    this.playRequested = true;
     this.claim();
     const clicks = this.countIn?.();
     this.send(
@@ -294,7 +331,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   pause() {
     // A song in a hidden tab must not pause the one that is playing.
     if (this.ownsOrFree) this.send({ type: "pause" });
-    this.stopPolling();
+    this.playRequested = false;
+    if (!this.monitoring) this.stopPolling();
   }
 
   /** Loads (once) and switches to a SoundFont, opening the audio output. */
@@ -315,6 +353,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     const started = performance.now();
     const song = songFromMidi(file, channels);
     this.song = song;
+    // Another song had the engine: it has that song's monitor track.
+    if (owner !== this) this.monitorSent = undefined;
     takeEngine(this);
     this.latestSong = song;
     const status = await this.enqueue(async () => {
@@ -356,6 +396,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     const problems: EffectProblems = {
       tracks: next.sounds.map((_, i) => this.problems.tracks[i] ?? []),
       master: this.problems.master,
+      monitor: next.monitor ? (this.problems.monitor ?? []) : [],
     };
     for (const [i, sounds] of next.sounds.entries()) {
       const before = prev?.sounds[i];
@@ -406,6 +447,17 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     if (next.backing && !same(prev?.backing ?? null, next.backing)) {
       await setEngineBacking(next.backing.params, next.backing.sync);
     }
+    // Loading a song keeps the monitor track (and its open input): sent only when it changed.
+    const monitor = next.monitor ?? null;
+    const before = this.monitorSent;
+    if (before === undefined || !same(monitorSettings(before), monitorSettings(monitor))) {
+      this.reportMonitor(await setEngineMonitor(monitorSettings(monitor)));
+    }
+    if (monitor && (!before || !same(before.effects, monitor.effects))) {
+      problems.monitor = await setEngineMonitorChain(monitor.effects);
+    }
+    this.monitorSent = monitor;
+    this.setMonitoring(!!monitor?.params.enabled);
     this.sent = next;
     this.problems = problems;
     return problems;
@@ -429,6 +481,22 @@ export class NativeEngine implements synth.IExternalMediaHandler {
       await clearEngineBacking();
       if (this.sent) this.sent = { ...this.sent, backing: null };
     });
+  }
+
+  /** Tells the app about the monitor track's input when it changes. */
+  private reportMonitor(status: MonitorStatus | null | undefined) {
+    const key = JSON.stringify(status ?? null);
+    if (key === this.monitorStatus) return;
+    this.monitorStatus = key;
+    this.callbacks.onMonitorStatus?.(status ?? null);
+  }
+
+  /** While the monitor track listens, its level is read even when the song is paused. */
+  private setMonitoring(on: boolean) {
+    if (on === this.monitoring) return;
+    this.monitoring = on;
+    if (on) this.startPolling();
+    else if (!this.playRequested) this.stopPolling();
   }
 
   setMix(mixes: BusMix[]) {
@@ -486,13 +554,19 @@ export class NativeEngine implements synth.IExternalMediaHandler {
       engineState()
         .then((status) => {
           if (this.destroyed) return;
-          this.output?.updatePosition(status.positionMs);
+          // While paused (the monitor track listening) the cursor is the app's: a seek waiting
+          // in the queue must not be undone by an older position.
+          if (status.playing || wasPlaying) this.output?.updatePosition(status.positionMs);
           this.callbacks.onMeters?.(status.meters);
           this.callbacks.onStatus?.(status);
+          if (status.monitor !== undefined && this.ownsOrFree) this.reportMonitor(status.monitor);
           if (status.faults > 0) this.callbacks.onFault?.();
           if (status.loops > 0) this.callbacks.onLoops?.(status.loops);
           // The engine stopped by itself at the end of the song.
-          if (wasPlaying && !status.playing) this.stopPolling();
+          if (wasPlaying && !status.playing) {
+            this.playRequested = false;
+            if (!this.monitoring) this.stopPolling();
+          }
           wasPlaying = status.playing;
         })
         .catch((error) => {
@@ -513,6 +587,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     if (wasOwner) owner = null;
     this.stopPolling();
     if (wasOwner) engineTransport({ type: "pause" }).catch(() => {});
+    // A closed song's monitor track stops listening.
+    if (wasOwner && this.monitorSent) setEngineMonitor(null).catch(() => {});
     if (this.output?.handler === this) this.output.handler = undefined;
     this.output = null;
   }

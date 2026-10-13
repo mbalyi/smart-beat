@@ -432,6 +432,16 @@
       case "audio_state":
         return {
           running: true,
+          monitor: window.__engineMonitor
+            ? {
+                open: window.__engineMonitor.params.enabled,
+                device: window.__engineMonitor.device ?? "System default",
+                channels: 2,
+                sampleRate: 48000,
+                latencyMs: 5,
+                error: null,
+              }
+            : null,
           sampleRate: 48000,
           positionMs: enginePosition(),
           durationMs: engine.durationMs,
@@ -446,6 +456,24 @@
         engine.durationMs = (args.song.endTick / args.song.division) * 500;
         engine.chains = {};
         return null;
+      case "audio_input_channels":
+        return 2;
+      case "audio_set_monitor":
+        window.__engineMonitor = args.monitor;
+        return args.monitor
+          ? {
+              open: args.monitor.params.enabled,
+              device: args.monitor.device ?? "System default",
+              channels: 2,
+              sampleRate: 48000,
+              latencyMs: 5,
+              error: null,
+            }
+          : null;
+      case "audio_set_monitor_chain":
+        engine.chains.monitor = args.slots;
+        window.__engineChains = engine.chains;
+        return [];
       case "audio_set_chain":
         engine.chains[args.sound ? `${args.track}:${args.sound}` : (args.track ?? "master")] =
           args.slots;

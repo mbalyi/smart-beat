@@ -8,9 +8,11 @@ pub mod backing;
 pub mod chain;
 pub mod dsp;
 pub mod engine;
+pub mod input;
 pub mod kits;
 pub mod library;
 pub mod mixing;
+pub mod monitor;
 pub mod output;
 pub mod plugin;
 mod plugin_process;
@@ -57,8 +59,10 @@ use crate::error::{CommandError, ErrorKind};
 use backing::{Backing, BackingParams, DecodedAudio, PEAKS_PER_SECOND, SyncMap};
 use chain::{BlockProblem, Chain, EffectSlot, MAX_MASTER_EFFECTS, MAX_TRACK_EFFECTS};
 use engine::{BLOCK, BusMix, DrumSplit, Engine, MAX_DRUM_ELEMENTS, MAX_SOUNDS, Meters};
+use input::Input;
 use library::{AssetKind, Library, LibraryItem};
 use mixing::{Automation, AutomationData, TrackEq};
+use monitor::{Monitor, MonitorParams, Reader};
 use output::Output;
 use song::{Song, SongData};
 
@@ -151,6 +155,46 @@ struct LoadedBacking {
     sync: Vec<SyncPointData>,
 }
 
+/// The monitor track as the UI sets it. Mirrored by the argument of
+/// `setEngineMonitor` in `src/lib/tauri.ts`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorData {
+    pub params: MonitorParams,
+    /// The input's name (the one Settings shows); none: the system's default.
+    #[serde(default)]
+    pub device: Option<String>,
+    /// The channel to listen to (0-based); none: all of them mixed.
+    #[serde(default)]
+    pub channel: Option<u16>,
+}
+
+/// What the UI learns about the monitor track's input.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorStatus {
+    /// Listening to the input now.
+    pub open: bool,
+    /// The input's name as the system gives it ("" when not open).
+    pub device: String,
+    pub channels: u16,
+    pub sample_rate: u32,
+    /// From the input to the output, estimated.
+    pub latency_ms: f64,
+    /// Why the input is not open, or why it stopped.
+    pub error: Option<String>,
+}
+
+/// The monitor track: its settings, and its input while it is open.
+struct MonitorState {
+    data: MonitorData,
+    input: Option<Input>,
+    /// The device and channel the open input was opened for.
+    opened_for: (Option<String>, Option<u16>),
+    /// Why the input could not be opened.
+    error: Option<String>,
+}
+
 #[derive(Default)]
 struct Inner {
     sound_fonts: HashMap<String, Arc<SoundFont>>,
@@ -171,6 +215,10 @@ struct Inner {
     /// The imported drum kit each track plays (#40), by kit id.
     track_kits: HashMap<usize, String>,
     backing: Option<LoadedBacking>,
+    /// The monitor track, kept across songs: it belongs to the player.
+    monitor: Option<MonitorState>,
+    /// The monitor track's effect chain.
+    monitor_chain: Vec<EffectSlot>,
 }
 
 impl Inner {
@@ -253,6 +301,8 @@ pub struct EngineStatus {
     /// Loops played to the end since the last report (the Speed Trainer counts them, #83).
     pub loops: u32,
     pub meters: Meters,
+    /// The monitor track's input (none: no monitor track).
+    pub monitor: Option<MonitorStatus>,
 }
 
 /// A bar of clicks before every loop: beats, and a beat's length at normal speed (seconds).
@@ -329,7 +379,7 @@ fn build_chain(
     rate: u32,
     slots: &[EffectSlot],
     limit: usize,
-    address: (Option<usize>, usize),
+    address: (Option<plugin::PluginTarget>, usize),
 ) -> Chain {
     Chain::build_for(
         slots,
@@ -382,7 +432,7 @@ fn prepare(
                         rate,
                         slots,
                         MAX_TRACK_EFFECTS,
-                        (Some(track), sound),
+                        (Some(plugin::PluginTarget::Track(track)), sound),
                     )
                 })
                 .collect();
@@ -510,6 +560,152 @@ fn configure_running(state: &AudioState, inner: &Inner) -> Result<(), CommandErr
     Ok(())
 }
 
+/// A monitor bus for the running engine, with the stored chain and settings.
+fn new_monitor(state: &AudioState, inner: &Inner, rate: f32) -> Monitor {
+    let chain = build_chain(
+        state,
+        &state.plugins,
+        rate as u32,
+        &inner.monitor_chain,
+        MAX_TRACK_EFFECTS,
+        (plugin::MONITOR_TARGET, 0),
+    );
+    let mut monitor = Monitor::new(chain, rate, BLOCK);
+    if let Some(m) = &inner.monitor {
+        monitor.set_params(&m.data.params);
+    }
+    monitor
+}
+
+/// Makes the running engine match the monitor track's settings: opens or
+/// closes the input, connects it to the engine's monitor bus (a new bus when
+/// `rebuild`, e.g. in a new engine) and runs the output with a small buffer
+/// while the input is open.
+fn sync_monitor(state: &AudioState, inner: &mut Inner, rebuild: bool) -> Result<(), CommandError> {
+    let Some(engine) = inner.engine.clone() else {
+        return Ok(());
+    };
+    let rate = engine.lock().unwrap().sample_rate();
+    let mut old: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
+    let Some(monitor) = inner.monitor.as_mut() else {
+        if let Some(m) = engine.lock().unwrap().set_monitor(None) {
+            old.push(Box::new(m));
+        }
+        drop(old);
+        return set_low_latency(inner, false);
+    };
+    let wanted = (monitor.data.device.clone(), monitor.data.channel);
+    let stale = monitor
+        .input
+        .as_ref()
+        .is_some_and(|i| i.error().is_some() || monitor.opened_for != wanted);
+    let mut reconnect = rebuild;
+    if !monitor.data.params.enabled || stale {
+        if let Some(input) = monitor.input.take() {
+            old.push(Box::new(input));
+            reconnect = true;
+        }
+        monitor.error = None;
+    }
+    if monitor.data.params.enabled && monitor.input.is_none() {
+        // The old stream is closed before the device is opened again.
+        drop(std::mem::take(&mut old));
+        match Input::open(wanted.0.as_deref(), wanted.1) {
+            Ok(input) => {
+                monitor.input = Some(input);
+                monitor.opened_for = wanted;
+                monitor.error = None;
+            }
+            Err(e) => monitor.error = Some(e),
+        }
+        reconnect = true;
+    }
+    let reader = monitor
+        .input
+        .as_ref()
+        .map(|i| Reader::new(i.ring.clone(), i.sample_rate as f32, rate));
+    let params = monitor.data.params.clone();
+    let open = monitor.input.is_some();
+    // The output reopens before the input is connected: what came in
+    // meanwhile is skipped when the reader starts.
+    set_low_latency(inner, open)?;
+    let fresh = if rebuild || engine.lock().unwrap().monitor().is_none() {
+        Some(new_monitor(state, inner, rate))
+    } else {
+        None
+    };
+    {
+        let mut e = engine.lock().unwrap();
+        if let Some(fresh) = fresh
+            && let Some(m) = e.set_monitor(Some(fresh))
+        {
+            old.push(Box::new(m));
+        }
+        if let Some(bus) = e.monitor_mut() {
+            bus.set_params(&params);
+            if (reconnect || bus.reader().is_none() != reader.is_none())
+                && let Some(r) = bus.set_reader(reader)
+            {
+                old.push(Box::new(r));
+            }
+        }
+    }
+    drop(old);
+    Ok(())
+}
+
+/// Opens the output again with a small buffer (or the usual one).
+fn set_low_latency(inner: &mut Inner, low_latency: bool) -> Result<(), CommandError> {
+    let (Some(engine), Some(output)) = (&inner.engine, &inner.output) else {
+        return Ok(());
+    };
+    if output.low_latency == low_latency {
+        return Ok(());
+    }
+    let engine = engine.clone();
+    inner.output = None;
+    inner.output = Some(Output::open(engine, low_latency).map_err(audio_error)?);
+    Ok(())
+}
+
+fn monitor_status(inner: &Inner) -> Option<MonitorStatus> {
+    let monitor = inner.monitor.as_ref()?;
+    let Some(input) = &monitor.input else {
+        return Some(MonitorStatus {
+            open: false,
+            device: String::new(),
+            channels: 0,
+            sample_rate: 0,
+            latency_ms: 0.0,
+            error: monitor.error.clone(),
+        });
+    };
+    let error = input.error();
+    // Input buffer, what waits in the ring, and the output's latency.
+    let queued = inner
+        .engine
+        .as_ref()
+        .and_then(|e| {
+            let e = e.try_lock().ok()?;
+            e.monitor()?.reader().map(Reader::queued)
+        })
+        .unwrap_or(0);
+    let output_ms = inner.output.as_ref().map_or(0.0, |o| {
+        o.published.latency_us.load(Ordering::Relaxed) as f64 / 1000.0
+    });
+    let latency_ms = input.latency().as_secs_f64() * 1000.0
+        + queued as f64 * 1000.0 / input.sample_rate.max(1) as f64
+        + output_ms;
+    Some(MonitorStatus {
+        open: error.is_none(),
+        device: input.device.clone(),
+        channels: input.channels,
+        sample_rate: input.sample_rate,
+        latency_ms,
+        error,
+    })
+}
+
 /// Receives a SoundFont as a raw body; the `x-sound-font-id` header names it.
 #[tauri::command(async)]
 pub fn audio_load_soundfont(
@@ -562,11 +758,16 @@ pub fn audio_start(
             engine.load(song).map_err(audio_error)?;
         }
         let engine = Arc::new(Mutex::new(engine));
-        let output = Output::open(engine.clone()).map_err(audio_error)?;
+        let monitoring = inner
+            .monitor
+            .as_ref()
+            .is_some_and(|m| m.data.params.enabled);
+        let output = Output::open(engine.clone(), monitoring).map_err(audio_error)?;
         inner.engine = Some(engine);
         inner.output = Some(output);
         inner.sound_font_id = Some(sound_font);
         configure_running(&state, &inner)?;
+        sync_monitor(&state, &mut inner, true)?;
     }
     status(&inner)
 }
@@ -577,6 +778,10 @@ pub fn audio_stop(state: State<'_, AudioState>) {
     inner.output = None;
     inner.engine = None;
     inner.sound_font_id = None;
+    // Lets go of the microphone; it opens again with the engine.
+    if let Some(monitor) = inner.monitor.as_mut() {
+        monitor.input = None;
+    }
 }
 
 fn status(inner: &Inner) -> Result<EngineStatus, CommandError> {
@@ -600,6 +805,7 @@ fn status(inner: &Inner) -> Result<EngineStatus, CommandError> {
         load_percent: published.load_permille.swap(0, Ordering::Relaxed) as f64 / 10.0,
         loops,
         meters,
+        monitor: monitor_status(inner),
     })
 }
 
@@ -760,7 +966,7 @@ pub fn audio_set_chain(
             48_000,
             &slots,
             limit,
-            (track, sound),
+            (track.map(plugin::PluginTarget::Track), sound),
         )
         .problems);
     };
@@ -772,7 +978,14 @@ pub fn audio_set_chain(
         return Ok(Vec::new());
     }
     let rate = engine.lock().unwrap().sample_rate() as u32;
-    let chain = build_chain(&state, &state.plugins, rate, &slots, limit, (track, sound));
+    let chain = build_chain(
+        &state,
+        &state.plugins,
+        rate,
+        &slots,
+        limit,
+        (track.map(plugin::PluginTarget::Track), sound),
+    );
     let problems = chain.problems.clone();
     let old = {
         let mut engine = engine.lock().unwrap();
@@ -818,7 +1031,7 @@ pub fn audio_set_sounds(
                     48_000,
                     s,
                     MAX_TRACK_EFFECTS,
-                    (Some(track), sound),
+                    (Some(plugin::PluginTarget::Track(track)), sound),
                 )
                 .problems
             })
@@ -835,7 +1048,7 @@ pub fn audio_set_sounds(
                 rate,
                 s,
                 MAX_TRACK_EFFECTS,
-                (Some(track), sound),
+                (Some(plugin::PluginTarget::Track(track)), sound),
             )
         })
         .collect();
@@ -1064,6 +1277,112 @@ pub fn audio_clear_backing(state: State<'_, AudioState>) {
     }
 }
 
+/// Adds, changes or removes (`null`) the monitor track. The same input and
+/// channel keep the open input (the UI sends this after every song load);
+/// switching it off lets go of the input. An input that cannot be opened is
+/// reported in the status, not as an error.
+#[tauri::command(async)]
+pub fn audio_set_monitor(
+    monitor: Option<MonitorData>,
+    state: State<'_, AudioState>,
+) -> Result<Option<MonitorStatus>, CommandError> {
+    if let Some(m) = &monitor {
+        m.params.validate().map_err(audio_error)?;
+        if m.device
+            .as_ref()
+            .is_some_and(|d| d.chars().count() > input::MAX_NAME)
+        {
+            return Err(audio_error("The input's name is too long"));
+        }
+    }
+    let mut inner = state.inner.lock().unwrap();
+    match monitor {
+        None => {
+            inner.monitor = None;
+            inner.monitor_chain.clear();
+        }
+        Some(data) => match inner.monitor.as_mut() {
+            Some(m) => m.data = data,
+            None => {
+                inner.monitor = Some(MonitorState {
+                    data,
+                    input: None,
+                    opened_for: (None, None),
+                    error: None,
+                })
+            }
+        },
+    }
+    sync_monitor(&state, &mut inner, false)?;
+    Ok(monitor_status(&inner))
+}
+
+/// The monitor track's effect chain. A knob turn updates the running blocks;
+/// anything else builds the chain again and crossfades. Returns the blocks
+/// that cannot run.
+#[tauri::command(async)]
+pub fn audio_set_monitor_chain(
+    slots: Vec<EffectSlot>,
+    state: State<'_, AudioState>,
+) -> Result<Vec<BlockProblem>, CommandError> {
+    check_chain(&slots, MAX_TRACK_EFFECTS)?;
+    let mut inner = state.inner.lock().unwrap();
+    inner.monitor_chain = slots.clone();
+    let Some(engine) = inner.engine.clone() else {
+        return Ok(build_chain(
+            &state,
+            &state.plugins,
+            48_000,
+            &slots,
+            MAX_TRACK_EFFECTS,
+            (plugin::MONITOR_TARGET, 0),
+        )
+        .problems);
+    };
+    let rate = {
+        let mut e = engine.lock().unwrap();
+        if e.monitor_mut().is_some_and(|m| m.update_chain(&slots)) {
+            return Ok(Vec::new());
+        }
+        e.sample_rate() as u32
+    };
+    let chain = build_chain(
+        &state,
+        &state.plugins,
+        rate,
+        &slots,
+        MAX_TRACK_EFFECTS,
+        (plugin::MONITOR_TARGET, 0),
+    );
+    let problems = chain.problems.clone();
+    let old = engine
+        .lock()
+        .unwrap()
+        .monitor_mut()
+        .and_then(|m| m.set_chain(chain));
+    drop(old);
+    Ok(problems)
+}
+
+/// How many channels an input has (none: the system's default input).
+#[tauri::command(async)]
+pub fn audio_input_channels(device: Option<String>) -> Result<u16, CommandError> {
+    if device
+        .as_ref()
+        .is_some_and(|d| d.chars().count() > input::MAX_NAME)
+    {
+        return Err(audio_error("The input's name is too long"));
+    }
+    input::input_channels(device.as_deref()).map_err(|e| {
+        let kind = if e.ends_with("is not connected.") {
+            ErrorKind::NotFound
+        } else {
+            ErrorKind::Audio
+        };
+        CommandError::new(kind, e)
+    })
+}
+
 #[tauri::command]
 pub fn audio_state(state: State<'_, AudioState>) -> Result<EngineStatus, CommandError> {
     status(&state.inner.lock().unwrap())
@@ -1111,6 +1430,16 @@ pub fn audio_render(
     if !(8_000..=192_000).contains(&sample_rate) {
         return Err(audio_error("Unsupported sample rate"));
     }
+    let mut engine = offline_engine(&state, sample_rate)?;
+    Ok(tauri::ipc::Response::new(render_offline(
+        &mut engine,
+        MAX_RENDER_FRAMES,
+    )))
+}
+
+/// An engine with the loaded song and the current mix, for an export. It
+/// has no monitor track: the live input is never exported.
+fn offline_engine(state: &AudioState, sample_rate: u32) -> Result<Engine, CommandError> {
     let inner = state.inner.lock().unwrap();
     let font = inner
         .sound_font_id
@@ -1127,13 +1456,9 @@ pub fn audio_render(
     engine.load(song).map_err(audio_error)?;
     let synths = engine.synth_source();
     let offline_plugins = state.plugins.for_offline();
-    let prepared = prepare(&state, &inner, sample_rate, &synths, None, &offline_plugins);
+    let prepared = prepare(state, &inner, sample_rate, &synths, None, &offline_plugins);
     drop(install(&mut engine, &inner, prepared));
-    drop(inner);
-    Ok(tauri::ipc::Response::new(render_offline(
-        &mut engine,
-        MAX_RENDER_FRAMES,
-    )))
+    Ok(engine)
 }
 
 /// Plays `engine` from the start to the end of the song (with its release
@@ -1253,7 +1578,25 @@ pub fn plugins_set_enabled(
     if enabled && !was_enabled {
         // Songs opened while plugins were off have dry, omitted blocks.
         // Rebuild them off the audio thread when the user opts in.
-        configure_running(&state, &state.inner.lock().unwrap())?;
+        let inner = state.inner.lock().unwrap();
+        configure_running(&state, &inner)?;
+        if let Some(engine) = &inner.engine {
+            let rate = engine.lock().unwrap().sample_rate() as u32;
+            let chain = build_chain(
+                &state,
+                &state.plugins,
+                rate,
+                &inner.monitor_chain,
+                MAX_TRACK_EFFECTS,
+                (plugin::MONITOR_TARGET, 0),
+            );
+            let old = engine
+                .lock()
+                .unwrap()
+                .monitor_mut()
+                .and_then(|m| m.set_chain(chain));
+            drop(old);
+        }
     }
     Ok(())
 }
@@ -1268,12 +1611,12 @@ pub fn plugins_enabled(state: State<'_, AudioState>) -> bool {
 /// master bus), by its stored spec and display name.
 fn plugin_slot(
     inner: &Inner,
-    track: Option<usize>,
+    track: Option<plugin::PluginTarget>,
     sound: usize,
     index: usize,
 ) -> Result<(plugin::PluginSpec, String), CommandError> {
     let slots = match track {
-        Some(t) => {
+        Some(plugin::PluginTarget::Track(t)) => {
             check_track(t)?;
             inner
                 .track_sounds
@@ -1281,6 +1624,7 @@ fn plugin_slot(
                 .and_then(|sounds| sounds.get(sound))
                 .ok_or_else(|| audio_error("No such sound"))?
         }
+        Some(plugin::PluginTarget::Bus(plugin::PluginBus::Monitor)) => &inner.monitor_chain,
         None => &inner.master_chain,
     };
     let slot = slots
@@ -1309,7 +1653,7 @@ fn plugin_slot(
 /// Resolves to the editor size in pixels.
 #[tauri::command(async)]
 pub fn plugin_open_editor(
-    track: Option<usize>,
+    track: Option<plugin::PluginTarget>,
     sound: Option<usize>,
     index: usize,
     state: State<'_, AudioState>,
@@ -1335,7 +1679,7 @@ pub fn plugin_open_editor(
 /// Closes the plugin's editor window.
 #[tauri::command]
 pub fn plugin_close_editor(
-    track: Option<usize>,
+    track: Option<plugin::PluginTarget>,
     sound: Option<usize>,
     index: usize,
     state: State<'_, AudioState>,
@@ -1358,7 +1702,7 @@ pub fn plugin_close_editor(
 /// in the block so the song recalls it.
 #[tauri::command(async)]
 pub fn plugin_save_state(
-    track: Option<usize>,
+    track: Option<plugin::PluginTarget>,
     sound: Option<usize>,
     index: usize,
     state: State<'_, AudioState>,
@@ -1393,7 +1737,7 @@ pub fn plugin_save_state(
 /// Live status of every plugin block of a chain (latency, health).
 #[tauri::command]
 pub fn audio_plugin_info(
-    track: Option<usize>,
+    track: Option<plugin::PluginTarget>,
     sound: Option<usize>,
     state: State<'_, AudioState>,
 ) -> Result<Vec<plugin::PluginSlotInfo>, CommandError> {
@@ -1408,7 +1752,7 @@ pub fn audio_plugin_info(
             .unwrap_or(48_000.0),
     );
     let slots = match track {
-        Some(t) => {
+        Some(plugin::PluginTarget::Track(t)) => {
             check_track(t)?;
             inner
                 .track_sounds
@@ -1417,6 +1761,7 @@ pub fn audio_plugin_info(
                 .cloned()
                 .unwrap_or_default()
         }
+        Some(plugin::PluginTarget::Bus(plugin::PluginBus::Monitor)) => inner.monitor_chain.clone(),
         None => inner.master_chain.clone(),
     };
     let mut out = Vec::new();
@@ -1468,4 +1813,44 @@ pub fn audio_plugin_info(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exports_never_have_the_monitor_track() {
+        let sonivox = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../node_modules/@coderline/alphatab/dist/soundfont/sonivox.sf3");
+        let bytes = std::fs::read(sonivox).expect("run `pnpm install` first");
+        let font = Arc::new(parse_sound_font(&bytes).unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let state = AudioState::new(dir.path().join("library"));
+        {
+            let mut inner = state.inner.lock().unwrap();
+            inner.sound_fonts.insert("sonivox".into(), font);
+            let song = SongData {
+                division: 960,
+                events: vec![[0, 0x90, 60, 100], [960, 0x80, 60, 0]],
+                tempos: vec![(0, 120.0)],
+                metronome: vec![],
+                tracks: vec![vec![0]],
+                end_tick: 960,
+            };
+            inner.song = Some(Arc::new(Song::from_data(&song).unwrap()));
+            inner.monitor = Some(MonitorState {
+                data: MonitorData {
+                    params: MonitorParams::default(),
+                    device: None,
+                    channel: None,
+                },
+                input: None,
+                opened_for: (None, None),
+                error: None,
+            });
+        }
+        let engine = offline_engine(&state, 48_000).unwrap();
+        assert!(engine.monitor().is_none());
+    }
 }

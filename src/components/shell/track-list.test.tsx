@@ -404,6 +404,134 @@ describe("TrackList", () => {
     expect(within(container).queryByRole("button", { name: "Add audio track" })).toBeNull();
   });
 
+  describe("monitor track", () => {
+    const baseMix = () => mixFromScore(parseScore(fixtureBytes("practice-song.gp")).summary);
+    const monitorTrack = {
+      enabled: true,
+      volume: 0.8,
+      pan: 0,
+      mute: false,
+      solo: false,
+      eq: { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 },
+      effects: [],
+    };
+    const opened = {
+      open: true,
+      device: "Scarlett 2i2 USB",
+      channels: 2,
+      sampleRate: 48_000,
+      latencyMs: 8.6,
+      error: null,
+    };
+    const monitorProps = (over: object = {}) => ({
+      status: opened,
+      engineOn: true,
+      inputName: "Scarlett 2i2 USB",
+      channel: 0,
+      onAdd: vi.fn(),
+      onRemove: vi.fn(),
+      onEffects: vi.fn(),
+      onInputSettings: vi.fn(),
+      ...over,
+    });
+
+    it("is added from the header", async () => {
+      const monitor = monitorProps();
+      const { user } = setup({ monitor });
+      await user.click(screen.getByRole("button", { name: "Add monitor track" }));
+      expect(monitor.onAdd).toHaveBeenCalled();
+      expect(screen.queryByTestId("monitor-track-row")).toBeNull();
+    });
+
+    it("is mixed like a track and shows what it listens to", async () => {
+      const onChange = vi.fn();
+      const monitor = monitorProps();
+      const base = baseMix();
+      const { user, container } = setup({
+        onChange,
+        monitor,
+        mix: { ...base, monitor: monitorTrack },
+      });
+      const row = within(container).getByTestId("monitor-track-row");
+      expect(within(container).queryByRole("button", { name: "Add monitor track" })).toBeNull();
+      expect(within(row).getByRole("status")).toHaveTextContent(
+        "Scarlett 2i2 USB · input 1 · about 9 ms delay",
+      );
+      expect(within(row).getByRole("meter", { name: "Input level, monitor track" })).toBeVisible();
+
+      await user.click(within(row).getByRole("button", { name: "Mute the monitor track" }));
+      expect(onChange).toHaveBeenLastCalledWith({
+        type: "monitor",
+        value: { ...monitorTrack, mute: true },
+      });
+      await user.click(within(row).getByRole("button", { name: "Solo the monitor track" }));
+      expect(onChange).toHaveBeenLastCalledWith({
+        type: "monitor",
+        value: { ...monitorTrack, solo: true },
+      });
+      await user.click(
+        within(row).getByRole("switch", { name: "Monitor track on (listen to the input)" }),
+      );
+      expect(onChange).toHaveBeenLastCalledWith({
+        type: "monitor",
+        value: { ...monitorTrack, enabled: false },
+      });
+      expect(within(row).getByRole("slider", { name: "Volume, monitor track" })).toBeVisible();
+      expect(within(row).getByRole("slider", { name: "Pan, monitor track" })).toBeVisible();
+      await expectNoA11yViolations();
+    });
+
+    it("opens the same pedalboard as the tracks, Settings for the input, and is removed", async () => {
+      const monitor = monitorProps();
+      const base = baseMix();
+      const { user, container } = setup({ monitor, mix: { ...base, monitor: monitorTrack } });
+      const row = within(container).getByTestId("monitor-track-row");
+      const menu = within(row).getByRole("button", { name: "Actions for the monitor track" });
+
+      await user.click(menu);
+      await user.click(screen.getByRole("menuitem", { name: "Effects (pedalboard)…" }));
+      expect(monitor.onEffects).toHaveBeenCalledTimes(1);
+      await user.click(within(row).getByRole("button", { name: "Effects of the monitor track" }));
+      expect(monitor.onEffects).toHaveBeenCalledTimes(2);
+
+      await user.click(menu);
+      await user.click(screen.getByRole("menuitem", { name: "Input settings…" }));
+      expect(monitor.onInputSettings).toHaveBeenCalledWith(menu);
+
+      await user.click(menu);
+      await user.click(screen.getByRole("menuitem", { name: "Remove" }));
+      expect(monitor.onRemove).toHaveBeenCalled();
+    });
+
+    it.each([
+      [
+        { status: { ...opened, open: false, error: "“Scarlett 2i2 USB” is not connected." } },
+        /is not connected/,
+      ],
+      [{ engineOn: false }, /native audio engine/],
+      [{ status: null }, "Opening Scarlett 2i2 USB…"],
+      [{ channel: null }, "Scarlett 2i2 USB · all inputs · about 9 ms delay"],
+    ])("says why it is silent, or what it hears (%#)", (over, text) => {
+      const base = baseMix();
+      const { container } = setup({
+        monitor: monitorProps(over),
+        mix: { ...base, monitor: monitorTrack },
+      });
+      const row = within(container).getByTestId("monitor-track-row");
+      expect(within(row).getByRole("status")).toHaveTextContent(text);
+    });
+
+    it("dims the tracks while it is soloed", () => {
+      const base = baseMix();
+      const { container } = setup({
+        monitor: monitorProps(),
+        mix: { ...base, monitor: { ...monitorTrack, solo: true } },
+      });
+      // Every bar of the soloed-out tracks is drawn faded.
+      expect(container.querySelector(".opacity-100")).toBeNull();
+    });
+  });
+
   it("says whether the mix is saved and when pan waits for a pause", () => {
     const { rerender, ...rest } = setup({ saved: true, playing: true });
     expect(screen.getByText(/Mix changes are saved for this song/)).toBeInTheDocument();

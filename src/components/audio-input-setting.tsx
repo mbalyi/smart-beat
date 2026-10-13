@@ -9,14 +9,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { nativeEngineAvailable } from "@/lib/audio/engine-preference";
 import {
   audioInputErrorText,
   listAudioInputs,
   revealAudioInputs,
   storeAudioInput,
+  storeAudioInputChannel,
   useAudioInput,
+  useAudioInputChannel,
+  type AudioInput,
   type AudioInputList,
 } from "@/lib/audio/input";
+import { errorText } from "@/lib/errors";
+import { engineInputChannels } from "@/lib/tauri";
 
 /** The select's value for the system's default input (input ids are long hashes). */
 const SYSTEM_DEFAULT = "system-default";
@@ -43,6 +49,75 @@ function useAudioInputList(version: number) {
     };
   }, [version]);
   return list;
+}
+
+/** The select's value for all channels mixed. */
+const ALL_CHANNELS = "all";
+
+/**
+ * Which channel of the input the monitor track plays (desktop app only): input 1 or input 2 of
+ * an audio interface, or all of them mixed. Hidden for an input with one channel.
+ */
+function InputChannelSetting({ input }: { input: AudioInput | null }) {
+  const labelId = useId();
+  const descriptionId = useId();
+  const channel = useAudioInputChannel();
+  const device = input?.label ?? null;
+  const [count, setCount] = useState<{ device: string | null; channels: number } | null>(null);
+  const [error, setError] = useState<{ device: string | null; text: string } | null>(null);
+  useEffect(() => {
+    let active = true;
+    engineInputChannels(device).then(
+      (channels) => active && setCount({ device, channels }),
+      (e: unknown) => active && setError({ device, text: errorText(e) }),
+    );
+    return () => {
+      active = false;
+    };
+  }, [device]);
+
+  if (error?.device === device) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        The input's channels can't be listed: {error.text}
+      </p>
+    );
+  }
+  const channels = count?.device === device ? count.channels : 0;
+  if (channels < 2) return null;
+  const value = channel === null ? ALL_CHANNELS : String(Math.min(channel, channels - 1));
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <span id={labelId} className="font-medium">
+          Channel
+        </span>
+        <Select
+          value={value}
+          onValueChange={(v) => storeAudioInputChannel(v === ALL_CHANNELS ? null : Number(v))}
+        >
+          <SelectTrigger
+            aria-labelledby={labelId}
+            aria-describedby={descriptionId}
+            className="w-64 max-w-full"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Array.from({ length: channels }, (_, i) => (
+              <SelectItem key={i} value={String(i)}>
+                Input {i + 1}
+              </SelectItem>
+            ))}
+            <SelectItem value={ALL_CHANNELS}>All inputs mixed</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <p id={descriptionId} className="text-sm text-muted-foreground">
+        What the monitor track plays. Choose the input your instrument is plugged into.
+      </p>
+    </div>
+  );
 }
 
 /** Which input Smart Beat listens to, for the whole app (Settings). */
@@ -76,7 +151,10 @@ export function AudioInputSetting({ stacked = false }: { stacked?: boolean } = {
 
   const choose = (value: string) => {
     setError(null);
-    storeAudioInput(options.find((i) => i.deviceId === value) ?? null);
+    const next = options.find((i) => i.deviceId === value) ?? null;
+    // Another input starts on its first channel.
+    if (next?.label !== chosen?.label) storeAudioInputChannel(0);
+    storeAudioInput(next);
   };
 
   const reveal = async () => {
@@ -136,9 +214,10 @@ export function AudioInputSetting({ stacked = false }: { stacked?: boolean } = {
         </Select>
       </div>
       <p id={descriptionId} className="text-sm text-muted-foreground">
-        What the tuner listens to. If your instrument is plugged into an audio interface, choose the
-        interface.
+        What the tuner and the monitor track listen to. If your instrument is plugged into an audio
+        interface, choose the interface.
       </p>
+      {nativeEngineAvailable() && <InputChannelSetting input={match || missing || null} />}
       {list.namesHidden && (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <p className="text-sm text-muted-foreground">

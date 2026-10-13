@@ -1429,3 +1429,118 @@ fn plugin_enable_and_per_block_commands_are_wired_over_ipc() {
     invoke_with(&window, "plugins_set_enabled", json!({"enabled": false})).unwrap();
     assert_eq!(invoke(&window, "plugins_enabled").unwrap(), false);
 }
+
+#[test]
+fn monitor_track_commands_check_their_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_audio(dir.path());
+    let window = main_window(&app);
+    let params = json!({ "enabled": true, "volume": 0.8, "pan": 0.0, "mute": false,
+                         "solo": false, "eq": { "lowDb": 0.0, "midDb": 0.0, "midHz": 1000.0, "highDb": 0.0 } });
+    // Without a running engine the settings are kept and nothing opens yet.
+    let status = invoke_with(
+        &window,
+        "audio_set_monitor",
+        json!({ "monitor": { "params": params, "device": "Scarlett 2i2 USB", "channel": 0 } }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(status["open"], false);
+    assert_eq!(status["error"], Value::Null);
+    let loud =
+        json!({ "monitor": { "params": { "volume": 2.0 }, "device": null, "channel": null } });
+    assert_eq!(
+        invoke_with(&window, "audio_set_monitor", loud).unwrap_err()["kind"],
+        "audio"
+    );
+    let long = "x".repeat(300);
+    let named = json!({ "monitor": { "params": params, "device": long, "channel": null } });
+    assert!(invoke_with(&window, "audio_set_monitor", named).is_err());
+    assert!(
+        invoke_with(
+            &window,
+            "audio_input_channels",
+            json!({ "device": "x".repeat(300) })
+        )
+        .is_err()
+    );
+
+    let delay = json!({ "enabled": true, "type": "delay", "timeMs": 200.0 });
+    let problems = invoke_with(
+        &window,
+        "audio_set_monitor_chain",
+        json!({ "slots": [delay] }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(problems, json!([]));
+    let too_many = json!({ "slots": vec![delay; 7] });
+    assert!(invoke_with(&window, "audio_set_monitor_chain", too_many).is_err());
+
+    let removed = invoke_with(&window, "audio_set_monitor", json!({ "monitor": null }))
+        .unwrap()
+        .deserialize::<Value>()
+        .unwrap();
+    assert_eq!(removed, Value::Null);
+    // The engine's status has no monitor track then.
+    let state = invoke(&window, "audio_state").unwrap();
+    assert!(state.get("monitor").is_none_or(Value::is_null));
+}
+
+#[test]
+fn monitor_plugins_have_their_own_ipc_destination() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_audio(dir.path());
+    let window = main_window(&app);
+    let slot = json!({"type":"plugin","enabled":true,"format":"clap",
+        "path":"/nonexistent/monitor.clap","name":"Monitor amp", "state":""});
+    invoke_with(&window, "audio_set_monitor_chain", json!({"slots": [slot]})).unwrap();
+    let info = invoke_with(
+        &window,
+        "audio_plugin_info",
+        json!({"track":"monitor","sound":0}),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(info[0]["name"], "Monitor amp");
+    let master = invoke_with(
+        &window,
+        "audio_plugin_info",
+        json!({"track":null,"sound":0}),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(master, json!([]));
+    for cmd in ["plugin_open_editor", "plugin_save_state"] {
+        let error =
+            invoke_with(&window, cmd, json!({"track":"monitor","sound":0,"index":0})).unwrap_err();
+        assert!(
+            error["message"]
+                .as_str()
+                .unwrap()
+                .contains("enable this plugin block"),
+            "{error}"
+        );
+    }
+    invoke_with(
+        &window,
+        "plugin_close_editor",
+        json!({"track":"monitor","sound":0,"index":0}),
+    )
+    .unwrap();
+    assert!(invoke_with(&window, "audio_plugin_info", json!({"track":"unknown"})).is_err());
+    invoke_with(&window, "audio_set_monitor", json!({"monitor":null})).unwrap();
+    let info = invoke_with(
+        &window,
+        "audio_plugin_info",
+        json!({"track":"monitor","sound":0}),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(info, json!([]));
+}

@@ -445,10 +445,27 @@ pub struct PluginWorker {
     lag_blocks: AtomicU32,
 }
 
+/// Plugin destination over IPC: a score track number or the live monitor bus.
+/// A null destination still means the master bus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PluginTarget {
+    Track(usize),
+    Bus(PluginBus),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginBus {
+    Monitor,
+}
+
+pub const MONITOR_TARGET: Option<PluginTarget> = Some(PluginTarget::Bus(PluginBus::Monitor));
+
 /// Address of one live block. Export workers use a separate pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PluginInstance {
-    pub track: Option<usize>,
+    pub track: Option<PluginTarget>,
     pub sound: usize,
     pub index: usize,
 }

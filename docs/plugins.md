@@ -181,3 +181,12 @@ made with the staging hook disabled. Both `pnpm tauri build` and
   Help › Open-Source Licenses (see [`licensing.md`](licensing.md)).
 - The plugins themselves stay the user's own files: Smart Beat never ships,
   uploads, or redistributes them.
+
+## Live input monitoring
+
+Open **Practice mix**, enable **Monitor my input**, and choose **Input effects…**.
+The monitor pedalboard supports the same VST3 and CLAP blocks as score tracks.
+Each monitor plugin owns its own helper, editor and saved preset, independently
+of the same plugin on a score track or master bus. Plugin status includes added
+latency. Monitoring is live even while playback is stopped and is excluded from
+exports. Choose **Backing only** to play your part with the other score tracks.

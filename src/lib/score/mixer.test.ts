@@ -17,6 +17,7 @@ import {
   storeFocusCutDb,
   initialMix,
   isAudible,
+  isMonitorAudible,
   mixerReducer,
   mixFromScore,
   panLabel,
@@ -133,6 +134,55 @@ describe("isAudible", () => {
       false,
     ]);
     expect(isAudible(state, 9)).toBe(false);
+  });
+});
+
+describe("the monitor track", () => {
+  const monitor = {
+    enabled: true,
+    volume: 0.8,
+    pan: 0,
+    mute: false,
+    solo: false,
+    eq: FLAT_EQ,
+    effects: [] as ReturnType<typeof defaultEffect>[],
+  };
+
+  it("is added within range and removed", () => {
+    const added = mixerReducer(mix([{}]), {
+      type: "monitor",
+      value: { ...monitor, volume: 3, pan: -4, effects: Array.from({ length: 9 }, () => GATE) },
+    });
+    expect(added.monitor).toMatchObject({ volume: 1, pan: -1 });
+    expect(added.monitor!.effects).toHaveLength(6);
+    expect(mixerReducer(added, { type: "monitor", value: null })).not.toHaveProperty("monitor");
+  });
+
+  it("stays through a mix reset and a track move", () => {
+    const state = { ...mix([{}, {}]), monitor };
+    expect(mixerReducer(state, { type: "reset", mix: mix([{}, {}]) }).monitor).toEqual(monitor);
+    expect(withTrackStates(state, trackStates(state).reverse()).monitor).toEqual(monitor);
+  });
+
+  it("is heard unless off, muted or silenced by another solo, and its solo silences the tracks", () => {
+    expect(isMonitorAudible({ ...mix([{}]), monitor })).toBe(true);
+    expect(isMonitorAudible({ ...mix([{}]), monitor: { ...monitor, enabled: false } })).toBe(false);
+    expect(isMonitorAudible({ ...mix([{}]), monitor: { ...monitor, mute: true } })).toBe(false);
+    expect(isMonitorAudible({ ...mix([{ solo: true }]), monitor })).toBe(false);
+    expect(
+      isMonitorAudible({ ...mix([{ solo: true }]), monitor: { ...monitor, solo: true } }),
+    ).toBe(true);
+    expect(isMonitorAudible(mix([{}]))).toBe(false);
+    const soloed = { ...mix([{}]), monitor: { ...monitor, solo: true } };
+    expect(isAudible(soloed, 0)).toBe(false);
+    // A solo on a monitor track that is off silences nothing.
+    expect(isAudible({ ...soloed, monitor: { ...soloed.monitor, enabled: false } }, 0)).toBe(true);
+  });
+
+  it("is not changed by the practice modes: the player always hears themselves", () => {
+    const state = { ...mix([{}, {}]), monitor, focus: 0 };
+    expect(heardMix({ ...state, focusMode: "onlyMe" }).monitor).toEqual(monitor);
+    expect(heardMix({ ...state, focusMode: "backing" }).monitor).toEqual(monitor);
   });
 });
 

@@ -52,6 +52,7 @@ export class FakeScorePlayer {
     peaksPerSecond: 100,
   }));
   clearBacking = vi.fn(async () => {});
+  setMonitorInput = vi.fn();
   seekToBar = vi.fn();
   destroy = vi.fn();
   refresh = vi.fn();

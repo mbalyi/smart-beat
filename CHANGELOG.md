@@ -8,6 +8,8 @@ Release notes for every version. The release workflow publishes the section that
 
 - Third-party plugin hosting (VST3 and CLAP) as opt-in pedalboard blocks. Plugins are off by default, scanned from the standard folders, and each runs in its own helper process outside the app: the audio thread never waits (missed answers pass dry and recover in the background), the added latency (the plugin's own plus the measured handover, about one render callback) shows under the block in milliseconds, and Save settings stores the preset in the song (up to 4 MB).
 
+- Added: a monitor track that plays your audio input live, for example a guitar plugged into an audio interface. It has its own pedalboard, EQ, volume, pan, mute and solo, like the other tracks, and you hear it while the song plays or stands still. Switch on **Monitor my input** in **Practice mix**, then use **Input settings…** and **Input effects…** to choose your input and rig. The mixer also has an **Add monitor track** button. Choose the input in Help › Settings…, and with a multi-input interface the input channel. A new monitor track starts with the effects and levels of the last one. Monitoring enables "Native engine with effects". Its pedalboard supports VST3 and CLAP plugins with independent editors and presets. It works alongside every score playback mode, and it is not part of exports.
+
 ## [1.0.0]
 
 The first stable release of Smart Beat. It is the first public beta plus updated dependencies:
