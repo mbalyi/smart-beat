@@ -121,7 +121,9 @@ export function Knob({
   const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
     const start = drag.current;
     drag.current = null;
-    onDraggingChange?.(false);
+    // Only report the end of a drag that started: a pointer up on a disabled
+    // knob never called onDraggingChange(true).
+    if (start) onDraggingChange?.(false);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     if (start?.moved) onValueCommit?.(value);
   };

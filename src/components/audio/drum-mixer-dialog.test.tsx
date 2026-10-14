@@ -71,6 +71,8 @@ describe("DrumMixerDialog", () => {
     await user.keyboard("{ArrowRight}{ArrowRight}");
     expect(mixer()!.elements.find((e) => e.id === "ride")!.pan).toBeCloseTo(0.02);
     expect(within(dialog).getByText("R 2%")).toBeInTheDocument();
+    // The knob has no label of its own: the badge below already shows the value.
+    expect(within(dialog).queryByText("Right 2%")).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("radio", { name: "Mono" }));
     expect(mixer()!.stereo).toBe(false);
     expect(within(dialog).getByRole("slider", { name: "Pan, Ride" })).toHaveAttribute(

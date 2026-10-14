@@ -108,6 +108,30 @@ describe("PanControl", () => {
     expect(onValueCommit).not.toHaveBeenCalled();
   });
 
+  it("does not recentre a disabled slider", () => {
+    const { slider, onValueChange, onValueCommit } = setup({ value: -0.5, disabled: true });
+
+    fireEvent.doubleClick(slider);
+    expect(onValueChange).not.toHaveBeenCalled();
+    expect(onValueCommit).not.toHaveBeenCalled();
+  });
+
+  it("recentres on a double-click away from the thumb", () => {
+    const { slider, onValueChange, onValueCommit } = setup({ value: 0.5 });
+    const track = withWidth(slider);
+
+    // The first click of the double-click jumps the thumb and commits that
+    // value; the second lands on the same value and commits nothing.
+    fireEvent.pointerDown(track, { button: 0, clientX: 30, pointerId: 1, detail: 1 });
+    fireEvent.pointerUp(track, { pointerId: 1, detail: 1 });
+    fireEvent.pointerDown(track, { button: 0, clientX: 30, pointerId: 2, detail: 2 });
+    fireEvent.pointerUp(track, { pointerId: 2, detail: 2 });
+    fireEvent.doubleClick(slider, { detail: 2 });
+
+    expect(onValueChange.mock.calls.map(([v]) => v)).toEqual([-0.4, 0]);
+    expect(onValueCommit.mock.calls.map(([v]) => v)).toEqual([-0.4, 0]);
+  });
+
   it("is a knob in the drum mixer, speaking and recentring the same way", async () => {
     const { slider, onValueChange } = setup({ label: "Pan, Kick", variant: "knob", value: -0.4 });
     expect(slider).toHaveAttribute("aria-valuetext", "Left 40%");
@@ -115,5 +139,12 @@ describe("PanControl", () => {
     fireEvent.doubleClick(slider);
     expect(onValueChange).toHaveBeenLastCalledWith(0);
     await expectNoA11yViolations();
+  });
+
+  it("shows no label of its own for the knob by default", () => {
+    setup({ label: "Pan, Kick", variant: "knob", value: -0.4 });
+
+    expect(screen.queryByText("Kick")).toBeNull();
+    expect(screen.queryByText("Left 40%")).toBeNull();
   });
 });

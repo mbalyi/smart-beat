@@ -96,6 +96,21 @@ test.describe("mixer (#37)", () => {
     await pan.dblclick();
     await expect(pan).toHaveAttribute("aria-valuetext", "Centre");
     await expect(bubble).toHaveText("C");
+
+    // The bubble follows the thumb at the ends too, where Radix insets the
+    // thumb by half its width to keep it inside the track.
+    await pan.focus();
+    for (const [key, text] of [
+      ["End", "R 100%"],
+      ["Home", "L 100%"],
+    ] as const) {
+      await app.keyboard.press(key);
+      await expect(bubble).toHaveText(text);
+      const thumb = (await pan.boundingBox())!;
+      const tip = (await bubble.boundingBox())!;
+      const drift = Math.abs(thumb.x + thumb.width / 2 - (tip.x + tip.width / 2));
+      expect(drift, `${key}: bubble ${drift}px from the thumb`).toBeLessThan(1.5);
+    }
   });
 
   test("pressed Mute is red and Solo green in the dark theme too (mixer and practice bar)", async ({
