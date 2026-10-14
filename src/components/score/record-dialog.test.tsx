@@ -427,14 +427,11 @@ describe("RecordDialog", () => {
   describe("the instruments", () => {
     const crowns = () => dialog().querySelectorAll("[data-crown]");
 
-    it("offers guitar, bass and piano, and drums as a disabled button that is coming soon", () => {
+    it("offers guitar, bass, piano and drums", () => {
       setup();
-      for (const name of ["Guitar", "Bass", "Piano"]) {
+      for (const name of ["Guitar", "Bass", "Piano", "Drums"]) {
         expect(screen.getByRole("radio", { name })).toBeEnabled();
       }
-      const drums = screen.getByRole("radio", { name: "Drums, coming soon" });
-      expect(drums).toBeDisabled();
-      expect(drums).toHaveTextContent("Soon");
     });
 
     it("puts a crown on the instrument that is chosen, and only on that one", async () => {
@@ -447,10 +444,37 @@ describe("RecordDialog", () => {
       await user.click(screen.getByRole("radio", { name: "Piano" }));
       expect(inside("Guitar")).toBeNull();
       expect(inside("Piano")).not.toBeNull();
-      expect(
-        screen.getByRole("radio", { name: "Drums, coming soon" }).querySelector("[data-crown]"),
-      ).toBeNull();
+      expect(inside("Drums")).toBeNull();
       expect(crowns().length).toBe(1);
+    });
+
+    it("records drums: no tuning, the drum tracks only, and the drum accuracy in the note", async () => {
+      const { user, onRecord } = setup({
+        targets: [
+          { index: 0, name: "Lead", kind: "stringed" },
+          { index: 1, name: "Kit", kind: "drums" },
+        ],
+        defaultTrack: 0,
+      });
+      await user.click(screen.getByRole("radio", { name: "Drums" }));
+      expect(screen.queryByRole("combobox", { name: "Strings" })).toBeNull();
+      expect(within(dialog()).getByText(/Drums are written to a drum track/)).toHaveTextContent(
+        "Toms and crash cymbals are experimental",
+      );
+      await user.click(screen.getByRole("combobox", { name: "Track" }));
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Kit", "New track"]);
+      await user.click(screen.getByRole("option", { name: "Kit" }));
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      expect(onRecord).toHaveBeenCalledWith(
+        expect.objectContaining({ instrument: "drums", track: 1 }),
+      );
+      expect(readInstrument()).toBe("drums");
+    });
+
+    it("asks for no tuning when a new drum track is made", async () => {
+      const { user } = setup({ targets: [], defaultTrack: null });
+      await user.click(screen.getByRole("radio", { name: "Drums" }));
+      expect(screen.queryByRole("combobox", { name: "Tuning" })).toBeNull();
     });
 
     it("records a bass with its own strings and remembers them apart from the guitar's", async () => {

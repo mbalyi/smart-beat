@@ -103,8 +103,8 @@ export interface DroppedTake {
 export interface RecordTarget {
   index: number;
   name: string;
-  /** Strings take a guitar or bass take, pitched tracks (piano and the like) a piano take. */
-  kind: "stringed" | "pitched";
+  /** Strings take a guitar or bass take, pitched tracks (piano and the like) a piano take, drum tracks a drum take. */
+  kind: "stringed" | "pitched" | "drums";
 }
 
 const NEW_TRACK = "new";
@@ -304,7 +304,8 @@ function RecordForm({
         : NEW_TRACK,
   );
   // Only the tracks that suit the instrument; the choice falls back when it was for the other one.
-  const kind = piano ? "pitched" : "stringed";
+  const drums = instrument === "drums";
+  const kind = drums ? "drums" : piano ? "pitched" : "stringed";
   const shown = targets.filter((t) => t.kind === kind);
   const track =
     chosenTrack === NEW_TRACK || shown.some((t) => String(t.index) === chosenTrack)
@@ -346,7 +347,7 @@ function RecordForm({
   }, [droppedFile]);
 
   const newTrack = mode === "click" && track === NEW_TRACK;
-  const askTuning = !piano && (mode !== "click" || newTrack);
+  const askTuning = !piano && !drums && (mode !== "click" || newTrack);
   const presets = tuningPresets(tuningChoice.strings);
   // The microphone of a laptop hears the click from its speakers.
   const builtIn = looksBuiltIn(input?.label ?? (heard.kind === "listening" ? heard.device : null));
@@ -394,13 +395,14 @@ function RecordForm({
   const description = {
     click: "Play along with the click. Your take replaces the bars it covers on the track.",
     free: "Play freely. Smart Beat finds the tempo and opens your take as a new song.",
-    file: `Choose a ${piano ? "piano" : "guitar"} recording. Smart Beat finds the tempo and opens it as a new song.`,
+    file: `Choose a ${piano ? "piano" : drums ? "drum" : "guitar"} recording. Smart Beat finds the tempo and opens it as a new song.`,
   }[mode];
 
   const instruments = [
     { value: "guitar", label: "Guitar", icon: iconGuitar },
     { value: "bass", label: "Bass", icon: iconBass },
     { value: "piano", label: "Piano", icon: iconPiano },
+    { value: "drums", label: "Drums", icon: iconDrums },
   ] as const;
   const modes = [
     { value: "click", label: "Click", icon: WandSparklesIcon },
@@ -463,23 +465,6 @@ function RecordForm({
               </span>
             </ToggleGroupItem>
           ))}
-          <ToggleGroupItem
-            value="drums"
-            disabled
-            aria-label="Drums, coming soon"
-            className={cn(INSTRUMENT_BUTTON, "pl-1.5 text-muted-foreground disabled:opacity-60")}
-          >
-            <img
-              src={iconDrums}
-              alt=""
-              aria-hidden="true"
-              className="-mt-1 size-12 shrink-0 object-contain"
-            />
-            <span className="flex flex-col items-center">
-              Drums
-              <span className="mt-0.5 rounded-md bg-muted px-2 text-xs font-medium">Soon</span>
-            </span>
-          </ToggleGroupItem>
         </ToggleGroup>
 
         <div className="grid gap-x-6 gap-y-5 sm:grid-cols-[1fr_1px_1fr]">

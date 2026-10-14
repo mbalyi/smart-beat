@@ -60,13 +60,13 @@ describe("record preferences", () => {
     }
   });
 
-  it("starts on the guitar and remembers guitar, bass or piano", () => {
+  it("starts on the guitar and remembers guitar, bass, piano or drums", () => {
     expect(readInstrument()).toBe("guitar");
-    for (const instrument of ["bass", "piano", "guitar"] as const) {
+    for (const instrument of ["bass", "piano", "drums", "guitar"] as const) {
       storeInstrument(instrument);
       expect(readInstrument()).toBe(instrument);
     }
-    localStorage.setItem("smart-beat:record-instrument", "drums");
+    localStorage.setItem("smart-beat:record-instrument", "kazoo");
     expect(readInstrument()).toBe("guitar");
   });
 

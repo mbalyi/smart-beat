@@ -22,6 +22,7 @@ import {
   writeRecording,
   type RecordedNote,
 } from "@/lib/import/recording";
+import { cleanDrumHits } from "@/lib/import/drum-hits";
 import { splitHands } from "@/lib/import/hand-split";
 import type { ScoreEditor } from "@/lib/score/editor";
 import type { Score } from "@/lib/score/model";
@@ -29,6 +30,8 @@ import { getPreset } from "@/lib/score/music";
 
 /** The General MIDI program a take is written with, so a bass sounds like a bass. */
 function programFor(instrument: RecordInstrument): number {
+  // A drum track plays on channel 10, where the program is not used.
+  if (instrument === "drums") return 0;
   if (instrument === "piano") return getPreset("piano")?.program ?? 0;
   if (instrument === "bass") return getPreset("bass-4")?.program ?? 33;
   return getPreset("guitar")?.program ?? 25;
@@ -51,6 +54,7 @@ const MIN_TAKE_SECONDS = 0.5;
 
 /** The name of a new track and of the song a free take becomes. */
 const RECORDING_NAME = "Recording";
+const DRUMS_NAME = "Drums";
 
 /** What the recording bar shows. */
 export type RecordPhase =
@@ -111,10 +115,10 @@ export interface RecordToTab {
   cancel: () => void;
 }
 
-/** The stringed and pitched tracks of a score, which a take can go on. */
+/** The stringed, pitched and drum tracks of a score, which a take can go on. */
 export function recordTargets(tracks: readonly { name: string; kind: string }[]): RecordTarget[] {
   return tracks.flatMap((t, index) =>
-    t.kind === "stringed" || t.kind === "pitched"
+    t.kind === "stringed" || t.kind === "pitched" || t.kind === "drums"
       ? [{ index, name: t.name, kind: t.kind as RecordTarget["kind"] }]
       : [],
   );
@@ -212,9 +216,9 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
       sampleRate,
       (fraction) => setPhase({ kind: "transcribing", fraction }),
       // The note finder hears a bass like a guitar.
-      instrument === "piano" ? "piano" : "guitar",
+      instrument === "piano" || instrument === "drums" ? instrument : "guitar",
       engine,
-    );
+    ).then((notes) => (instrument === "drums" ? cleanDrumHits(notes) : notes));
 
   const finish = async () => {
     const current = session.current;
@@ -275,10 +279,12 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     instrument: RecordInstrument,
   ) => {
     const piano = instrument === "piano";
+    const drums = instrument === "drums";
     const result = recordingToSong(heard, {
-      tuning: piano ? undefined : tuning,
-      trackName: RECORDING_NAME,
+      tuning: piano || drums ? undefined : tuning,
+      trackName: drums ? DRUMS_NAME : RECORDING_NAME,
       program: programFor(instrument),
+      drums,
     });
     envRef.current.onOpenScore(result.score, name);
     return result.warnings;
@@ -510,6 +516,7 @@ function addToScore(
         : editor.structureTargets(),
     () => {
       const piano = setup.instrument === "piano";
+      const drums = setup.instrument === "drums";
       if (setup.track === null) {
         // A piano gets a track for each hand; a hand with no notes gets none.
         const hands = piano ? splitHands(notes) : null;
@@ -521,22 +528,24 @@ function addToScore(
         for (const { list, bass } of used) {
           const created = createTrack(
             score,
-            piano
-              ? {
-                  kind: "pitched",
-                  name: uniqueTrackName(
-                    score,
-                    bass ? `${RECORDING_NAME} (left hand)` : RECORDING_NAME,
-                  ),
-                  program: programFor("piano"),
-                  bass,
-                }
-              : {
-                  kind: "stringed",
-                  name: uniqueTrackName(score, RECORDING_NAME),
-                  program: programFor(setup.instrument),
-                  tuning: setup.tuning,
-                },
+            drums
+              ? { kind: "drums", name: uniqueTrackName(score, DRUMS_NAME), program: 0 }
+              : piano
+                ? {
+                    kind: "pitched",
+                    name: uniqueTrackName(
+                      score,
+                      bass ? `${RECORDING_NAME} (left hand)` : RECORDING_NAME,
+                    ),
+                    program: programFor("piano"),
+                    bass,
+                  }
+                : {
+                    kind: "stringed",
+                    name: uniqueTrackName(score, RECORDING_NAME),
+                    program: programFor(setup.instrument),
+                    tuning: setup.tuning,
+                  },
           );
           insertTrack(score, created);
           const at = score.tracks.indexOf(created);

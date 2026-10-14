@@ -519,6 +519,25 @@
         ];
         // A piano take also has a right-hand melody note above middle C.
         if (options.headers["x-instrument"] === "piano") notes.push([72, 0.0, 0.5]);
+        // A drum take is hits, with General MIDI drum numbers as the pitch: kick, closed hat,
+        // snare, closed hat.
+        if (options.headers["x-instrument"] === "drums") {
+          return {
+            notes: [
+              [36, 0.0],
+              [42, 0.0],
+              [42, 0.5],
+              [38, 1.0],
+              [42, 1.0],
+              [42, 1.5],
+            ].map(([pitch, start]) => ({
+              pitch,
+              start: start + state.shift,
+              end: start + state.shift + 0.12,
+              velocity: 90,
+            })),
+          };
+        }
         return {
           notes: notes.map(([pitch, start, end]) => ({
             pitch,

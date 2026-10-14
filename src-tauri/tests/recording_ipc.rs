@@ -101,7 +101,7 @@ fn accepts_an_instrument_header() {
         .iter()
         .flat_map(|s| s.to_le_bytes())
         .collect();
-    for instrument in ["piano", "guitar", "something else"] {
+    for instrument in ["piano", "guitar", "drums", "something else"] {
         let body = request_as(
             &window,
             "transcribe_recording",
@@ -190,4 +190,74 @@ fn cancel_without_a_run_does_nothing() {
     )
     .unwrap();
     assert_eq!(body.deserialize::<Value>().unwrap(), Value::Null);
+}
+
+/// A kick (a falling 55 Hz thump) every half second, then a snare-like burst of noise between.
+fn drum_take(rate: u32) -> Vec<f32> {
+    let mut out = vec![0.0f32; rate as usize * 4];
+    let mut noise = 5u32;
+    for k in 0..6 {
+        let at = (0.5 + 0.5 * f64::from(k)) * f64::from(rate);
+        for n in 0..(0.4 * f64::from(rate)) as usize {
+            let t = n as f32 / rate as f32;
+            let pitch = 55.0 * (1.0 + 0.6 * (-t * 60.0).exp());
+            if let Some(slot) = out.get_mut(at as usize + n) {
+                *slot += (2.0 * std::f32::consts::PI * pitch * t).sin() * (-t * 14.0).exp() * 0.8;
+            }
+        }
+    }
+    let (mut a, mut b, mut c) = (0.0f32, 0.0f32, 0.0f32);
+    for n in 0..(0.25 * f64::from(rate)) as usize {
+        let at = (3.5 * f64::from(rate)) as usize + n;
+        let t = n as f32 / rate as f32;
+        noise = noise.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        a += 0.35 * ((noise >> 8) as f32 / (1u32 << 24) as f32 - 0.5 - a);
+        b += 0.35 * (a - b);
+        c += 0.08 * (b - c);
+        out[at] += (b - c) * 6.0 * (-t * 22.0).exp();
+    }
+    out
+}
+
+#[test]
+fn drums_come_back_as_general_midi_drum_numbers() {
+    let app = app();
+    let window = main_window(&app);
+    let bytes: Vec<u8> = drum_take(22_050)
+        .iter()
+        .flat_map(|s| s.to_le_bytes())
+        .collect();
+    let body = request_as(
+        &window,
+        "transcribe_recording",
+        InvokeBody::Raw(bytes),
+        Some("22050"),
+        &[("x-instrument", "drums")],
+    )
+    .expect("transcription failed");
+    let notes = body.deserialize::<Value>().unwrap()["notes"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let of = |pitch: u64| {
+        notes
+            .iter()
+            .filter(|n| n["pitch"] == pitch)
+            .map(|n| n["start"].as_f64().unwrap())
+            .collect::<Vec<_>>()
+    };
+    let kicks = of(36);
+    assert_eq!(kicks.len(), 6, "{notes:#?}");
+    for (k, start) in kicks.iter().enumerate() {
+        assert!((start - (0.5 + 0.5 * k as f64)).abs() < 0.03, "{kicks:?}");
+    }
+    let snares = of(38);
+    assert_eq!(snares.len(), 1, "{notes:#?}");
+    assert!((snares[0] - 3.5).abs() < 0.03, "{snares:?}");
+    // The same shape as every other take: camelCase, with an end and a velocity.
+    assert!(
+        notes
+            .iter()
+            .all(|n| n["end"].is_f64() && n["velocity"].is_u64())
+    );
 }
