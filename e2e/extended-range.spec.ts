@@ -122,6 +122,7 @@ test.describe("extended-range guitars (#43)", () => {
     const warning = dialog.getByTestId("low-sound-warning");
     await expect(warning).toContainText("The lowest string (F#1)");
     await expect(warning).toContainText("High quality");
+    await app.mouse.move(0, 0); // the button under the last click shows its hover colour
     await expectNoA11yViolations(app);
     // ...and it goes away with seven strings.
     await dialog.getByRole("combobox", { name: "Strings" }).click();
