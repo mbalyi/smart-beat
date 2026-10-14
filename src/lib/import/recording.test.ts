@@ -258,3 +258,92 @@ describe("writeRecording", () => {
     expect(history.depth).toBe(1);
   });
 });
+
+describe("piano takes", () => {
+  const piano = { trackName: "Piano", program: 0 };
+  const written = (score: Score, track: number) =>
+    score.tracks[track]!.staves[0]!.bars.flatMap((bar) =>
+      bar.voices[0]!.beats.flatMap((beat) => beat.notes.map((n) => n.octave * 12 + n.tone)),
+    );
+
+  /** Quarter notes at 100 BPM: a melody above middle C and a bass line below it. */
+  function twoHands(bars: number) {
+    const quarter = 60 / 100;
+    const notes: RecordedNote[] = [];
+    for (let i = 0; i < bars * 4; i++) {
+      notes.push(note(i * quarter, [72, 76, 74, 71][i % 4]!, quarter * 0.9));
+      if (i % 2 === 0) notes.push(note(i * quarter, [48, 43][(i / 2) % 2]!, quarter * 1.8));
+    }
+    return notes;
+  }
+
+  it("free mode writes the right hand and the left hand as two tracks, no frets", () => {
+    const { score } = recordingToSong(twoHands(4), piano);
+    expect(score.tracks.map((t) => t.name)).toEqual(["Piano", "Piano (left hand)"]);
+    const [right, left] = score.tracks.map((t) => t.staves[0]!);
+    expect(right!.showTablature).toBe(false);
+    expect(left!.showTablature).toBe(false);
+    expect(right!.bars[0]!.clef).toBe(model.Clef.G2);
+    expect(left!.bars[0]!.clef).toBe(model.Clef.F4);
+    expect(new Set(written(score, 0))).toEqual(new Set([71, 72, 74, 76]));
+    expect(new Set(written(score, 1))).toEqual(new Set([43, 48]));
+  });
+
+  it("a one-handed take makes one track", () => {
+    const { score } = recordingToSong(
+      twoHands(4).filter((n) => n.pitch > 60),
+      piano,
+    );
+    expect(score.tracks.map((t) => t.name)).toEqual(["Piano"]);
+  });
+
+  it("does not move or drop piano notes the way strings would", () => {
+    const wide = [note(0, 24), note(0.6, 100), note(1.2, 36), note(1.8, 96)];
+    const { score, warnings } = recordingToSong(wide, piano);
+    expect(warnings.join(" ")).not.toMatch(/octave|outside/);
+    expect(new Set([...written(score, 0), ...written(score, 1)])).toEqual(
+      new Set([24, 100, 36, 96]),
+    );
+  });
+
+  it("click mode writes a take into a piano track", () => {
+    const score = createSong();
+    while (score.masterBars.length < 4) appendMasterBar(score);
+    const track = createTrack(score, { kind: "pitched", name: "Keys", program: 0 });
+    insertTrack(score, track);
+    refinish(score);
+    const index = score.tracks.length - 1;
+    const { warnings } = writeRecording(score, twoHands(2).slice(0, 4), {
+      trackIndex: index,
+      startBar: 1,
+    });
+    expect(warnings).toEqual([]);
+    expect(written(score, index)).toEqual([72, 48, 76, 74]);
+  });
+
+  it("click mode writes the sounding pitch on a transposing piano track", () => {
+    for (const transposition of [12, -12, 2]) {
+      const score = createSong();
+      while (score.masterBars.length < 2) appendMasterBar(score);
+      const track = createTrack(score, { kind: "pitched", name: "Keys", program: 0 });
+      track.staves[0]!.transpositionPitch = transposition;
+      insertTrack(score, track);
+      refinish(score);
+      const index = score.tracks.length - 1;
+      writeRecording(score, [note(0, 72), note(0.5, 41, 0.4)], { trackIndex: index, startBar: 0 });
+      const sounded = score.tracks[index]!.staves[0]!.bars.flatMap((bar) =>
+        bar.voices[0]!.beats.flatMap((beat) => beat.notes.map((n) => n.realValue)),
+      );
+      expect(sounded, `transposition ${transposition}`).toEqual([72, 41]);
+    }
+  });
+
+  it("click mode still refuses a drum track", () => {
+    const score = createSong();
+    const drums = createTrack(score, { kind: "drums", name: "Drums", program: 0 });
+    insertTrack(score, drums);
+    expect(() =>
+      writeRecording(score, [note(0, 40)], { trackIndex: score.tracks.length - 1, startBar: 0 }),
+    ).toThrow(/string or piano/);
+  });
+});

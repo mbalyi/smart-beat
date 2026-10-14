@@ -43,6 +43,8 @@ const click = (over: Partial<RecordSetup> = {}): RecordSetup => ({
   playOthers: true,
   alignToBeat: true,
   tuning: TUNING,
+  instrument: "guitar",
+  engine: "standard",
   ...over,
 });
 
@@ -145,7 +147,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("recordTargets", () => {
-  it("lists the stringed tracks with their index", () => {
+  it("lists the stringed and pitched tracks with their index", () => {
     expect(
       recordTargets([
         { name: "Drums", kind: "drums" },
@@ -154,8 +156,9 @@ describe("recordTargets", () => {
         { name: "Bass", kind: "stringed" },
       ]),
     ).toEqual([
-      { index: 1, name: "Lead" },
-      { index: 3, name: "Bass" },
+      { index: 1, name: "Lead", kind: "stringed" },
+      { index: 2, name: "Keys", kind: "pitched" },
+      { index: 3, name: "Bass", kind: "stringed" },
     ]);
   });
 });
@@ -225,6 +228,8 @@ describe("click mode", () => {
       expect.any(Float32Array),
       48_000,
       expect.any(Function),
+      "guitar",
+      "standard",
     );
     expect(hook.editor.run).toHaveBeenCalledTimes(1);
     expect(hook.editor.run.mock.calls[0]![0]).toBe("Record to tab");
@@ -407,6 +412,142 @@ describe("keys", () => {
   });
 });
 
+describe("piano", () => {
+  // The take starts at 900 ms and playback at 1000 ms, as in the click mode tests: with the real
+  // clock the notes could land before the first bar on a fast machine.
+  beforeEach(() => {
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+  });
+  const highNote = { start: 3.15, end: 3.5, pitch: 72, velocity: 90 };
+  const lowNote = { start: 3.15, end: 3.5, pitch: 40, velocity: 90 };
+
+  it("asks the transcriber for piano settings and opens two hands as a new song", async () => {
+    const song = { score: { title: "x" }, warnings: [] };
+    vi.mocked(recordingToSong).mockReturnValue(song as never);
+    vi.mocked(transcribeRecording).mockResolvedValue([highNote, lowNote] as never);
+    const hook = setup();
+    fakeRecorder();
+    await begin(hook, click({ mode: "free", track: null, instrument: "piano" }));
+    await stop(hook);
+    await waitFor(() => expect(transcribeRecording).toHaveBeenCalled());
+    await waitFor(() => expect(hook.onOpenScore).toHaveBeenCalled());
+    expect(transcribeRecording).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      48_000,
+      expect.any(Function),
+      "piano",
+      "standard",
+    );
+    expect(recordingToSong).toHaveBeenCalledWith(expect.anything(), {
+      tuning: undefined,
+      trackName: "Recording",
+      program: 0,
+    });
+    expect(hook.onOpenScore).toHaveBeenCalledWith(song.score, "Recording");
+  });
+
+  it("asks for the high-accuracy model when it was chosen", async () => {
+    vi.mocked(recordingToSong).mockReturnValue({ score: {}, warnings: [] } as never);
+    vi.mocked(transcribeRecording).mockResolvedValue([highNote] as never);
+    const hook = setup();
+    fakeRecorder();
+    await begin(
+      hook,
+      click({ mode: "free", track: null, instrument: "piano", engine: "accurate" }),
+    );
+    await stop(hook);
+    await waitFor(() => expect(transcribeRecording).toHaveBeenCalled());
+    expect(transcribeRecording).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      48_000,
+      expect.any(Function),
+      "piano",
+      "accurate",
+    );
+  });
+
+  it("writes a new piano take on a track for each hand, in one undo step", async () => {
+    const { createTrack, insertTrack } = await import("@/lib/score/tracks");
+    vi.mocked(createTrack).mockClear();
+    vi.mocked(transcribeRecording).mockResolvedValue([highNote, lowNote] as never);
+    const hook = setup();
+    vi.mocked(insertTrack).mockImplementation((score, added) => void score.tracks.push(added));
+    fakeRecorder();
+    await begin(hook, click({ track: null, instrument: "piano" }));
+    await stop(hook);
+    await waitFor(() => expect(hook.editor.run).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createTrack).mock.calls.map(([, spec]) => spec)).toEqual([
+      expect.objectContaining({ kind: "pitched", name: "Recording", program: 0, bass: false }),
+      expect.objectContaining({
+        kind: "pitched",
+        name: "Recording (left hand)",
+        program: 0,
+        bass: true,
+      }),
+    ]);
+    const writes = vi.mocked(writeRecording).mock.calls;
+    expect(writes.map(([, notes]) => notes.map((n) => n.pitch))).toEqual([[72], [40]]);
+    expect(writes.map(([, , options]) => options.trackIndex)).toEqual([2, 3]);
+    expect(hook.editor.placeCursorOnTrack).toHaveBeenCalledWith(2);
+  });
+
+  it("makes no track for a hand that played nothing", async () => {
+    const { createTrack } = await import("@/lib/score/tracks");
+    vi.mocked(createTrack).mockClear();
+    vi.mocked(transcribeRecording).mockResolvedValue([highNote] as never);
+    const hook = setup();
+    fakeRecorder();
+    await begin(hook, click({ track: null, instrument: "piano" }));
+    await stop(hook);
+    await waitFor(() => expect(createTrack).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("bass", () => {
+  const note = { start: 3.15, end: 3.5, pitch: 40, velocity: 90 };
+
+  it("is heard like a guitar, and opens the song with a bass sound and its strings", async () => {
+    vi.mocked(recordingToSong).mockReturnValue({ score: {}, warnings: [] } as never);
+    vi.mocked(transcribeRecording).mockResolvedValue([note] as never);
+    const hook = setup();
+    fakeRecorder();
+    const tuning = [43, 38, 33, 28, 23];
+    await begin(hook, click({ mode: "free", track: null, instrument: "bass", tuning }));
+    await stop(hook);
+    await waitFor(() => expect(hook.onOpenScore).toHaveBeenCalled());
+    expect(transcribeRecording).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      48_000,
+      expect.any(Function),
+      "guitar",
+      "standard",
+    );
+    expect(recordingToSong).toHaveBeenCalledWith(expect.anything(), {
+      tuning,
+      trackName: "Recording",
+      program: 33,
+    });
+  });
+
+  it("gets a new bass track with the strings and the bass sound", async () => {
+    const { createTrack, insertTrack } = await import("@/lib/score/tracks");
+    vi.mocked(createTrack).mockClear();
+    vi.mocked(transcribeRecording).mockResolvedValue([note] as never);
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+    const hook = setup();
+    vi.mocked(insertTrack).mockImplementation((score, added) => void score.tracks.push(added));
+    fakeRecorder();
+    const tuning = [43, 38, 33, 28];
+    await begin(hook, click({ track: null, instrument: "bass", tuning }));
+    await stop(hook);
+    await waitFor(() => expect(createTrack).toHaveBeenCalledTimes(1));
+    expect(createTrack).toHaveBeenCalledWith(
+      hook.score,
+      expect.objectContaining({ kind: "stringed", program: 33, tuning }),
+    );
+  });
+});
+
 describe("free mode", () => {
   it("does not play the song, and opens the take as a new song", async () => {
     const song = { score: { title: "x" }, warnings: ["Tempo is a guess."] };
@@ -573,17 +714,26 @@ describe("an existing recording", () => {
     });
     const hook = setup();
     act(() => hook.result.current.open());
-    act(() => hook.result.current.fromFile(file("Solo take.wav"), TUNING));
+    act(() => hook.result.current.fromFile(file("Solo take.wav"), TUNING, "guitar", "standard"));
     expect(hook.result.current.dialogOpen).toBe(false);
     await waitFor(() => expect(hook.onOpenScore).toHaveBeenCalledWith(song.score, "Solo take"));
     expect(transcribeRecording).toHaveBeenCalledWith(
       expect.any(Float32Array),
       22_050,
       expect.any(Function),
+      "guitar",
+      "standard",
     );
     expect(recordingToSong).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ tuning: TUNING }),
+    );
+    expect(transcribeRecording).toHaveBeenCalledWith(
+      expect.anything(),
+      22_050,
+      expect.any(Function),
+      "guitar",
+      "standard",
     );
     expect(hook.player.playPause).not.toHaveBeenCalled();
     expect(track).toHaveBeenCalledWith("record_to_tab");
@@ -593,7 +743,7 @@ describe("an existing recording", () => {
   it("reports a file that can't be read, and opens nothing", async () => {
     vi.mocked(decodeTake).mockRejectedValue(new Error("Couldn't read this file as audio."));
     const hook = setup();
-    act(() => hook.result.current.fromFile(file(), TUNING));
+    act(() => hook.result.current.fromFile(file(), TUNING, "guitar", "standard"));
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
         "Couldn't turn this recording into tab",

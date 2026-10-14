@@ -22,13 +22,14 @@ test.skip(!features["record-2-tab"], "record-2-tab is off in src/lib/features.js
 declare global {
   interface Window {
     __recordTranscription: {
-      requests: { sampleRate: number; bytes: number }[];
+      requests: { sampleRate: number; bytes: number; instrument?: string; engine?: string }[];
       cancelled: number;
       hold: boolean;
       fail: string | null;
       shift: number;
       release: (() => void) | null;
     };
+    __pianoModel: { installed: boolean; downloads: number; fail: string | null };
   }
 }
 
@@ -89,7 +90,7 @@ test.describe("Record to Tab (#108)", () => {
       await newSong(app);
       const dialog = await openRecordDialog(app);
       await expect(dialog.getByRole("meter", { name: "Input level" })).toBeVisible();
-      await expect(dialog.getByText("Play a few notes to check the level.")).toBeVisible();
+      await expect(dialog.getByText("Asking for the microphone…")).toBeHidden();
       await expectNoA11yViolations(app);
       await dialog.getByRole("radio", { name: "File" }).click();
       await expect(dialog.getByRole("region", { name: "Audio drop area" })).toBeVisible();
@@ -104,6 +105,145 @@ test.describe("Record to Tab (#108)", () => {
       await app.keyboard.press("Space");
     });
   }
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`the piano dialog has no WCAG violations in ${colorScheme} mode`, async ({ app }) => {
+      await app.emulateMedia({ colorScheme });
+      await newSong(app);
+      const dialog = await openRecordDialog(app);
+      await dialog.getByRole("radio", { name: "Piano" }).click();
+      // A piano has no strings to tune.
+      await expect(dialog.getByRole("combobox", { name: "Tuning" })).toBeHidden();
+      await expectNoA11yViolations(app);
+      await dialog.getByRole("radio", { name: "File" }).click();
+      await expect(dialog.getByText(/Choose a piano recording/)).toBeVisible();
+      await expectNoA11yViolations(app);
+    });
+  }
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`the high-accuracy piano model choice has no WCAG violations in ${colorScheme} mode`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await newSong(app);
+      const dialog = await openRecordDialog(app);
+      await dialog.getByRole("radio", { name: "Piano" }).click();
+      await dialog.getByRole("radio", { name: "High accuracy" }).click();
+      await expect(dialog.getByRole("button", { name: "Download the model" })).toBeVisible();
+      await expectNoA11yViolations(app);
+    });
+  }
+
+  test("piano: the high-accuracy model is downloaded once, then used", async ({ app }) => {
+    test.slow();
+    await newSong(app);
+    const dialog = await openRecordDialog(app);
+    await dialog.getByRole("radio", { name: "Piano" }).click();
+    await dialog.getByRole("radio", { name: "High accuracy" }).click();
+    // Without the model, recording waits for the download.
+    await expect(dialog.getByText(/one-time download of 57 MB/)).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Record" })).toBeDisabled();
+    await dialog.getByRole("button", { name: "Download the model" }).click();
+    await expect(dialog.getByRole("button", { name: "Download the model" })).toBeHidden();
+    await expect(dialog.getByRole("button", { name: "Record" })).toBeEnabled();
+    expect(await app.evaluate(() => window.__pianoModel.downloads)).toBe(1);
+
+    await dialog.getByRole("radio", { name: "Free" }).click();
+    await dialog.getByRole("button", { name: "Record" }).click();
+    const bar = app.getByRole("region", { name: "Recording" });
+    await expect(bar.getByRole("status")).toHaveText("Recording");
+    await untilRecorded(app);
+    await bar.getByRole("button", { name: "Stop" }).click();
+    await expect
+      .poll(() => app.evaluate(() => window.__recordTranscription.requests.length))
+      .toBe(1);
+    const [request] = await app.evaluate(() => window.__recordTranscription.requests);
+    expect(request).toMatchObject({ instrument: "piano", engine: "transkun" });
+    await expect(app.getByRole("heading", { level: 1, name: "Recording" })).toBeVisible();
+  });
+
+  test("piano: a failed model download is reported and can be tried again", async ({ app }) => {
+    await newSong(app);
+    await app.evaluate(() => {
+      window.__pianoModel.fail = "The downloaded piano model is not the expected file.";
+    });
+    const dialog = await openRecordDialog(app);
+    await dialog.getByRole("radio", { name: "Piano" }).click();
+    await dialog.getByRole("radio", { name: "High accuracy" }).click();
+    await dialog.getByRole("button", { name: "Download the model" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText(/not the expected file/);
+    await expect(dialog.getByRole("button", { name: "Record" })).toBeDisabled();
+    await app.evaluate(() => {
+      window.__pianoModel.fail = null;
+    });
+    await dialog.getByRole("button", { name: "Download the model" }).click();
+    await expect(dialog.getByRole("button", { name: "Record" })).toBeEnabled();
+  });
+
+  test("piano: free mode opens a right-hand and a left-hand track", async ({ app }) => {
+    test.slow();
+    await newSong(app);
+    const dialog = await openRecordDialog(app);
+    await dialog.getByRole("radio", { name: "Piano" }).click();
+    await dialog.getByRole("radio", { name: "Free" }).click();
+    await dialog.getByRole("button", { name: "Record" }).click();
+    const bar = app.getByRole("region", { name: "Recording" });
+    await expect(bar.getByRole("status")).toHaveText("Recording");
+    await untilRecorded(app);
+    await bar.getByRole("button", { name: "Stop" }).click();
+
+    await expect
+      .poll(() => app.evaluate(() => window.__recordTranscription.requests.length))
+      .toBe(1);
+    const [request] = await app.evaluate(() => window.__recordTranscription.requests);
+    expect(request!.instrument).toBe("piano");
+    await expect(app.getByRole("heading", { level: 1, name: "Recording" })).toBeVisible();
+    await expect(app.getByText("Recording (left hand)")).toBeVisible();
+    // Piano notes are staff notes: there are no fret numbers.
+    await expect.poll(() => tabNumbers(app)).toEqual([]);
+  });
+
+  test("the instruments: a crown on the chosen one, bass strings, and drums that are not there yet", async ({
+    app,
+  }) => {
+    await newSong(app);
+    const dialog = await openRecordDialog(app);
+    const crowned = (name: string) => dialog.getByRole("radio", { name }).locator("[data-crown]");
+    await expect(crowned("Guitar")).toHaveCount(1);
+    await expect(crowned("Piano")).toHaveCount(0);
+    await expect(dialog.getByRole("radio", { name: "Drums, coming soon" })).toBeDisabled();
+    await dialog.getByRole("radio", { name: "Bass" }).click();
+    await expect(crowned("Bass")).toHaveCount(1);
+    await expect(crowned("Guitar")).toHaveCount(0);
+    await dialog.getByRole("combobox", { name: "Track" }).click();
+    await app.getByRole("option", { name: "New track" }).click();
+    await expect(dialog.getByRole("combobox", { name: "Strings" })).toHaveText("4 strings");
+    await dialog.getByRole("radio", { name: "Piano" }).click();
+    await expect(crowned("Piano")).toHaveCount(1);
+    await expect(dialog.getByRole("combobox", { name: "Strings" })).toBeHidden();
+    await expect(dialog.getByRole("img", { name: "Beta" })).toBeVisible();
+  });
+
+  test("a record button in the header opens the dialog and names itself on hover", async ({
+    app,
+  }) => {
+    await newSong(app);
+    const record = app.getByRole("button", { name: "Record to Tab" });
+    await expect(record).toBeVisible();
+    // Next to the File menu, which still lists Record to Tab as well.
+    const file = app.getByRole("button", { name: "File" });
+    const [recordBox, fileBox] = [await record.boundingBox(), await file.boundingBox()];
+    expect(recordBox!.x).toBeLessThan(fileBox!.x);
+    expect(Math.abs(recordBox!.y - fileBox!.y)).toBeLessThan(10);
+    await record.hover();
+    await expect(app.getByRole("tooltip", { name: "Record to Tab…" })).toBeVisible();
+    await record.click();
+    await expect(app.getByRole("dialog", { name: /^Record to Tab/ })).toBeVisible();
+    await app.keyboard.press("Escape");
+    await file.click();
+    await expect(app.getByRole("menuitem", { name: /^Record to Tab…/ })).toBeVisible();
+  });
 
   test("the dialog works at a narrow width", async ({ app }) => {
     await app.setViewportSize({ width: 480, height: 600 });

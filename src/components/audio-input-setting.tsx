@@ -1,3 +1,4 @@
+import { MicIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,7 @@ function useAudioInputList(version: number) {
 }
 
 /** Which input Smart Beat listens to, for the whole app (Settings). */
-export function AudioInputSetting() {
+export function AudioInputSetting({ stacked = false }: { stacked?: boolean } = {}) {
   const labelId = useId();
   const descriptionId = useId();
   const chosen = useAudioInput();
@@ -93,8 +94,21 @@ export function AudioInputSetting() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <span id={labelId} className="font-medium">
+      <div
+        className={
+          stacked
+            ? "flex flex-col gap-2"
+            : "flex flex-wrap items-center justify-between gap-x-4 gap-y-2"
+        }
+      >
+        <span
+          id={labelId}
+          className={
+            stacked
+              ? "text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase"
+              : "font-medium"
+          }
+        >
           Input
         </span>
         <Select
@@ -104,8 +118,9 @@ export function AudioInputSetting() {
           <SelectTrigger
             aria-labelledby={labelId}
             aria-describedby={descriptionId}
-            className="w-64 max-w-full"
+            className={stacked ? "w-full rounded-md" : "w-64 max-w-full"}
           >
+            {stacked && <MicIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

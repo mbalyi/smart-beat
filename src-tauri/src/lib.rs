@@ -97,6 +97,8 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             transcription::cancel_transcription,
             recording::transcribe_recording,
             recording::cancel_recording_transcription,
+            recording::piano_model::piano_model_status,
+            recording::piano_model::download_piano_model,
             commands::update_menu_state,
             commands::track_event,
             commands::get_usage_settings,

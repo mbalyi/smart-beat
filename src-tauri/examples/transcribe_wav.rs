@@ -2,7 +2,38 @@
 //! `{ "notes": [...] }` as JSON on stdout. For comparing engines on recorded takes:
 //! `cargo run --release --example transcribe_wav -- take.wav`.
 
-use smart_beat_lib::recording::{BasicPitch, Transcribed, transcribe_take};
+use smart_beat_lib::recording::{
+    BasicPitch, NoteOptions, Transcribed, Transcriber, Transkun, transcribe_take,
+};
+
+/// A note option from an environment variable, for tuning runs: `ONSET`, `FRAME`, `MIN_MS`,
+/// `MIN_PITCH`, `MAX_PITCH`, `INSTRUMENT=piano` (the starting point), `INFER` (0 or 1) and `MELODIA` (0 or 1).
+fn env_options() -> NoteOptions {
+    let get = |name: &str| std::env::var(name).ok();
+    let mut options = if get("INSTRUMENT").as_deref() == Some("piano") {
+        NoteOptions::piano()
+    } else {
+        NoteOptions::default()
+    };
+    if let Some(v) = get("ONSET").and_then(|v| v.parse().ok()) {
+        options.onset_threshold = v;
+    }
+    if let Some(v) = get("FRAME").and_then(|v| v.parse().ok()) {
+        options.frame_threshold = v;
+    }
+    if let Some(v) = get("MIN_MS").and_then(|v| v.parse().ok()) {
+        options.min_note_ms = v;
+    }
+    options.min_pitch = get("MIN_PITCH").and_then(|v| v.parse().ok());
+    options.max_pitch = get("MAX_PITCH").and_then(|v| v.parse().ok());
+    if let Some(v) = get("INFER") {
+        options.infer_onsets = v == "1";
+    }
+    if let Some(v) = get("MELODIA") {
+        options.melodia = v == "1";
+    }
+    options
+}
 
 /// The samples of a WAV file as mono floats, and their rate.
 fn read_wav(path: &str) -> Result<(Vec<f32>, u32), Box<dyn std::error::Error>> {
@@ -32,8 +63,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     };
     let (samples, rate) = read_wav(&path)?;
+    // `TRANSKUN_DIR=<folder with the three model files>` runs the piano model instead.
+    let basic = BasicPitch {
+        options: env_options(),
+    };
+    let transkun = std::env::var("TRANSKUN_DIR")
+        .ok()
+        .map(|dir| Transkun::load(std::path::Path::new(&dir)))
+        .transpose()?;
+    let engine: &dyn Transcriber = match &transkun {
+        Some(model) => model,
+        None => &basic,
+    };
     let notes = transcribe_take(
-        &BasicPitch::default(),
+        engine,
         &samples,
         rate,
         &mut |fraction| eprint!("\r{:3.0}%", fraction * 100.0),

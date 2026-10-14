@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import type { RecordSetup, RecordTarget } from "@/components/score/record-dialog";
 import { audioInputErrorText, readAudioInput } from "@/lib/audio/input";
 import { decodeTake } from "@/lib/audio/decode-take";
+import type { PianoEngine, RecordInstrument } from "@/lib/audio/record-prefs";
 import { meterLevel, smoothLevel } from "@/lib/audio/level";
 import { startRecorder, type Recorder, type Take } from "@/lib/audio/recorder";
 import {
@@ -21,9 +22,17 @@ import {
   writeRecording,
   type RecordedNote,
 } from "@/lib/import/recording";
+import { splitHands } from "@/lib/import/hand-split";
 import type { ScoreEditor } from "@/lib/score/editor";
 import type { Score } from "@/lib/score/model";
 import { getPreset } from "@/lib/score/music";
+
+/** The General MIDI program a take is written with, so a bass sounds like a bass. */
+function programFor(instrument: RecordInstrument): number {
+  if (instrument === "piano") return getPreset("piano")?.program ?? 0;
+  if (instrument === "bass") return getPreset("bass-4")?.program ?? 33;
+  return getPreset("guitar")?.program ?? 25;
+}
 import type { ScorePlayer } from "@/lib/score/player";
 import type { LoopRange } from "@/lib/score/practice";
 import type { MixerSettings } from "@/lib/tauri";
@@ -87,8 +96,13 @@ export interface RecordToTab {
   open: (track?: number) => void;
   close: () => void;
   start: (setup: RecordSetup) => void;
-  /** Turns an existing recording into tab, as a new song with this tuning. */
-  fromFile: (file: File, tuning: number[]) => void;
+  /** Turns an existing recording into tab or piano staves, as a new song. */
+  fromFile: (
+    file: File,
+    tuning: number[],
+    instrument: RecordInstrument,
+    engine: PianoEngine,
+  ) => void;
   /** Ends the take and transcribes it. */
   stop: () => void;
   /** Ends the take and throws it away. */
@@ -97,9 +111,13 @@ export interface RecordToTab {
   cancel: () => void;
 }
 
-/** The stringed tracks of a score. */
+/** The stringed and pitched tracks of a score, which a take can go on. */
 export function recordTargets(tracks: readonly { name: string; kind: string }[]): RecordTarget[] {
-  return tracks.flatMap((t, index) => (t.kind === "stringed" ? [{ index, name: t.name }] : []));
+  return tracks.flatMap((t, index) =>
+    t.kind === "stringed" || t.kind === "pitched"
+      ? [{ index, name: t.name, kind: t.kind as RecordTarget["kind"] }]
+      : [],
+  );
 }
 
 /**
@@ -183,9 +201,19 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     }
   };
 
-  const notesOf = (samples: Float32Array, sampleRate: number) =>
-    transcribeRecording(samples, sampleRate, (fraction) =>
-      setPhase({ kind: "transcribing", fraction }),
+  const notesOf = (
+    samples: Float32Array,
+    sampleRate: number,
+    instrument: RecordInstrument,
+    engine: PianoEngine,
+  ) =>
+    transcribeRecording(
+      samples,
+      sampleRate,
+      (fraction) => setPhase({ kind: "transcribing", fraction }),
+      // The note finder hears a bass like a guitar.
+      instrument === "piano" ? "piano" : "guitar",
+      engine,
     );
 
   const finish = async () => {
@@ -207,7 +235,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
         toast.info("Nothing was recorded", { description: "Play for a few seconds, then stop." });
         return;
       }
-      const heard = await notesOf(take.samples, take.sampleRate);
+      const heard = await notesOf(take.samples, take.sampleRate, setup.instrument, setup.engine);
       if (heard.length === 0) {
         toast.info("No notes were heard", {
           description: "Check the level in the Record to Tab dialog, then try again.",
@@ -215,7 +243,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
         return;
       }
       if (setup.mode === "free") {
-        showWarnings(openAsSong(heard, setup.tuning, RECORDING_NAME));
+        showWarnings(openAsSong(heard, setup.tuning, RECORDING_NAME, setup.instrument));
       } else {
         // The song may have been edited while the take was transcribed: write into the song
         // and the track as they are now, or not at all.
@@ -240,30 +268,43 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
   };
 
   /** Free mode: opens the notes as a new song. Returns what could not be written exactly. */
-  const openAsSong = (heard: readonly RecordedNote[], tuning: number[], name: string) => {
+  const openAsSong = (
+    heard: readonly RecordedNote[],
+    tuning: number[],
+    name: string,
+    instrument: RecordInstrument,
+  ) => {
+    const piano = instrument === "piano";
     const result = recordingToSong(heard, {
-      tuning,
+      tuning: piano ? undefined : tuning,
       trackName: RECORDING_NAME,
-      program: getPreset("guitar")?.program ?? 25,
+      program: programFor(instrument),
     });
     envRef.current.onOpenScore(result.score, name);
     return result.warnings;
   };
 
   /** An existing recording: turns it into notes and opens them as a new song, like free mode. */
-  const fromFile = (file: File, tuning: number[]) => {
+  const fromFile = (
+    file: File,
+    tuning: number[],
+    instrument: RecordInstrument,
+    engine: PianoEngine,
+  ) => {
     if (transcribing.current || session.current) return;
     setDialog({ open: false, track: null });
     void transcribe(async () => {
       const decoded = await decodeTake(await file.arrayBuffer());
-      const heard = await notesOf(decoded.samples, decoded.sampleRate);
+      const heard = await notesOf(decoded.samples, decoded.sampleRate, instrument, engine);
       if (heard.length === 0) {
         toast.info("No notes were heard", {
-          description: "Choose a recording where the guitar is clear and loud enough.",
+          description: "Choose a recording where the instrument is clear and loud enough.",
         });
         return;
       }
-      showWarnings(openAsSong(heard, tuning, file.name.replace(/\.[^.]+$/, "") || RECORDING_NAME));
+      showWarnings(
+        openAsSong(heard, tuning, file.name.replace(/\.[^.]+$/, "") || RECORDING_NAME, instrument),
+      );
       track("record_to_tab");
     }, "Couldn't turn this recording into tab");
   };
@@ -458,7 +499,7 @@ function addToScore(
   setup: RecordSetup,
 ): { track: number; warnings: string[] } {
   let warnings: string[] = [];
-  let target = setup.track === null ? null : (score.tracks[setup.track] ?? null);
+  const target = setup.track === null ? null : (score.tracks[setup.track] ?? null);
   let index = setup.track ?? -1;
   editor.run(
     "Record to tab",
@@ -468,20 +509,51 @@ function addToScore(
         ? recordingTargets(score, index, setup.startBar)
         : editor.structureTargets(),
     () => {
+      const piano = setup.instrument === "piano";
       if (setup.track === null) {
-        target = createTrack(score, {
-          kind: "stringed",
-          name: uniqueTrackName(score, RECORDING_NAME),
-          program: getPreset("guitar")?.program ?? 25,
-          tuning: setup.tuning,
-        });
-        insertTrack(score, target);
+        // A piano gets a track for each hand; a hand with no notes gets none.
+        const hands = piano ? splitHands(notes) : null;
+        const made = (hands ? [hands.right, hands.left] : [notes]).map((list, hand) => ({
+          list,
+          bass: hand === 1,
+        }));
+        const used = made.filter(({ list }) => list.length > 0 || !hands);
+        for (const { list, bass } of used) {
+          const created = createTrack(
+            score,
+            piano
+              ? {
+                  kind: "pitched",
+                  name: uniqueTrackName(
+                    score,
+                    bass ? `${RECORDING_NAME} (left hand)` : RECORDING_NAME,
+                  ),
+                  program: programFor("piano"),
+                  bass,
+                }
+              : {
+                  kind: "stringed",
+                  name: uniqueTrackName(score, RECORDING_NAME),
+                  program: programFor(setup.instrument),
+                  tuning: setup.tuning,
+                },
+          );
+          insertTrack(score, created);
+          const at = score.tracks.indexOf(created);
+          if (index < 0) index = at;
+          warnings = [
+            ...warnings,
+            ...writeRecording(score, list, { trackIndex: at, startBar: setup.startBar }).warnings,
+          ];
+        }
+        warnings = [...new Set(warnings)];
+      } else {
+        index = score.tracks.indexOf(target!);
+        warnings = writeRecording(score, notes, {
+          trackIndex: index,
+          startBar: setup.startBar,
+        }).warnings;
       }
-      index = score.tracks.indexOf(target!);
-      warnings = writeRecording(score, notes, {
-        trackIndex: index,
-        startBar: setup.startBar,
-      }).warnings;
       editor.placeCursorOnTrack(index);
     },
   );

@@ -28,6 +28,16 @@ fn request(
     body: InvokeBody,
     rate: Option<&str>,
 ) -> Result<InvokeResponseBody, Value> {
+    request_as(window, cmd, body, rate, &[])
+}
+
+fn request_as(
+    window: &WebviewWindow<MockRuntime>,
+    cmd: &str,
+    body: InvokeBody,
+    rate: Option<&str>,
+    extra: &[(&str, &str)],
+) -> Result<InvokeResponseBody, Value> {
     let url = if cfg!(windows) {
         "http://tauri.localhost"
     } else {
@@ -36,6 +46,12 @@ fn request(
     let mut headers = tauri::http::HeaderMap::new();
     if let Some(rate) = rate {
         headers.insert("x-sample-rate", rate.parse().unwrap());
+    }
+    for (name, value) in extra {
+        headers.insert(
+            tauri::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+            value.parse().unwrap(),
+        );
     }
     get_ipc_response(
         window,
@@ -75,6 +91,64 @@ fn returns_notes_and_reports_progress() {
     let last = receiver.try_iter().last().expect("no progress event");
     let fraction = serde_json::from_str::<Value>(&last).unwrap()["fraction"].clone();
     assert_eq!(fraction, 1.0);
+}
+
+#[test]
+fn accepts_an_instrument_header() {
+    let app = app();
+    let window = main_window(&app);
+    let bytes: Vec<u8> = vec![0.0f32; 22_050 * 3]
+        .iter()
+        .flat_map(|s| s.to_le_bytes())
+        .collect();
+    for instrument in ["piano", "guitar", "something else"] {
+        let body = request_as(
+            &window,
+            "transcribe_recording",
+            InvokeBody::Raw(bytes.clone()),
+            Some("22050"),
+            &[("x-instrument", instrument)],
+        )
+        .expect("transcription failed");
+        assert_eq!(body.deserialize::<Value>().unwrap(), json!({ "notes": [] }));
+    }
+}
+
+#[test]
+fn the_piano_model_must_be_downloaded_before_it_is_used() {
+    let app = app();
+    let window = main_window(&app);
+    let bytes: Vec<u8> = vec![0.0f32; 22_050]
+        .iter()
+        .flat_map(|s| s.to_le_bytes())
+        .collect();
+    let refused = request_as(
+        &window,
+        "transcribe_recording",
+        InvokeBody::Raw(bytes),
+        Some("22050"),
+        &[("x-instrument", "piano"), ("x-engine", "transkun")],
+    )
+    .unwrap_err();
+    assert_eq!(refused["kind"], "audio");
+    assert_eq!(refused["message"], "Download the piano model first.");
+}
+
+#[test]
+fn reports_the_piano_model_status() {
+    let app = app();
+    let window = main_window(&app);
+    let status = request(
+        &window,
+        "piano_model_status",
+        InvokeBody::Json(json!({})),
+        None,
+    )
+    .expect("status failed")
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(status["installed"], false);
+    assert_eq!(status["bytes"], 56_799_421);
 }
 
 #[test]

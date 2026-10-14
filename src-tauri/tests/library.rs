@@ -226,7 +226,7 @@ fn rust_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
 }
 
 /// Imported sounds are copied into the app data folder and nowhere else, and only the
-/// usage counters and audio transcription can send anything anywhere.
+/// usage counters, audio transcription and the one-time piano model download touch the network.
 #[test]
 fn imported_sounds_stay_on_this_computer() {
     let dir = tempfile::tempdir().unwrap();
@@ -245,7 +245,8 @@ fn imported_sounds_stay_on_this_computer() {
     assert!(stored.contains(&format!("{id}.nam")), "{stored:?}");
 
     // Two network clients, both used from Rust, never from the page: `ureq` for the usage
-    // counters (src/telemetry.rs) and `reqwest` for audio transcription (src/transcription.rs).
+    // counters (src/telemetry.rs) and the piano model download (src/recording/piano_model.rs),
+    // and `reqwest` for audio transcription (src/transcription.rs).
     // No other client, no fs/http/shell permission, no remote host in the CSP. The updater
     // plugin makes its own request from Rust.
     let manifest = env!("CARGO_MANIFEST_DIR");
@@ -259,14 +260,31 @@ fn imported_sounds_stay_on_this_computer() {
     let src = std::path::Path::new(manifest).join("src");
     for file in rust_sources(&src) {
         let source = std::fs::read_to_string(&file).unwrap();
-        for (client, owner) in [("reqwest", "transcription.rs"), ("ureq", "telemetry.rs")] {
+        for (client, owners) in [
+            ("reqwest", &["transcription.rs"][..]),
+            ("ureq", &["telemetry.rs", "recording/piano_model.rs"][..]),
+        ] {
             assert!(
-                file == src.join(owner) || !source.contains(client),
-                "{client} in {}: only src/{owner} may use it",
+                owners.iter().any(|owner| file == src.join(owner)) || !source.contains(client),
+                "{client} in {}: only src/{owners:?} may use it",
                 file.display()
             );
         }
     }
+    // The piano model download has one fixed address: this repository's release. The recording
+    // is never part of it.
+    let model = std::fs::read_to_string(src.join("recording/piano_model.rs")).unwrap();
+    let base = "https://github.com/mbalyi/smart-beat/releases/download/";
+    for (index, _) in model.match_indices("https://") {
+        assert!(
+            model[index..].starts_with(base),
+            "unexpected URL in piano_model.rs"
+        );
+    }
+    assert!(
+        !model.contains(".post("),
+        "piano_model.rs must only download"
+    );
     for name in ["telemetry.rs", "transcription.rs", "lib.rs", "commands.rs"] {
         let code = std::fs::read_to_string(src.join(name)).unwrap();
         // The endpoints come from the build, never a literal host.

@@ -129,8 +129,11 @@ describe("Welcome", () => {
       renderWelcome();
       expect(within(card()).getByText("Beta")).toBeInTheDocument();
       const limits = within(card()).getByRole("button", { name: "Limits" });
-      expect(limits).toHaveAccessibleDescription(/Guitar only for now\./);
-      expect(limits).toHaveAccessibleDescription(/Roughly 7 of 10 notes are found/);
+      expect(limits).toHaveAccessibleDescription(/Guitar, bass and piano\./);
+      expect(limits).toHaveAccessibleDescription(/Guitar: roughly 7 of 10 notes are found/);
+      expect(limits).toHaveAccessibleDescription(/Piano, built-in model: .* about 86%/);
+      expect(limits).toHaveAccessibleDescription(/High accuracy model .* about 99%/);
+      expect(limits).toHaveAccessibleDescription(/a real recording will score lower/);
       expect(limits).toHaveAccessibleDescription(/correct it by hand/);
     });
 
@@ -142,13 +145,13 @@ describe("Welcome", () => {
       }
       const popup = await findPopup();
       expect(popup).toHaveTextContent("No cloud AI");
-      expect(popup).toHaveTextContent("use an existing guitar recording");
+      expect(popup).toHaveTextContent("use an existing recording");
     });
 
     it("shows the limits in a popup on hover", async () => {
       const { user } = renderWelcome();
       await user.hover(card());
-      expect(await findPopup()).toHaveTextContent("Guitar only for now.");
+      expect(await findPopup()).toHaveTextContent("Guitar, bass and piano.");
     });
   });
 

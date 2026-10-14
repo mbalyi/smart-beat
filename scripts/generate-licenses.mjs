@@ -103,6 +103,15 @@ const ASSETS = [
     ],
   },
   {
+    name: "Transkun piano model (Record to tab, downloaded on first use)",
+    license: "MIT",
+    homepage: "https://github.com/Yujia-Yan/Transkun",
+    files: [
+      path.join(ROOT, "src-tauri", "models", "transkun", "LICENSE"),
+      path.join(ROOT, "src-tauri", "models", "transkun", "NOTICE"),
+    ],
+  },
+  {
     name: "Sonivox EAS SoundFont (default instrument sounds, via alphaTab)",
     license: "Apache-2.0 (full text in the Rust crates section)",
     files: [

@@ -78,6 +78,8 @@
     release: null,
     abort: null,
   };
+  /** The high-accuracy piano model (src-tauri/src/recording/piano_model.rs): not downloaded at first. */
+  window.__pianoModel = { installed: false, downloads: 0, fail: null };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -494,6 +496,8 @@
         state.requests.push({
           sampleRate: Number(options.headers["x-sample-rate"]),
           bytes: args.byteLength,
+          instrument: options.headers["x-instrument"],
+          engine: options.headers["x-engine"],
         });
         window.__emitTauriEvent("recording-transcription-progress", { fraction: 0.5 });
         if (state.hold) {
@@ -512,14 +516,26 @@
           [47, 1.5, 2.0],
           [52, 1.5, 2.0],
           [56, 1.5, 2.0],
-        ].map(([pitch, start, end]) => ({
-          pitch,
-          start: start + state.shift,
-          end: end + state.shift,
-          velocity: 0.8,
-        }));
-        return { notes };
+        ];
+        // A piano take also has a right-hand melody note above middle C.
+        if (options.headers["x-instrument"] === "piano") notes.push([72, 0.0, 0.5]);
+        return {
+          notes: notes.map(([pitch, start, end]) => ({
+            pitch,
+            start: start + state.shift,
+            end: end + state.shift,
+            velocity: 0.8,
+          })),
+        };
       }
+      case "piano_model_status":
+        return { installed: window.__pianoModel.installed, bytes: 56799421 };
+      case "download_piano_model":
+        window.__pianoModel.downloads += 1;
+        window.__emitTauriEvent("piano-model-download-progress", { fraction: 0.5 });
+        if (window.__pianoModel.fail) throw { kind: "audio", message: window.__pianoModel.fail };
+        window.__pianoModel.installed = true;
+        return null;
       case "cancel_recording_transcription":
         window.__recordTranscription.cancelled += 1;
         window.__recordTranscription.abort?.();

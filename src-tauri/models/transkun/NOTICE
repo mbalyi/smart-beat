@@ -1,0 +1,12 @@
+Transkun
+Copyright (c) 2021 Yujia Yan, MIT License (see LICENSE).
+https://github.com/Yujia-Yan/Transkun
+
+Smart Beat's piano model (Record to tab, "High accuracy") is Transkun 2.0 converted to ONNX
+(src-tauri/src/recording/transkun.rs and research/record-to-tab/piano/export_transkun.py port
+its inference code). The converted files are not part of the installer: the app downloads them
+once, with the user's consent, from the Smart Beat release "piano-model-1" and checks their sums.
+
+The weights were trained on the MAESTRO dataset (Hawthorne et al., Google Magenta, CC BY-NC-SA 4.0)
+with other piano data. The Transkun author publishes the weights under the MIT license. See
+docs/licensing.md for what that means for Smart Beat.

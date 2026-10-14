@@ -1,9 +1,13 @@
 import {
   readAlignToBeat,
+  readInstrument,
+  readPianoEngine,
   readPlayOthers,
   readTuningChoice,
   standardTuningChoice,
   storeAlignToBeat,
+  storeInstrument,
+  storePianoEngine,
   storePlayOthers,
   storeTuningChoice,
   tuningOf,
@@ -54,5 +58,37 @@ describe("record preferences", () => {
       expect(choice.name).not.toBe("");
       expect(tuningOf(choice)).toHaveLength(strings);
     }
+  });
+
+  it("starts on the guitar and remembers guitar, bass or piano", () => {
+    expect(readInstrument()).toBe("guitar");
+    for (const instrument of ["bass", "piano", "guitar"] as const) {
+      storeInstrument(instrument);
+      expect(readInstrument()).toBe(instrument);
+    }
+    localStorage.setItem("smart-beat:record-instrument", "drums");
+    expect(readInstrument()).toBe("guitar");
+  });
+
+  it("starts on the built-in piano model and remembers the choice", () => {
+    expect(readPianoEngine()).toBe("standard");
+    storePianoEngine("accurate");
+    expect(readPianoEngine()).toBe("accurate");
+    localStorage.setItem("smart-beat:record-piano-engine", "something");
+    expect(readPianoEngine()).toBe("standard");
+  });
+
+  it("starts a bass with the standard four strings and keeps its tuning apart from the guitar's", () => {
+    const bass = readTuningChoice("bass");
+    expect(bass.strings).toBe(4);
+    expect(tuningOf(bass)).toEqual([43, 38, 33, 28]);
+    storeTuningChoice({ strings: 5, name: tuningPresets(5)[0]!.name }, "bass");
+    expect(readTuningChoice("bass").strings).toBe(5);
+    expect(readTuningChoice("guitar").strings).toBe(6);
+    // A guitar tuning is not a bass tuning, and the other way round.
+    storeTuningChoice({ strings: 7, name: tuningPresets(7)[0]!.name }, "bass");
+    expect(readTuningChoice("bass").strings).toBe(4);
+    storeTuningChoice({ strings: 4, name: tuningPresets(4)[0]!.name }, "guitar");
+    expect(readTuningChoice("guitar").strings).toBe(6);
   });
 });

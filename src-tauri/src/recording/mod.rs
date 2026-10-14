@@ -5,11 +5,14 @@
 //! `Transcriber`.
 mod basic_pitch;
 mod notes;
+pub mod piano_model;
 mod resample;
+mod transkun;
 
 pub use basic_pitch::BasicPitch;
 pub use notes::NoteOptions;
 pub use resample::resample;
+pub use transkun::Transkun;
 
 use crate::error::{CommandError, ErrorKind};
 use serde::{Deserialize, Serialize};
@@ -54,6 +57,31 @@ pub trait Transcriber {
         progress: &mut dyn FnMut(f32),
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Vec<RecordedNote>, CommandError>;
+}
+
+/// What was played. A piano gets stricter note settings than the default (guitar and bass).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Instrument {
+    #[default]
+    Guitar,
+    Piano,
+}
+impl Instrument {
+    /// The `x-instrument` header value. A missing or unknown value means guitar.
+    pub fn parse(value: Option<&str>) -> Self {
+        match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+            Some("piano") => Self::Piano,
+            _ => Self::Guitar,
+        }
+    }
+    pub fn engine(self) -> BasicPitch {
+        BasicPitch {
+            options: match self {
+                Self::Guitar => NoteOptions::default(),
+                Self::Piano => NoteOptions::piano(),
+            },
+        }
+    }
 }
 
 /// What `transcribe_recording` returns.
@@ -149,7 +177,8 @@ struct Progress {
 }
 
 /// The take is the raw body: little-endian 32-bit float mono samples. The header
-/// `x-sample-rate` carries their rate in Hz. Emits `recording-transcription-progress`.
+/// `x-sample-rate` carries their rate in Hz, and the optional `x-instrument` (`guitar` or
+/// `piano`) picks the note settings, and `x-engine: transkun` the downloaded piano model. Emits `recording-transcription-progress`.
 #[tauri::command]
 pub async fn transcribe_recording<R: Runtime>(
     app: AppHandle<R>,
@@ -165,6 +194,27 @@ pub async fn transcribe_recording<R: Runtime>(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u32>().ok())
         .ok_or_else(|| error("Missing x-sample-rate."))?;
+    // `x-engine: transkun` runs the downloaded piano model instead of Basic Pitch.
+    let model_dir = if request
+        .headers()
+        .get("x-engine")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("transkun"))
+    {
+        let folder = piano_model::dir(&app)?;
+        if !piano_model::is_installed(&folder) {
+            return Err(error("Download the piano model first."));
+        }
+        Some(folder)
+    } else {
+        None
+    };
+    let instrument = Instrument::parse(
+        request
+            .headers()
+            .get("x-instrument")
+            .and_then(|value| value.to_str().ok()),
+    );
     // The length check comes first, so a huge body is not decoded.
     check_rate(rate)?;
     check_length(body.len() / 4)?;
@@ -183,13 +233,18 @@ pub async fn transcribe_recording<R: Runtime>(
                 }
             };
             let cancelled = || stop.load(Ordering::Relaxed);
-            let result = transcribe_take(
-                &BasicPitch::default(),
-                &samples,
-                rate,
-                &mut progress,
-                &cancelled,
-            );
+            let result = match model_dir {
+                Some(folder) => Transkun::cached(&folder).and_then(|model| {
+                    transcribe_take(&*model, &samples, rate, &mut progress, &cancelled)
+                }),
+                None => transcribe_take(
+                    &instrument.engine(),
+                    &samples,
+                    rate,
+                    &mut progress,
+                    &cancelled,
+                ),
+            };
             if result.is_ok() {
                 progress(1.0);
             }
@@ -228,6 +283,16 @@ mod tests {
     }
     fn take(samples: &[f32], rate: u32) -> Result<Vec<RecordedNote>, CommandError> {
         transcribe_take(&Fixed(vec![]), samples, rate, &mut |_| {}, &|| false)
+    }
+
+    #[test]
+    fn the_instrument_header_picks_the_note_settings() {
+        assert_eq!(Instrument::parse(Some(" Piano ")), Instrument::Piano);
+        assert_eq!(Instrument::parse(Some("guitar")), Instrument::Guitar);
+        assert_eq!(Instrument::parse(Some("kazoo")), Instrument::Guitar);
+        assert_eq!(Instrument::parse(None), Instrument::Guitar);
+        assert_eq!(Instrument::Piano.engine().options, NoteOptions::piano());
+        assert_eq!(Instrument::Guitar.engine().options, NoteOptions::default());
     }
 
     #[test]
