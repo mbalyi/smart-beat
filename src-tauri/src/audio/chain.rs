@@ -620,6 +620,38 @@ mod tests {
         assert!(chain.is_empty());
     }
 
+    /// The chain plays the slots in the order the pedalboard shows (#128): a
+    /// reorder is a new order of the same blocks, so the engine must follow it.
+    #[test]
+    fn the_chain_follows_the_slot_order_after_a_reorder() {
+        let drive = slot(EffectConfig::Drive(DriveParams {
+            drive: 0.8,
+            ..Default::default()
+        }));
+        let gate = slot(EffectConfig::Gate(GateParams::default()));
+        let in_order = Chain::build(
+            &[drive.clone(), gate.clone()],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+        );
+        assert_eq!(
+            in_order.layout,
+            vec![drive.effect.clone(), gate.effect.clone()]
+        );
+        let reordered = Chain::build(
+            &[gate.clone(), drive.clone()],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+        );
+        assert_eq!(reordered.layout, vec![gate.effect, drive.effect]);
+        // The meter of each block still points at the slot it came from.
+        assert_eq!(reordered.slots, vec![0, 1]);
+    }
+
     #[test]
     fn keeps_at_most_the_limit_and_reports_missing_assets() {
         let slots: Vec<EffectSlot> = (0..5)
