@@ -309,6 +309,38 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 
+  it("exports every Guitar Pro version from the File menu and from the native menu (#119)", async () => {
+    const { user, onSaved } = await setup();
+    await user.click(screen.getByRole("button", { name: "File" }));
+    const items = (await screen.findAllByRole("menuitem")).map((i) => i.textContent);
+    const first = items.indexOf("Smart Beat / Guitar Pro 7…");
+    expect(items.slice(first, first + 4)).toEqual([
+      "Smart Beat / Guitar Pro 7…",
+      "Guitar Pro 5…",
+      "Guitar Pro 4…",
+      "Guitar Pro 3…",
+    ]);
+    expect(first).toBeLessThan(items.indexOf("MusicXML…"));
+    await user.keyboard("{Escape}");
+
+    backend.saveResult = "/out/menu";
+    await user.click(screen.getByRole("button", { name: "File" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Guitar Pro 5…" }));
+    await waitFor(() => expect(backend.written.has("/out/menu.gp5")).toBe(true));
+
+    for (const [action, path] of [
+      ["export-gp", "/out/native.gp"],
+      ["export-gp5", "/out/native5.gp5"],
+      ["export-gp4", "/out/native4.gp4"],
+      ["export-gp3", "/out/native3.gp3"],
+    ] as const) {
+      backend.saveResult = path;
+      await menu(action);
+      await waitFor(() => expect(backend.written.has(path)).toBe(true));
+    }
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
   it("exports compressed MusicXML when the file name ends in .mxl", async () => {
     const { calls } = await setup();
     backend.saveResult = "/out/song.mxl";

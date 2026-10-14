@@ -1884,6 +1884,18 @@ export function ScoreWorkspace({
       case "export-all":
         setExportOpen(true);
         break;
+      case "export-gp":
+        void fileActions.exportAs("gp");
+        break;
+      case "export-gp5":
+        void fileActions.exportAs("gp5");
+        break;
+      case "export-gp4":
+        void fileActions.exportAs("gp4");
+        break;
+      case "export-gp3":
+        void fileActions.exportAs("gp3");
+        break;
       case "export-musicxml":
         void fileActions.exportAs("musicxml");
         break;

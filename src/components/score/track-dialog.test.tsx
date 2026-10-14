@@ -262,6 +262,17 @@ describe("TrackDialog: extended-range guitars (#43)", () => {
     }
   });
 
+  it("shows every preset tuning from the lowest string, as players say it (#119)", async () => {
+    const { user } = setup(GUITAR);
+    await user.click(screen.getByRole("combobox", { name: "Tuning" }));
+    const names = screen.getAllByRole("option").map((o) => o.textContent ?? "");
+    expect(names.some((n) => n.endsWith("(E A D G B E)"))).toBe(true);
+    expect(names.some((n) => n.startsWith("Guitar Dropped D") && n.endsWith("(D A D G B E)"))).toBe(
+      true,
+    );
+    expect(names.some((n) => n.endsWith("(E B G D A E)"))).toBe(false);
+  });
+
   it("warns that very low strings sound thin, and stops when the tuning goes up", async () => {
     // An overdriven guitar (30) in the standard sound set, recorded from B2.
     const { user } = setup({ ...GUITAR, tuning: [64, 59, 55, 50, 45, 40, 35, 30] }, "sonivox");

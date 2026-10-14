@@ -64,6 +64,15 @@ describe("InstrumentPanel: fretboard", () => {
     await expectNoA11yViolations();
   });
 
+  it("names the tuning lowest string first, like the inspector and the tuner (#119)", () => {
+    // The board draws the strings top to bottom (highest first); the tuning line says it the
+    // way players do, lowest first.
+    setup({ tuning: [61, 56, 52, 47, 42, 37] });
+    expect(screen.getByRole("region", { name: "Fretboard" })).toHaveTextContent(
+      "C# Standard: C# F# B E G# C#",
+    );
+  });
+
   it("enters notes by clicking frets while editing", async () => {
     const { user, props } = setup({ editing: true, cursorString: 5, capo: 1 });
 

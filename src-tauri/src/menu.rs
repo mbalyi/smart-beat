@@ -35,6 +35,10 @@ pub enum MenuAction {
     Save,
     SaveAs,
     ExportAll,
+    ExportGp,
+    ExportGp5,
+    ExportGp4,
+    ExportGp3,
     // The UI knows these two by the names below (not "export-music-xml" / "export-alpha-tex").
     #[serde(rename = "export-musicxml")]
     ExportMusicXml,
@@ -97,7 +101,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 63] = [
+    pub const ALL: [Self; 67] = [
         Self::NewSong,
         Self::Open,
         Self::ImportAudio,
@@ -105,6 +109,10 @@ impl MenuAction {
         Self::Save,
         Self::SaveAs,
         Self::ExportAll,
+        Self::ExportGp,
+        Self::ExportGp5,
+        Self::ExportGp4,
+        Self::ExportGp3,
         Self::ExportMusicXml,
         Self::ExportMidi,
         Self::ExportAlphaTex,
@@ -173,6 +181,10 @@ impl MenuAction {
             Self::Save => "file.save",
             Self::SaveAs => "file.save-as",
             Self::ExportAll => "file.export-all",
+            Self::ExportGp => "file.export-gp",
+            Self::ExportGp5 => "file.export-gp5",
+            Self::ExportGp4 => "file.export-gp4",
+            Self::ExportGp3 => "file.export-gp3",
             Self::ExportMusicXml => "file.export-musicxml",
             Self::ExportMidi => "file.export-midi",
             Self::ExportAlphaTex => "file.export-alphatex",
@@ -246,6 +258,10 @@ impl MenuAction {
             | Self::Save
             | Self::SaveAs
             | Self::ExportAll
+            | Self::ExportGp
+            | Self::ExportGp5
+            | Self::ExportGp4
+            | Self::ExportGp3
             | Self::ExportMusicXml
             | Self::ExportMidi
             | Self::ExportAlphaTex
@@ -311,6 +327,10 @@ impl MenuAction {
             Self::Save => "Save",
             Self::SaveAs => "Save As…",
             Self::ExportAll => "All Formats…",
+            Self::ExportGp => "Smart Beat / Guitar Pro 7…",
+            Self::ExportGp5 => "Guitar Pro 5…",
+            Self::ExportGp4 => "Guitar Pro 4…",
+            Self::ExportGp3 => "Guitar Pro 3…",
             Self::ExportMusicXml => "MusicXML…",
             Self::ExportMidi => "MIDI…",
             Self::ExportAlphaTex => "alphaTex…",
@@ -430,6 +450,10 @@ impl MenuAction {
             | Self::CheckForUpdates
             | Self::ClearRecent
             | Self::ExportAll
+            | Self::ExportGp
+            | Self::ExportGp5
+            | Self::ExportGp4
+            | Self::ExportGp3
             | Self::ExportMusicXml
             | Self::ExportMidi
             | Self::ExportAlphaTex
@@ -515,6 +539,10 @@ impl MenuAction {
                 | Self::Save
                 | Self::SaveAs
                 | Self::ExportAll
+                | Self::ExportGp
+                | Self::ExportGp5
+                | Self::ExportGp4
+                | Self::ExportGp3
                 | Self::ExportMusicXml
                 | Self::ExportMidi
                 | Self::ExportAlphaTex
@@ -738,6 +766,11 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     app.manage(RecentMenu(recent.clone()));
     let mut export = SubmenuBuilder::new(app, "Export")
         .item(&item(app, ExportAll)?)
+        .separator()
+        .item(&item(app, ExportGp)?)
+        .item(&item(app, ExportGp5)?)
+        .item(&item(app, ExportGp4)?)
+        .item(&item(app, ExportGp3)?)
         .separator()
         .item(&item(app, ExportMusicXml)?)
         .item(&item(app, ExportMidi)?)
@@ -1219,6 +1252,10 @@ mod tests {
             MenuAction::Save,
             MenuAction::SaveAs,
             MenuAction::ExportAll,
+            MenuAction::ExportGp,
+            MenuAction::ExportGp5,
+            MenuAction::ExportGp4,
+            MenuAction::ExportGp3,
             MenuAction::ExportMusicXml,
             MenuAction::ExportMidi,
             MenuAction::ExportAlphaTex,
@@ -1245,6 +1282,15 @@ mod tests {
             serde_json::to_string(&MenuAction::ExportAll).unwrap(),
             "\"export-all\""
         );
+        // The UI routes these by id to the Guitar Pro writers (#119).
+        for (action, id) in [
+            (MenuAction::ExportGp, "export-gp"),
+            (MenuAction::ExportGp5, "export-gp5"),
+            (MenuAction::ExportGp4, "export-gp4"),
+            (MenuAction::ExportGp3, "export-gp3"),
+        ] {
+            assert_eq!(serde_json::to_string(&action).unwrap(), format!("\"{id}\""));
+        }
     }
 
     #[test]

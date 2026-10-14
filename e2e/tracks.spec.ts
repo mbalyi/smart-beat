@@ -108,6 +108,18 @@ test.describe("tracks and instruments (#10)", () => {
     );
   });
 
+  test("lists each tuning from the lowest string, E A D G B E (#119)", async ({ app }) => {
+    await openSong(app);
+    await emitMenuAction(app, "track-settings");
+    const dialog = app.getByRole("dialog", { name: "Track settings" });
+    await dialog.getByRole("combobox", { name: "Tuning" }).click();
+    await expect(app.getByRole("option", { name: /\(E A D G B E\)$/ }).first()).toBeVisible();
+    await expect(
+      app.getByRole("option", { name: /^Guitar Dropped D Tuning \(D A D G B E\)$/ }),
+    ).toBeVisible();
+    await expect(app.getByRole("option", { name: /\(E B G D A E\)$/ })).toHaveCount(0);
+  });
+
   test("changes tuning, capo and instrument", async ({ app }) => {
     await openSong(app);
     await emitMenuAction(app, "track-settings");
