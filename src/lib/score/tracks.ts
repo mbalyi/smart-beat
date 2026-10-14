@@ -24,7 +24,7 @@ import {
 import { adoptLyrics } from "@/lib/score/lyrics";
 import { MAX_CAPO, type InstrumentPreset, type TrackKind } from "@/lib/score/music";
 import { adoptTrack, rememberMix, trackMix } from "@/lib/score/score";
-import { applyRetunePlan, planRetune } from "@/lib/score/transpose";
+import { applyRetunePlan, findPosition, planRetune } from "@/lib/score/transpose";
 
 const { Clef, Ottavia } = model;
 
@@ -153,6 +153,129 @@ export function duplicateTrack(score: Score, index: number): Track {
   rememberMix(copy, trackMix(original));
   insertTrack(score, copy, index + 1);
   return copy;
+}
+
+export interface ConversionResult {
+  track: Track;
+  /** Notes moved to a different octave to fit the instrument's range. */
+  shifted: number;
+  /** Notes that could not be placed (no free string in reach) and were left out. */
+  dropped: number;
+}
+
+/** Sounding pitch of a note on its staff (fretted: tuning, capo and fret). */
+function notePitch(note: model.Note, staff: Staff): number {
+  if (note.isStringed) {
+    const tuning = tuningOf(staff);
+    return tuning[tuning.length - note.string]! + staff.capo + note.fret;
+  }
+  return note.octave * 12 + note.tone;
+}
+
+/** Octave moves to try, nearest first, when a pitch is out of the instrument's range. */
+const OCTAVE_MOVES = [0, 12, -12, 24, -24, 36, -36];
+
+/**
+ * Copies a track to another instrument as a new track right after it. Notes
+ * keep their rhythm and are re-placed by pitch: onto strings and frets of the
+ * target (moved by octaves when the pitch is outside its range, e.g. a guitar
+ * riff on a bass) or onto the keyboard staff. Drums cannot be converted.
+ * Returns null for a drum source or target.
+ */
+export function convertTrackToInstrument(
+  score: Score,
+  index: number,
+  preset: InstrumentPreset,
+): ConversionResult | null {
+  const source = score.tracks[index]!;
+  if (source.isPercussion || source.staves[0]?.isPercussion || preset.kind === "drums") return null;
+
+  const spec = trackFromPreset(preset);
+  const track = cloneTrack(source);
+  track.name = uniqueTrackName(score, `${source.name} (${preset.name})`);
+  track.shortName = track.name.slice(0, 10);
+  const [primary, secondary] = freeChannels(score, 2);
+  track.playbackInfo.primaryChannel = primary!;
+  track.playbackInfo.secondaryChannel = secondary!;
+  setProgram(track, spec.program);
+  track.playbackInfo.program = spec.program;
+
+  let shifted = 0;
+  let dropped = 0;
+  const target = spec.kind === "stringed";
+  const bass = BASS_CLEF_PROGRAMS.has(spec.program);
+  source.staves.forEach((sourceStaff, s) => {
+    const staff = track.staves[s]!;
+    // Pitches come from the source staff's tuning, read before the copy's is replaced.
+    const pitches = new Map<model.Note, number>();
+    for (const bar of staff.bars) {
+      for (const voice of bar.voices) {
+        for (const beat of voice.beats) {
+          for (const note of beat.notes) pitches.set(note, notePitch(note, sourceStaff));
+        }
+      }
+    }
+    staff.stringTuning = new model.Tuning("", target ? [...spec.tuning!] : [], false);
+    staff.stringTuning.finish();
+    staff.capo = 0;
+    staff.showTablature = target;
+    staff.showStandardNotation = true;
+    staff.displayTranspositionPitch = target ? -12 : 0;
+    for (const bar of staff.bars) {
+      bar.clef = bass ? Clef.F4 : Clef.G2;
+      bar.clefOttava = Ottavia.Regular;
+      for (const voice of bar.voices) {
+        for (const beat of voice.beats) {
+          const taken = new Set<number>();
+          for (const note of [...beat.notes]) {
+            const pitch = pitches.get(note)!;
+            if (target) {
+              let position: { string: number; fret: number } | null = null;
+              let move = 0;
+              for (const octave of OCTAVE_MOVES) {
+                // Fretted notes stay near their string; keys start on the highest string that reaches.
+                position = findPosition(
+                  staff,
+                  pitch + octave,
+                  note.isStringed ? note.string : tuningOf(staff).length,
+                  taken,
+                );
+                if (position) {
+                  move = octave;
+                  break;
+                }
+              }
+              if (!position) {
+                beat.removeNote(note);
+                dropped++;
+                continue;
+              }
+              if (move !== 0) shifted++;
+              taken.add(position.string);
+              note.string = position.string;
+              note.fret = position.fret;
+            } else {
+              note.string = -1;
+              note.fret = -1;
+              note.octave = Math.floor(pitch / 12);
+              note.tone = pitch % 12;
+              // Effects that only a fretted instrument has do not carry over.
+              note.bendPoints = null;
+              note.maxBendPoint = null;
+              note.harmonicType = model.HarmonicType.None;
+              note.slideInType = model.SlideInType.None;
+              note.slideOutType = model.SlideOutType.None;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  rememberMix(track, trackMix(source));
+  insertTrack(score, track, index + 1);
+  refinish(score);
+  return { track, shifted, dropped };
 }
 
 export function renameTrack(track: Track, name: string): void {

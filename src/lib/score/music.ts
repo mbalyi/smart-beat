@@ -434,6 +434,24 @@ export const INSTRUMENT_PRESETS: InstrumentPreset[] = [
 
 export const getPreset = (id: string) => INSTRUMENT_PRESETS.find((p) => p.id === id);
 
+/** General MIDI programs of fretted instruments: guitars, basses, sitar, banjo, shamisen. */
+export const isFrettedProgram = (program: number) =>
+  (program >= 24 && program <= 39) || (program >= 104 && program <= 106);
+
+/**
+ * The General MIDI programs a track of this kind can change to in place: fretted
+ * sounds for a tab track and the other sounds for a staff track. The track's own
+ * program is always included so the selector shows what it has now. Moving between
+ * the two goes through "Copy to instrument", which converts the notes.
+ */
+export function compatiblePrograms(kind: TrackKind, current: number): number[] {
+  if (kind === "drums") return [];
+  const fretted = kind === "stringed";
+  return Array.from({ length: 128 }, (_, program) => program).filter(
+    (program) => program === current || isFrettedProgram(program) === fretted,
+  );
+}
+
 /** String counts the track settings allow (Guitar Pro 8 offers 3 to 10). */
 export const MIN_STRINGS = 3;
 export const MAX_STRINGS = 10;

@@ -3,11 +3,13 @@ import type { Page } from "@playwright/test";
 import {
   emitMenuAction,
   expect,
+  expectNoA11yViolations,
   expectTab,
   newSong,
   openSong,
   scoreRegion,
   test,
+  waitForAnimations,
 } from "./fixtures";
 
 /** Track and instrument management (#10) with the real renderer. */
@@ -150,4 +152,45 @@ test.describe("tracks and instruments (#10)", () => {
       "Space above the staff",
     );
   });
+
+  test("only offers fretted sounds for a guitar and shows the current one again (#134)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await emitMenuAction(app, "track-settings");
+    const dialog = app.getByRole("dialog", { name: "Track settings" });
+    await dialog.getByRole("combobox", { name: "Sound (General MIDI)" }).click();
+    await expect(app.getByRole("option", { name: "34. Electric Bass (finger)" })).toBeVisible();
+    await expect(app.getByRole("option", { name: /Acoustic Grand Piano/ })).toHaveCount(0);
+    await app.getByRole("option", { name: "28. Electric Guitar (clean)" }).click();
+    await dialog.getByRole("button", { name: "Apply" }).click();
+
+    await emitMenuAction(app, "track-settings");
+    await expect(
+      app
+        .getByRole("dialog", { name: "Track settings" })
+        .getByRole("combobox", { name: "Sound (General MIDI)" }),
+    ).toHaveText("28. Electric Guitar (clean)");
+  });
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`copies a guitar to a piano track, accessibly in ${colorScheme} mode (#134)`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await openSong(app);
+      await trackAction(app, "Guitar", "Copy to instrument…");
+      const dialog = app.getByRole("dialog", { name: "Copy to instrument" });
+      await expect(dialog).toBeVisible();
+      await waitForAnimations(app);
+      await expectNoA11yViolations(app);
+      await dialog.getByRole("button", { name: "Copy track" }).click();
+      await expect(dialog).toBeHidden();
+
+      expect(await trackNames(app)).toEqual(["Guitar", "Guitar (Piano)", "Bass", "Drums", "Piano"]);
+      expect((await trackInstruments(app))[1]).toBe("Acoustic Grand Piano");
+      await emitMenuAction(app, "undo");
+      expect(await trackNames(app)).toEqual(["Guitar", "Bass", "Drums", "Piano"]);
+    });
+  }
 });

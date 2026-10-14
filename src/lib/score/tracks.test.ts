@@ -2,9 +2,10 @@ import { model } from "@coderline/alphatab";
 
 import { ScoreEditor } from "@/lib/score/editor";
 import { refinish } from "@/lib/score/model";
-import { getPreset, INSTRUMENT_PRESETS } from "@/lib/score/music";
+import { compatiblePrograms, getPreset, INSTRUMENT_PRESETS } from "@/lib/score/music";
 import { parseScore, summarizeScore, trackMix } from "@/lib/score/score";
 import {
+  convertTrackToInstrument,
   createSong,
   createTrack,
   duplicateTrack,
@@ -241,5 +242,109 @@ describe("undoing track changes", () => {
 
     editor.redo();
     expect(score.tracks.map((t) => t.name)).toEqual(["Guitar", "Drums", "Piano"]);
+  });
+});
+
+describe("convertTrackToInstrument", () => {
+  const withNotes = () => {
+    const score = createSong();
+    const staff = score.tracks[0]!.staves[0]!;
+    const beat = staff.bars[0]!.voices[0]!.beats[0]!;
+    beat.isEmpty = false;
+    for (const [string, fret] of [
+      [6, 3],
+      [3, 2],
+    ] as const) {
+      const note = new model.Note();
+      note.string = string;
+      note.fret = fret;
+      beat.addNote(note);
+    }
+    refinish(score);
+    return { score, beat };
+  };
+
+  it("copies a guitar track to piano by pitch as a new track right after it", () => {
+    const { score } = withNotes();
+    const result = convertTrackToInstrument(score, 0, getPreset("piano")!)!;
+    expect(score.tracks).toHaveLength(2);
+    expect(score.tracks[1]).toBe(result.track);
+    const summary = summarizeScore(score).tracks[1]!;
+    expect(summary.kind).toBe("pitched");
+    expect(summary.tuning).toEqual([]);
+    expect(summary.program).toBe(0);
+    const notes = result.track.staves[0]!.bars[0]!.voices[0]!.beats[0]!.notes;
+    expect(notes.map((n) => n.octave * 12 + n.tone).sort()).toEqual([52, 67]);
+    // the original is unchanged
+    expect(score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!.notes[0]!.isStringed).toBe(
+      true,
+    );
+  });
+
+  it("copies piano to a guitar by pitch", () => {
+    const { score } = withNotes();
+    const piano = convertTrackToInstrument(score, 0, getPreset("piano")!)!;
+    const guitar = convertTrackToInstrument(score, 1, getPreset("guitar")!)!;
+    expect(piano.dropped + guitar.dropped).toBe(0);
+    const notes = guitar.track.staves[0]!.bars[0]!.voices[0]!.beats[0]!.notes;
+    expect(notes.map((n) => [n.string, n.fret]).sort()).toEqual([
+      [3, 2],
+      [6, 3],
+    ]);
+  });
+
+  it("shifts a note outside the range by octaves and reports it", () => {
+    const { score, beat } = withNotes();
+    const high = new model.Note();
+    high.string = 6;
+    high.fret = 20; // E4 + 20 = 84, above a bass
+    beat.addNote(high);
+    refinish(score);
+    const { track, shifted, dropped } = convertTrackToInstrument(score, 0, getPreset("bass-4")!)!;
+    expect(shifted).toBe(1);
+    expect(dropped).toBe(0);
+    const staff = track.staves[0]!;
+    for (const note of staff.bars[0]!.voices[0]!.beats[0]!.notes) {
+      expect(note.string).toBeGreaterThanOrEqual(1);
+      expect(note.string).toBeLessThanOrEqual(4);
+      expect(note.fret).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("does not convert drums", () => {
+    const score = load();
+    const drums = score.tracks.findIndex((t) => t.staves[0]!.isPercussion);
+    expect(convertTrackToInstrument(score, drums, getPreset("piano")!)).toBeNull();
+    expect(convertTrackToInstrument(score, 0, getPreset("drums")!)).toBeNull();
+  });
+
+  it("is one undo step", () => {
+    const { score } = withNotes();
+    const editor = new ScoreEditor(score);
+    editor.run(
+      "Copy track to instrument",
+      () => editor.structureTargets(),
+      () => convertTrackToInstrument(editor.score, 0, getPreset("piano")!),
+    );
+    expect(editor.score.tracks).toHaveLength(2);
+    editor.undo();
+    expect(editor.score.tracks).toHaveLength(1);
+  });
+});
+
+describe("compatiblePrograms", () => {
+  it("offers fretted sounds to a tab track and the rest to a staff track", () => {
+    const stringed = compatiblePrograms("stringed", 25);
+    expect(stringed).toContain(33);
+    expect(stringed).not.toContain(0);
+    const pitched = compatiblePrograms("pitched", 0);
+    expect(pitched).toContain(0);
+    expect(pitched).not.toContain(25);
+    expect(compatiblePrograms("drums", 0)).toEqual([]);
+  });
+
+  it("always includes the track's own sound", () => {
+    expect(compatiblePrograms("stringed", 0)).toContain(0);
+    expect(compatiblePrograms("pitched", 25)).toContain(25);
   });
 });

@@ -25,6 +25,8 @@ function setup(overrides: Partial<Parameters<typeof Inspector>[0]> = {}) {
     onTempo: vi.fn(),
     onEditEffects: vi.fn(),
     onDrumMixer: vi.fn(),
+    onNormalizeDrums: vi.fn(),
+    onCopyToInstrument: vi.fn(),
   };
   const props = {
     tab: "track" as const,
@@ -268,6 +270,24 @@ describe("Inspector: interpretation", () => {
     });
     await user.click(screen.getByRole("button", { name: "Drum mixer…" }));
     expect(actions.onDrumMixer).toHaveBeenCalled();
+  });
+
+  it("normalizes the notation of a drum track, and only of a drum track (#135)", async () => {
+    const { user, actions } = setup({
+      track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
+    });
+    await user.click(screen.getByRole("button", { name: "Normalize drum notation" }));
+    expect(actions.onNormalizeDrums).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Copy to instrument…" })).not.toBeInTheDocument();
+  });
+
+  it("copies a track to another instrument, not for drums (#134)", async () => {
+    const { user, actions } = setup();
+    await user.click(screen.getByRole("button", { name: "Copy to instrument…" }));
+    expect(actions.onCopyToInstrument).toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Normalize drum notation" }),
+    ).not.toBeInTheDocument();
   });
 
   it("has no drum mixer button on other tracks", () => {

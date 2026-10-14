@@ -318,6 +318,35 @@ describe("TrackList", () => {
     expect(onChange).toHaveBeenCalledWith({ type: "focus", track: 1 });
   });
 
+  it("normalizes drums only from a drum track and copies other tracks to an instrument (#134, #135)", async () => {
+    const onNormalizeDrums = vi.fn();
+    const onCopyToInstrument = vi.fn();
+    const actions: TrackActions = {
+      onShow: vi.fn(),
+      onMove: vi.fn(),
+      onDuplicate: vi.fn(),
+      onRemove: vi.fn(),
+      onSettings: vi.fn(),
+      onLyrics: vi.fn(),
+      onAdd: vi.fn(),
+      onNormalizeDrums,
+      onCopyToInstrument,
+    };
+    const { user } = setup({ actions });
+    await trackAction(user, "Drums", "Normalize drum notation");
+    expect(onNormalizeDrums).toHaveBeenCalledWith(2);
+    await trackAction(user, "Guitar", "Copy to instrument…");
+    expect(onCopyToInstrument).toHaveBeenCalledWith(0);
+
+    await user.click(screen.getByRole("button", { name: "Actions for Guitar" }));
+    expect(
+      screen.queryByRole("menuitem", { name: "Normalize drum notation" }),
+    ).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Actions for Drums" }));
+    expect(screen.queryByRole("menuitem", { name: "Copy to instrument…" })).not.toBeInTheDocument();
+  });
+
   it("has a master strip with pan, a meter and the mastering effects", async () => {
     const onChange = vi.fn();
     const onMasterEffects = vi.fn();

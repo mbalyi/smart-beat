@@ -451,6 +451,39 @@ describe("ScoreWorkspace: tracks", () => {
     expect(song.score.tracks[0]!.staves[0]!.tuning).toHaveLength(6);
   });
 
+  it("normalizes drum notation: one undo step, edit mode on, nothing saved (#135)", async () => {
+    const { user, song } = await setup();
+    const drums = song.score.tracks.find((t) => t.name === "Drums")!;
+    const lines = () =>
+      drums.staves[0]!.bars.flatMap((b) =>
+        b.voices.flatMap((v) => v.beats.flatMap((beat) => beat.notes.map((n) => n.fret))),
+      );
+    const before = lines();
+
+    await trackAction(user, "Drums", "Normalize drum notation");
+
+    expect(lines()).not.toEqual(before);
+    expect(await screen.findByText("Drum notation normalized")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("copies a guitar track to piano as a new track, in one undo step (#134)", async () => {
+    const { user, song } = await setup();
+
+    await trackAction(user, "Guitar", "Copy to instrument…");
+    const dialog = await screen.findByRole("dialog", { name: "Copy to instrument" });
+    await user.click(within(dialog).getByRole("button", { name: "Copy track" }));
+
+    expect(song.score.tracks.map((t) => t.name)).toEqual([
+      "Guitar",
+      "Guitar (Piano)",
+      "Bass",
+      "Drums",
+      "Piano",
+    ]);
+    expect(song.score.tracks[1]!.staves[0]!.tuning).toEqual([]);
+  });
+
   it("stops saving the mix once the tracks changed (desktop app)", async () => {
     const { user } = await setup({ desktop: true });
     await trackAction(user, "Piano", "Duplicate");

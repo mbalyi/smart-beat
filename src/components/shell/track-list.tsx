@@ -4,6 +4,8 @@ import {
   ArrowUpIcon,
   AudioLinesIcon,
   CopyIcon,
+  CopyPlusIcon,
+  ListOrderedIcon,
   CrosshairIcon,
   DrumIcon,
   EyeIcon,
@@ -73,6 +75,10 @@ export interface TrackActions {
   onEffects?: (index: number) => void;
   /** Opens the drum mixer of a drum track. */
   onDrumMixer?: (index: number) => void;
+  /** Opens the dialog that copies a (non-drum) track to another instrument. */
+  onCopyToInstrument?: (index: number) => void;
+  /** Re-maps a drum track's notes onto the standard lanes of the drum tab. */
+  onNormalizeDrums?: (index: number) => void;
 }
 
 /** One column of the grid: a bar. */
@@ -177,6 +183,12 @@ function TrackRowMenu({
             Drum mixer…
           </DropdownMenuItem>
         )}
+        {actions.onNormalizeDrums && track.kind === "drums" && (
+          <DropdownMenuItem onSelect={() => actions.onNormalizeDrums?.(i)}>
+            <ListOrderedIcon />
+            Normalize drum notation
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onSelect={() => onFocus(!focused)}>
           <CrosshairIcon />
           {focused ? "Unfocus" : "Focus (turn the others down)"}
@@ -198,6 +210,12 @@ function TrackRowMenu({
           <CopyIcon />
           Duplicate
         </DropdownMenuItem>
+        {actions.onCopyToInstrument && track.kind !== "drums" && (
+          <DropdownMenuItem onSelect={() => actions.onCopyToInstrument?.(i)}>
+            <CopyPlusIcon />
+            Copy to instrument…
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           variant="destructive"
           disabled={count === 1}

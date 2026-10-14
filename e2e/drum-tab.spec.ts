@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 
 import {
   editorStatus,
+  emitMenuAction,
   expect,
   expectNoA11yViolations,
   openSong,
@@ -108,5 +109,32 @@ test.describe("drum tab (#49)", () => {
       "aria-current",
       "true",
     );
+  });
+
+  test("normalizes the drum notation from the track menu and the inspector (#135)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await showDrums(app, "Tab");
+    await expect(app.getByRole("toolbar", { name: "Edit" })).toBeHidden();
+
+    // From the hamburger menu of the track bar: edit mode opens, the score is not saved.
+    await app.getByRole("button", { name: "Actions for Drums" }).click();
+    await app.getByRole("menuitem", { name: "Normalize drum notation" }).click();
+    await expect(app.getByRole("toolbar", { name: "Edit" })).toBeVisible();
+    await expect(app.getByText("Drum notation normalized")).toBeVisible();
+    // One undo step puts the notation back.
+    await emitMenuAction(app, "undo");
+
+    // The same action from the inspector, from view mode again.
+    await app.getByRole("button", { name: "Edit" }).click();
+    await expect(app.getByRole("toolbar", { name: "Edit" })).toBeHidden();
+    await app.getByRole("tab", { name: "Track" }).click();
+    await app.getByRole("button", { name: "Normalize drum notation", exact: true }).click();
+    await expect(app.getByRole("toolbar", { name: "Edit" })).toBeVisible();
+
+    // Other tracks do not offer it.
+    await app.getByRole("button", { name: "Actions for Guitar" }).click();
+    await expect(app.getByRole("menuitem", { name: "Normalize drum notation" })).toHaveCount(0);
   });
 });
