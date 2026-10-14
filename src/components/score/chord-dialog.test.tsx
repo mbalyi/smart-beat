@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 
 import { ChordDialog, type ChordStrings } from "@/components/score/chord-dialog";
 import { recognizeChord, type ChordDiagram, type ChordSpec } from "@/lib/score/chords";
@@ -58,6 +58,16 @@ describe("ChordDialog", () => {
     expect(screen.getByRole("button", { name: "Name it A minor" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "String 6 (E)" })).toHaveTextContent("Not played");
     expect(screen.getByRole("combobox", { name: "String 3 (G)" })).toHaveTextContent("Fret 2");
+    // Lowest string first, as a chord shape is read (#119).
+    const strings = within(screen.getByRole("list", { name: "Strings" })).getAllByRole("combobox");
+    expect(strings.map((s) => s.getAttribute("aria-label"))).toEqual([
+      "String 6 (E)",
+      "String 5 (A)",
+      "String 4 (D)",
+      "String 3 (G)",
+      "String 2 (B)",
+      "String 1 (E)",
+    ]);
     await expectNoA11yViolations();
 
     await user.click(screen.getByRole("button", { name: "Apply" }));

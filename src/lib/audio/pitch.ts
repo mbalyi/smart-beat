@@ -11,7 +11,12 @@ export interface PitchOptions {
   maxHz?: number;
   /** How clear a period must be (0 perfect … 1 none). */
   threshold?: number;
-  /** Below this level (RMS) the signal is silence. */
+  /** When no period is that clear: the least clear one still taken. */
+  maxDip?: number;
+  /**
+   * Below this level (RMS) the signal is silence. An instrument plugged straight into an
+   * interface rings on for seconds at -40 to -55 dBFS.
+   */
   minRms?: number;
 }
 
@@ -28,7 +33,7 @@ export const samplesNeeded = (sampleRate: number, minHz = 28) => 2 * Math.ceil(s
 export function detectPitch(
   samples: Float32Array,
   sampleRate: number,
-  { minHz = 28, maxHz = 1400, threshold = 0.15, minRms = 0.01 }: PitchOptions = {},
+  { minHz = 28, maxHz = 1400, threshold = 0.15, maxDip = 0.5, minRms = 0.001 }: PitchOptions = {},
 ): Pitch | null {
   let energy = 0;
   for (const s of samples) energy += s * s;
@@ -53,15 +58,21 @@ export function detectPitch(
     d[tau] = running === 0 ? 1 : (sum * tau) / running;
   }
 
-  let tau = -1;
-  for (let t = minTau; t <= maxTau; t++) {
-    if (d[t]! < threshold) {
-      while (t + 1 <= maxTau && d[t + 1]! < d[t]!) t++;
-      tau = t;
-      break;
+  let tau = firstDipUnder(d, minTau, maxTau, threshold);
+  if (tau < 0) {
+    // A ringing string changes a little from one period to the next, so its dip can stay above
+    // `threshold`. Then take the deepest dip, or a shorter period almost as deep: the
+    // fundamental rather than an octave under it.
+    // Only a real dip counts, not a value still falling at the edge of the search.
+    let deepest = -1;
+    for (let t = minTau + 1; t < maxTau; t++) {
+      if (d[t]! <= d[t - 1]! && d[t]! <= d[t + 1]! && (deepest < 0 || d[t]! < d[deepest]!)) {
+        deepest = t;
+      }
     }
+    if (deepest < 0 || d[deepest]! > maxDip) return null;
+    tau = firstDipUnder(d, minTau, maxTau, d[deepest]! + 0.05);
   }
-  if (tau < 0) return null;
 
   // Between samples: the bottom of the parabola through the dip and its neighbours.
   let exact = tau;
@@ -71,6 +82,17 @@ export function detectPitch(
     if (denominator !== 0) exact = tau + (a - c) / (2 * denominator);
   }
   return { hz: sampleRate / exact, clarity: Math.max(0, 1 - d[tau]!) };
+}
+
+/** The bottom of the first dip in `d` under `limit`, or -1. */
+function firstDipUnder(d: Float32Array, from: number, to: number, limit: number): number {
+  for (let t = from; t <= to; t++) {
+    if (d[t]! < limit) {
+      while (t + 1 <= to && d[t + 1]! < d[t]!) t++;
+      return t;
+    }
+  }
+  return -1;
 }
 
 /** MIDI pitch (with fraction) of a frequency: A4 = 440 Hz = 69. */

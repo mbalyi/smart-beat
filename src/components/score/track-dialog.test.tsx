@@ -165,6 +165,20 @@ describe("TrackDialog: settings", () => {
     await expectNoA11yViolations();
   });
 
+  it("lists the strings lowest first, each with its string number (#119)", () => {
+    setup(GUITAR);
+    const strings = within(screen.getByRole("list", { name: "Strings" })).getAllByRole("status");
+    expect(strings.map((s) => s.getAttribute("aria-label"))).toEqual([
+      "String 6",
+      "String 5",
+      "String 4",
+      "String 3",
+      "String 2",
+      "String 1",
+    ]);
+    expect(strings.map((s) => s.textContent)).toEqual(["E2", "A2", "D3", "G3", "B3", "E4"]);
+  });
+
   it("can be cancelled", async () => {
     const { user, onSubmit, onOpenChange } = setup(GUITAR);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -215,6 +229,25 @@ describe("TrackDialog: extended-range guitars (#43)", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ tuning: [64, 59, 55, 50, 45, 40, 35, 28, 23, 18] }),
     );
+  });
+
+  it.each([
+    [[64, 59, 55, 50, 45, 40], "(E A D G B E)"],
+    [[64, 59, 55, 50, 45, 40, 35], "(B E A D G B E)"],
+    [[64, 59, 55, 50, 45, 40, 35, 30], "(F# B E A D G B E)"],
+    [[43, 38, 33, 28], "(E A D G)"],
+  ])("shows a preset's strings lowest first (#119)", (tuning, wanted) => {
+    setup({ ...GUITAR, tuning });
+    expect(screen.getByRole("combobox", { name: "Tuning" })).toHaveTextContent(wanted);
+  });
+
+  it("shows the drop presets lowest first too (#119)", async () => {
+    const { user } = setup(GUITAR);
+    await user.click(screen.getByRole("combobox", { name: "Tuning" }));
+    const dropD = within(screen.getByRole("listbox")).getByRole("option", {
+      name: /^Guitar Dropped D Tuning \(/,
+    });
+    expect(dropD).toHaveTextContent("(D A D G B E)");
   });
 
   it("lists the drop tunings of metal on six strings", async () => {

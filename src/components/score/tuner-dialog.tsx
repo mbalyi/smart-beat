@@ -13,16 +13,35 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   audioInputErrorText,
+  listeningContext,
   openAudioInput,
   useAudioInput,
   type AudioInput,
 } from "@/lib/audio/input";
-import { detectPitch, midiOf, nearestString, samplesNeeded } from "@/lib/audio/pitch";
-import { pitchName, tuningLabel } from "@/lib/score/music";
+import { centsFrom, detectPitch, midiOf, nearestString, samplesNeeded } from "@/lib/audio/pitch";
+import { pitchName, tuningLabel, tuningNotes } from "@/lib/score/music";
 import { cn } from "@/lib/utils";
 
 /** Within this many cents a string counts as in tune. */
 export const IN_TUNE_CENTS = 5;
+
+/** How long (ms) the tuner keeps showing the last note once it hears none. */
+export const HOLD_MS = 1000;
+
+/** The farthest a pitch may be from an open string (cents) to be taken for that string. */
+export const MAX_OFF_CENTS = 150;
+
+/**
+ * The tuner shows the median of the readings from this many ms back. A plucked string starts a
+ * little sharp and settles, and a single reading can catch a harmonic.
+ */
+export const SMOOTH_MS = 400;
+
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+};
 
 type MicState =
   | { kind: "off" }
@@ -70,7 +89,7 @@ function useMicrophonePitch(on: boolean, tuning: readonly number[], input: Audio
           return;
         }
         stream = opened;
-        context = new AudioContext();
+        context = listeningContext(stream);
         const analyser = context.createAnalyser();
         // A power of two that holds two periods of a bass's low B.
         let size = 2048;
@@ -79,15 +98,34 @@ function useMicrophonePitch(on: boolean, tuning: readonly number[], input: Audio
         context.createMediaStreamSource(stream).connect(analyser);
         const buffer = new Float32Array(analyser.fftSize);
         setState({ kind: "listening", device: stream.getAudioTracks()[0]?.label ?? "" });
+        let recent: { at: number; hz: number; string: number }[] = [];
         timer = setInterval(() => {
           analyser.getFloatTimeDomainData(buffer);
+          const now = Date.now();
           const pitch = detectPitch(buffer, context!.sampleRate);
-          const near = pitch && nearestString(pitch.hz, strings.current);
-          if (!pitch || !near) return;
+          const found = pitch && nearestString(pitch.hz, strings.current);
+          // Hum and rumble map to some string too: only a pitch close to one counts.
+          const near = found && Math.abs(found.cents) <= MAX_OFF_CENTS ? found : null;
+          if (!pitch || !near) {
+            // The string died away: stop showing its last reading.
+            const last = recent.at(-1);
+            if (!last || now - last.at >= HOLD_MS) setHeard(null);
+            return;
+          }
+          recent = recent.filter((r) => now - r.at < SMOOTH_MS);
+          recent.push({ at: now, hz: pitch.hz, string: near.index });
+          // The string most readings agree on, the earlier one on a tie: one reading of a
+          // harmonic does not switch it.
+          const votes = (string: number) => recent.filter((r) => r.string === string).length;
+          const string = recent.reduce(
+            (best, r) => (votes(r.string) > votes(best) ? r.string : best),
+            recent[0]!.string,
+          );
+          const hz = median(recent.filter((r) => r.string === string).map((r) => r.hz));
           setHeard({
-            string: near.index,
-            cents: near.cents,
-            note: pitchName(Math.round(midiOf(pitch.hz))),
+            string,
+            cents: centsFrom(hz, strings.current[string]!),
+            note: pitchName(Math.round(midiOf(hz))),
           });
         }, 100);
       } catch (error) {
@@ -125,7 +163,7 @@ function CentsMeter({ cents }: { cents: number | null }) {
         aria-valuemax={50}
         aria-valuenow={clamped}
         aria-valuetext={words}
-        className="relative h-6 rounded-md border bg-muted"
+        className="relative h-6 overflow-hidden rounded-md border bg-muted"
       >
         <span aria-hidden="true" className="absolute inset-y-0 left-1/2 w-px bg-foreground/40" />
         {cents !== null && (
@@ -135,7 +173,8 @@ function CentsMeter({ cents }: { cents: number | null }) {
               "absolute inset-y-0.5 w-1.5 -translate-x-1/2 rounded-full",
               inTune ? "bg-green-600" : "bg-amber-500",
             )}
-            style={{ left: `${50 + clamped}%` }}
+            // Inside the meter at ±50 cents too.
+            style={{ left: `clamp(0.375rem, ${50 + clamped}%, calc(100% - 0.375rem))` }}
           />
         )}
       </div>
@@ -149,8 +188,8 @@ function CentsMeter({ cents }: { cents: number | null }) {
 }
 
 /**
- * The tuner (#83): the open strings of the track to play and tune to by ear, and, if the
- * player wants it, the audio input chosen in Settings to show how far each string is off.
+ * The tuner (#83): first the audio input chosen in Settings, to show how far each string is
+ * off, then the open strings of the track to play and tune to by ear.
  */
 export function TunerDialog({
   open,
@@ -170,10 +209,10 @@ export function TunerDialog({
   /** Opens Settings, where the audio input is chosen; focus comes back to `from`. */
   onOpenSettings?: (from: HTMLElement) => void;
 }) {
-  const [tab, setTab] = useState("notes");
+  const [tab, setTab] = useState("input");
   const [listening, setListening] = useState(false);
   const input = useAudioInput();
-  const mic = useMicrophonePitch(open && tab === "mic" && listening, tuning, input);
+  const mic = useMicrophonePitch(open && tab === "input" && listening, tuning, input);
   // Low string first, as a player tunes.
   const strings = tuning.map((pitch, i) => ({ pitch, number: i + 1 })).reverse();
 
@@ -188,36 +227,16 @@ export function TunerDialog({
         <DialogHeader>
           <DialogTitle>Tuner: {trackName}</DialogTitle>
           <DialogDescription>
-            {tuningLabel(tuning)}:{" "}
-            {strings.map((s) => pitchName(s.pitch, { octave: false })).join(" ")}
+            {tuningLabel(tuning)}: {tuningNotes(tuning)}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList>
+              <TabsTrigger value="input">Input</TabsTrigger>
               <TabsTrigger value="notes">Reference notes</TabsTrigger>
-              <TabsTrigger value="mic">Microphone</TabsTrigger>
             </TabsList>
-            <TabsContent value="notes" className="flex flex-col gap-3 pt-2">
-              <p className="text-sm text-muted-foreground">
-                Play a string&apos;s note and tune the string until they sound the same.
-              </p>
-              <ul className="flex flex-wrap gap-2" aria-label="Open strings">
-                {strings.map((s) => (
-                  <li key={s.number}>
-                    <Button
-                      variant="outline"
-                      onClick={() => onPlay(s.pitch)}
-                      aria-label={`Hear string ${s.number}, ${pitchName(s.pitch, { spoken: true })}`}
-                    >
-                      <Volume2Icon data-icon="inline-start" />
-                      {pitchName(s.pitch)}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </TabsContent>
-            <TabsContent value="mic" className="flex flex-col gap-3 pt-2">
+            <TabsContent value="input" className="flex flex-col gap-3 pt-2">
               <div className="flex items-center gap-3">
                 <Button
                   variant={listening ? "outline" : "default"}
@@ -228,11 +247,11 @@ export function TunerDialog({
                   ) : (
                     <MicIcon data-icon="inline-start" />
                   )}
-                  {listening ? "Stop listening" : "Listen with the microphone"}
+                  {listening ? "Stop listening" : "Start listening"}
                 </Button>
                 <span role="status" className="text-sm text-muted-foreground">
-                  {mic.state.kind === "off" && "The microphone is off."}
-                  {mic.state.kind === "asking" && "Asking for the microphone…"}
+                  {mic.state.kind === "off" && "Not listening."}
+                  {mic.state.kind === "asking" && "Asking for the input…"}
                   {mic.state.kind === "listening" &&
                     (mic.state.device
                       ? `Listening to ${mic.state.device}. Play one string at a time.`
@@ -263,14 +282,35 @@ export function TunerDialog({
                     {mic.heard?.note ?? "–"}
                   </p>
                   <CentsMeter cents={mic.heard?.cents ?? null} />
-                  {mic.heard && (
-                    <p className="text-center text-sm">
-                      Closest string: {mic.heard.string + 1} ({pitchName(tuning[mic.heard.string]!)}
-                      )
-                    </p>
-                  )}
+                  {/* Always there, so the dialog keeps its height while notes come and go. */}
+                  <p className="text-center text-sm" aria-hidden={!mic.heard}>
+                    {mic.heard ? (
+                      `Closest string: ${mic.heard.string + 1} (${pitchName(tuning[mic.heard.string]!)})`
+                    ) : (
+                      <span className="invisible">Closest string</span>
+                    )}
+                  </p>
                 </>
               )}
+            </TabsContent>
+            <TabsContent value="notes" className="flex flex-col gap-3 pt-2">
+              <p className="text-sm text-muted-foreground">
+                Play a string&apos;s note and tune the string until they sound the same.
+              </p>
+              <ul className="flex flex-wrap gap-2" aria-label="Open strings">
+                {strings.map((s) => (
+                  <li key={s.number}>
+                    <Button
+                      variant="outline"
+                      onClick={() => onPlay(s.pitch)}
+                      aria-label={`Hear string ${s.number}, ${pitchName(s.pitch, { spoken: true })}`}
+                    >
+                      <Volume2Icon data-icon="inline-start" />
+                      {pitchName(s.pitch)}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             </TabsContent>
           </Tabs>
         </DialogBody>

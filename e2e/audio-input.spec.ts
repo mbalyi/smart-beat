@@ -70,7 +70,7 @@ test.describe("audio input", () => {
       .getByRole("button", { name: "Tuner…" })
       .click();
     const tuner = app.getByRole("dialog", { name: "Tuner: Guitar" });
-    await tuner.getByRole("tab", { name: "Microphone" }).click();
+    await tuner.getByRole("tab", { name: "Input" }).click();
     await expect(tuner.getByText("Input: Scarlett 2i2 USB")).toBeVisible();
 
     const change = tuner.getByRole("button", { name: "Change input…" });

@@ -157,6 +157,23 @@ export async function openAudioInput(input: AudioInput | null): Promise<MediaStr
   return stream;
 }
 
+/**
+ * An audio context for listening to `stream`, running at the input's own sample rate. WebKit
+ * does not always resample an input whose rate differs from the context's: an interface at
+ * 44.1 kHz heard by a 48 kHz context reads every note about 150 cents sharp.
+ */
+export function listeningContext(stream: MediaStream): AudioContext {
+  const sampleRate = stream.getAudioTracks()[0]?.getSettings?.().sampleRate;
+  if (sampleRate) {
+    try {
+      return new AudioContext({ sampleRate });
+    } catch {
+      // A rate this web view can't run at: its own rate, as before.
+    }
+  }
+  return new AudioContext();
+}
+
 /** What to tell the player when an input can't be opened. */
 export function audioInputErrorText(error: unknown): string {
   if (error instanceof AudioInputMissingError) {

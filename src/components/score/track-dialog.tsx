@@ -37,6 +37,7 @@ import {
   pitchName,
   resizeTuning,
   tuningName,
+  tuningNotes,
   tuningPresets,
   type TrackKind,
 } from "@/lib/score/music";
@@ -71,7 +72,10 @@ function Field({ label, children, id }: { label: string; id: string; children: R
   );
 }
 
-/** Up/down controls for each string's pitch, highest string first. */
+/**
+ * Up/down controls for each string's pitch, lowest string first, as players name a tuning.
+ * Each keeps its string number (the highest string is 1).
+ */
 function TuningEditor({
   tuning,
   onChange,
@@ -85,36 +89,38 @@ function TuningEditor({
     );
   return (
     <ol className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4" aria-label="Strings">
-      {tuning.map((pitch, index) => (
-        <li key={index} className="flex items-center gap-1 text-sm">
-          <span className="w-5 text-muted-foreground tabular-nums">{index + 1}</span>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            onClick={() => change(index, -1)}
-            aria-label={`Lower string ${index + 1}`}
-          >
-            <MinusIcon />
-          </Button>
-          <output
-            className="w-9 text-center font-medium tabular-nums"
-            aria-label={`String ${index + 1}`}
-            aria-live="polite"
-          >
-            {pitchName(pitch)}
-          </output>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            onClick={() => change(index, 1)}
-            aria-label={`Raise string ${index + 1}`}
-          >
-            <PlusIcon />
-          </Button>
-        </li>
-      ))}
+      {tuning
+        .map((pitch, index) => (
+          <li key={index} className="flex items-center gap-1 text-sm">
+            <span className="w-5 text-muted-foreground tabular-nums">{index + 1}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-xs"
+              onClick={() => change(index, -1)}
+              aria-label={`Lower string ${index + 1}`}
+            >
+              <MinusIcon />
+            </Button>
+            <output
+              className="w-9 text-center font-medium tabular-nums"
+              aria-label={`String ${index + 1}`}
+              aria-live="polite"
+            >
+              {pitchName(pitch)}
+            </output>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-xs"
+              onClick={() => change(index, 1)}
+              aria-label={`Raise string ${index + 1}`}
+            >
+              <PlusIcon />
+            </Button>
+          </li>
+        ))
+        .reverse()}
     </ol>
   );
 }
@@ -332,8 +338,7 @@ function TrackForm({
                 <SelectContent>
                   {tuningPresets(tuning.length).map((preset) => (
                     <SelectItem key={preset.name} value={preset.name}>
-                      {preset.name} (
-                      {preset.tuning.map((p) => pitchName(p, { octave: false })).join(" ")})
+                      {preset.name} ({tuningNotes(preset.tuning)})
                     </SelectItem>
                   ))}
                   {!presetName && <SelectItem value={CUSTOM}>Custom</SelectItem>}

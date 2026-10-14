@@ -34,7 +34,7 @@ import {
   type KitEntry,
 } from "@/lib/score/instrument-view";
 import { LabeledSlider } from "@/components/labeled-slider";
-import { pitchName, tuningLabel, type TrackKind } from "@/lib/score/music";
+import { pitchName, tuningLabel, tuningNotes, type TrackKind } from "@/lib/score/music";
 import {
   describeScale,
   SCALE_ROOTS,
@@ -197,7 +197,7 @@ function Fretboard({
     <div className="flex flex-col gap-1">
       <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
         <span>
-          {name}: {strings.map((s) => s.label).join(" ")}
+          {name}: {tuningNotes(tuning)}
           {capo > 0 && ` · Capo ${capo}`}
         </span>
         {onOpenTuner && (
