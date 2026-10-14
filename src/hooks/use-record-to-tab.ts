@@ -26,6 +26,13 @@ import { splitHands } from "@/lib/import/hand-split";
 import type { ScoreEditor } from "@/lib/score/editor";
 import type { Score } from "@/lib/score/model";
 import { getPreset } from "@/lib/score/music";
+
+/** The General MIDI program a take is written with, so a bass sounds like a bass. */
+function programFor(instrument: RecordInstrument): number {
+  if (instrument === "piano") return getPreset("piano")?.program ?? 0;
+  if (instrument === "bass") return getPreset("bass-4")?.program ?? 33;
+  return getPreset("guitar")?.program ?? 25;
+}
 import type { ScorePlayer } from "@/lib/score/player";
 import type { LoopRange } from "@/lib/score/practice";
 import type { MixerSettings } from "@/lib/tauri";
@@ -204,7 +211,8 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
       samples,
       sampleRate,
       (fraction) => setPhase({ kind: "transcribing", fraction }),
-      instrument,
+      // The note finder hears a bass like a guitar.
+      instrument === "piano" ? "piano" : "guitar",
       engine,
     );
 
@@ -270,7 +278,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     const result = recordingToSong(heard, {
       tuning: piano ? undefined : tuning,
       trackName: RECORDING_NAME,
-      program: getPreset(piano ? "piano" : "guitar")?.program ?? (piano ? 0 : 25),
+      program: programFor(instrument),
     });
     envRef.current.onOpenScore(result.score, name);
     return result.warnings;
@@ -520,13 +528,13 @@ function addToScore(
                     score,
                     bass ? `${RECORDING_NAME} (left hand)` : RECORDING_NAME,
                   ),
-                  program: getPreset("piano")?.program ?? 0,
+                  program: programFor("piano"),
                   bass,
                 }
               : {
                   kind: "stringed",
                   name: uniqueTrackName(score, RECORDING_NAME),
-                  program: getPreset("guitar")?.program ?? 25,
+                  program: programFor(setup.instrument),
                   tuning: setup.tuning,
                 },
           );

@@ -3,6 +3,7 @@ import { STANDARD_GUITAR, tuningPresets } from "@/lib/score/music";
 
 const PLAY_OTHERS_KEY = "smart-beat:record-play-others";
 const TUNING_KEY = "smart-beat:record-tuning";
+const BASS_TUNING_KEY = "smart-beat:record-tuning-bass";
 const ALIGN_KEY = "smart-beat:record-align";
 const INSTRUMENT_KEY = "smart-beat:record-instrument";
 const ENGINE_KEY = "smart-beat:record-piano-engine";
@@ -10,11 +11,17 @@ const ENGINE_KEY = "smart-beat:record-piano-engine";
 /** The piano note finder: the built-in one, or the downloaded high-accuracy model (Transkun). */
 export type PianoEngine = "standard" | "accurate";
 
-/** What Record to Tab listens to: a string instrument (tab) or a piano (two-hand staves). */
-export type RecordInstrument = "guitar" | "piano";
+/** What Record to Tab listens to: a guitar or a bass (tab), or a piano (two-hand staves). */
+export type RecordInstrument = "guitar" | "bass" | "piano";
+
+/** The strings of a take, in the note finder: a bass is heard like a guitar. */
+export const stringsOnly = (instrument: RecordInstrument): boolean => instrument !== "piano";
 
 /** Guitars the tuning picker offers; 7 and 8 strings are the extended-range guitars. */
 export const RECORD_STRING_COUNTS = [6, 7, 8] as const;
+
+/** Basses the tuning picker offers. */
+export const RECORD_BASS_STRING_COUNTS = [4, 5, 6] as const;
 
 /** A tuning picked by its string count and its preset's name. */
 export interface TuningChoice {
@@ -71,13 +78,17 @@ export function tuningOf({ strings, name }: TuningChoice): number[] {
   return found ? [...found.tuning] : STANDARD_GUITAR.slice(0, strings);
 }
 
-/** The last tuning picked, or standard six-string. */
-export function readTuningChoice(): TuningChoice {
+/** The last tuning picked for a guitar or a bass, or the standard six or four strings. */
+export function readTuningChoice(family: "guitar" | "bass" = "guitar"): TuningChoice {
+  const counts: readonly number[] =
+    family === "bass" ? RECORD_BASS_STRING_COUNTS : RECORD_STRING_COUNTS;
   try {
-    const value = JSON.parse(localStorage.getItem(TUNING_KEY) ?? "null") as Partial<TuningChoice>;
+    const value = JSON.parse(
+      localStorage.getItem(family === "bass" ? BASS_TUNING_KEY : TUNING_KEY) ?? "null",
+    ) as Partial<TuningChoice>;
     if (
       value &&
-      (RECORD_STRING_COUNTS as readonly number[]).includes(value.strings as number) &&
+      counts.includes(value.strings as number) &&
       typeof value.name === "string" &&
       tuningPresets(value.strings!).some((preset) => preset.name === value.name)
     ) {
@@ -86,12 +97,12 @@ export function readTuningChoice(): TuningChoice {
   } catch {
     // Unreadable or no storage: standard.
   }
-  return standard(6);
+  return standard(family === "bass" ? 4 : 6);
 }
 
-export function storeTuningChoice(choice: TuningChoice) {
+export function storeTuningChoice(choice: TuningChoice, family: "guitar" | "bass" = "guitar") {
   try {
-    localStorage.setItem(TUNING_KEY, JSON.stringify(choice));
+    localStorage.setItem(family === "bass" ? BASS_TUNING_KEY : TUNING_KEY, JSON.stringify(choice));
   } catch {
     // Not remembered: standard next time.
   }
@@ -103,7 +114,8 @@ export const standardTuningChoice = standard;
 /** The last instrument picked (guitar by default). */
 export function readInstrument(): RecordInstrument {
   try {
-    return localStorage.getItem(INSTRUMENT_KEY) === "piano" ? "piano" : "guitar";
+    const value = localStorage.getItem(INSTRUMENT_KEY);
+    return value === "piano" || value === "bass" ? value : "guitar";
   } catch {
     return "guitar";
   }

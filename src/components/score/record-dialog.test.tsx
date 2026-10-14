@@ -310,7 +310,7 @@ describe("RecordDialog", () => {
     expect(mic.stop).toHaveBeenCalled();
   });
 
-  describe("the built-in microphone hint", () => {
+  describe("the headphones hint", () => {
     const HINT = "Use headphones, or the click will be heard in the recording.";
 
     it("shows for a built-in microphone", async () => {
@@ -324,11 +324,47 @@ describe("RecordDialog", () => {
       expect(await screen.findByText(HINT)).toBeInTheDocument();
     });
 
+    it("has its rays outside the box, one set on each side", async () => {
+      storeAudioInput(BUILT_IN);
+      setup();
+      const box = (await screen.findByText(HINT)).closest("[role=note]")!;
+      expect(box.querySelector("[data-sparkles]")).toBeNull();
+      const rays = box.parentElement!.querySelectorAll(":scope > [data-sparkles]");
+      expect(rays).toHaveLength(2);
+      expect([...rays].every((ray) => ray.getAttribute("aria-hidden") === "true")).toBe(true);
+    });
+
+    it("shows with the system default whatever it turns out to be, while the click is on", async () => {
+      // A name that does not say built-in (a webview may only say "Default").
+      const { mic } = setup({}, { inputs: [{ deviceId: "default", label: "Default" }] });
+      await waitFor(() => expect(mic.getUserMedia).toHaveBeenCalled());
+      expect(await screen.findByText(HINT)).toBeInTheDocument();
+    });
+
+    it("shows when the names of the inputs are hidden until the microphone is allowed", async () => {
+      storeAudioInput({ deviceId: "x", label: "" });
+      setup({}, { inputs: [{ deviceId: "x", label: "" }] });
+      expect(await screen.findByText(HINT)).toBeInTheDocument();
+    });
+
+    it("is for the click only: free mode and a file need no headphones", async () => {
+      const { user } = setup();
+      expect(await screen.findByText(HINT)).toBeInTheDocument();
+      await user.click(screen.getByRole("radio", { name: "Free" }));
+      expect(screen.queryByText(HINT)).not.toBeInTheDocument();
+      await user.click(screen.getByRole("radio", { name: "Click" }));
+      expect(screen.getByText(HINT)).toBeInTheDocument();
+      await user.click(screen.getByRole("radio", { name: "File" }));
+      expect(screen.queryByText(HINT)).not.toBeInTheDocument();
+    });
+
     it("does not show for an audio interface", async () => {
       storeAudioInput(SCARLETT);
       const { mic } = setup();
       await waitFor(() => expect(mic.getUserMedia).toHaveBeenCalled());
-      await screen.findByText("Play a few notes to check the level.");
+      await waitFor(() =>
+        expect(screen.queryByText("Asking for the microphone…")).not.toBeInTheDocument(),
+      );
       expect(screen.queryByText(HINT)).not.toBeInTheDocument();
     });
   });
@@ -348,10 +384,102 @@ describe("RecordDialog", () => {
 
   it("says that it is a beta, how accurate it is, and to review the tab", () => {
     setup();
-    expect(within(dialog()).getByText("Beta")).toBeVisible();
+    expect(within(dialog()).getByRole("img", { name: "Beta" })).toBeVisible();
     const note = within(dialog()).getByText(/Guitar and bass\./);
     expect(note).toHaveTextContent("Guitar: roughly 7 of 10 notes are found");
     expect(note).toHaveTextContent("Review the tab and correct it.");
+  });
+
+  it("does not tell the player to play a few notes: the level meter shows that it hears", async () => {
+    setup();
+    await waitFor(() =>
+      expect(screen.queryByText("Asking for the microphone…")).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/Play a few notes/)).not.toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "Input level" })).toBeVisible();
+  });
+
+  it("puts a vertical divider between the two columns, as in the design", () => {
+    setup();
+    expect(dialog().querySelector("[data-divider]")).not.toBeNull();
+  });
+
+  it("joins the two piano models in one button group", async () => {
+    const pianoModel: PianoModel = {
+      ready: true,
+      installed: true,
+      bytes: 56_799_421,
+      progress: null,
+      error: null,
+      download: vi.fn(),
+    };
+    const { user } = setup({ pianoModel });
+    await user.click(screen.getByRole("radio", { name: "Piano" }));
+    const group = screen.getByRole("radiogroup", { name: "Piano model" });
+    expect(group).toHaveAttribute("data-spacing", "0");
+    expect(
+      within(group)
+        .getAllByRole("radio")
+        .map((r) => r.textContent),
+    ).toEqual(["Standard", "High accuracy"]);
+  });
+
+  describe("the instruments", () => {
+    const crowns = () => dialog().querySelectorAll("[data-crown]");
+
+    it("offers guitar, bass and piano, and drums as a disabled button that is coming soon", () => {
+      setup();
+      for (const name of ["Guitar", "Bass", "Piano"]) {
+        expect(screen.getByRole("radio", { name })).toBeEnabled();
+      }
+      const drums = screen.getByRole("radio", { name: "Drums, coming soon" });
+      expect(drums).toBeDisabled();
+      expect(drums).toHaveTextContent("Soon");
+    });
+
+    it("puts a crown on the instrument that is chosen, and only on that one", async () => {
+      const { user } = setup();
+      const inside = (name: string) =>
+        screen.getByRole("radio", { name }).querySelector("[data-crown]");
+      expect(inside("Guitar")).not.toBeNull();
+      expect(inside("Bass")).toBeNull();
+      expect(inside("Piano")).toBeNull();
+      await user.click(screen.getByRole("radio", { name: "Piano" }));
+      expect(inside("Guitar")).toBeNull();
+      expect(inside("Piano")).not.toBeNull();
+      expect(
+        screen.getByRole("radio", { name: "Drums, coming soon" }).querySelector("[data-crown]"),
+      ).toBeNull();
+      expect(crowns().length).toBe(1);
+    });
+
+    it("records a bass with its own strings and remembers them apart from the guitar's", async () => {
+      const { user, onRecord } = setup({ targets: [], defaultTrack: null });
+      await user.click(screen.getByRole("radio", { name: "Bass" }));
+      expect(screen.getByRole("combobox", { name: "Strings" })).toHaveTextContent("4 strings");
+      await user.click(screen.getByRole("combobox", { name: "Strings" }));
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "4 strings",
+        "5 strings",
+        "6 strings",
+      ]);
+      await user.click(screen.getByRole("option", { name: "5 strings" }));
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      expect(onRecord).toHaveBeenCalledWith(
+        expect.objectContaining({ instrument: "bass", tuning: [43, 38, 33, 28, 23] }),
+      );
+      expect(readInstrument()).toBe("bass");
+      expect(readTuningChoice("bass").strings).toBe(5);
+      // The guitar keeps its own tuning.
+      expect(readTuningChoice("guitar")).toEqual(readTuningChoice());
+      expect(readTuningChoice("guitar").strings).toBe(6);
+    });
+
+    it("tells a guitar take from a bass take in the beta note only by the instrument", async () => {
+      const { user } = setup();
+      await user.click(screen.getByRole("radio", { name: "Bass" }));
+      expect(within(dialog()).getByText(/Guitar and bass\./)).toBeVisible();
+    });
   });
 
   it("gives the accuracy of the piano model that is chosen", async () => {
@@ -376,7 +504,7 @@ describe("RecordDialog", () => {
     expect(accurate).toHaveTextContent("note F1 about 99%");
     expect(accurate).toHaveTextContent("about half its own length");
     expect(accurate).not.toHaveTextContent("built-in model");
-    await user.click(screen.getByRole("radio", { name: "Guitar or bass" }));
+    await user.click(screen.getByRole("radio", { name: "Guitar" }));
     expect(within(dialog()).getByText(/Guitar and bass\./)).toBeVisible();
   });
 
@@ -435,7 +563,9 @@ describe("RecordDialog", () => {
 
   it("has no accessibility violations, in click, free and file mode", async () => {
     const { user } = setup();
-    await screen.findByText("Play a few notes to check the level.");
+    await waitFor(() =>
+      expect(screen.queryByText("Asking for the microphone…")).not.toBeInTheDocument(),
+    );
     await expectNoA11yViolations(dialog());
     await user.click(screen.getByRole("radio", { name: "Free" }));
     await expectNoA11yViolations(dialog());

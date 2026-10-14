@@ -321,6 +321,23 @@ describe("piano takes", () => {
     expect(written(score, index)).toEqual([72, 48, 76, 74]);
   });
 
+  it("click mode writes the sounding pitch on a transposing piano track", () => {
+    for (const transposition of [12, -12, 2]) {
+      const score = createSong();
+      while (score.masterBars.length < 2) appendMasterBar(score);
+      const track = createTrack(score, { kind: "pitched", name: "Keys", program: 0 });
+      track.staves[0]!.transpositionPitch = transposition;
+      insertTrack(score, track);
+      refinish(score);
+      const index = score.tracks.length - 1;
+      writeRecording(score, [note(0, 72), note(0.5, 41, 0.4)], { trackIndex: index, startBar: 0 });
+      const sounded = score.tracks[index]!.staves[0]!.bars.flatMap((bar) =>
+        bar.voices[0]!.beats.flatMap((beat) => beat.notes.map((n) => n.realValue)),
+      );
+      expect(sounded, `transposition ${transposition}`).toEqual([72, 41]);
+    }
+  });
+
   it("click mode still refuses a drum track", () => {
     const score = createSong();
     const drums = createTrack(score, { kind: "drums", name: "Drums", program: 0 });

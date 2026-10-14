@@ -503,6 +503,51 @@ describe("piano", () => {
   });
 });
 
+describe("bass", () => {
+  const note = { start: 3.15, end: 3.5, pitch: 40, velocity: 90 };
+
+  it("is heard like a guitar, and opens the song with a bass sound and its strings", async () => {
+    vi.mocked(recordingToSong).mockReturnValue({ score: {}, warnings: [] } as never);
+    vi.mocked(transcribeRecording).mockResolvedValue([note] as never);
+    const hook = setup();
+    fakeRecorder();
+    const tuning = [43, 38, 33, 28, 23];
+    await begin(hook, click({ mode: "free", track: null, instrument: "bass", tuning }));
+    await stop(hook);
+    await waitFor(() => expect(hook.onOpenScore).toHaveBeenCalled());
+    expect(transcribeRecording).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      48_000,
+      expect.any(Function),
+      "guitar",
+      "standard",
+    );
+    expect(recordingToSong).toHaveBeenCalledWith(expect.anything(), {
+      tuning,
+      trackName: "Recording",
+      program: 33,
+    });
+  });
+
+  it("gets a new bass track with the strings and the bass sound", async () => {
+    const { createTrack, insertTrack } = await import("@/lib/score/tracks");
+    vi.mocked(createTrack).mockClear();
+    vi.mocked(transcribeRecording).mockResolvedValue([note] as never);
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+    const hook = setup();
+    vi.mocked(insertTrack).mockImplementation((score, added) => void score.tracks.push(added));
+    fakeRecorder();
+    const tuning = [43, 38, 33, 28];
+    await begin(hook, click({ track: null, instrument: "bass", tuning }));
+    await stop(hook);
+    await waitFor(() => expect(createTrack).toHaveBeenCalledTimes(1));
+    expect(createTrack).toHaveBeenCalledWith(
+      hook.score,
+      expect.objectContaining({ kind: "stringed", program: 33, tuning }),
+    );
+  });
+});
+
 describe("free mode", () => {
   it("does not play the song, and opens the take as a new song", async () => {
     const song = { score: { title: "x" }, warnings: ["Tempo is a guess."] };

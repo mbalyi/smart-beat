@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { XIcon } from "lucide-react";
+import { CircleIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { isEnabled } from "@/lib/features";
@@ -24,6 +24,7 @@ import {
 } from "@/components/audio/pedalboard-dialog";
 import { SoundLibraryDialog } from "@/components/audio/sound-library-dialog";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tip";
 import { BarDialog } from "@/components/score/bar-dialog";
 import { BarProblems } from "@/components/score/bar-problems";
 import { BendDialog, type CurveKind } from "@/components/score/bend-dialog";
@@ -2006,6 +2007,19 @@ export function ScoreWorkspace({
   const problemBars = new Set(problems.map((p) => p.bar)).size;
   const fileActionsMenu = (
     <>
+      {recordEnabled && !recordBusy && (
+        <Tip label="Record to Tab…">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="Record to Tab"
+            data-record-button=""
+            onClick={() => recording.open()}
+          >
+            <CircleIcon className="fill-red-500 text-red-500" aria-hidden="true" />
+          </Button>
+        </Tip>
+      )}
       <FileMenu
         onImportAudio={onImportAudio}
         onRecordToTab={recordEnabled && !recordBusy ? () => recording.open() : undefined}

@@ -1,10 +1,29 @@
-import { AudioLinesIcon, CircleIcon, DownloadIcon, HeadphonesIcon } from "lucide-react";
+import {
+  AudioLinesIcon,
+  CircleIcon,
+  DownloadIcon,
+  FileAudioIcon,
+  HeadphonesIcon,
+  Music2Icon,
+  WandSparklesIcon,
+} from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
+import betaBadge from "@/assets/record-to-tab/beta-badge.webp";
+import crown from "@/assets/record-to-tab/crown.webp";
+import hero from "@/assets/record-to-tab/hero.webp";
+import iconBass from "@/assets/record-to-tab/icon-bass.webp";
+import iconDrums from "@/assets/record-to-tab/icon-drums.webp";
+import iconGuitar from "@/assets/record-to-tab/icon-guitar.webp";
+import iconPiano from "@/assets/record-to-tab/icon-piano.webp";
+import logo from "@/assets/record-to-tab/logo.webp";
+import sparklesLeft from "@/assets/record-to-tab/sparkles-left.webp";
+import sparklesRight from "@/assets/record-to-tab/sparkles-right.webp";
+import splashLeft from "@/assets/record-to-tab/splash-bottom-left.webp";
+import splashRight from "@/assets/record-to-tab/splash-bottom-right.webp";
 import { AudioInputSetting } from "@/components/audio-input-setting";
 import { AudioDropArea } from "@/components/audio/audio-drop-area";
 import { LiveWaveform } from "@/components/audio/live-waveform";
-import { BetaBadge } from "@/components/beta-badge";
 import { recordToTabBetaNote } from "@/components/record-to-tab-notes";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,6 +50,7 @@ import type { PianoModel } from "@/hooks/use-piano-model";
 import { isTakeFile, TAKE_FILE_EXTENSIONS } from "@/lib/audio/decode-take";
 import { looksBuiltIn, useAudioInput } from "@/lib/audio/input";
 import {
+  RECORD_BASS_STRING_COUNTS,
   RECORD_STRING_COUNTS,
   readAlignToBeat,
   readInstrument,
@@ -49,6 +69,7 @@ import {
   type TuningChoice,
 } from "@/lib/audio/record-prefs";
 import { pitchName, tuningPresets } from "@/lib/score/music";
+import { cn } from "@/lib/utils";
 
 export type RecordMode = "click" | "free";
 /** What the dialog turns into tab: a take in one of the modes, or an existing recording. */
@@ -91,10 +112,70 @@ const NEW_TRACK = "new";
 /** Megabytes of a download, rounded up to a whole number. */
 const megabytes = (bytes: number) => Math.ceil(bytes / 1_000_000);
 
+/** The small capitals above a group of controls. */
+function SectionLabel({ id, children }: { id?: string; children: ReactNode }) {
+  return (
+    <span
+      id={id}
+      className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase"
+    >
+      {children}
+    </span>
+  );
+}
+
+/** The crown of the choice that is on. */
+function Crown({ className }: { className?: string }) {
+  return (
+    <img
+      src={crown}
+      alt=""
+      aria-hidden="true"
+      data-crown=""
+      className={cn("pointer-events-none size-5 object-contain", className)}
+    />
+  );
+}
+
+/** The graffiti around the dialog: behind everything, never in the way, hidden from readers. */
+function RecordArt() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+      <img
+        src={splashLeft}
+        alt=""
+        className="absolute bottom-0 left-0 w-[40%] opacity-50 dark:opacity-90"
+      />
+      <img
+        src={splashRight}
+        alt=""
+        className="absolute right-0 bottom-0 w-[20%] opacity-50 dark:opacity-90"
+      />
+      <img src={hero} alt="" className="absolute top-1 right-2 hidden w-[41%] md:block" />
+    </div>
+  );
+}
+
+/**
+ * An instrument to choose: a small button with its picture (which may reach out of the button)
+ * and name, and a crown over the name when it is the one.
+ */
+const INSTRUMENT_BUTTON =
+  "relative h-[54px] min-w-0 gap-1.5 rounded-lg border border-border bg-card px-1.5 pr-3 text-[15px] font-semibold hover:bg-card data-[state=on]:border-brand data-[state=on]:bg-card! data-[state=on]:text-foreground! data-[state=on]:shadow-[0_0_16px_color-mix(in_oklab,var(--brand)_60%,transparent)] data-[state=on]:ring-2 data-[state=on]:ring-brand/70 data-[state=on]:inset-ring-0";
+/** A recording mode to choose: filled purple when it is the one. */
+const MODE_BUTTON =
+  "h-9 gap-2 rounded-md border border-border bg-card px-4 text-sm font-semibold data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_55%,transparent)]";
+/** One side of a joined button group: only the outer ends are round. */
+const SEGMENT_BUTTON =
+  "h-9 gap-1.5 border border-border bg-card px-5 text-sm font-semibold group-data-horizontal/toggle-group:data-[spacing=0]:first:rounded-l-md group-data-horizontal/toggle-group:data-[spacing=0]:last:rounded-r-md data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_55%,transparent)]";
+
 function Field({ label, children, id }: { label: string; id: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-sm font-medium">
+      <label
+        htmlFor={id}
+        className="text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase"
+      >
         {label}
       </label>
       {children}
@@ -144,7 +225,7 @@ export function RecordDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl">
+      <DialogContent size="xl" className="sm:max-w-4xl">
         {/* Mounted only while open: it starts from the defaults and remembered choices again. */}
         {open && (
           <RecordForm
@@ -201,6 +282,7 @@ function RecordForm({
     others: useId(),
     align: useId(),
     engine: useId(),
+    mode: useId(),
   };
   const [instrument, setInstrument] = useState<RecordInstrument>(readInstrument);
   const piano = instrument === "piano";
@@ -236,7 +318,12 @@ function RecordForm({
   );
   const [playOthers, setPlayOthers] = useState(readPlayOthers);
   const [alignToBeat, setAlignToBeat] = useState(readAlignToBeat);
-  const [tuningChoice, setTuningChoice] = useState<TuningChoice>(readTuningChoice);
+  const family = instrument === "bass" ? "bass" : "guitar";
+  const [tunings, setTunings] = useState<Record<"guitar" | "bass", TuningChoice>>(() => ({
+    guitar: readTuningChoice("guitar"),
+    bass: readTuningChoice("bass"),
+  }));
+  const tuningChoice = tunings[family];
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
 
@@ -266,8 +353,8 @@ function RecordForm({
   const level = heard.kind === "listening" ? heard.level : 0;
 
   const changeTuning = (next: TuningChoice) => {
-    setTuningChoice(next);
-    storeTuningChoice(next);
+    setTunings((all) => ({ ...all, [family]: next }));
+    storeTuningChoice(next, family);
   };
   const changeInstrument = (value: RecordInstrument) => {
     setInstrument(value);
@@ -310,49 +397,112 @@ function RecordForm({
     file: `Choose a ${piano ? "piano" : "guitar"} recording. Smart Beat finds the tempo and opens it as a new song.`,
   }[mode];
 
+  const instruments = [
+    { value: "guitar", label: "Guitar", icon: iconGuitar },
+    { value: "bass", label: "Bass", icon: iconBass },
+    { value: "piano", label: "Piano", icon: iconPiano },
+  ] as const;
+  const modes = [
+    { value: "click", label: "Click", icon: WandSparklesIcon },
+    { value: "free", label: "Free", icon: AudioLinesIcon },
+    { value: "file", label: "File", icon: FileAudioIcon },
+  ] as const;
+
+  // The click is heard in a recording unless the player wears headphones, which we cannot tell.
+  // The warning stays until the input is known to be an interface or another outside microphone.
+  // The system's default input may be anything, and a hidden name says nothing: only an input
+  // that was picked by name and is not a built-in microphone is taken to be an outside one.
+  const showHeadphones = mode === "click" && (!input?.label || builtIn);
+
   return (
-    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-      <DialogHeader>
-        <DialogTitle className="flex items-center gap-2">
-          Record to Tab
-          <BetaBadge />
+    <form onSubmit={submit} className="relative isolate flex min-h-0 flex-1 flex-col">
+      <RecordArt />
+      <DialogHeader className="px-6 md:px-10 md:pr-[48%]">
+        <DialogTitle className="-mt-2 -mb-3 flex items-center">
+          <img
+            src={logo}
+            alt=""
+            aria-hidden="true"
+            className="-ml-[4%] w-[270px] max-w-[70%] shrink-0 sm:w-[320px]"
+          />
+          <span className="sr-only">Record to Tab</span>
+          <img
+            src={betaBadge}
+            alt="Beta"
+            className="mt-3 -mr-8 -ml-6 w-[104px] shrink-0 sm:-ml-9 sm:w-[120px]"
+          />
         </DialogTitle>
         <DialogDescription>{description}</DialogDescription>
         <p role="note" className="text-sm text-muted-foreground">
           {recordToTabBetaNote(instrument, engine)}
         </p>
       </DialogHeader>
-      <DialogBody>
+      <DialogBody className="gap-3 px-6 pb-6 md:px-10">
         <ToggleGroup
           type="single"
-          variant="outline"
-          size="sm"
-          spacing={0}
+          variant="default"
+          spacing={2}
           aria-label="Instrument"
           value={instrument}
           onValueChange={(value) => value && changeInstrument(value as RecordInstrument)}
-          className="self-start"
+          className="flex-wrap gap-2.5 pt-2"
         >
-          <ToggleGroupItem value="guitar">Guitar or bass</ToggleGroupItem>
-          <ToggleGroupItem value="piano">Piano</ToggleGroupItem>
-        </ToggleGroup>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          spacing={0}
-          aria-label="Mode"
-          value={mode}
-          onValueChange={(value) => value && setMode(value as Source)}
-          className="self-start"
-        >
-          <ToggleGroupItem value="click">Click</ToggleGroupItem>
-          <ToggleGroupItem value="free">Free</ToggleGroupItem>
-          <ToggleGroupItem value="file">File</ToggleGroupItem>
+          {instruments.map(({ value, label, icon }) => (
+            <ToggleGroupItem key={value} value={value} className={INSTRUMENT_BUTTON}>
+              <img
+                src={icon}
+                alt=""
+                aria-hidden="true"
+                className="-mt-2 -mb-1 size-[58px] shrink-0 object-contain"
+              />
+              <span className="relative flex flex-col items-center justify-end self-stretch pt-4 pb-3">
+                {instrument === value && (
+                  <Crown className="absolute top-0.5 left-1/2 size-6 -translate-x-1/2" />
+                )}
+                {label}
+              </span>
+            </ToggleGroupItem>
+          ))}
+          <ToggleGroupItem
+            value="drums"
+            disabled
+            aria-label="Drums, coming soon"
+            className={cn(INSTRUMENT_BUTTON, "pl-1.5 text-muted-foreground disabled:opacity-60")}
+          >
+            <img
+              src={iconDrums}
+              alt=""
+              aria-hidden="true"
+              className="-mt-1 size-12 shrink-0 object-contain"
+            />
+            <span className="flex flex-col items-center">
+              Drums
+              <span className="mt-0.5 rounded-md bg-muted px-2 text-xs font-medium">Soon</span>
+            </span>
+          </ToggleGroupItem>
         </ToggleGroup>
 
-        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+        <div className="grid gap-x-6 gap-y-5 sm:grid-cols-[1fr_1px_1fr]">
           <div className="flex min-w-0 flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <SectionLabel id={ids.mode}>Recording mode</SectionLabel>
+              <ToggleGroup
+                type="single"
+                variant="default"
+                spacing={2}
+                aria-labelledby={ids.mode}
+                value={mode}
+                onValueChange={(value) => value && setMode(value as Source)}
+                className="self-start"
+              >
+                {modes.map(({ value, label, icon: Icon }) => (
+                  <ToggleGroupItem key={value} value={value} className={MODE_BUTTON}>
+                    <Icon aria-hidden="true" />
+                    {label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
             {fromFile ? (
               <AudioDropArea
                 extensions={TAKE_FILE_EXTENSIONS}
@@ -374,13 +524,14 @@ function RecordForm({
               </AudioDropArea>
             ) : (
               <>
-                <AudioInputSetting />
+                <AudioInputSetting stacked />
                 <div className="flex flex-col gap-1.5">
-                  <LiveWaveform level={level} />
-                  <p role="status" className="min-h-5 text-sm text-muted-foreground">
-                    {heard.kind === "asking" && "Asking for the microphone…"}
-                    {heard.kind === "listening" && "Play a few notes to check the level."}
-                  </p>
+                  <LiveWaveform level={level} className="h-9" />
+                  {heard.kind === "asking" && (
+                    <p role="status" className="text-sm text-muted-foreground">
+                      Asking for the microphone…
+                    </p>
+                  )}
                   {heard.kind === "blocked" && (
                     <p
                       role="alert"
@@ -390,26 +541,49 @@ function RecordForm({
                     </p>
                   )}
                 </div>
-                {builtIn && (
-                  <p
-                    role="note"
-                    className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200"
-                  >
-                    <HeadphonesIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                    <span>Use headphones, or the click will be heard in the recording.</span>
-                  </p>
+                {showHeadphones && (
+                  <div className="relative px-6 py-1">
+                    {/* The rays sit outside the box, one set on each side. */}
+                    <img
+                      src={sparklesLeft}
+                      alt=""
+                      aria-hidden="true"
+                      data-sparkles=""
+                      className="pointer-events-none absolute top-1/2 left-0 h-9 w-auto -translate-y-1/2"
+                    />
+                    <img
+                      src={sparklesRight}
+                      alt=""
+                      aria-hidden="true"
+                      data-sparkles=""
+                      className="pointer-events-none absolute top-1/2 right-0 h-9 w-auto -translate-y-1/2"
+                    />
+                    <p
+                      role="note"
+                      className="flex items-center gap-3 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2 text-[15px] text-amber-950 dark:bg-amber-950/80 dark:text-amber-100"
+                    >
+                      <HeadphonesIcon
+                        className="size-6 shrink-0 text-amber-500"
+                        aria-hidden="true"
+                      />
+                      <span>Use headphones, or the click will be heard in the recording.</span>
+                    </p>
+                  </div>
                 )}
               </>
             )}
           </div>
 
-          <div className="flex min-w-0 flex-col gap-4">
+          <div aria-hidden="true" className="hidden bg-border sm:block" data-divider="" />
+
+          <div className="flex min-w-0 flex-col gap-4 sm:pb-14">
             {mode === "click" && (
               <>
                 <div className="grid gap-4 sm:grid-cols-[1fr_6rem]">
                   <Field label="Track" id={ids.track}>
                     <Select value={track} onValueChange={setTrack}>
-                      <SelectTrigger id={ids.track} className="w-full">
+                      <SelectTrigger id={ids.track} className="w-full rounded-md">
+                        <Music2Icon className="size-5 text-muted-foreground" aria-hidden="true" />
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -425,6 +599,7 @@ function RecordForm({
                   <Field label="Start bar" id={ids.bar}>
                     <Input
                       id={ids.bar}
+                      className="rounded-md"
                       type="number"
                       inputMode="numeric"
                       min={1}
@@ -464,21 +639,24 @@ function RecordForm({
 
             {offersModel && (
               <div className="flex flex-col gap-2">
-                <span id={ids.engine} className="text-sm font-medium">
-                  Piano model
-                </span>
+                <SectionLabel id={ids.engine}>Piano model</SectionLabel>
                 <ToggleGroup
                   type="single"
                   variant="outline"
-                  size="sm"
                   spacing={0}
                   aria-labelledby={ids.engine}
                   value={engine}
                   onValueChange={(value) => value && changeEngine(value as PianoEngine)}
                   className="self-start"
                 >
-                  <ToggleGroupItem value="standard">Standard</ToggleGroupItem>
-                  <ToggleGroupItem value="accurate">High accuracy</ToggleGroupItem>
+                  <ToggleGroupItem value="standard" className={SEGMENT_BUTTON}>
+                    Standard
+                    {engine === "standard" && <Crown />}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="accurate" className={SEGMENT_BUTTON}>
+                    High accuracy
+                    {engine === "accurate" && <Crown />}
+                  </ToggleGroupItem>
                 </ToggleGroup>
                 <p className="text-sm text-muted-foreground">
                   {engine === "standard"
@@ -521,27 +699,33 @@ function RecordForm({
               <div className="grid grid-cols-[7rem_1fr] gap-4">
                 <Field label="Strings" id={ids.strings}>
                   <Select
+                    key={family}
                     value={String(tuningChoice.strings)}
                     onValueChange={(value) => changeTuning(standardTuningChoice(Number(value)))}
                   >
-                    <SelectTrigger id={ids.strings} className="w-full">
+                    <SelectTrigger id={ids.strings} className="w-full rounded-md">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {RECORD_STRING_COUNTS.map((count) => (
-                        <SelectItem key={count} value={String(count)}>
-                          {count} strings
-                        </SelectItem>
-                      ))}
+                      {(family === "bass" ? RECORD_BASS_STRING_COUNTS : RECORD_STRING_COUNTS).map(
+                        (count) => (
+                          <SelectItem key={count} value={String(count)}>
+                            {count} strings
+                          </SelectItem>
+                        ),
+                      )}
                     </SelectContent>
                   </Select>
                 </Field>
                 <Field label="Tuning" id={ids.tuning}>
                   <Select
+                    key={`${family}-${tuningChoice.strings}`}
                     value={tuningChoice.name}
-                    onValueChange={(name) => changeTuning({ strings: tuningChoice.strings, name })}
+                    onValueChange={(name) =>
+                      name && changeTuning({ strings: tuningChoice.strings, name })
+                    }
                   >
-                    <SelectTrigger id={ids.tuning} className="w-full">
+                    <SelectTrigger id={ids.tuning} className="w-full rounded-md">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -565,18 +749,29 @@ function RecordForm({
           </p>
         )}
       </DialogBody>
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onCancel}>
+      <DialogFooter className="mt-0 border-t-0 bg-transparent px-6 pt-2 sm:absolute sm:right-10 sm:bottom-5 sm:p-0">
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="h-10 rounded-lg bg-card px-6"
+          onClick={onCancel}
+        >
           Cancel
         </Button>
         {fromFile ? (
-          <Button type="submit" disabled={!supported || file === null || needsModel}>
+          <Button type="submit" size="lg" disabled={!supported || file === null || needsModel}>
             <AudioLinesIcon data-icon="inline-start" />
             Make tab
           </Button>
         ) : (
-          <Button type="submit" disabled={!supported || heard.kind === "blocked" || needsModel}>
-            <CircleIcon data-icon="inline-start" className="fill-current text-destructive" />
+          <Button
+            type="submit"
+            size="lg"
+            className="h-10 rounded-xl px-7 text-base shadow-[0_0_18px_color-mix(in_oklab,var(--primary)_60%,transparent)] ring-[3px] ring-black"
+            disabled={!supported || heard.kind === "blocked" || needsModel}
+          >
+            <CircleIcon data-icon="inline-start" className="fill-red-500 text-red-500" />
             Record
           </Button>
         )}

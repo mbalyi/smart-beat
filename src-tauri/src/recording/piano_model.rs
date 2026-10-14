@@ -12,6 +12,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
@@ -145,33 +146,52 @@ pub fn download_file(
     result
 }
 
+/// One download at a time, for the whole app: every song tab can open the dialog, and two
+/// downloads into one folder would write the same `.part` files and rename each other's.
+static DOWNLOADING: Mutex<()> = Mutex::new(());
+
+/// Downloads the files of `files` that are missing into `folder`, from `base`. A second call
+/// waits for the first, then finds the files there and downloads nothing. `on_fraction` gets the
+/// share of all the files, 0 to 1.
+pub fn download_missing(
+    folder: &Path,
+    base: &str,
+    files: &[ModelFile],
+    on_fraction: &mut dyn FnMut(f32),
+) -> Result<(), CommandError> {
+    let _only_one = DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner());
+    std::fs::create_dir_all(folder)
+        .map_err(|e| error(format!("Could not make a folder for the piano model: {e}")))?;
+    let total = files.iter().map(|f| f.bytes).sum::<u64>() as f32;
+    let mut before = 0u64;
+    let mut last = -1.0f32;
+    for file in files {
+        let dest = folder.join(file.name);
+        let have = std::fs::metadata(&dest).is_ok_and(|m| m.len() == file.bytes);
+        if !have {
+            let url = format!("{base}{}", file.name);
+            download_file(&url, &dest, file.bytes, file.sha256, &mut |done| {
+                let fraction = (before + done) as f32 / total;
+                if fraction - last >= 0.01 {
+                    last = fraction;
+                    on_fraction(fraction);
+                }
+            })?;
+        }
+        before += file.bytes;
+    }
+    on_fraction(1.0);
+    Ok(())
+}
+
 /// Downloads the model files that are missing. Emits `piano-model-download-progress`.
 #[tauri::command]
 pub async fn download_piano_model<R: Runtime>(app: AppHandle<R>) -> Result<(), CommandError> {
     let folder = dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        std::fs::create_dir_all(&folder)
-            .map_err(|e| error(format!("Could not make a folder for the piano model: {e}")))?;
-        let total = total_bytes() as f32;
-        let mut before = 0u64;
-        let mut last = -1.0f32;
-        for file in &FILES {
-            let dest = folder.join(file.name);
-            let have = std::fs::metadata(&dest).is_ok_and(|m| m.len() == file.bytes);
-            if !have {
-                let url = format!("{BASE_URL}{}", file.name);
-                download_file(&url, &dest, file.bytes, file.sha256, &mut |done| {
-                    let fraction = (before + done) as f32 / total;
-                    if fraction - last >= 0.01 {
-                        last = fraction;
-                        let _ = app.emit(PROGRESS_EVENT, Progress { fraction });
-                    }
-                })?;
-            }
-            before += file.bytes;
-        }
-        let _ = app.emit(PROGRESS_EVENT, Progress { fraction: 1.0 });
-        Ok(())
+        download_missing(&folder, BASE_URL, &FILES, &mut |fraction| {
+            let _ = app.emit(PROGRESS_EVENT, Progress { fraction });
+        })
     })
     .await
     .map_err(|_| error("Could not download the piano model."))?
@@ -262,6 +282,58 @@ mod tests {
             download_file(&serve(HELLO), &dest, 99, &sum_of(HELLO), &mut |_| {}).unwrap_err();
         assert!(short.message.contains("not the expected file"));
         assert!(!dest.exists() && !dest.with_extension("part").exists());
+    }
+
+    /// A server that answers every request with `body`, and counts them.
+    fn serve_counting(
+        body: &'static [u8],
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = hits.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut request = [0u8; 1024];
+                let _ = stream.read(&mut request);
+                // Slow enough for a second download to arrive while this one runs.
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(body);
+            }
+        });
+        (format!("http://{address}/"), hits)
+    }
+
+    #[test]
+    fn two_downloads_at_once_fetch_each_file_once_and_both_succeed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (base, hits) = serve_counting(HELLO);
+        let sum: &'static str = Box::leak(sum_of(HELLO).into_boxed_str());
+        let files: &'static [ModelFile] = Box::leak(Box::new([ModelFile {
+            name: "a.bin",
+            bytes: HELLO.len() as u64,
+            sha256: sum,
+        }]));
+        let results: Vec<_> = (0..2)
+            .map(|_| {
+                let (folder, base) = (dir.path().to_path_buf(), base.clone());
+                std::thread::spawn(move || download_missing(&folder, &base, files, &mut |_| {}))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert!(results.iter().all(Result::is_ok), "{results:?}");
+        assert_eq!(std::fs::read(dir.path().join("a.bin")).unwrap(), HELLO);
+        assert!(!dir.path().join("a.part").exists());
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

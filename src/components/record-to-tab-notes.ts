@@ -21,7 +21,7 @@ export const PIANO_CAVEAT = "Measured on rendered piano music: a real recording 
 
 /** The short note under the dialog's title, for what is chosen in the dialog. */
 export function recordToTabBetaNote(instrument: RecordInstrument, engine: PianoEngine): string {
-  if (instrument === "guitar") {
+  if (instrument !== "piano") {
     return `Beta. Guitar and bass. ${RECORD_TO_TAB_ACCURACY} Review the tab and correct it.`;
   }
   const accuracy = engine === "accurate" ? PIANO_ACCURATE_ACCURACY : PIANO_STANDARD_ACCURACY;

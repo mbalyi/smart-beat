@@ -523,8 +523,11 @@ export function fillTrack(
           if (drums) {
             note.percussionArticulation = pitch;
           } else {
-            note.octave = Math.floor(pitch / 12);
-            note.tone = pitch % 12;
+            // A transposing staff sounds its written value minus its transposition: write what
+            // gives the pitch that was heard.
+            const written = pitch + staff.transpositionPitch;
+            note.octave = Math.floor(written / 12);
+            note.tone = ((written % 12) + 12) % 12;
           }
           beat.addNote(note);
         }
