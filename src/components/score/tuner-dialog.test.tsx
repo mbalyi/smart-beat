@@ -132,6 +132,21 @@ describe("TunerDialog (#83)", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Not listening.");
   });
 
+  it("ignores mains hum, which is far from every string", async () => {
+    installMicrophone(50);
+    const { user } = setup();
+    await user.click(screen.getByRole("tab", { name: "Input" }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await user.click(screen.getByRole("button", { name: "Start listening" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(screen.getByRole("meter", { name: "Tuning" })).toHaveAttribute(
+      "aria-valuetext",
+      "No note heard",
+    );
+  });
+
   it("says when the string is in tune", async () => {
     installMicrophone(110);
     const { user } = setup();

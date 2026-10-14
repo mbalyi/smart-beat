@@ -28,6 +28,9 @@ export const IN_TUNE_CENTS = 5;
 /** How long (ms) the tuner keeps showing the last note once it hears none. */
 export const HOLD_MS = 1000;
 
+/** The farthest a pitch may be from an open string (cents) to be taken for that string. */
+export const MAX_OFF_CENTS = 150;
+
 /**
  * The tuner shows the median of the readings from this many ms back. A plucked string starts a
  * little sharp and settles, and a single reading can catch a harmonic.
@@ -100,7 +103,9 @@ function useMicrophonePitch(on: boolean, tuning: readonly number[], input: Audio
           analyser.getFloatTimeDomainData(buffer);
           const now = Date.now();
           const pitch = detectPitch(buffer, context!.sampleRate);
-          const near = pitch && nearestString(pitch.hz, strings.current);
+          const found = pitch && nearestString(pitch.hz, strings.current);
+          // Hum and rumble map to some string too: only a pitch close to one counts.
+          const near = found && Math.abs(found.cents) <= MAX_OFF_CENTS ? found : null;
           if (!pitch || !near) {
             // The string died away: stop showing its last reading.
             const last = recent.at(-1);
