@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 
 import { Welcome } from "@/components/welcome";
 import { FEATURES } from "@/components/welcome-features";
@@ -94,7 +94,7 @@ describe("Welcome", () => {
       "Write tabs and scores (Available)",
       "Learning mode (Available)",
       "Audio to tab (AI · Coming soon)",
-      "Record to tab (AI · Coming soon)",
+      "Record to tab (Beta)",
       "Speech to tab (AI · Coming soon)",
       "Hum to accompaniment (AI · Coming soon)",
     ]);
@@ -114,6 +114,42 @@ describe("Welcome", () => {
       expect(card.getByText(feature.badge)).toBeInTheDocument();
       expect(card.getByText(feature.description)).toBeInTheDocument();
     }
+  });
+
+  describe("Record to tab", () => {
+    const findPopup = () =>
+      waitFor(() => {
+        const found = document.querySelector("[data-slot=hover-card-content]");
+        expect(found).not.toBeNull();
+        return found!;
+      });
+    const card = () => screen.getByRole("heading", { name: "Record to tab" }).closest("article")!;
+
+    it("is a beta whose Limits button describes what it can't do yet", () => {
+      renderWelcome();
+      expect(within(card()).getByText("Beta")).toBeInTheDocument();
+      const limits = within(card()).getByRole("button", { name: "Limits" });
+      expect(limits).toHaveAccessibleDescription(/Guitar only for now\./);
+      expect(limits).toHaveAccessibleDescription(/Roughly 7 of 10 notes are found/);
+      expect(limits).toHaveAccessibleDescription(/correct it by hand/);
+    });
+
+    it("shows the limits in a popup when its button has focus", async () => {
+      const { user } = renderWelcome();
+      await user.tab();
+      while (document.activeElement !== within(card()).getByRole("button", { name: "Limits" })) {
+        await user.tab();
+      }
+      const popup = await findPopup();
+      expect(popup).toHaveTextContent("No cloud AI");
+      expect(popup).toHaveTextContent("use an existing guitar recording");
+    });
+
+    it("shows the limits in a popup on hover", async () => {
+      const { user } = renderWelcome();
+      await user.hover(card());
+      expect(await findPopup()).toHaveTextContent("Guitar only for now.");
+    });
   });
 
   it("lists the tools of Learning mode", () => {

@@ -47,6 +47,7 @@ export const EVENTS = [
   "restart_on_stop_on",
   "restart_on_stop_off",
   "restart_on_stop_used",
+  "record_to_tab",
 ] as const;
 
 // File formats that may accompany open_file and export (FORMATS in telemetry.rs).

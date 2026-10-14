@@ -106,12 +106,17 @@ function setup({
 
 const types = (chain: EffectSlot[]) => chain.map((s) => s.type);
 
-/** HTML5 drag and drop as jsdom dispatches it. */
+/**
+ * A drag on the pedalboard (#128). Pointer events, not HTML5 drag events: on
+ * macOS the webview hands the OS file drop to the window and never delivers
+ * `drop` to elements, so the board is driven by the pointer. A press moves
+ * past a small threshold, then the element under the pointer names the zone.
+ */
 function drag(from: HTMLElement, to: HTMLElement) {
-  fireEvent.dragStart(from);
-  fireEvent.dragOver(to);
-  fireEvent.drop(to);
-  fireEvent.dragEnd(from);
+  fireEvent.pointerDown(from, { button: 0, clientX: 5, clientY: 5, pointerId: 1 });
+  fireEvent.pointerMove(from, { clientX: 24, clientY: 5, pointerId: 1, buttons: 1 });
+  fireEvent.pointerMove(to, { clientX: 40, clientY: 20, pointerId: 1, buttons: 1 });
+  fireEvent.pointerUp(document.body, { pointerId: 1 });
 }
 
 const pedal = (dialog: HTMLElement, name: string) =>
@@ -187,10 +192,62 @@ describe("PedalboardDialog", () => {
     const { dialog, chain } = setup({ initial: full });
     const button = within(dialog).getByRole("button", { name: "Add amp My 5150" });
     expect(button).toBeDisabled();
+    // A press that would drag a sound onto the board does nothing either.
     const asset = within(dialog).getAllByTestId("library-asset")[0]!;
-    expect(asset).toHaveAttribute("draggable", "false");
     drag(asset, within(dialog).getByTestId("pedalboard"));
     expect(chain()).toHaveLength(MAX_TRACK_EFFECTS);
+  });
+
+  it("shows what is being dragged and cancels the drag on Escape (#128)", () => {
+    const { dialog, chain } = setup({ initial: [defaultEffect("gate"), defaultEffect("cab")] });
+    const grip = within(pedal(dialog, "Cabinet 2")).getByTestId("pedal-grip");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 5, clientY: 5, pointerId: 1 });
+    fireEvent.pointerMove(grip, { clientX: 24, clientY: 5, pointerId: 1, buttons: 1 });
+    expect(within(dialog).getByTestId("drag-preview")).toHaveTextContent("Cabinet 2");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(within(dialog).queryByTestId("drag-preview")).not.toBeInTheDocument();
+    // The press after the cancel is cleared too: no stale drag on the next move.
+    fireEvent.pointerMove(within(dialog).getByTestId("pedalboard"), {
+      clientX: 40,
+      clientY: 20,
+      pointerId: 1,
+      buttons: 1,
+    });
+    fireEvent.pointerUp(document.body, { pointerId: 1 });
+    expect(types(chain())).toEqual(["gate", "cab"]);
+  });
+
+  it("selects no text while dragging, but leaves the pedals' controls selectable (#128)", () => {
+    const { dialog } = setup({ initial: [defaultEffect("gate")] });
+    expect(dialog).not.toHaveClass("select-none");
+    // A press on the pedal arms the drag: nothing may be selected on the way.
+    const grip = within(pedal(dialog, "Noise gate 1")).getByTestId("pedal-grip");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 5, clientY: 5, pointerId: 1 });
+    expect(dialog).toHaveClass("select-none");
+    fireEvent.pointerUp(document.body, { pointerId: 1 });
+    expect(dialog).not.toHaveClass("select-none");
+    // A press on a control is that control's, not a drag.
+    fireEvent.pointerDown(within(dialog).getByRole("switch", { name: "Noise gate 1 on" }), {
+      button: 0,
+      clientX: 5,
+      clientY: 5,
+      pointerId: 1,
+    });
+    expect(dialog).not.toHaveClass("select-none");
+  });
+
+  it("adds, reorders and removes with the keyboard (#128)", async () => {
+    // The library's Add buttons and the pedal's shortcuts work without a mouse.
+    const { user, dialog, chain } = setup({
+      initial: [defaultEffect("gate"), defaultEffect("cab")],
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Add Reverb" }));
+    expect(types(chain())).toEqual(["gate", "cab", "reverb"]);
+    pedal(dialog, "Reverb 3").focus();
+    await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    expect(types(chain())).toEqual(["gate", "reverb", "cab"]);
+    await user.keyboard("{Delete}");
+    expect(types(chain())).toEqual(["gate", "cab"]);
   });
 
   it("switches loudness matching on an amp capture", async () => {

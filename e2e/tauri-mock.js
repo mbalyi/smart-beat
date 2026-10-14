@@ -64,6 +64,20 @@
   /** Every command the UI sent, for assertions. */
   window.__ipcCalls = [];
   window.__transcription = { configured: true, midiBase64: "", cancelled: [], requests: [] };
+  /**
+   * Record to Tab (src-tauri/src/recording.rs). Every request is kept. `shift` moves the notes
+   * later (seconds): a click-mode take starts with the count-in. `hold` keeps the call open until
+   * `release()` or a cancel; `fail` makes it reject with that message.
+   */
+  window.__recordTranscription = {
+    requests: [],
+    cancelled: 0,
+    hold: false,
+    fail: null,
+    shift: 0,
+    release: null,
+    abort: null,
+  };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -474,6 +488,42 @@
           })),
           durationSeconds: 1.5,
         };
+      case "transcribe_recording": {
+        // Like Tauri's IPC: the samples are the raw body, the rate is a header.
+        const state = window.__recordTranscription;
+        state.requests.push({
+          sampleRate: Number(options.headers["x-sample-rate"]),
+          bytes: args.byteLength,
+        });
+        window.__emitTauriEvent("recording-transcription-progress", { fraction: 0.5 });
+        if (state.hold) {
+          await new Promise((resolve, reject) => {
+            state.release = resolve;
+            state.abort = () => reject("Transcription stopped.");
+          });
+        }
+        if (state.fail) throw { kind: "audio", message: state.fail };
+        // Three open strings, then an E major chord: E2, A2, D3 and E2 B2 E3 G#3.
+        const notes = [
+          [40, 0.0, 0.5],
+          [45, 0.5, 1.0],
+          [50, 1.0, 1.5],
+          [40, 1.5, 2.0],
+          [47, 1.5, 2.0],
+          [52, 1.5, 2.0],
+          [56, 1.5, 2.0],
+        ].map(([pitch, start, end]) => ({
+          pitch,
+          start: start + state.shift,
+          end: end + state.shift,
+          velocity: 0.8,
+        }));
+        return { notes };
+      }
+      case "cancel_recording_transcription":
+        window.__recordTranscription.cancelled += 1;
+        window.__recordTranscription.abort?.();
+        return null;
       default:
         throw new Error(`Unmocked Tauri command: ${cmd}`);
     }

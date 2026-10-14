@@ -42,12 +42,15 @@ test.describe("pedalboard (#36)", () => {
     await expect(dialog.getByRole("listitem", { name: "Reverb 2" })).toBeVisible();
 
     // Drag the reverb in front of the delay, then drag the delay back out.
+    // Pedals are grabbed by their grip (#128).
     await dialog
       .getByRole("listitem", { name: "Reverb 2" })
+      .getByTestId("pedal-grip")
       .dragTo(dialog.getByRole("listitem", { name: "Delay 1" }));
     await expect(dialog.getByRole("listitem", { name: "Reverb 1" })).toBeVisible();
     await dialog
       .getByRole("listitem", { name: "Delay 2" })
+      .getByTestId("pedal-grip")
       .dragTo(dialog.getByTestId("effect-library"));
     await expect(dialog.getByTestId("effect-block")).toHaveCount(1);
 
