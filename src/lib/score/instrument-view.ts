@@ -19,7 +19,6 @@ import {
   DRUM_NOTATION,
   instrumentName,
   pitchName,
-  tuningNotes,
   tuningName,
   tuningNotes,
   type TrackKind,
