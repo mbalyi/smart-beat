@@ -5,6 +5,7 @@ import openPlayAndPractice from "@/assets/features/open-play-and-practice.png";
 import recordToTab from "@/assets/features/record-to-tab.png";
 import speechToTab from "@/assets/features/speech-to-tab.png";
 import writeTabsAndScores from "@/assets/features/write-tabs-and-scores.png";
+import { RECORD_TO_TAB_LIMITS } from "@/components/record-to-tab-notes";
 
 /** Feature highlights (available and upcoming) shown on the welcome screen, in this order. */
 export interface Feature {
@@ -12,10 +13,12 @@ export interface Feature {
   /** The artwork: it already shows the title, so the card gives the title to screen readers only. */
   image: string;
   badge: string;
-  status: "available" | "soon";
+  status: "available" | "beta" | "soon";
   description: string;
   /** A list under the description, for a feature that is a set of tools. */
   items?: readonly string[];
+  /** What the feature can't do yet: shown in a popup on hover and on focus. */
+  limits?: readonly string[];
 }
 
 export const FEATURES: readonly Feature[] = [
@@ -53,9 +56,11 @@ export const FEATURES: readonly Feature[] = [
   {
     title: "Record to tab",
     image: recordToTab,
-    badge: "AI · Coming soon",
-    status: "soon",
-    description: "Record yourself playing and let AI generate MIDI and tab from your performance.",
+    badge: "Beta",
+    status: "beta",
+    description:
+      "Record yourself playing guitar, or use a guitar recording, and get tab you can edit.",
+    limits: RECORD_TO_TAB_LIMITS,
   },
   {
     title: "Speech to tab",

@@ -132,6 +132,21 @@ function downbeatScore(
 }
 
 /**
+ * How far the onsets are from the grid of `step` ticks, on average, in steps (0 = on the
+ * grid), or null when there are too few onsets to tell.
+ */
+export function gridError(onsets: readonly Onset[], step: number): number | null {
+  const ticks = [...new Set(onsets.map((onset) => onset.tick))];
+  return ticks.length >= MIN_ONSETS ? meanError(ticks, step, 0) : null;
+}
+
+/** True when there are enough onsets and they already sit on the grid of `step` ticks. */
+export function fitsGrid(onsets: readonly Onset[], step: number): boolean {
+  const error = gridError(onsets, step);
+  return error !== null && error <= FITS;
+}
+
+/**
  * The clean grid for `onsets`, or null when they already follow the file's own grid of
  * `step` ticks (a sixteenth) or no steady grid is found. `barSteps` and `beatSteps` are
  * the bar and beat lengths in sixteenths.

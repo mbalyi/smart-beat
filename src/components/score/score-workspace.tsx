@@ -12,6 +12,7 @@ import {
 import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
+import { isEnabled } from "@/lib/features";
 import { track as trackUsage } from "@/lib/telemetry";
 
 import { AudioTrackPanel } from "@/components/audio/audio-track-panel";
@@ -43,6 +44,8 @@ import { exportGroups } from "@/lib/export/choices";
 import { baseName } from "@/lib/score/format";
 import { useTheme } from "@/hooks/use-theme";
 import { TunerDialog } from "@/components/score/tuner-dialog";
+import { RecordBar } from "@/components/score/record-bar";
+import { RecordDialog, type DroppedTake } from "@/components/score/record-dialog";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
@@ -63,6 +66,7 @@ import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
+import { recordTargets, useRecordToTab } from "@/hooks/use-record-to-tab";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import {
   MAX_MASTER_EFFECTS,
@@ -151,7 +155,7 @@ import {
   storeLayoutPrefs,
   type LayoutPrefs,
 } from "@/lib/score/layout";
-import { trackContent, type Beat, type Track } from "@/lib/score/model";
+import { trackContent, type Beat, type Score, type Track } from "@/lib/score/model";
 import {
   ScorePlayer,
   type Layout,
@@ -214,6 +218,7 @@ import {
   MIXER_SETTINGS_VERSION,
   pickAudioFile,
   pickSavePath,
+  readDroppedAudio,
   saveMixerSettings,
   writePdfFile,
   type AudioTrackSettings,
@@ -384,6 +389,7 @@ export function ScoreWorkspace({
   headerSlot,
   onOpen,
   onImportAudio,
+  onOpenScore,
   onEditedChange,
   onSaved,
   onReopenWithEncoding,
@@ -401,6 +407,8 @@ export function ScoreWorkspace({
   onOpen: () => void;
   /** Import from Audio; left out while the `audio-2-tab` feature is off. */
   onImportAudio?: () => void;
+  /** Free-mode Record to Tab: opens the take as a new song that exists only in memory. */
+  onOpenScore?: (score: Score, name: string) => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
   onSaved?: (saved: SavedAs) => void;
   /** Guitar Pro 3–5 songs: read the file again with another text encoding (#53). */
@@ -1144,11 +1152,46 @@ export function ScoreWorkspace({
       },
     });
 
+  // --- Record to Tab (#108) ------------------------------------------------------------------
+
+  const recordEnabled = isEnabled("record-2-tab");
+  const recording = useRecordToTab({
+    score,
+    editor,
+    player: () => playerRef.current,
+    ready,
+    practice: () => ({
+      metronome: practice.metronome,
+      countIn: practice.countIn,
+      loop: practice.loop ? practice.range : null,
+      speed: practice.speed,
+    }),
+    mix: () => mixRef.current,
+    // Like a mixer change, but it is not a use of the mixer, and the mix is put back afterwards.
+    setTrackStates: (states) => {
+      let next = mixRef.current;
+      for (const { track: index, mute, solo } of states) {
+        next = mixerReducer(next, { type: "mute", track: index, value: mute });
+        next = mixerReducer(next, { type: "solo", track: index, value: solo });
+      }
+      mixRef.current = next;
+      trackStates(next).forEach((state, i) => {
+        const t = score.tracks[i];
+        if (t) stateByTrack.current.set(t, state);
+      });
+      setMix(next);
+      playerRef.current?.setMix(next);
+    },
+    onOpenScore: (opened, name) => onOpenScore?.(opened, name),
+  });
+  const recordBusy = recording.phase.kind !== "idle";
+  const [recordDrop, setRecordDrop] = useState<DroppedTake | null>(null);
+
   const playPause = () => {
     trackUsage(playing ? "pause" : "play");
     playerRef.current?.playPause();
   };
-  useSpaceToPlay(playPause, ready && active);
+  useSpaceToPlay(playPause, ready && active && !recordBusy);
 
   // --- Effects and the native audio engine -------------------------------------
 
@@ -1394,6 +1437,18 @@ export function ScoreWorkspace({
    * otherwise.
    */
   const routeDroppedFile = (path: string) => {
+    if (recordEnabled && recording.dialogOpen) {
+      // Record to Tab is open: the file is the recording to turn into tab.
+      void readDroppedAudio(path)
+        .then((bytes) => {
+          const file = new File([bytes], baseName(path));
+          setRecordDrop((d) => ({ file, nonce: (d?.nonce ?? 0) + 1 }));
+        })
+        .catch((error: unknown) =>
+          toast.error("Couldn't read the recording", { description: errorText(error) }),
+        );
+      return;
+    }
     if (/\.nam$/i.test(path)) void library.importPath(path, "amp");
     else if (libraryOpen && /\.wav$/i.test(path)) void library.importPath(path, "cab");
     else void addAudioTrack(path);
@@ -1951,6 +2006,7 @@ export function ScoreWorkspace({
     <>
       <FileMenu
         onImportAudio={onImportAudio}
+        onRecordToTab={recordEnabled && !recordBusy ? () => recording.open() : undefined}
         onSave={() => void fileActions.save()}
         onSaveAs={() => void fileActions.saveAs()}
         onExport={(format) => void fileActions.exportAs(format)}
@@ -2131,6 +2187,9 @@ export function ScoreWorkspace({
                 trackUsage("tuner");
                 setTunerOpen(true);
               }}
+              onOpenRecord={
+                recordEnabled && !recordBusy ? () => recording.open(trackIndex) : undefined
+              }
               onFret={(string, fret) => {
                 editor.setString(string);
                 editor.setFret(fret - track.capo);
@@ -2290,6 +2349,28 @@ export function ScoreWorkspace({
           onClose={() => setAudioEditorOpen(false)}
           canEmbed={isTauri()}
         />
+      )}
+      {recordEnabled && (
+        <>
+          <RecordDialog
+            open={recording.dialogOpen}
+            onOpenChange={(open) => (open ? recording.open() : recording.close())}
+            targets={recordTargets(summary.tracks)}
+            defaultTrack={recording.dialogTrack ?? trackIndex}
+            defaultBar={editor.cursor.bar}
+            barCount={score.masterBars.length}
+            supported={isTauri()}
+            onRecord={recording.start}
+            onRecordFile={recording.fromFile}
+            droppedFile={recordDrop}
+          />
+          <RecordBar
+            phase={recording.phase}
+            level={recording.level}
+            onStop={recording.stop}
+            onCancel={recording.cancel}
+          />
+        </>
       )}
       {track.kind === "stringed" && (
         <TunerDialog

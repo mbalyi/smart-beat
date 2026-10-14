@@ -52,8 +52,15 @@ The macOS and Windows buttons start the download of the newest release's install
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/record-to-tab.png" alt="Record to tab" width="100%">
-      <p><b>🟣 AI · Coming soon</b></p>
-      <p>Record yourself playing and let AI generate MIDI and tab from your performance.</p>
+      <p><b>🟣 Beta</b></p>
+      <p>Record yourself playing guitar, or use a guitar recording, and get tab you can edit.</p>
+      <ul>
+        <li>Guitar only for now.</li>
+        <li>No cloud AI: a small note-finding model runs on your computer, and Smart Beat's own rules pick the string and fret.</li>
+        <li>Record inside the app, or use an existing guitar recording.</li>
+        <li>Roughly 7 of 10 notes are found (note F1 about 72%), and the right string is picked for about 64% of them.</li>
+        <li>Review the tab afterwards. You will probably need to correct it by hand.</li>
+      </ul>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/speech-to-tab.png" alt="Speech to tab" width="100%">

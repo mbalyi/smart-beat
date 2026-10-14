@@ -64,6 +64,7 @@ export function App() {
     openPath,
     openFile,
     newSong,
+    openScore,
     markSaved,
     reopenWithEncoding,
     recentsVersion,
@@ -272,6 +273,7 @@ export function App() {
                     headerSlot={headerSlot}
                     onOpen={open}
                     onImportAudio={importAudio}
+                    onOpenScore={(score, name) => void openScore(score, name)}
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}
                     onReopenWithEncoding={(choice) => reopenWithEncoding(s.id, choice)}

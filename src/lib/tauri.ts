@@ -10,6 +10,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 import type { EffectSlot } from "@/lib/audio/effects";
+import type { RecordedNote } from "@/lib/import/recording";
 import type { Interpretation } from "@/lib/score/interpretation";
 
 /** Mirrors `MenuAction` in `src-tauri/src/menu.rs` (kebab-case). */
@@ -868,4 +869,55 @@ export async function pickKitFile(): Promise<string | null> {
     directory: false,
     filters: [{ name: "Drum kits (SFZ, SoundFont)", extensions: ["sfz", "sf2", "sf3"] }],
   });
+}
+
+// --- Record to tab -----------------------------------------------------------
+
+const RECORDING_PROGRESS_EVENT = "recording-transcription-progress";
+
+/** What Rust says when {@link cancelRecordingTranscription} stopped the running transcription. */
+export const RECORDING_STOPPED = "Transcription stopped.";
+
+/** True for the error of a transcription that was stopped on purpose. */
+export const isRecordingStopped = (error: unknown): boolean =>
+  (typeof error === "string" ? error : (error as { message?: unknown } | null)?.message) ===
+  RECORDING_STOPPED;
+
+/**
+ * Turns a take (mono samples as 32-bit floats) into notes, on this computer. `onProgress` gets
+ * the fraction done (0…1). Rejects with {@link RECORDING_STOPPED} after a cancel.
+ */
+export async function transcribeRecording(
+  samples: Float32Array,
+  sampleRate: number,
+  onProgress?: (fraction: number) => void,
+): Promise<RecordedNote[]> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<{ fraction: number }>(RECORDING_PROGRESS_EVENT, (event) =>
+        onProgress(event.payload.fraction),
+      )
+    : () => {};
+  try {
+    // The samples are the raw request body (little-endian f32); the rate travels in a header.
+    const body = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
+    const result = await invoke<{ notes: RecordedNote[] }>("transcribe_recording", body, {
+      headers: { "x-sample-rate": String(sampleRate) },
+    });
+    return result.notes;
+  } finally {
+    stopListening();
+  }
+}
+
+/** The bytes of an audio file dropped on the window (MP3, WAV, FLAC or OGG, up to 100 MiB). */
+export async function readDroppedAudio(path: string): Promise<ArrayBuffer> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<ArrayBuffer>("read_transcription_audio", { path });
+}
+
+/** Stops the running {@link transcribeRecording}, which then rejects. */
+export async function cancelRecordingTranscription(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("cancel_recording_transcription");
 }
