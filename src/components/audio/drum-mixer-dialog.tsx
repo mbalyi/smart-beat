@@ -3,6 +3,7 @@ import { useId } from "react";
 import { EffectsPlaybackNotice } from "@/components/audio/effects-playback-notice";
 import { GainReductionMeter, LevelMeter } from "@/components/audio/level-meter";
 import { LabeledSlider } from "@/components/labeled-slider";
+import { PanControl } from "@/components/pan-control";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,7 +32,7 @@ import {
   elementMix,
   withElementMix,
 } from "@/lib/audio/drum-elements";
-import { describeDb, describePan, shortPan } from "@/lib/score/mixer";
+import { describeDb, describePan, panLabel } from "@/lib/score/mixer";
 import {
   applyDynamicsPreset,
   dynamicsPresetsFor,
@@ -170,20 +171,17 @@ export function DrumMixerDialog({
                   <span className="text-xs text-muted-foreground tabular-nums">
                     {describeDb(mix.volume)}
                   </span>
-                  <Knob
+                  <PanControl
+                    variant="knob"
                     size="sm"
-                    showLabel={false}
                     label={`Pan, ${element.label}`}
                     valueText={current.stereo ? describePan(mix.pan) : "Centre (mono)"}
                     value={mix.pan}
-                    min={-1}
-                    max={1}
-                    step={0.05}
                     disabled={!current.stereo}
                     onValueChange={(pan) => set({ pan })}
                   />
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {shortPan(current.stereo ? mix.pan : 0)}
+                    {panLabel(current.stereo ? mix.pan : 0)}
                   </span>
                   <span className="h-24 rotate-180 text-center font-medium whitespace-nowrap [text-orientation:mixed] [writing-mode:vertical-rl]">
                     {element.label}

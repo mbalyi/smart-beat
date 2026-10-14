@@ -27,6 +27,7 @@ import { AutomationLane, LaneKindSelect } from "@/components/audio/automation-la
 import { EqPopover } from "@/components/audio/eq-popover";
 import { LevelMeter } from "@/components/audio/level-meter";
 import { LabeledSlider } from "@/components/labeled-slider";
+import { PanControl } from "@/components/pan-control";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -44,7 +45,6 @@ import { describeInstrument } from "@/lib/score/instrument-view";
 import { lowestPitch, tuningLabel } from "@/lib/score/music";
 import type { SoundFontId } from "@/lib/score/soundfonts";
 import {
-  describePan,
   describeVolume,
   EMPTY_AUTOMATION,
   heardMix,
@@ -515,13 +515,9 @@ export function TrackList({
                           select={(m) => m.tracks[i] ?? 0}
                         />
                       </div>
-                      <LabeledSlider
+                      <PanControl
                         label={`Pan, ${track.name}`}
-                        valueText={describePan(trackMix.pan)}
                         value={trackMix.pan}
-                        min={-1}
-                        max={1}
-                        step={0.125}
                         onValueChange={(value) =>
                           onChange({ type: "pan", track: i, value }, { commit: false })
                         }
@@ -680,13 +676,9 @@ export function TrackList({
                     />
                     <LevelMeter label="Level, audio track" select={(m) => m.backing ?? 0} />
                   </div>
-                  <LabeledSlider
+                  <PanControl
                     label="Pan, audio track"
-                    valueText={describePan(mix.audioTrack.pan)}
                     value={mix.audioTrack.pan}
-                    min={-1}
-                    max={1}
-                    step={0.125}
                     onValueChange={(pan) =>
                       onChange({ type: "audio-track", value: { ...mix.audioTrack!, pan } })
                     }
@@ -749,13 +741,9 @@ export function TrackList({
                 />
                 <LevelMeter label="Level, master" select={(m) => m.master} />
               </div>
-              <LabeledSlider
+              <PanControl
                 label="Master pan"
-                valueText={describePan(mix.masterPan ?? 0)}
                 value={mix.masterPan ?? 0}
-                min={-1}
-                max={1}
-                step={0.125}
                 onValueChange={(value) => onChange({ type: "master-pan", value })}
               />
               <span className="flex items-center justify-end">

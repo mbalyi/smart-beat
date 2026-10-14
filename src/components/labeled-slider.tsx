@@ -1,3 +1,4 @@
+import type { FocusEventHandler, MouseEventHandler, PointerEventHandler, ReactNode } from "react";
 import { Slider as SliderPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
@@ -5,7 +6,8 @@ import { cn } from "@/lib/utils";
 /**
  * A single-value slider with an accessible name and spoken value. Composed
  * from the Radix primitives (styled like shadcn's Slider), because the
- * generated component cannot label its thumb.
+ * generated component cannot label its thumb. Extra `children` (such as a
+ * value bubble) render inside the root, so they can sit over the thumb.
  */
 export function LabeledSlider({
   label,
@@ -19,10 +21,17 @@ export function LabeledSlider({
   disabled,
   orientation = "horizontal",
   className,
+  children,
+  onPointerEnter,
+  onPointerLeave,
+  onFocus,
+  onBlur,
+  onDoubleClick,
+  onDraggingChange,
 }: {
   /** Accessible name, e.g. "Volume, Bass". */
   label: string;
-  /** Spoken value, e.g. "75%" or "40% left". */
+  /** Spoken value, e.g. "75%" or "Left 40%". */
   valueText: string;
   value: number;
   min?: number;
@@ -35,6 +44,15 @@ export function LabeledSlider({
   /** Vertical: a fader that goes up to raise the value, as on a mixing desk. */
   orientation?: "horizontal" | "vertical";
   className?: string;
+  /** Rendered inside the slider root, e.g. a value bubble over the thumb. */
+  children?: ReactNode;
+  onPointerEnter?: PointerEventHandler<HTMLSpanElement>;
+  onPointerLeave?: PointerEventHandler<HTMLSpanElement>;
+  onFocus?: FocusEventHandler<HTMLSpanElement>;
+  onBlur?: FocusEventHandler<HTMLSpanElement>;
+  onDoubleClick?: MouseEventHandler<HTMLSpanElement>;
+  /** Whether the user is dragging the thumb (a pointer is down on the slider). */
+  onDraggingChange?: (dragging: boolean) => void;
 }) {
   return (
     <SliderPrimitive.Root
@@ -45,6 +63,14 @@ export function LabeledSlider({
       step={step}
       disabled={disabled}
       orientation={orientation}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onDoubleClick={onDoubleClick}
+      onPointerDown={() => onDraggingChange?.(true)}
+      onPointerUp={() => onDraggingChange?.(false)}
+      onPointerCancel={() => onDraggingChange?.(false)}
       onValueChange={([next]) => next !== undefined && onValueChange(next)}
       onValueCommit={([next]) => next !== undefined && onValueCommit?.(next)}
       className={cn(
@@ -60,6 +86,7 @@ export function LabeledSlider({
         aria-valuetext={valueText}
         className="relative block size-3.5 shrink-0 rounded-full border border-ring bg-white ring-ring/50 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden"
       />
+      {children}
     </SliderPrimitive.Root>
   );
 }

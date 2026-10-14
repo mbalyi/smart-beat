@@ -327,7 +327,7 @@ describe("TrackList", () => {
     const pan = screen.getByRole("slider", { name: "Master pan" });
     pan.focus();
     await user.keyboard("{ArrowLeft}");
-    expect(onChange).toHaveBeenLastCalledWith({ type: "master-pan", value: -0.125 });
+    expect(onChange).toHaveBeenLastCalledWith({ type: "master-pan", value: -0.01 });
     expect(screen.getByRole("meter", { name: "Level, master" })).toBeInTheDocument();
     expect(screen.getByRole("meter", { name: "Level, Guitar" })).toBeInTheDocument();
   });

@@ -19,8 +19,9 @@ import {
   isAudible,
   mixerReducer,
   mixFromScore,
+  panLabel,
   removeSound,
-  shortPan,
+  snapPan,
   soundChains,
   soundEffects,
   soundNames,
@@ -139,10 +140,29 @@ describe("describing values", () => {
   it.each([
     [0, "Centre"],
     [0.004, "Centre"],
-    [-0.4, "40% left"],
-    [1, "100% right"],
+    [-0.4, "Left 40%"],
+    [1, "Right 100%"],
   ])("pan %f reads as %s", (pan, text) => {
     expect(describePan(pan)).toBe(text);
+  });
+
+  it.each([
+    [0, "C"],
+    [0.004, "C"],
+    [-0.4, "L 40%"],
+    [0.7, "R 70%"],
+  ])("pan %f shows as %s", (pan, text) => {
+    expect(panLabel(pan)).toBe(text);
+  });
+
+  it.each([
+    [0, 0],
+    [0.04, 0],
+    [-0.04, 0],
+    [0.05, 0.05],
+    [-0.5, -0.5],
+  ])("pan %f snaps to %f", (pan, snapped) => {
+    expect(snapPan(pan)).toBe(snapped);
   });
 
   it("reads volume as a percentage", () => {
@@ -331,13 +351,10 @@ describe("mixer v2 settings", () => {
     expect(plain.sounds).toBeUndefined();
   });
 
-  it("describes dB and short pans", () => {
+  it("describes dB", () => {
     expect(describeDb(1)).toBe("0.0 dB");
     expect(describeDb(0.5)).toBe("-6.0 dB");
     expect(describeDb(0)).toBe("-∞ dB");
-    expect(shortPan(0)).toBe("C");
-    expect(shortPan(-0.3)).toBe("30L");
-    expect(shortPan(1)).toBe("100R");
   });
 });
 

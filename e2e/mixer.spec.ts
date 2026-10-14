@@ -57,7 +57,7 @@ test.describe("mixer (#37)", () => {
     const pan = app.getByRole("slider", { name: "Master pan" });
     await pan.focus();
     await app.keyboard.press("ArrowLeft");
-    await expect(pan).toHaveAttribute("aria-valuetext", "13% left");
+    await expect(pan).toHaveAttribute("aria-valuetext", "Left 1%");
     await app.getByRole("button", { name: "Actions for Drums" }).click();
     await app.getByRole("menuitem", { name: "Focus (turn the others down)" }).click();
     await expect(app.getByRole("button", { name: "Show Drums (in focus)" })).toBeVisible();
@@ -75,6 +75,42 @@ test.describe("mixer (#37)", () => {
       .poll(() => app.getByRole("meter", { name: "Level, master" }).getAttribute("aria-valuenow"))
       .not.toBe("0");
     await app.getByRole("button", { name: "Stop" }).click();
+  });
+
+  test("shows the L/C/R value while hovering and recentres on double-click (#129)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    const pan = app.getByRole("slider", { name: "Pan, Guitar" });
+    await pan.scrollIntoViewIfNeeded();
+    await pan.hover();
+    const bubble = app.getByTestId("pan-value");
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toHaveText("C");
+
+    await pan.focus();
+    await app.keyboard.press("ArrowRight");
+    await expect(pan).toHaveAttribute("aria-valuetext", "Right 1%");
+    await expect(bubble).toHaveText("R 1%");
+
+    await pan.dblclick();
+    await expect(pan).toHaveAttribute("aria-valuetext", "Centre");
+    await expect(bubble).toHaveText("C");
+
+    // The bubble follows the thumb at the ends too, where Radix insets the
+    // thumb by half its width to keep it inside the track.
+    await pan.focus();
+    for (const [key, text] of [
+      ["End", "R 100%"],
+      ["Home", "L 100%"],
+    ] as const) {
+      await app.keyboard.press(key);
+      await expect(bubble).toHaveText(text);
+      const thumb = (await pan.boundingBox())!;
+      const tip = (await bubble.boundingBox())!;
+      const drift = Math.abs(thumb.x + thumb.width / 2 - (tip.x + tip.width / 2));
+      expect(drift, `${key}: bubble ${drift}px from the thumb`).toBeLessThan(1.5);
+    }
   });
 
   test("pressed Mute is red and Solo green in the dark theme too (mixer and practice bar)", async ({

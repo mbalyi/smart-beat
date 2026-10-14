@@ -277,10 +277,10 @@ describe("ScoreWorkspace", () => {
     player.setMix.mockClear();
 
     fireEvent.pointerDown(track, { clientX: 25, pointerId: 1 });
-    expect(thumb).toHaveAttribute("aria-valuetext", "50% left");
+    expect(thumb).toHaveAttribute("aria-valuetext", "Left 50%");
     fireEvent.pointerMove(track, { clientX: 0, pointerId: 1 });
 
-    expect(thumb).toHaveAttribute("aria-valuetext", "100% left");
+    expect(thumb).toHaveAttribute("aria-valuetext", "Left 100%");
     expect(player.setMix).not.toHaveBeenCalled();
 
     fireEvent.pointerUp(track, { clientX: 0, pointerId: 1 });
