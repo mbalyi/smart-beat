@@ -51,6 +51,7 @@ describe("detectPitch", () => {
   it("hears a guitar plugged straight into an interface while it rings on", () => {
     // Three moments of a low E from a real interface, at -42, -47 and -40 dBFS. Its dips stay
     // over the threshold, and one frame has a deeper harmonic dip and one an octave below.
+    // Recorded as 48 kHz mono float32 (little endian), trimmed to three 4096-sample frames.
     const bytes = readFileSync(path.join(import.meta.dirname, "fixtures/low-e-di.f32"));
     const recording = new Float32Array(new Uint8Array(bytes).buffer);
     for (let i = 0; i < 3; i++) {

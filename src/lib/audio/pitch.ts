@@ -63,9 +63,14 @@ export function detectPitch(
     // A ringing string changes a little from one period to the next, so its dip can stay above
     // `threshold`. Then take the deepest dip, or a shorter period almost as deep: the
     // fundamental rather than an octave under it.
-    let deepest = minTau;
-    for (let t = minTau; t <= maxTau; t++) if (d[t]! < d[deepest]!) deepest = t;
-    if (d[deepest]! > maxDip) return null;
+    // Only a real dip counts, not a value still falling at the edge of the search.
+    let deepest = -1;
+    for (let t = minTau + 1; t < maxTau; t++) {
+      if (d[t]! <= d[t - 1]! && d[t]! <= d[t + 1]! && (deepest < 0 || d[t]! < d[deepest]!)) {
+        deepest = t;
+      }
+    }
+    if (deepest < 0 || d[deepest]! > maxDip) return null;
     tau = firstDipUnder(d, minTau, maxTau, d[deepest]! + 0.05);
   }
 

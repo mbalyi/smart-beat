@@ -21,6 +21,7 @@ import {
   pitchName,
   tuningNotes,
   tuningName,
+  tuningNotes,
   type TrackKind,
 } from "@/lib/score/music";
 import type { TrackSummary } from "@/lib/score/score";
