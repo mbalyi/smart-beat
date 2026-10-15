@@ -88,8 +88,23 @@ if (built.length === 1) {
   const fat = path.join(dir, `${SIDECAR}${EXE}`);
   try {
     execFileSync("lipo", ["-create", "-output", fat, ...built], { stdio: "inherit" });
-    fresh = readFileSync(fat).equals(readFileSync(staged));
+    const merged = readFileSync(fat);
+    fresh = merged.equals(readFileSync(staged));
     if (!fresh) copyFileSync(fat, staged);
+    // Tauri also bundles Cargo's additional binaries. Its universal build
+    // merges only the main executable, so supply the helper at that path too.
+    const cargoBinary = path.join(
+      ROOT,
+      "src-tauri",
+      "target",
+      UNIVERSAL,
+      "release",
+      `${BIN}${EXE}`,
+    );
+    mkdirSync(path.dirname(cargoBinary), { recursive: true });
+    if (!existsSync(cargoBinary) || !merged.equals(readFileSync(cargoBinary))) {
+      copyFileSync(fat, cargoBinary);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

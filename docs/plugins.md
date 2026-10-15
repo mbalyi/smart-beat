@@ -141,7 +141,9 @@ development binary. Its location is overridable with
 `scripts/stage-plugin-helper.mjs` builds the helper for the triple Tauri is
 building for, before every `tauri build`: a `--target universal-apple-darwin`
 release needs one binary for both architectures, so it builds both slices and
-merges them with `lipo`. A zero-byte placeholder from `build.rs` (which exists
+merges them with `lipo`. The merged helper is staged both as the sidecar and in
+Cargo's universal release directory: Tauri also bundles Cargo's additional
+binaries but only merges the main app executable itself. A zero-byte placeholder from `build.rs` (which exists
 so a fresh checkout can compile) is never accepted as a helper: the block
 reports that the helper is missing from the installation. This catches bundles
 made with the staging hook disabled. Both `pnpm tauri build` and
