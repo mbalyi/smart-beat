@@ -29,6 +29,7 @@ import {
   getPreset,
   GM_FAMILIES,
   GM_INSTRUMENTS,
+  compatiblePrograms,
   INSTRUMENT_PRESETS,
   lowestPitch,
   MAX_CAPO,
@@ -275,18 +276,31 @@ function TrackForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {GM_FAMILIES.map((family, f) => (
-                  <SelectGroup key={family}>
-                    <SelectLabel>{family}</SelectLabel>
-                    {GM_INSTRUMENTS.slice(f * 8, f * 8 + 8).map((name, i) => (
-                      <SelectItem key={name} value={String(f * 8 + i)}>
-                        {f * 8 + i + 1}. {name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                ))}
+                {GM_FAMILIES.map((family, f) => {
+                  const programs = compatiblePrograms(
+                    kind,
+                    initial?.program ?? settings.program,
+                  ).filter((program) => Math.floor(program / 8) === f);
+                  return programs.length === 0 ? null : (
+                    <SelectGroup key={family}>
+                      <SelectLabel>{family}</SelectLabel>
+                      {programs.map((program) => (
+                        <SelectItem key={program} value={String(program)}>
+                          {program + 1}. {GM_INSTRUMENTS[program]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  );
+                })}
               </SelectContent>
             </Select>
+            {!adding && (
+              <p className="text-xs text-muted-foreground">
+                {kind === "stringed"
+                  ? "Only fretted instruments are offered here, as the tab and tuning belong to them. To get another kind of instrument, copy the track to it."
+                  : "Keyboard and other staff instruments are offered here. To get a fretted instrument, copy the track to it."}
+              </p>
+            )}
           </Field>
         )}
 
@@ -417,6 +431,12 @@ export function TrackDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" onCloseAutoFocus={onCloseAutoFocus}>
         <TrackForm
+          // Start over when the track's instrument changes while the dialog is open (undo).
+          key={
+            initial
+              ? `${initial.kind}:${initial.program}:${initial.tuning.join(",")}:${initial.capo}`
+              : "add"
+          }
           initial={initial}
           drumKit={drumKit}
           soundFont={soundFont}

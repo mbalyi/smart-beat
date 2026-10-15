@@ -54,6 +54,7 @@ import { ScoreView, type EditOverlay } from "@/components/score/score-view";
 import { PrintDialog } from "@/components/score/print-dialog";
 import { TempoDialog, type TempoInitial } from "@/components/score/tempo-dialog";
 import { TextDialog } from "@/components/score/text-dialog";
+import { CopyInstrumentDialog } from "@/components/score/copy-instrument-dialog";
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
 import { Inspector } from "@/components/shell/inspector";
 import { NotePalette } from "@/components/shell/note-palette";
@@ -158,6 +159,7 @@ import {
   type LayoutPrefs,
 } from "@/lib/score/layout";
 import { trackContent, type Beat, type Score, type Track } from "@/lib/score/model";
+import type { InstrumentPreset } from "@/lib/score/music";
 import {
   ScorePlayer,
   type Layout,
@@ -201,6 +203,7 @@ import {
   type TransposeRequest,
 } from "@/lib/score/transpose";
 import {
+  convertTrackToInstrument,
   createTrack,
   duplicateTrack,
   insertTrack,
@@ -212,7 +215,9 @@ import {
   setInstrument,
   setTuning,
   uniqueTrackName,
+  type ConversionResult,
 } from "@/lib/score/tracks";
+import { canNormalizeDrums, normalizeDrumNotation } from "@/lib/score/drum-normalize";
 import {
   AUDIO_EXTENSIONS,
   isCommandError,
@@ -548,6 +553,8 @@ export function ScoreWorkspace({
   const [zoom, setZoom] = useState(100);
   const [syncOffset, setSyncOffset] = useState(readSyncOffset);
   const [trackDialog, setTrackDialog] = useState<TrackDialogState | null>(null);
+  /** The track being copied to another instrument (its object, so it survives reordering). */
+  const [copyTrack, setCopyTrack] = useState<Track | null>(null);
   const [trainerOpen, setTrainerOpen] = useState(false);
   const [tunerOpen, setTunerOpen] = useState(false);
   /** The bars the Speed Trainer was opened for from the score's context menu (#83). */
@@ -1046,6 +1053,12 @@ export function ScoreWorkspace({
     focusScore();
   };
 
+  /** Switches to edit mode (leaving Practice View) from any entry point. */
+  const toggleEditingOn = () => {
+    if (practiceView) leavePracticeView();
+    setEditing(true);
+  };
+
   const toggleEditing = () => {
     // Editing ends Practice View.
     if (practiceView) {
@@ -1534,7 +1547,48 @@ export function ScoreWorkspace({
     },
     onEffects: (index) => openPedalboard(index),
     onDrumMixer: (index) => setDrumMixer({ open: true, track: index }),
+    onCopyToInstrument: (index) => setCopyTrack(score.tracks[index] ?? null),
+    onNormalizeDrums: (index) => normalizeDrums(index),
   };
+
+  /** Re-maps a drum track onto the standard lanes: one undo step, then edit mode (nothing is saved). */
+  function normalizeDrums(index: number) {
+    const target = score.tracks[index];
+    if (!target || !canNormalizeDrums(target)) return;
+    editor.run(
+      "Normalize drum notation",
+      () => [...trackContent(target)],
+      () => {
+        normalizeDrumNotation(target);
+      },
+    );
+    toggleEditingOn();
+    toast("Drum notation normalized", {
+      action: { label: "Undo", onClick: () => editor.undo() },
+    });
+  }
+
+  function copyToInstrument(preset: InstrumentPreset) {
+    const source = copyTrack;
+    if (!source) return;
+    let result: ConversionResult | null = null;
+    changeTracks(
+      "Copy track to instrument",
+      () => {
+        result = convertTrackToInstrument(score, score.tracks.indexOf(source), preset);
+        if (!result) throw new Error("Drum tracks cannot be copied to another instrument.");
+        editor.placeCursorOnTrack(score.tracks.indexOf(result.track));
+      },
+      false,
+    );
+    const done = result as ConversionResult | null;
+    if (done && (done.shifted > 0 || done.dropped > 0)) {
+      toast(
+        `${done.shifted} ${done.shifted === 1 ? "note was" : "notes were"} moved an octave to fit ${preset.name}` +
+          (done.dropped > 0 ? `; ${done.dropped} could not be placed` : ""),
+      );
+    }
+  }
 
   const submitTrack = (settings: TrackSettings) => {
     if (trackDialog?.mode === "edit") {
@@ -2287,6 +2341,8 @@ export function ScoreWorkspace({
                 onTempo: () => setTempoOpen(true),
                 onEditEffects: () => openPedalboard(trackIndex),
                 onDrumMixer: () => setDrumMixer({ open: true, track: trackIndex }),
+                onNormalizeDrums: () => normalizeDrums(trackIndex),
+                onCopyToInstrument: () => setCopyTrack(trackObject),
               }}
               audioEngine={audioEngine}
               onAudioEngineChange={nativeEngineAvailable() ? changeAudioEngine : undefined}
@@ -2515,6 +2571,13 @@ export function ScoreWorkspace({
         drumKit={drumKitOf(editedTrack)}
         soundFont={soundFont}
         onSubmit={submitTrack}
+        onCloseAutoFocus={returnFocusToScore}
+      />
+      <CopyInstrumentDialog
+        open={copyTrack !== null}
+        onOpenChange={(open) => !open && setCopyTrack(null)}
+        trackName={copyTrack?.name ?? ""}
+        onSubmit={copyToInstrument}
         onCloseAutoFocus={returnFocusToScore}
       />
       <BarDialog

@@ -4,6 +4,8 @@ import {
   MicVocalIcon,
   Settings2Icon,
   TriangleAlertIcon,
+  ListOrderedIcon,
+  CopyPlusIcon,
   SlidersVerticalIcon,
 } from "lucide-react";
 
@@ -180,6 +182,10 @@ export interface InspectorActions {
   onEditEffects: () => void;
   /** Opens the drum mixer of the shown (drum) track, as Guitar Pro does from its sound row. */
   onDrumMixer?: () => void;
+  /** Re-maps the shown drum track's notes onto the standard lanes of the drum tab. */
+  onNormalizeDrums?: () => void;
+  /** Opens the dialog that copies the shown (non-drum) track to another instrument. */
+  onCopyToInstrument?: () => void;
 }
 
 /** The track's effects as a compact list (GP8's mini effect chain). */
@@ -519,6 +525,28 @@ export function Inspector({
             </>
           )}
           {track.kind === "drums" && drumKit && <DrumKitPicker {...drumKit} />}
+          {track.kind === "drums" && actions.onNormalizeDrums && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-start"
+              onClick={actions.onNormalizeDrums}
+            >
+              <ListOrderedIcon data-icon="inline-start" />
+              Normalize drum notation
+            </Button>
+          )}
+          {track.kind !== "drums" && actions.onCopyToInstrument && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-start"
+              onClick={actions.onCopyToInstrument}
+            >
+              <CopyPlusIcon data-icon="inline-start" />
+              Copy to instrument…
+            </Button>
+          )}
           {track.kind === "drums" && actions.onDrumMixer && (
             <Button
               variant="outline"

@@ -304,3 +304,42 @@ describe("TrackDialog: extended-range guitars (#43)", () => {
     expect(screen.queryByTestId("low-sound-warning")).not.toBeInTheDocument();
   });
 });
+
+describe("TrackDialog: instrument change (#134)", () => {
+  it("offers only fretted sounds for a tab track, with a hint why", async () => {
+    const { user } = setup(GUITAR);
+    await user.click(screen.getByRole("combobox", { name: "Sound (General MIDI)" }));
+    expect(await screen.findByRole("option", { name: "34. Electric Bass (finger)" })).toBeVisible();
+    expect(screen.queryByRole("option", { name: /Acoustic Grand Piano/ })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.getByText(/Only fretted instruments are offered here/)).toBeInTheDocument();
+  });
+
+  it("offers no fretted sounds for a staff track, and keeps its own sound listed", async () => {
+    const { user } = setup({ kind: "pitched", name: "Keys", program: 0, tuning: [], capo: 0 });
+    expect(screen.queryByRole("spinbutton", { name: "Capo" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Sound (General MIDI)" }));
+    expect(await screen.findByRole("option", { name: "1. Acoustic Grand Piano" })).toBeVisible();
+    expect(
+      screen.queryByRole("option", { name: /Acoustic Guitar \(nylon\)/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("starts over from the track when its instrument changes while open", () => {
+    const onSubmit = vi.fn();
+    const props = { open: true, onOpenChange: vi.fn(), drumKit: drumKitOf(null), onSubmit };
+    const { rerender } = renderWithProviders(<TrackDialog {...props} initial={GUITAR} />);
+    expect(screen.getByRole("spinbutton", { name: "Capo" })).toBeInTheDocument();
+
+    rerender(
+      <TrackDialog
+        {...props}
+        initial={{ kind: "pitched", name: "Lead", program: 0, tuning: [], capo: 0 }}
+      />,
+    );
+    expect(screen.queryByRole("spinbutton", { name: "Capo" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Sound (General MIDI)" })).toHaveTextContent(
+      "1. Acoustic Grand Piano",
+    );
+  });
+});

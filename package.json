@@ -32,7 +32,7 @@
     "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "rust:lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings",
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
-    "licenses:check": "node scripts/check-licenses.mjs && cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources",
+    "licenses:check": "node scripts/check-licenses.mjs && cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources advisories",
     "licenses:generate": "node scripts/generate-licenses.mjs",
     "docs:check": "node scripts/check-docs.mjs",
     "version:check": "node scripts/version.mjs check",
