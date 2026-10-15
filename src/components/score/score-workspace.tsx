@@ -47,6 +47,8 @@ import { useTheme } from "@/hooks/use-theme";
 import { TunerDialog } from "@/components/score/tuner-dialog";
 import { RecordBar } from "@/components/score/record-bar";
 import { RecordDialog, type DroppedTake } from "@/components/score/record-dialog";
+import { onTourPanels as subscribeTourPanels, type TourBusMessage } from "@/lib/tour/tour-bus";
+import { useTour } from "@/hooks/use-tour";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
@@ -1152,6 +1154,40 @@ export function ScoreWorkspace({
     setInspectorOpen(next);
     rememberPanels({ inspector: next });
   };
+  // --- Guided tours (#84) -----------------------------------------------------------------
+  // A tour asks for a panel or Edit mode; what it changed is put back when the tour ends.
+  const tourSnapshot = useRef<{
+    mixer: boolean;
+    inspector: boolean;
+    instrumentView: boolean;
+    editing: boolean;
+  } | null>(null);
+  const onTourPanels = useEffectEvent((message: TourBusMessage) => {
+    if (!active) return;
+    if (message === "restore") {
+      const saved = tourSnapshot.current;
+      tourSnapshot.current = null;
+      if (!saved) return;
+      setMixerOpen(saved.mixer);
+      setInspectorOpen(saved.inspector);
+      setInstrumentView(saved.instrumentView);
+      setEditing(saved.editing);
+      return;
+    }
+    tourSnapshot.current ??= {
+      mixer: mixerOpen,
+      inspector: inspectorOpen,
+      instrumentView,
+      editing,
+    };
+    leavePracticeView();
+    if (message.mixer !== undefined) setMixerOpen(message.mixer);
+    if (message.inspector !== undefined) setInspectorOpen(message.inspector);
+    if (message.instrumentView !== undefined) setInstrumentView(message.instrumentView);
+    if (message.editing !== undefined) setEditing(message.editing);
+  });
+  useEffect(() => subscribeTourPanels((message) => onTourPanels(message)), []);
+
   const changeFocusCut = (db: number) => {
     setFocusCutDb(db);
     storeFocusCutDb(db);
@@ -1201,6 +1237,29 @@ export function ScoreWorkspace({
   });
   const pianoModel = usePianoModel(recordEnabled && recording.dialogOpen);
   const recordBusy = recording.phase.kind !== "idle";
+
+  // One-time tips the first time an advanced area is opened (#84).
+  const tour = useTour();
+  const showTip = useEffectEvent(tour.hint);
+  useEffect(() => {
+    if (!active) return;
+    if (editing && !practiceView)
+      showTip("editing", "editing", "New to editing? A short tour shows the tools.");
+    if (trainerOpen)
+      showTip(
+        "speed-trainer",
+        "speed-trainer",
+        "First time with the Speed Trainer? A short tour explains it.",
+      );
+    if (pedalboard.open)
+      showTip("effects", "effects", "First time with effects? A short tour shows where they live.");
+    if (recording.dialogOpen)
+      showTip(
+        "record-to-tab",
+        "record-to-tab",
+        "First time recording to tab? A short tour explains it.",
+      );
+  }, [active, editing, practiceView, trainerOpen, pedalboard.open, recording.dialogOpen]);
   const [recordDrop, setRecordDrop] = useState<DroppedTake | null>(null);
 
   const playPause = () => {
@@ -2068,6 +2127,7 @@ export function ScoreWorkspace({
             size="icon-sm"
             aria-label="Record to Tab"
             data-record-button=""
+            data-tour="record"
             onClick={() => recording.open()}
           >
             <CircleIcon className="fill-red-500 text-red-500" aria-hidden="true" />

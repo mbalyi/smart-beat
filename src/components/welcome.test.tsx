@@ -157,6 +157,12 @@ describe("Welcome", () => {
       expect(popup).toHaveTextContent("use an existing recording");
     });
 
+    it("shows the limits in a popup when hovering the Limits button itself", async () => {
+      const { user } = renderWelcome();
+      await user.hover(within(card()).getByRole("button", { name: "Limits" }));
+      expect(await findPopup()).toHaveTextContent("Guitar, bass, piano and drums.");
+    });
+
     it("shows the limits in a popup on hover", async () => {
       const { user } = renderWelcome();
       await user.hover(card());
@@ -214,6 +220,47 @@ describe("Welcome", () => {
   it("has no accessibility violations", async () => {
     renderWelcome();
     await expectNoA11yViolations();
+  });
+});
+
+describe("Welcome: tour and demo song", () => {
+  const base = {
+    onImportAudio: vi.fn(),
+    onOpenFile: vi.fn(),
+    onNewSong: vi.fn(),
+    onShowShortcuts: vi.fn(),
+  };
+
+  it("offers the tour and wires Start and Skip", async () => {
+    const onStart = vi.fn();
+    const onSkip = vi.fn();
+    const { user } = renderWithProviders(<Welcome {...base} tour={{ onStart, onSkip }} />);
+
+    expect(
+      screen.getByRole("heading", { name: "New here? Take a quick tour" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Take a quick tour" }));
+    expect(onStart).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(onSkip).toHaveBeenCalledOnce();
+    await expectNoA11yViolations();
+  });
+
+  it("has no tour offer without the tour prop", () => {
+    renderWithProviders(<Welcome {...base} />);
+    expect(screen.queryByText("New here? Take a quick tour")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skip for now" })).not.toBeInTheDocument();
+  });
+
+  it("opens the demo song only when it can", async () => {
+    const onOpenDemo = vi.fn();
+    const { user, unmount } = renderWithProviders(<Welcome {...base} onOpenDemo={onOpenDemo} />);
+    await user.click(screen.getByRole("button", { name: "Open the demo song" }));
+    expect(onOpenDemo).toHaveBeenCalledOnce();
+    unmount();
+
+    renderWithProviders(<Welcome {...base} />);
+    expect(screen.queryByRole("button", { name: "Open the demo song" })).not.toBeInTheDocument();
   });
 });
 

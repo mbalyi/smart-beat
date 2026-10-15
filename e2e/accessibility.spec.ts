@@ -239,6 +239,7 @@ test.describe("accessibility", () => {
       "Open a file…",
       ...(features["audio-2-tab"] ? ["Import from Audio…"] : []),
       "New song",
+      "Open the demo song",
       "Keyboard shortcuts",
     ];
     const focused: string[] = [];

@@ -4,6 +4,10 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+- A guided tour for new users (Help › Take the Tour): ten short steps from opening a song to playing and practising it, with a demo song (Help › Open Demo Song). Short tours for Editing, Speed Trainer, Effects and Record to tab are under Help › Tours, and a one-time tip offers each the first time you open that area.
+- Help › What's New lists the features of a release; after an update it opens once with a "Show me" for each.
+- The "Limits" popup of Record to tab on the start page opens at its link and is wider.
+
 ## [1.0.0]
 
 The first stable release of Smart Beat. It is the first public beta plus updated dependencies:

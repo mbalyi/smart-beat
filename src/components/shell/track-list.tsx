@@ -320,6 +320,7 @@ export function TrackList({
   return (
     <section
       aria-label="Tracks and mixer"
+      data-tour="tracks"
       className="flex max-h-[32vh] min-h-0 shrink-0 flex-col overflow-auto border-t bg-card text-sm"
     >
       <div className="flex min-w-max flex-col">
@@ -771,6 +772,7 @@ export function TrackList({
                   disabled={!onMasterEffects}
                   onClick={onMasterEffects}
                   aria-label="Mastering effects"
+                  data-tour="mastering"
                   title="Mastering effects (pedalboard)"
                 >
                   <SlidersVerticalIcon />

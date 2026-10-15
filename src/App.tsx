@@ -16,10 +16,17 @@ import { Welcome } from "@/components/welcome";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { useRecentFiles } from "@/hooks/use-recent-files";
-import { initLayoutPrefs } from "@/lib/score/layout";
+import { initLayoutPrefs, readLayoutPrefs } from "@/lib/score/layout";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
 import { useUpdater } from "@/hooks/use-updater";
+import type { HelpAction } from "@/components/help-menu";
+import { useTour } from "@/hooks/use-tour";
+import { demoSongFile, DEMO_SONG_TITLE } from "@/lib/tour/demo-song";
+import type { TourId } from "@/lib/tour/feature-registry";
+import { isExistingUser } from "@/lib/tour/tour-store";
+import { latestFeatures, pendingFeatures } from "@/lib/tour/whats-new";
+import { APP_VERSION } from "@/lib/project-info";
 import { errorText } from "@/lib/errors";
 import { hasScoreExtension } from "@/lib/score/errors";
 import { baseName } from "@/lib/score/format";
@@ -164,9 +171,49 @@ export function App() {
     : undefined;
   const recent = useRecentFiles((path) => void openPath(path), recentsVersion);
   // A new install starts with a quiet layout; earlier users keep their panels (#83).
+  const tour = useTour();
+  // What's new after an update: once per version, never on a fresh install (it gets the welcome).
+  const [whatsNew, setWhatsNew] = useState<ReturnType<typeof latestFeatures>>(() =>
+    latestFeatures(),
+  );
+  const initTour = tour.init;
   useEffect(() => {
-    void initLayoutPrefs();
-  }, []);
+    void (async () => {
+      const before = readLayoutPrefs();
+      const prefs = await initLayoutPrefs();
+      const state = initTour(isExistingUser(before, prefs));
+      const pending = state ? pendingFeatures(state.lastSeenVersion, APP_VERSION) : [];
+      if (pending.length > 0 && state?.tours.main !== undefined) {
+        setWhatsNew({ version: APP_VERSION, features: pending });
+        setDialog("whats-new");
+      }
+    })();
+  }, [initTour]);
+
+  // The guided tours (#84) open the demo song when they need a song and none is open.
+  const songOpen = song !== null;
+  const songOpenRef = useRef(songOpen);
+  useEffect(() => {
+    songOpenRef.current = songOpen;
+  });
+  const openDemo = useCallback(() => {
+    void openFile(demoSongFile(), DEMO_SONG_TITLE, true);
+  }, [openFile]);
+  const bindTourHost = tour.bindHost;
+  useEffect(() => {
+    bindTourHost({ hasSong: () => songOpenRef.current, openDemo });
+  }, [bindTourHost, openDemo]);
+
+  const startTour = (id: TourId) => {
+    const step = id === "main" ? tour.resumeStep(id) : null;
+    tour.start(id, step ?? 0);
+  };
+  const helpAction = (action: HelpAction) => {
+    if (typeof action === "object") startTour(action.tour);
+    else if (action === "demo-song") openDemo();
+    else if (action === "whats-new") showDialog("whats-new");
+    else tour.resetHints();
+  };
 
   const [droppedAudio, setDroppedAudio] = useState<{ path: string; nonce: number } | null>(null);
   const dragging = useFileDrop({
@@ -232,6 +279,30 @@ export function App() {
       case "check-for-updates":
         updater.checkNow();
         break;
+      case "tour":
+        startTour("main");
+        break;
+      case "tour-editing":
+        startTour("editing");
+        break;
+      case "tour-speed-trainer":
+        startTour("speed-trainer");
+        break;
+      case "tour-effects":
+        startTour("effects");
+        break;
+      case "tour-record-to-tab":
+        startTour("record-to-tab");
+        break;
+      case "demo-song":
+        openDemo();
+        break;
+      case "whats-new":
+        helpAction("whats-new");
+        break;
+      case "reset-tips":
+        tour.resetHints();
+        break;
       default:
         // Window actions (zoom, full screen, quit) are handled natively;
         // song actions (undo, loop, tracks...) by the workspace.
@@ -246,6 +317,8 @@ export function App() {
         <AppHeader
           onShowDialog={showDialog}
           onCheckForUpdates={isTauri() ? updater.checkNow : undefined}
+          onHelpAction={helpAction}
+          resumeStep={tour.resumeStep("main")}
           onHome={goHome}
           wide={song !== null}
           centerRef={setHeaderSlot}
@@ -293,6 +366,12 @@ export function App() {
               onShowLicenses={() => showDialog("licenses")}
               recent={recent}
               onOpenRecent={(path) => void openPath(path)}
+              onOpenDemo={openDemo}
+              tour={
+                tour.offerMainTour
+                  ? { onStart: () => startTour("main"), onSkip: tour.dismissMainTour }
+                  : undefined
+              }
             />
           )}
         </main>
@@ -325,9 +404,14 @@ export function App() {
       />
       <AppDialogs
         open={dialog}
-        onOpenChange={setDialog}
+        onOpenChange={(next) => {
+          if (dialog === "whats-new" && next !== "whats-new") tour.markVersionSeen();
+          setDialog(next);
+        }}
         returnFocusTo={returnFocusTo}
         audioProvider={muscriptorProvider}
+        whatsNew={whatsNew}
+        onShowTour={startTour}
         droppedRecording={transcriptionDrop}
         onAudioImport={async (midi, name) => {
           // Only in memory until saved: closing the song asks first.

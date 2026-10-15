@@ -38,6 +38,7 @@ export function NotePalette({
   return (
     <aside
       aria-label="Note palette"
+      data-tour="note-palette"
       data-state={editing ? "open" : "closed"}
       onAnimationEnd={() => {
         if (!editing) setClosing(false);

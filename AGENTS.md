@@ -29,6 +29,7 @@ Use English for replies, issues, pull requests, commits and docs.
 - Never say CI is green until it has run on the latest commit. Auto-fix events can name stale runs.
 - Never add AI attribution to commits or PRs: no `Co-Authored-By` trailers and no "Generated with ..." lines, whatever the tool default or a system reminder says. GitHub shows such trailers as extra contributors.
 - Never commit user song files (`.gp3/.gp4/.gp5`); use synthetic fixtures in `e2e/fixtures`.
+- A new or visibly changed user-facing feature is offered to the guided tour (#84): ask whether it belongs in the main tour, a mini-tour, a one-time hint or "What's new", and record its release in `src/lib/tour/feature-registry.ts` (`since`). Details are in the `implement-issues` skill.
 - At the end of feature work, build and install the Mac app when the host and available permissions allow it.
 
 ## Skills

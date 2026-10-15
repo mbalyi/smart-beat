@@ -246,3 +246,9 @@
     break-inside: avoid;
   }
 }
+
+/* The control a guided tour step points at (#84): an outline as well as the dimming around it. */
+[data-tour-active] {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}

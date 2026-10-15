@@ -162,6 +162,7 @@ export function PracticeControls({
     <div
       role="group"
       aria-label="Practice"
+      data-tour="practice"
       className="flex items-center gap-x-3 gap-y-2 *:shrink-0 sm:flex-wrap"
     >
       <div className="flex items-center gap-1.5">
@@ -170,6 +171,7 @@ export function PracticeControls({
           size="sm"
           pressed={loop}
           onPressedChange={onLoopChange}
+          data-tour="loop"
           title="Loop the selected bars (drag across bars in the score to choose them)"
         >
           <Repeat2Icon data-icon="inline-start" />
@@ -247,14 +249,14 @@ export function PracticeControls({
             </Button>
           </span>
         ) : (
-          <Button variant="outline" size="sm" onClick={onOpenTrainer}>
+          <Button variant="outline" size="sm" onClick={onOpenTrainer} data-tour="speed-trainer">
             <TimerResetIcon data-icon="inline-start" />
             <span className="max-xl:sr-only">Speed Trainer…</span>
           </Button>
         )}
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1" data-tour="metronome">
         <Toggle
           variant="outline"
           size="sm"

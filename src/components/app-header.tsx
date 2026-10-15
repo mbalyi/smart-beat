@@ -1,12 +1,14 @@
 import wordmark from "@/assets/smart-beat-wordmark.png";
 import type { AppDialog } from "@/components/app-dialogs";
-import { HelpMenu } from "@/components/help-menu";
+import { HelpMenu, type HelpAction } from "@/components/help-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 
 export function AppHeader({
   onShowDialog,
   onCheckForUpdates,
+  onHelpAction,
+  resumeStep,
   onHome,
   wide = false,
   centerRef,
@@ -14,6 +16,9 @@ export function AppHeader({
   onShowDialog: (dialog: AppDialog, returnFocusTo: HTMLElement | null) => void;
   /** Help › Check for Updates… (desktop app only). */
   onCheckForUpdates?: () => void;
+  /** Help › the tours, the demo song and the tips. */
+  onHelpAction?: (action: HelpAction) => void;
+  resumeStep?: number | null;
   /** The logo: back to the start screen (the app closes the open songs, after asking). */
   onHome: () => void;
   /** Span the whole window (a song is open) instead of the centred column. */
@@ -53,7 +58,12 @@ export function AppHeader({
         )}
         <div className="flex shrink-0 items-center gap-1">
           <ThemeToggle />
-          <HelpMenu onSelect={onShowDialog} onCheckForUpdates={onCheckForUpdates} />
+          <HelpMenu
+            onSelect={onShowDialog}
+            onCheckForUpdates={onCheckForUpdates}
+            onAction={onHelpAction}
+            resumeStep={resumeStep}
+          />
         </div>
       </div>
     </header>

@@ -63,6 +63,14 @@ type MenuAction =
   | "shortcuts"
   | "licenses"
   | "check-for-updates"
+  | "tour"
+  | "tour-editing"
+  | "tour-speed-trainer"
+  | "tour-effects"
+  | "tour-record-to-tab"
+  | "demo-song"
+  | "whats-new"
+  | "reset-tips"
   | "about";
 
 interface MenuState {
