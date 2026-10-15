@@ -311,6 +311,25 @@ describe("convertTrackToInstrument", () => {
     }
   });
 
+  it("leaves the source's instrument change alone (and its undo) when copying (#145)", () => {
+    const { score, beat } = withNotes();
+    const automation = beat.getAutomation(model.AutomationType.Instrument)!;
+    expect(automation.value).toBe(25); // the song's own program change on its first beat
+
+    const editor = new ScoreEditor(score);
+    editor.run(
+      "Copy track to instrument",
+      () => editor.structureTargets(),
+      () => convertTrackToInstrument(editor.score, 0, getPreset("piano")!),
+    );
+    const copied = editor.score.tracks[1]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+    expect(copied.getAutomation(model.AutomationType.Instrument)?.value).toBe(0);
+    expect(automation.value).toBe(25);
+
+    editor.undo();
+    expect(automation.value).toBe(25);
+  });
+
   it("does not convert drums", () => {
     const score = load();
     const drums = score.tracks.findIndex((t) => t.staves[0]!.isPercussion);

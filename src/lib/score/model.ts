@@ -311,6 +311,11 @@ export function cloneBeat(beat: Beat): Beat {
   if (beat.tremoloPicking) {
     copy.tremoloPicking = Object.assign(new model.TremoloPickingEffect(), beat.tremoloPicking);
   }
+  // Automations (tempo, instrument changes) are objects: the copy gets its own, so changing the
+  // program of a copied track does not change the original's.
+  copy.automations = beat.automations.map((automation) =>
+    Object.assign(new model.Automation(), automation),
+  );
   for (const note of beat.notes) copy.addNote(cloneNote(note));
   return copy;
 }
