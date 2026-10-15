@@ -408,6 +408,26 @@ describe("drum takes", () => {
     ]);
   });
 
+  it("click mode writes the index of the drum in a track's own articulation table", () => {
+    // Regression (review of #146): a Guitar Pro 6+ drum track refers to its drums by index, so
+    // the kick (36) must go in as the index of the entry that plays 36, not as 36.
+    const score = createSong();
+    while (score.masterBars.length < 2) appendMasterBar(score);
+    const kit = createTrack(score, { kind: "drums", name: "Kit", program: 0 });
+    for (const key of [42, 38, 49, 36]) {
+      const articulation = new model.InstrumentArticulation();
+      articulation.outputMidiNumber = key;
+      kit.percussionArticulations.push(articulation);
+    }
+    insertTrack(score, kit);
+    refinish(score);
+    const index = score.tracks.length - 1;
+    // Kick, snare, hat, and a snare-ish key the table does not have (45, a tom) on the beat.
+    const hits = [note(0, 36, 0.1), note(0.5, 38, 0.1), note(1, 42, 0.1), note(1.5, 45, 0.1)];
+    writeRecording(score, hits, { trackIndex: index, startBar: 0 });
+    expect(drumsOf(score.tracks[index]!).flat()).toEqual([3, 1, 0, 45]);
+  });
+
   it("click mode still refuses a track that is not there", () => {
     expect(() =>
       writeRecording(createSong(), [note(0, 38)], { trackIndex: 9, startBar: 0 }),
