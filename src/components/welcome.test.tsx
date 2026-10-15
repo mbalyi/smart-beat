@@ -62,9 +62,17 @@ describe("Welcome", () => {
       "https://github.com/CoderLine/alphaTab",
     );
     expect(section).toHaveTextContent("not affiliated with or endorsed by alphaTab");
-    // alphaTab, four libraries and the star link.
-    expect(links).toHaveLength(1 + 4 + 1);
+    // alphaTab, six projects and the star link.
+    expect(links).toHaveLength(1 + 6 + 1);
     expect(within(section).getByRole("link", { name: "RustySynth" })).toBeInTheDocument();
+    expect(within(section).getByRole("link", { name: "Basic Pitch" })).toHaveAttribute(
+      "href",
+      "https://github.com/spotify/basic-pitch",
+    );
+    expect(within(section).getByRole("link", { name: "Transkun" })).toHaveAttribute(
+      "href",
+      "https://github.com/Yujia-Yan/Transkun",
+    );
     expect(within(section).getByRole("link", { name: "cpal by RustAudio" })).toHaveAttribute(
       "href",
       "https://github.com/RustAudio/cpal",
