@@ -124,14 +124,14 @@ test.describe("an existing user", () => {
   test("a step whose control is missing is skipped without getting stuck", async ({ app }) => {
     await emitMenuAction(app, "demo-song");
     await waitForScore(app);
-    // The Speed Trainer button is hidden while a trainer runs; the tour passes over it, not hangs.
+    // Step 2 points at the Speed select: without it, the tour passes over it, not hangs.
     await emitMenuAction(app, "tour-speed-trainer");
     await expect(coachMark(app)).toContainText("Choose a passage");
-    await app.evaluate(() => document.querySelector("[data-tour=speed-trainer]")?.remove());
+    await app.evaluate(() => document.querySelector("[data-tour=speed]")?.remove());
     await coachMark(app).getByRole("button", { name: "Next" }).click();
-    await expect
-      .poll(async () => (await tourState(app)).tours["speed-trainer"], { timeout: 15_000 })
-      .toBe("done");
+    await expect(coachMark(app)).toContainText("Count in instead", { timeout: 15_000 });
+    await expect(coachMark(app)).toContainText("Step 3 of");
+    await app.keyboard.press("Escape");
     await expect(coachMark(app)).toHaveCount(0);
   });
 
@@ -219,5 +219,58 @@ test.describe("the Limits popup of Record to tab", () => {
     const [link, box] = [(await limits.boundingBox())!, (await popup.boundingBox())!];
     expect(box.y).toBeGreaterThanOrEqual(link.y + link.height - 1);
     expect(box.width).toBeGreaterThanOrEqual(480);
+  });
+});
+
+test.describe("the start page and the header", () => {
+  test("Take a tour is the last button; it starts the tour and Next opens the demo tab", async ({
+    app,
+  }) => {
+    const buttons = app.locator("main section").first().getByRole("button");
+    await expect(buttons.last()).toHaveText("Take a tour");
+    await buttons.last().click();
+    await expect(coachMark(app)).toContainText("Open a song");
+    await expect(coachMark(app)).toContainText("opens a demo song in a new tab");
+    await coachMark(app).getByRole("button", { name: "Next" }).click();
+    await expect(app.getByRole("navigation", { name: "Open songs" })).toContainText(
+      "Smart Beat Demo",
+      { timeout: 60_000 },
+    );
+  });
+
+  test("the Record to Tab button sits after the Edited badge and before the transport", async ({
+    app,
+  }) => {
+    await emitMenuAction(app, "demo-song");
+    await waitForScore(app);
+    const record = app.getByRole("button", { name: "Record to Tab" });
+    const first = app.getByRole("button", { name: "Play" });
+    const redo = app.getByRole("button", { name: /^Redo|Nothing to redo/ }).first();
+    const [r, f, u] = [
+      await record.boundingBox(),
+      await first.boundingBox(),
+      await redo.boundingBox(),
+    ];
+    expect(u!.x).toBeLessThan(r!.x);
+    expect(r!.x).toBeLessThan(f!.x);
+  });
+
+  test("the last step of the main tour offers the other tours and starts the one picked", async ({
+    app,
+  }) => {
+    await emitMenuAction(app, "demo-song");
+    await waitForScore(app);
+    await emitMenuAction(app, "tour");
+    for (let i = 0; i < 12; i++) {
+      await expect(coachMark(app)).toBeVisible();
+      if (await coachMark(app).getByRole("button", { name: "Editing tour" }).count()) break;
+      await coachMark(app).getByRole("button", { name: "Next" }).click();
+    }
+    const choice = coachMark(app).getByRole("button", { name: /Speed Trainer tour/ });
+    await expect(choice).toBeVisible();
+    await choice.click();
+    await expect(coachMark(app)).toContainText("Step 1 of", { timeout: 15_000 });
+    await expect(coachMark(app).getByRole("heading")).not.toHaveText("You are set");
+    await savedProgress(app, "main").toBe("done");
   });
 });

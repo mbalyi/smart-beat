@@ -1212,6 +1212,7 @@ export function ScoreWorkspace({
     if (message.inspectorTab !== undefined) setInspectorTab(message.inspectorTab);
     if (message.instrumentView !== undefined) setInstrumentView(message.instrumentView);
     if (message.editing !== undefined) setEditing(message.editing);
+    let shownTrack = trackIndex;
     if (message.track !== undefined) {
       const wanted =
         typeof message.track === "number"
@@ -1219,7 +1220,10 @@ export function ScoreWorkspace({
           : summary.tracks.findIndex((t) =>
               message.track === "drums" ? t.kind === "drums" : t.kind !== "drums",
             );
-      if (wanted >= 0) changeTrack(wanted);
+      if (wanted >= 0) {
+        changeTrack(wanted);
+        shownTrack = wanted;
+      }
     }
     const settings = message.practice;
     if (settings) {
@@ -1245,9 +1249,10 @@ export function ScoreWorkspace({
         });
       }
     }
-    if (message.dialog === "none") closeDialogs();
-    else if (message.dialog === "speed-trainer") setTrainerOpen(true);
-    else if (message.dialog === "pedalboard") openPedalboard(trackIndex);
+    // One dialog at a time: asking for another closes the one that is open.
+    if (message.dialog !== undefined) closeDialogs();
+    if (message.dialog === "speed-trainer") setTrainerOpen(true);
+    else if (message.dialog === "pedalboard") openPedalboard(shownTrack);
     else if (message.dialog === "master-pedalboard") openPedalboard(null);
     else if (message.dialog === "drum-mixer") {
       const drums = summary.tracks.findIndex((t) => t.kind === "drums");

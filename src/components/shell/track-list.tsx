@@ -334,6 +334,7 @@ export function TrackList({
                   aria-label="Add track"
                   title="Add track…"
                   onClick={actions.onAdd}
+                  data-tour="add-track"
                 >
                   <PlusIcon />
                 </Button>
@@ -559,11 +560,21 @@ export function TrackList({
                         >
                           A
                         </Toggle>
-                        <EqPopover
-                          name={track.name}
-                          eq={trackEq(mix, i)}
-                          onChange={(eq) => onChange({ type: "eq", track: i, eq })}
-                        />
+                        {isShown ? (
+                          // The Effects tour points at the EQ of the track shown in the score.
+                          <EqPopover
+                            data-tour="track-eq"
+                            name={track.name}
+                            eq={trackEq(mix, i)}
+                            onChange={(eq) => onChange({ type: "eq", track: i, eq })}
+                          />
+                        ) : (
+                          <EqPopover
+                            name={track.name}
+                            eq={trackEq(mix, i)}
+                            onChange={(eq) => onChange({ type: "eq", track: i, eq })}
+                          />
+                        )}
                         <TrackRowMenu
                           track={track}
                           count={tracks.length}

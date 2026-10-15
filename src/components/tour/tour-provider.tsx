@@ -36,7 +36,9 @@ const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion:
 const targetSelector = (step: TourStep) => `[data-tour="${step.target}"]`;
 /** A step can be shown when its control is on screen, or a dialog the step opens will have it. */
 const isReachable = (step: TourStep) =>
-  step.inDialog === true || document.querySelector(targetSelector(step)) !== null;
+  step.inDialog === true ||
+  step.show !== undefined ||
+  document.querySelector(targetSelector(step)) !== null;
 
 /** The other tours the last step of a tour offers to go on with. */
 const otherTours = (current: string) =>
@@ -162,6 +164,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
         (step, i) =>
           i >= fromStep &&
           (document.querySelector(`[data-tour="${step.target}"]`) !== null ||
+            // A step that shows its own panel or dialog does not need its control on screen yet.
+            (step.show !== undefined && host.current?.hasSong() === true) ||
             (step.needsSong === true && host.current?.hasSong() === false)),
       );
       if (index < 0) return;
@@ -239,6 +243,9 @@ export function TourProvider({ children }: { children: ReactNode }) {
       if (el && el !== marked) {
         marked?.removeAttribute("data-tour-active");
         el.setAttribute("data-tour-active", "");
+        // A target inside a dialog may sit below the fold of the dialog's scrolling body.
+        if (el.closest("[data-slot=dialog-content]"))
+          el.scrollIntoView({ block: "nearest", behavior: "instant" });
         marked = el;
       }
     };

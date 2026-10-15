@@ -297,10 +297,16 @@ test.describe("Record to Tab (#108)", () => {
     await newSong(app);
     const record = app.getByRole("button", { name: "Record to Tab" });
     await expect(record).toBeVisible();
-    // Next to the File menu, which still lists Record to Tab as well.
+    // After the undo and redo buttons and before the transport; the File menu still lists it too.
     const file = app.getByRole("button", { name: "File" });
-    const [recordBox, fileBox] = [await record.boundingBox(), await file.boundingBox()];
-    expect(recordBox!.x).toBeLessThan(fileBox!.x);
+    const play = app.getByRole("button", { name: "Play" });
+    const [recordBox, fileBox, playBox] = [
+      await record.boundingBox(),
+      await file.boundingBox(),
+      await play.boundingBox(),
+    ];
+    expect(recordBox!.x).toBeGreaterThan(fileBox!.x);
+    expect(recordBox!.x).toBeLessThan(playBox!.x);
     expect(Math.abs(recordBox!.y - fileBox!.y)).toBeLessThan(10);
     await record.hover();
     await expect(app.getByRole("tooltip", { name: "Record to Tab…" })).toBeVisible();

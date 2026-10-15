@@ -165,13 +165,12 @@ export function PracticeControls({
       data-tour="practice"
       className="flex items-center gap-x-3 gap-y-2 *:shrink-0 sm:flex-wrap"
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5" data-tour="loop">
         <Toggle
           variant="outline"
           size="sm"
           pressed={loop}
           onPressedChange={onLoopChange}
-          data-tour="loop"
           title="Loop the selected bars (drag across bars in the score to choose them)"
         >
           <Repeat2Icon data-icon="inline-start" />
@@ -204,7 +203,12 @@ export function PracticeControls({
           Speed
         </span>
         <Select value={String(speed)} onValueChange={(value) => onSpeedChange(Number(value))}>
-          <SelectTrigger size="sm" aria-labelledby={speedLabelId} className="w-20 tabular-nums">
+          <SelectTrigger
+            size="sm"
+            aria-labelledby={speedLabelId}
+            className="w-20 tabular-nums"
+            data-tour="speed"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -216,7 +220,7 @@ export function PracticeControls({
           </SelectContent>
         </Select>
         {trainer ? (
-          <span className="flex items-center gap-1 text-sm">
+          <span className="flex items-center gap-1 text-sm" data-tour="trainer-status">
             <span role="status" className="text-muted-foreground tabular-nums">
               {trainer.holding
                 ? `Trainer staying at ${speed}%`
@@ -365,32 +369,36 @@ function SpeedTrainerForm({
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
-        {sections.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <span>Section</span>
-            <SectionPicker
-              sections={sections}
-              range={range}
-              onChange={setRange}
-              label="Section to practise"
+        <div className="flex flex-col gap-4" data-tour="trainer-bars">
+          {sections.length > 0 && (
+            <div className="flex items-center gap-2 text-sm">
+              <span>Section</span>
+              <SectionPicker
+                sections={sections}
+                range={range}
+                onChange={setRange}
+                label="Section to practise"
+              />
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-4">
+            <NumberField
+              label="From bar"
+              value={range.start + 1}
+              min={1}
+              max={barCount}
+              onChange={(bar) => setRange((r) => ({ ...r, start: bar - 1 }))}
+            />
+            <NumberField
+              label="To bar"
+              value={range.end + 1}
+              min={1}
+              max={barCount}
+              onChange={(bar) => setRange((r) => ({ ...r, end: bar - 1 }))}
             />
           </div>
-        )}
-        <div className="grid grid-cols-2 gap-4">
-          <NumberField
-            label="From bar"
-            value={range.start + 1}
-            min={1}
-            max={barCount}
-            onChange={(bar) => setRange((r) => ({ ...r, start: bar - 1 }))}
-          />
-          <NumberField
-            label="To bar"
-            value={range.end + 1}
-            min={1}
-            max={barCount}
-            onChange={(bar) => setRange((r) => ({ ...r, end: bar - 1 }))}
-          />
+        </div>
+        <div className="grid grid-cols-2 gap-4" data-tour="trainer-speeds">
           <NumberField
             label="Start speed"
             value={trainer.from}
@@ -407,6 +415,8 @@ function SpeedTrainerForm({
             suffix="%"
             onChange={(to) => set({ to })}
           />
+        </div>
+        <div className="grid grid-cols-2 gap-4" data-tour="trainer-step">
           <NumberField
             label="Increase by"
             value={trainer.step}
@@ -423,7 +433,7 @@ function SpeedTrainerForm({
             onChange={(loopsPerStep) => set({ loopsPerStep })}
           />
         </div>
-        <div className="flex items-start gap-2 text-sm">
+        <div className="flex items-start gap-2 text-sm" data-tour="trainer-count-in">
           <Checkbox
             id={countInId}
             checked={countInBetweenAvailable && trainer.countInBetween === true}
@@ -448,7 +458,9 @@ function SpeedTrainerForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit">Start</Button>
+        <Button type="submit" data-tour="trainer-start">
+          Start
+        </Button>
       </DialogFooter>
     </form>
   );
