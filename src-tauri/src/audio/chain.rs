@@ -358,6 +358,10 @@ struct PluginEffect {
 
 impl Effect for PluginEffect {
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        if self.worker.offline() {
+            self.worker.process_offline(left, right);
+            return;
+        }
         self.worker.push(left, right);
         if let Some(seq) = self.worker.take_into(self.seen, left, right) {
             self.seen = seq;
@@ -401,7 +405,12 @@ impl Effect for PluginEffect {
     }
 
     fn latency_samples(&self) -> u32 {
-        self.worker.latency_samples() + super::engine::BLOCK as u32
+        self.worker.latency_samples()
+            + if self.worker.offline() {
+                0
+            } else {
+                super::engine::BLOCK as u32
+            }
     }
 }
 
@@ -506,6 +515,19 @@ impl Chain {
         assets: &dyn AssetSource,
         plugins: &PluginPool,
     ) -> Self {
+        Self::build_for(slots, limit, sample_rate, max_block, assets, plugins, None)
+    }
+
+    /// Builds a live chain with an address for per-block editor/status lookup.
+    pub fn build_for(
+        slots: &[EffectSlot],
+        limit: usize,
+        sample_rate: f32,
+        max_block: usize,
+        assets: &dyn AssetSource,
+        plugins: &PluginPool,
+        address: Option<(Option<usize>, usize)>,
+    ) -> Self {
         let mut blocks: Vec<Box<dyn Effect>> = Vec::new();
         let mut layout = Vec::new();
         let mut slot_indexes = Vec::new();
@@ -558,7 +580,7 @@ impl Chain {
                             path: path.clone(),
                             state,
                         };
-                        match plugins.get_or_load(&spec, sample_rate) {
+                        match plugins.load(address.map(|(track, sound)| super::plugin::PluginInstance { track, sound, index }), &spec, sample_rate) {
                             Ok(worker) => Ok(Box::new(PluginEffect {
                                 worker,
                                 format: *format,
@@ -767,6 +789,7 @@ mod tests {
             RATE,
             64,
             &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
         );
         assert_eq!(
             in_order.layout,
@@ -778,6 +801,7 @@ mod tests {
             RATE,
             64,
             &NoAssets,
+            &crate::audio::plugin::PluginPool::default(),
         );
         assert_eq!(reordered.layout, vec![gate.effect, drive.effect]);
         // The meter of each block still points at the slot it came from.

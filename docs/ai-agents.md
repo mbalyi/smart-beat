@@ -12,6 +12,25 @@ When adding or renaming a skill, create the shared skill directory and add a mat
 
 ## Tool availability
 
+Run development commands through `bash scripts/with-dev-env.sh <command> [args...]`.
+The wrapper loads the Node version in `.nvmrc`, uses Corepack to select the pnpm
+version in `package.json`, and loads `~/.cargo/env` when present. This also keeps
+nested `pnpm` calls from picking an outdated global executable. It creates
+temporary shims and removes them when the command exits.
+
+For example:
+
+```sh
+bash scripts/with-dev-env.sh pnpm check
+bash scripts/with-dev-env.sh pnpm test:e2e
+```
+
+In Orca, open **Settings → Projects → smart-beat → Worktree Hooks**. The local
+setup script must load NVM and Rust before running `corepack pnpm install
+--frozen-lockfile`. Setup runs in its own process; later agent commands still
+need the wrapper. Enable **Wait for setup to complete before starting agent**
+so agents start after dependencies are ready.
+
 The skills describe outcomes and prefer portable commands, but some actions need integrations that may not be available in every agent session.
 
 | Action                      | Preferred path                                  | Portable fallback or requirement                                                                                                                                                                 |

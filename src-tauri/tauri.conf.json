@@ -63,7 +63,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/vst3-host-helper"],
+    "externalBin": ["binaries/smart-beat-plugin-helper"],
     "category": "Music",
     "publisher": "Mark Balyi",
     "homepage": "https://github.com/mbalyi/smart-beat",

@@ -14,11 +14,16 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::time::Duration;
 
+use super::plugin_process::HelperProcess;
+use super::plugin_wire::{
+    AUDIO_PROTOCOL_VERSION, AudioCommand, Command, MAX_AUDIO_FRAMES, SharedAudio,
+};
 use serde::{Deserialize, Serialize};
+use vst3_host::process_isolation::{HostCommand, HostResponse};
 
 /// VST3 or CLAP, as stored in a chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -108,16 +113,20 @@ pub fn helper_path() -> Option<PathBuf> {
     }
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let name = format!("vst3-host-helper{}", std::env::consts::EXE_SUFFIX);
-    let beside = dir.join(&name);
-    if beside.exists() {
-        return Some(beside);
-    }
-    // Test binaries run from `target/<profile>/deps`.
-    if dir.file_name().is_some_and(|n| n == "deps") {
-        let sibling = dir.parent()?.join(&name);
-        if sibling.exists() {
-            return Some(sibling);
+    // Cargo's binary and the staged Tauri sidecar have different names:
+    // tauri-build copies sidecars next to dev/test executables and must not
+    // overwrite Cargo's freshly built helper with an older staged release.
+    for name in ["vst3-host-helper", "smart-beat-plugin-helper"] {
+        let name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+        let beside = dir.join(&name);
+        if beside.exists() {
+            return Some(beside);
+        }
+        if dir.file_name().is_some_and(|n| n == "deps") {
+            let sibling = dir.parent()?.join(&name);
+            if sibling.exists() {
+                return Some(sibling);
+            }
         }
     }
     None
@@ -341,6 +350,7 @@ pub fn scan() -> Result<PluginScanReport, String> {
 #[derive(Debug)]
 struct AudioSlot {
     seq: u64,
+    frames: usize,
     left: Vec<f32>,
     right: Vec<f32>,
 }
@@ -349,8 +359,9 @@ impl AudioSlot {
     fn new() -> Self {
         Self {
             seq: 0,
-            left: Vec::new(),
-            right: Vec::new(),
+            frames: 0,
+            left: vec![0.0; MAX_AUDIO_FRAMES],
+            right: vec![0.0; MAX_AUDIO_FRAMES],
         }
     }
 }
@@ -362,7 +373,10 @@ struct WorkerStatus {
     error: String,
 }
 
+type AudioResult = Result<(Vec<f32>, Vec<f32>), String>;
+
 enum CtrlCmd {
+    Process(Vec<f32>, Vec<f32>, mpsc::Sender<AudioResult>),
     Reconfigure(f32, mpsc::Sender<Result<u32, String>>),
     LoadState(Vec<u8>, mpsc::Sender<Result<(), String>>),
     SaveState(mpsc::Sender<Result<Vec<u8>, String>>),
@@ -371,10 +385,13 @@ enum CtrlCmd {
 }
 
 /// One loaded plugin: a helper process plus the background thread driving it.
-/// Shared by every chain block with the same plugin (a new sample rate
-/// reconfigures it in place).
+/// Owned by one chain block. Different blocks never share an audio slot or
+/// mutable plugin state, even when they load the same file.
 #[derive(Debug)]
 pub struct PluginWorker {
+    enabled: Arc<AtomicBool>,
+    sequence: AtomicU64,
+    offline: bool,
     ctrl_tx: mpsc::Sender<CtrlCmd>,
     in_slot: Arc<Mutex<AudioSlot>>,
     out_slot: Arc<Mutex<AudioSlot>>,
@@ -384,47 +401,78 @@ pub struct PluginWorker {
     rate: Mutex<f32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct WorkerKey {
-    format: PluginFormat,
-    path: String,
+/// Address of one live block. Export workers use a separate pool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PluginInstance {
+    pub track: Option<usize>,
+    pub sound: usize,
+    pub index: usize,
 }
 
 impl PluginWorker {
     /// Hands one stereo block to the worker (drops it when the worker is
     /// behind: the audio thread never waits).
     pub fn push(&self, left: &[f32], right: &[f32]) {
+        let seq = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
+        if !self.enabled.load(Ordering::Acquire)
+            || left.len() != right.len()
+            || left.is_empty()
+            || left.len() > MAX_AUDIO_FRAMES
+        {
+            return;
+        }
         let Ok(mut slot) = self.in_slot.try_lock() else {
             return;
         };
-        slot.left.resize(left.len(), 0.0);
-        slot.right.resize(right.len(), 0.0);
-        slot.left.copy_from_slice(left);
-        slot.right.copy_from_slice(right);
-        slot.seq += 1;
+        slot.frames = left.len();
+        slot.left[..left.len()].copy_from_slice(left);
+        slot.right[..right.len()].copy_from_slice(right);
+        slot.seq = seq;
+    }
+
+    pub fn process_offline(&self, left: &mut [f32], right: &mut [f32]) {
+        if !self.enabled.load(Ordering::Acquire) {
+            return;
+        }
+        if let Ok(Ok((out_l, out_r))) =
+            self.ctrl(|reply| CtrlCmd::Process(left.to_vec(), right.to_vec(), reply))
+        {
+            left.copy_from_slice(&out_l);
+            right.copy_from_slice(&out_r);
+        }
+    }
+
+    pub fn offline(&self) -> bool {
+        self.offline
     }
 
     /// The latest finished block, copied into `left`/`right` when newer than
     /// `seen`. Returns its sequence number. Allocates nothing: the audio
     /// thread must never wait on the worker.
     pub fn take_into(&self, seen: u64, left: &mut [f32], right: &mut [f32]) -> Option<u64> {
+        if !self.enabled.load(Ordering::Acquire) {
+            return None;
+        }
         let slot = self.out_slot.try_lock().ok()?;
-        if slot.seq <= seen || slot.seq == 0 {
+        if slot.seq <= seen
+            || slot.seq == 0
+            || slot.seq.checked_add(1) != Some(self.sequence.load(Ordering::Relaxed))
+        {
             return None;
         }
         // The worker answers with the block it was given; a size change in
         // between (engine block vs. render tail) skips one block, never panics.
-        if slot.left.len() != left.len() || slot.right.len() != right.len() {
+        if slot.frames != left.len() || slot.frames != right.len() {
             return None;
         }
-        left.copy_from_slice(&slot.left);
-        right.copy_from_slice(&slot.right);
+        left.copy_from_slice(&slot.left[..slot.frames]);
+        right.copy_from_slice(&slot.right[..slot.frames]);
         Some(slot.seq)
     }
 
     /// The newest input sequence handed over (to drop stale output after a seek).
     pub fn in_seq(&self) -> Option<u64> {
-        self.in_slot.try_lock().ok().map(|slot| slot.seq)
+        Some(self.sequence.load(Ordering::Relaxed))
     }
 
     pub fn latency_samples(&self) -> u32 {
@@ -498,17 +546,21 @@ impl PluginWorker {
     }
 }
 
-/// Owns the worker threads. Workers are keyed by plugin, rate and state and
-/// held weakly: dropping the last chain block using one shuts its helper down.
+/// Weak registry for editor/status lookup. Each build creates independent workers;
+/// the chain owns them, and dropping its final block disconnects its helper.
 pub struct PluginPool {
-    enabled: AtomicBool,
-    workers: Mutex<HashMap<WorkerKey, Weak<PluginWorker>>>,
+    enabled: Arc<AtomicBool>,
+    offline: bool,
+    helper: Option<PathBuf>,
+    workers: Mutex<HashMap<PluginInstance, (PluginSpec, Weak<PluginWorker>)>>,
 }
 
 impl Default for PluginPool {
     fn default() -> Self {
         Self {
-            enabled: AtomicBool::new(false),
+            enabled: Arc::new(AtomicBool::new(false)),
+            offline: false,
+            helper: None,
             workers: Mutex::new(HashMap::new()),
         }
     }
@@ -516,83 +568,76 @@ impl Default for PluginPool {
 
 impl PluginPool {
     pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Relaxed);
+        self.enabled.store(enabled, Ordering::Release);
     }
-
     pub fn enabled(&self) -> bool {
-        self.enabled.load(Ordering::Relaxed)
+        self.enabled.load(Ordering::Acquire)
     }
 
-    /// Loads the plugin (or reuses the running worker) and applies `state`.
-    /// Blocks the caller — never the audio thread — while the helper starts.
-    pub fn get_or_load(
+    /// Explicit helper location for deployments and integration tests.
+    pub fn with_helper(mut self, helper: PathBuf) -> Self {
+        self.helper = Some(helper);
+        self
+    }
+
+    pub fn for_offline(&self) -> Self {
+        Self {
+            enabled: self.enabled.clone(),
+            offline: true,
+            helper: self.helper.clone(),
+            workers: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Always creates an instance; plugin path and preset never identify an instance.
+    pub fn load(
         &self,
+        instance: Option<PluginInstance>,
         spec: &PluginSpec,
         sample_rate: f32,
     ) -> Result<Arc<PluginWorker>, String> {
         if !self.enabled() {
-            return Err(
-                "Third-party plugins are switched off. Switch them on to use this block — your own plugins run as third-party code."
-                    .to_string(),
-            );
+            return Err("Third-party plugins are switched off. Switch them on to use this block — your own plugins run as third-party code.".into());
         }
         if !Path::new(&spec.path).exists() {
-            let short: String = spec
-                .path
-                .chars()
-                .rev()
-                .take(32)
-                .collect::<String>()
-                .chars()
-                .rev()
-                .collect();
             return Err(format!(
-                "This plugin is not installed ({short}). Install it, then it plays again."
+                "This plugin is not installed ({}). Install it, then it plays again.",
+                friendly(&spec.path)
             ));
         }
-        let key = WorkerKey {
-            format: spec.format,
-            path: spec.path.clone(),
-        };
-        if let Some(worker) = self
-            .workers
-            .lock()
-            .unwrap()
-            .get(&key)
-            .and_then(Weak::upgrade)
-        {
-            // One worker per plugin: a new rate reconfigures it (keeping the
-            // editor's tweaks), a new preset is applied to it.
-            worker.ensure_rate(sample_rate)?;
-            worker.apply_state(&spec.state)?;
-            return Ok(worker);
-        }
         let worker = self.spawn(spec, sample_rate)?;
-        let mut workers = self.workers.lock().unwrap();
-        workers.retain(|_, w| w.strong_count() > 0);
-        workers.insert(key, Arc::downgrade(&worker));
+        if let Some(instance) = instance {
+            let mut workers = self.workers.lock().unwrap();
+            workers.retain(|_, (_, worker)| worker.strong_count() > 0);
+            workers.insert(instance, (spec.clone(), Arc::downgrade(&worker)));
+        }
         Ok(worker)
     }
 
-    /// The running worker for `spec`, if it is loaded (never loads).
-    pub fn find(&self, spec: &PluginSpec) -> Option<Arc<PluginWorker>> {
-        let key = WorkerKey {
-            format: spec.format,
-            path: spec.path.clone(),
-        };
+    pub fn find(&self, instance: PluginInstance, spec: &PluginSpec) -> Option<Arc<PluginWorker>> {
         self.workers
             .lock()
             .unwrap()
-            .get(&key)
-            .and_then(Weak::upgrade)
+            .get(&instance)
+            .and_then(|(loaded, worker)| {
+                (loaded.format == spec.format && loaded.path == spec.path)
+                    .then(|| worker.upgrade())
+                    .flatten()
+            })
     }
 
     fn spawn(&self, spec: &PluginSpec, sample_rate: f32) -> Result<Arc<PluginWorker>, String> {
-        let helper = helper_path()
+        let helper = self
+            .helper
+            .clone()
+            .or_else(helper_path)
             .ok_or_else(|| "The plugin helper is missing from the installation".to_string())?;
         let (ctrl_tx, ctrl_rx) = mpsc::channel::<CtrlCmd>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
         let worker = Arc::new(PluginWorker {
+            enabled: self.enabled.clone(),
+            sequence: AtomicU64::new(0),
+            offline: self.offline,
             ctrl_tx,
             in_slot: Arc::new(Mutex::new(AudioSlot::new())),
             out_slot: Arc::new(Mutex::new(AudioSlot::new())),
@@ -604,6 +649,10 @@ impl PluginPool {
             state: Mutex::new(spec.state.clone()),
             rate: Mutex::new(sample_rate),
         });
+        // Some platforms lazily allocate the native mutex on first use.
+        // Initialize both handover mutexes before any audio callback sees them.
+        drop(worker.in_slot.lock().unwrap());
+        drop(worker.out_slot.lock().unwrap());
         let weak = Arc::downgrade(&worker);
         let spec = spec.clone();
         let plugin_name = friendly(&spec.path);
@@ -649,63 +698,19 @@ fn run_worker(
         status.latency = latency;
     }
     let _ = ready_tx.send(Ok(latency));
+    // Do not keep the initialization Arc alive across the loop.
+    drop(worker);
     let mut last_seq = 0u64;
     let mut rate = sample_rate;
     loop {
         let Some(worker) = weak.upgrade() else {
             break;
         };
-        // Audio first: keep the pipeline fed.
-        let job = worker.in_slot.lock().map(|slot| {
-            if slot.seq != last_seq && slot.seq > 0 {
-                last_seq = slot.seq;
-                Some((slot.left.clone(), slot.right.clone()))
-            } else {
-                None
+        // Controls cannot be starved by a continuous stream of audio.
+        match ctrl_rx.try_recv() {
+            Ok(CtrlCmd::Process(left, right, reply)) => {
+                let _ = reply.send(backend.process(&left, &right, rate));
             }
-        });
-        match job {
-            Ok(Some((left, right))) => {
-                match backend.process(&left, &right, rate) {
-                    Ok((out_l, out_r)) => {
-                        if let Ok(mut out) = worker.out_slot.lock() {
-                            out.left = out_l;
-                            out.right = out_r;
-                            out.seq = last_seq;
-                        }
-                        if !worker.alive() {
-                            worker.set_status(true, String::new());
-                        }
-                    }
-                    Err(e) => {
-                        worker.set_status(false, e.clone());
-                        // A dead or hung helper never stalls audio (the block
-                        // goes dry); recover here, in the background.
-                        let current = worker.state.lock().unwrap().clone();
-                        match backend.recover(
-                            helper,
-                            spec.format,
-                            &spec.path,
-                            &current,
-                            sample_rate,
-                        ) {
-                            Ok(()) => {
-                                let latency = backend.latency();
-                                worker.status.lock().unwrap().latency = latency;
-                                worker.set_status(true, String::new());
-                                last_seq = worker.in_slot.lock().map(|s| s.seq).unwrap_or(last_seq);
-                            }
-                            Err(e) => worker.set_status(false, e),
-                        }
-                    }
-                }
-                continue;
-            }
-            Ok(None) => {}
-            Err(_) => {}
-        }
-        // Then control commands (blocking briefly: audio is checked each loop).
-        match ctrl_rx.recv_timeout(Duration::from_micros(500)) {
             Ok(CtrlCmd::Reconfigure(new_rate, reply)) => {
                 let current = worker.state.lock().unwrap().clone();
                 let result = backend.reconfigure(new_rate, &current);
@@ -716,7 +721,16 @@ fn run_worker(
                 let _ = reply.send(result);
             }
             Ok(CtrlCmd::LoadState(state, reply)) => {
-                let _ = reply.send(backend.load_state(&state));
+                let result = if state.is_empty() {
+                    // Empty means the plugin's default preset, not its current settings.
+                    backend.recover(helper, spec.format, &spec.path, &state, rate)
+                } else {
+                    backend.load_state(&state)
+                };
+                if result.is_ok() {
+                    worker.status.lock().unwrap().latency = backend.latency();
+                }
+                let _ = reply.send(result);
             }
             Ok(CtrlCmd::SaveState(reply)) => {
                 let _ = reply.send(backend.save_state());
@@ -725,334 +739,200 @@ fn run_worker(
                 let _ = reply.send(backend.open_editor());
             }
             Ok(CtrlCmd::CloseEditor) => backend.close_editor(),
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::TryRecvError::Disconnected) => break,
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+        if !worker.enabled.load(Ordering::Acquire) {
+            last_seq = worker.in_seq().unwrap_or(last_seq);
+            std::thread::sleep(Duration::from_micros(250));
+            continue;
+        }
+        let job = worker.in_slot.lock().ok().and_then(|slot| {
+            if slot.seq > last_seq {
+                last_seq = slot.seq;
+                Some((
+                    slot.left[..slot.frames].to_vec(),
+                    slot.right[..slot.frames].to_vec(),
+                ))
+            } else {
+                None
+            }
+        });
+        if let Some((left, right)) = job {
+            match backend.process(&left, &right, rate) {
+                Ok((out_l, out_r)) => {
+                    let mut out = worker.out_slot.lock().unwrap();
+                    out.frames = out_l.len();
+                    out.left[..out_l.len()].copy_from_slice(&out_l);
+                    out.right[..out_r.len()].copy_from_slice(&out_r);
+                    out.seq = last_seq;
+                    worker.set_status(true, String::new());
+                }
+                Err(e) => {
+                    worker.set_status(false, e);
+                    let current = worker.state.lock().unwrap().clone();
+                    // Use the accepted rate after reconfiguration, not the original rate.
+                    match backend.recover(helper, spec.format, &spec.path, &current, rate) {
+                        Ok(()) => {
+                            worker.status.lock().unwrap().latency = backend.latency();
+                            worker.set_status(true, String::new());
+                            last_seq = worker.in_seq().unwrap_or(last_seq);
+                        }
+                        Err(e) => worker.set_status(false, e),
+                    }
+                }
+            }
+        } else {
+            std::thread::sleep(Duration::from_micros(250));
         }
     }
 }
 
-/// One helper connection, VST3 or CLAP behind the same calls.
-enum Backend {
-    Vst3(vst3_host::Plugin),
-    Clap {
-        process: vst3_host::process_isolation::PluginHostProcess,
-    },
+/// Both formats use the same helper and mapped audio transport.
+struct Backend {
+    // Drop the process before unmapping/removing its audio file.
+    process: HelperProcess,
+    audio: SharedAudio,
+    _file: tempfile::NamedTempFile,
 }
 
 impl Backend {
     fn load(
         helper: &Path,
-        format: PluginFormat,
+        _format: PluginFormat,
         path: &str,
         state: &[u8],
         sample_rate: f32,
     ) -> Result<Self, String> {
-        match format {
-            PluginFormat::Vst3 => {
-                let mut host = vst3_host::Vst3Host::builder()
-                    .sample_rate(f64::from(sample_rate))
-                    .block_size(4096)
-                    .with_process_isolation(true)
-                    .helper_path(helper)
-                    .response_timeout(PROCESS_TIMEOUT)
-                    .build()
-                    .map_err(|e| format!("The plugin helper cannot start: {e}"))?;
-                let mut plugin = host
-                    .load_plugin(path)
-                    .map_err(|e| format!("{} cannot be loaded: {e}", friendly(path)))?;
-                if !state.is_empty() {
-                    plugin.load_state(state).map_err(|e| {
-                        format!("{} cannot restore its settings: {e}", friendly(path))
-                    })?;
-                }
-                plugin
-                    .start_processing()
-                    .map_err(|e| format!("{} cannot start: {e}", friendly(path)))?;
-                Ok(Self::Vst3(plugin))
-            }
-            PluginFormat::Clap => {
-                use vst3_host::process_isolation::{HostCommand, HostResponse, PluginHostProcess};
-                let mut process =
-                    PluginHostProcess::new(Some(helper.to_path_buf()), PROCESS_TIMEOUT)
-                        .map_err(|e| format!("The plugin helper cannot start: {e}"))?;
-                process.set_slow_command_timeout(SLOW_TIMEOUT);
-                let response = process
-                    .send_command(HostCommand::LoadPlugin {
-                        path: path.to_string(),
-                        sample_rate: f64::from(sample_rate),
-                        block_size: 4096,
-                        tempo: 120.0,
-                        time_sig_numerator: 4,
-                        time_sig_denominator: 4,
-                        class_id: None,
-                    })
-                    .map_err(|e| format!("{} cannot be loaded: {e}", friendly(path)))?;
-                match response {
-                    HostResponse::PluginInfo { .. } => {}
-                    HostResponse::Error { message } => {
-                        return Err(format!("{} cannot be loaded: {message}", friendly(path)));
-                    }
-                    _ => {
-                        return Err(format!("{} did not answer while loading", friendly(path)));
-                    }
-                };
-                if !state.is_empty() {
-                    let response = process
-                        .send_command(HostCommand::LoadState {
-                            data: state.to_vec(),
-                            context: Default::default(),
-                        })
-                        .map_err(|e| {
-                            format!("{} cannot restore its settings: {e}", friendly(path))
-                        })?;
-                    if let HostResponse::Error { message } = response {
-                        return Err(format!(
-                            "{} cannot restore its settings: {message}",
-                            friendly(path)
-                        ));
-                    }
-                }
-                expect_success(
-                    process.send_command(HostCommand::StartProcessing),
-                    &friendly(path),
-                    "start",
-                )?;
-                Ok(Self::Clap { process })
-            }
+        let (file, audio) = SharedAudio::create()?;
+        let process = HelperProcess::new(helper)?;
+        let mut backend = Self {
+            process,
+            audio,
+            _file: file,
+        };
+        let response = backend.process.send(
+            Command::Audio(AudioCommand::AttachAudio {
+                path: backend._file.path().to_path_buf(),
+                version: AUDIO_PROTOCOL_VERSION,
+            }),
+            PROCESS_TIMEOUT,
+        )?;
+        expect_success(Ok(response), "plugin", "attach audio")?;
+        match backend.send(
+            HostCommand::LoadPlugin {
+                path: path.into(),
+                sample_rate: f64::from(sample_rate),
+                block_size: MAX_AUDIO_FRAMES as u32,
+                tempo: 120.0,
+                time_sig_numerator: 4,
+                time_sig_denominator: 4,
+                class_id: None,
+            },
+            SLOW_TIMEOUT,
+        )? {
+            HostResponse::PluginInfo { .. } => {}
+            HostResponse::Error { message } => return Err(message),
+            _ => return Err("The plugin gave no loading response".into()),
         }
+        if !state.is_empty() {
+            backend.load_state(state)?;
+        }
+        let response = backend.send(HostCommand::StartProcessing, SLOW_TIMEOUT);
+        expect_success(response, "plugin", "start")?;
+        Ok(backend)
+    }
+
+    fn send(&mut self, command: HostCommand, timeout: Duration) -> Result<HostResponse, String> {
+        self.process.send(Command::Host(command), timeout)
     }
 
     fn latency(&mut self) -> u32 {
-        match self {
-            Self::Vst3(plugin) => plugin.latency_samples(),
-            Self::Clap { process, .. } => {
-                use vst3_host::process_isolation::{HostCommand, HostResponse};
-                match process.send_command(HostCommand::LatencySamples) {
-                    Ok(HostResponse::LatencySamples { samples }) => samples,
-                    _ => 0,
-                }
-            }
+        match self.send(HostCommand::LatencySamples, PROCESS_TIMEOUT) {
+            Ok(HostResponse::LatencySamples { samples }) => samples,
+            _ => 0,
         }
     }
 
-    /// Runs one stereo block; lengths may vary (engine blocks and tails).
     fn process(
         &mut self,
         left: &[f32],
         right: &[f32],
-        sample_rate: f32,
+        _rate: f32,
     ) -> Result<(Vec<f32>, Vec<f32>), String> {
-        let frames = left.len().max(right.len()).max(1);
-        match self {
-            Self::Vst3(plugin) => {
-                let mut buffers =
-                    vst3_host::AudioBuffers::new(2, 2, frames, f64::from(sample_rate));
-                buffers.inputs[0].copy_from_slice(&padded(left, frames));
-                buffers.inputs[1].copy_from_slice(&padded(right, frames));
-                plugin
-                    .process_audio(&mut buffers)
-                    .map_err(|e| format!("The plugin failed: {e}"))?;
-                let mut out = buffers.outputs;
-                out.resize_with(2, || vec![0.0; frames]);
-                Ok((out.remove(0), out.remove(0)))
-            }
-            Self::Clap { process, .. } => {
-                use vst3_host::process_isolation::{HostCommand, HostResponse};
-                let response = process
-                    .send_command(HostCommand::Process {
-                        inputs: vec![padded(left, frames), padded(right, frames)],
-                        frames: frames as u32,
-                    })
-                    .map_err(|e| format!("The plugin failed: {e}"))?;
-                match response {
-                    HostResponse::AudioOutput { mut outputs, .. } => {
-                        outputs.resize_with(2, || vec![0.0; frames]);
-                        Ok((outputs.remove(0), outputs.remove(0)))
-                    }
-                    HostResponse::Error { message } => Err(format!("The plugin failed: {message}")),
-                    _ => Err("The plugin gave no audio".to_string()),
-                }
-            }
-        }
+        self.audio.write(false, left, right)?;
+        let response = self.process.send(
+            Command::Audio(AudioCommand::ProcessShared { frames: left.len() }),
+            PROCESS_TIMEOUT,
+        );
+        expect_success(response, "plugin", "process")?;
+        self.audio.read(true, left.len())
     }
 
-    /// Moves the helper to a new sample rate without reloading, keeping
-    /// `state`. Returns the new latency.
-    fn reconfigure(&mut self, sample_rate: f32, state: &[u8]) -> Result<u32, String> {
-        match self {
-            Self::Vst3(plugin) => {
-                plugin
-                    .stop_processing()
-                    .map_err(|e| format!("The plugin cannot change sample rate: {e}"))?;
-                plugin
-                    .reconfigure(f64::from(sample_rate), 4096)
-                    .map_err(|e| format!("The plugin cannot change sample rate: {e}"))?;
-                if !state.is_empty() {
-                    plugin
-                        .load_state(state)
-                        .map_err(|e| format!("The plugin lost its settings changing rate: {e}"))?;
-                }
-                plugin
-                    .start_processing()
-                    .map_err(|e| format!("The plugin cannot change sample rate: {e}"))?;
-                Ok(plugin.latency_samples())
-            }
-            Self::Clap { process, .. } => {
-                use vst3_host::process_isolation::{HostCommand, HostResponse};
-                let response = process
-                    .send_command(HostCommand::Reconfigure {
-                        sample_rate: f64::from(sample_rate),
-                        block_size: 4096,
-                    })
-                    .map_err(|e| format!("The plugin cannot change sample rate: {e}"))?;
-                if let HostResponse::Error { message } = response {
-                    return Err(format!("The plugin cannot change sample rate: {message}"));
-                }
-                // Reactivation drops settings on some plugins: put them back.
-                clap_load_state(process, state, "changing rate")?;
-                match process.send_command(HostCommand::LatencySamples) {
-                    Ok(HostResponse::LatencySamples { samples }) => Ok(samples),
-                    _ => Ok(0),
-                }
-            }
+    fn reconfigure(&mut self, rate: f32, state: &[u8]) -> Result<u32, String> {
+        let response = self.send(HostCommand::StopProcessing, SLOW_TIMEOUT);
+        expect_success(response, "plugin", "stop")?;
+        let response = self.send(
+            HostCommand::Reconfigure {
+                sample_rate: f64::from(rate),
+                block_size: MAX_AUDIO_FRAMES as u32,
+            },
+            SLOW_TIMEOUT,
+        );
+        expect_success(response, "plugin", "reconfigure")?;
+        if !state.is_empty() {
+            self.load_state(state)?;
         }
+        let response = self.send(HostCommand::StartProcessing, SLOW_TIMEOUT);
+        expect_success(response, "plugin", "start")?;
+        Ok(self.latency())
     }
 
     fn load_state(&mut self, state: &[u8]) -> Result<(), String> {
-        match self {
-            Self::Vst3(plugin) => plugin
-                .load_state(state)
-                .map_err(|e| format!("The plugin cannot restore its settings: {e}")),
-            Self::Clap { process, .. } => clap_load_state(process, state, "restoring"),
+        if state.is_empty() {
+            return Ok(());
         }
+        let response = self.send(
+            HostCommand::LoadState {
+                data: state.to_vec(),
+                context: Default::default(),
+            },
+            SLOW_TIMEOUT,
+        );
+        expect_success(response, "plugin", "restore settings")
     }
 
     fn save_state(&mut self) -> Result<Vec<u8>, String> {
-        match self {
-            Self::Vst3(plugin) => plugin
-                .save_state()
-                .map_err(|e| format!("The plugin cannot save its settings: {e}")),
-            Self::Clap { process, .. } => {
-                use vst3_host::process_isolation::{HostCommand, HostResponse};
-                let response = process
-                    .send_command(HostCommand::SaveState)
-                    .map_err(|e| format!("The plugin cannot save its settings: {e}"))?;
-                match response {
-                    HostResponse::State { data } => Ok(data),
-                    HostResponse::Error { message } => {
-                        Err(format!("The plugin cannot save its settings: {message}"))
-                    }
-                    _ => Err("The plugin gave no settings".to_string()),
-                }
-            }
+        match self.send(HostCommand::SaveState, SLOW_TIMEOUT)? {
+            HostResponse::State { data } => Ok(data),
+            HostResponse::Error { message } => Err(message),
+            _ => Err("The plugin gave no settings".into()),
         }
     }
 
-    /// Opens the plugin's own window (owned by the helper process).
     fn open_editor(&mut self) -> Result<(i32, i32), String> {
-        match self {
-            Self::Vst3(plugin) => {
-                if !plugin.info().has_gui {
-                    return Err("This plugin has no editor window".to_string());
-                }
-                // Isolated editors ignore the parent: the helper opens its own window.
-                let parent = unsafe { vst3_host::WindowHandle::from_raw(std::ptr::null_mut()) };
-                plugin
-                    .open_editor(parent)
-                    .map_err(|e| format!("The editor cannot open: {e}"))?;
-                Ok(plugin
-                    .attached_editor_size()
-                    .unwrap_or(None)
-                    .unwrap_or((800, 600)))
-            }
-            Self::Clap { process, .. } => {
-                use vst3_host::process_isolation::{HostCommand, HostResponse};
-                let response = process
-                    .send_command(HostCommand::CreateGui)
-                    .map_err(|e| format!("The editor cannot open: {e}"))?;
-                match response {
-                    HostResponse::GuiCreated { width, height } => Ok((width, height)),
-                    HostResponse::Error { message } => {
-                        Err(format!("The editor cannot open: {message}"))
-                    }
-                    _ => Err("The editor cannot open".to_string()),
-                }
-            }
+        match self.send(HostCommand::CreateGui, SLOW_TIMEOUT)? {
+            HostResponse::GuiCreated { width, height } => Ok((width, height)),
+            HostResponse::Error { message } => Err(message),
+            _ => Err("The editor cannot open".into()),
         }
     }
 
     fn close_editor(&mut self) {
-        match self {
-            Self::Vst3(plugin) => {
-                let _ = plugin.close_editor();
-            }
-            Self::Clap { process, .. } => {
-                use vst3_host::process_isolation::HostCommand;
-                let _ = process.send_command(HostCommand::CloseGui);
-            }
-        }
+        let _ = self.send(HostCommand::CloseGui, PROCESS_TIMEOUT);
     }
 
-    /// Recovers a dead helper: respawn, reload, restore `state`, restart.
-    /// Runs on the worker thread; the audio path goes dry meanwhile.
     fn recover(
         &mut self,
         helper: &Path,
         format: PluginFormat,
         path: &str,
         state: &[u8],
-        sample_rate: f32,
+        rate: f32,
     ) -> Result<(), String> {
-        match self {
-            Self::Vst3(plugin) => {
-                plugin.recover().map_err(|e| {
-                    format!("{} crashed and cannot be reloaded: {e}", friendly(path))
-                })?;
-                if !state.is_empty() {
-                    plugin.load_state(state).map_err(|e| {
-                        format!("{} reloaded but lost its settings: {e}", friendly(path))
-                    })?;
-                }
-                Ok(())
-            }
-            Self::Clap { .. } => {
-                let fresh = Self::load(helper, format, path, state, sample_rate)?;
-                *self = fresh;
-                Ok(())
-            }
-        }
+        *self = Self::load(helper, format, path, state, rate)?;
+        Ok(())
     }
-}
-
-/// Restores CLAP settings over an established helper connection (`what`
-/// names the operation for error messages).
-fn clap_load_state(
-    process: &mut vst3_host::process_isolation::PluginHostProcess,
-    state: &[u8],
-    what: &str,
-) -> Result<(), String> {
-    use vst3_host::process_isolation::{HostCommand, HostResponse};
-    if state.is_empty() {
-        return Ok(());
-    }
-    let response = process
-        .send_command(HostCommand::LoadState {
-            data: state.to_vec(),
-            context: Default::default(),
-        })
-        .map_err(|e| format!("The plugin cannot restore its settings {what}: {e}"))?;
-    match response {
-        HostResponse::Error { message } => Err(format!(
-            "The plugin cannot restore its settings {what}: {message}"
-        )),
-        _ => Ok(()),
-    }
-}
-
-fn padded(input: &[f32], frames: usize) -> Vec<f32> {
-    let mut out = vec![0.0; frames];
-    out[..input.len().min(frames)].copy_from_slice(&input[..input.len().min(frames)]);
-    out
 }
 
 fn expect_success(
@@ -1098,7 +978,7 @@ mod tests {
             path: "/nonexistent.vst3".into(),
             state: Vec::new(),
         };
-        let err = pool.get_or_load(&spec, 48_000.0).unwrap_err();
+        let err = pool.load(None, &spec, 48_000.0).unwrap_err();
         assert!(err.contains("switched off"), "{err}");
     }
 
@@ -1111,7 +991,7 @@ mod tests {
             path: "/nonexistent-plugin.vst3".into(),
             state: Vec::new(),
         };
-        let err = pool.get_or_load(&spec, 48_000.0).unwrap_err();
+        let err = pool.load(None, &spec, 48_000.0).unwrap_err();
         assert!(err.contains("not installed"), "{err}");
     }
 
@@ -1121,6 +1001,9 @@ mod tests {
     fn slots_hand_blocks_over_without_a_helper() {
         let (ctrl_tx, _ctrl_rx) = mpsc::channel::<CtrlCmd>();
         let worker = PluginWorker {
+            enabled: Arc::new(AtomicBool::new(true)),
+            sequence: AtomicU64::new(0),
+            offline: false,
             ctrl_tx,
             in_slot: Arc::new(Mutex::new(AudioSlot::new())),
             out_slot: Arc::new(Mutex::new(AudioSlot::new())),
@@ -1138,15 +1021,25 @@ mod tests {
         assert_eq!(worker.take_into(0, &mut left, &mut right), None);
         assert_eq!(worker.in_seq(), Some(1));
         // A finished block is picked up exactly once.
-        worker.out_slot.lock().unwrap().left = vec![1.0, 2.0];
-        worker.out_slot.lock().unwrap().right = vec![3.0, 4.0];
+        worker.out_slot.lock().unwrap().left[..2].copy_from_slice(&[1.0, 2.0]);
+        worker.out_slot.lock().unwrap().right[..2].copy_from_slice(&[3.0, 4.0]);
+        worker.out_slot.lock().unwrap().frames = 2;
         worker.out_slot.lock().unwrap().seq = 1;
+        worker.push(&[0.0, 0.0], &[0.0, 0.0]);
         assert_eq!(worker.take_into(0, &mut left, &mut right), Some(1));
         assert_eq!((left, right), (vec![1.0, 2.0], vec![3.0, 4.0]));
         assert_eq!(worker.take_into(1, &mut [0.0; 2], &mut [0.0; 2]), None);
+        // An answer that misses its scheduled next block must never play later.
+        worker.push(&[0.0; 2], &[0.0; 2]);
+        let mut late_left = [9.0; 2];
+        let mut late_right = [8.0; 2];
+        assert_eq!(worker.take_into(0, &mut late_left, &mut late_right), None);
+        assert_eq!(late_left, [9.0; 2]);
+        assert_eq!(late_right, [8.0; 2]);
     }
 
-    /// End to end through the real helper and TONE3000 (VST3 and CLAP): load,    /// process, latency, state round-trip. Needs the plugin installed; run with
+    /// End to end through the real helper and TONE3000 (VST3 and CLAP): load,
+    /// process, latency, state round-trip. Needs the plugin installed; run with
     /// `cargo test -- --ignored`. Skips quietly anywhere else (e.g. CI).
     #[test]
     #[ignore]
@@ -1172,7 +1065,7 @@ mod tests {
                 path: path.into(),
                 state: Vec::new(),
             };
-            let worker = pool.get_or_load(&spec, 48_000.0).unwrap();
+            let worker = pool.load(None, &spec, 48_000.0).unwrap();
             assert!(worker.alive(), "{path}: {}", worker.error());
             // A 220 Hz probe tone through the amp.
             let input: Vec<f32> = (0..64)
@@ -1185,11 +1078,11 @@ mod tests {
             let (mut left, mut right) = (vec![0.0; 64], vec![0.0; 64]);
             let mut seq = 0;
             for _ in 0..200 {
+                worker.push(&input, &input);
                 if let Some(next) = worker.take_into(seq, &mut left, &mut right) {
                     seq = next;
                     break;
                 }
-                worker.push(&input, &input);
                 std::thread::sleep(Duration::from_millis(2));
             }
             assert!(seq > 0, "{path}: no audio came back");
@@ -1207,46 +1100,17 @@ mod tests {
             worker.push(&input, &input);
             let mut seq3 = seq;
             for _ in 0..200 {
+                worker.push(&input, &input);
                 if let Some(next) = worker.take_into(seq3, &mut left, &mut right) {
                     seq3 = next;
                     break;
                 }
-                worker.push(&input, &input);
                 std::thread::sleep(Duration::from_millis(2));
             }
             assert!(seq3 > seq, "{path}: no audio after reconfigure");
             worker.ensure_rate(48_000.0).unwrap();
-            // A crashing helper never takes the engine down: killed here, the
-            // worker recovers in the background and audio flows again.
-            kill_helpers();
-            std::thread::sleep(Duration::from_millis(500));
-            let mut seq2 = seq;
-            for _ in 0..600 {
-                worker.push(&input, &input);
-                if let Some(next) = worker.take_into(seq2, &mut left, &mut right) {
-                    seq2 = next;
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            assert!(seq2 > seq, "{path}: no audio after the crash");
-            assert!(worker.alive(), "{path}: {}", worker.error());
-            let peak: f32 = left.iter().map(|s| s.abs()).fold(0.0, f32::max);
-            assert!(peak > 0.01, "{path}: silent after the crash (peak {peak})");
-            eprintln!("{path}: survived a helper crash");
         }
     }
-
-    /// Kills every helper process of this test run (SIGKILL, no cleanup).
-    #[cfg(unix)]
-    fn kill_helpers() {
-        let _ = std::process::Command::new("pkill")
-            .args(["-9", "-f", "vst3-host-helper"])
-            .status();
-    }
-
-    #[cfg(not(unix))]
-    fn kill_helpers() {}
 
     /// The scan finds both TONE3000 formats and skips nothing on this machine.
     /// Same opt-in as above: skips quietly without the plugins.

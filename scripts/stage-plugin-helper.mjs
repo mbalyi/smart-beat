@@ -11,6 +11,8 @@ import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const BIN = "vst3-host-helper";
+// Keep tauri-build from overwriting Cargo's helper in target/debug.
+const SIDECAR = "smart-beat-plugin-helper";
 const EXE = process.platform === "win32" ? ".exe" : "";
 
 function hostTriple() {
@@ -22,7 +24,7 @@ function hostTriple() {
 
 const triple = hostTriple();
 const built = path.join(ROOT, "src-tauri", "target", "release", `${BIN}${EXE}`);
-const staged = path.join(ROOT, "src-tauri", "binaries", `${BIN}-${triple}${EXE}`);
+const staged = path.join(ROOT, "src-tauri", "binaries", `${SIDECAR}-${triple}${EXE}`);
 
 // tauri-build validates externalBin paths at compile time, so the staged
 // file must exist before cargo runs build.rs: touch an empty placeholder,

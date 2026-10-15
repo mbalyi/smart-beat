@@ -4,6 +4,8 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+- Plugin blocks now have independent audio and preset state, bypass immediately when plugins are switched off, and release their helpers when removed. Audio uses bounded shared-memory buffers with no callback allocations; synthetic-plugin tests exercise isolation and recovery in CI.
+
 - Third-party plugin hosting (VST3 and CLAP) as opt-in pedalboard blocks. Plugins are off by default, scanned from the standard folders, and each runs in its own helper process outside the app: the audio thread never waits (missed answers pass dry and recover in the background), added latency (plugin plus one engine block) shows under the block, and Save settings stores the preset in the song.
 
 ## [1.0.0]

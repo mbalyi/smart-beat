@@ -60,6 +60,7 @@ export interface IpcCall {
  * what the Open dialog returns. Reset by {@link mockTauri}.
  */
 export const backend = {
+  pluginsEnabled: false,
   files: new Map<string, Uint8Array>(),
   mixes: new Map<string, MixerSettings>(),
   /** Path the Open dialog picks, or `null` for Cancel. */
@@ -109,6 +110,7 @@ function readScoreFile(args?: InvokeArgs): ArrayBuffer {
  */
 export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCall[] {
   const calls: IpcCall[] = [];
+  backend.pluginsEnabled = false;
   backend.files.clear();
   backend.mixes.clear();
   backend.dialogResult = null;
@@ -223,6 +225,15 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         // The sound library starts empty; the native engine is never started here.
         case "library_list":
+          return [];
+        case "plugins_enabled":
+          return backend.pluginsEnabled;
+        case "plugins_set_enabled":
+          backend.pluginsEnabled = (args as { enabled: boolean }).enabled;
+          return null;
+        case "plugins_scan":
+          return { plugins: [], skipped: [] };
+        case "audio_plugin_info":
           return [];
         // No drum kits imported (#40); tests override these to have some.
         case "kits_list":

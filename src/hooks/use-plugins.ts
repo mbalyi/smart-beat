@@ -106,18 +106,28 @@ export function usePlugins(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [available]);
 
-  // Live status of this chain's plugin blocks (latency, health). The fetch
-  // replaces the map, so a changed chain never shows another block's status.
+  // Poll while plugin blocks are visible so a later crash reaches the UI.
   useEffect(() => {
-    if (!available || !enabled) return;
+    if (!available || !enabled || !chain.some((slot) => slot.type === "plugin")) return;
     let cancelled = false;
-    pluginInfo(target.track, sound)
-      .then((list) => {
+    let pending = false;
+    const refreshStatus = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const list = await pluginInfo(target.track, sound);
         if (!cancelled) setInfo(new Map(list.map((item) => [item.index, item])));
-      })
-      .catch(() => {});
+      } catch {
+        // Keep the last status if the app is temporarily busy.
+      } finally {
+        pending = false;
+      }
+    };
+    void refreshStatus();
+    const timer = window.setInterval(() => void refreshStatus(), 500);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [available, enabled, target.track, sound, chain]);
 
