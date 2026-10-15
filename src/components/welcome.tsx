@@ -5,7 +5,7 @@ import {
   FolderOpenIcon,
   InfoIcon,
   KeyboardIcon,
-  MusicIcon,
+  CompassIcon,
 } from "lucide-react";
 import { useId, useState } from "react";
 
@@ -36,7 +36,7 @@ export function Welcome({
   recent = [],
   onOpenRecent,
   onShowLicenses,
-  onOpenDemo,
+  onTakeTour,
   tour,
 }: {
   onOpenFile: () => void;
@@ -49,8 +49,8 @@ export function Welcome({
   onOpenRecent?: (path: string) => void;
   /** "View open-source notices": opens Help › Open-Source Licenses. */
   onShowLicenses?: () => void;
-  /** Opens the demo song (Help › Open Demo Song). */
-  onOpenDemo?: () => void;
+  /** Starts the guided tour (also Help › Take the Tour). */
+  onTakeTour?: () => void;
   /** A first launch: offered the guided tour, once (#84). */
   tour?: { onStart: () => void; onSkip: () => void };
 }) {
@@ -83,16 +83,16 @@ export function Welcome({
             <FilePlusIcon data-icon="inline-start" />
             New song
           </Button>
-          {onOpenDemo && (
-            <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onOpenDemo}>
-              <MusicIcon data-icon="inline-start" />
-              Open the demo song
-            </Button>
-          )}
           <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onShowShortcuts}>
             <KeyboardIcon data-icon="inline-start" />
             Keyboard shortcuts
           </Button>
+          {onTakeTour && (
+            <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onTakeTour}>
+              <CompassIcon data-icon="inline-start" />
+              Take a tour
+            </Button>
+          )}
         </div>
         {tour && (
           <section

@@ -366,7 +366,7 @@ export function App() {
               onShowLicenses={() => showDialog("licenses")}
               recent={recent}
               onOpenRecent={(path) => void openPath(path)}
-              onOpenDemo={openDemo}
+              onTakeTour={() => startTour("main")}
               tour={
                 tour.offerMainTour
                   ? { onStart: () => startTour("main"), onSkip: tour.dismissMainTour }

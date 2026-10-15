@@ -252,3 +252,8 @@
   outline: 2px solid var(--ring);
   outline-offset: 3px;
 }
+
+/* The dimming around a tour step does not take mouse wheel or clicks (WebKit would otherwise not scroll the note palette under it). */
+.react-joyride__spotlight path {
+  pointer-events: none !important;
+}

@@ -54,3 +54,6 @@ export const TourContext = createContext<TourApi>(NO_TOURS);
 export function useTour(): TourApi {
   return useContext(TourContext);
 }
+
+/** What the coach card can ask the provider to do besides the step buttons. */
+export const CoachActionsContext = createContext<{ onChoose?: (id: string) => void }>({});

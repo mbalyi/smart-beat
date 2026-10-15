@@ -223,7 +223,7 @@ describe("Welcome", () => {
   });
 });
 
-describe("Welcome: tour and demo song", () => {
+describe("Welcome: the tour", () => {
   const base = {
     onImportAudio: vi.fn(),
     onOpenFile: vi.fn(),
@@ -252,15 +252,17 @@ describe("Welcome: tour and demo song", () => {
     expect(screen.queryByRole("button", { name: "Skip for now" })).not.toBeInTheDocument();
   });
 
-  it("opens the demo song only when it can", async () => {
-    const onOpenDemo = vi.fn();
-    const { user, unmount } = renderWithProviders(<Welcome {...base} onOpenDemo={onOpenDemo} />);
-    await user.click(screen.getByRole("button", { name: "Open the demo song" }));
-    expect(onOpenDemo).toHaveBeenCalledOnce();
+  it("has a Take a tour button, last, only when the tour can start", async () => {
+    const onTakeTour = vi.fn();
+    const { user, unmount } = renderWithProviders(<Welcome {...base} onTakeTour={onTakeTour} />);
+    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(buttons.indexOf("Take a tour")).toBe(buttons.indexOf("Keyboard shortcuts") + 1);
+    await user.click(screen.getByRole("button", { name: "Take a tour" }));
+    expect(onTakeTour).toHaveBeenCalledOnce();
     unmount();
 
     renderWithProviders(<Welcome {...base} />);
-    expect(screen.queryByRole("button", { name: "Open the demo song" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Take a tour" })).not.toBeInTheDocument();
   });
 });
 

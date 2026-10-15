@@ -63,6 +63,7 @@ export function WorkspaceToolbar({
   onZoomChange,
   onOpen,
   actions,
+  record,
   editing,
   onToggleEditing,
   edited,
@@ -109,6 +110,8 @@ export function WorkspaceToolbar({
   onOpen: () => void;
   /** File and tools menus. */
   actions?: ReactNode;
+  /** The Record to Tab button, after the undo and redo buttons and the "Edited" badge. */
+  record?: ReactNode;
   editing: boolean;
   onToggleEditing: () => void;
   /** The song was changed since it was opened. */
@@ -188,6 +191,7 @@ export function WorkspaceToolbar({
             Edited
           </Badge>
         )}
+        {record}
       </div>
 
       <div

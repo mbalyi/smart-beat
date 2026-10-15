@@ -76,6 +76,8 @@ function DialogContent({
         {...props}
       >
         {children}
+        {/* Where a guided tour draws its coach card when it points into this dialog (#84). */}
+        <div data-tour-slot="" className="shrink-0 empty:hidden" />
         {showCloseButton && (
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
             <Button variant="ghost" className="absolute top-2 right-2" size="icon-sm">

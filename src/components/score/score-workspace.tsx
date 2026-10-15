@@ -176,6 +176,7 @@ import {
   storePracticePrefs,
   type LoopRange,
   type PracticeAction,
+  type PracticeState,
 } from "@/lib/score/practice";
 import type { Scale } from "@/lib/score/scales";
 import { summarizeScore, trackMix, type TrackView } from "@/lib/score/score";
@@ -1155,36 +1156,104 @@ export function ScoreWorkspace({
     rememberPanels({ inspector: next });
   };
   // --- Guided tours (#84) -----------------------------------------------------------------
-  // A tour asks for a panel or Edit mode; what it changed is put back when the tour ends.
+  // A tour asks for a panel, a dialog, Edit mode, other practice settings or playback; what it
+  // changed is put back when the tour ends.
   const tourSnapshot = useRef<{
     mixer: boolean;
     inspector: boolean;
+    inspectorTab: "song" | "track";
     instrumentView: boolean;
     editing: boolean;
+    track: number;
+    practice: PracticeState;
   } | null>(null);
   const onTourPanels = useEffectEvent((message: TourBusMessage) => {
     if (!active) return;
+    const closeDialogs = () => {
+      setTrainerOpen(false);
+      setPedalboard((p) => ({ ...p, open: false }));
+      setDrumMixer((d) => ({ ...d, open: false }));
+      recording.close();
+    };
+    const restorePractice = (saved: PracticeState) => {
+      dispatchPracticeAction({ type: "stop-trainer" });
+      dispatchPracticeAction({ type: "speed", value: saved.speed });
+      dispatchPracticeAction({ type: "loop", value: saved.loop, range: saved.range });
+      dispatchPracticeAction({ type: "metronome", value: saved.metronome });
+      dispatchPracticeAction({ type: "count-in", value: saved.countIn });
+    };
     if (message === "restore") {
       const saved = tourSnapshot.current;
       tourSnapshot.current = null;
+      closeDialogs();
+      if (playing) playerRef.current?.playPause();
       if (!saved) return;
       setMixerOpen(saved.mixer);
       setInspectorOpen(saved.inspector);
+      setInspectorTab(saved.inspectorTab);
       setInstrumentView(saved.instrumentView);
       setEditing(saved.editing);
+      restorePractice(saved.practice);
+      changeTrack(saved.track);
       return;
     }
     tourSnapshot.current ??= {
       mixer: mixerOpen,
       inspector: inspectorOpen,
+      inspectorTab,
       instrumentView,
       editing,
+      track: trackIndex,
+      practice,
     };
     leavePracticeView();
     if (message.mixer !== undefined) setMixerOpen(message.mixer);
     if (message.inspector !== undefined) setInspectorOpen(message.inspector);
+    if (message.inspectorTab !== undefined) setInspectorTab(message.inspectorTab);
     if (message.instrumentView !== undefined) setInstrumentView(message.instrumentView);
     if (message.editing !== undefined) setEditing(message.editing);
+    if (message.track !== undefined) {
+      const wanted =
+        typeof message.track === "number"
+          ? message.track
+          : summary.tracks.findIndex((t) =>
+              message.track === "drums" ? t.kind === "drums" : t.kind !== "drums",
+            );
+      if (wanted >= 0) changeTrack(wanted);
+    }
+    const settings = message.practice;
+    if (settings) {
+      if (settings.trainer === "stop") dispatchPracticeAction({ type: "stop-trainer" });
+      if (settings.speed !== undefined)
+        dispatchPracticeAction({ type: "speed", value: settings.speed });
+      if (settings.loop !== undefined) {
+        dispatchPracticeAction(
+          settings.loop
+            ? { type: "loop", value: true, range: settings.loop }
+            : { type: "loop", value: false, range: practice.range },
+        );
+      }
+      if (settings.metronome !== undefined)
+        dispatchPracticeAction({ type: "metronome", value: settings.metronome });
+      if (settings.countIn !== undefined)
+        dispatchPracticeAction({ type: "count-in", value: settings.countIn });
+      if (settings.trainer && settings.trainer !== "stop") {
+        dispatchPracticeAction({
+          type: "start-trainer",
+          trainer: settings.trainer,
+          range: settings.loop || practice.range,
+        });
+      }
+    }
+    if (message.dialog === "none") closeDialogs();
+    else if (message.dialog === "speed-trainer") setTrainerOpen(true);
+    else if (message.dialog === "pedalboard") openPedalboard(trackIndex);
+    else if (message.dialog === "master-pedalboard") openPedalboard(null);
+    else if (message.dialog === "drum-mixer") {
+      const drums = summary.tracks.findIndex((t) => t.kind === "drums");
+      if (drums >= 0) setDrumMixer({ open: true, track: drums });
+    } else if (message.dialog === "record") recording.open();
+    if (message.play !== undefined && message.play !== playing) playerRef.current?.playPause();
   });
   useEffect(() => subscribeTourPanels((message) => onTourPanels(message)), []);
 
@@ -2118,22 +2187,24 @@ export function ScoreWorkspace({
   const lyricsTrack = lyricsDialog.track;
 
   const problemBars = new Set(problems.map((p) => p.bar)).size;
+  // The red Record to Tab button sits after the undo and redo buttons, next to the transport.
+  const recordButton =
+    recordEnabled && !recordBusy ? (
+      <Tip label="Record to Tab…">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Record to Tab"
+          data-record-button=""
+          data-tour="record"
+          onClick={() => recording.open()}
+        >
+          <CircleIcon className="fill-red-500 text-red-500" aria-hidden="true" />
+        </Button>
+      </Tip>
+    ) : null;
   const fileActionsMenu = (
     <>
-      {recordEnabled && !recordBusy && (
-        <Tip label="Record to Tab…">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Record to Tab"
-            data-record-button=""
-            data-tour="record"
-            onClick={() => recording.open()}
-          >
-            <CircleIcon className="fill-red-500 text-red-500" aria-hidden="true" />
-          </Button>
-        </Tip>
-      )}
       <FileMenu
         onImportAudio={onImportAudio}
         onRecordToTab={recordEnabled && !recordBusy ? () => recording.open() : undefined}
@@ -2188,6 +2259,7 @@ export function ScoreWorkspace({
         onZoomChange={changeZoom}
         onOpen={onOpen}
         actions={fileActionsMenu}
+        record={recordButton}
         editing={editing}
         onToggleEditing={toggleEditing}
         edited={editor.edited}
