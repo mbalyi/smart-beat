@@ -13,6 +13,8 @@ pub mod library;
 pub mod mixing;
 pub mod output;
 pub mod plugin;
+mod plugin_process;
+pub mod plugin_wire;
 pub mod sf3;
 pub mod song;
 
@@ -321,14 +323,22 @@ fn with_engine<T>(inner: &Inner, f: impl FnOnce(&mut Engine) -> T) -> Result<T, 
     Ok(f(&mut engine))
 }
 
-fn build_chain(state: &AudioState, rate: u32, slots: &[EffectSlot], limit: usize) -> Chain {
-    Chain::build(
+fn build_chain(
+    state: &AudioState,
+    pool: &plugin::PluginPool,
+    rate: u32,
+    slots: &[EffectSlot],
+    limit: usize,
+    address: (Option<usize>, usize),
+) -> Chain {
+    Chain::build_for(
         slots,
         limit,
         rate as f32,
         BLOCK,
         &state.library.assets(rate),
-        &state.plugins,
+        pool,
+        Some(address),
     )
 }
 
@@ -348,15 +358,33 @@ fn prepare(
     rate: u32,
     synths: &engine::SynthSource,
     current: Option<&Engine>,
+    pool: &plugin::PluginPool,
 ) -> Prepared {
-    let master = build_chain(state, rate, &inner.master_chain, MAX_MASTER_EFFECTS);
+    let master = build_chain(
+        state,
+        pool,
+        rate,
+        &inner.master_chain,
+        MAX_MASTER_EFFECTS,
+        (None, 0),
+    );
     let sounds = inner
         .track_sounds
         .iter()
         .map(|(&track, sounds)| {
             let chains = sounds
                 .iter()
-                .map(|slots| build_chain(state, rate, slots, MAX_TRACK_EFFECTS))
+                .enumerate()
+                .map(|(sound, slots)| {
+                    build_chain(
+                        state,
+                        pool,
+                        rate,
+                        slots,
+                        MAX_TRACK_EFFECTS,
+                        (Some(track), sound),
+                    )
+                })
                 .collect();
             (track, chains)
         })
@@ -476,7 +504,7 @@ fn configure_running(state: &AudioState, inner: &Inner) -> Result<(), CommandErr
         (e.sample_rate() as u32, e.synth_source())
     };
     // Called after a new engine or a new song: no drum split exists yet.
-    let prepared = prepare(state, inner, rate, &synths, None);
+    let prepared = prepare(state, inner, rate, &synths, None, &state.plugins);
     let old = install(&mut engine.lock().unwrap(), inner, prepared);
     drop(old);
     Ok(())
@@ -726,7 +754,15 @@ pub fn audio_set_chain(
     }
     let Some(engine) = inner.engine.clone() else {
         // Not running: check the blocks at the usual rate so the UI can warn.
-        return Ok(build_chain(&state, 48_000, &slots, limit).problems);
+        return Ok(build_chain(
+            &state,
+            &state.plugins,
+            48_000,
+            &slots,
+            limit,
+            (track, sound),
+        )
+        .problems);
     };
     if engine
         .lock()
@@ -736,7 +772,7 @@ pub fn audio_set_chain(
         return Ok(Vec::new());
     }
     let rate = engine.lock().unwrap().sample_rate() as u32;
-    let chain = build_chain(&state, rate, &slots, limit);
+    let chain = build_chain(&state, &state.plugins, rate, &slots, limit, (track, sound));
     let problems = chain.problems.clone();
     let old = {
         let mut engine = engine.lock().unwrap();
@@ -774,13 +810,34 @@ pub fn audio_set_sounds(
     let Some(engine) = inner.engine.clone() else {
         return Ok(sounds
             .iter()
-            .map(|s| build_chain(&state, 48_000, s, MAX_TRACK_EFFECTS).problems)
+            .enumerate()
+            .map(|(sound, s)| {
+                build_chain(
+                    &state,
+                    &state.plugins,
+                    48_000,
+                    s,
+                    MAX_TRACK_EFFECTS,
+                    (Some(track), sound),
+                )
+                .problems
+            })
             .collect());
     };
     let rate = engine.lock().unwrap().sample_rate() as u32;
     let chains: Vec<Chain> = sounds
         .iter()
-        .map(|s| build_chain(&state, rate, s, MAX_TRACK_EFFECTS))
+        .enumerate()
+        .map(|(sound, s)| {
+            build_chain(
+                &state,
+                &state.plugins,
+                rate,
+                s,
+                MAX_TRACK_EFFECTS,
+                (Some(track), sound),
+            )
+        })
         .collect();
     let problems = chains.iter().map(|c| c.problems.clone()).collect();
     let switches = inner.switches_in_seconds(track);
@@ -1069,7 +1126,8 @@ pub fn audio_render(
     let mut engine = Engine::new(font, sample_rate as f32);
     engine.load(song).map_err(audio_error)?;
     let synths = engine.synth_source();
-    let prepared = prepare(&state, &inner, sample_rate, &synths, None);
+    let offline_plugins = state.plugins.for_offline();
+    let prepared = prepare(&state, &inner, sample_rate, &synths, None, &offline_plugins);
     drop(install(&mut engine, &inner, prepared));
     drop(inner);
     Ok(tauri::ipc::Response::new(render_offline(
@@ -1185,9 +1243,19 @@ pub fn plugins_scan(
 
 /// Switches third-party plugins on or off (off by default: plugins are
 /// third-party code running outside the audio engine).
-#[tauri::command]
-pub fn plugins_set_enabled(enabled: bool, state: State<'_, AudioState>) {
+#[tauri::command(async)]
+pub fn plugins_set_enabled(
+    enabled: bool,
+    state: State<'_, AudioState>,
+) -> Result<(), CommandError> {
+    let was_enabled = state.plugins.enabled();
     state.plugins.set_enabled(enabled);
+    if enabled && !was_enabled {
+        // Songs opened while plugins were off have dry, omitted blocks.
+        // Rebuild them off the audio thread when the user opts in.
+        configure_running(&state, &state.inner.lock().unwrap())?;
+    }
+    Ok(())
 }
 
 /// Whether third-party plugin blocks may load.
@@ -1261,11 +1329,19 @@ pub fn plugin_open_editor(
     state: State<'_, AudioState>,
 ) -> Result<(i32, i32), CommandError> {
     let inner = state.inner.lock().unwrap();
-    let (spec, _, rate) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
+    let (spec, _, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
     let worker = state
         .plugins
-        .get_or_load(&spec, rate)
-        .map_err(audio_error)?;
+        .find(
+            plugin::PluginInstance {
+                track,
+                sound: sound.unwrap_or(0),
+                index,
+            },
+            &spec,
+        )
+        .filter(|_| state.plugins.enabled())
+        .ok_or_else(|| audio_error("Start the native engine and enable this plugin block first"))?;
     drop(inner);
     worker.open_editor().map_err(audio_error)
 }
@@ -1280,7 +1356,14 @@ pub fn plugin_close_editor(
 ) -> Result<(), CommandError> {
     let inner = state.inner.lock().unwrap();
     let (spec, _, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
-    if let Some(worker) = state.plugins.find(&spec) {
+    if let Some(worker) = state.plugins.find(
+        plugin::PluginInstance {
+            track,
+            sound: sound.unwrap_or(0),
+            index,
+        },
+        &spec,
+    ) {
         worker.close_editor();
     }
     Ok(())
@@ -1295,11 +1378,19 @@ pub fn plugin_save_state(
     state: State<'_, AudioState>,
 ) -> Result<String, CommandError> {
     let inner = state.inner.lock().unwrap();
-    let (spec, _, rate) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
+    let (spec, _, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
     let worker = state
         .plugins
-        .get_or_load(&spec, rate)
-        .map_err(audio_error)?;
+        .find(
+            plugin::PluginInstance {
+                track,
+                sound: sound.unwrap_or(0),
+                index,
+            },
+            &spec,
+        )
+        .filter(|_| state.plugins.enabled())
+        .ok_or_else(|| audio_error("Start the native engine and enable this plugin block first"))?;
     drop(inner);
     let bytes = worker.save_state().map_err(audio_error)?;
     use base64::Engine;
@@ -1350,12 +1441,19 @@ pub fn audio_plugin_info(
             path: path.clone(),
             state: state_bytes,
         };
-        match state.plugins.find(&spec) {
+        match state.plugins.find(
+            plugin::PluginInstance {
+                track,
+                sound: sound.unwrap_or(0),
+                index,
+            },
+            &spec,
+        ) {
             Some(worker) => out.push(plugin::PluginSlotInfo {
                 index,
                 name: name.clone(),
                 latency_samples: worker.latency_samples() + BLOCK as u32,
-                alive: worker.alive(),
+                alive: state.plugins.enabled() && worker.alive(),
                 error: worker.error(),
             }),
             None => out.push(plugin::PluginSlotInfo {

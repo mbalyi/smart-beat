@@ -582,7 +582,7 @@ function PluginPedalControls({
           variant="outline"
           size="sm"
           className="flex-1"
-          disabled={busy !== null}
+          disabled={busy !== null || !plugins.enabled || !slot.enabled}
           onClick={openEditor}
         >
           {busy === "editor" ? "Opening…" : "Open editor…"}
@@ -591,7 +591,7 @@ function PluginPedalControls({
           variant="outline"
           size="sm"
           className="flex-1"
-          disabled={busy !== null}
+          disabled={busy !== null || !plugins.enabled || !slot.enabled}
           onClick={saveSettings}
           title="Save the plugin's current settings into this block"
         >

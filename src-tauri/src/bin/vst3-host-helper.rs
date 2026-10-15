@@ -4,9 +4,8 @@
 //! — attribution in `public/third-party-licenses.txt`) and extended here with
 //! CLAP hosting: a `.clap` file takes the CLAP path (`clap_voice`), a `.vst3`
 //! bundle the VST3 path below.
-//! The protocol enums are imported from the library
-//! (`vst3_host::process_isolation`), so host and helper can never disagree
-//! about the wire format.
+//! Lifecycle commands use `vst3_host::process_isolation`; mapped audio uses
+//! `audio::plugin_wire`, shared with the engine. Audio samples never enter JSON.
 //!
 //! Runs a single plugin in isolation from the audio engine. It is intentionally
 //! a thin wrapper around the libraries' own (in-process) public APIs: every
@@ -23,6 +22,8 @@
 
 #[path = "vst3-host-helper/clap_voice.rs"]
 mod clap_voice;
+
+use smart_beat_lib::audio::plugin_wire::{AudioCommand, Command, SharedAudio};
 
 use std::io::{self, BufRead, Write};
 use std::sync::{Arc, Mutex};
@@ -66,8 +67,11 @@ fn main() {
         let mut protocol = protocol;
         let stdin = io::stdin();
         let mut sample_rate = 44100.0;
+        let mut audio = None;
         for line in stdin.lock().lines() {
-            let Some(command) = parse_line(line, &mut protocol) else {
+            let Some(command) =
+                parse_line(line, &mut protocol, &plugin, &mut sample_rate, &mut audio)
+            else {
                 continue;
             };
             if matches!(command, HostCommand::Shutdown) {
@@ -80,29 +84,88 @@ fn main() {
     }
 }
 
-/// Parse one stdin line into a command, reporting (and skipping) blank/invalid lines.
-fn parse_line(line: io::Result<String>, protocol: &mut ProtocolChannel) -> Option<HostCommand> {
+/// Audio messages are handled on the stdin worker; lifecycle commands still
+/// go through the existing main-thread dispatcher for both plugin formats.
+fn parse_line(
+    line: io::Result<String>,
+    protocol: &mut ProtocolChannel,
+    plugin: &SharedPlugin,
+    sample_rate: &mut f64,
+    audio: &mut Option<SharedAudio>,
+) -> Option<HostCommand> {
     let line = match line {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("Failed to read line: {}", e);
-            return None;
-        }
+        Ok(line) => line,
+        Err(_) => return None,
     };
     if line.trim().is_empty() {
         return None;
     }
-    match serde_json::from_str(&line) {
-        Ok(cmd) => Some(cmd),
-        Err(e) => {
-            respond(
-                protocol,
-                &HostResponse::Error {
-                    message: format!("Invalid command: {}", e),
-                },
-            );
+    match serde_json::from_str::<Command>(&line) {
+        Ok(Command::Host(command)) => Some(command),
+        Ok(Command::Audio(command)) => {
+            let response = match command {
+                AudioCommand::AttachAudio { path, version } => {
+                    match SharedAudio::open(&path, version) {
+                        Ok(mapping) => {
+                            *audio = Some(mapping);
+                            HostResponse::Success {
+                                message: "audio attached".into(),
+                            }
+                        }
+                        Err(error) => err("AttachAudio", error),
+                    }
+                }
+                AudioCommand::ProcessShared { frames } => {
+                    process_shared(audio, frames, plugin, sample_rate)
+                }
+            };
+            respond(protocol, &response);
             None
         }
+        Err(error) => {
+            respond(protocol, &err("Invalid command", error));
+            None
+        }
+    }
+}
+
+fn process_shared(
+    audio: &mut Option<SharedAudio>,
+    frames: usize,
+    plugin: &SharedPlugin,
+    rate: &mut f64,
+) -> HostResponse {
+    let Some(audio) = audio else {
+        return err("ProcessShared", "Audio is not attached");
+    };
+    let (left, right) = match audio.read(false, frames) {
+        Ok(input) => input,
+        Err(error) => return err("ProcessShared", error),
+    };
+    match handle(
+        HostCommand::Process {
+            inputs: vec![left, right],
+            frames: frames as u32,
+        },
+        plugin,
+        rate,
+    ) {
+        HostResponse::AudioOutput { outputs, .. } => {
+            let Some(left) = outputs.first() else {
+                return err("ProcessShared", "No audio output");
+            };
+            let right = outputs.get(1).unwrap_or(left);
+            if left.len() != frames || right.len() != frames {
+                return err("ProcessShared", "Wrong output size");
+            }
+            match audio.write(true, left, right) {
+                Ok(()) => HostResponse::Success {
+                    message: "processed".into(),
+                },
+                Err(error) => err("ProcessShared", error),
+            }
+        }
+        response => response,
     }
 }
 
@@ -874,8 +937,11 @@ mod macos {
             std::thread::spawn(move || {
                 let stdin = io::stdin();
                 let mut sample_rate = 44100.0;
+                let mut audio = None;
                 for line in stdin.lock().lines() {
-                    let Some(command) = parse_line(line, &mut protocol) else {
+                    let Some(command) =
+                        parse_line(line, &mut protocol, &plugin, &mut sample_rate, &mut audio)
+                    else {
                         continue;
                     };
                     if matches!(command, HostCommand::Shutdown) {

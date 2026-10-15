@@ -89,7 +89,7 @@ fn ensure_helper_placeholder() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo");
     let staged = Path::new(&manifest_dir)
         .join("binaries")
-        .join(format!("vst3-host-helper-{target}{suffix}"));
+        .join(format!("smart-beat-plugin-helper-{target}{suffix}"));
     if !staged.exists()
         && let Some(parent) = staged.parent()
         && std::fs::create_dir_all(parent).is_ok()

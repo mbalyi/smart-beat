@@ -22,20 +22,22 @@ app plugins are unavailable ("Third-party plugins need the desktop app").
    editor reports "This plugin has no editor window"; CLAP editors need the
    macOS helper window.
 5. Use **Save settings** on the block. This stores the plugin's current preset
-   in the block, so the song recalls it. Keeping the same plugin on a block
-   reuses its running worker and applies the new preset to it off the audio
-   thread; swapping to another plugin loads a new worker (loading may take a
-   while on a cold module load).
+   in the block, so the song recalls it. Preset changes apply off the audio
+   thread. Structural chain changes create new instances using the saved
+   settings, so save native-editor changes before adding or moving pedals.
+   Cold module loads can take a while.
 
 ## How it stays stable
 
 - **One helper process per loaded plugin.** The plugin itself always runs in
-  `vst3-host-helper` (`src-tauri/src/bin/vst3-host-helper.rs`), never in the
+  the plugin helper (`src-tauri/src/bin/vst3-host-helper.rs`), never in the
   engine or the app, so a crashing plugin cannot take either down. The VST3
   path delegates to `vst3-host`; the CLAP path lives in
   `vst3-host-helper/clap_voice.rs` behind the same calls. Host and helper talk
-  over one JSON protocol (`HostCommand`/`HostResponse` from `vst3_host`) on
-  stdin/stdout, so they cannot disagree about the wire format. The helper
+  through shared protocol types. Lifecycle and small processing requests use
+  JSON on stdin/stdout; stereo samples stay in a fixed-size shared-memory
+  mapping. The host retains its private temporary backing file until the
+  helper exits. A protocol version check rejects incompatible helpers. The helper
   claims the protocol channel away from stdout before loading anything,
   because third-party plugins print and a stray line would desynchronise
   every later command from its reply.
@@ -45,8 +47,10 @@ app plugins are unavailable ("Third-party plugins need the desktop app").
   host callbacks are no-ops. Unsupported operations answer with a clear error,
   never silence.
 - **The audio thread never waits.** It drops input blocks into a slot and
-  picks up the latest finished output, both with `try_lock`. If the worker is
-  behind, the block passes audio through dry unchanged.
+  accepts output only for the immediately following engine block, both with
+  `try_lock`. Buffers and native mutexes are initialized off the audio thread.
+  An oversized block or a late answer passes dry unchanged; late output is
+  discarded rather than played at an unreported delay.
 - **Hang, crash, and timeout go dry too.** One audio block may take 2 s before
   it counts as hung; loading a plugin or its state may take 20 s; a scan probe
   may take 15 s. On failure the worker kills or respawns the helper and
@@ -56,10 +60,16 @@ app plugins are unavailable ("Third-party plugins need the desktop app").
   latency plus one engine block for the handover
   (`PluginEffect::latency_samples`). The UI shows it under the block
   ("TONE3000 · +0.6 ms") from the live block status (latency, health).
-- **Workers are shared and weakly held.** Blocks using the same plugin share
-  one worker; a new sample rate reconfigures it in place (keeping its
-  settings) instead of reloading. Dropping the last such block shuts its
-  helper down. A seek drops stale output so only newer blocks count.
+- **Each block owns an independent instance.** Track, sound and slot address
+  editor/status requests; the plugin path never identifies a running
+  instance. The registry holds weak references. Dropping the final owner
+  releases the worker and kills/reaps its helper. Offline exports use a
+  separate pool and wait for each result off the realtime thread, keeping
+  their audio and sample rate separate from live playback.
+- **The off switch gates existing blocks immediately.** It bypasses their
+  audio as well as preventing new loads. Enabling plugins rebuilds chains
+  omitted when the song opened with plugins off. The UI polls live status
+  so failures after initial loading are visible.
 
 ## What is stored
 
@@ -79,9 +89,9 @@ block is silence-free dry signal or an absent block, never a crash.
 
 ## Limits
 
-- Audio crosses the process boundary as one base64 JSON block per call, not
-  shared memory: at 64-frame engine blocks the copy is sub-millisecond, and
-  the timeout bounds it. A shared-memory transport is a possible follow-up.
+- The shared mapping holds up to 4,096 stereo input/output frames. Larger
+  realtime blocks pass dry without allocating. Small JSON requests still
+  wake the helper; audio samples are never serialized into those requests.
 - CLAP editor windows only work with the macOS helper. Elsewhere the helper
   has no window to attach to, and opening one reports that plainly.
 - CLAP loads use a fixed 120 BPM, 4/4 musical context: the engine sends
@@ -101,7 +111,9 @@ The scan looks for `.vst3` bundles and `.clap` files or bundles in:
 
 On macOS a CLAP plugin is a `.clap` bundle wrapping the library (a path
 inside the bundle still counts as CLAP). The helper binary is found next to
-the running executable (Tauri ships it as a sidecar), overridable with
+the running executable in development. Tauri ships it as the separately
+named `smart-beat-plugin-helper` sidecar, so staging cannot overwrite Cargo's
+development binary. Its location is overridable with
 `SMART_BEAT_PLUGIN_HELPER` for tests and deployments.
 
 ## Testing
@@ -110,6 +122,12 @@ the running executable (Tauri ships it as a sidecar), overridable with
   disabled-pool refusal, the missing-plugin message, the
   push/take handover slots, and a chain test proving a plugin block with no
   answer passes audio through dry.
+- `cargo test --test plugin_host` builds an original tiny CLAP gain plugin
+  with `rustc` and runs it through the real helper in CI. It checks independent
+  tracks/sounds/slots, preset isolation and reset, disable/re-enable, worker
+  release, zero callback allocations, and crash/timeout recovery. No installed
+  plugins are required. Shared-mapping and late-output unit tests cover the
+  wire shape and the one-block deadline.
 - `cargo test --lib real_plugins -- --ignored` runs end to end through the
   real helper against TONE3000 when it is installed at
   `/Library/Audio/Plug-Ins/{VST3,CLAP}` (load, process a 220 Hz tone, check
@@ -120,6 +138,8 @@ the running executable (Tauri ships it as a sidecar), overridable with
 - VST3 hosting uses `vst3-host` (MIT); CLAP hosting uses `clack-host` and
   `clack-extensions` (MIT OR Apache-2.0). All three satisfy `deny.toml`, which
   allows MIT and Apache-2.0.
+- Shared-memory mapping uses `memmap2` (MIT OR Apache-2.0); the test fixture
+  uses the existing `clap-sys` ABI definitions (MIT OR Apache-2.0).
 - The helper binary derives from `vst3-host` 0.10.0 (MIT); attribution is in
   `public/third-party-licenses.txt`, shipped with the installer and shown in
   Help › Open-Source Licenses (see [`licensing.md`](licensing.md)).

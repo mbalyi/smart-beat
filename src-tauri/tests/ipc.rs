@@ -1387,3 +1387,45 @@ fn builds_without_an_endpoint_count_and_send_nothing() {
     invoke_with(&window, "track_event", json!({ "event": "loop_on" })).unwrap();
     assert!(!dir.path().join("usage.json").exists());
 }
+
+#[test]
+fn plugin_enable_and_per_block_commands_are_wired_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_audio(dir.path());
+    let window = main_window(&app);
+    assert_eq!(invoke(&window, "plugins_enabled").unwrap(), false);
+    invoke_with(&window, "plugins_set_enabled", json!({"enabled": true})).unwrap();
+    assert_eq!(invoke(&window, "plugins_enabled").unwrap(), true);
+    let slot = json!({"type":"plugin","enabled":true,"format":"clap",
+        "path":"/nonexistent/synthetic.clap","name":"Synthetic", "state":""});
+    let problems = invoke_with(
+        &window,
+        "audio_set_chain",
+        json!({"track": 1, "sound": 2, "slots": [slot]}),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert!(
+        problems[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("not installed")
+    );
+    let info = invoke_with(&window, "audio_plugin_info", json!({"track":1,"sound":2}))
+        .unwrap()
+        .deserialize::<Value>()
+        .unwrap();
+    assert_eq!(info[0]["index"], 0);
+    assert_eq!(info[0]["name"], "Synthetic");
+    assert_eq!(info[0]["alive"], false);
+    let error = invoke_with(
+        &window,
+        "plugin_save_state",
+        json!({"track":1,"sound":2,"index":0}),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "audio");
+    invoke_with(&window, "plugins_set_enabled", json!({"enabled": false})).unwrap();
+    assert_eq!(invoke(&window, "plugins_enabled").unwrap(), false);
+}

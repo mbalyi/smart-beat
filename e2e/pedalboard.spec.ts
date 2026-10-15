@@ -321,6 +321,13 @@ test.describe("plugins (#80)", () => {
         ),
       )
       .toBe("aGk=");
+    await dialog.getByRole("switch", { name: "Use third-party plugins" }).click();
+    await expect.poll(() => app.evaluate(() => window.__pluginsEnabled)).toBe(false);
+    await expect(dialog.getByRole("button", { name: "Open editor…" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Save settings" })).toBeDisabled();
+    await dialog.getByRole("switch", { name: "Use third-party plugins" }).click();
+    await expect.poll(() => app.evaluate(() => window.__pluginsEnabled)).toBe(true);
+    await expect(dialog.getByRole("button", { name: "Open editor…" })).toBeEnabled();
   });
 });
 
