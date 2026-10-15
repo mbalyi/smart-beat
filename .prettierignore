@@ -20,3 +20,8 @@ research/record-to-tab/results
 research/record-to-tab/data
 research/record-to-tab/models
 research/record-to-tab/.venv
+# Drum harness output: clips, hit lists and the render build.
+research/record-to-tab/drums/clips
+research/record-to-tab/drums/out
+research/record-to-tab/drums/iso
+research/record-to-tab/drums/render/target

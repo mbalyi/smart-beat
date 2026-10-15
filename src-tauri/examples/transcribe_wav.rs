@@ -3,7 +3,8 @@
 //! `cargo run --release --example transcribe_wav -- take.wav`.
 
 use smart_beat_lib::recording::{
-    BasicPitch, NoteOptions, Transcribed, Transcriber, Transkun, transcribe_take,
+    BasicPitch, DrumOnsets, DrumOptions, NoteOptions, Transcribed, Transcriber, Transkun,
+    transcribe_take,
 };
 
 /// A note option from an environment variable, for tuning runs: `ONSET`, `FRAME`, `MIN_MS`,
@@ -33,6 +34,42 @@ fn env_options() -> NoteOptions {
         options.melodia = v == "1";
     }
     options
+}
+
+/// Drum settings from environment variables, for tuning runs: `SENSITIVITY`, `FLOOR`,
+/// `REFRACTORY_MS`, `BRIGHT_RATIO`, `HAT_RATIO`, `KICK_RATIO`, `TOM_RATIO`, `SNARE_WITH_KICK`, `OPEN_DECAY`, `CRASH_DECAY`,
+/// `TOMS` and `CRASH` (0 or 1).
+fn env_drum_options() -> DrumOptions {
+    let get = |name: &str| std::env::var(name).ok();
+    let mut o = DrumOptions::default();
+    let number = |name: &str, slot: &mut f32| {
+        if let Some(v) = get(name).and_then(|v| v.parse().ok()) {
+            *slot = v;
+        }
+    };
+    number("SENSITIVITY", &mut o.sensitivity);
+    number("FLOOR", &mut o.floor);
+    number("BRIGHT_RATIO", &mut o.bright_ratio);
+    number("HAT_RATIO", &mut o.hat_ratio);
+    number("KICK_RATIO", &mut o.kick_ratio);
+    number("TOM_RATIO", &mut o.tom_ratio);
+    number("SNARE_WITH_KICK", &mut o.snare_with_kick);
+    if let Some(v) = get("OPEN_DECAY").and_then(|v| v.parse().ok()) {
+        o.open_decay = v;
+    }
+    if let Some(v) = get("CRASH_DECAY").and_then(|v| v.parse().ok()) {
+        o.crash_decay = v;
+    }
+    if let Some(v) = get("REFRACTORY_MS").and_then(|v| v.parse().ok()) {
+        o.refractory_ms = v;
+    }
+    if let Some(v) = get("TOMS") {
+        o.toms = v == "1";
+    }
+    if let Some(v) = get("CRASH") {
+        o.crash = v == "1";
+    }
+    o
 }
 
 /// The samples of a WAV file as mono floats, and their rate.
@@ -71,9 +108,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .map(|dir| Transkun::load(std::path::Path::new(&dir)))
         .transpose()?;
-    let engine: &dyn Transcriber = match &transkun {
-        Some(model) => model,
-        None => &basic,
+    // `INSTRUMENT=drums` runs the drum hit finder; notes are General MIDI drum numbers.
+    let drums = DrumOnsets {
+        options: env_drum_options(),
+    };
+    let engine: &dyn Transcriber = if std::env::var("INSTRUMENT").as_deref() == Ok("drums") {
+        &drums
+    } else {
+        match &transkun {
+            Some(model) => model,
+            None => &basic,
+        }
     };
     let notes = transcribe_take(
         engine,

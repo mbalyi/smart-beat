@@ -337,13 +337,100 @@ describe("piano takes", () => {
       expect(sounded, `transposition ${transposition}`).toEqual([72, 41]);
     }
   });
+});
 
-  it("click mode still refuses a drum track", () => {
+/** The drum numbers written on a track, one list per beat that has notes. */
+function drumsOf(track: model.Track): number[][] {
+  return track.staves[0]!.bars.flatMap((bar) =>
+    bar.voices[0]!.beats.filter((b) => b.notes.length > 0).map((b) =>
+      b.notes.map((n) => n.percussionArticulation),
+    ),
+  );
+}
+
+describe("drum takes", () => {
+  /** Kick on 1 and 3, snare on 2 and 4, closed hat on every eighth, at 120 BPM for `bars` bars. */
+  function groove(bars: number): RecordedNote[] {
+    const hits: RecordedNote[] = [];
+    for (let bar = 0; bar < bars; bar++) {
+      for (let eighth = 0; eighth < 8; eighth++) {
+        const at = bar * 2 + eighth / 4;
+        hits.push(note(at, 42, 0.12));
+        if (eighth === 0 || eighth === 4) hits.push(note(at, 36, 0.12));
+        if (eighth === 2 || eighth === 6) hits.push(note(at, 38, 0.12));
+      }
+    }
+    return hits;
+  }
+
+  it("free mode opens one percussion track with the drum numbers", () => {
+    const { score } = recordingToSong(groove(4), { trackName: "Drums", program: 0, drums: true });
+    expect(score.tracks).toHaveLength(1);
+    const track = score.tracks[0]!;
+    expect(track.name).toBe("Drums");
+    expect(track.staves[0]!.isPercussion).toBe(true);
+    const beats = drumsOf(track);
+    expect(beats.slice(0, 4).map((numbers) => [...numbers].sort())).toEqual([
+      [36, 42],
+      [42],
+      [38, 42],
+      [42],
+    ]);
+    expect(beats.flat().every((n) => [36, 38, 42].includes(n))).toBe(true);
+  });
+
+  it("click mode writes the hits on the beat grid of a drum track, from the start bar", () => {
     const score = createSong();
-    const drums = createTrack(score, { kind: "drums", name: "Drums", program: 0 });
+    while (score.masterBars.length < 4) appendMasterBar(score);
+    const drums = createTrack(score, { kind: "drums", name: "Kit", program: 0 });
     insertTrack(score, drums);
+    refinish(score);
+    const index = score.tracks.length - 1;
+    // Played a little loose: up to 15 ms early or late.
+    const loose = groove(2).map((n, i) => ({
+      ...n,
+      start: Math.max(0, n.start + ((i % 3) - 1) * 0.015),
+    }));
+    const { warnings } = writeRecording(score, loose, { trackIndex: index, startBar: 1 });
+    expect(warnings).toEqual([]);
+    const staff = score.tracks[index]!.staves[0]!;
+    expect(staff.bars[0]!.voices[0]!.beats.every((b) => b.notes.length === 0)).toBe(true);
+    const hits = drumsOf(score.tracks[index]!).map((numbers) => [...numbers].sort());
+    expect(hits.slice(0, 8)).toEqual([
+      [36, 42],
+      [42],
+      [38, 42],
+      [42],
+      [36, 42],
+      [42],
+      [38, 42],
+      [42],
+    ]);
+  });
+
+  it("click mode writes the index of the drum in a track's own articulation table", () => {
+    // Regression (review of #146): a Guitar Pro 6+ drum track refers to its drums by index, so
+    // the kick (36) must go in as the index of the entry that plays 36, not as 36.
+    const score = createSong();
+    while (score.masterBars.length < 2) appendMasterBar(score);
+    const kit = createTrack(score, { kind: "drums", name: "Kit", program: 0 });
+    for (const key of [42, 38, 49, 36]) {
+      const articulation = new model.InstrumentArticulation();
+      articulation.outputMidiNumber = key;
+      kit.percussionArticulations.push(articulation);
+    }
+    insertTrack(score, kit);
+    refinish(score);
+    const index = score.tracks.length - 1;
+    // Kick, snare, hat, and a snare-ish key the table does not have (45, a tom) on the beat.
+    const hits = [note(0, 36, 0.1), note(0.5, 38, 0.1), note(1, 42, 0.1), note(1.5, 45, 0.1)];
+    writeRecording(score, hits, { trackIndex: index, startBar: 0 });
+    expect(drumsOf(score.tracks[index]!).flat()).toEqual([3, 1, 0, 45]);
+  });
+
+  it("click mode still refuses a track that is not there", () => {
     expect(() =>
-      writeRecording(score, [note(0, 40)], { trackIndex: score.tracks.length - 1, startBar: 0 }),
-    ).toThrow(/string or piano/);
+      writeRecording(createSong(), [note(0, 38)], { trackIndex: 9, startBar: 0 }),
+    ).toThrow(/string, piano or drum/);
   });
 });

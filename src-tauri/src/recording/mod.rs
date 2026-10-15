@@ -4,12 +4,14 @@
 //! The notes then go through the page's MIDI import path. Other engines can sit behind
 //! `Transcriber`.
 mod basic_pitch;
+pub mod drums;
 mod notes;
 pub mod piano_model;
 mod resample;
 mod transkun;
 
 pub use basic_pitch::BasicPitch;
+pub use drums::{DrumOnsets, DrumOptions};
 pub use notes::NoteOptions;
 pub use resample::resample;
 pub use transkun::Transkun;
@@ -59,25 +61,30 @@ pub trait Transcriber {
     ) -> Result<Vec<RecordedNote>, CommandError>;
 }
 
-/// What was played. A piano gets stricter note settings than the default (guitar and bass).
+/// What was played. A piano gets stricter note settings than the default (guitar and bass),
+/// and drums go through their own hit finder.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Instrument {
     #[default]
     Guitar,
     Piano,
+    /// Drum hits (`drums.rs`): the notes are General MIDI drum numbers, not pitches.
+    Drums,
 }
 impl Instrument {
     /// The `x-instrument` header value. A missing or unknown value means guitar.
     pub fn parse(value: Option<&str>) -> Self {
         match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
             Some("piano") => Self::Piano,
+            Some("drums") => Self::Drums,
             _ => Self::Guitar,
         }
     }
     pub fn engine(self) -> BasicPitch {
         BasicPitch {
             options: match self {
-                Self::Guitar => NoteOptions::default(),
+                // Drums never come through here: `transcribe_recording` uses `DrumOnsets`.
+                Self::Guitar | Self::Drums => NoteOptions::default(),
                 Self::Piano => NoteOptions::piano(),
             },
         }
@@ -177,8 +184,7 @@ struct Progress {
 }
 
 /// The take is the raw body: little-endian 32-bit float mono samples. The header
-/// `x-sample-rate` carries their rate in Hz, and the optional `x-instrument` (`guitar` or
-/// `piano`) picks the note settings, and `x-engine: transkun` the downloaded piano model. Emits `recording-transcription-progress`.
+/// `x-sample-rate` carries their rate in Hz, and the optional `x-instrument` (`guitar`, `piano` or `drums`) picks the note settings, and `x-engine: transkun` the downloaded piano model. Emits `recording-transcription-progress`.
 #[tauri::command]
 pub async fn transcribe_recording<R: Runtime>(
     app: AppHandle<R>,
@@ -234,6 +240,13 @@ pub async fn transcribe_recording<R: Runtime>(
             };
             let cancelled = || stop.load(Ordering::Relaxed);
             let result = match model_dir {
+                _ if instrument == Instrument::Drums => transcribe_take(
+                    &DrumOnsets::default(),
+                    &samples,
+                    rate,
+                    &mut progress,
+                    &cancelled,
+                ),
                 Some(folder) => Transkun::cached(&folder).and_then(|model| {
                     transcribe_take(&*model, &samples, rate, &mut progress, &cancelled)
                 }),
@@ -288,6 +301,7 @@ mod tests {
     #[test]
     fn the_instrument_header_picks_the_note_settings() {
         assert_eq!(Instrument::parse(Some(" Piano ")), Instrument::Piano);
+        assert_eq!(Instrument::parse(Some("DRUMS")), Instrument::Drums);
         assert_eq!(Instrument::parse(Some("guitar")), Instrument::Guitar);
         assert_eq!(Instrument::parse(Some("kazoo")), Instrument::Guitar);
         assert_eq!(Instrument::parse(None), Instrument::Guitar);

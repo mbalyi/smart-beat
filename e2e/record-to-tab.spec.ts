@@ -211,15 +211,74 @@ test.describe("Record to Tab (#108)", () => {
     await expect.poll(() => tabNumbers(app), DRAWN).toEqual([]);
   });
 
-  test("the instruments: a crown on the chosen one, bass strings, and drums that are not there yet", async ({
-    app,
-  }) => {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`the drums dialog has no WCAG violations in ${colorScheme} mode`, async ({ app }) => {
+      await app.emulateMedia({ colorScheme });
+      await newSong(app);
+      const dialog = await openRecordDialog(app);
+      await dialog.getByRole("radio", { name: "Drums" }).click();
+      // Drums have no strings to tune.
+      await expect(dialog.getByRole("combobox", { name: "Tuning" })).toBeHidden();
+      await expect(dialog.getByText(/Drums are written to a drum track/)).toBeVisible();
+      await expectNoA11yViolations(app);
+      await dialog.getByRole("radio", { name: "File" }).click();
+      await expect(dialog.getByText(/Choose a drum recording/)).toBeVisible();
+      await expectNoA11yViolations(app);
+    });
+  }
+
+  test("drums: free mode opens a song with a drum track", async ({ app }) => {
+    test.slow();
+    await newSong(app);
+    const dialog = await openRecordDialog(app);
+    await dialog.getByRole("radio", { name: "Drums" }).click();
+    await dialog.getByRole("radio", { name: "Free" }).click();
+    await dialog.getByRole("button", { name: "Record" }).click();
+    const bar = app.getByRole("region", { name: "Recording" });
+    await expect(bar.getByRole("status")).toHaveText("Recording");
+    await untilRecorded(app);
+    await bar.getByRole("button", { name: "Stop" }).click();
+
+    await expect
+      .poll(() => app.evaluate(() => window.__recordTranscription.requests.length))
+      .toBe(1);
+    const [request] = await app.evaluate(() => window.__recordTranscription.requests);
+    expect(request!.instrument).toBe("drums");
+    await expect(app.getByRole("heading", { level: 1, name: "Recording" })).toBeVisible();
+    await expect(app.getByText("Drums", { exact: true }).first()).toBeVisible();
+    // Drums are staff notes: there are no fret numbers.
+    await expect.poll(() => tabNumbers(app)).toEqual([]);
+  });
+
+  test("drums: click mode on a new track adds a drum track", async ({ app }) => {
+    await newSong(app);
+    await app.evaluate(() => {
+      window.__recordTranscription.shift = 2;
+    });
+    const dialog = await openRecordDialog(app);
+    await dialog.getByRole("radio", { name: "Drums" }).click();
+    await dialog.getByRole("combobox", { name: "Track" }).click();
+    await app.getByRole("option", { name: "New track" }).click();
+    await dialog.getByRole("button", { name: "Record" }).click();
+    const bar = app.getByRole("region", { name: "Recording" });
+    await expect(bar.getByRole("status")).toHaveText("Recording", { timeout: 6000 });
+    await app.keyboard.press("Space");
+    await expect(app.getByText("Added your take to “Drums”")).toBeVisible();
+    const [request] = await app.evaluate(() => window.__recordTranscription.requests);
+    expect(request!.instrument).toBe("drums");
+    await expect(app.getByText("Drums", { exact: true }).first()).toBeVisible();
+    // The whole take is one undo step: the drum track goes again.
+    await emitMenuAction(app, "undo");
+    await expect(app.getByText("Drums", { exact: true })).toHaveCount(0);
+  });
+
+  test("the instruments: a crown on the chosen one, bass strings and drums", async ({ app }) => {
     await newSong(app);
     const dialog = await openRecordDialog(app);
     const crowned = (name: string) => dialog.getByRole("radio", { name }).locator("[data-crown]");
     await expect(crowned("Guitar")).toHaveCount(1);
     await expect(crowned("Piano")).toHaveCount(0);
-    await expect(dialog.getByRole("radio", { name: "Drums, coming soon" })).toBeDisabled();
+    await expect(dialog.getByRole("radio", { name: "Drums" })).toBeEnabled();
     await dialog.getByRole("radio", { name: "Bass" }).click();
     await expect(crowned("Bass")).toHaveCount(1);
     await expect(crowned("Guitar")).toHaveCount(0);

@@ -147,7 +147,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("recordTargets", () => {
-  it("lists the stringed and pitched tracks with their index", () => {
+  it("lists the stringed, pitched and drum tracks with their index", () => {
     expect(
       recordTargets([
         { name: "Drums", kind: "drums" },
@@ -156,6 +156,7 @@ describe("recordTargets", () => {
         { name: "Bass", kind: "stringed" },
       ]),
     ).toEqual([
+      { index: 0, name: "Drums", kind: "drums" },
       { index: 1, name: "Lead", kind: "stringed" },
       { index: 2, name: "Keys", kind: "pitched" },
       { index: 3, name: "Bass", kind: "stringed" },
@@ -442,6 +443,7 @@ describe("piano", () => {
       tuning: undefined,
       trackName: "Recording",
       program: 0,
+      drums: false,
     });
     expect(hook.onOpenScore).toHaveBeenCalledWith(song.score, "Recording");
   });
@@ -503,6 +505,58 @@ describe("piano", () => {
   });
 });
 
+describe("drums", () => {
+  beforeEach(() => {
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+  });
+  const kick = { start: 3.15, end: 3.27, pitch: 36, velocity: 100 };
+  const snare = { start: 3.65, end: 3.77, pitch: 38, velocity: 100 };
+
+  it("is sent as drums, tidied of doubles, and opens a drum song", async () => {
+    vi.mocked(recordingToSong).mockReturnValue({ score: {}, warnings: [] } as never);
+    // The same snare found twice 10 ms apart, and a number that is not a drum.
+    vi.mocked(transcribeRecording).mockResolvedValue([
+      kick,
+      snare,
+      { ...snare, start: snare.start + 0.01, velocity: 60 },
+      { ...kick, pitch: 5 },
+    ] as never);
+    const hook = setup();
+    fakeRecorder();
+    await begin(hook, click({ mode: "free", track: null, instrument: "drums" }));
+    await stop(hook);
+    await waitFor(() => expect(hook.onOpenScore).toHaveBeenCalled());
+    expect(transcribeRecording).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      48_000,
+      expect.any(Function),
+      "drums",
+      "standard",
+    );
+    expect(recordingToSong).toHaveBeenCalledWith(
+      [kick, snare].map((n) => expect.objectContaining({ pitch: n.pitch })),
+      { tuning: undefined, trackName: "Drums", program: 0, drums: true },
+    );
+  });
+
+  it("gets a new drum track in one undo step", async () => {
+    const { createTrack, insertTrack } = await import("@/lib/score/tracks");
+    vi.mocked(createTrack).mockClear();
+    vi.mocked(transcribeRecording).mockResolvedValue([kick, snare] as never);
+    const hook = setup();
+    vi.mocked(insertTrack).mockImplementation((score, added) => void score.tracks.push(added));
+    fakeRecorder();
+    await begin(hook, click({ track: null, instrument: "drums" }));
+    await stop(hook);
+    await waitFor(() => expect(hook.editor.run).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createTrack).mock.calls.map(([, spec]) => spec)).toEqual([
+      expect.objectContaining({ kind: "drums", name: "Drums" }),
+    ]);
+    const written = vi.mocked(writeRecording).mock.calls[0]![1];
+    expect(written.map((n) => n.pitch)).toEqual([36, 38]);
+  });
+});
+
 describe("bass", () => {
   const note = { start: 3.15, end: 3.5, pitch: 40, velocity: 90 };
 
@@ -526,6 +580,7 @@ describe("bass", () => {
       tuning,
       trackName: "Recording",
       program: 33,
+      drums: false,
     });
   });
 
@@ -565,6 +620,7 @@ describe("free mode", () => {
       tuning: [62, 57, 53, 48, 43, 38],
       trackName: "Recording",
       program: 25,
+      drums: false,
     });
     expect(hook.onOpenScore).toHaveBeenCalledWith(song.score, "Recording");
     expect(hook.editor.run).not.toHaveBeenCalled();

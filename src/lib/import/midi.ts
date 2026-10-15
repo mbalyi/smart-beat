@@ -521,7 +521,11 @@ export function fillTrack(
         for (const pitch of [...group.pitches].sort((a, b) => b - a)) {
           const note = new model.Note();
           if (drums) {
-            note.percussionArticulation = pitch;
+            // Tracks with their own articulations (Guitar Pro 6+) refer to them by index.
+            const own = track.percussionArticulations.findIndex(
+              (a) => a.outputMidiNumber === pitch,
+            );
+            note.percussionArticulation = own >= 0 ? own : pitch;
           } else {
             // A transposing staff sounds its written value minus its transposition: write what
             // gives the pitch that was heard.

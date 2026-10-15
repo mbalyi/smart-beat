@@ -129,11 +129,12 @@ describe("Welcome", () => {
       renderWelcome();
       expect(within(card()).getByText("Beta")).toBeInTheDocument();
       const limits = within(card()).getByRole("button", { name: "Limits" });
-      expect(limits).toHaveAccessibleDescription(/Guitar, bass and piano\./);
+      expect(limits).toHaveAccessibleDescription(/Guitar, bass, piano and drums\./);
       expect(limits).toHaveAccessibleDescription(/Guitar: roughly 7 of 10 notes are found/);
       expect(limits).toHaveAccessibleDescription(/Piano, built-in model: .* about 86%/);
       expect(limits).toHaveAccessibleDescription(/High accuracy model .* about 99%/);
       expect(limits).toHaveAccessibleDescription(/a real recording will score lower/);
+      expect(limits).toHaveAccessibleDescription(/Drums: kick, snare and hi-hat/);
       expect(limits).toHaveAccessibleDescription(/correct it by hand/);
     });
 
@@ -151,7 +152,7 @@ describe("Welcome", () => {
     it("shows the limits in a popup on hover", async () => {
       const { user } = renderWelcome();
       await user.hover(card());
-      expect(await findPopup()).toHaveTextContent("Guitar, bass and piano.");
+      expect(await findPopup()).toHaveTextContent("Guitar, bass, piano and drums.");
     });
   });
 

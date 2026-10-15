@@ -102,14 +102,15 @@ function parsedAt(notes: readonly RecordedNote[], bpm: number, options: FreeOpti
   const part = (trackName: string, list: readonly RecordedNote[]): Part => ({
     trackName,
     tuning: options.tuning,
-    channel: 0,
+    // Channel 10 is where General MIDI keeps the drums: the notes are drum numbers.
+    channel: options.drums ? 9 : 0,
     program: options.program,
     volume: null,
     pan: null,
     notes: ticked(list),
   });
   let parts: Part[];
-  if (options.tuning) {
+  if (options.tuning || options.drums) {
     parts = [part(options.trackName, notes)];
   } else {
     const { right, left } = splitHands(notes);
@@ -129,10 +130,12 @@ function parsedAt(notes: readonly RecordedNote[], bpm: number, options: FreeOpti
 }
 
 interface FreeOptions {
-  /** Strings of a guitar or bass, highest first. Leave out for a piano: two tracks, one per hand. */
+  /** Strings of a guitar or bass, highest first. Leave out for a piano (two tracks, one per hand) or drums. */
   tuning?: number[];
   trackName: string;
   program: number;
+  /** A drum take: the notes are General MIDI drum numbers and go on a drum track. */
+  drums?: boolean;
 }
 
 /**
@@ -240,7 +243,7 @@ export function recordingTargets(score: Score, trackIndex: number, startBar: num
 }
 
 /**
- * Click mode: writes a take into a guitar or piano track, from the first beat of bar `startBar` (0-based).
+ * Click mode: writes a take into a guitar, piano or drum track, from the first beat of bar `startBar` (0-based).
  * The notes' time 0 is that downbeat: the count-in is gone and latency and `alignOffset` are
  * applied. Time follows the song's tempo changes. Every bar the take covers is replaced, rests
  * included. Bars before it and after it stay. Bars are appended when the take outlasts the song.
@@ -256,9 +259,8 @@ export function writeRecording(
 ): { warnings: string[] } {
   const track: Track | undefined = score.tracks[options.trackIndex];
   const staff = track?.staves[0];
-  if (!track || !staff || staff.isPercussion) {
-    throw new Error("A recording needs a string or piano track.");
-  }
+  if (!track || !staff) throw new Error("A recording needs a string, piano or drum track.");
+  const drums = staff.isPercussion;
   const stringed = staff.stringTuning.tunings.length > 0;
   const startBar = Math.max(0, Math.floor(options.startBar));
   const warnings = new Set<string>();
@@ -315,7 +317,7 @@ export function writeRecording(
   const part: Part = {
     trackName: track.name,
     tuning: stringed ? [...staff.stringTuning.tunings] : undefined,
-    channel: 0,
+    channel: drums ? 9 : 0,
     program: track.playbackInfo.program,
     volume: null,
     pan: null,

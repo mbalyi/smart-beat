@@ -11,11 +11,12 @@ const ENGINE_KEY = "smart-beat:record-piano-engine";
 /** The piano note finder: the built-in one, or the downloaded high-accuracy model (Transkun). */
 export type PianoEngine = "standard" | "accurate";
 
-/** What Record to Tab listens to: a guitar or a bass (tab), or a piano (two-hand staves). */
-export type RecordInstrument = "guitar" | "bass" | "piano";
+/** What Record to Tab listens to: a guitar or a bass (tab), a piano (two-hand staves) or drums. */
+export type RecordInstrument = "guitar" | "bass" | "piano" | "drums";
 
 /** The strings of a take, in the note finder: a bass is heard like a guitar. */
-export const stringsOnly = (instrument: RecordInstrument): boolean => instrument !== "piano";
+export const stringsOnly = (instrument: RecordInstrument): boolean =>
+  instrument === "guitar" || instrument === "bass";
 
 /** Guitars the tuning picker offers; 7 and 8 strings are the extended-range guitars. */
 export const RECORD_STRING_COUNTS = [6, 7, 8] as const;
@@ -115,7 +116,7 @@ export const standardTuningChoice = standard;
 export function readInstrument(): RecordInstrument {
   try {
     const value = localStorage.getItem(INSTRUMENT_KEY);
-    return value === "piano" || value === "bass" ? value : "guitar";
+    return value === "piano" || value === "bass" || value === "drums" ? value : "guitar";
   } catch {
     return "guitar";
   }

@@ -885,13 +885,13 @@ export const isRecordingStopped = (error: unknown): boolean =>
 
 /**
  * Turns a take (mono samples as 32-bit floats) into notes, on this computer. `onProgress` gets
- * the fraction done (0…1). A piano uses stricter note settings than the default. Rejects with {@link RECORDING_STOPPED} after a cancel.
+ * the fraction done (0…1). A piano uses stricter note settings than the default, and drums go through the hit finder (the notes are General MIDI drum numbers). Rejects with {@link RECORDING_STOPPED} after a cancel.
  */
 export async function transcribeRecording(
   samples: Float32Array,
   sampleRate: number,
   onProgress?: (fraction: number) => void,
-  instrument: "guitar" | "piano" = "guitar",
+  instrument: "guitar" | "piano" | "drums" = "guitar",
   engine: "standard" | "accurate" = "standard",
 ): Promise<RecordedNote[]> {
   if (!isTauri()) throw new NotInDesktopAppError();

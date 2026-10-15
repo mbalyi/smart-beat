@@ -11,3 +11,10 @@ piano/clips/
 piano/out/
 piano/render/target/
 piano/render/Cargo.lock
+
+# Drum accuracy runs (see drums/README.md)
+drums/clips/
+drums/out/
+drums/iso/
+drums/render/target/
+drums/render/Cargo.lock
