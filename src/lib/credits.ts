@@ -43,6 +43,18 @@ export const OTHER_CREDITS: readonly Credit[] = [
     url: "https://crates.io/crates/nam-rs",
     description: "Plays Neural Amp Modeler captures, which model real guitar amplifiers.",
   },
+  {
+    name: "Basic Pitch",
+    url: "https://github.com/spotify/basic-pitch",
+    description:
+      "Listens to a recording of a guitar, bass or piano and finds the notes, for Record to tab.",
+  },
+  {
+    name: "Transkun",
+    url: "https://github.com/Yujia-Yan/Transkun",
+    description:
+      "The high-accuracy piano model of Record to tab, which turns piano audio into notes.",
+  },
 ];
 
 /** Every address the "Built with" section can open. */
