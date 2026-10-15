@@ -9,8 +9,7 @@ Use English for replies, issues, pull requests, commits and docs.
 ## Environment
 
 - Apple Silicon Mac with Node 24, pnpm, Rust stable, cargo-about, cargo-deny and Playwright browsers. Nothing needs installing.
-- Run development commands through `bash scripts/with-dev-env.sh <command> [args...]`, including in Orca agent shells. It loads Node from `.nvmrc`, the pnpm version from `package.json` through Corepack, and Rust from `~/.cargo/env`. Its temporary pnpm shims also cover nested package scripts.
-- Examples: `bash scripts/with-dev-env.sh pnpm check`, `bash scripts/with-dev-env.sh pnpm test:e2e`, `bash scripts/with-dev-env.sh cargo test --manifest-path src-tauri/Cargo.toml`.
+- In non-interactive shells, run `source ~/.cargo/env` before `cargo`, `pnpm rust:*`, `pnpm check` or `pnpm tauri build`.
 - `gh` may be at `~/bin/gh`.
 
 ## Commands
