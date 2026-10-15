@@ -988,6 +988,8 @@ export interface PluginSlotInfo {
   index: number;
   name: string;
   latencySamples: number;
+  /** Added latency in milliseconds (what the UI shows). */
+  latencyMs: number;
   alive: boolean;
   /** The last failure in plain words (empty while healthy). */
   error: string;

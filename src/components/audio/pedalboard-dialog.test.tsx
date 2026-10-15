@@ -126,6 +126,39 @@ const pedal = (dialog: HTMLElement, name: string) =>
 describe("PedalboardDialog", () => {
   beforeEach(() => localStorage.clear());
 
+  it("shows preset-load failures even while the plugin is processing", async () => {
+    localStorage.setItem("smart-beat.plugins-enabled", "1");
+    mockTauri({
+      plugins_set_enabled: () => null,
+      plugins_enabled: () => true,
+      audio_plugin_info: () => [
+        {
+          index: 0,
+          name: "Gain",
+          latencySamples: 64,
+          latencyMs: 1.3,
+          alive: true,
+          error: "The plugin cannot restore settings",
+        },
+      ],
+    });
+    setup({
+      initial: [
+        {
+          type: "plugin",
+          format: "clap",
+          path: "/plugins/gain.clap",
+          name: "Gain",
+          state: "",
+          enabled: true,
+        },
+      ],
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The plugin cannot restore settings");
+    expect(alert).not.toHaveTextContent("Playing without it");
+  });
+
   it("starts empty and adds effects from the library, filtered by category", async () => {
     const { user, dialog, chain } = setup();
     expect(within(dialog).getByText(/No effects yet/)).toBeInTheDocument();

@@ -25,7 +25,7 @@ it("turns off existing plugin blocks, clears status, and stops polling", async (
     },
     plugins_enabled: () => enabled,
     audio_plugin_info: () => [
-      { index: 0, name: "Gain", latencySamples: 64, alive: true, error: "" },
+      { index: 0, name: "Gain", latencySamples: 64, latencyMs: 1.3, alive: true, error: "" },
     ],
   });
   const { result } = renderHook(() => usePlugins({ track: 0 }, 1, chain));
@@ -47,7 +47,9 @@ it("reports crashes after the initial status and addresses the selected track an
   const calls = mockTauri({
     plugins_set_enabled: () => null,
     plugins_enabled: () => true,
-    audio_plugin_info: () => [{ index: 0, name: "Gain", latencySamples: 64, alive: !error, error }],
+    audio_plugin_info: () => [
+      { index: 0, name: "Gain", latencySamples: 64, latencyMs: 1.3, alive: !error, error },
+    ],
   });
   vi.useFakeTimers();
   const { result, rerender, unmount } = renderHook(
@@ -69,4 +71,44 @@ it("reports crashes after the initial status and addresses the selected track an
   const count = calls.length;
   await act(() => vi.advanceTimersByTimeAsync(1000));
   expect(calls).toHaveLength(count);
+});
+
+it("describes a plugin with its added latency in milliseconds", async () => {
+  localStorage.setItem("smart-beat.plugins-enabled", "1");
+  mockTauri({
+    plugins_set_enabled: () => null,
+    plugins_enabled: () => true,
+    audio_plugin_info: () => [
+      { index: 0, name: "Gain", latencySamples: 64, latencyMs: 1.3, alive: true, error: "" },
+    ],
+  });
+  const { result } = renderHook(() => usePlugins({ track: 0 }, 1, chain));
+  await waitFor(() => expect(result.current.info.size).toBe(1));
+  const slot = chain[0] as Extract<EffectSlot, { type: "plugin" }>;
+  expect(result.current.describe(slot, 0)).toBe("Gain · +1.3 ms");
+});
+
+it("stays applying until the newest opt-in change reaches the backend", async () => {
+  localStorage.setItem("smart-beat.plugins-enabled", "0");
+  const pending: (() => void)[] = [];
+  mockTauri({
+    plugins_set_enabled: () => new Promise<void>((resolve) => pending.push(resolve)),
+    plugins_enabled: () => false,
+    audio_plugin_info: () => [],
+  });
+  const { result } = renderHook(() => usePlugins({ track: 0 }, 1, []));
+  await waitFor(() => expect(result.current.applying).toBe(true));
+  act(() => result.current.setEnabled(true));
+  expect(result.current.applying).toBe(true);
+  // The first call settling must not clear the spinner of the newer one.
+  await act(async () => {
+    pending[0]?.();
+    await Promise.resolve();
+  });
+  expect(result.current.applying).toBe(true);
+  await act(async () => {
+    pending[1]?.();
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(result.current.applying).toBe(false));
 });

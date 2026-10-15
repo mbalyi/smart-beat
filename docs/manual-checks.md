@@ -59,6 +59,18 @@ Plug an audio interface in (a Focusrite Scarlett or similar) with a guitar in it
 - Quit and start Smart Beat again: the interface is still the input.
 - Unplug the interface and listen again: the tuner says it is not connected. Settings lists it as "(not connected)" until it is plugged in again.
 
+### 2e. Third-party plugins (#80)
+
+Plugins are third-party code, so this is about hearing them work and hearing them fail safely.
+
+- Open a song's pedalboard, switch **Third-party plugins** on (it is off on every launch) and press **Scan for plugins…**: your installed VST3 and CLAP plugins appear with their vendor and version, and files that cannot load are counted as skipped instead of failing the scan.
+- Add an amp sim or pedal, open its own window, change a setting there and hear it. Then press **Save settings**, close and reopen the song: the setting is back, in its editor too.
+- Play with the plugin on the master bus at your usual device buffer, then at the smallest and largest your interface offers (128 through 1024 frames in Audio MIDI Setup): the effect must sound even and continuous at every size, never chopping in and out. The block shows the added latency it reports; a 512-frame buffer should read about 10 ms plus the plugin's own.
+- Turn **Third-party plugins** off while playing: the effect disappears immediately and the sound continues dry.
+- Open a song whose plugin you do not have installed (or move the plugin file away) and play: the song plays without that block and says the plugin is not installed next to it.
+- Pull the plugin's audio: rename the plugin file while it is loaded, then keep playing. The block should pass your dry signal (no silence, no stuck notes) and report the failure.
+- Remove the block: the plugin's editor window closes and the helper process is gone in Activity Monitor (one per block).
+
 ### 3. The right drum for every drum number
 
 [drum-midi-support.md](drum-midi-support.md) says which numbers sound, not whether the sample is the right instrument. Judge by ear:

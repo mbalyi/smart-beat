@@ -4,9 +4,9 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
-- Plugin blocks now have independent audio and preset state, bypass immediately when plugins are switched off, and release their helpers when removed. Audio uses bounded shared-memory buffers with no callback allocations; synthetic-plugin tests exercise isolation and recovery in CI.
+- Plugin blocks now have independent audio and preset state, bypass immediately when plugins are switched off, and release their helpers when removed. Audio uses bounded shared-memory buffers with no callback allocations; synthetic-plugin tests exercise isolation and recovery in CI. Blocks cross to the helper in order and are taken back in order, so every block of a render callback gets plugin output instead of one in eight; missing or wrong-sized answers are skipped instead of stalling later blocks. Queued preset changes preserve undo order, and preset-load failures remain visible while audio continues with the last accepted settings. A preset you save is applied without waiting for the helper, so saving no longer holds the audio engine's lock, and a mono CLAP plugin now gets its own channel counts instead of a stereo guess.
 
-- Third-party plugin hosting (VST3 and CLAP) as opt-in pedalboard blocks. Plugins are off by default, scanned from the standard folders, and each runs in its own helper process outside the app: the audio thread never waits (missed answers pass dry and recover in the background), added latency (plugin plus one engine block) shows under the block, and Save settings stores the preset in the song.
+- Third-party plugin hosting (VST3 and CLAP) as opt-in pedalboard blocks. Plugins are off by default, scanned from the standard folders, and each runs in its own helper process outside the app: the audio thread never waits (missed answers pass dry and recover in the background), the added latency (the plugin's own plus the measured handover, about one render callback) shows under the block in milliseconds, and Save settings stores the preset in the song (up to 4 MB).
 
 ## [1.0.0]
 

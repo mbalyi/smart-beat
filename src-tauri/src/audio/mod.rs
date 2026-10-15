@@ -1265,13 +1265,13 @@ pub fn plugins_enabled(state: State<'_, AudioState>) -> bool {
 }
 
 /// The plugin block at `index` of a track's sound (`track: null` for the
-/// master bus), with the sample rate it runs at.
+/// master bus), by its stored spec and display name.
 fn plugin_slot(
     inner: &Inner,
     track: Option<usize>,
     sound: usize,
     index: usize,
-) -> Result<(plugin::PluginSpec, String, f32), CommandError> {
+) -> Result<(plugin::PluginSpec, String), CommandError> {
     let slots = match track {
         Some(t) => {
             check_track(t)?;
@@ -1295,27 +1295,13 @@ fn plugin_slot(
     else {
         return Err(audio_error("This block is not a plugin"));
     };
-    use base64::Engine;
-    let state = if state.is_empty() {
-        Vec::new()
-    } else {
-        base64::engine::general_purpose::STANDARD
-            .decode(state)
-            .map_err(|_| audio_error("This plugin's saved settings are corrupt"))?
-    };
-    let rate = inner
-        .engine
-        .as_ref()
-        .map(|e| e.lock().unwrap().sample_rate())
-        .unwrap_or(48_000.0);
     Ok((
         plugin::PluginSpec {
             format: *format,
             path: path.clone(),
-            state,
+            state: chain::decode_plugin_state(state).map_err(audio_error)?,
         },
         name.clone(),
-        rate,
     ))
 }
 
@@ -1329,7 +1315,7 @@ pub fn plugin_open_editor(
     state: State<'_, AudioState>,
 ) -> Result<(i32, i32), CommandError> {
     let inner = state.inner.lock().unwrap();
-    let (spec, _, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
+    let (spec, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
     let worker = state
         .plugins
         .find(
@@ -1355,7 +1341,7 @@ pub fn plugin_close_editor(
     state: State<'_, AudioState>,
 ) -> Result<(), CommandError> {
     let inner = state.inner.lock().unwrap();
-    let (spec, _, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
+    let (spec, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
     if let Some(worker) = state.plugins.find(
         plugin::PluginInstance {
             track,
@@ -1378,7 +1364,7 @@ pub fn plugin_save_state(
     state: State<'_, AudioState>,
 ) -> Result<String, CommandError> {
     let inner = state.inner.lock().unwrap();
-    let (spec, _, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
+    let (spec, _) = plugin_slot(&inner, track, sound.unwrap_or(0), index)?;
     let worker = state
         .plugins
         .find(
@@ -1393,6 +1379,13 @@ pub fn plugin_save_state(
         .ok_or_else(|| audio_error("Start the native engine and enable this plugin block first"))?;
     drop(inner);
     let bytes = worker.save_state().map_err(audio_error)?;
+    if bytes.len() > plugin::MAX_STATE_BYTES {
+        return Err(audio_error(format!(
+            "This plugin's settings are {:.1} MB, more than Smart Beat keeps in a song ({} MB), so they were not saved.",
+            bytes.len() as f64 / (1024.0 * 1024.0),
+            plugin::MAX_STATE_BYTES / (1024 * 1024)
+        )));
+    }
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
@@ -1405,6 +1398,15 @@ pub fn audio_plugin_info(
     state: State<'_, AudioState>,
 ) -> Result<Vec<plugin::PluginSlotInfo>, CommandError> {
     let inner = state.inner.lock().unwrap();
+    // The rate the blocks run at, so the added latency can be reported in
+    // milliseconds as well as samples.
+    let rate = f64::from(
+        inner
+            .engine
+            .as_ref()
+            .map(|e| e.lock().unwrap().sample_rate())
+            .unwrap_or(48_000.0),
+    );
     let slots = match track {
         Some(t) => {
             check_track(t)?;
@@ -1428,18 +1430,13 @@ pub fn audio_plugin_info(
         else {
             continue;
         };
-        use base64::Engine;
-        let state_bytes = if slot_state.is_empty() {
-            Vec::new()
-        } else {
-            base64::engine::general_purpose::STANDARD
-                .decode(slot_state)
-                .unwrap_or_default()
-        };
+        let _ = slot_state;
+        // `find` matches on format and path only, so the preset is not decoded
+        // here: this runs every half second and a preset can be megabytes.
         let spec = plugin::PluginSpec {
             format: *format,
             path: path.clone(),
-            state: state_bytes,
+            state: Vec::new(),
         };
         match state.plugins.find(
             plugin::PluginInstance {
@@ -1449,17 +1446,22 @@ pub fn audio_plugin_info(
             },
             &spec,
         ) {
-            Some(worker) => out.push(plugin::PluginSlotInfo {
-                index,
-                name: name.clone(),
-                latency_samples: worker.latency_samples() + BLOCK as u32,
-                alive: state.plugins.enabled() && worker.alive(),
-                error: worker.error(),
-            }),
+            Some(worker) => {
+                let samples = worker.added_latency_samples();
+                out.push(plugin::PluginSlotInfo {
+                    index,
+                    name: name.clone(),
+                    latency_samples: samples,
+                    latency_ms: f64::from(samples) / rate * 1000.0,
+                    alive: state.plugins.enabled() && worker.alive(),
+                    error: worker.error(),
+                })
+            }
             None => out.push(plugin::PluginSlotInfo {
                 index,
                 name: name.clone(),
                 latency_samples: 0,
+                latency_ms: 0.0,
                 alive: false,
                 error: String::new(),
             }),

@@ -363,18 +363,15 @@ impl Effect for PluginEffect {
             return;
         }
         self.worker.push(left, right);
-        if let Some(seq) = self.worker.take_into(self.seen, left, right) {
-            self.seen = seq;
-        }
-        // Else dry: the helper is behind, recovering, or gone.
+        // The result decides wet against dry only: a block the helper has not
+        // answered yet stays exactly as it is, so the audio thread never waits.
+        let _ = self.worker.take_into(&mut self.seen, left, right);
     }
 
     fn reset(&mut self) {
         // Drop anything the helper finished before the seek: only newer
         // blocks count from here.
-        if let Some(seq) = self.worker.in_seq() {
-            self.seen = seq;
-        }
+        self.seen = self.worker.in_seq();
     }
 
     fn update(&mut self, config: &EffectConfig) -> bool {
@@ -390,12 +387,21 @@ impl Effect for PluginEffect {
         if *format != self.format || *path != self.path {
             return false;
         }
-        let Some(state) = decode_plugin_state(state) else {
+        let Ok(state) = decode_plugin_state(state) else {
+            // A stored preset that cannot be used rebuilds the block, which
+            // reports why next to it.
             return false;
         };
-        // The same plugin keeps its running worker; a new preset is applied
-        // to it (off the audio thread — `update` never runs on it).
-        match self.worker.apply_state(&state) {
+        // Compare the requested state, not the worker's last applied state:
+        // an undo must remain ordered behind a preset that is still loading.
+        if state == self.state {
+            return true;
+        }
+        // The same plugin keeps its running worker; the new preset is queued to
+        // it instead of waited for, because `update` runs under the engine lock
+        // on the audio thread's behalf. A failure reaches the UI as the block's
+        // error while the audio keeps flowing.
+        match self.worker.queue_state(state.clone()) {
             Ok(()) => {
                 self.state = state;
                 true
@@ -405,24 +411,39 @@ impl Effect for PluginEffect {
     }
 
     fn latency_samples(&self) -> u32 {
-        self.worker.latency_samples()
-            + if self.worker.offline() {
-                0
-            } else {
-                super::engine::BLOCK as u32
-            }
+        if self.worker.offline() {
+            // Exports wait for every result, so the handover adds nothing.
+            self.worker.latency_samples()
+        } else {
+            self.worker.added_latency_samples()
+        }
     }
 }
 
-/// Decodes a plugin preset from its base64 form in a chain. `None` (used with
-/// `?` in `update`) means the stored text is corrupt: rebuild instead.
-fn decode_plugin_state(state: &str) -> Option<Vec<u8>> {
+/// Decodes a plugin preset from its base64 form in a chain. An error means the
+/// stored text cannot be used: it is corrupt, or larger than one block may
+/// carry. Both are reported next to the block, never fatal to the chain.
+pub(crate) fn decode_plugin_state(state: &str) -> Result<Vec<u8>, String> {
     use base64::Engine;
     if state.is_empty() {
-        return Some(Vec::new());
+        return Ok(Vec::new());
     }
-    base64::engine::general_purpose::STANDARD.decode(state).ok()
+    if state.len() > MAX_STATE_BASE64 {
+        return Err(format!(
+            "This plugin's saved settings are larger than Smart Beat stores (over {} MB). Open its editor and save a smaller preset.",
+            super::plugin::MAX_STATE_BYTES / (1024 * 1024)
+        ));
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(state)
+        .map_err(|_| {
+            "This plugin's saved settings are corrupt. Open its editor and save them again."
+                .to_string()
+        })
 }
+
+/// Longest base64 text the state cap can produce, rounded up for padding.
+const MAX_STATE_BASE64: usize = super::plugin::MAX_STATE_BYTES / 3 * 4 + 8;
 
 /// Why a block does not run (shown next to it in the UI).
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -573,14 +594,22 @@ impl Chain {
                     state,
                     ..
                 } => match decode_plugin_state(state) {
-                    None => Err("This plugin's saved settings are corrupt. Open its editor and save them again.".to_string()),
-                    Some(state) => {
+                    Err(message) => Err(message),
+                    Ok(state) => {
                         let spec = PluginSpec {
                             format: *format,
                             path: path.clone(),
                             state,
                         };
-                        match plugins.load(address.map(|(track, sound)| super::plugin::PluginInstance { track, sound, index }), &spec, sample_rate) {
+                        match plugins.load(
+                            address.map(|(track, sound)| super::plugin::PluginInstance {
+                                track,
+                                sound,
+                                index,
+                            }),
+                            &spec,
+                            sample_rate,
+                        ) {
                             Ok(worker) => Ok(Box::new(PluginEffect {
                                 worker,
                                 format: *format,

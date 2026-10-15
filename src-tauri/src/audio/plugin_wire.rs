@@ -79,11 +79,11 @@ impl SharedAudio {
         let first = if output { 2 } else { 0 };
         for (channel, samples) in [left, right].into_iter().enumerate() {
             let start = (first + channel) * CHANNEL_BYTES;
-            for (bytes, sample) in self.map[start..start + samples.len() * 4]
-                .chunks_exact_mut(4)
-                .zip(samples)
-            {
-                bytes.copy_from_slice(&sample.to_ne_bytes());
+            // The range is a whole number of samples: CHANNEL_BYTES is a
+            // multiple of four and both channels have the same length.
+            let (words, _) = self.map[start..start + samples.len() * 4].as_chunks_mut::<4>();
+            for (word, sample) in words.iter_mut().zip(samples) {
+                word.copy_from_slice(&sample.to_ne_bytes());
             }
         }
         Ok(())
@@ -94,10 +94,8 @@ impl SharedAudio {
         let first = if output { 2 } else { 0 };
         let channel = |index: usize| {
             let start = (first + index) * CHANNEL_BYTES;
-            self.map[start..start + frames * 4]
-                .chunks_exact(4)
-                .map(|b| f32::from_ne_bytes(b.try_into().unwrap()))
-                .collect()
+            let (words, _) = self.map[start..start + frames * 4].as_chunks::<4>();
+            words.iter().map(|word| f32::from_ne_bytes(*word)).collect()
         };
         Ok((channel(0), channel(1)))
     }

@@ -22,7 +22,9 @@ impl HelperProcess {
         let mut child = ProcessCommand::new(helper)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            // A hosted plugin prints where it likes. Keep those lines instead of
+            // throwing them away: a plugin that fails to load usually says why.
+            .stderr(Stdio::inherit())
             .spawn()
             .map_err(|e| format!("The plugin helper cannot start: {e}"))?;
         let mut stdin = child.stdin.take().unwrap();
