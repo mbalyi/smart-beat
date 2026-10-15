@@ -459,7 +459,6 @@ export const EFFECT_CATEGORIES: { label: string; types: EffectType[] }[] = [
   { label: "Equalizer", types: ["eq"] },
   { label: "Modulation", types: ["chorus", "phaser", "tremolo"] },
   { label: "Time", types: ["delay", "reverb"] },
-  { label: "Plugins", types: ["plugin"] },
 ];
 
 /** Inserts a new block of `type` at `index` (when there is room). */

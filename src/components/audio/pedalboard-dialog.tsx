@@ -565,10 +565,11 @@ function PluginPedalControls({
         </span>
       </div>
       <p className="text-xs text-muted-foreground">{plugins.describe(slot, index)}</p>
-      {status && !status.alive && status.error && (
+      {status?.error && (
         <p role="alert" className="flex gap-1 text-xs text-amber-700 dark:text-amber-400">
           <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden="true" />
-          {status.error} Playing without it.
+          {status.error}
+          {!status.alive && " Playing without it."}
         </p>
       )}
       {error && (
@@ -681,14 +682,13 @@ export function PedalboardDialog({
   const ownPresets = songPresets.filter((p) => p.target === target.presetTarget);
   // The user's own amps and cabinets, and the generated cabinets, to drag onto the board.
   const mySounds = library.filter((item) => item.kind === "amp" || item.kind === "cab");
-  // Third-party plugins (opt-in, desktop only). The generic "plugin" block is
-  // not addable on its own: it always stands for one installed plugin.
+  // Third-party plugins (opt-in, desktop only). Their blocks come from the
+  // scan above, never from the library's effect categories.
   const plugins = usePlugins(target, sounds?.current ?? 0, chain);
-  const libraryTypes = (
+  const libraryTypes =
     category === "all"
       ? EFFECT_CATEGORIES.flatMap((c) => c.types)
-      : (EFFECT_CATEGORIES.find((c) => c.label === category)?.types ?? [])
-  ).filter((type) => type !== "plugin");
+      : (EFFECT_CATEGORIES.find((c) => c.label === category)?.types ?? []);
 
   // Keyboard moves and removals keep the focus on the board: on the moved
   // pedal, or the one that took the removed pedal's place.
@@ -1116,9 +1116,13 @@ export function PedalboardDialog({
                     <Switch
                       checked={plugins.enabled}
                       onCheckedChange={plugins.setEnabled}
+                      disabled={plugins.applying}
                       aria-label="Use third-party plugins"
                     />
                   </span>
+                  {plugins.applying && (
+                    <p className="text-xs text-muted-foreground">Loading plugins…</p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Your own VST3 and CLAP plugins (amp sims, pedals, cabinets). Each runs isolated
                     outside the app, so a crashing plugin cannot take your song down.

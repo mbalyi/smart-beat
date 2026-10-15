@@ -6,7 +6,7 @@
  * The backend holds the workers; this hook only mirrors the small UI state.
  * Outside the desktop app everything degrades to "unavailable".
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { EffectSlot } from "@/lib/audio/effects";
 import {
@@ -30,6 +30,8 @@ export interface UsePlugins {
   /** The user's opt-in choice (persisted on this computer). */
   enabled: boolean;
   setEnabled: (on: boolean) => void;
+  /** True while the backend applies the opt-in (it reloads every plugin block). */
+  applying: boolean;
   /** Installed plugins from the last scan (empty until `refresh`). */
   scanned: ScannedPlugin[];
   /** Files the last scan skipped, one line each. */
@@ -48,7 +50,6 @@ export function usePlugins(
   target: { track: number | null },
   sound: number,
   chain: readonly EffectSlot[],
-  sampleRate = 48000,
 ): UsePlugins {
   const available = isTauri();
   const [enabled, setEnabledState] = useState(() => {
@@ -62,12 +63,23 @@ export function usePlugins(
   const [skipped, setSkipped] = useState<string[]>([]);
   const [scanning, setScanning] = useState(false);
   const [info, setInfo] = useState<Map<number, PluginSlotInfo>>(new Map());
+  // The enable value the backend has confirmed. `applying` is derived from the
+  // choice: it is true from the moment the choice changes until the matching
+  // `plugins_set_enabled` call settles. The ref holds the newest choice so a
+  // slower, earlier call cannot mark a newer one as applied.
+  const [appliedFor, setAppliedFor] = useState<boolean | null>(null);
+  const latestEnabled = useRef(enabled);
 
   // The backend is authoritative (off on every launch); the opt-in choice is
   // remembered here and pushed in.
   useEffect(() => {
     if (!available) return;
-    setPluginsEnabled(enabled).catch(() => {});
+    latestEnabled.current = enabled;
+    setPluginsEnabled(enabled)
+      .catch(() => {})
+      .finally(() => {
+        if (latestEnabled.current === enabled) setAppliedFor(enabled);
+      });
     try {
       localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
     } catch {
@@ -135,11 +147,10 @@ export function usePlugins(
     (slot: Extract<EffectSlot, { type: "plugin" }>, index: number) => {
       const name = slot.name || "Plugin";
       const item = info.get(index);
-      if (!item || item.latencySamples === 0) return name;
-      const ms = ((item.latencySamples / sampleRate) * 1000).toFixed(1);
-      return `${name} · +${ms} ms`;
+      if (!item || !(item.latencyMs > 0)) return name;
+      return `${name} · +${item.latencyMs.toFixed(1)} ms`;
     },
-    [info, sampleRate],
+    [info],
   );
 
   const openEditor = useCallback(
@@ -170,6 +181,7 @@ export function usePlugins(
     available,
     enabled,
     setEnabled,
+    applying: available && appliedFor !== enabled,
     scanned,
     skipped,
     scanning,

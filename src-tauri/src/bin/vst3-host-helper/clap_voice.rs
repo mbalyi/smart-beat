@@ -14,10 +14,12 @@
 
 use std::cell::RefCell;
 use std::io::Cursor;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 use clack_extensions::audio_ports::{AudioPortInfoBuffer, PluginAudioPorts};
-use clack_extensions::gui::{GuiApiType, GuiConfiguration, PluginGui, Window};
+#[cfg(target_os = "macos")]
+use clack_extensions::gui::Window;
+use clack_extensions::gui::{GuiApiType, GuiConfiguration, PluginGui};
 use clack_extensions::latency::PluginLatency;
 use clack_extensions::state::PluginState;
 use clack_host::entry::PluginEntry;
@@ -51,8 +53,6 @@ pub struct ClapInfo {
 struct ClapMain {
     _entry: PluginEntry,
     instance: PluginInstance<ClapHost>,
-    in_channels: usize,
-    out_channels: usize,
 }
 
 /// The audio processor, shared with the worker thread. Both states are `Send`
@@ -62,6 +62,25 @@ enum ClapProc {
     Started(StartedPluginAudioProcessor<ClapHost>),
 }
 
+/// Everything [`process`] needs. On macOS that runs on the helper's worker
+/// thread, which cannot read [`MAIN`] (a thread-local filled on the main
+/// thread), so the port channel counts are copied here at load time. Reading
+/// them from `MAIN` silently fell back to stereo for mono plugins.
+struct ClapAudio {
+    proc_: Option<ClapProc>,
+    /// Channels of the first input and output audio port.
+    channels: (usize, usize),
+}
+
+impl Default for ClapAudio {
+    fn default() -> Self {
+        Self {
+            proc_: None,
+            channels: (2, 2),
+        }
+    }
+}
+
 thread_local! {
     static MAIN: RefCell<Option<ClapMain>> = const { RefCell::new(None) };
     // Whether `open_editor` currently holds an editor (so `close_editor`
@@ -69,10 +88,10 @@ thread_local! {
     static GUI_OPEN: RefCell<bool> = const { RefCell::new(false) };
 }
 
-static AUDIO: OnceLock<Arc<Mutex<Option<ClapProc>>>> = OnceLock::new();
+static AUDIO: OnceLock<Mutex<ClapAudio>> = OnceLock::new();
 
-fn audio() -> &'static Arc<Mutex<Option<ClapProc>>> {
-    AUDIO.get_or_init(|| Arc::new(Mutex::new(None)))
+fn audio() -> &'static Mutex<ClapAudio> {
+    AUDIO.get_or_init(|| Mutex::new(ClapAudio::default()))
 }
 
 fn with_main<T>(f: impl FnOnce(&mut ClapMain) -> Result<T, String>) -> Result<T, String> {
@@ -213,7 +232,11 @@ pub fn load(path: &str, sample_rate: f64) -> Result<ClapInfo, String> {
     let started = stopped
         .start_processing()
         .map_err(|e| format!("The CLAP plugin cannot start: {e}"))?;
-    *audio().lock().unwrap() = Some(ClapProc::Started(started));
+    {
+        let mut audio = audio().lock().unwrap();
+        audio.proc_ = Some(ClapProc::Started(started));
+        audio.channels = (in_channels, out_channels);
+    }
     let reported_in = port_count(&mut instance.plugin_handle(), true);
     let reported_out = port_count(&mut instance.plugin_handle(), false);
     let info = ClapInfo {
@@ -231,8 +254,6 @@ pub fn load(path: &str, sample_rate: f64) -> Result<ClapInfo, String> {
         *main.borrow_mut() = Some(ClapMain {
             _entry: entry,
             instance,
-            in_channels,
-            out_channels,
         });
     });
     Ok(info)
@@ -249,13 +270,17 @@ fn port_count(handle: &mut clack_host::plugin::PluginMainThreadHandle<'_>, is_in
 /// no de-allocation happens on the audio path.
 pub fn unload() {
     close_editor();
-    if let Ok(mut audio) = audio().lock()
-        && let Some(proc_) = audio.take()
-    {
-        let stopped = match proc_ {
-            ClapProc::Started(started) => started.stop_processing(),
-            ClapProc::Stopped(stopped) => stopped,
-        };
+    let stopped = {
+        let mut audio = audio().lock().unwrap();
+        let taken = audio.proc_.take();
+        audio.channels = (2, 2);
+        match taken {
+            Some(ClapProc::Started(started)) => Some(started.stop_processing()),
+            Some(ClapProc::Stopped(stopped)) => Some(stopped),
+            None => None,
+        }
+    };
+    if let Some(stopped) = stopped {
         MAIN.with(|main| {
             if let Some(main) = main.borrow_mut().as_mut() {
                 main.instance.deactivate(stopped);
@@ -268,9 +293,9 @@ pub fn unload() {
 /// Starts processing after a [`stop`] (a fresh [`load`] already processes).
 pub fn start() -> Result<(), String> {
     let mut audio = audio().lock().unwrap();
-    match audio.take() {
+    match audio.proc_.take() {
         Some(ClapProc::Stopped(stopped)) => {
-            *audio = Some(ClapProc::Started(
+            audio.proc_ = Some(ClapProc::Started(
                 stopped
                     .start_processing()
                     .map_err(|e| format!("The CLAP plugin cannot start: {e}"))?,
@@ -278,7 +303,7 @@ pub fn start() -> Result<(), String> {
             Ok(())
         }
         other => {
-            *audio = other;
+            audio.proc_ = other;
             Ok(())
         }
     }
@@ -287,13 +312,13 @@ pub fn start() -> Result<(), String> {
 /// Stops processing; [`process`] bypasses until [`start`].
 pub fn stop() -> Result<(), String> {
     let mut audio = audio().lock().unwrap();
-    match audio.take() {
+    match audio.proc_.take() {
         Some(ClapProc::Started(started)) => {
-            *audio = Some(ClapProc::Stopped(started.stop_processing()));
+            audio.proc_ = Some(ClapProc::Stopped(started.stop_processing()));
             Ok(())
         }
         other => {
-            *audio = other;
+            audio.proc_ = other;
             Ok(())
         }
     }
@@ -303,7 +328,7 @@ pub fn stop() -> Result<(), String> {
 pub fn reconfigure(sample_rate: f64) -> Result<(), String> {
     let stopped = {
         let mut audio = audio().lock().unwrap();
-        match audio.take() {
+        match audio.proc_.take() {
             Some(ClapProc::Started(started)) => started.stop_processing(),
             Some(ClapProc::Stopped(stopped)) => stopped,
             None => return Err("No plugin loaded".to_string()),
@@ -323,7 +348,7 @@ pub fn reconfigure(sample_rate: f64) -> Result<(), String> {
         let started = stopped
             .start_processing()
             .map_err(|e| format!("The CLAP plugin cannot start: {e}"))?;
-        *audio().lock().unwrap() = Some(ClapProc::Started(started));
+        audio().lock().unwrap().proc_ = Some(ClapProc::Started(started));
         Ok(())
     });
     if result.is_err() {
@@ -338,18 +363,15 @@ pub fn reconfigure(sample_rate: f64) -> Result<(), String> {
 pub fn process(inputs: Vec<Vec<f32>>, frames: u32) -> Result<Vec<Vec<f32>>, String> {
     let frames = frames as usize;
     let mut audio = audio().lock().unwrap();
-    let Some(proc_) = audio.as_mut() else {
+    // Read before borrowing the processor: the counts come from `load`, so the
+    // worker thread sees the loaded plugin's own ports, not a stereo guess.
+    let (in_channels, out_channels) = audio.channels;
+    let Some(proc_) = audio.proc_.as_mut() else {
         return Err("No plugin loaded".to_string());
     };
     let ClapProc::Started(started) = proc_ else {
         return Ok(bypass(&inputs, frames));
     };
-    let (in_channels, out_channels) = MAIN.with(|main| {
-        main.borrow()
-            .as_ref()
-            .map(|main| (main.in_channels, main.out_channels))
-            .unwrap_or((2, 2))
-    });
     // The engine is always stereo: fold down (or fan out) at the edges.
     let mut in_bufs: Vec<Vec<f32>> = Vec::with_capacity(in_channels);
     if in_channels == 1 {
@@ -490,7 +512,9 @@ fn gui_supported(
     .then_some((gui, api))
 }
 
-/// Whether the plugin has an embeddable editor on this platform.
+/// Whether the plugin has an embeddable editor on this platform. Only the
+/// macOS helper can show one, so the rest compiles without it.
+#[cfg(target_os = "macos")]
 pub fn has_editor() -> bool {
     with_main(|main| {
         let handle = main.instance.plugin_handle();
@@ -499,7 +523,8 @@ pub fn has_editor() -> bool {
     .unwrap_or(false)
 }
 
-/// The editor's size, if the plugin reports one.
+/// The editor's size, if the plugin reports one. macOS helper only.
+#[cfg(target_os = "macos")]
 pub fn editor_size() -> Option<(u32, u32)> {
     with_main(|main| {
         let handle = main.instance.plugin_handle();
@@ -565,11 +590,7 @@ pub fn close_editor() {
     });
 }
 
-/// No native parent on other platforms yet.
-#[cfg(not(target_os = "macos"))]
-pub fn open_editor(_parent: *mut std::ffi::c_void) -> Result<(), String> {
-    Err("CLAP editors are only supported on macOS so far".to_string())
-}
-
+/// No native parent on other platforms yet: only macOS can embed an editor, so
+/// `close_editor` stays a no-op there rather than reporting an error.
 #[cfg(not(target_os = "macos"))]
 pub fn close_editor() {}

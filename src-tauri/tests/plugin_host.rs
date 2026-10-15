@@ -1,5 +1,15 @@
 //! Real helper + original CLAP fixture. Runs in CI without installed plugins.
-use smart_beat_lib::audio::plugin::{PluginFormat, PluginInstance, PluginPool, PluginSpec};
+//!
+//! Unix only: the fixture is a `.clap` cdylib built by `rustc`, and Windows
+//! plugin hosting is not shipped yet (#80 leaves it for later). The wire
+//! protocol, the handover rings and the chain integration have their own
+//! platform-independent tests.
+#![cfg(unix)]
+
+use smart_beat_lib::audio::chain::{Chain, EffectConfig, EffectSlot, MAX_TRACK_EFFECTS, NoAssets};
+use smart_beat_lib::audio::plugin::{
+    PluginFormat, PluginInstance, PluginPool, PluginSpec, PluginWorker,
+};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -111,12 +121,26 @@ fn address(track: usize, sound: usize, index: usize) -> PluginInstance {
         index,
     }
 }
-fn processed(worker: &smart_beat_lib::audio::plugin::PluginWorker, input: f32) -> f32 {
+fn processed(worker: &PluginWorker, input: f32) -> f32 {
     let mut left = [input; 64];
     let mut right = [-input; 64];
     worker.process_offline(&mut left, &mut right);
     assert_eq!(right[0], -left[0]);
     left[0]
+}
+/// Waits until the plugin's gain is `gain`. `queue_state` only queues the
+/// preset (it must not block the engine lock), and the worker applies commands
+/// in order, so the first `process_offline` that sees the new gain proves the
+/// preset landed.
+fn settles(worker: &PluginWorker, gain: f32) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if (processed(worker, 0.25) - gain * 0.25).abs() < 1e-6 {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("the plugin never reached gain {gain}: {}", worker.error());
 }
 #[test]
 fn identical_plugin_paths_have_independent_audio_presets_and_addresses() {
@@ -139,8 +163,8 @@ fn identical_plugin_paths_have_independent_audio_presets_and_addresses() {
     assert_eq!(processed(&b, 0.25), 0.5);
     assert_eq!(processed(&c, 0.25), 0.75);
     assert_eq!(processed(&d, 0.25), 1.0);
-    a.apply_state(&spec(0.25, 0).state).unwrap();
-    assert_eq!(processed(&a, 0.25), 0.0625);
+    a.queue_state(spec(0.25, 0).state).unwrap();
+    settles(&a, 0.25);
     assert_eq!(processed(&b, 0.25), 0.5);
     assert!(Arc::ptr_eq(
         &b,
@@ -148,12 +172,9 @@ fn identical_plugin_paths_have_independent_audio_presets_and_addresses() {
     ));
     assert_eq!(&a.save_state().unwrap()[..4], &0.25f32.to_le_bytes());
     assert_eq!(a.latency_samples(), 0);
-    a.apply_state(&[]).unwrap();
-    assert_eq!(
-        processed(&a, 0.25),
-        0.25,
-        "empty state restores the default preset"
-    );
+    // An empty state restores the plugin's own default preset.
+    a.queue_state(Vec::new()).unwrap();
+    settles(&a, 1.0);
 }
 #[test]
 fn disabling_existing_instances_bypasses_them_and_reenabling_restores_them() {
@@ -163,7 +184,8 @@ fn disabling_existing_instances_bypasses_them_and_reenabling_restores_them() {
     pool.set_enabled(false);
     assert_eq!(processed(&worker, 0.25), 0.25);
     worker.push(&[0.5; 64], &[0.5; 64]);
-    assert_eq!(worker.take_into(0, &mut [0.0; 64], &mut [0.0; 64]), None);
+    let mut seen = 0;
+    assert!(!worker.take_into(&mut seen, &mut [0.0; 64], &mut [0.0; 64]));
     pool.set_enabled(true);
     assert_eq!(processed(&worker, 0.25), 0.5);
 }
@@ -186,19 +208,25 @@ fn dropping_the_last_block_releases_its_worker() {
     assert!(pool.find(address(0, 0, 0), &spec(1.0, 0)).is_none());
 }
 #[test]
-fn callbacks_do_not_allocate_even_on_the_first_or_larger_block() {
+fn callbacks_do_not_allocate() {
     let pool = pool();
     let worker = pool.load(None, &spec(2.0, 0), 48_000.0).unwrap();
-    let samples = [0.25; 4097];
+    // The engine never hands over more than one block (`BLOCK` frames, 64 at
+    // 48 kHz), which is what a handover slot holds.
+    let samples = [0.25; 65];
     let mut left = [0.0; 64];
     let mut right = [0.0; 64];
     ALLOCATIONS.with(|n| n.set(Some(0)));
-    for frames in [1, 64, 512, 4096, 4097, 64] {
+    for frames in [1, 32, 64, 65, 64] {
+        let mut seen = 0;
         worker.push(&samples[..frames], &samples[..frames]);
-        worker.take_into(0, &mut left, &mut right);
+        worker.take_into(&mut seen, &mut left, &mut right);
     }
     let count = ALLOCATIONS.with(|n| n.replace(None).unwrap());
-    assert_eq!(count, 0, "audio handover allocated on the calling thread");
+    assert_eq!(
+        count, 0,
+        "the audio handover allocated on the calling thread"
+    );
 }
 #[test]
 fn a_crashing_or_hung_plugin_cannot_block_callbacks_and_recovers() {
@@ -210,22 +238,21 @@ fn a_crashing_or_hung_plugin_cannot_block_callbacks_and_recovers() {
         let start = Instant::now();
         for _ in 0..500 {
             worker.push(&[0.25; 64], &[0.25; 64]);
-            worker.take_into(0, &mut [0.0; 64], &mut [0.0; 64]);
+            let mut seen = 0;
+            worker.take_into(&mut seen, &mut [0.0; 64], &mut [0.0; 64]);
         }
         assert!(start.elapsed() < Duration::from_secs(1));
-        worker.apply_state(&spec(0.75, 0).state).unwrap();
-        assert_eq!(processed(&worker, 0.25), 0.1875);
-        worker.ensure_rate(44_100.0).unwrap();
-        let state = worker.save_state().unwrap();
-        assert_eq!(
-            f64::from_bits(u64::from_le_bytes(state[9..17].try_into().unwrap())),
-            44_100.0
+        worker.queue_state(spec(0.75, 0).state).unwrap();
+        settles(&worker, 0.75);
+        assert!(
+            worker.alive(),
+            "mode {mode} recovered but still reports: {}",
+            worker.error()
         );
     }
 }
-
 #[test]
-fn exports_do_not_reconfigure_or_reuse_live_instances() {
+fn exports_do_not_reuse_live_instances() {
     let live_pool = pool();
     let live = live_pool
         .load(Some(address(0, 0, 0)), &spec(2.0, 0), 48_000.0)
@@ -237,6 +264,7 @@ fn exports_do_not_reconfigure_or_reuse_live_instances() {
     assert!(!Arc::ptr_eq(&live, &export));
     assert_eq!(processed(&live, 0.25), 0.5);
     assert_eq!(processed(&export, 0.25), 0.125);
+    // Each instance was activated at the rate its chain asked for.
     let saved = live.save_state().unwrap();
     assert_eq!(
         f64::from_bits(u64::from_le_bytes(saved[9..17].try_into().unwrap())),
@@ -247,13 +275,9 @@ fn exports_do_not_reconfigure_or_reuse_live_instances() {
         &live_pool.find(address(0, 0, 0), &spec(2.0, 0)).unwrap()
     ));
 }
-
 #[test]
 fn two_blocks_in_one_chain_use_independent_plugin_instances() {
     use base64::Engine;
-    use smart_beat_lib::audio::chain::{
-        Chain, EffectConfig, EffectSlot, MAX_TRACK_EFFECTS, NoAssets,
-    };
     let pool = pool().for_offline();
     let slot = |gain| EffectSlot {
         enabled: true,
@@ -282,6 +306,125 @@ fn two_blocks_in_one_chain_use_independent_plugin_instances() {
     assert_eq!(
         chain.latency_samples(),
         0,
-        "offline exports add no handover block"
+        "offline exports add no handover latency"
+    );
+}
+#[test]
+fn a_dropped_input_does_not_wait_for_a_ring_wrap() {
+    let pool = pool();
+    let worker = pool.load(None, &spec(0.5, 0), 48_000.0).unwrap();
+    worker.push(&[1.0; 65], &[1.0; 65]); // Too large: no answer can arrive.
+    worker.push(&[2.0; 64], &[2.0; 64]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut seen = 0;
+    let mut left = [0.0; 64];
+    loop {
+        if worker.take_into(&mut seen, &mut left, &mut [0.0; 64]) {
+            assert_eq!(seen, 2);
+            assert_eq!(left, [1.0; 64]);
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a dropped input stranded block 2"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn rejected_presets_remain_visible_while_audio_keeps_processing() {
+    let pool = pool();
+    let worker = pool.load(None, &spec(0.5, 0), 48_000.0).unwrap();
+    worker.queue_state(f32::NAN.to_le_bytes().to_vec()).unwrap();
+    // A synchronous command is a barrier behind the queued preset attempt.
+    worker.save_state().unwrap();
+    assert!(
+        !worker.error().is_empty(),
+        "the rejected preset must be reported"
+    );
+    let error = worker.error();
+    worker.push(&[1.0; 64], &[1.0; 64]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut seen = 0;
+    let mut left = [0.0; 64];
+    while !worker.take_into(&mut seen, &mut left, &mut [0.0; 64]) {
+        assert!(Instant::now() < deadline, "audio did not resume");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(left, [0.5; 64], "the last accepted preset still processes");
+    assert!(worker.alive());
+    assert_eq!(
+        worker.error(),
+        error,
+        "processing must not hide preset errors"
+    );
+    worker.queue_state(spec(0.75, 0).state).unwrap();
+    worker.save_state().unwrap();
+    assert!(
+        worker.error().is_empty(),
+        "an accepted preset clears the error"
+    );
+}
+
+/// The engine renders a device callback in `BLOCK`-sized (64 frame) chunks, so
+/// the default 512-frame buffer arrives as eight blocks back to back. Every one
+/// of them must come back wet: with the previous handover only the first block
+/// of each callback was, which chopped the plugin's output audibly (seven of
+/// eight blocks played dry, so this test saw about 8 % wet). The floor allows a
+/// contended test machine to miss the odd block, nothing more.
+#[test]
+fn every_block_of_a_render_callback_gets_plugin_output() {
+    use base64::Engine;
+    const CALLBACKS: usize = 30;
+    const BLOCKS: usize = 8;
+    let pool = pool();
+    let slot = EffectSlot {
+        enabled: true,
+        effect: EffectConfig::Plugin {
+            format: PluginFormat::Clap,
+            path: spec(0.5, 0).path,
+            name: "Gain".into(),
+            state: base64::engine::general_purpose::STANDARD.encode(spec(0.5, 0).state),
+        },
+    };
+    let mut chain = Chain::build_for(
+        &[slot],
+        MAX_TRACK_EFFECTS,
+        48_000.0,
+        64,
+        &NoAssets,
+        &pool,
+        Some((Some(0), 0)),
+    );
+    assert!(chain.problems.is_empty(), "{:?}", chain.problems);
+    let mut dry_after_warmup = 0;
+    let mut wet = 0;
+    let mut last_wet = 0.0;
+    for callback in 0..CALLBACKS {
+        for block in 0..BLOCKS {
+            // Number each block, so duplicate or reordered output cannot pass
+            // merely by having the expected gain on a constant input.
+            let input = (callback * BLOCKS + block + 1) as f32;
+            let mut left = [input; 64];
+            let mut right = [-1.0f32; 64];
+            chain.process(&mut left, &mut right);
+            if (right[0] + 0.5).abs() < 1e-6 {
+                assert!(left[0] > last_wet, "wet blocks must not repeat or reorder");
+                assert!(left[0] <= input * 0.5, "output cannot precede its input");
+                assert!(left.iter().all(|sample| *sample == left[0]));
+                last_wet = left[0];
+                wet += 1;
+            } else if callback > 0 {
+                dry_after_warmup += 1;
+            }
+        }
+        // One render callback's worth of wall time for the helper to keep up.
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        wet >= CALLBACKS * BLOCKS * 9 / 10,
+        "wet blocks: {wet} of {} ({dry_after_warmup} dry after the first callback)",
+        CALLBACKS * BLOCKS
     );
 }

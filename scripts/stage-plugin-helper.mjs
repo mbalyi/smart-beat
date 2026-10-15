@@ -2,11 +2,27 @@
 // Builds the out-of-process plugin helper in release and stages it where
 // Tauri's `externalBin` expects it: src-tauri/binaries/<name>-<triple>[.exe].
 // Runs before every `tauri build` (see src-tauri/tauri.conf.json).
-// Idempotent: rebuilds via cargo (a no-op when fresh), then copies only
-// when the staged file is missing or differs.
+//
+// The file has to carry the triple Tauri is building for, not this machine's:
+// a `--target universal-apple-darwin` release wants one fat binary, so both
+// slices are built and merged with `lipo` under that name. Tauri passes the
+// target to build hooks as TAURI_ENV_TARGET_TRIPLE; `--target <triple>` does
+// the same by hand.
+//
+// Idempotent: rebuilds via cargo (a no-op when fresh), then copies only when
+// the staged file is missing or differs.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -14,6 +30,7 @@ const BIN = "vst3-host-helper";
 // Keep tauri-build from overwriting Cargo's helper in target/debug.
 const SIDECAR = "smart-beat-plugin-helper";
 const EXE = process.platform === "win32" ? ".exe" : "";
+const UNIVERSAL = "universal-apple-darwin";
 
 function hostTriple() {
   const out = execFileSync("rustc", ["-vV"], { encoding: "utf8" });
@@ -22,28 +39,60 @@ function hostTriple() {
   return line.slice("host: ".length).trim();
 }
 
-const triple = hostTriple();
-const built = path.join(ROOT, "src-tauri", "target", "release", `${BIN}${EXE}`);
+function requestedTriple() {
+  const flag = process.argv.indexOf("--target");
+  if (flag !== -1 && process.argv[flag + 1]) return process.argv[flag + 1];
+  return process.env.TAURI_ENV_TARGET_TRIPLE || hostTriple();
+}
+
+/** Builds the helper for one triple; returns the binary cargo produced. */
+function build(target, host, explicitTarget) {
+  const args = ["build", "--release", "--bin", BIN, "--manifest-path", "src-tauri/Cargo.toml"];
+  // A host build uses target/release, the way every other command does, so it
+  // shares the compiled dependencies. A cross or universal build passes
+  // `--target` so its directories line up with the ones Tauri builds itself.
+  const cross = explicitTarget || target !== host;
+  if (cross) args.push("--target", target);
+  execFileSync("cargo", args, { cwd: ROOT, stdio: "inherit" });
+  const built = path.join(
+    ROOT,
+    "src-tauri",
+    "target",
+    ...(cross ? [target] : []),
+    "release",
+    `${BIN}${EXE}`,
+  );
+  if (!existsSync(built)) throw new Error(`Build finished but ${built} is missing`);
+  return built;
+}
+
+const host = hostTriple();
+const triple = requestedTriple();
+const slices = triple === UNIVERSAL ? ["aarch64-apple-darwin", "x86_64-apple-darwin"] : [triple];
+const explicitTarget = triple !== host;
 const staged = path.join(ROOT, "src-tauri", "binaries", `${SIDECAR}-${triple}${EXE}`);
 
-// tauri-build validates externalBin paths at compile time, so the staged
-// file must exist before cargo runs build.rs: touch an empty placeholder,
-// build the real helper, then overwrite the placeholder with the copy.
+// tauri-build validates externalBin paths at compile time, so a staged file
+// must exist before cargo runs build.rs. A stale or placeholder file is fine
+// here: everything built below overwrites it before the bundle is made.
 mkdirSync(path.dirname(staged), { recursive: true });
 if (!existsSync(staged)) writeFileSync(staged, Buffer.alloc(0));
 
-execFileSync(
-  "cargo",
-  ["build", "--release", "--bin", BIN, "--manifest-path", "src-tauri/Cargo.toml"],
-  { cwd: ROOT, stdio: "inherit" },
-);
-if (!existsSync(built)) throw new Error(`Build finished but ${built} is missing`);
-
-const fresh = existsSync(staged) && readFileSync(built).equals(readFileSync(staged));
-if (fresh) {
-  console.log(`✓ ${path.relative(ROOT, staged)} (up to date)`);
+const built = slices.map((target) => build(target, host, explicitTarget));
+let fresh;
+if (built.length === 1) {
+  fresh = readFileSync(built[0]).equals(readFileSync(staged));
+  if (!fresh) copyFileSync(built[0], staged);
 } else {
-  mkdirSync(path.dirname(staged), { recursive: true });
-  copyFileSync(built, staged);
-  console.log(`✓ ${path.relative(ROOT, staged)} (staged)`);
+  const dir = mkdtempSync(path.join(tmpdir(), "smart-beat-helper-"));
+  const fat = path.join(dir, `${SIDECAR}${EXE}`);
+  try {
+    execFileSync("lipo", ["-create", "-output", fat, ...built], { stdio: "inherit" });
+    fresh = readFileSync(fat).equals(readFileSync(staged));
+    if (!fresh) copyFileSync(fat, staged);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
+
+console.log(`✓ ${path.relative(ROOT, staged)} (${fresh ? "up to date" : "staged"})`);
