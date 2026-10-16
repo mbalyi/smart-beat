@@ -290,8 +290,19 @@ test.describe("plugins (#80)", () => {
     const dialog = await openPedalboard(app);
     await dialog.getByRole("switch", { name: "Use third-party plugins" }).click();
     await dialog.getByRole("button", { name: /Scan for plugins/ }).click();
+    await app.evaluate(() => {
+      window.__pluginLoading = true;
+    });
     await dialog.getByRole("button", { name: "Add plugin Test Amp" }).click();
     await expect(dialog.getByRole("listitem", { name: "Test Amp 1" })).toBeVisible();
+    await expect(dialog.getByText("Test Amp · Loading…", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Open editor…" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Save settings" })).toBeDisabled();
+    await expectNoA11yViolations(app);
+    await app.evaluate(() => {
+      window.__pluginLoading = false;
+    });
+    await expect(dialog.getByText("Test Amp · +5.3 ms", { exact: true })).toBeVisible();
     // The block reaches the engine with its scanned path.
     await expect
       .poll(() =>

@@ -18,6 +18,8 @@ use super::engine::Engine;
 
 /// Interleaved scratch size (frames) used when the device asks for more.
 const MAX_FRAMES: usize = 8_192;
+/// About 5 ms at 48 kHz. Large default device callbacks also delay isolated plugins.
+const TARGET_BUFFER_FRAMES: u32 = 256;
 
 /// What the callback publishes for the UI.
 #[derive(Default)]
@@ -134,71 +136,163 @@ fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
             supported.sample_format()
         ));
     }
+    let requested = preferred_buffer_size(*supported.buffer_size());
     let mut config: cpal::StreamConfig = supported.into();
-    config.buffer_size = cpal::BufferSize::Default;
     let rate = config.sample_rate;
     let channels = config.channels.max(1);
     let published = Arc::new(Published::default());
-    let shared = published.clone();
-    let mut left = vec![0.0f32; MAX_FRAMES];
-    let mut right = vec![0.0f32; MAX_FRAMES];
-    let stream = device
-        .build_output_stream::<f32, _, _>(
+    let stream = build_with_buffer_fallback(requested, |buffer_size| {
+        config.buffer_size = buffer_size;
+        device.build_output_stream::<f32, _, _>(
             config,
-            move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
-                let started = std::time::Instant::now();
-                let ch = channels as usize;
-                let frames = (data.len() / ch).min(MAX_FRAMES);
-                let ts = info.timestamp();
-                let latency = ts
-                    .playback
-                    .checked_duration_since(ts.callback)
-                    .unwrap_or_default();
-                shared
-                    .latency_us
-                    .store(latency.as_micros() as u32, Ordering::Relaxed);
-                match engine.try_lock() {
-                    Ok(mut engine) => publish(
-                        &mut engine,
-                        (&mut left[..frames], &mut right[..frames]),
-                        latency,
-                        &shared,
-                    ),
-                    Err(TryLockError::Poisoned(poisoned)) => {
-                        // Something panicked while holding the engine (not the
-                        // callback: that one is caught below). Take it back,
-                        // switch the effects off and carry on.
-                        engine.clear_poison();
-                        let mut engine = poisoned.into_inner();
-                        engine.quarantine();
-                        shared.faults.fetch_add(1, Ordering::Relaxed);
-                        publish(
-                            &mut engine,
-                            (&mut left[..frames], &mut right[..frames]),
-                            latency,
-                            &shared,
-                        );
-                    }
-                    Err(TryLockError::WouldBlock) => {
-                        left[..frames].fill(0.0);
-                        right[..frames].fill(0.0);
-                        shared.dropouts.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-                data.fill(0.0);
-                for (i, frame) in data.chunks_mut(ch).take(frames).enumerate() {
-                    frame[0] = left[i];
-                    if ch > 1 {
-                        frame[1] = right[i];
-                    }
-                }
-                let budget = frames as f64 / rate as f64;
-                let load = (started.elapsed().as_secs_f64() / budget * 1000.0) as u32;
-                shared.load_permille.fetch_max(load, Ordering::Relaxed);
-            },
+            output_callback(engine.clone(), published.clone(), rate, channels),
             |err| eprintln!("audio output: {err}"),
             Some(Duration::from_secs(3)),
         )
-        .map_err(|e| e.to_string())?;
+    })
+    .map_err(|e| e.to_string())?;
     Ok((stream, rate, channels, published))
+}
+
+fn preferred_buffer_size(supported: cpal::SupportedBufferSize) -> cpal::BufferSize {
+    let frames = match supported {
+        cpal::SupportedBufferSize::Range { min, max } => TARGET_BUFFER_FRAMES.clamp(min, max),
+        cpal::SupportedBufferSize::Unknown => TARGET_BUFFER_FRAMES,
+    };
+    cpal::BufferSize::Fixed(frames)
+}
+
+/// Some devices reject a fixed size despite advertising a supported range.
+fn build_with_buffer_fallback<T, E>(
+    requested: cpal::BufferSize,
+    mut build: impl FnMut(cpal::BufferSize) -> Result<T, E>,
+) -> Result<T, E> {
+    build(requested).or_else(|_| build(cpal::BufferSize::Default))
+}
+
+fn output_callback(
+    engine: Arc<Mutex<Engine>>,
+    shared: Arc<Published>,
+    rate: u32,
+    channels: u16,
+) -> impl FnMut(&mut [f32], &cpal::OutputCallbackInfo) + Send + 'static {
+    let mut left = vec![0.0f32; MAX_FRAMES];
+    let mut right = vec![0.0f32; MAX_FRAMES];
+    move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
+        let started = std::time::Instant::now();
+        let ch = channels as usize;
+        let frames = (data.len() / ch).min(MAX_FRAMES);
+        let ts = info.timestamp();
+        let latency = ts
+            .playback
+            .checked_duration_since(ts.callback)
+            .unwrap_or_default();
+        shared
+            .latency_us
+            .store(latency.as_micros() as u32, Ordering::Relaxed);
+        match engine.try_lock() {
+            Ok(mut engine) => publish(
+                &mut engine,
+                (&mut left[..frames], &mut right[..frames]),
+                latency,
+                &shared,
+            ),
+            Err(TryLockError::Poisoned(poisoned)) => {
+                // Something panicked while holding the engine (not the
+                // callback: that one is caught below). Take it back,
+                // switch the effects off and carry on.
+                engine.clear_poison();
+                let mut engine = poisoned.into_inner();
+                engine.quarantine();
+                shared.faults.fetch_add(1, Ordering::Relaxed);
+                publish(
+                    &mut engine,
+                    (&mut left[..frames], &mut right[..frames]),
+                    latency,
+                    &shared,
+                );
+            }
+            Err(TryLockError::WouldBlock) => {
+                left[..frames].fill(0.0);
+                right[..frames].fill(0.0);
+                shared.dropouts.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        data.fill(0.0);
+        for (i, frame) in data.chunks_mut(ch).take(frames).enumerate() {
+            frame[0] = left[i];
+            if ch > 1 {
+                frame[1] = right[i];
+            }
+        }
+        let budget = frames as f64 / rate as f64;
+        let load = (started.elapsed().as_secs_f64() / budget * 1000.0) as u32;
+        shared.load_permille.fetch_max(load, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn low_latency_buffer_respects_device_limits() {
+        use cpal::{BufferSize::Fixed, SupportedBufferSize::*};
+        assert_eq!(
+            preferred_buffer_size(Range { min: 32, max: 2048 }),
+            Fixed(256)
+        );
+        assert_eq!(
+            preferred_buffer_size(Range {
+                min: 512,
+                max: 2048
+            }),
+            Fixed(512)
+        );
+        assert_eq!(
+            preferred_buffer_size(Range { min: 32, max: 128 }),
+            Fixed(128)
+        );
+        assert_eq!(preferred_buffer_size(Unknown), Fixed(256));
+    }
+
+    #[test]
+    fn rejected_fixed_buffer_retries_device_default() {
+        let mut attempts = Vec::new();
+        let result = build_with_buffer_fallback(cpal::BufferSize::Fixed(256), |size| {
+            attempts.push(size);
+            match size {
+                cpal::BufferSize::Fixed(_) => Err("fixed buffer rejected"),
+                cpal::BufferSize::Default => Ok("stream"),
+            }
+        });
+        assert_eq!(result, Ok("stream"));
+        assert_eq!(
+            attempts,
+            [cpal::BufferSize::Fixed(256), cpal::BufferSize::Default]
+        );
+    }
+
+    #[test]
+    fn accepted_fixed_buffer_does_not_open_another_stream() {
+        let mut attempts = 0;
+        let result: Result<(), ()> =
+            build_with_buffer_fallback(cpal::BufferSize::Fixed(256), |_| {
+                attempts += 1;
+                Ok(())
+            });
+        assert!(result.is_ok());
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn default_buffer_failure_is_returned_without_more_retries() {
+        let mut attempts = 0;
+        let result = build_with_buffer_fallback(cpal::BufferSize::Fixed(256), |_| {
+            attempts += 1;
+            Err::<(), _>(attempts)
+        });
+        assert_eq!(result, Err(2));
+        assert_eq!(attempts, 2);
+    }
 }

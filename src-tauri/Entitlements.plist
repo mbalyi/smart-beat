@@ -5,8 +5,5 @@
 	<!-- The tuner's microphone (#83): with the hardened runtime, macOS denies it without this. -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
-	<!-- Out-of-process plugin hosting (#80): the helper loads third-party VST3 and CLAP binaries signed by other vendors, which library validation would refuse. -->
-	<key>com.apple.security.cs.disable-library-validation</key>
-	<true/>
 </dict>
 </plist>

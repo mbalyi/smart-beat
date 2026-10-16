@@ -147,6 +147,7 @@ export function usePlugins(
     (slot: Extract<EffectSlot, { type: "plugin" }>, index: number) => {
       const name = slot.name || "Plugin";
       const item = info.get(index);
+      if (item?.loading) return `${name} · Loading…`;
       if (!item || !(item.latencyMs > 0)) return name;
       return `${name} · +${item.latencyMs.toFixed(1)} ms`;
     },

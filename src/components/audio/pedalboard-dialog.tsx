@@ -560,7 +560,7 @@ function PluginPedalControls({
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-1 text-xs">
         <span className="min-w-0 flex-1 truncate font-medium">{slot.name || "Plugin"}</span>
-        <span className="rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground uppercase">
+        <span className="rounded-sm bg-muted px-1 py-0.5 text-[10px] text-foreground uppercase">
           {slot.format}
         </span>
       </div>
@@ -583,7 +583,7 @@ function PluginPedalControls({
           variant="outline"
           size="sm"
           className="flex-1"
-          disabled={busy !== null || !plugins.enabled || !slot.enabled}
+          disabled={busy !== null || !plugins.enabled || !slot.enabled || status?.loading}
           onClick={openEditor}
         >
           {busy === "editor" ? "Opening…" : "Open editor…"}
@@ -592,7 +592,7 @@ function PluginPedalControls({
           variant="outline"
           size="sm"
           className="flex-1"
-          disabled={busy !== null || !plugins.enabled || !slot.enabled}
+          disabled={busy !== null || !plugins.enabled || !slot.enabled || status?.loading}
           onClick={saveSettings}
           title="Save the plugin's current settings into this block"
         >
