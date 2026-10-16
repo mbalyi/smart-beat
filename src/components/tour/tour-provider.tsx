@@ -16,6 +16,7 @@ import { CoachActionsContext, TourContext, type TourApi, type TourHost } from "@
 import { APP_VERSION } from "@/lib/project-info";
 import type { TourId } from "@/lib/tour/feature-registry";
 import { requestTourPanels } from "@/lib/tour/tour-bus";
+import { findTourTarget } from "@/lib/tour/target";
 import {
   startRun,
   transition,
@@ -33,12 +34,9 @@ import { TOUR_LIST, TOURS, type TourStep } from "@/lib/tour/tours";
 
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-const targetSelector = (step: TourStep) => `[data-tour="${step.target}"]`;
 /** A step can be shown when its control is on screen, or a dialog the step opens will have it. */
 const isReachable = (step: TourStep) =>
-  step.inDialog === true ||
-  step.show !== undefined ||
-  document.querySelector(targetSelector(step)) !== null;
+  step.inDialog === true || step.show !== undefined || findTourTarget(step.target) !== null;
 
 /** The other tours the last step of a tour offers to go on with. */
 const otherTours = (current: string) =>
@@ -56,7 +54,8 @@ const coachData = (step: TourStep, tour: string, canGoBack: () => boolean): Coac
 const toJoyrideStep = (step: TourStep, data: CoachData): Step => ({
   data,
   id: step.id,
-  target: targetSelector(step),
+  // The element is looked up when the step shows, and is the shown song's, not a hidden one's.
+  target: () => findTourTarget(step.target),
   title: step.title,
   content: step.body,
   placement: step.placement ?? "bottom",
@@ -163,7 +162,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       const index = def.steps.findIndex(
         (step, i) =>
           i >= fromStep &&
-          (document.querySelector(`[data-tour="${step.target}"]`) !== null ||
+          (findTourTarget(step.target) !== null ||
             // A step that shows its own panel or dialog does not need its control on screen yet.
             (step.show !== undefined && host.current?.hasSong() === true) ||
             (step.needsSong === true && host.current?.hasSong() === false)),
@@ -239,7 +238,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     if (!targetName) return;
     let marked: Element | null = null;
     const mark = () => {
-      const el = document.querySelector(`[data-tour="${targetName}"]`);
+      const el = findTourTarget(targetName);
       if (el && el !== marked) {
         marked?.removeAttribute("data-tour-active");
         el.setAttribute("data-tour-active", "");

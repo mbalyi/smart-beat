@@ -176,6 +176,7 @@ import {
   storePracticePrefs,
   type LoopRange,
   type PracticeAction,
+  normalizeRange,
   type PracticeState,
 } from "@/lib/score/practice";
 import type { Scale } from "@/lib/score/scales";
@@ -1168,7 +1169,9 @@ export function ScoreWorkspace({
     practice: PracticeState;
   } | null>(null);
   const onTourPanels = useEffectEvent((message: TourBusMessage) => {
-    if (!active) return;
+    // The song a tour started on restores itself, even if another tab is shown by then.
+    const owner = tourSnapshot.current !== null;
+    if (!active && !(message === "restore" && owner)) return;
     const closeDialogs = () => {
       setTrainerOpen(false);
       setPedalboard((p) => ({ ...p, open: false }));
@@ -1225,7 +1228,14 @@ export function ScoreWorkspace({
         shownTrack = wanted;
       }
     }
-    const settings = message.practice;
+    const settings = message.practice && {
+      ...message.practice,
+      // A loop must lie inside this song, which may be shorter than the tour assumes.
+      loop:
+        message.practice.loop === undefined || message.practice.loop === false
+          ? message.practice.loop
+          : normalizeRange(message.practice.loop, score.masterBars.length),
+    };
     if (settings) {
       if (settings.trainer === "stop") dispatchPracticeAction({ type: "stop-trainer" });
       if (settings.speed !== undefined)
