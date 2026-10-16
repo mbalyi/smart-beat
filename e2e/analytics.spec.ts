@@ -77,6 +77,7 @@ test.describe("anonymous usage counters (#99)", () => {
     await app.getByRole("menuitem", { name: "Settings…" }).click();
 
     const dialog = app.getByRole("dialog", { name: "Settings" });
+    expect((await tracked(app)).filter((e) => e === "settings_open")).toHaveLength(1);
     const toggle = dialog.getByRole("switch", { name: "Share anonymous usage counts" });
     await expect(toggle).toBeChecked();
     await expectNoA11yViolations(app);
@@ -98,4 +99,31 @@ test.describe("anonymous usage counters (#99)", () => {
       "does not collect any usage statistics",
     );
   });
+});
+
+test("pedal actions count once and a knob drag sends no effect counters", async ({ app }) => {
+  await openSong(app);
+  await app.getByRole("button", { name: "Actions for Guitar" }).click();
+  await app.getByRole("menuitem", { name: "Effects (pedalboard)…" }).click();
+  const dialog = app.getByRole("dialog", { name: /Pedalboard:/ });
+  await dialog.getByRole("button", { name: "Add Delay", exact: true }).click();
+  const knob = dialog.getByRole("slider", { name: "Delay 1, Time" });
+  await knob.hover();
+  const box = await knob.boundingBox();
+  if (!box) throw new Error("Delay knob is not visible");
+  await app.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await app.mouse.down();
+  await app.mouse.move(box.x + box.width / 2, box.y - 40, { steps: 12 });
+  await app.mouse.up();
+  expect(await knob.getAttribute("aria-valuenow")).not.toBe("375");
+  let events = await tracked(app);
+  expect(events.filter((e) => e === "pedal_add:delay")).toHaveLength(1);
+  expect(events.filter((e) => e === "effect_pedal")).toHaveLength(0);
+  await dialog.getByRole("button", { name: "Add Amp", exact: true }).click();
+  await dialog.getByRole("button", { name: "Move Amp 2 left" }).click();
+  await dialog.getByRole("button", { name: "Remove Amp 1" }).click();
+  events = await tracked(app);
+  expect(events.filter((e) => e === "pedal_add:amp_sim")).toHaveLength(1);
+  expect(events.filter((e) => e === "pedal_remove:amp_sim")).toHaveLength(1);
+  expect(events.filter((e) => e === "pedal_move")).toHaveLength(1);
 });

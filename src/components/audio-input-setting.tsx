@@ -1,6 +1,7 @@
 import { MicIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
+import { track } from "@/lib/telemetry";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -154,6 +155,7 @@ export function AudioInputSetting({ stacked = false }: { stacked?: boolean } = {
     const next = options.find((i) => i.deviceId === value) ?? null;
     // Another input starts on its first channel.
     if (next?.label !== chosen?.label) storeAudioInputChannel(0);
+    if (next?.deviceId !== chosen?.deviceId) track("audio_input_change");
     storeAudioInput(next);
   };
 

@@ -27,7 +27,7 @@ One request, `POST /v1/batch`, with this JSON and nothing else:
   gh api repos/mbalyi/smart-beat/releases --jq '.[].assets[] | {name, download_count}'
   ```
 
-- `format`: only with `open_file` and `export`, and only a known extension (`gp3`, `gp4`, `gp5`, `gpx`, `gp`, `mid`, `midi`, `pdf`, `wav`, `m4a`, `mp3`, `musicxml`, `ogg`, `flac`, `txt`, `png`).
+- `format`: a fixed detail allowed for that event. For `open_file`, `export`, `save` and `save_as`, a known extension (`gp3`, `gp4`, `gp5`, `gpx`, `gp`, `mid`, `midi`, `pdf`, `wav`, `m4a`, `mp3`, `musicxml`, `ogg`, `flac`, `txt`, `png`).
 - Never sent: song or file names, titles, sound names, tempo or note values, volumes, anything typed, an IP address (the server does not store it), a user or install id.
 
 ## Counted features
@@ -35,6 +35,26 @@ One request, `POST /v1/batch`, with this JSON and nothing else:
 `app_start`, `play`, `pause`, `stop`, `loop_on`, `speed_trainer_start`, `metronome_on`, `count_in_on`, `practice_mix` (focusing a track), `sound_change` (instrument sounds, presets, sound set), `open_file`, `export`, `save`, `save_as`, `mixer_open`, `effect_pedal` (changing a track's or the master effect chain), `sound_library_import`, `edit` (once per edit), `undo`, `redo`, `new_song`, `track_add`, `track_delete`, `solo_track`, `mute_track`, `tempo_change`, `transpose`, `copy_paste`, `chord_insert`, `notation_mode_switch`, `tuner`, `fretboard_view` / `piano_view` (the instrument view on a stringed track / on any other), `update_check`, `update_installed`, `theme_dark`, `theme_light`, `shift_select` (extending a score selection with Shift), `copy`, `cut`, `delete_selection`, `loop_selection`, `practise_selection`, `play_selection` (the score menu's selection actions), `restart_on_stop_on` / `restart_on_stop_off` (the "Auto-restart" practice option) and `restart_on_stop_used` (Stop sent the next Play back to the loop start) and `record_to_tab` (a finished Record to Tab take).
 
 The list is one Rust enum (`Event` in [`src-tauri/src/telemetry.rs`](../src-tauri/src/telemetry.rs)) mirrored by the UI (`TrackedEvent`, [`src/lib/telemetry.ts`](../src/lib/telemetry.ts)) and the Worker ([`analytics/src/events.ts`](../analytics/src/events.ts)); anything else is refused at each end. To count a new feature, add it in all three places and call `track("name")` where the user does it.
+
+New feature counters and their allowed details:
+
+| Event                              | Allowed detail in `format`                                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pedal_add`, `pedal_remove`        | `gate`, `compressor`, `eq`, `drive`, `amp_sim`, `chorus`, `phaser`, `tremolo`, `delay`, `reverb`, `limiter`, `amp`, `cab`, `plugin`                     |
+| `pedal_move`                       | None                                                                                                                                                    |
+| `plugins_on`, `plugin_scan`        | None                                                                                                                                                    |
+| `plugin_add`, `plugin_editor_open` | `vst3`, `clap`                                                                                                                                          |
+| `copy_to_instrument`               | `guitar`, `electric-guitar`, `classical-guitar`, `guitar-7`, `guitar-8`, `guitar-9`, `bass-4`, `bass-5`, `bass-6`, `banjo`, `ukulele`, `piano`, `other` |
+| `audio_transcribe`                 | None                                                                                                                                                    |
+| `settings_open`                    | None                                                                                                                                                    |
+| `audio_input_change`               | None                                                                                                                                                    |
+| `piano_model_download`             | None                                                                                                                                                    |
+| `record_to_tab`                    | `guitar`, `bass`, `piano`, `drums`                                                                                                                      |
+| `sound_library_import`             | `amp`, `cab`                                                                                                                                            |
+
+Details are optional so older app batches still work. `save` and `save_as` also keep accepting file extensions sent by existing clients. Other events accept no detail. The wire field and database column keep the name `format`; no database migration is needed. Plugin names, paths, amp model or IR ids and device labels are never counted.
+
+Pedal add, remove and reorder counters cover buttons, keyboard shortcuts and drag and drop. `effect_pedal` counts loading a pedalboard preset, once per action, and never knob moves. `plugin_editor_open` counts a successful editor open. `plugins_on` counts the user's opt-in action, not restoring the saved preference. `audio_transcribe` counts a completed Import from Audio transcription, even if the result is not imported. `settings_open` counts an explicit user open, not the automatic usage notice. `audio_input_change` counts choosing a different input, and `piano_model_download` counts starting a download, including retries.
 
 ## How it works
 

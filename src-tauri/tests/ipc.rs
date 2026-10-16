@@ -1331,9 +1331,31 @@ fn usage_counters_are_recorded_and_can_be_switched_off_over_ipc() {
         json!({ "event": "export", "format": "pdf" }),
     )
     .unwrap();
+    invoke_with(
+        &window,
+        "track_event",
+        json!({ "event": "pedal_add", "format": "amp_sim" }),
+    )
+    .unwrap();
+    invoke_with(
+        &window,
+        "track_event",
+        json!({ "event": "plugin_add", "format": "clap" }),
+    )
+    .unwrap();
+    assert!(
+        invoke_with(
+            &window,
+            "track_event",
+            json!({ "event": "pedal_add", "format": "clap" })
+        )
+        .is_err()
+    );
     let stored = std::fs::read_to_string(dir.path().join("usage.json")).unwrap();
     assert!(stored.contains("loop_on|"), "{stored}");
     assert!(stored.contains("export|pdf"), "{stored}");
+    assert!(stored.contains("pedal_add|amp_sim"), "{stored}");
+    assert!(stored.contains("plugin_add|clap"), "{stored}");
     // Nothing identifying is stored: only days and counts.
     let parsed: Value = serde_json::from_str(&stored).unwrap();
     assert_eq!(

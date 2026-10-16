@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
+import { track } from "@/lib/telemetry";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -542,7 +543,9 @@ function PluginPedalControls({
   const status = plugins.info.get(index);
   const openEditor = async () => {
     setBusy("editor");
-    setError(await plugins.openEditor(index));
+    const error = await plugins.openEditor(index);
+    if (!error) track("plugin_editor_open", slot.format);
+    setError(error);
     setBusy(null);
   };
   const saveSettings = async () => {
@@ -705,21 +708,26 @@ export function PedalboardDialog({
   };
   const move = (from: number, to: number) => {
     if (to < 0 || to >= chain.length || from === to) return;
+    track("pedal_move");
     onChange(moveEffect(chain, from, to));
     setSelected(to);
     focusPedal(to);
   };
   const remove = (index: number) => {
+    if (chain[index])
+      track("pedal_remove", chain[index].type === "ampSim" ? "amp_sim" : chain[index].type);
     onChange(removeEffect(chain, index));
     setSelected(Math.max(0, Math.min(index, chain.length - 2)));
   };
   const add = (type: EffectType, at = chain.length) => {
     if (full) return;
+    track("pedal_add", type === "ampSim" ? "amp_sim" : type);
     onChange(insertEffect(chain, type, at, limit));
     setSelected(Math.min(at, chain.length));
   };
   const addAsset = (asset: { kind: AssetKind; id: string }, at = chain.length) => {
     if (full) return;
+    track("pedal_add", asset.kind);
     onChange(insertAsset(chain, asset, at, limit));
     setSelected(Math.min(at, chain.length));
   };
@@ -728,6 +736,8 @@ export function PedalboardDialog({
     at = chain.length,
   ) => {
     if (full) return;
+    track("pedal_add", "plugin");
+    track("plugin_add", plugin.format);
     onChange(insertPlugin(chain, plugin, at, limit));
     setSelected(Math.min(at, chain.length));
   };
@@ -931,6 +941,7 @@ export function PedalboardDialog({
                   const preset = presets.find((p) => p.id === id);
                   const next = own ? structuredClone(own.effects) : preset ? chainOf(preset) : null;
                   if (next) {
+                    track("effect_pedal");
                     onChange(next.slice(0, limit));
                     setSelected(0);
                   }
@@ -1435,7 +1446,15 @@ export function PedalboardDialog({
           )}
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onChange([])} disabled={chain.length === 0}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              for (const slot of chain)
+                track("pedal_remove", slot.type === "ampSim" ? "amp_sim" : slot.type);
+              onChange([]);
+            }}
+            disabled={chain.length === 0}
+          >
             Clear
           </Button>
           <Button onClick={() => onOpenChange(false)}>Done</Button>

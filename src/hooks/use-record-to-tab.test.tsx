@@ -243,7 +243,7 @@ describe("click mode", () => {
     // The grid it is fitted to is one beat: half a second at 120 BPM.
     expect(alignOffset).toHaveBeenCalledWith(expect.anything(), 0.5);
     expect(hook.editor.placeCursorOnTrack).toHaveBeenCalledWith(1);
-    expect(track).toHaveBeenCalledWith("record_to_tab");
+    expect(track).toHaveBeenCalledWith("record_to_tab", "guitar");
     expect(track).toHaveBeenCalledTimes(1);
     expect(toast).toHaveBeenCalledWith(
       "Added your take to “Rhythm”",
@@ -792,7 +792,7 @@ describe("an existing recording", () => {
       "standard",
     );
     expect(hook.player.playPause).not.toHaveBeenCalled();
-    expect(track).toHaveBeenCalledWith("record_to_tab");
+    expect(track).toHaveBeenCalledWith("record_to_tab", "guitar");
     await waitFor(() => expect(hook.result.current.phase.kind).toBe("idle"));
   });
 

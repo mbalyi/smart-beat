@@ -1,4 +1,4 @@
-import { EVENTS, FORMATS, INSTALLERS, OSES } from "./events";
+import { EVENTS, EVENT_DETAILS, INSTALLERS, OSES } from "./events";
 
 export interface Env {
   DB: D1Database;
@@ -44,8 +44,8 @@ const bad = (message: string): Response => json({ error: message }, 400);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const has = (list: readonly string[], value: unknown): value is string =>
-  typeof value === "string" && list.includes(value);
+const has = <T extends string>(list: readonly T[], value: unknown): value is T =>
+  typeof value === "string" && list.includes(value as T);
 
 /** `YYYY-MM-DD` of `now` shifted by `days`. */
 const dayOffset = (now: Date, days: number): string =>
@@ -74,7 +74,7 @@ export function validate(input: unknown, now = new Date()): Batch | string {
     if (typeof day !== "string" || !DAY.test(day)) return "Bad day.";
     if (Number.isNaN(Date.parse(day)) || day < oldest || day > newest) return "Day out of range.";
     if (!has(EVENTS, event)) return "Unknown event.";
-    if (format !== undefined && !has(FORMATS, format)) return "Unknown format.";
+    if (format !== undefined && !has(EVENT_DETAILS[event] ?? [], format)) return "Unknown format.";
     if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > MAX_COUNT) {
       return "Bad count.";
     }
