@@ -37,6 +37,8 @@ vi.mock("node:child_process", () => {
         );
       } else if (command === "lipo") {
         files.set(args[2], Buffer.concat(args.slice(3).map((file) => files.get(file))));
+      } else if (command === "codesign") {
+        // Helper signing is verified independently in sign-plugin-helper.test.mjs.
       } else {
         throw new Error(`Unexpected command: ${command}`);
       }
@@ -48,6 +50,8 @@ vi.mock("node:child_process", () => {
 afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(() => {
+  vi.stubEnv("APPLE_SIGNING_IDENTITY", "");
+  vi.stubEnv("APPLE_CERTIFICATE", "");
   files.clear();
   vi.resetModules();
 });
@@ -77,4 +81,7 @@ it("stages a universal helper for both externalBin and Cargo's additional binary
   );
   expect(sidecar?.toString()).toBe("aarch64-apple-darwinx86_64-apple-darwin");
   expect(cargoBinary).toEqual(sidecar);
+  expect(files.get(path.join(root, "src-tauri/binaries/smart-beat-plugin-helper-macos"))).toEqual(
+    sidecar,
+  );
 });

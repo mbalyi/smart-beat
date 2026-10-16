@@ -346,7 +346,7 @@ fn build_amp(
 }
 
 /// A third-party plugin block: hands stereo blocks to the out-of-process
-/// worker and plays the latest finished output. A missing answer passes
+/// worker and plays consecutive output within its callback budget. A missing answer passes
 /// audio through dry — the audio thread never waits, allocates, or fails.
 struct PluginEffect {
     worker: Arc<super::plugin::PluginWorker>,
@@ -357,9 +357,18 @@ struct PluginEffect {
 }
 
 impl Effect for PluginEffect {
+    fn update_rejected(&self) -> bool {
+        self.worker.state_rejected() || (!self.worker.loading() && !self.worker.alive())
+    }
+
+    fn begin_render(&mut self, frames: usize) {
+        self.worker.begin_render(frames);
+    }
+
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         if self.worker.offline() {
-            self.worker.process_offline(left, right);
+            // The export checks the pool's sticky error before returning bytes.
+            let _ = self.worker.process_offline(left, right);
             return;
         }
         self.worker.push(left, right);
@@ -375,6 +384,9 @@ impl Effect for PluginEffect {
     }
 
     fn update(&mut self, config: &EffectConfig) -> bool {
+        if !self.worker.loading() && !self.worker.alive() {
+            return false;
+        }
         let EffectConfig::Plugin {
             format,
             path,
@@ -394,7 +406,7 @@ impl Effect for PluginEffect {
         };
         // Compare the requested state, not the worker's last applied state:
         // an undo must remain ordered behind a preset that is still loading.
-        if state == self.state {
+        if state == self.state && !self.worker.state_rejected() {
             return true;
         }
         // The same plugin keeps its running worker; the new preset is queued to
@@ -515,7 +527,7 @@ impl Chain {
             return false;
         }
         for ((slot, old), block) in enabled.zip(self.layout.iter_mut()).zip(&mut self.blocks) {
-            if slot.effect == *old {
+            if slot.effect == *old && !block.update_rejected() {
                 continue;
             }
             if !block.update(&slot.effect) {
@@ -628,7 +640,12 @@ impl Chain {
                     layout.push(slot.effect.clone());
                     slot_indexes.push(index);
                 }
-                Err(message) => problems.push(BlockProblem { index, message }),
+                Err(message) => {
+                    if matches!(&slot.effect, EffectConfig::Plugin { .. }) {
+                        plugins.record_build_error(&message);
+                    }
+                    problems.push(BlockProblem { index, message });
+                }
             }
         }
         Self {
@@ -637,6 +654,12 @@ impl Chain {
             slots: slot_indexes,
             reduction: [0.0; MAX_TRACK_EFFECTS],
             problems,
+        }
+    }
+
+    pub fn begin_render(&mut self, frames: usize) {
+        for block in &mut self.blocks {
+            block.begin_render(frames);
         }
     }
 
@@ -667,7 +690,7 @@ impl Chain {
     }
 
     /// The added latency of the running blocks in samples (plugin blocks
-    /// report their own latency plus the handover block; built-ins add none).
+    /// report their own latency plus the handover queue; built-ins add none).
     pub fn latency_samples(&self) -> u32 {
         self.blocks.iter().map(|b| b.latency_samples()).sum()
     }
@@ -722,6 +745,13 @@ impl ChainPlayer {
         self.previous.is_none() && self.current.update(slots, limit)
     }
 
+    pub fn begin_render(&mut self, frames: usize) {
+        self.current.begin_render(frames);
+        if let Some(previous) = &mut self.previous {
+            previous.begin_render(frames);
+        }
+    }
+
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         let n = left.len();
         let Some(previous) = self
@@ -758,6 +788,41 @@ impl ChainPlayer {
 mod tests {
     use super::super::dsp::test_signals::*;
     use super::*;
+
+    #[test]
+    fn export_records_plugins_that_fail_before_a_worker_exists() {
+        for state in ["", "invalid base64!"] {
+            let pool = PluginPool::default();
+            pool.set_enabled(true);
+            let pool = pool.for_offline();
+            let chain = Chain::build(
+                &[plugin_slot("/nonexistent/export.clap", state)],
+                MAX_TRACK_EFFECTS,
+                RATE,
+                64,
+                &NoAssets,
+                &pool,
+            );
+            assert_eq!(chain.problems.len(), 1);
+            assert_eq!(
+                pool.processing_error().as_deref(),
+                Some(chain.problems[0].message.as_str())
+            );
+        }
+        let bypassed = PluginPool::default().for_offline();
+        let _ = Chain::build(
+            &[plugin_slot("/nonexistent/export.clap", "")],
+            MAX_TRACK_EFFECTS,
+            RATE,
+            64,
+            &NoAssets,
+            &bypassed,
+        );
+        assert!(
+            bypassed.processing_error().is_none(),
+            "global bypass is intentional"
+        );
+    }
 
     fn slot(effect: EffectConfig) -> EffectSlot {
         EffectSlot {

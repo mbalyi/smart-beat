@@ -1,6 +1,6 @@
 //! Original synthetic CLAP gain plugin. No GUI, samples, or third-party plugin code.
 //! State: f32 gain, u8 failure mode, u32 PID, f64 sample rate. Mode 1 crashes;
-//! mode 2 hangs. Those modes let host tests exercise actual process isolation.
+//! mode 2 hangs; mode 3 delays state loading. These exercise process isolation.
 #![allow(unsafe_op_in_unsafe_fn)]
 use clap_sys::{
     entry::*,
@@ -31,6 +31,7 @@ struct Data {
     gain: AtomicU32,
     mode: AtomicU8,
     rate: AtomicU64,
+    rejected_once: AtomicU8,
 }
 unsafe fn data<'a>(p: *const clap_plugin) -> &'a Data {
     &*((*p).plugin_data as *const Data)
@@ -145,6 +146,12 @@ unsafe extern "C" fn load(p: *const clap_plugin, stream: *const clap_istream) ->
     if !gain.is_finite() {
         return false;
     }
+    if bytes[4] == 4 && data(p).rejected_once.swap(1, Ordering::Relaxed) == 0 {
+        return false;
+    }
+    if bytes[4] == 3 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     data(p).gain.store(gain.to_bits(), Ordering::Relaxed);
     data(p).mode.store(bytes[4], Ordering::Relaxed);
     true
@@ -195,6 +202,7 @@ unsafe extern "C" fn create(
         gain: AtomicU32::new(1.0f32.to_bits()),
         mode: AtomicU8::new(0),
         rate: AtomicU64::new(0),
+        rejected_once: AtomicU8::new(0),
     }));
     Box::into_raw(Box::new(clap_plugin {
         desc: &DESCRIPTOR,

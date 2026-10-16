@@ -88,6 +88,35 @@ it("describes a plugin with its added latency in milliseconds", async () => {
   expect(result.current.describe(slot, 0)).toBe("Gain · +1.3 ms");
 });
 
+it("shows asynchronous plugin loading, then its processing status", async () => {
+  localStorage.setItem("smart-beat.plugins-enabled", "1");
+  let loading = true;
+  mockTauri({
+    plugins_set_enabled: () => null,
+    plugins_enabled: () => true,
+    audio_plugin_info: () => [
+      {
+        index: 0,
+        name: "Gain",
+        latencySamples: 64,
+        latencyMs: 1.3,
+        alive: !loading,
+        loading,
+        error: "",
+      },
+    ],
+  });
+  vi.useFakeTimers();
+  const { result } = renderHook(() => usePlugins({ track: 0 }, 0, chain));
+  const slot = chain[0] as Extract<EffectSlot, { type: "plugin" }>;
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(result.current.describe(slot, 0)).toBe("Gain · Loading…");
+  expect(result.current.applying).toBe(false);
+  loading = false;
+  await act(() => vi.advanceTimersByTimeAsync(500));
+  expect(result.current.describe(slot, 0)).toBe("Gain · +1.3 ms");
+});
+
 it("stays applying until the newest opt-in change reaches the backend", async () => {
   localStorage.setItem("smart-beat.plugins-enabled", "0");
   const pending: (() => void)[] = [];

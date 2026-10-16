@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Builds the out-of-process plugin helper in release and stages it where
 // Tauri's `externalBin` expects it: src-tauri/binaries/<name>-<triple>[.exe].
+// macOS also stages a separately signed copy for bundle.macOS.files.
 // Runs before every `tauri build` (see src-tauri/tauri.conf.json).
 //
 // The file has to carry the triple Tauri is building for, not this machine's:
@@ -24,6 +25,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { signPluginHelper } from "./sign-plugin-helper.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const BIN = "vst3-host-helper";
@@ -108,6 +110,14 @@ if (built.length === 1) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// macOS custom files bypass Tauri's global per-binary entitlements. Sign the
+// selected helper before the app is sealed; the ordinary Cargo copy is unused.
+if (triple.endsWith("-apple-darwin")) {
+  const isolated = path.join(ROOT, "src-tauri", "binaries", "smart-beat-plugin-helper-macos");
+  copyFileSync(staged, isolated);
+  signPluginHelper(isolated);
 }
 
 console.log(`✓ ${path.relative(ROOT, staged)} (${fresh ? "up to date" : "staged"})`);

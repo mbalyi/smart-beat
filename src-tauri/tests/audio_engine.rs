@@ -239,7 +239,12 @@ fn renders_much_faster_than_real_time() {
 fn renders_the_whole_song_offline() {
     let mut engine = Engine::new(sonivox(), RATE);
     engine.load(Arc::new(song())).unwrap();
-    let bytes = smart_beat_lib::audio::render_offline(&mut engine, 48_000 * 60);
+    let bytes = smart_beat_lib::audio::render_offline(
+        &mut engine,
+        48_000 * 60,
+        &smart_beat_lib::audio::plugin::PluginPool::default(),
+    )
+    .unwrap();
     let frames = bytes.len() / 8;
     // 4 s of music plus the release tail.
     assert!(
@@ -625,7 +630,12 @@ fn the_audio_track_follows_sync_points_and_solo() {
     let mut offline = playing_engine(|e| {
         e.set_backing(Some(backing(false)));
     });
-    let bytes = smart_beat_lib::audio::render_offline(&mut offline, 48_000 * 60);
+    let bytes = smart_beat_lib::audio::render_offline(
+        &mut offline,
+        48_000 * 60,
+        &smart_beat_lib::audio::plugin::PluginPool::default(),
+    )
+    .unwrap();
     assert!(bytes.len() / 8 > 4 * 48_000);
     // Sync map: song second 1 is recording second 1.5.
     let map = SyncMap::new(vec![(0.0, 0.5)]);

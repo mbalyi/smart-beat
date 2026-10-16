@@ -102,6 +102,7 @@ declare global {
     __pdfFail?: string;
     __engineChains?: Record<string, { type: string }[]>;
     __pluginsEnabled?: boolean;
+    __pluginLoading?: boolean;
     __engineConfig: {
       sounds: Record<string, { sounds: unknown[][]; switches: [number, number][] }>;
       automation: Record<string, { enabled: boolean; volume: [number, number][] }>;

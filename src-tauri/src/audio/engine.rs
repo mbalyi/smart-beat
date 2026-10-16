@@ -935,6 +935,12 @@ impl Engine {
 
     /// Renders `left.len()` frames (any length) into the buffers.
     pub fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.master.begin_render(left.len());
+        for track in &mut self.tracks {
+            for sound in &mut track.sounds {
+                sound.begin_render(left.len());
+            }
+        }
         let mut done = 0;
         while done < left.len() {
             let n = (left.len() - done).min(BLOCK);
