@@ -121,12 +121,33 @@ describe("ScorePlayer with the native engine", () => {
       new Error("This SoundFont is not installed."),
     );
 
+    onReadyChange.mockClear();
+
     await player.setSoundFont("stored:gone");
 
     expect(onSoundFontError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "This SoundFont is not installed." }),
       { previousKept: true },
     );
+    // Playback is usable again (Play and the sound picker were disabled while it loaded).
+    expect(onReadyChange.mock.calls.map(([ready]) => ready)).toEqual([false, true]);
+  });
+
+  it("goes on playing after a stored SoundFont failed to load while playing (#81)", async () => {
+    const { player, api, onReadyChange } = await setup();
+    api.player.ready.trigger();
+    api.player.readyForPlayback.trigger();
+    await vi.waitFor(() => expect(onReadyChange).toHaveBeenCalledWith(true));
+    player.playPause();
+    expect(api.playPause).toHaveBeenCalledOnce();
+    api.play.mockClear();
+    api.pause.mockClear();
+    mocked.activateStoredSoundFont.mockRejectedValueOnce(new Error("not installed"));
+
+    await player.setSoundFont("stored:gone");
+
+    expect(api.pause).toHaveBeenCalledOnce(); // paused for the load...
+    expect(api.play).toHaveBeenCalledOnce(); // ...and resumed when it failed
   });
 
   it("sends alphaTab's MIDI, the effect chains and the metronome to the engine", async () => {

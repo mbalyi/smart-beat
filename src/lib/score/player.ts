@@ -1118,6 +1118,15 @@ export class ScorePlayer {
     } catch (error) {
       if (isCurrent()) {
         this.callbacks.onSoundFontError?.(asError(error), { previousKept: this.hasSounds });
+        // A failed load leaves the engine with the sounds it had, so playback is usable again:
+        // without this, Play and the sound picker would stay disabled after the pause above.
+        if (this.hasSounds && this.alphaTabReady) {
+          this.setReady(true);
+          if (wasPlaying) {
+            this.playing = true;
+            this.api.play();
+          }
+        }
       }
       return;
     }

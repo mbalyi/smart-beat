@@ -402,6 +402,26 @@ describe("ScoreWorkspace", () => {
     );
   });
 
+  it("loads the standard sounds when a SoundFont the user added cannot be loaded (#81)", async () => {
+    localStorage.setItem(SOUNDFONT_STORAGE_KEY, "stored:my-bank");
+    const { player } = await setup();
+    expect(player.options.soundFontUrl).toBe("stored:my-bank");
+    player.becomeReady();
+    player.setSoundFont.mockClear();
+
+    // The sounds that were kept may belong to another bank, so the fallback is loaded even then.
+    player.emit("onSoundFontError", new Error("This SoundFont is not installed."), {
+      previousKept: true,
+    });
+
+    expect(await screen.findByText("The SoundFont could not be loaded")).toBeInTheDocument();
+    expect(player.setSoundFont).toHaveBeenCalledWith("/soundfont/sonivox.sf3");
+    expect(localStorage.getItem(SOUNDFONT_STORAGE_KEY)).toBe("sonivox");
+    expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toHaveTextContent(
+      "Standard",
+    );
+  });
+
   it("disables switching sounds while they load, and explains pan during playback", async () => {
     const { player } = await setup();
     expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toBeDisabled();

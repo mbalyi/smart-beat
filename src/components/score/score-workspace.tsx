@@ -200,6 +200,7 @@ import {
 import {
   DEFAULT_SOUNDFONT,
   getSoundFont,
+  isStoredSoundFontId,
   readSoundFontPreference,
   soundFontUrl,
   storedSoundFontId,
@@ -666,13 +667,22 @@ export function ScoreWorkspace({
         toast.error("Instrument sounds could not be loaded", { description: errorText(error) });
         return;
       }
-      toast.error(`${getSoundFont(soundFont, soundFonts.fonts).label} sounds are not available`, {
-        description: "Using the standard sounds instead.",
-      });
+      const added = isStoredSoundFontId(soundFont);
+      const name = soundFonts.fonts.find((font) => font.id === soundFont)?.label ?? "The SoundFont";
+      toast.error(
+        added
+          ? `${name} could not be loaded`
+          : `${getSoundFont(soundFont).label} sounds are not available`,
+        { description: "Using the standard sounds instead." },
+      );
       setSoundFont(DEFAULT_SOUNDFONT);
       storeSoundFontPreference(DEFAULT_SOUNDFONT);
-      // The standard sounds may still be loaded: then don't interrupt playback.
-      if (!previousKept) void playerRef.current?.setSoundFont(getSoundFont(DEFAULT_SOUNDFONT).url);
+      // The standard sounds may still be loaded: then don't interrupt playback. A SoundFont the
+      // user added is the exception: the sounds that were kept may be another bank's, so load the
+      // standard ones for the picker and the sound to agree.
+      if (!previousKept || isStoredSoundFontId(soundFont)) {
+        void playerRef.current?.setSoundFont(soundFontUrl(DEFAULT_SOUNDFONT));
+      }
     },
   );
 
@@ -2576,7 +2586,10 @@ export function ScoreWorkspace({
               soundFont={soundFont}
               onSoundFontChange={changeSoundFont}
               soundFonts={soundFonts.fonts}
-              onManageSoundFonts={() => setSoundFontsOpen(true)}
+              onManageSoundFonts={() => {
+                setSoundFontsOpen(true);
+                void soundFonts.refresh(); // another song may have added or removed one
+              }}
               soundsReady={ready}
               syncOffset={syncOffset}
               onSyncOffsetChange={(ms) => {

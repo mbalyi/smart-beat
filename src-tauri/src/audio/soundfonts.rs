@@ -24,6 +24,8 @@ const INDEX_VERSION: u32 = 1;
 pub const MAX_BYTES: u64 = 512 * 1024 * 1024;
 /// A download of this size on a slow line takes a while; only a stalled connection should fail.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(3 * 60 * 60);
+/// A download that has received nothing for this long is given up (a server that went quiet).
+const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// Prefix of the ids the audio engine knows stored banks by (the bundled ones have none).
 pub const ENGINE_PREFIX: &str = "sf:";
 
@@ -444,45 +446,97 @@ fn check_cancelled() -> Result<(), String> {
     }
 }
 
+/// What the network thread tells the one that saves the file.
+enum Fetched {
+    Chunk(Vec<u8>),
+    Done,
+    Failed(String),
+}
+
+/// How often the saving thread looks at the Cancel flag while it waits for the network.
+const CANCEL_POLL: Duration = Duration::from_millis(100);
+
 /// Downloads `url` to `dest`, checking size and SHA-256. The file appears under its name only
 /// when it is complete and right.
+///
+/// The request and the reads run on a thread of their own, so a server that accepts the
+/// connection and then goes quiet cannot hold up Cancel: this thread polls the flag every
+/// 100 ms and gives up when nothing has arrived for `stall`. It returns at once, and the network
+/// thread ends by itself when its read fails or the server closes the connection.
 fn download_file(
     url: &str,
     dest: &Path,
     bytes: u64,
     sha256: &str,
+    stall: Duration,
     on_bytes: &mut dyn FnMut(u64),
 ) -> Result<(), String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(DOWNLOAD_TIMEOUT))
-        .build()
-        .into();
-    let mut response = agent
-        .get(url)
-        .call()
-        .map_err(|e| format!("Could not download the SoundFont: {e}"))?;
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Fetched>(8);
+    let address = url.to_string();
+    std::thread::spawn(move || {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(DOWNLOAD_TIMEOUT))
+            .build()
+            .into();
+        let response = match agent.get(&address).call() {
+            Ok(response) => response,
+            Err(e) => {
+                let _ = tx.send(Fetched::Failed(format!(
+                    "Could not download the SoundFont: {e}"
+                )));
+                return;
+            }
+        };
+        let mut reader = response.into_body().into_reader();
+        loop {
+            let mut chunk = vec![0u8; 256 * 1024];
+            let message = match reader.read(&mut chunk) {
+                Ok(0) => Fetched::Done,
+                Ok(n) => {
+                    chunk.truncate(n);
+                    Fetched::Chunk(chunk)
+                }
+                Err(e) => Fetched::Failed(format!("Could not download the SoundFont: {e}")),
+            };
+            let last = !matches!(message, Fetched::Chunk(_));
+            // The saving side has stopped listening (cancelled or failed): nobody wants more.
+            if tx.send(message).is_err() || last {
+                return;
+            }
+        }
+    });
     let partial = dest.with_extension("part");
     let result = (|| -> Result<(), String> {
         let io = |e: std::io::Error| format!("Could not save the SoundFont: {e}");
         let mut file = fs::File::create(&partial).map_err(io)?;
-        let mut reader = response.body_mut().as_reader();
         let (mut hasher, mut done) = (Sha256::new(), 0u64);
-        let mut chunk = vec![0u8; 256 * 1024];
+        let mut heard = std::time::Instant::now();
         loop {
             check_cancelled()?;
-            let n = reader
-                .read(&mut chunk)
-                .map_err(|e| format!("Could not download the SoundFont: {e}"))?;
-            if n == 0 {
-                break;
+            match rx.recv_timeout(CANCEL_POLL) {
+                Ok(Fetched::Chunk(chunk)) => {
+                    heard = std::time::Instant::now();
+                    hasher.update(&chunk);
+                    file.write_all(&chunk).map_err(io)?;
+                    done += chunk.len() as u64;
+                    if done > bytes {
+                        break;
+                    }
+                    on_bytes(done);
+                }
+                Ok(Fetched::Done) => break,
+                Ok(Fetched::Failed(message)) => return Err(message),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if heard.elapsed() > stall {
+                        return Err("The download stalled: the server stopped sending. \
+                                    Try again later."
+                            .to_string());
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("The connection was lost during the download.".to_string());
+                }
             }
-            hasher.update(&chunk[..n]);
-            file.write_all(&chunk[..n]).map_err(io)?;
-            done += n as u64;
-            if done > bytes {
-                break;
-            }
-            on_bytes(done);
         }
         file.flush().map_err(io)?;
         if done != bytes || hex(&hasher.finalize()) != sha256 {
@@ -569,6 +623,7 @@ impl SoundFontLibrary {
                 &downloaded,
                 entry.download_bytes,
                 entry.download_sha256,
+                STALL_TIMEOUT,
                 &mut |done| {
                     let fraction = done as f32 / entry.download_bytes as f32;
                     if fraction - last >= 0.01 {
@@ -765,22 +820,45 @@ mod tests {
 
         let dest = dir.path().join("ok");
         let mut seen = 0;
-        download_file(&serve(body.clone()), &dest, 10, &sum, &mut |n| seen = n).unwrap();
+        download_file(
+            &serve(body.clone()),
+            &dest,
+            10,
+            &sum,
+            STALL_TIMEOUT,
+            &mut |n| seen = n,
+        )
+        .unwrap();
         assert_eq!(fs::read(&dest).unwrap(), body);
         assert_eq!(seen, 10);
 
         let bad = dir.path().join("bad");
-        let err = download_file(&serve(body.clone()), &bad, 10, &"0".repeat(64), &mut |_| {})
-            .unwrap_err();
+        let err = download_file(
+            &serve(body.clone()),
+            &bad,
+            10,
+            &"0".repeat(64),
+            STALL_TIMEOUT,
+            &mut |_| {},
+        )
+        .unwrap_err();
         assert!(err.contains("not the expected"), "{err}");
         assert!(!bad.exists() && !bad.with_extension("part").exists());
 
         let short = dir.path().join("short");
-        assert!(download_file(&serve(body), &short, 11, &sum, &mut |_| {}).is_err());
+        assert!(download_file(&serve(body), &short, 11, &sum, STALL_TIMEOUT, &mut |_| {}).is_err());
         assert!(!short.exists() && !short.with_extension("part").exists());
 
         let down = dir.path().join("down");
-        let err = download_file("http://127.0.0.1:9/x", &down, 1, &sum, &mut |_| {}).unwrap_err();
+        let err = download_file(
+            "http://127.0.0.1:9/x",
+            &down,
+            1,
+            &sum,
+            STALL_TIMEOUT,
+            &mut |_| {},
+        )
+        .unwrap_err();
         assert!(err.contains("Could not download"), "{err}");
     }
 
@@ -791,9 +869,101 @@ mod tests {
         let dest = dir.path().join("c");
         let url = serve(vec![7u8; 1000]);
         CANCELLED.store(true, Ordering::SeqCst);
-        let err = download_file(&url, &dest, 1000, &"0".repeat(64), &mut |_| {}).unwrap_err();
+        let err = download_file(
+            &url,
+            &dest,
+            1000,
+            &"0".repeat(64),
+            STALL_TIMEOUT,
+            &mut |_| {},
+        )
+        .unwrap_err();
         CANCELLED.store(false, Ordering::SeqCst);
         assert_eq!(err, CANCELLED_MESSAGE);
+        assert!(!dest.exists() && !dest.with_extension("part").exists());
+    }
+
+    /// A server that accepts the connection and never answers (or answers part-way and goes
+    /// quiet): the connection is kept open until the test ends.
+    fn quiet_server(first: &'static [u8]) -> (String, std::sync::mpsc::Sender<()>) {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (release, hold) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(first);
+                let _ = stream.flush();
+                // Hold the connection open, sending nothing, until the test is over.
+                let _ = hold.recv_timeout(Duration::from_secs(30));
+            }
+        });
+        (format!("http://127.0.0.1:{port}/bank.sf2"), release)
+    }
+
+    #[test]
+    fn cancel_stops_a_download_whose_server_has_gone_quiet() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        CANCELLED.store(false, Ordering::SeqCst);
+        let dir = tempfile::tempdir().unwrap();
+        // Two cases: the server never answers at all, and it sends headers and part of the file.
+        for (name, first) in [
+            ("silent", &b""[..]),
+            (
+                "partial",
+                &b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\nabc"[..],
+            ),
+        ] {
+            let dest = dir.path().join(name);
+            let (url, release) = quiet_server(Box::leak(first.to_vec().into_boxed_slice()));
+            let canceller = std::thread::spawn(|| {
+                std::thread::sleep(Duration::from_millis(400));
+                cancel_download();
+            });
+            let started = std::time::Instant::now();
+            // A stall limit far longer than the test: only Cancel can end this download.
+            let err = download_file(
+                &url,
+                &dest,
+                1000,
+                &"0".repeat(64),
+                Duration::from_secs(600),
+                &mut |_| {},
+            )
+            .unwrap_err();
+            canceller.join().unwrap();
+            CANCELLED.store(false, Ordering::SeqCst);
+            let _ = release.send(());
+            assert_eq!(err, CANCELLED_MESSAGE, "{name}");
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "{name}: Cancel took {:?}",
+                started.elapsed()
+            );
+            assert!(!dest.exists() && !dest.with_extension("part").exists());
+        }
+    }
+
+    #[test]
+    fn a_server_that_goes_quiet_ends_the_download_without_cancel() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        CANCELLED.store(false, Ordering::SeqCst);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("stalled");
+        let (url, release) = quiet_server(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\nabc");
+        let err = download_file(
+            &url,
+            &dest,
+            1000,
+            &"0".repeat(64),
+            Duration::from_millis(600),
+            &mut |_| {},
+        )
+        .unwrap_err();
+        let _ = release.send(());
+        assert!(err.contains("stalled"), "{err}");
         assert!(!dest.exists() && !dest.with_extension("part").exists());
     }
 
