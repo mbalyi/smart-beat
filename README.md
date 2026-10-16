@@ -190,6 +190,7 @@ pnpm tauri dev      # desktop app with hot reload
 | `pnpm typecheck`                                         | TypeScript project check                                                                                                                              |
 | `pnpm test` / `pnpm test:watch` / `pnpm test:coverage`   | Vitest unit and integration tests (UI)                                                                                                                |
 | `pnpm test:e2e`                                          | Playwright browser integration tests (Chromium and WebKit, a11y and responsive checks). Run `pnpm exec playwright install chromium webkit` once first |
+| `pnpm test:e2e:smoke` / `pnpm test:e2e:additional`       | The two CI groups of `pnpm test:e2e`: core flows, and the guided-tour tests (the `tour*.spec.ts` files)                                               |
 | `pnpm rust:test` / `pnpm rust:lint` / `pnpm rust:fmt`    | Rust tests, clippy (`-D warnings`), rustfmt check                                                                                                     |
 | `pnpm licenses:check`                                    | Enforce the license policy for npm packages and Rust crates                                                                                           |
 | `pnpm licenses:generate`                                 | Regenerate `public/third-party-licenses.txt` (runs automatically before `tauri build`)                                                                |
@@ -271,7 +272,7 @@ docs/                Licensing, code signing, releases and updates, ADRs
 
 - **[CI](.github/workflows/ci.yml)** runs on every PR and every push to `main`:
   - lint, format, types and Vitest with coverage;
-  - Playwright, one job per browser (Chromium and WebKit);
+  - Playwright, in two groups so neither is too slow: **E2E smoke tests** (the core flows) and **E2E additional functions** (the guided tour), each with one job per browser (Chromium and WebKit);
   - Rust fmt, clippy and tests, plus an app compile on **macOS, Windows and Linux**;
   - the license policy (npm and cargo-deny, including advisories);
   - a secret scan of the files and the full git history ([gitleaks](https://github.com/gitleaks/gitleaks), settings in [`.gitleaks.toml`](.gitleaks.toml)).

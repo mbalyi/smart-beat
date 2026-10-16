@@ -29,6 +29,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:smoke": "E2E_GROUP=smoke playwright test",
+    "test:e2e:additional": "E2E_GROUP=additional playwright test",
     "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "rust:lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings",
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
