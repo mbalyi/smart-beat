@@ -27,8 +27,19 @@ async function importFile(app: Page, path: string) {
   return dialog;
 }
 
-/** Extra SoundFonts: import, download, remove (#81). */
+/** Extra SoundFonts: import, download, remove (#81). The fixture serves Sonivox as High quality. */
 test.describe("SoundFonts (#81)", () => {
+  test("plays with High quality until the user picks something else", async ({ app }) => {
+    // Nothing chosen yet (the fixture picks Sonivox so that other tests stay as they were).
+    await app.addInitScript(() => localStorage.removeItem("smart-beat:soundfont"));
+    await app.reload();
+    await openSong(app);
+    await expect(app.getByRole("combobox", { name: "Instrument sounds" })).toHaveText(
+      /High quality/,
+    );
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+  });
+
   test("imports a file, picks it as the instrument sounds and removes it again", async ({
     app,
   }) => {
@@ -49,14 +60,16 @@ test.describe("SoundFonts (#81)", () => {
     await expect(app.getByRole("combobox", { name: "Instrument sounds" })).toHaveText(/My Bank/);
     await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
 
-    // Removing the one in use goes back to the standard sounds.
+    // Removing the one in use goes back to the default sounds.
     const again = await openDialog(app);
     await again.getByRole("button", { name: "Remove My Bank" }).click();
-    await expect(again).toContainText("In use. Playback switches to Standard.");
+    await expect(again).toContainText("In use. Playback switches to the default sounds.");
     await again.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(again.getByTestId("imported-soundfont")).toHaveCount(0);
     await again.getByRole("button", { name: "Done" }).click();
-    await expect(app.getByRole("combobox", { name: "Instrument sounds" })).toHaveText(/Standard/);
+    await expect(app.getByRole("combobox", { name: "Instrument sounds" })).toHaveText(
+      /High quality/,
+    );
     await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
     expect(await app.evaluate(() => window.__soundfonts.items)).toEqual([]);
   });

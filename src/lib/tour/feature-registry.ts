@@ -62,6 +62,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     summary:
       "Import your own SoundFont or download a recommended one, then pick it under Instrument sounds. Added SoundFonts can be removed again.",
     since: "1.1.0",
+    tour: "main",
   },
   {
     id: "pan-control",

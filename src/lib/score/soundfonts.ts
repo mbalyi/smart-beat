@@ -40,7 +40,14 @@ export const SOUNDFONTS: readonly SoundFont[] = [
   },
 ];
 
-export const DEFAULT_SOUNDFONT: SoundFontId = "sonivox";
+/** What a song plays with until the user picks something else: the richer built-in set. */
+export const DEFAULT_SOUNDFONT: SoundFontId = "fluidr3";
+
+/**
+ * The sound set that is always there (it ships inside alphaTab): what the app falls back to when
+ * another one cannot be loaded, including the default.
+ */
+export const FALLBACK_SOUNDFONT: SoundFontId = "sonivox";
 
 export const SOUNDFONT_STORAGE_KEY = "smart-beat:soundfont";
 

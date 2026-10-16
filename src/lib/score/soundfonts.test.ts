@@ -1,6 +1,7 @@
 import {
   allSoundFonts,
   DEFAULT_SOUNDFONT,
+  FALLBACK_SOUNDFONT,
   getSoundFont,
   isSoundFontId,
   isStoredSoundFontId,
@@ -16,7 +17,8 @@ import {
 
 describe("soundfonts", () => {
   it("offers Sonivox by default and FluidR3 as an option", () => {
-    expect(DEFAULT_SOUNDFONT).toBe("sonivox");
+    expect(DEFAULT_SOUNDFONT).toBe("fluidr3");
+    expect(FALLBACK_SOUNDFONT).toBe("sonivox");
     expect(SOUNDFONTS.map((f) => f.url)).toEqual([
       "/soundfont/sonivox.sf3",
       "/soundfont/FluidR3Mono_GM.sf3",
@@ -30,17 +32,17 @@ describe("soundfonts", () => {
   });
 
   it("remembers the choice", () => {
+    expect(readSoundFontPreference()).toBe(DEFAULT_SOUNDFONT);
+
+    storeSoundFontPreference("sonivox");
+
+    expect(localStorage.getItem(SOUNDFONT_STORAGE_KEY)).toBe("sonivox");
     expect(readSoundFontPreference()).toBe("sonivox");
-
-    storeSoundFontPreference("fluidr3");
-
-    expect(localStorage.getItem(SOUNDFONT_STORAGE_KEY)).toBe("fluidr3");
-    expect(readSoundFontPreference()).toBe("fluidr3");
   });
 
   it("ignores unknown stored values", () => {
     localStorage.setItem(SOUNDFONT_STORAGE_KEY, "casio");
-    expect(readSoundFontPreference()).toBe("sonivox");
+    expect(readSoundFontPreference()).toBe(DEFAULT_SOUNDFONT);
   });
 
   it("copes with unavailable storage", () => {
@@ -51,7 +53,7 @@ describe("soundfonts", () => {
       throw new Error("denied");
     });
 
-    expect(readSoundFontPreference()).toBe("sonivox");
+    expect(readSoundFontPreference()).toBe(DEFAULT_SOUNDFONT);
     expect(() => storeSoundFontPreference("fluidr3")).not.toThrow();
   });
 

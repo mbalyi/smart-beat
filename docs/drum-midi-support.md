@@ -8,7 +8,7 @@ SoundFont. Do not edit by hand.
 - **silent, plays N instead**: no sample; Smart Beat plays key N (`DRUM_FALLBACK`) when it generates the MIDI. The score keeps the original number.
 - Whether a sample is the _right_ instrument is judged by ear; this table only says which keys sound.
 
-| Number | Name                  | Sonivox (default)        | FluidR3                  |
+| Number | Name                  | Sonivox (Standard)       | FluidR3 (default)        |
 | -----: | --------------------- | ------------------------ | ------------------------ |
 |     27 | High Q (hit)          | plays                    | plays                    |
 |     28 | Slap (hit)            | plays                    | plays                    |

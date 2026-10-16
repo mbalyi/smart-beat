@@ -204,7 +204,7 @@ describe("SoundFontsDialog (#81)", () => {
     const row = within(dialog).getByTestId("imported-soundfont");
 
     await user.click(within(row).getByRole("button", { name: "Remove My Bank" }));
-    expect(row).toHaveTextContent("In use. Playback switches to Standard.");
+    expect(row).toHaveTextContent("In use. Playback switches to the default sounds.");
     await user.click(within(row).getByRole("button", { name: "Remove" }));
 
     expect(onRemove).toHaveBeenCalledWith("my-bank");

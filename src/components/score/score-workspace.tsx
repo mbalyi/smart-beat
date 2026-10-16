@@ -199,6 +199,7 @@ import {
 } from "@/lib/score/structure";
 import {
   DEFAULT_SOUNDFONT,
+  FALLBACK_SOUNDFONT,
   getSoundFont,
   isStoredSoundFontId,
   readSoundFontPreference,
@@ -656,14 +657,18 @@ export function ScoreWorkspace({
   const changeSoundFont = (id: SoundFontId) => {
     trackUsage("sound_change");
     trackUsage("soundfont_select", soundFontCounterId(getSoundFont(id, soundFonts.fonts)));
+    previousSoundFont.current = soundFont;
     setSoundFont(id);
     storeSoundFontPreference(id);
     void playerRef.current?.setSoundFont(soundFontUrl(id));
   };
 
+  /** The sound set that was in use before the last switch, i.e. what is kept if the switch fails. */
+  const previousSoundFont = useRef<SoundFontId | null>(null);
+
   const onSoundFontError = useEffectEvent(
     (error: Error, { previousKept }: { previousKept: boolean }) => {
-      if (soundFont === DEFAULT_SOUNDFONT) {
+      if (soundFont === FALLBACK_SOUNDFONT) {
         toast.error("Instrument sounds could not be loaded", { description: errorText(error) });
         return;
       }
@@ -675,13 +680,13 @@ export function ScoreWorkspace({
           : `${getSoundFont(soundFont).label} sounds are not available`,
         { description: "Using the standard sounds instead." },
       );
-      setSoundFont(DEFAULT_SOUNDFONT);
-      storeSoundFontPreference(DEFAULT_SOUNDFONT);
-      // The standard sounds may still be loaded: then don't interrupt playback. A SoundFont the
-      // user added is the exception: the sounds that were kept may be another bank's, so load the
-      // standard ones for the picker and the sound to agree.
-      if (!previousKept || isStoredSoundFontId(soundFont)) {
-        void playerRef.current?.setSoundFont(soundFontUrl(DEFAULT_SOUNDFONT));
+      setSoundFont(FALLBACK_SOUNDFONT);
+      storeSoundFontPreference(FALLBACK_SOUNDFONT);
+      // The standard sounds may still be loaded (the ones playing before the switch): then don't
+      // interrupt playback. If the kept sounds are another bank's, load the standard ones so the
+      // picker and the sound agree.
+      if (!previousKept || previousSoundFont.current !== FALLBACK_SOUNDFONT) {
+        void playerRef.current?.setSoundFont(soundFontUrl(FALLBACK_SOUNDFONT));
       }
     },
   );

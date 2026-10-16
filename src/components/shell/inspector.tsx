@@ -502,7 +502,12 @@ export function Inspector({
               </SelectContent>
             </Select>
             {onManageSoundFonts && (
-              <Button variant="outline" size="sm" onClick={onManageSoundFonts}>
+              <Button
+                variant="outline"
+                size="sm"
+                data-tour="soundfonts"
+                onClick={onManageSoundFonts}
+              >
                 SoundFonts…
               </Button>
             )}

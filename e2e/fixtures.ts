@@ -187,6 +187,21 @@ export const test = base.extend<{ app: Page; firstLaunch: boolean }>({
         }
       });
     }
+    // The default instrument sounds are the 15 MB FluidR3 set, which CI does not download and
+    // which would slow every test down: serve Sonivox in its place, and let tests play with
+    // Sonivox as before unless they pick one (soundfonts.spec.ts checks the default itself). A new
+    // install is told apart by having no saved "smart-beat:" setting, so a first launch keeps the
+    // default and only gets the stand-in file.
+    await page.route("**/soundfont/FluidR3Mono_GM.sf3", async (route) =>
+      route.fulfill({ response: await page.request.get("/soundfont/sonivox.sf3") }),
+    );
+    if (!firstLaunch) {
+      await page.addInitScript(() => {
+        if (!localStorage.getItem("smart-beat:soundfont")) {
+          localStorage.setItem("smart-beat:soundfont", "sonivox");
+        }
+      });
+    }
     // The 3 s startup splash is tested in splash.spec.ts; elsewhere it would only slow tests down.
     await page.addInitScript(() => {
       (window as unknown as { __splashMinMs: number }).__splashMinMs = 0;

@@ -344,7 +344,7 @@ function RemoveConfirm({
   return (
     <span role="group" aria-label={`Remove ${name}?`} className="flex flex-col items-end gap-1">
       <span className="text-xs text-muted-foreground">
-        {active ? "In use. Playback switches to Standard." : "Delete this file?"}
+        {active ? "In use. Playback switches to the default sounds." : "Delete this file?"}
       </span>
       <span className="flex gap-1">
         <Button size="sm" variant="destructive" onClick={onRemove}>
