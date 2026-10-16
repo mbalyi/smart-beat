@@ -513,5 +513,13 @@ test.describe("Record to Tab (#108)", () => {
         ),
       )
       .toBe(1);
+    // Starting the take is counted too, per instrument (#153), once; it is not a file take.
+    const started = await app.evaluate(() =>
+      window.__ipcCalls
+        .filter((c) => c.cmd === "track_event")
+        .map((c) => c.args as { event: string; format: string | null })
+        .filter((a) => a.event.startsWith("record_to_tab_")),
+    );
+    expect(started).toEqual([{ event: "record_to_tab_start", format: "guitar" }]);
   });
 });

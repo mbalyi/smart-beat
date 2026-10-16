@@ -101,6 +101,68 @@ test.describe("anonymous usage counters (#99)", () => {
   });
 });
 
+test.describe("counters added for 1.0.1 (#153)", () => {
+  test("counts the sound set that is picked and the one playback starts with, never a file name", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await app.evaluate((p) => (window.__dialogResult = p), "/music/My Private Bank.sf2");
+    await app.getByRole("button", { name: "SoundFonts…" }).click();
+    const dialog = app.getByRole("dialog", { name: "SoundFonts" });
+    await dialog.getByRole("button", { name: "Import a SoundFont…" }).click();
+    await dialog.getByRole("button", { name: "Download Arachno" }).click();
+    await expect(dialog.getByTestId("catalogue-soundfont").nth(4)).toContainText("Installed");
+    await dialog.getByRole("button", { name: "Done" }).click();
+
+    await app.getByRole("combobox", { name: "Instrument sounds" }).click();
+    await app.getByRole("option", { name: /My Private Bank/ }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+    await app.getByRole("button", { name: "Play" }).click();
+    await app.getByRole("button", { name: "Pause" }).click();
+
+    await app.getByRole("combobox", { name: "Instrument sounds" }).click();
+    await app.getByRole("option", { name: /Arachno/ }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+    await app.getByRole("button", { name: "Play" }).click();
+
+    const events = await tracked(app);
+    expect(events).toContain("soundfont_import");
+    expect(events).toContain("soundfont_download:arachno");
+    expect(events).toContain("soundfont_select:custom");
+    expect(events).toContain("play_soundfont:custom");
+    expect(events).toContain("soundfont_select:arachno");
+    expect(events).toContain("play_soundfont:arachno");
+    // Pausing is not a start, and the imported file's name goes nowhere.
+    expect(events.filter((e) => e === "play_soundfont:custom")).toHaveLength(1);
+    expect(events.join(" ")).not.toMatch(/private|bank/i);
+  });
+
+  test("counts the practice tools, a duplicated track and drum normalization", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("combobox", { name: "Speed" }).click();
+    await app.getByRole("option", { name: "50%", exact: true }).click();
+    await trackAction(app, "Guitar", "Duplicate");
+    await app.getByRole("combobox", { name: "Track" }).click();
+    await app.getByRole("option", { name: "Drums" }).click();
+    await app
+      .getByRole("radiogroup", { name: "Notation" })
+      .getByRole("radio", { name: "Tab", exact: true })
+      .click();
+    await app.getByRole("button", { name: "Actions for Drums" }).click();
+    await app.getByRole("menuitem", { name: "Normalize drum notation" }).click();
+
+    const events = await tracked(app);
+    expect(events).toContain("practice_speed");
+    expect(events).toContain("track_duplicate");
+    expect(events).toContain("drum_normalize");
+  });
+});
+
+async function trackAction(page: Page, track: string, action: string) {
+  await page.getByRole("button", { name: `Actions for ${track}` }).click();
+  await page.getByRole("menuitem", { name: action }).click();
+}
+
 test("pedal actions count once and a knob drag sends no effect counters", async ({ app }) => {
   await openSong(app);
   await app.getByRole("button", { name: "Actions for Guitar" }).click();

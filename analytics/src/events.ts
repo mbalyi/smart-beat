@@ -60,7 +60,36 @@ export const EVENTS = [
   "settings_open",
   "audio_input_change",
   "piano_model_download",
+  "soundfont_select",
+  "play_soundfont",
+  "soundfont_download",
+  "soundfont_import",
+  "record_to_tab_start",
+  "record_to_tab_file",
+  "drum_normalize",
+  "track_duplicate",
+  "practice_speed",
+  "practice_range",
+  "speed_trainer_stop",
+  "speed_trainer_hold",
+  "practice_view",
+  "tour_start",
+  "tour_finish",
+  "tour_skip",
+  "tour_close",
 ] as const;
+
+// The recommended SoundFont banks (soundfonts.rs) and the sound sets counted by name; any file the
+// user imported is "custom". The guided tours (TourId in feature-registry.ts).
+const CATALOGUE_SOUNDFONTS = [
+  "musescore-general",
+  "generaluser-gs",
+  "fluidr3-gm",
+  "timbres-of-heaven",
+  "arachno",
+] as const;
+const SOUNDFONT_IDS = ["sonivox", "fluidr3", ...CATALOGUE_SOUNDFONTS, "custom"] as const;
+const TOURS = ["main", "editing", "speed-trainer", "effects", "record-to-tab"] as const;
 
 // File formats that may accompany open_file and export (FORMATS in telemetry.rs).
 export const FORMATS = [
@@ -141,5 +170,14 @@ export const EVENT_DETAILS: Partial<Record<(typeof EVENTS)[number], readonly str
     "other",
   ],
   record_to_tab: ["guitar", "bass", "piano", "drums"],
+  record_to_tab_start: ["guitar", "bass", "piano", "drums"],
+  record_to_tab_file: ["guitar", "bass", "piano", "drums"],
   sound_library_import: ["amp", "cab"],
+  soundfont_select: SOUNDFONT_IDS,
+  play_soundfont: SOUNDFONT_IDS,
+  soundfont_download: CATALOGUE_SOUNDFONTS,
+  tour_start: TOURS,
+  tour_finish: TOURS,
+  tour_skip: TOURS,
+  tour_close: TOURS,
 };

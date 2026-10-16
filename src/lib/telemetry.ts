@@ -66,7 +66,24 @@ export type TrackedEvent =
   | "audio_transcribe"
   | "settings_open"
   | "audio_input_change"
-  | "piano_model_download";
+  | "piano_model_download"
+  | "soundfont_select"
+  | "play_soundfont"
+  | "soundfont_download"
+  | "soundfont_import"
+  | "record_to_tab_start"
+  | "record_to_tab_file"
+  | "drum_normalize"
+  | "track_duplicate"
+  | "practice_speed"
+  | "practice_range"
+  | "speed_trainer_stop"
+  | "speed_trainer_hold"
+  | "practice_view"
+  | "tour_start"
+  | "tour_finish"
+  | "tour_skip"
+  | "tour_close";
 
 /** File formats for open_file and export. */
 const FILE_FORMATS = [
@@ -87,6 +104,18 @@ const FILE_FORMATS = [
   "txt",
   "png",
 ];
+
+/** The sound sets that are counted by name; any file the user imported is just "custom". */
+const CATALOGUE_SOUNDFONTS = [
+  "musescore-general",
+  "generaluser-gs",
+  "fluidr3-gm",
+  "timbres-of-heaven",
+  "arachno",
+];
+const SOUNDFONT_IDS = ["sonivox", "fluidr3", ...CATALOGUE_SOUNDFONTS, "custom"];
+
+const TOURS = ["main", "editing", "speed-trainer", "effects", "record-to-tab"];
 
 /** Fixed details per event; the wire field remains `format` for older apps. */
 const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
@@ -144,8 +173,30 @@ const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
     "other",
   ],
   record_to_tab: ["guitar", "bass", "piano", "drums"],
+  record_to_tab_start: ["guitar", "bass", "piano", "drums"],
+  record_to_tab_file: ["guitar", "bass", "piano", "drums"],
   sound_library_import: ["amp", "cab"],
+  soundfont_select: SOUNDFONT_IDS,
+  play_soundfont: SOUNDFONT_IDS,
+  soundfont_download: CATALOGUE_SOUNDFONTS,
+  tour_start: TOURS,
+  tour_finish: TOURS,
+  tour_skip: TOURS,
+  tour_close: TOURS,
 };
+
+/**
+ * What a sound set is called in the counters: the fixed id of a bundled or recommended one, or
+ * "custom" for a file the user imported (its name is never sent).
+ */
+export function soundFontCounterId(font: {
+  id: string;
+  stored?: boolean;
+  catalogue?: string | null;
+}): string {
+  if (!font.stored) return font.id;
+  return font.catalogue ?? "custom";
+}
 
 /** What the Settings dialog shows (mirrors `UsageSettings` in the Rust core). */
 export interface UsageSettings {

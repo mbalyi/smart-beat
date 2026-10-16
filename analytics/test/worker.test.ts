@@ -237,6 +237,16 @@ describe("event details", () => {
       ["audio_input_change", "USB device"],
       ["plugin_editor_open", "/Library/private.vst3"],
       ["play", "pdf"],
+      ["soundfont_select", "My Bank.sf2"],
+      ["play_soundfont", "stored:my-bank"],
+      ["soundfont_download", "custom"],
+      ["soundfont_import", "custom"],
+      ["record_to_tab_start", "violin"],
+      ["record_to_tab_file", "gp5"],
+      ["tour_start", "secret"],
+      ["tour_finish", "My tour"],
+      ["drum_normalize", "pdf"],
+      ["practice_speed", "75"],
     ]) {
       expect((await post(batch([{ day: today, event, format, count: 1 }]))).status).toBe(400);
     }

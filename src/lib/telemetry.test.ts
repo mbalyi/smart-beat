@@ -1,4 +1,4 @@
-import { getUsageSettings, setUsageSettings, track } from "@/lib/telemetry";
+import { getUsageSettings, setUsageSettings, soundFontCounterId, track } from "@/lib/telemetry";
 import { mockTauri } from "@/test/tauri";
 
 const tracked = (calls: ReturnType<typeof mockTauri>) =>
@@ -55,6 +55,48 @@ describe("track", () => {
       { event: "plugin_add", format: null },
       { event: "audio_input_change", format: null },
     ]);
+  });
+
+  it("sends the sound set, the instrument and the tour only from the fixed lists (#153)", () => {
+    const calls = mockTauri();
+    track("soundfont_select", "Musescore-General");
+    track("play_soundfont", "custom");
+    track("soundfont_download", "arachno");
+    track("record_to_tab_start", "bass");
+    track("record_to_tab_file", "drums");
+    track("tour_finish", "speed-trainer");
+    track("soundfont_select", "My Bank.sf2");
+    track("play_soundfont", "stored:my-bank");
+    track("soundfont_download", "custom");
+    track("record_to_tab_start", "violin");
+    track("tour_start", "my tour");
+    track("drum_normalize", "pdf");
+    expect(tracked(calls)).toEqual([
+      { event: "soundfont_select", format: "musescore-general" },
+      { event: "play_soundfont", format: "custom" },
+      { event: "soundfont_download", format: "arachno" },
+      { event: "record_to_tab_start", format: "bass" },
+      { event: "record_to_tab_file", format: "drums" },
+      { event: "tour_finish", format: "speed-trainer" },
+      { event: "soundfont_select", format: null },
+      { event: "play_soundfont", format: null },
+      { event: "soundfont_download", format: null },
+      { event: "record_to_tab_start", format: null },
+      { event: "tour_start", format: null },
+      { event: "drum_normalize", format: null },
+    ]);
+  });
+
+  it("names a sound set by its fixed id, and an imported file only as custom", () => {
+    expect(soundFontCounterId({ id: "sonivox" })).toBe("sonivox");
+    expect(soundFontCounterId({ id: "fluidr3" })).toBe("fluidr3");
+    expect(soundFontCounterId({ id: "stored:arachno", stored: true, catalogue: "arachno" })).toBe(
+      "arachno",
+    );
+    expect(soundFontCounterId({ id: "stored:my-bank", stored: true, catalogue: null })).toBe(
+      "custom",
+    );
+    expect(soundFontCounterId({ id: "stored:my-bank", stored: true })).toBe("custom");
   });
 
   it("never throws or rejects when the core fails", async () => {

@@ -13,7 +13,7 @@ import { CircleIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { isEnabled } from "@/lib/features";
-import { track as trackUsage } from "@/lib/telemetry";
+import { soundFontCounterId, track as trackUsage } from "@/lib/telemetry";
 
 import { AudioTrackPanel } from "@/components/audio/audio-track-panel";
 import { DrumMixerDialog } from "@/components/audio/drum-mixer-dialog";
@@ -619,6 +619,10 @@ export function ScoreWorkspace({
     else if (action.type === "metronome" && action.value) trackUsage("metronome_on");
     else if (action.type === "count-in" && action.value) trackUsage("count_in_on");
     else if (action.type === "start-trainer") trackUsage("speed_trainer_start");
+    else if (action.type === "stop-trainer") trackUsage("speed_trainer_stop");
+    else if (action.type === "hold-trainer" && action.value) trackUsage("speed_trainer_hold");
+    else if (action.type === "speed") trackUsage("practice_speed");
+    else if (action.type === "range") trackUsage("practice_range");
     else if (action.type === "restart-on-stop")
       trackUsage(action.value ? "restart_on_stop_on" : "restart_on_stop_off");
     dispatchPracticeAction(action);
@@ -650,6 +654,7 @@ export function ScoreWorkspace({
 
   const changeSoundFont = (id: SoundFontId) => {
     trackUsage("sound_change");
+    trackUsage("soundfont_select", soundFontCounterId(getSoundFont(id, soundFonts.fonts)));
     setSoundFont(id);
     storeSoundFontPreference(id);
     void playerRef.current?.setSoundFont(soundFontUrl(id));
@@ -1149,6 +1154,7 @@ export function ScoreWorkspace({
   const rememberPanels = (change: Partial<LayoutPrefs>) =>
     storeLayoutPrefs({ ...(readLayoutPrefs() ?? CLASSIC_LAYOUT), ...change });
   const enterPracticeView = () => {
+    trackUsage("practice_view");
     setPracticeView({ editing, focus: mix.focus, focusMode: mix.focusMode });
     setEditing(false);
     if (mix.focus === undefined) changeMix({ type: "focus", track: trackIndex });
@@ -1371,6 +1377,10 @@ export function ScoreWorkspace({
 
   const playPause = () => {
     trackUsage(playing ? "pause" : "play");
+    // Which sounds people actually listen with, not only which they picked.
+    if (!playing) {
+      trackUsage("play_soundfont", soundFontCounterId(getSoundFont(soundFont, soundFonts.fonts)));
+    }
     playerRef.current?.playPause();
   };
   useSpaceToPlay(playPause, ready && active && !recordBusy);
@@ -1737,7 +1747,10 @@ export function ScoreWorkspace({
   const trackActions: TrackActions = {
     onShow: changeTrack,
     onMove: (index, to) => changeTracks("Move track", () => moveTrack(score, index, to)),
-    onDuplicate: (index) => changeTracks("Duplicate track", () => duplicateTrack(score, index)),
+    onDuplicate: (index) => {
+      trackUsage("track_duplicate");
+      changeTracks("Duplicate track", () => duplicateTrack(score, index));
+    },
     onRemove: (index) => {
       const name = summary.tracks[index]?.name ?? "the track";
       changeTracks("Remove track", () => removeTrack(score, index));
@@ -1763,6 +1776,7 @@ export function ScoreWorkspace({
   function normalizeDrums(index: number) {
     const target = score.tracks[index];
     if (!target || !canNormalizeDrums(target)) return;
+    trackUsage("drum_normalize");
     editor.run(
       "Normalize drum notation",
       () => [...trackContent(target)],

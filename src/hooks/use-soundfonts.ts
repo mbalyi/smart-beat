@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { errorText } from "@/lib/errors";
 import { soundFontFromStored, type SoundFont } from "@/lib/score/soundfonts";
+import { track } from "@/lib/telemetry";
 import {
   cancelSoundFontDownload,
   downloadCatalogueSoundFont,
@@ -48,6 +49,7 @@ export function useSoundFonts() {
   const importFrom = useCallback(
     async (path: string): Promise<StoredSoundFont> => {
       const font = await importStoredSoundFont(path);
+      track("soundfont_import"); // never the file's name
       toast.success(`Added “${font.name}”`);
       await refresh();
       return font;
@@ -63,6 +65,7 @@ export function useSoundFonts() {
     ): Promise<StoredSoundFont | null> => {
       try {
         const font = await downloadCatalogueSoundFont(id, onProgress);
+        track("soundfont_download", font.catalogue ?? undefined);
         toast.success(`Downloaded “${font.name}”`);
         await refresh();
         return font;
