@@ -188,6 +188,13 @@ describe("SettingsDialog: audio input", () => {
 });
 
 describe("SettingsDialog: input channel (the monitor track's)", () => {
+  it("has no channel choice in the browser even for a multi-input interface", async () => {
+    installMediaDevices({ inputs: [SCARLETT] });
+    storeAudioInput(SCARLETT);
+    renderSettings();
+    await screen.findByRole("combobox", { name: "Input" });
+    expect(screen.queryByRole("combobox", { name: "Channel" })).not.toBeInTheDocument();
+  });
   const channel = () => screen.findByRole("combobox", { name: "Channel" });
 
   it("chooses the channel of a multi-input interface, in the desktop app", async () => {
@@ -223,7 +230,7 @@ describe("SettingsDialog: input channel (the monitor track's)", () => {
     expect(readAudioInputChannel()).toBe(0);
   });
 
-  it("has no channel choice for an input with one channel, nor in the browser", async () => {
+  it("has no channel choice for an input with one channel", async () => {
     const calls = mockTauri({ audio_input_channels: () => 1 });
     installMediaDevices({ inputs: [BUILT_IN] });
     renderSettings();

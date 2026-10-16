@@ -107,6 +107,8 @@ const {
  * one takes it over (loads its song again) before it plays.
  */
 let owner: NativeEngine | null = null;
+// Every player writes to one native engine, including during tab teardown.
+let engineQueue: Promise<unknown> = Promise.resolve();
 
 /** For tests: no song owns the engine. */
 export const forgetEngineOwner = () => {
@@ -199,11 +201,6 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   private soundFontId: string | null = null;
   private destroyed = false;
   private readonly callbacks: NativeEngineCallbacks;
-  /**
-   * Requests run one after another: some engine commands run on other
-   * threads, and a Play must never overtake the song it plays.
-   */
-  private queue: Promise<unknown> = Promise.resolve();
   /** What the engine should have, and what it was last sent (null: nothing yet). */
   private desired: EngineExtras | null = null;
   private sent: EngineExtras | null = null;
@@ -245,8 +242,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   }
 
   private enqueue<T>(request: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(request, request);
-    this.queue = next.catch(() => {});
+    const next = engineQueue.then(request, request);
+    engineQueue = next.catch(() => {});
     return next;
   }
 
@@ -290,10 +287,11 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   }
 
   private claim() {
-    if (owner === this || !this.song) return;
+    if (this.destroyed || owner === this || !this.song) return;
     takeEngine(this);
     const song = this.song;
     this.enqueue(async () => {
+      if (this.destroyed || !this.ownsOrFree) return;
       await loadEngineSong(song);
       this.sent = null;
       // The engine has the other song's monitor track.
@@ -350,6 +348,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   }
 
   async loadSong(file: midi.MidiFile, channels: number[][]): Promise<void> {
+    if (this.destroyed) return;
     const started = performance.now();
     const song = songFromMidi(file, channels);
     this.song = song;
@@ -359,7 +358,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     this.latestSong = song;
     const status = await this.enqueue(async () => {
       // While typing, every edit sends a song: only the newest one is loaded.
-      if (this.latestSong !== song) return null;
+      if (this.destroyed || !this.ownsOrFree || this.latestSong !== song) return null;
       await loadEngineSong(song);
       // Loading a song clears the engine's chains, sounds, automation, EQ and
       // drum mixes: send them all again.
@@ -391,7 +390,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
 
   private async sendExtras(): Promise<EffectProblems> {
     const next = this.desired;
-    if (!next) return this.problems;
+    if (!next || this.destroyed || !this.ownsOrFree) return this.problems;
+    if (owner === null) takeEngine(this);
     const prev = this.sent;
     const problems: EffectProblems = {
       tracks: next.sounds.map((_, i) => this.problems.tracks[i] ?? []),
@@ -448,14 +448,18 @@ export class NativeEngine implements synth.IExternalMediaHandler {
       await setEngineBacking(next.backing.params, next.backing.sync);
     }
     // Loading a song keeps the monitor track (and its open input): sent only when it changed.
+    if (this.destroyed || !this.ownsOrFree) return this.problems;
     const monitor = next.monitor ?? null;
     const before = this.monitorSent;
     if (before === undefined || !same(monitorSettings(before), monitorSettings(monitor))) {
-      this.reportMonitor(await setEngineMonitor(monitorSettings(monitor)));
+      const status = await setEngineMonitor(monitorSettings(monitor));
+      if (this.destroyed || !this.ownsOrFree) return this.problems;
+      this.reportMonitor(status);
     }
     if (monitor && (!before || !same(before.effects, monitor.effects))) {
       problems.monitor = await setEngineMonitorChain(monitor.effects);
     }
+    if (this.destroyed || !this.ownsOrFree) return this.problems;
     this.monitorSent = monitor;
     this.setMonitoring(!!monitor?.params.enabled);
     this.sent = next;
@@ -586,9 +590,14 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     const wasOwner = owner === this;
     if (wasOwner) owner = null;
     this.stopPolling();
-    if (wasOwner) engineTransport({ type: "pause" }).catch(() => {});
-    // A closed song's monitor track stops listening.
-    if (wasOwner && this.monitorSent) setEngineMonitor(null).catch(() => {});
+    if (wasOwner) {
+      // This runs after in-flight writes. A new owner sends its configuration after it.
+      this.enqueue(async () => {
+        if (owner !== null) return;
+        await engineTransport({ type: "pause" });
+        await setEngineMonitor(null);
+      }).catch(() => {});
+    }
     if (this.output?.handler === this) this.output.handler = undefined;
     this.output = null;
   }

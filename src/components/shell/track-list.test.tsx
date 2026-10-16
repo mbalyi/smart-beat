@@ -528,7 +528,9 @@ describe("TrackList", () => {
         mix: { ...base, monitor: { ...monitorTrack, solo: true } },
       });
       // Every bar of the soloed-out tracks is drawn faded.
-      expect(container.querySelector(".opacity-100")).toBeNull();
+      const bars = container.querySelectorAll("button.opacity-40");
+      expect(bars.length).toBeGreaterThan(0);
+      expect(container.querySelector("button.opacity-100")).toBeNull();
     });
   });
 

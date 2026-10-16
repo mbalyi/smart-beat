@@ -1126,6 +1126,14 @@ export function ScoreWorkspace({
     });
     setMix(next);
     if (commit) playerRef.current?.setMix(next);
+    if (
+      action.type === "monitor" &&
+      action.value?.enabled &&
+      !mix.monitor?.enabled &&
+      !engineOn &&
+      nativeEngineAvailable()
+    )
+      changeAudioEngine("native");
   };
 
   // --- Panels and Practice View (#83) ------------------------------------------------------
@@ -1521,14 +1529,6 @@ export function ScoreWorkspace({
   /** Adds the monitor track: the audio input, played live. */
   const addMonitorTrack = () => {
     changeMix({ type: "monitor", value: newMonitorTrack() });
-    if (!engineOn) {
-      toast.info("The monitor track plays with the native audio engine", {
-        action: nativeEngineAvailable()
-          ? { label: "Enable effects playback", onClick: () => changeAudioEngine("native") }
-          : undefined,
-      });
-      return;
-    }
     toast.info("The monitor track plays your audio input live", {
       description:
         "Use headphones if the input is a microphone, or the speakers can feed back into it. Choose the input in Settings.",
@@ -2266,8 +2266,6 @@ export function ScoreWorkspace({
                         type: "monitor",
                         value: { ...(mixRef.current.monitor ?? newMonitorTrack()), enabled },
                       });
-                      if (enabled && !engineOn && nativeEngineAvailable())
-                        changeAudioEngine("native");
                     },
                     onEffects: () => openPedalboard("monitor"),
                     onInputSettings: onOpenSettings,

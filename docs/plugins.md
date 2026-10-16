@@ -189,4 +189,5 @@ The monitor pedalboard supports the same VST3 and CLAP blocks as score tracks.
 Each monitor plugin owns its own helper, editor and saved preset, independently
 of the same plugin on a score track or master bus. Plugin status includes added
 latency. Monitoring is live even while playback is stopped and is excluded from
-exports. Choose **Backing only** to play your part with the other score tracks.
+exports. Choose **Backing only** to silence your score part, play the other score tracks,
+and keep your live input audible.

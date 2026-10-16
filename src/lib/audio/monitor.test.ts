@@ -34,6 +34,55 @@ describe("a new monitor track", () => {
     });
   });
 
+  it("filters malformed effects and repairs saved EQ before IPC", () => {
+    const gate = defaultEffect("gate");
+    localStorage.setItem(
+      MONITOR_STORAGE_KEY,
+      JSON.stringify({
+        effects: [
+          null,
+          {},
+          { type: "obsolete", enabled: true },
+          { ...gate, attackMs: "slow" },
+          { ...defaultEffect("drive"), mode: "unknown" },
+          { ...defaultEffect("eq"), bands: [null] },
+          gate,
+        ],
+        eq: { lowDb: "loud", midHz: -1, highDb: 99, graphic: "bad" },
+      }),
+    );
+    expect(newMonitorTrack()).toMatchObject({
+      effects: [gate],
+      eq: { lowDb: 0, midDb: 0, midHz: 200, highDb: 15 },
+    });
+    localStorage.setItem(MONITOR_STORAGE_KEY, JSON.stringify({ effects: Array(10).fill(gate) }));
+    expect(newMonitorTrack().effects).toHaveLength(6);
+  });
+
+  it("preserves every supported effect schema", () => {
+    const types = [
+      "gate",
+      "compressor",
+      "eq",
+      "drive",
+      "ampSim",
+      "chorus",
+      "phaser",
+      "tremolo",
+      "delay",
+      "reverb",
+      "limiter",
+      "amp",
+      "cab",
+      "plugin",
+    ] as const;
+    for (const type of types) {
+      const slot = defaultEffect(type);
+      rememberMonitorTrack({ ...DEFAULT_MONITOR, effects: [slot] });
+      expect(newMonitorTrack().effects).toEqual([slot]);
+    }
+  });
+
   it("is a copy: changing it does not change the next one", () => {
     const first = newMonitorTrack();
     first.eq.lowDb = 9;

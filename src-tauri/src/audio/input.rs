@@ -63,8 +63,8 @@ fn without_usb_id(name: &str) -> &str {
 }
 
 /// The index of the device called `wanted` in `names`: the same name, then
-/// the same without a USB id, then ignoring case, then one name containing
-/// the other.
+/// the same without a USB id, then ignoring case. A missing device must not
+/// silently select another microphone.
 pub fn match_device(wanted: &str, names: &[String]) -> Option<usize> {
     let wanted = without_usb_id(wanted);
     if wanted.is_empty() {
@@ -79,12 +79,6 @@ pub fn match_device(wanted: &str, names: &[String]) -> Option<usize> {
             names
                 .iter()
                 .position(|n| without_usb_id(n).to_lowercase() == lower)
-        })
-        .or_else(|| {
-            names.iter().position(|n| {
-                let n = without_usb_id(n).to_lowercase();
-                !n.is_empty() && (n.contains(&lower) || lower.contains(&n))
-            })
         })
 }
 
@@ -322,18 +316,26 @@ mod tests {
         // Chromium and WebView2 add the USB id.
         assert_eq!(match_device("Scarlett 2i2 USB (1235:8210)", &list), Some(2));
         assert_eq!(match_device("macbook pro microphone", &list), Some(0));
-        // Windows names the endpoint around the device.
+        // A different endpoint label is not an exact match.
         let windows = names(&[
             "Microphone (Realtek(R) Audio)",
             "Line In (Scarlett 2i2 USB)",
         ]);
-        assert_eq!(match_device("Scarlett 2i2 USB", &windows), Some(1));
+        assert_eq!(match_device("Scarlett 2i2 USB", &windows), None);
         assert_eq!(
             match_device("Line In (Scarlett 2i2 USB) (1235:8210)", &windows),
             Some(1)
         );
         assert_eq!(match_device("Behringer UMC204HD", &list), None);
         assert_eq!(match_device("", &list), None);
+    }
+
+    #[test]
+    fn does_not_select_an_input_by_a_partial_name() {
+        let list = names(&["MacBook Microphone", "USB Audio Pro", "USB Audio Mini"]);
+        for wanted in ["Microphone", "USB Audio", "MacBook Microphone External"] {
+            assert_eq!(match_device(wanted, &list), None);
+        }
     }
 
     #[test]

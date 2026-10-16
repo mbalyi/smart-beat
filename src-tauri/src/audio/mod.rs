@@ -628,12 +628,24 @@ fn sync_monitor(state: &AudioState, inner: &mut Inner, rebuild: bool) -> Result<
     let open = monitor.input.is_some();
     // The output reopens before the input is connected: what came in
     // meanwhile is skipped when the reader starts.
-    set_low_latency(inner, open)?;
+    let latency_result = set_low_latency(inner, open);
     let fresh = if rebuild || engine.lock().unwrap().monitor().is_none() {
         Some(new_monitor(state, inner, rate))
     } else {
         None
     };
+    // Allocate the EQ and clone its settings before taking the callback's lock.
+    let eq_changed = engine
+        .lock()
+        .unwrap()
+        .monitor()
+        .is_some_and(|m| m.params().eq != params.eq);
+    let eq = if eq_changed {
+        Monitor::prepare_eq(&params, rate)
+    } else {
+        None
+    };
+    let retired;
     {
         let mut e = engine.lock().unwrap();
         if let Some(fresh) = fresh
@@ -641,17 +653,21 @@ fn sync_monitor(state: &AudioState, inner: &mut Inner, rebuild: bool) -> Result<
         {
             old.push(Box::new(m));
         }
-        if let Some(bus) = e.monitor_mut() {
-            bus.set_params(&params);
+        retired = if let Some(bus) = e.monitor_mut() {
+            let retired = bus.set_prepared_params(params, eq, eq_changed);
             if (reconnect || bus.reader().is_none() != reader.is_none())
                 && let Some(r) = bus.set_reader(reader)
             {
                 old.push(Box::new(r));
             }
-        }
+            Some(retired)
+        } else {
+            None
+        };
     }
+    drop(retired);
     drop(old);
-    Ok(())
+    latency_result
 }
 
 /// Opens the output again with a small buffer (or the usual one).
@@ -663,8 +679,19 @@ fn set_low_latency(inner: &mut Inner, low_latency: bool) -> Result<(), CommandEr
         return Ok(());
     }
     let engine = engine.clone();
-    inner.output = None;
-    inner.output = Some(Output::open(engine, low_latency).map_err(audio_error)?);
+    replace_output(&mut inner.output, || {
+        Output::open(engine, low_latency).map_err(audio_error)
+    })?;
+    Ok(())
+}
+
+// Keep a working stream if opening its replacement fails.
+fn replace_output<T, E>(
+    output: &mut Option<T>,
+    open: impl FnOnce() -> Result<T, E>,
+) -> Result<(), E> {
+    let replacement = open()?;
+    *output = Some(replacement);
     Ok(())
 }
 
@@ -830,7 +857,7 @@ pub fn audio_load_song(song: SongData, state: State<'_, AudioState>) -> Result<(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_transport(
     command: Transport,
     state: State<'_, AudioState>,
@@ -889,7 +916,7 @@ pub fn audio_transport(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_set_mix(mixes: Vec<BusMix>, state: State<'_, AudioState>) -> Result<(), CommandError> {
     if mixes.len() > song::MAX_TRACKS {
         return Err(audio_error("Too many tracks"));
@@ -1072,7 +1099,7 @@ pub fn audio_set_sounds(
 }
 
 /// Volume, pan and mute automation of a track (ticks).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_set_automation(
     track: usize,
     automation: AutomationData,
@@ -1090,7 +1117,7 @@ pub fn audio_set_automation(
 }
 
 /// The channel EQ of a track.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_set_track_eq(
     track: usize,
     eq: TrackEq,
@@ -1241,7 +1268,7 @@ pub fn audio_load_backing(
 }
 
 /// Settings and sync points of the audio track.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_set_backing(
     params: BackingParams,
     sync: Vec<SyncPointData>,
@@ -1267,7 +1294,7 @@ pub fn audio_set_backing(
 }
 
 /// Removes the audio track.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_clear_backing(state: State<'_, AudioState>) {
     let mut inner = state.inner.lock().unwrap();
     inner.backing = None;
@@ -1383,7 +1410,7 @@ pub fn audio_input_channels(device: Option<String>) -> Result<u16, CommandError>
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_state(state: State<'_, AudioState>) -> Result<EngineStatus, CommandError> {
     status(&state.inner.lock().unwrap())
 }
@@ -1677,7 +1704,7 @@ pub fn plugin_open_editor(
 }
 
 /// Closes the plugin's editor window.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_close_editor(
     track: Option<plugin::PluginTarget>,
     sound: Option<usize>,
@@ -1735,7 +1762,7 @@ pub fn plugin_save_state(
 }
 
 /// Live status of every plugin block of a chain (latency, health).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn audio_plugin_info(
     track: Option<plugin::PluginTarget>,
     sound: Option<usize>,
@@ -1818,6 +1845,18 @@ pub fn audio_plugin_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_replacement_preserves_the_stream_on_failure_and_can_retry() {
+        let mut output = Some("working");
+        assert_eq!(replace_output(&mut output, || Err("busy")), Err("busy"));
+        assert_eq!(output, Some("working"));
+        assert_eq!(
+            replace_output(&mut output, || Ok::<_, &str>("low latency")),
+            Ok(())
+        );
+        assert_eq!(output, Some("low latency"));
+    }
 
     #[test]
     fn exports_never_have_the_monitor_track() {

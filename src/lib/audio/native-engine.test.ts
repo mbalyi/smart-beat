@@ -497,13 +497,83 @@ describe("NativeEngine", () => {
       second.destroy();
     });
 
+    it("ignores background configuration and status after ownership changes", async () => {
+      const onMonitorStatus = vi.fn();
+      const first = new NativeEngine({ onMonitorStatus });
+      first.prepare(extras({ monitor: monitor() }));
+      await first.loadSong(file(), [[1]]);
+      const second = new NativeEngine();
+      await second.loadSong(file(), [[1]]);
+      vi.clearAllMocks();
+      await first.configure(extras({ monitor: monitor({ device: "Wrong input" }) }));
+      expect(mocked.setEngineMonitor).not.toHaveBeenCalled();
+      expect(mocked.setEngineMonitorChain).not.toHaveBeenCalled();
+      expect(onMonitorStatus).not.toHaveBeenCalled();
+      first.destroy();
+      second.destroy();
+      await vi.waitFor(() => expect(mocked.setEngineMonitor).toHaveBeenCalledWith(null));
+    });
+
+    it("serializes teardown with an in-flight monitor open and the next song", async () => {
+      let release!: (value: typeof opened) => void;
+      mocked.setEngineMonitor.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const onMonitorStatus = vi.fn();
+      const first = new NativeEngine({ onMonitorStatus });
+      const opening = first.configure(extras({ monitor: monitor() }));
+      await vi.waitFor(() => expect(release).toBeDefined());
+      const stale = first.configure(extras({ monitor: monitor({ device: "Stale" }) }));
+      first.destroy();
+      const second = new NativeEngine();
+      second.prepare(extras({ monitor: monitor({ device: "New input" }) }));
+      const loaded = second.loadSong(file(), [[1]]);
+      release(opened);
+      await Promise.all([opening, stale, loaded]);
+      expect(onMonitorStatus).not.toHaveBeenCalled();
+      expect(mocked.setEngineMonitor.mock.calls.map(([m]) => m?.device)).toEqual([
+        "Scarlett 2i2 USB",
+        "New input",
+      ]);
+      second.destroy();
+      await vi.waitFor(() => expect(mocked.setEngineMonitor).toHaveBeenLastCalledWith(null));
+    });
+
+    it("finishes an already-started teardown before installing the new monitor", async () => {
+      const first = new NativeEngine();
+      await first.configure(extras({ monitor: monitor() }));
+      let release!: () => void;
+      mocked.engineTransport.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      mocked.setEngineMonitor.mockClear();
+      first.destroy();
+      await vi.waitFor(() => expect(release).toBeDefined());
+      const second = new NativeEngine();
+      const configured = second.configure(extras({ monitor: monitor({ device: "New input" }) }));
+      release();
+      await configured;
+      expect(mocked.setEngineMonitor.mock.calls.map(([m]) => m?.device ?? null)).toEqual([
+        null,
+        "New input",
+      ]);
+      second.destroy();
+      await vi.waitFor(() => expect(mocked.setEngineMonitor).toHaveBeenLastCalledWith(null));
+    });
+
     it("closes the input when its song closes", async () => {
       const engine = new NativeEngine();
       engine.prepare(extras({ monitor: monitor() }));
       await engine.loadSong(file(), [[1], [9]]);
       vi.clearAllMocks();
       engine.destroy();
-      expect(mocked.setEngineMonitor).toHaveBeenCalledWith(null);
+      await vi.waitFor(() => expect(mocked.setEngineMonitor).toHaveBeenCalledWith(null));
     });
 
     it("shows the input's level while paused, and stops reading it when switched off", async () => {

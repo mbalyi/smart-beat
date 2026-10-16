@@ -4,6 +4,7 @@ for (const colorScheme of ["light", "dark"] as const) {
   test(`monitors live input with backing playback and an independent plugin in ${colorScheme} mode`, async ({
     app,
   }) => {
+    test.slow();
     await app.emulateMedia({ colorScheme });
     await openSong(app);
     const trigger = app.getByRole("button", { name: /^Practice mix/ });
@@ -15,8 +16,25 @@ for (const colorScheme of ["light", "dark"] as const) {
     await app.keyboard.press("Space");
     await expect(monitor).toBeChecked();
     await expect.poll(() => app.evaluate(() => window.__engineMonitor?.params.enabled)).toBe(true);
+    await expect
+      .poll(() => app.evaluate(() => window.__ipcCalls.some((c) => c.cmd === "audio_set_mix")), {
+        timeout: 30_000,
+      })
+      .toBe(true);
+    const normal = await app.evaluate(() => {
+      const call = window.__ipcCalls.filter((c) => c.cmd === "audio_set_mix").at(-1);
+      return (call?.args as { mixes: { mute: boolean }[] }).mixes;
+    });
     await popup.getByRole("radio", { name: /Backing only/ }).click();
     await expect.poll(() => app.evaluate(() => window.__engineMonitor?.params.enabled)).toBe(true);
+    await expect
+      .poll(() =>
+        app.evaluate(() => {
+          const call = window.__ipcCalls.filter((c) => c.cmd === "audio_set_mix").at(-1);
+          return (call?.args as { mixes: { mute: boolean }[] } | undefined)?.mixes;
+        }),
+      )
+      .toEqual(normal.map((m, i) => expect.objectContaining({ mute: i === 0 || m.mute })));
     await expectNoA11yViolations(app, { popup: '[role="dialog"][aria-label="Practice mix"]' });
     await popup.getByRole("button", { name: "Input settings…" }).click();
     const settings = app.getByRole("dialog", { name: "Settings" });

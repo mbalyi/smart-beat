@@ -4,6 +4,13 @@
  * song plays. Each song keeps its own monitor track; a new one starts from the last one used,
  * so the same rig comes along to the next song.
  */
+import {
+  defaultEffect,
+  EFFECT_LABELS,
+  MAX_TRACK_EFFECTS,
+  type EffectSlot,
+  type EffectType,
+} from "@/lib/audio/effects";
 import { FLAT_EQ } from "@/lib/score/mixer";
 import type { MonitorParams, MonitorTrackSettings } from "@/lib/tauri";
 
@@ -22,6 +29,60 @@ export const DEFAULT_MONITOR: MonitorTrackSettings = {
   effects: [],
 };
 
+function record(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+// Check persisted JSON before it reaches typed IPC. Drop damaged or obsolete blocks.
+function effect(value: unknown): value is EffectSlot {
+  if (!record(value) || typeof value.type !== "string" || !Object.hasOwn(EFFECT_LABELS, value.type))
+    return false;
+  const template = defaultEffect(value.type as EffectType);
+  if (
+    !Object.entries(template).every(([key, sample]) => {
+      const v = value[key];
+      if (typeof sample === "number") return typeof v === "number" && Number.isFinite(v);
+      if (Array.isArray(sample)) return Array.isArray(v);
+      return typeof v === typeof sample;
+    })
+  )
+    return false;
+  if (
+    value.type === "drive" &&
+    !["boost", "overdrive", "distortion", "fuzz"].includes(String(value.mode))
+  )
+    return false;
+  if (value.type === "ampSim" && !["clean", "crunch", "lead"].includes(String(value.voicing)))
+    return false;
+  if (value.type === "plugin" && !["vst3", "clap"].includes(String(value.format))) return false;
+  if (value.type === "eq")
+    return (value.bands as unknown[]).every(
+      (band) =>
+        record(band) &&
+        ["lowShelf", "peak", "highShelf", "highPass", "lowPass"].includes(String(band.kind)) &&
+        [band.freq, band.q, band.gainDb].every((v) => typeof v === "number" && Number.isFinite(v)),
+    );
+  return true;
+}
+
+function savedEq(value: unknown): MonitorTrackSettings["eq"] {
+  if (!record(value)) return FLAT_EQ;
+  const gain = (v: unknown) =>
+    typeof v === "number" && Number.isFinite(v) ? Math.max(-15, Math.min(15, v)) : 0;
+  return {
+    lowDb: gain(value.lowDb),
+    midDb: gain(value.midDb),
+    highDb: gain(value.highDb),
+    midHz:
+      typeof value.midHz === "number" && Number.isFinite(value.midHz)
+        ? Math.max(200, Math.min(5000, value.midHz))
+        : 1000,
+    ...(Array.isArray(value.graphic) && value.graphic.length === 10
+      ? { graphic: value.graphic.map(gain) }
+      : {}),
+  };
+}
+
 function parse(raw: string | null): MonitorTrackSettings | null {
   if (!raw) return null;
   try {
@@ -33,8 +94,10 @@ function parse(raw: string | null): MonitorTrackSettings | null {
       ...DEFAULT_MONITOR,
       volume: Math.min(1, Math.max(0, number(value.volume, DEFAULT_MONITOR.volume))),
       pan: Math.min(1, Math.max(-1, number(value.pan, 0))),
-      eq: value.eq && typeof value.eq === "object" ? value.eq : FLAT_EQ,
-      effects: Array.isArray(value.effects) ? value.effects : [],
+      eq: savedEq(value.eq),
+      effects: Array.isArray(value.effects)
+        ? value.effects.filter(effect).slice(0, MAX_TRACK_EFFECTS)
+        : [],
     };
   } catch {
     return null;

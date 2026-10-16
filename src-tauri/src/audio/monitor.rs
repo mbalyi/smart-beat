@@ -340,13 +340,36 @@ impl Monitor {
     }
 
     pub fn set_params(&mut self, params: &MonitorParams) {
-        let eq = &params.eq;
-        if eq.is_flat() {
-            self.eq = None;
-        } else if !self.eq.as_mut().is_some_and(|e| e.set_bands(&eq.bands())) {
-            self.eq = Some(Eq::new(&eq.bands(), self.sample_rate));
+        let changed = self.params.eq != params.eq;
+        let eq = if changed {
+            Self::prepare_eq(params, self.sample_rate)
+        } else {
+            None
+        };
+        self.set_prepared_params(params.clone(), eq, changed);
+    }
+
+    pub fn prepare_eq(params: &MonitorParams, rate: f32) -> Option<Eq> {
+        (!params.eq.is_flat()).then(|| Eq::new(&params.eq.bands(), rate))
+    }
+
+    /// Installs prepared settings; the caller drops retired allocations outside the engine lock.
+    pub fn set_prepared_params(
+        &mut self,
+        params: MonitorParams,
+        eq: Option<Eq>,
+        eq_changed: bool,
+    ) -> (Option<Eq>, MonitorParams) {
+        let mut eq = eq;
+        if let (Some(prepared), Some(current)) = (&mut eq, &self.eq) {
+            prepared.copy_state(current);
         }
-        self.params = MonitorParams {
+        let old_eq = if eq_changed {
+            std::mem::replace(&mut self.eq, eq)
+        } else {
+            eq
+        };
+        let params = MonitorParams {
             volume: if params.volume.is_finite() {
                 params.volume.clamp(0.0, 1.0)
             } else {
@@ -357,13 +380,14 @@ impl Monitor {
             } else {
                 0.0
             },
-            ..params.clone()
+            ..params
         };
+        (old_eq, std::mem::replace(&mut self.params, params))
     }
 
     /// Connects the input (None: no input); returns the old reader.
     pub fn set_reader(&mut self, reader: Option<Reader>) -> Option<Reader> {
-        self.gains = None;
+        self.gains = Some((0.0, 0.0));
         std::mem::replace(&mut self.reader, reader)
     }
 
@@ -428,7 +452,7 @@ impl Monitor {
         let peak = mix_into(
             (&self.left[..n], &self.right[..n]),
             (&mut out.0[..n], &mut out.1[..n]),
-            self.gains.unwrap_or(target),
+            self.gains.unwrap_or((0.0, 0.0)),
             target,
         );
         self.gains = Some(target);
@@ -659,6 +683,9 @@ mod tests {
         });
         let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
         monitor.render(true, (&mut l, &mut r));
+        l.fill(0.0);
+        r.fill(0.0);
+        monitor.render(true, (&mut l, &mut r));
         assert!(l.iter().all(|s| s.abs() < 1e-6), "panned right");
         assert!(
             r[10..]
@@ -676,6 +703,62 @@ mod tests {
             monitor.render(true, (&mut l, &mut r));
         }
         assert!(l.iter().chain(&r).all(|s| *s == 0.0));
+    }
+
+    #[test]
+    fn connecting_and_reconnecting_ramps_from_silence() {
+        let mut monitor = Monitor::new(Chain::empty(), 48_000.0, 64);
+        monitor.set_params(&MonitorParams {
+            volume: 1.0,
+            ..MonitorParams::default()
+        });
+        for _ in 0..2 {
+            let ring = Arc::new(Ring::new(RING_CAPACITY));
+            ring.push(&[0.5; 512]);
+            monitor.set_reader(Some(Reader::new(ring, 48_000.0, 48_000.0)));
+            let (mut l, mut r) = ([0.0; 64], [0.0; 64]);
+            monitor.render(true, (&mut l, &mut r));
+            assert!(l[0].abs() < 0.02, "input must fade in from silence");
+            assert!(l[63] > 0.45, "input reaches its target level");
+            assert!(l.windows(2).all(|w| (w[1] - w[0]).abs() < 0.02));
+            assert_eq!(l, r);
+        }
+    }
+
+    #[test]
+    fn prepared_eq_and_fader_changes_preserve_the_filter_tail() {
+        let mut monitor = Monitor::new(Chain::empty(), 48_000.0, 64);
+        let mut params = MonitorParams {
+            eq: TrackEq {
+                low_db: 6.0,
+                ..TrackEq::default()
+            },
+            ..MonitorParams::default()
+        };
+        monitor.set_params(&params);
+        let mut reference = Eq::new(&params.eq.bands(), 48_000.0);
+        let (mut l, mut r) = ([0.5; 64], [0.5; 64]);
+        reference.process(&mut l, &mut r);
+        let (mut l, mut r) = ([0.5; 64], [0.5; 64]);
+        monitor.eq.as_mut().unwrap().process(&mut l, &mut r);
+        params.eq.low_db = 9.0;
+        reference.set_bands(&params.eq.bands());
+        let prepared = Monitor::prepare_eq(&params, 48_000.0);
+        drop(monitor.set_prepared_params(params.clone(), prepared, true));
+        for _ in 0..2 {
+            let (mut expected_l, mut expected_r) = ([0.0; 64], [0.0; 64]);
+            reference.process(&mut expected_l, &mut expected_r);
+            let (mut l, mut r) = ([0.0; 64], [0.0; 64]);
+            monitor.eq.as_mut().unwrap().process(&mut l, &mut r);
+            assert!(l.iter().any(|s| s.abs() > 1e-6));
+            assert_eq!(l, expected_l);
+            assert_eq!(r, expected_r);
+            params.volume = 0.4;
+            drop(monitor.set_prepared_params(params.clone(), None, false));
+        }
+        let retired = monitor.set_prepared_params(MonitorParams::default(), None, true);
+        assert!(retired.0.is_some());
+        assert!(monitor.eq.is_none());
     }
 
     #[test]

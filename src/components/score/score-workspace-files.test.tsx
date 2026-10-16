@@ -928,21 +928,33 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     expect(within(board).getAllByTestId("effect-block")).toHaveLength(1);
   });
 
+  it("enables native playback from the mixer monitor switch", async () => {
+    mockTauri();
+    const song = await makeSong();
+    song.mix = { ...song.mix, monitor: { ...DEFAULT_MONITOR, enabled: false } };
+    const { user } = renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
+    const row = await screen.findByTestId("monitor-track-row");
+    const toggle = within(row).getByRole("switch", {
+      name: "Monitor track on (listen to the input)",
+    });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native");
+    expect(FakeScorePlayer.last.options.mix.monitor).toMatchObject({ enabled: true });
+  });
+
   it("starts a new monitor track from the last one, so the rig comes along", async () => {
     mockTauri();
     rememberMonitorTrack({ ...DEFAULT_MONITOR, volume: 0.4, effects: [defaultEffect("delay")] });
     const { user } = await setup();
     await user.click(screen.getByRole("button", { name: "Add monitor track" }));
-    // Without the native engine it waits, and says why.
-    expect(
-      await toastWith("The monitor track plays with the native audio engine"),
-    ).toBeInTheDocument();
+    expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native");
+    expect(await toastWith("The monitor track plays your audio input live")).toBeInTheDocument();
     const row = await screen.findByTestId("monitor-track-row");
     expect(within(row).getByRole("slider", { name: "Volume, monitor track" })).toHaveAttribute(
       "aria-valuetext",
       "40%",
     );
-    expect(within(row).getByRole("status")).toHaveTextContent(/native audio engine/);
   });
 
   it("opens the drum mixer and the pedalboard from a track's menu", async () => {
