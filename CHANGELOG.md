@@ -4,17 +4,18 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
-- A guided tour for new users (Help › Take the Tour): ten short steps from opening a song to playing and practising it, with a demo song (Help › Open Demo Song). Short tours for Editing, Speed Trainer, Effects and Record to tab are under Help › Tours, and a one-time tip offers each the first time you open that area.
-- Help › What's New lists the features of a release; after an update it opens once with a "Show me" for each.
-- The "Limits" popup of Record to tab on the start page opens at its link and is wider.
+## [1.0.1]
 
-- Fixed live monitoring losing playback after an output-open failure, blocking the UI while an interface opens, and using a closed or background song's input settings. Monitor startup fades in, EQ changes prepare outside the audio lock, saved rigs reject malformed effects, and both monitoring switches enable effects playback. Input selection now requires an exact device name, ignoring case and browser-added USB IDs.
+New features and fixes since 1.0.0:
 
-- Plugin blocks now have independent audio and preset state, bypass immediately when plugins are switched off, and release their helpers when removed. Audio uses bounded shared-memory buffers with no callback allocations; synthetic-plugin tests exercise isolation and recovery in CI. Blocks cross to the helper in order and are taken back in order, so every block of a render callback gets plugin output instead of one in eight; missing or wrong-sized answers are skipped instead of stalling later blocks. Queued preset changes preserve undo order, and preset-load failures remain visible while audio continues with the last accepted settings. A preset you save is applied without waiting for the helper, so saving no longer holds the audio engine's lock, and a mono CLAP plugin now gets its own channel counts instead of a stereo guess.
-
-- Third-party plugin hosting (VST3 and CLAP) as opt-in pedalboard blocks. Plugins are off by default, scanned from the standard folders, and each runs in its own helper process outside the app: the audio thread never waits (missed answers pass dry and recover in the background), the added latency (the plugin's own plus the measured handover, about one render callback) shows under the block in milliseconds, and Save settings stores the preset in the song (up to 4 MB).
-
-- Added: a monitor track that plays your audio input live, for example a guitar plugged into an audio interface. It has its own pedalboard, EQ, volume, pan, mute and solo, like the other tracks, and you hear it while the song plays or stands still. Switch on **Monitor my input** in **Practice mix**, then use **Input settings…** and **Input effects…** to choose your input and rig. The mixer also has an **Add monitor track** button. Choose the input in Help › Settings…, and with a multi-input interface the input channel. A new monitor track starts with the effects and levels of the last one. Monitoring enables "Native engine with effects". Its pedalboard supports VST3 and CLAP plugins with independent editors and presets. It works alongside every score playback mode, and it is not part of exports.
+- A guided tour for new users (Help › Take the Tour), a demo song (Help › Open Demo Song), short tours for Editing, Speed Trainer, Effects and Record to tab (Help › Tours), and Help › What's New, which opens once after an update.
+- A monitor track that plays your audio input live (for example a guitar in an audio interface) with its own pedalboard, EQ, volume, pan, mute and solo. Switch it on with **Monitor my input** in **Practice mix**. Monitoring fades in, recovers after an output-open failure and no longer blocks the UI while an interface opens.
+- Third-party VST3 and CLAP plugins as opt-in pedalboard blocks. Each plugin runs in its own helper process, so a crashing plugin cannot take the app down, and presets are saved in the song.
+- Record to tab: Basic Pitch with playable fret placement, piano to staves, and drums to a drum track.
+- Importable SoundFonts and new anonymous usage counters (still switchable off in Help › Settings…).
+- A pan control with an L/C/R value, centre snap and double-click reset; Copy track to instrument; drum notation is normalised.
+- Fixed: the tuner reads a steady pitch from audio interfaces, tunings read low to high in selectors, pedalboard drag and drop adds, reorders and removes, and Guitar Pro is listed in the Export menu.
+- Credits for Basic Pitch and Transkun on the start page and in the README.
 
 ## [1.0.0]
 

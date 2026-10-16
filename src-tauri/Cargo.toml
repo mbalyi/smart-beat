@@ -1,6 +1,6 @@
 [package]
 name = "smart-beat"
-version = "1.0.0"
+version = "1.0.1"
 description = "Smart Beat desktop app (Tauri core)"
 authors = ["Mark Balyi"]
 edition = "2024"

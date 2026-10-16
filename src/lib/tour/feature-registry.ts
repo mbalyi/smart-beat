@@ -23,7 +23,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     title: "A guided tour",
     summary:
       "A short tour takes you from opening a song to playing and practising it. Replay it any time from Help › Take the Tour.",
-    since: "1.1.0",
+    since: "1.0.1",
     tour: "main",
   },
   {
@@ -31,7 +31,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     title: "A demo song",
     summary:
       "An original song with drums, guitar, bass and piano to try every feature on, from Help › Open Demo Song.",
-    since: "1.1.0",
+    since: "1.0.1",
     tour: "main",
   },
   {
@@ -39,21 +39,21 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     title: "Readable drum notation",
     summary:
       "Normalize drum notation re-maps drum notes to a readable staff layout, from the track menu or the inspector.",
-    since: "1.1.0",
+    since: "1.0.1",
     tour: "editing",
   },
   {
     id: "copy-to-instrument",
     title: "Copy a track to another instrument",
     summary: "Copy a track to a different instrument, for example a guitar riff to piano.",
-    since: "1.1.0",
+    since: "1.0.1",
     tour: "editing",
   },
   {
     id: "record-piano-drums",
     title: "Record piano and drums to tab",
     summary: "Record piano to staves and drums to a drum track, next to guitar and bass.",
-    since: "1.1.0",
+    since: "1.0.1",
     tour: "record-to-tab",
   },
   {
@@ -61,14 +61,14 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     title: "More instrument sounds",
     summary:
       "Import your own SoundFont or download a recommended one, then pick it under Instrument sounds. Added SoundFonts can be removed again.",
-    since: "1.1.0",
+    since: "1.0.1",
     tour: "main",
   },
   {
     id: "pan-control",
     title: "Pan control",
     summary: "Pan each track left or right; double-click the control to centre it.",
-    since: "1.1.0",
+    since: "1.0.1",
     tour: "effects",
   },
   {

@@ -1,7 +1,7 @@
 {
   "name": "smart-beat",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Smart Beat – a modern cross-platform tablature editor with self-hosted AI accompaniment.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "author": "Mark Balyi <smart-beat@outlook.com>",
