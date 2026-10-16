@@ -5,11 +5,13 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 
 import { App } from "@/App";
+import { APP_VERSION } from "@/lib/project-info";
 import { fileKey } from "@/lib/score/format";
 import { mixFromScore } from "@/lib/score/mixer";
 import type { MenuAction } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { FakeScorePlayer } from "@/test/fake-score-player";
+import { TOUR_STORAGE_KEY } from "@/lib/tour/tour-store";
 import { renderWithProviders } from "@/test/render";
 import { fixtureBytes, SUMMARY } from "@/test/score";
 import {
@@ -34,6 +36,15 @@ vi.mock("@/lib/features", () => ({
 
 const SONG = "/Users/me/Songs/practice-song.gp";
 const OTHER_SONG = "/Users/me/Songs/structure-song.gp";
+
+// Someone who has already seen What's new for this version: the dialog an update opens once
+// would otherwise sit over every test.
+beforeEach(() => {
+  localStorage.setItem(
+    TOUR_STORAGE_KEY,
+    JSON.stringify({ tours: { main: "skipped" }, hints: {}, lastSeenVersion: APP_VERSION }),
+  );
+});
 
 async function renderApp() {
   const calls = mockTauri();
