@@ -47,7 +47,7 @@ test.describe("SoundFonts (#81)", () => {
     const dialog = await importFile(app, "/music/My Bank.sf2");
     const row = dialog.getByTestId("imported-soundfont");
     await expect(row).toContainText("My Bank");
-    await dialog.getByRole("button", { name: "Done" }).click();
+    await dialog.getByRole("button", { name: "Close" }).click();
 
     // It is in the list of instrument sounds, after the two built-in sets.
     await app.getByRole("combobox", { name: "Instrument sounds" }).click();
@@ -66,7 +66,7 @@ test.describe("SoundFonts (#81)", () => {
     await expect(again).toContainText("In use. Playback switches to the default sounds.");
     await again.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(again.getByTestId("imported-soundfont")).toHaveCount(0);
-    await again.getByRole("button", { name: "Done" }).click();
+    await again.getByRole("button", { name: "Close" }).click();
     await expect(app.getByRole("combobox", { name: "Instrument sounds" })).toHaveText(
       /High quality/,
     );
@@ -98,7 +98,7 @@ test.describe("SoundFonts (#81)", () => {
     await expect(banks.nth(0)).toContainText("Installed");
     await expect(banks.nth(0).getByRole("button", { name: /^Download/ })).toHaveCount(0);
     expect(await app.evaluate(() => window.__soundfonts.downloads)).toEqual(["musescore-general"]);
-    await dialog.getByRole("button", { name: "Done" }).click();
+    await dialog.getByRole("button", { name: "Close" }).click();
 
     await app.getByRole("combobox", { name: "Instrument sounds" }).click();
     await app.getByRole("option", { name: /MuseScore General · Downloaded/ }).click();

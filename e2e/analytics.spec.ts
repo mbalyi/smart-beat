@@ -112,7 +112,7 @@ test.describe("counters added for 1.0.1 (#153)", () => {
     await dialog.getByRole("button", { name: "Import a SoundFont…" }).click();
     await dialog.getByRole("button", { name: "Download Arachno" }).click();
     await expect(dialog.getByTestId("catalogue-soundfont").nth(4)).toContainText("Installed");
-    await dialog.getByRole("button", { name: "Done" }).click();
+    await dialog.getByRole("button", { name: "Close" }).click();
 
     await app.getByRole("combobox", { name: "Instrument sounds" }).click();
     await app.getByRole("option", { name: /My Private Bank/ }).click();

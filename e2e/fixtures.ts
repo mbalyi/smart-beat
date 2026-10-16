@@ -192,9 +192,13 @@ export const test = base.extend<{ app: Page; firstLaunch: boolean }>({
     // Sonivox as before unless they pick one (soundfonts.spec.ts checks the default itself). A new
     // install is told apart by having no saved "smart-beat:" setting, so a first launch keeps the
     // default and only gets the stand-in file.
-    await page.route("**/soundfont/FluidR3Mono_GM.sf3", async (route) =>
-      route.fulfill({ response: await page.request.get("/soundfont/sonivox.sf3") }),
-    );
+    await page.route("**/soundfont/FluidR3Mono_GM.sf3", async (route) => {
+      try {
+        await route.fulfill({ response: await page.request.get("/soundfont/sonivox.sf3") });
+      } catch {
+        // The test ended while the file was being fetched: nobody is waiting for it.
+      }
+    });
     if (!firstLaunch) {
       await page.addInitScript(() => {
         if (!localStorage.getItem("smart-beat:soundfont")) {
