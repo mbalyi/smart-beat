@@ -29,6 +29,8 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
     engineState: vi.fn(() => Promise.resolve({ durationMs: 5_000, positionMs: 0, playing: false })),
     engineTransport: vi.fn(() => Promise.resolve()),
     setEngineMix: vi.fn(() => Promise.resolve()),
+    setEngineMonitor: vi.fn(() => Promise.resolve(null)),
+    setEngineMonitorChain: vi.fn(() => Promise.resolve([])),
     setEngineChain: vi.fn(() =>
       Promise.resolve([{ index: 0, message: "Amp model “x” is not in the library" }]),
     ),

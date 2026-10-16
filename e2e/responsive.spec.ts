@@ -258,3 +258,26 @@ test.describe("update dialog at the minimum window (480×360)", () => {
     expect(overflow).toBeLessThanOrEqual(0);
   });
 });
+
+test("practice monitor controls stay reachable in a short and narrow popup", async ({ app }) => {
+  await app.setViewportSize({ width: 1280, height: 800 });
+  await openSong(app);
+  await app.getByRole("button", { name: /^Practice mix/ }).click();
+  const popup = app.getByRole("dialog", { name: "Practice mix" });
+  for (const viewport of [
+    { width: 375, height: 812 },
+    { width: 480, height: 360 },
+    { width: 768, height: 800 },
+  ]) {
+    await app.setViewportSize(viewport);
+    const monitor = popup.getByRole("switch", { name: "Monitor my input" });
+    await monitor.scrollIntoViewIfNeeded();
+    await expect(monitor).toBeInViewport();
+    const settings = popup.getByRole("button", { name: "Input settings…" });
+    await settings.scrollIntoViewIfNeeded();
+    await expect(settings).toBeInViewport();
+    const box = await popup.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+  }
+});

@@ -1,6 +1,6 @@
 //! Per-song mixer settings: volume, pan, mute and solo, effect chains and
-//! sounds, channel EQ, automation, the drum mixer, the audio track and chain
-//! presets.
+//! sounds, channel EQ, automation, the drum mixer, the audio track, the
+//! monitor track and chain presets.
 //!
 //! Saved `.gp` files carry them inside (see `project.rs`). They are also
 //! stored as JSON files in the app data folder, keyed by the SHA-256 of the
@@ -16,6 +16,7 @@ use crate::audio::backing::BackingParams;
 use crate::audio::chain::{EffectSlot, MAX_MASTER_EFFECTS, MAX_TRACK_EFFECTS};
 use crate::audio::engine::MAX_SOUNDS;
 use crate::audio::mixing::TrackEq;
+use crate::audio::monitor::MonitorParams;
 use crate::error::{CommandError, ErrorKind};
 
 /// Current settings format. Version 1 files (before sounds, EQ, automation,
@@ -79,6 +80,9 @@ pub struct MixerSettings {
     pub drums: Vec<Option<DrumMixer>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_track: Option<AudioTrack>,
+    /// The monitor track: the live input with its own effects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor: Option<MonitorTrack>,
     /// Effect chain presets saved with the song.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub presets: Vec<ChainPreset>,
@@ -197,6 +201,17 @@ pub struct AudioTrack {
     pub params: BackingParams,
     #[serde(default)]
     pub sync: Vec<SyncPoint>,
+}
+
+/// The monitor track of a song: how the live input plays, and its effects.
+/// The input itself is chosen for the whole app (Settings).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorTrack {
+    #[serde(flatten)]
+    pub params: MonitorParams,
+    #[serde(default)]
+    pub effects: Vec<EffectSlot>,
 }
 
 /// An effect chain preset stored in the song.
@@ -392,6 +407,14 @@ impl MixerSettings {
                 return Err("invalid audio track sync points".into());
             }
         }
+        if let Some(monitor) = &self.monitor {
+            monitor.params.validate()?;
+            if monitor.effects.len() > MAX_TRACK_EFFECTS {
+                return Err(format!(
+                    "the monitor track has more than {MAX_TRACK_EFFECTS} effects"
+                ));
+            }
+        }
         if self.presets.len() > MAX_PRESETS {
             return Err(format!("more than {MAX_PRESETS} presets"));
         }
@@ -562,6 +585,7 @@ mod tests {
             focus_mode: None,
             drums: Vec::new(),
             audio_track: None,
+            monitor: None,
             presets: Vec::new(),
             drum_kits: Vec::new(),
             track_colors: Vec::new(),
@@ -730,6 +754,16 @@ mod tests {
                     },
                 ],
             }),
+            monitor: Some(MonitorTrack {
+                params: MonitorParams {
+                    enabled: false,
+                    volume: 0.6,
+                    pan: -0.25,
+                    solo: true,
+                    ..Default::default()
+                },
+                effects: vec![delay.clone()],
+            }),
             presets: vec![ChainPreset {
                 name: "Slapback".into(),
                 target: "guitar".into(),
@@ -790,6 +824,7 @@ mod tests {
             "\"semitones\":-2",
             "\"filter\":\"bassIsolate\"",
             "\"presets\"",
+            "\"monitor\":{\"enabled\":false,\"volume\":0.6,\"pan\":-0.25",
         ] {
             assert!(json.contains(key), "{key} missing in {json}");
         }
@@ -852,6 +887,23 @@ mod tests {
                     s
                 },
                 "transposition",
+            ),
+            (
+                {
+                    let mut s = full();
+                    s.monitor.as_mut().unwrap().params.volume = 1.5;
+                    s
+                },
+                "monitor volume",
+            ),
+            (
+                {
+                    let mut s = full();
+                    let effects = &mut s.monitor.as_mut().unwrap().effects;
+                    *effects = vec![effects[0].clone(); MAX_TRACK_EFFECTS + 1];
+                    s
+                },
+                "monitor track has more than",
             ),
             (
                 {

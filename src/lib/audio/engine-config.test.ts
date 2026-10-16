@@ -204,4 +204,28 @@ describe("engineExtras", () => {
     expect(extras.backing!.sync).toEqual([{ tick: 0, ms: 10 }]);
     expect(engineExtras(mix(), REPEATED).backing).toBeNull();
   });
+
+  it("sends the monitor track with the input chosen in Settings", () => {
+    const eq = { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 };
+    const m = mix({
+      monitor: {
+        enabled: true,
+        volume: 0.7,
+        pan: -0.5,
+        mute: false,
+        solo: true,
+        eq,
+        effects: [defaultEffect("gate")],
+      },
+    });
+    expect(engineExtras(m, REPEATED, { device: "Scarlett 2i2 USB", channel: 1 }).monitor).toEqual({
+      params: { enabled: true, volume: 0.7, pan: -0.5, mute: false, solo: true, eq },
+      effects: [defaultEffect("gate")],
+      device: "Scarlett 2i2 USB",
+      channel: 1,
+    });
+    // Without a choice: the system's default input, first channel.
+    expect(engineExtras(m, REPEATED).monitor).toMatchObject({ device: null, channel: 0 });
+    expect(engineExtras(mix(), REPEATED).monitor).toBeNull();
+  });
 });

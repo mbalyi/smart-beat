@@ -14,6 +14,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SMART_BEAT_INSTALLER");
     embed_windows_manifest_in_tests();
     transcription_service();
+    ensure_helper_placeholder();
 
     let windows = tauri_build::WindowsAttributes::new()
         .app_manifest(include_str!("windows-app-manifest.xml"));
@@ -70,6 +71,31 @@ fn transcription_service() {
     };
     let url = service_url::check(&url).unwrap_or_else(|reason| panic!("{NAME} {reason}"));
     println!("cargo:rustc-env={NAME}={url}");
+}
+
+/// The plugin helper sidecar (`externalBin` in tauri.conf.json) is staged by
+/// `scripts/stage-plugin-helper.mjs` before bundles. Plain `cargo` runs
+/// (tests, clippy, dev) only need the path to *exist* for tauri-build's
+/// compile-time validation, so an empty placeholder stands in until staging
+/// overwrites it with the real binary. Without this, a fresh checkout cannot
+/// even `cargo check`.
+fn ensure_helper_placeholder() {
+    let target = env::var("TARGET").unwrap_or_default();
+    let suffix = if target.contains("windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo");
+    let staged = Path::new(&manifest_dir)
+        .join("binaries")
+        .join(format!("smart-beat-plugin-helper-{target}{suffix}"));
+    if !staged.exists()
+        && let Some(parent) = staged.parent()
+        && std::fs::create_dir_all(parent).is_ok()
+    {
+        let _ = std::fs::write(&staged, []);
+    }
 }
 
 /// `NAME=value` from a `.env` file. Accepts `export`, quotes and a trailing ` # comment`.

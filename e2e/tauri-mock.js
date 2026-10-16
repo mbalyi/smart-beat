@@ -432,6 +432,16 @@
       case "audio_state":
         return {
           running: true,
+          monitor: window.__engineMonitor
+            ? {
+                open: window.__engineMonitor.params.enabled,
+                device: window.__engineMonitor.device ?? "System default",
+                channels: 2,
+                sampleRate: 48000,
+                latencyMs: 5,
+                error: null,
+              }
+            : null,
           sampleRate: 48000,
           positionMs: enginePosition(),
           durationMs: engine.durationMs,
@@ -446,11 +456,77 @@
         engine.durationMs = (args.song.endTick / args.song.division) * 500;
         engine.chains = {};
         return null;
+      case "audio_input_channels":
+        return 2;
+      case "audio_set_monitor":
+        window.__engineMonitor = args.monitor;
+        return args.monitor
+          ? {
+              open: args.monitor.params.enabled,
+              device: args.monitor.device ?? "System default",
+              channels: 2,
+              sampleRate: 48000,
+              latencyMs: 5,
+              error: null,
+            }
+          : null;
+      case "audio_set_monitor_chain":
+        engine.chains.monitor = args.slots;
+        window.__engineChains = engine.chains;
+        return [];
       case "audio_set_chain":
         engine.chains[args.sound ? `${args.track}:${args.sound}` : (args.track ?? "master")] =
           args.slots;
         window.__engineChains = engine.chains;
         return [];
+      // Third-party plugins (#80): the UI and what it sends.
+      case "plugins_scan":
+        return {
+          plugins: [
+            {
+              format: "vst3",
+              path: "/Library/Audio/Plug-Ins/VST3/TestAmp.vst3",
+              name: "Test Amp",
+              vendor: "Test",
+              version: "1.0",
+              hasGui: true,
+            },
+            {
+              format: "clap",
+              path: "/Library/Audio/Plug-Ins/CLAP/TestCab.clap",
+              name: "Test Cab",
+              vendor: "Test",
+              version: "1.0",
+              hasGui: false,
+            },
+          ],
+          skipped: [],
+        };
+      case "plugins_set_enabled":
+        window.__pluginsEnabled = args.enabled;
+        return null;
+      case "plugins_enabled":
+        return window.__pluginsEnabled ?? false;
+      case "audio_plugin_info":
+        return window.__pluginLoading === undefined
+          ? []
+          : [
+              {
+                index: 0,
+                name: "Test Amp",
+                alive: !window.__pluginLoading,
+                loading: window.__pluginLoading,
+                latencySamples: 256,
+                latencyMs: 5.3,
+                error: "",
+              },
+            ];
+      case "plugin_open_editor":
+        return [800, 600];
+      case "plugin_close_editor":
+        return null;
+      case "plugin_save_state":
+        return "aGk=";
       case "audio_transport": {
         const c = args.command;
         if (c.type === "play" && !engine.playing) {

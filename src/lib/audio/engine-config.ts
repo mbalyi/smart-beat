@@ -8,7 +8,8 @@
  * Pro, where automation belongs to the bar), sync points to the first pass.
  */
 import { engineDrumMix } from "@/lib/audio/drum-elements";
-import type { EngineExtras } from "@/lib/audio/native-engine";
+import { monitorParams } from "@/lib/audio/monitor";
+import type { EngineExtras, MonitorInputChoice } from "@/lib/audio/native-engine";
 import type { Score } from "@/lib/score/model";
 import { soundChains, trackAutomation, trackEq, trackSoundsOf } from "@/lib/score/mixer";
 import type {
@@ -254,10 +255,14 @@ export function backingParams(audio: AudioTrackSettings): BackingParams {
   };
 }
 
-/** Everything the native engine plays besides the notes, for this mix. */
+/**
+ * Everything the native engine plays besides the notes, for this mix. `input` is the audio input
+ * the monitor track plays (Settings › Audio).
+ */
 export function engineExtras(
   mix: MixerSettings,
   occurrences: readonly BarOccurrence[],
+  input: MonitorInputChoice = { device: null, channel: 0 },
 ): EngineExtras {
   return {
     sounds: mix.tracks.map((_, i) => engineSounds(mix, i, occurrences)),
@@ -272,6 +277,9 @@ export function engineExtras(
     masterPan: mix.masterPan ?? 0,
     backing: mix.audioTrack
       ? { params: backingParams(mix.audioTrack), sync: syncTicks(mix.audioTrack.sync, occurrences) }
+      : null,
+    monitor: mix.monitor
+      ? { params: monitorParams(mix.monitor), effects: mix.monitor.effects, ...input }
       : null,
   };
 }

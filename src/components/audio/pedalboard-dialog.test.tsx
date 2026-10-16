@@ -16,6 +16,7 @@ import { meters } from "@/lib/audio/meter-store";
 import type { BlockProblem, LibraryItem, SongPreset } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
+import { mockTauri } from "@/test/tauri";
 
 const LIBRARY: LibraryItem[] = [
   {
@@ -125,6 +126,39 @@ const pedal = (dialog: HTMLElement, name: string) =>
 describe("PedalboardDialog", () => {
   beforeEach(() => localStorage.clear());
 
+  it("shows preset-load failures even while the plugin is processing", async () => {
+    localStorage.setItem("smart-beat.plugins-enabled", "1");
+    mockTauri({
+      plugins_set_enabled: () => null,
+      plugins_enabled: () => true,
+      audio_plugin_info: () => [
+        {
+          index: 0,
+          name: "Gain",
+          latencySamples: 64,
+          latencyMs: 1.3,
+          alive: true,
+          error: "The plugin cannot restore settings",
+        },
+      ],
+    });
+    setup({
+      initial: [
+        {
+          type: "plugin",
+          format: "clap",
+          path: "/plugins/gain.clap",
+          name: "Gain",
+          state: "",
+          enabled: true,
+        },
+      ],
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The plugin cannot restore settings");
+    expect(alert).not.toHaveTextContent("Playing without it");
+  });
+
   it("starts empty and adds effects from the library, filtered by category", async () => {
     const { user, dialog, chain } = setup();
     expect(within(dialog).getByText(/No effects yet/)).toBeInTheDocument();
@@ -164,6 +198,37 @@ describe("PedalboardDialog", () => {
     // A pedal back to the library: removed.
     drag(pedal(dialog, "Chorus 3"), library);
     expect(types(chain())).toEqual(["reverb", "gate", "cab"]);
+  });
+
+  it("drags a scanned plugin before an existing pedal and back to the library", async () => {
+    const plugin = {
+      format: "vst3",
+      path: "/plugins/Test Amp.vst3",
+      name: "Test Amp",
+      vendor: "Test",
+      version: "1",
+      hasGui: true,
+    };
+    mockTauri({
+      plugins_enabled: () => false,
+      plugins_set_enabled: () => null,
+      plugins_scan: () => ({ plugins: [plugin], skipped: [] }),
+      audio_plugin_info: () => [],
+    });
+    const { user, dialog, chain } = setup({ initial: [defaultEffect("gate")] });
+    await user.click(within(dialog).getByRole("switch", { name: "Use third-party plugins" }));
+    await user.click(within(dialog).getByRole("button", { name: /Scan for plugins/ }));
+    const row = await within(dialog).findByTestId("library-plugin");
+    drag(row, pedal(dialog, "Noise gate 1"));
+    expect(types(chain())).toEqual(["plugin", "gate"]);
+    expect(chain()[0]).toMatchObject({
+      format: plugin.format,
+      path: plugin.path,
+      name: plugin.name,
+      state: "",
+    });
+    drag(pedal(dialog, "Test Amp 1"), within(dialog).getByTestId("effect-library"));
+    expect(types(chain())).toEqual(["gate"]);
   });
 
   it("lists the user's amps and cabinets and adds them by button or drag (#41)", async () => {

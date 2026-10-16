@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 src-tauri/target/
+src-tauri/binaries/
 src-tauri/gen/schemas/
 
 # Generated at build time (see scripts/generate-licenses.mjs)

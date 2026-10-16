@@ -1,5 +1,6 @@
 /**
- * Level meters while playing (native engine). The engine reports peaks about
+ * Level meters while playing, or while the monitor track listens (native engine). The engine
+ * reports peaks about
  * 40 times a second; keeping them out of React state means only the meters
  * redraw, not the whole workspace.
  */
@@ -30,12 +31,19 @@ export function smoothMeters(next: EngineMeters, previous: EngineMeters): Engine
     master: fall(next.master, previous.master),
     drums: (next.drums ?? []).map((row, t) => row.map((v, e) => fall(v, previous.drums?.[t]?.[e]))),
     backing: fall(next.backing, previous.backing),
+    ...(next.monitor !== undefined && { monitor: fall(next.monitor, previous.monitor) }),
+    ...(next.monitorInput !== undefined && {
+      monitorInput: fall(next.monitorInput, previous.monitorInput),
+    }),
     ...(next.reduction && {
       reduction: {
         tracks: next.reduction.tracks.map((row, t) =>
           row.map((v, i) => fall(v, previous.reduction?.tracks[t]?.[i])),
         ),
         master: next.reduction.master.map((v, i) => fall(v, previous.reduction?.master[i])),
+        ...(next.reduction.monitor && {
+          monitor: next.reduction.monitor.map((v, i) => fall(v, previous.reduction?.monitor?.[i])),
+        }),
       },
     }),
   };

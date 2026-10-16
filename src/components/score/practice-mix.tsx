@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Switch } from "@/components/ui/switch";
 import {
   FOCUS_CUT_MIN_DB,
   FOCUS_CUT_PRESETS,
@@ -28,8 +29,12 @@ type Mode = FocusMode | "normal";
 const MODES: { value: Mode; label: string; hint: string }[] = [
   { value: "normal", label: "Normal mix", hint: "Your mix as you set it" },
   { value: "othersDown", label: "Others turned down", hint: "Everything, quieter around you" },
-  { value: "onlyMe", label: "Hear only me", hint: "Just the track you practise" },
-  { value: "backing", label: "Backing only", hint: "Everything but your track: play it yourself" },
+  { value: "onlyMe", label: "Hear only this track", hint: "Only the selected score track plays" },
+  {
+    value: "backing",
+    label: "Backing only",
+    hint: "The other tracks play while you play your part",
+  },
 ];
 
 /** The words for a mode on the button. */
@@ -47,6 +52,7 @@ export function PracticeMix({
   onChange,
   cutDb,
   onCutChange,
+  monitor,
 }: {
   tracks: TrackSummary[];
   /** The track shown in the score: the one practised when none is chosen yet. */
@@ -56,9 +62,18 @@ export function PracticeMix({
   /** How far "Others turned down" turns them down (dB). */
   cutDb: number;
   onCutChange: (db: number) => void;
+  monitor?: {
+    inputName: string;
+    channel: number | null;
+    message?: string;
+    onToggle: (enabled: boolean) => void;
+    onEffects: () => void;
+    onInputSettings?: (trigger: HTMLElement) => void;
+  };
 }) {
   const trackLabelId = useId();
   const cutLabelId = useId();
+  const monitorId = useId();
   const mode = practiceMode(mix);
   const practised = mix.focus ?? shown;
   const name = tracks[practised]?.name ?? "";
@@ -75,9 +90,9 @@ export function PracticeMix({
         <Button
           variant="outline"
           size="sm"
-          title="Practice mix: hear only your track, or everything but it"
-          aria-label={`Practice mix: ${modeLabel(mode)}${mode === "normal" ? "" : `, ${name}`}`}
-          className={cn(mode !== "normal" && ACTIVE_BRAND)}
+          title="Practice mix: choose playback and monitor your input"
+          aria-label={`Practice mix: ${modeLabel(mode)}${mode === "normal" ? "" : `, ${name}`}${mix.monitor?.enabled ? ", input monitoring on" : ""}`}
+          className={cn((mode !== "normal" || mix.monitor?.enabled) && ACTIVE_BRAND)}
         >
           <HeadphonesIcon data-icon="inline-start" />
           <span className="max-2xl:sr-only">
@@ -85,7 +100,10 @@ export function PracticeMix({
           </span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="flex w-80 flex-col gap-3" aria-label="Practice mix">
+      <PopoverContent
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-80 flex-col gap-3 overflow-y-auto"
+        aria-label="Practice mix"
+      >
         <p className="text-sm font-medium">Practice mix</p>
         <div className="flex items-center justify-between gap-2">
           <span id={trackLabelId} className="text-sm">
@@ -120,7 +138,7 @@ export function PracticeMix({
           size="sm"
           value={mode}
           onValueChange={(v) => v && setMode(v as Mode)}
-          aria-label="What you hear"
+          aria-label="Score playback"
           className="flex w-full flex-col items-stretch"
         >
           {MODES.map((m) => (
@@ -166,6 +184,59 @@ export function PracticeMix({
             />
           </div>
         )}
+        <div className="flex flex-col gap-2 border-t pt-3">
+          {monitor ? (
+            <>
+              <label
+                htmlFor={monitorId}
+                className="flex items-center justify-between gap-2 text-sm font-medium"
+              >
+                Monitor my input
+                <Switch
+                  id={monitorId}
+                  aria-label="Monitor my input"
+                  checked={!!mix.monitor?.enabled}
+                  onCheckedChange={monitor.onToggle}
+                />
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Hear your instrument live, with effects, alongside the playback above. Use
+                headphones.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {monitor.inputName} ·{" "}
+                {monitor.channel === null ? "all inputs mixed" : `input ${monitor.channel + 1}`}
+              </p>
+              {monitor.message && (
+                <p role="status" className="text-xs">
+                  {monitor.message}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!monitor.onInputSettings}
+                  onClick={(event) => monitor.onInputSettings?.(event.currentTarget)}
+                >
+                  Input settings…
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!mix.monitor}
+                  onClick={monitor.onEffects}
+                >
+                  Input effects…
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Live input monitoring is available in the desktop app.
+            </p>
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   );

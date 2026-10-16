@@ -6,6 +6,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 
 export const AUDIO_INPUT_STORAGE_KEY = "smart-beat:audio-input";
+export const AUDIO_INPUT_CHANNEL_STORAGE_KEY = "smart-beat:audio-input-channel";
 
 /**
  * An input. `deviceId` is the web view's id for it. `label` is its name ("Scarlett 2i2 USB"):
@@ -100,6 +101,43 @@ function subscribe(listener: () => void) {
 export function useAudioInput(): AudioInput | null {
   const raw = useSyncExternalStore(subscribe, readRaw, () => null);
   return useMemo(() => parse(raw), [raw]);
+}
+
+function readRawChannel(): string | null {
+  try {
+    return localStorage.getItem(AUDIO_INPUT_CHANNEL_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function parseChannel(raw: string | null): number | null {
+  if (raw === "all") return null;
+  const channel = Number(raw ?? 0);
+  return Number.isInteger(channel) && channel >= 0 && channel < 64 ? channel : 0;
+}
+
+/**
+ * The channel of the input that the monitor track plays: 0 for the first one (input 1 of an
+ * audio interface), or null for all channels mixed. The first one unless chosen otherwise.
+ */
+export function readAudioInputChannel(): number | null {
+  return parseChannel(readRawChannel());
+}
+
+export function storeAudioInputChannel(channel: number | null) {
+  try {
+    if (channel === 0) localStorage.removeItem(AUDIO_INPUT_CHANNEL_STORAGE_KEY);
+    else localStorage.setItem(AUDIO_INPUT_CHANNEL_STORAGE_KEY, String(channel ?? "all"));
+  } catch {
+    // Not remembered: the first channel is used.
+  }
+  for (const listener of listeners) listener();
+}
+
+/** The chosen channel (see {@link readAudioInputChannel}), kept up to date. */
+export function useAudioInputChannel(): number | null {
+  return parseChannel(useSyncExternalStore(subscribe, readRawChannel, () => null));
 }
 
 export async function listAudioInputs(): Promise<AudioInputList> {
