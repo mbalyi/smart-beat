@@ -8,10 +8,9 @@
 //! the helper is behind, crashed or gone, the block passes audio through dry
 //! and the worker thread reloads or recovers it in the background.
 //!
-//! Blocks cross the boundary in order. The audio thread takes the oldest
-//! finished block, so the helper may run a whole render callback behind
-//! without losing one, and the delay that builds up is what the UI reports as
-//! added latency ([`PluginWorker::added_latency_samples`]).
+//! Blocks cross the boundary in order within a bounded render-callback budget.
+//! Stale input and output are discarded after stalls rather than accumulating
+//! audible delay. Pending engine blocks share a helper request to amortize IPC.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -96,6 +95,7 @@ pub struct PluginSlotInfo {
     /// The same value in milliseconds, so the UI needs no sample rate.
     pub latency_ms: f64,
     pub alive: bool,
+    pub loading: bool,
     /// The last failure in plain words (empty while healthy).
     pub error: String,
 }
@@ -111,12 +111,12 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 /// its callbacks in `BLOCK`-sized chunks and hands over one at a time, so a
 /// larger block cannot be handed over and passes dry instead of being split.
 const HANDOVER_FRAMES: usize = super::engine::BLOCK;
-/// How many blocks the two handover rings carry. Steady state needs one lap for
-/// the delay the audio thread builds up, which is about one render callback: a
-/// device callback is at most `MAX_FRAMES` / `BLOCK` blocks in the engine, so
-/// 256 blocks cover every device the app can open and leave room for a stall.
-/// Past a full lap the helper's input is overwritten and that block plays dry.
+/// Ring capacity covers the largest supported callback plus concurrent worker
+/// access. This is storage capacity, not an allowed latency: the current device
+/// callback sets a much smaller freshness budget through `begin_render`.
 const HANDOVER_SLOTS: usize = 256;
+/// Direct callers default to a 1024-frame callback plus scheduling headroom.
+const DEFAULT_LAG_BLOCKS: u32 = 18;
 
 /// Which ring slot a block belongs to.
 fn slot_index(seq: u64) -> usize {
@@ -132,10 +132,9 @@ pub fn helper_path() -> Option<PathBuf> {
     }
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    // Cargo's binary and the staged Tauri sidecar have different names:
-    // tauri-build copies sidecars next to dev/test executables and must not
-    // overwrite Cargo's freshly built helper with an older staged release.
-    for name in ["vst3-host-helper", "smart-beat-plugin-helper"] {
+    // The bundle's sidecar has plugin-loading signing entitlements. In a
+    // Cargo tree prefer its freshly built binary over any stale staged copy.
+    for name in helper_names(dir) {
         let name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
         let beside = dir.join(&name);
         if is_helper(&beside) {
@@ -149,6 +148,14 @@ pub fn helper_path() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn helper_names(dir: &Path) -> [&'static str; 2] {
+    if dir.ends_with("Contents/MacOS") {
+        ["smart-beat-plugin-helper", "vst3-host-helper"]
+    } else {
+        ["vst3-host-helper", "smart-beat-plugin-helper"]
+    }
 }
 
 /// Whether a file can be the helper. `build.rs` writes an empty placeholder so
@@ -167,54 +174,44 @@ fn friendly(path: &str) -> String {
         .unwrap_or_else(|| "plugin".to_string())
 }
 
-/// Default plugin folders per platform.
+/// Default plugin folders per platform. Select relative paths by format before
+/// joining the home directory: directory names inside HOME are not formats.
 fn scan_dirs(format: PluginFormat) -> Vec<PathBuf> {
-    let home = dirs_home();
-    let (vst3, clap): (Vec<&str>, Vec<&str>) = if cfg!(target_os = "macos") {
-        (
-            vec!["/Library/Audio/Plug-Ins/VST3"],
-            vec!["/Library/Audio/Plug-Ins/CLAP"],
-        )
+    scan_dirs_for_home(format, dirs_home().as_deref())
+}
+
+fn scan_dirs_for_home(format: PluginFormat, home: Option<&Path>) -> Vec<PathBuf> {
+    let (user, system): (&str, &[&str]) = if cfg!(target_os = "macos") {
+        match format {
+            PluginFormat::Vst3 => (
+                "Library/Audio/Plug-Ins/VST3",
+                &["/Library/Audio/Plug-Ins/VST3"],
+            ),
+            PluginFormat::Clap => (
+                "Library/Audio/Plug-Ins/CLAP",
+                &["/Library/Audio/Plug-Ins/CLAP"],
+            ),
+        }
     } else if cfg!(target_os = "windows") {
-        (
-            vec!["C:\\Program Files\\Common Files\\VST3"],
-            vec!["C:\\Program Files\\Common Files\\CLAP"],
-        )
+        match format {
+            PluginFormat::Vst3 => (
+                "AppData/Local/Programs/Common/VST3",
+                &["C:\\Program Files\\Common Files\\VST3"],
+            ),
+            PluginFormat::Clap => (
+                "AppData/Local/Programs/Common/CLAP",
+                &["C:\\Program Files\\Common Files\\CLAP"],
+            ),
+        }
     } else {
-        (
-            vec!["/usr/lib/vst3", "/usr/local/lib/vst3"],
-            vec!["/usr/lib/clap", "/usr/local/lib/clap"],
-        )
+        match format {
+            PluginFormat::Vst3 => (".vst3", &["/usr/lib/vst3", "/usr/local/lib/vst3"]),
+            PluginFormat::Clap => (".clap", &["/usr/lib/clap", "/usr/local/lib/clap"]),
+        }
     };
-    let user = home
-        .map(|h| {
-            if cfg!(target_os = "macos") {
-                vec![
-                    h.join("Library/Audio/Plug-Ins/VST3"),
-                    h.join("Library/Audio/Plug-Ins/CLAP"),
-                ]
-            } else if cfg!(target_os = "windows") {
-                vec![
-                    h.join("AppData/Local/Programs/Common/VST3"),
-                    h.join("AppData/Local/Programs/Common/CLAP"),
-                ]
-            } else {
-                vec![h.join(".vst3"), h.join(".clap")]
-            }
-        })
-        .unwrap_or_default();
-    let system = match format {
-        PluginFormat::Vst3 => vst3,
-        PluginFormat::Clap => clap,
-    }
-    .into_iter()
-    .map(PathBuf::from);
-    user.into_iter()
-        .filter(|dir| match format {
-            PluginFormat::Vst3 => dir.to_string_lossy().contains("VST3") || dir.ends_with(".vst3"),
-            PluginFormat::Clap => dir.to_string_lossy().contains("CLAP") || dir.ends_with(".clap"),
-        })
-        .chain(system)
+    home.map(|home| home.join(user))
+        .into_iter()
+        .chain(system.iter().map(PathBuf::from))
         .collect()
 }
 
@@ -403,9 +400,20 @@ fn ring() -> Box<[Mutex<AudioSlot>]> {
 #[derive(Debug)]
 struct WorkerStatus {
     latency: u32,
+    loading: bool,
     alive: bool,
     error: String,
     preset_error: String,
+    processing_error: String,
+}
+
+/// Contiguous engine blocks processed in one helper round trip. Lengths retain
+/// partial blocks so results are returned at exactly their original boundaries.
+struct AudioBatch {
+    first: u64,
+    lengths: Vec<usize>,
+    left: Vec<f32>,
+    right: Vec<f32>,
 }
 
 type AudioResult = Result<(Vec<f32>, Vec<f32>), String>;
@@ -439,10 +447,10 @@ pub struct PluginWorker {
     out_ring: Box<[Mutex<AudioSlot>]>,
     status: Mutex<WorkerStatus>,
     state: Mutex<Vec<u8>>,
-    /// Blocks between the newest pushed block and the finished block the audio
-    /// thread last took: the handover's own latency, written by the audio
-    /// thread and read by the UI.
+    /// Age of the wet block currently playing, or zero during dry fallback.
+    /// Written by the audio thread and read by the UI.
     lag_blocks: AtomicU32,
+    max_lag_blocks: AtomicU32,
 }
 
 /// Address of one live block. Export workers use a separate pool.
@@ -460,6 +468,22 @@ pub struct PluginInstance {
 pub const MAX_STATE_BYTES: usize = 4 * 1024 * 1024;
 
 impl PluginWorker {
+    /// The engine renders a device callback as a burst of small blocks. Keep
+    /// one complete callback plus two scheduling blocks, while expiring stalls.
+    pub fn begin_render(&self, frames: usize) {
+        let blocks = frames.div_ceil(HANDOVER_FRAMES).saturating_add(2);
+        self.max_lag_blocks.store(
+            blocks.clamp(1, HANDOVER_SLOTS - 1) as u32,
+            Ordering::Relaxed,
+        );
+    }
+
+    fn oldest_input(&self, newest: u64) -> u64 {
+        newest
+            .saturating_sub(u64::from(self.max_lag_blocks.load(Ordering::Relaxed)))
+            .max(1)
+    }
+
     /// Hands one stereo block to the worker (drops it when the worker is
     /// behind: the audio thread never waits).
     pub fn push(&self, left: &[f32], right: &[f32]) {
@@ -482,7 +506,7 @@ impl PluginWorker {
     /// push cannot strand later blocks. At most one ring is inspected.
     fn next_input(&self, next: &mut u64) -> Option<(Vec<f32>, Vec<f32>)> {
         let newest = self.submitted.load(Ordering::Acquire);
-        *next = (*next).max(newest.saturating_sub(HANDOVER_SLOTS as u64 - 1));
+        *next = (*next).max(self.oldest_input(newest));
         self.completed.store(*next - 1, Ordering::Release);
         while *next <= newest {
             let slot = self.in_ring[slot_index(*next)].lock().unwrap();
@@ -498,16 +522,89 @@ impl PluginWorker {
         None
     }
 
-    pub fn process_offline(&self, left: &mut [f32], right: &mut [f32]) {
-        if !self.enabled.load(Ordering::Acquire) {
-            return;
+    /// Coalesce the already published contiguous prefix; never wait for more
+    /// input and never hide dropped slots inside a larger plugin block.
+    fn next_batch(&self, next: &mut u64) -> Option<AudioBatch> {
+        let (left, right) = self.next_input(next)?;
+        let mut batch = AudioBatch {
+            first: *next,
+            lengths: vec![left.len()],
+            left,
+            right,
+        };
+        *next += 1;
+        let newest = self.submitted.load(Ordering::Acquire);
+        while *next <= newest {
+            let slot = self.in_ring[slot_index(*next)].lock().unwrap();
+            if slot.seq != *next || batch.left.len() + slot.frames > MAX_AUDIO_FRAMES {
+                break;
+            }
+            batch.lengths.push(slot.frames);
+            batch.left.extend_from_slice(&slot.left[..slot.frames]);
+            batch.right.extend_from_slice(&slot.right[..slot.frames]);
+            *next += 1;
         }
-        if let Ok(Ok((out_l, out_r))) =
-            self.ctrl(|reply| CtrlCmd::Process(left.to_vec(), right.to_vec(), reply))
+        Some(batch)
+    }
+
+    fn finish_batch(&self, batch: &AudioBatch, left: &[f32], right: &[f32]) {
+        let mut offset = 0;
+        for (index, &frames) in batch.lengths.iter().enumerate() {
+            let seq = batch.first + index as u64;
+            let mut out = self.out_ring[slot_index(seq)].lock().unwrap();
+            out.frames = frames;
+            out.left[..frames].copy_from_slice(&left[offset..offset + frames]);
+            out.right[..frames].copy_from_slice(&right[offset..offset + frames]);
+            out.seq = seq;
+            offset += frames;
+        }
+    }
+
+    /// Export must never silently replace failed wet audio with dry input.
+    /// Offline errors remain latched for the whole render, including later
+    /// blocks in the same engine callback, until the export owner checks them.
+    pub fn process_offline(&self, left: &mut [f32], right: &mut [f32]) -> Result<(), String> {
+        if self.offline
+            && let Some(error) = self.processing_error()
         {
-            left.copy_from_slice(&out_l);
-            right.copy_from_slice(&out_r);
+            return Err(error);
         }
+        let result = if !self.enabled.load(Ordering::Acquire) {
+            if !self.offline {
+                return Ok(());
+            }
+            Err("Third-party plugins were switched off during audio processing".into())
+        } else {
+            Self::flatten(self.ctrl(|reply| CtrlCmd::Process(left.to_vec(), right.to_vec(), reply)))
+        };
+        match result {
+            Ok((out_l, out_r)) if out_l.len() == left.len() && out_r.len() == right.len() => {
+                left.copy_from_slice(&out_l);
+                right.copy_from_slice(&out_r);
+                Ok(())
+            }
+            result => {
+                let error = result
+                    .err()
+                    .unwrap_or_else(|| "The plugin returned the wrong audio block size".into());
+                let mut status = self.status.lock().unwrap();
+                status.alive = false;
+                status.error.clone_from(&error);
+                status.processing_error.clone_from(&error);
+                Err(error)
+            }
+        }
+    }
+
+    pub fn processing_error(&self) -> Option<String> {
+        let status = self.status.lock().unwrap();
+        (!status.processing_error.is_empty()).then(|| status.processing_error.clone())
+    }
+
+    /// An unchanged requested preset must still be retried if its previous
+    /// asynchronous application failed. A successful application clears this.
+    pub fn state_rejected(&self) -> bool {
+        !self.status.lock().unwrap().preset_error.is_empty()
     }
 
     pub fn offline(&self) -> bool {
@@ -521,12 +618,17 @@ impl PluginWorker {
     /// Allocates nothing: the audio thread must never
     /// wait on the worker.
     pub fn take_into(&self, seen: &mut u64, left: &mut [f32], right: &mut [f32]) -> bool {
+        // Dry fallback has no handover delay. Never leave a stale wet latency
+        // displayed while the helper is stalled or its output has expired.
+        self.lag_blocks.store(0, Ordering::Relaxed);
         if !self.enabled.load(Ordering::Acquire) {
             return false;
         }
+        let newest = self.sequence.load(Ordering::Relaxed);
+        *seen = (*seen).max(self.oldest_input(newest) - 1);
         let completed = self.completed.load(Ordering::Acquire);
-        // Earlier answers have already been overwritten. Inspect at most one
-        // ring, and never skip a block the worker could still answer.
+        // Also account for overwritten storage. Inspect at most one ring;
+        // answers outside the freshness budget are intentionally discarded.
         *seen = (*seen).max(completed.saturating_sub(HANDOVER_SLOTS as u64));
         while *seen < completed {
             let expected = *seen + 1;
@@ -560,8 +662,8 @@ impl PluginWorker {
         self.status.lock().unwrap().latency
     }
 
-    /// The latency the block adds: the plugin's own plus the delay the
-    /// handover builds up, which is one render callback in steady state.
+    /// The latency the block adds: the plugin's own plus the bounded handover
+    /// delay, typically one render callback in steady state.
     pub fn added_latency_samples(&self) -> u32 {
         self.latency_samples() + self.lag_blocks() * super::engine::BLOCK as u32
     }
@@ -575,6 +677,10 @@ impl PluginWorker {
         self.status.lock().unwrap().alive
     }
 
+    pub fn loading(&self) -> bool {
+        self.status.lock().unwrap().loading
+    }
+
     pub fn error(&self) -> String {
         let status = self.status.lock().unwrap();
         if status.error.is_empty() {
@@ -586,17 +692,33 @@ impl PluginWorker {
 
     fn set_status(&self, alive: bool, error: String) {
         let mut status = self.status.lock().unwrap();
+        status.loading = false;
         status.alive = alive;
         status.error = error;
     }
 
     fn ctrl<T>(&self, f: impl FnOnce(mpsc::Sender<T>) -> CtrlCmd) -> Result<T, String> {
         let (tx, rx) = mpsc::channel();
-        self.ctrl_tx
-            .send(f(tx))
-            .map_err(|_| "The plugin stopped responding".to_string())?;
-        rx.recv_timeout(Duration::from_secs(25))
-            .map_err(|_| "The plugin timed out".to_string())
+        let disconnected = || {
+            let error = self.error();
+            if error.is_empty() {
+                "The plugin stopped responding".to_string()
+            } else {
+                error
+            }
+        };
+        self.ctrl_tx.send(f(tx)).map_err(|_| disconnected())?;
+        // Commands queued during asynchronous initialization wait behind the
+        // launch handshake, loading, state restoration and activation.
+        let timeout = if self.loading() {
+            SLOW_TIMEOUT * 4 + Duration::from_secs(5)
+        } else {
+            Duration::from_secs(25)
+        };
+        rx.recv_timeout(timeout).map_err(|error| match error {
+            mpsc::RecvTimeoutError::Timeout => "The plugin timed out".to_string(),
+            mpsc::RecvTimeoutError::Disconnected => disconnected(),
+        })
     }
 
     fn flatten<T>(nested: Result<Result<T, String>, String>) -> Result<T, String> {
@@ -638,6 +760,8 @@ pub struct PluginPool {
     offline: bool,
     helper: Option<PathBuf>,
     workers: Mutex<HashMap<PluginInstance, (PluginSpec, Weak<PluginWorker>)>>,
+    all_workers: Mutex<Vec<Weak<PluginWorker>>>,
+    build_error: Mutex<Option<String>>,
 }
 
 impl Default for PluginPool {
@@ -647,6 +771,8 @@ impl Default for PluginPool {
             offline: false,
             helper: None,
             workers: Mutex::new(HashMap::new()),
+            all_workers: Mutex::new(Vec::new()),
+            build_error: Mutex::new(None),
         }
     }
 }
@@ -667,10 +793,14 @@ impl PluginPool {
 
     pub fn for_offline(&self) -> Self {
         Self {
-            enabled: self.enabled.clone(),
+            // Export uses the settings captured at its start, independent of
+            // live playback toggles while rendering in the background.
+            enabled: Arc::new(AtomicBool::new(self.enabled())),
             offline: true,
             helper: self.helper.clone(),
             workers: Mutex::new(HashMap::new()),
+            all_workers: Mutex::new(Vec::new()),
+            build_error: Mutex::new(None),
         }
     }
 
@@ -691,12 +821,42 @@ impl PluginPool {
             ));
         }
         let worker = self.spawn(spec, sample_rate)?;
+        {
+            let mut workers = self.all_workers.lock().unwrap();
+            workers.retain(|worker| worker.strong_count() > 0);
+            workers.push(Arc::downgrade(&worker));
+        }
         if let Some(instance) = instance {
             let mut workers = self.workers.lock().unwrap();
             workers.retain(|_, (_, worker)| worker.strong_count() > 0);
             workers.insert(instance, (spec.clone(), Arc::downgrade(&worker)));
         }
         Ok(worker)
+    }
+
+    /// Includes unaddressed blocks (such as export/master chains), which are
+    /// deliberately absent from the editor's address registry.
+    pub fn processing_error(&self) -> Option<String> {
+        if let Some(error) = self.build_error.lock().unwrap().as_ref() {
+            return Some(error.clone());
+        }
+        self.all_workers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(Weak::upgrade)
+            .find_map(|worker| worker.processing_error())
+    }
+
+    /// Export cannot silently omit an enabled plugin that failed before a
+    /// worker existed. Globally bypassed plugins still match live playback.
+    pub(crate) fn record_build_error(&self, error: &str) {
+        if self.offline && self.enabled() {
+            self.build_error
+                .lock()
+                .unwrap()
+                .get_or_insert_with(|| error.to_string());
+        }
     }
 
     pub fn find(&self, instance: PluginInstance, spec: &PluginSpec) -> Option<Arc<PluginWorker>> {
@@ -718,7 +878,6 @@ impl PluginPool {
             .or_else(helper_path)
             .ok_or_else(|| "The plugin helper is missing from the installation".to_string())?;
         let (ctrl_tx, ctrl_rx) = mpsc::channel::<CtrlCmd>();
-        let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
         let worker = Arc::new(PluginWorker {
             enabled: self.enabled.clone(),
             sequence: AtomicU64::new(0),
@@ -730,12 +889,15 @@ impl PluginPool {
             out_ring: ring(),
             status: Mutex::new(WorkerStatus {
                 latency: 0,
+                loading: true,
                 alive: false,
                 error: String::new(),
                 preset_error: String::new(),
+                processing_error: String::new(),
             }),
             state: Mutex::new(spec.state.clone()),
             lag_blocks: AtomicU32::new(0),
+            max_lag_blocks: AtomicU32::new(DEFAULT_LAG_BLOCKS),
         });
         // Some platforms lazily allocate the native mutex on first use.
         // Initialize every handover mutex before any audio callback sees them.
@@ -750,13 +912,9 @@ impl PluginPool {
         std::thread::Builder::new()
             .name(format!("plugin-{plugin_name}"))
             .spawn(move || {
-                run_worker(weak, &helper, &spec, sample_rate, ctrl_rx, ready_tx);
+                run_worker(weak, &helper, &spec, sample_rate, ctrl_rx);
             })
             .map_err(|e| format!("A plugin thread cannot start: {e}"))?;
-        let latency = ready_rx
-            .recv_timeout(SLOW_TIMEOUT + Duration::from_secs(5))
-            .map_err(|_| format!("{plugin_name} timed out while loading"))??;
-        worker.status.lock().unwrap().latency = latency;
         Ok(worker)
     }
 }
@@ -769,35 +927,51 @@ fn run_worker(
     spec: &PluginSpec,
     sample_rate: f32,
     ctrl_rx: mpsc::Receiver<CtrlCmd>,
-    ready_tx: mpsc::Sender<Result<u32, String>>,
 ) {
-    let Some(worker) = weak.upgrade() else {
-        return;
+    // Loading can wait for several helper requests. Retain only a weak
+    // reference so removing the final chain block releases its worker at once.
+    let offline = match weak.upgrade() {
+        Some(worker) => worker.offline,
+        None => return,
     };
     let mut backend = match Backend::load(helper, spec.format, &spec.path, &spec.state, sample_rate)
     {
         Ok(backend) => backend,
         Err(e) => {
-            let _ = ready_tx.send(Err(e));
+            if let Some(worker) = weak.upgrade() {
+                let mut status = worker.status.lock().unwrap();
+                status.loading = false;
+                status.error.clone_from(&e);
+                status.processing_error = e;
+            }
             return;
         }
     };
     let latency = backend.latency();
+    let Some(worker) = weak.upgrade() else {
+        return;
+    };
     worker.set_status(true, String::new());
     {
         let mut status = worker.status.lock().unwrap();
         status.latency = latency;
     }
-    let _ = ready_tx.send(Ok(latency));
-    // Do not keep the initialization Arc alive across the loop.
+    // Do not keep an Arc while waiting for control messages: it owns the
+    // sender, so retaining it would prevent channel disconnection on drop.
     drop(worker);
     let mut next_seq = 1u64;
     loop {
+        // Export workers are demand-driven and never need an audio-ring poll.
+        let command = if offline {
+            ctrl_rx.recv().map_err(|_| mpsc::TryRecvError::Disconnected)
+        } else {
+            ctrl_rx.try_recv()
+        };
         let Some(worker) = weak.upgrade() else {
             break;
         };
         // Controls cannot be starved by a continuous stream of audio.
-        match ctrl_rx.try_recv() {
+        match command {
             Ok(CtrlCmd::Process(left, right, reply)) => {
                 let _ = reply.send(backend.process(&left, &right));
             }
@@ -828,25 +1002,21 @@ fn run_worker(
             Err(mpsc::TryRecvError::Disconnected) => break,
             Err(mpsc::TryRecvError::Empty) => {}
         }
+        if offline {
+            continue;
+        }
         if !worker.enabled.load(Ordering::Acquire) {
             std::thread::sleep(Duration::from_micros(250));
             continue;
         }
-        let job = worker.next_input(&mut next_seq);
-        let Some((left, right)) = job else {
+        let job = worker.next_batch(&mut next_seq);
+        let Some(batch) = job else {
             std::thread::sleep(Duration::from_micros(250));
             continue;
         };
-        let answered = next_seq;
-        next_seq += 1;
-        match backend.process(&left, &right) {
+        match backend.process(&batch.left, &batch.right) {
             Ok((out_l, out_r)) => {
-                let mut out = worker.out_ring[slot_index(answered)].lock().unwrap();
-                out.frames = out_l.len();
-                out.left[..out_l.len()].copy_from_slice(&out_l);
-                out.right[..out_r.len()].copy_from_slice(&out_r);
-                out.seq = answered;
-                drop(out);
+                worker.finish_batch(&batch, &out_l, &out_r);
                 worker.set_status(true, String::new());
             }
             Err(e) => {
@@ -895,7 +1065,9 @@ impl Backend {
                 path: backend._file.path().to_path_buf(),
                 version: AUDIO_PROTOCOL_VERSION,
             }),
-            PROCESS_TIMEOUT,
+            // Launching a fresh helper may initialize AppKit/CoreAudio before
+            // it can read its first request, especially under concurrent loads.
+            SLOW_TIMEOUT,
         )?;
         expect_success(Ok(response), "plugin", "attach audio")?;
         match backend.send(
@@ -1009,6 +1181,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bundles_prefer_the_signed_sidecar_and_cargo_prefers_its_fresh_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            helper_names(&dir.path().join("Smart Beat.app/Contents/MacOS"))[0],
+            "smart-beat-plugin-helper"
+        );
+        assert_eq!(
+            helper_names(&dir.path().join("target/debug"))[0],
+            "vst3-host-helper"
+        );
+        assert_eq!(
+            helper_names(&dir.path().join("target/debug/deps"))[0],
+            "vst3-host-helper"
+        );
+    }
+
+    #[test]
+    fn home_directory_names_do_not_select_plugin_formats() {
+        for home in ["/tmp/CLAP-user", "/tmp/VST3-user", "/tmp/CLAP/VST3"] {
+            for format in [PluginFormat::Vst3, PluginFormat::Clap] {
+                let home = Path::new(home);
+                let dirs = scan_dirs_for_home(format, Some(home));
+                let relative = dirs[0].strip_prefix(home).unwrap();
+                let expected = if cfg!(target_os = "macos") {
+                    match format {
+                        PluginFormat::Vst3 => "Library/Audio/Plug-Ins/VST3",
+                        PluginFormat::Clap => "Library/Audio/Plug-Ins/CLAP",
+                    }
+                } else if cfg!(target_os = "windows") {
+                    match format {
+                        PluginFormat::Vst3 => "AppData/Local/Programs/Common/VST3",
+                        PluginFormat::Clap => "AppData/Local/Programs/Common/CLAP",
+                    }
+                } else {
+                    match format {
+                        PluginFormat::Vst3 => ".vst3",
+                        PluginFormat::Clap => ".clap",
+                    }
+                };
+                assert_eq!(relative, Path::new(expected));
+                assert_eq!(dirs[1..], scan_dirs_for_home(format, None));
+            }
+        }
+    }
+
+    #[test]
     fn format_follows_the_path() {
         assert_eq!(
             PluginFormat::of("/Library/Audio/Plug-Ins/VST3/Amp.vst3"),
@@ -1064,12 +1282,15 @@ mod tests {
             out_ring: ring(),
             status: Mutex::new(WorkerStatus {
                 latency: 0,
+                loading: false,
                 alive: false,
                 error: String::new(),
                 preset_error: String::new(),
+                processing_error: String::new(),
             }),
             state: Mutex::new(Vec::new()),
             lag_blocks: AtomicU32::new(0),
+            max_lag_blocks: AtomicU32::new(DEFAULT_LAG_BLOCKS),
         }
     }
 
@@ -1186,6 +1407,7 @@ mod tests {
         let worker = worker_without_a_helper();
         // audio/output.rs accepts up to 8192 frames in a single callback.
         let blocks = 8192 / super::super::engine::BLOCK;
+        worker.begin_render(8192);
         assert!(HANDOVER_SLOTS >= blocks);
         for seq in 1..=blocks {
             worker.push(&[seq as f32; 64], &[seq as f32; 64]);
@@ -1197,6 +1419,115 @@ mod tests {
             assert_eq!(left, [seq as f32; 64]);
             next += 1;
         }
+    }
+
+    #[test]
+    fn a_stall_expires_queued_audio_before_the_ring_wraps() {
+        let worker = worker_without_a_helper();
+        worker.begin_render(256);
+        let mut seen = 0;
+        let mut left = [0.0; 64];
+        worker.push(&[1.0; 64], &[1.0; 64]);
+        worker.finish(1, &[10.0; 64], &[10.0; 64]);
+        worker.push(&[2.0; 64], &[2.0; 64]);
+        assert!(worker.take_into(&mut seen, &mut left, &mut [0.0; 64]));
+        assert_eq!(worker.lag_blocks(), 1);
+        // A slow request finishes after thirty engine blocks: it must never
+        // become audible, even though the physical ring has ample free space.
+        for _ in 0..30 {
+            worker.push(&[3.0; 64], &[3.0; 64]);
+        }
+        worker.finish(2, &[20.0; 64], &[20.0; 64]);
+        left.fill(3.0);
+        assert!(!worker.take_into(&mut seen, &mut left, &mut [0.0; 64]));
+        assert_eq!(left, [3.0; 64]);
+        assert_eq!(worker.lag_blocks(), 0, "dry fallback adds no queue delay");
+        let mut next = 3;
+        let batch = worker.next_batch(&mut next).unwrap();
+        assert_eq!(batch.first, 26, "skip stale inputs, not a whole ring later");
+        worker.finish_batch(&batch, &batch.left, &batch.right);
+        worker.completed.store(next - 1, Ordering::Release);
+        assert!(worker.take_into(&mut seen, &mut left, &mut [0.0; 64]));
+        assert_eq!(seen, 26);
+        assert_eq!(worker.lag_blocks(), 6);
+    }
+
+    #[test]
+    fn callback_bursts_keep_every_wet_block_with_a_bounded_delay() {
+        for frames in [256usize, 1024, 8192] {
+            let worker = worker_without_a_helper();
+            worker.begin_render(frames);
+            let blocks = frames / HANDOVER_FRAMES;
+            let mut next = 1;
+            let mut seen = 0;
+            // One device callback runs ahead while the worker is scheduled.
+            for seq in 1..=blocks {
+                worker.push(&[seq as f32; 64], &[seq as f32; 64]);
+            }
+            while let Some(batch) = worker.next_batch(&mut next) {
+                worker.finish_batch(&batch, &batch.left, &batch.right);
+                worker.completed.store(next - 1, Ordering::Release);
+            }
+            // The next callback consumes the complete previous one, including
+            // large callbacks that would fail with a fixed small queue cap.
+            for seq in 1..=blocks {
+                worker.push(&[0.0; 64], &[0.0; 64]);
+                let mut left = [0.0; 64];
+                assert!(worker.take_into(&mut seen, &mut left, &mut [0.0; 64]));
+                assert_eq!(left, [seq as f32; 64]);
+                assert_eq!(worker.lag_blocks(), blocks as u32);
+            }
+        }
+    }
+
+    #[test]
+    fn batching_preserves_partial_block_boundaries_and_stops_at_holes() {
+        let worker = worker_without_a_helper();
+        worker.push(&[1.0; 64], &[11.0; 64]);
+        worker.push(&[2.0; 17], &[12.0; 17]);
+        let held = worker.in_ring[slot_index(3)].lock().unwrap();
+        worker.push(&[3.0; 64], &[13.0; 64]);
+        drop(held);
+        worker.push(&[4.0; 64], &[14.0; 64]);
+        let mut next = 1;
+        let batch = worker.next_batch(&mut next).unwrap();
+        assert_eq!(batch.first, 1);
+        assert_eq!(batch.lengths, [64, 17]);
+        assert_eq!(batch.left.len(), 81);
+        assert_eq!(&batch.right[64..], &[12.0; 17]);
+        assert_eq!(next, 3);
+        worker.finish_batch(&batch, &batch.left, &batch.right);
+        worker.completed.store(next - 1, Ordering::Release);
+        let mut seen = 0;
+        let mut left = [0.0; 64];
+        let mut right = [0.0; 64];
+        assert!(worker.take_into(&mut seen, &mut left, &mut right));
+        assert_eq!(left, [1.0; 64]);
+        assert_eq!(right, [11.0; 64]);
+        let mut partial = [0.0; 17];
+        assert!(worker.take_into(&mut seen, &mut partial, &mut [0.0; 17]));
+        assert_eq!(partial, [2.0; 17]);
+        let batch = worker.next_batch(&mut next).unwrap();
+        assert_eq!(batch.first, 4);
+        assert_eq!(batch.left, [4.0; 64]);
+    }
+
+    #[test]
+    fn batches_fit_the_shared_audio_mapping() {
+        let worker = worker_without_a_helper();
+        worker.begin_render(8192);
+        for _ in 0..128 {
+            worker.push(&[1.0; 64], &[1.0; 64]);
+        }
+        let mut next = 1;
+        let first = worker.next_batch(&mut next).unwrap();
+        assert_eq!(first.left.len(), MAX_AUDIO_FRAMES);
+        assert_eq!(first.lengths.len(), 64);
+        assert_eq!(next, 65);
+        let second = worker.next_batch(&mut next).unwrap();
+        assert_eq!(second.first, 65);
+        assert_eq!(second.left.len(), MAX_AUDIO_FRAMES);
+        assert_eq!(next, 129);
     }
 
     /// A block too large for the ring is dropped, never truncated: the audio
@@ -1238,6 +1569,7 @@ mod tests {
                 state: Vec::new(),
             };
             let worker = pool.load(None, &spec, 48_000.0).unwrap();
+            worker.save_state().unwrap(); // Wait for asynchronous initialization.
             assert!(worker.alive(), "{path}: {}", worker.error());
             // A 220 Hz probe tone through the amp.
             let input: Vec<f32> = (0..64)

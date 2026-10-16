@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": [],
+    "macOS": {
+      "files": {
+        "MacOS/smart-beat-plugin-helper": "binaries/smart-beat-plugin-helper-macos"
+      }
+    }
+  }
+}

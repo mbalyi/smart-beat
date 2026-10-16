@@ -107,19 +107,8 @@ fn with_main<T>(f: impl FnOnce(&mut ClapMain) -> Result<T, String>) -> Result<T,
 /// Whether `path` selects the CLAP backend: a `.clap` file, or a library
 /// inside a `.clap` bundle (macOS wraps the dylib in `Contents/MacOS`).
 pub fn is_clap_path(path: &str) -> bool {
-    let path = std::path::Path::new(path);
-    if path
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("clap"))
-    {
-        return true;
-    }
-    path.components().any(|c| {
-        c.as_os_str()
-            .to_string_lossy()
-            .to_ascii_lowercase()
-            .ends_with(".clap")
-    })
+    smart_beat_lib::audio::plugin::PluginFormat::of(path)
+        == smart_beat_lib::audio::plugin::PluginFormat::Clap
 }
 
 /// Resolves a `.clap` file or bundle directory to the library to load.

@@ -1130,15 +1130,26 @@ pub fn audio_render(
     let prepared = prepare(&state, &inner, sample_rate, &synths, None, &offline_plugins);
     drop(install(&mut engine, &inner, prepared));
     drop(inner);
-    Ok(tauri::ipc::Response::new(render_offline(
-        &mut engine,
-        MAX_RENDER_FRAMES,
-    )))
+    Ok(tauri::ipc::Response::new(
+        render_offline(&mut engine, MAX_RENDER_FRAMES, &offline_plugins).map_err(audio_error)?,
+    ))
 }
 
 /// Plays `engine` from the start to the end of the song (with its release
 /// tail) and returns interleaved stereo little-endian f32 bytes.
-pub fn render_offline(engine: &mut Engine, max_frames: usize) -> Vec<u8> {
+pub fn render_offline(
+    engine: &mut Engine,
+    max_frames: usize,
+    plugins: &plugin::PluginPool,
+) -> Result<Vec<u8>, String> {
+    let check_plugins = || {
+        plugins.processing_error().map_or(Ok(()), |error| {
+            Err(format!(
+                "The audio export stopped because a plugin failed: {error}"
+            ))
+        })
+    };
+    check_plugins()?;
     engine.seek(0.0);
     engine.play();
     let mut out = Vec::new();
@@ -1146,13 +1157,14 @@ pub fn render_offline(engine: &mut Engine, max_frames: usize) -> Vec<u8> {
     let mut frames = 0;
     while engine.is_playing() && frames < max_frames {
         engine.render(&mut l, &mut r);
+        check_plugins()?;
         for (a, b) in l.iter().zip(&r) {
             out.extend_from_slice(&a.to_le_bytes());
             out.extend_from_slice(&b.to_le_bytes());
         }
         frames += l.len();
     }
-    out
+    Ok(out)
 }
 
 // --- Drum kits (#40) -----------------------------------------------------------
@@ -1414,23 +1426,19 @@ pub fn audio_plugin_info(
                 .track_sounds
                 .get(&t)
                 .and_then(|sounds| sounds.get(sound.unwrap_or(0)))
-                .cloned()
+                .map(Vec::as_slice)
                 .unwrap_or_default()
         }
-        None => inner.master_chain.clone(),
+        None => inner.master_chain.as_slice(),
     };
     let mut out = Vec::new();
     for (index, slot) in slots.iter().enumerate() {
         let chain::EffectConfig::Plugin {
-            format,
-            path,
-            name,
-            state: slot_state,
+            format, path, name, ..
         } = &slot.effect
         else {
             continue;
         };
-        let _ = slot_state;
         // `find` matches on format and path only, so the preset is not decoded
         // here: this runs every half second and a preset can be megabytes.
         let spec = plugin::PluginSpec {
@@ -1454,6 +1462,7 @@ pub fn audio_plugin_info(
                     latency_samples: samples,
                     latency_ms: f64::from(samples) / rate * 1000.0,
                     alive: state.plugins.enabled() && worker.alive(),
+                    loading: worker.loading(),
                     error: worker.error(),
                 })
             }
@@ -1463,6 +1472,7 @@ pub fn audio_plugin_info(
                 latency_samples: 0,
                 latency_ms: 0.0,
                 alive: false,
+                loading: false,
                 error: String::new(),
             }),
         }

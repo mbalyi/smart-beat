@@ -50,6 +50,10 @@ pub fn time_coefficient(ms: f32, sample_rate: f32) -> f32 {
 
 /// An audio effect working in place on a stereo block.
 pub trait Effect: Send {
+    /// Announces the whole device callback before its smaller processing blocks.
+    /// Asynchronous effects use this to bound their queue without discarding
+    /// the consecutive blocks that arrive together in a callback.
+    fn begin_render(&mut self, _frames: usize) {}
     fn process(&mut self, left: &mut [f32], right: &mut [f32]);
     /// Forgets all state (after a seek or when playback stops).
     fn reset(&mut self);
@@ -57,6 +61,10 @@ pub trait Effect: Send {
     /// nothing clicks. Returns false if `config` is another kind of block, or
     /// a change that needs the block to be rebuilt.
     fn update(&mut self, _config: &crate::audio::chain::EffectConfig) -> bool {
+        false
+    }
+    /// A queued parameter update failed and may be retried unchanged.
+    fn update_rejected(&self) -> bool {
         false
     }
     /// Gain reduction in the last block (dB, ≥ 0) of dynamics blocks

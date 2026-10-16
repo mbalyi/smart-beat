@@ -480,7 +480,19 @@
       case "plugins_enabled":
         return window.__pluginsEnabled ?? false;
       case "audio_plugin_info":
-        return [];
+        return window.__pluginLoading === undefined
+          ? []
+          : [
+              {
+                index: 0,
+                name: "Test Amp",
+                alive: !window.__pluginLoading,
+                loading: window.__pluginLoading,
+                latencySamples: 256,
+                latencyMs: 5.3,
+                error: "",
+              },
+            ];
       case "plugin_open_editor":
         return [800, 600];
       case "plugin_close_editor":
