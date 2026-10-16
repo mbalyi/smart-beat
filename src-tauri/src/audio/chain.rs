@@ -559,7 +559,7 @@ impl Chain {
         max_block: usize,
         assets: &dyn AssetSource,
         plugins: &PluginPool,
-        address: Option<(Option<usize>, usize)>,
+        address: Option<(Option<super::plugin::PluginTarget>, usize)>,
     ) -> Self {
         let mut blocks: Vec<Box<dyn Effect>> = Vec::new();
         let mut layout = Vec::new();

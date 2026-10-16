@@ -840,3 +840,119 @@ fn very_low_notes_still_sound_and_stay_finite() {
         assert!(rms(&l) > 0.0005, "key {key} is silent (rms {})", rms(&l));
     }
 }
+
+/// The monitor track (the live input): heard whether the song plays or not,
+/// through its own chain, and part of mute and solo like any track.
+mod monitor {
+    use super::*;
+    use smart_beat_lib::audio::monitor::{Monitor, MonitorParams, RING_CAPACITY, Reader, Ring};
+
+    /// Renders `seconds` while an input callback delivers a 220 Hz tone in
+    /// 128-sample buffers, as the input stream does.
+    fn listen(engine: &mut Engine, ring: &Ring, seconds: f32) -> Vec<f32> {
+        let frames = (seconds * RATE) as usize;
+        let mut heard = Vec::with_capacity(frames);
+        let (mut l, mut r) = (vec![0.0; 128], vec![0.0; 128]);
+        let mut phase = 0usize;
+        while heard.len() < frames {
+            let tone: Vec<f32> = (phase..phase + 128)
+                .map(|i| 0.5 * (std::f32::consts::TAU * 220.0 * i as f32 / RATE).sin())
+                .collect();
+            phase += 128;
+            ring.push(&tone);
+            engine.render(&mut l, &mut r);
+            heard.extend_from_slice(&l);
+        }
+        heard
+    }
+
+    fn engine_with_monitor(params: MonitorParams) -> (Engine, Arc<Ring>) {
+        let mut engine = Engine::new(sonivox(), RATE);
+        engine.load(Arc::new(song())).unwrap();
+        let ring = Arc::new(Ring::new(RING_CAPACITY));
+        let mut monitor = Monitor::new(gain_chain(6.0), RATE, BLOCK);
+        monitor.set_params(&params);
+        monitor.set_reader(Some(Reader::new(ring.clone(), RATE, RATE)));
+        engine.set_monitor(Some(monitor));
+        (engine, ring)
+    }
+
+    fn frequency(signal: &[f32]) -> f32 {
+        let crossings = signal
+            .windows(2)
+            .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
+            .count();
+        crossings as f32 * RATE / signal.len() as f32
+    }
+
+    #[test]
+    fn the_input_is_heard_while_the_song_is_stopped() {
+        let (mut engine, ring) = engine_with_monitor(MonitorParams::default());
+        assert!(!engine.is_playing());
+        let heard = listen(&mut engine, &ring, 1.0);
+        let steady = &heard[4_800..];
+        assert!(rms(steady) > 0.1, "silent: {}", rms(steady));
+        assert!((frequency(steady) - 220.0).abs() < 3.0);
+        let meters = engine.take_meters();
+        assert!(
+            meters.monitor > 0.3 && meters.monitor_input > 0.45,
+            "{meters:?}"
+        );
+        assert_eq!(meters.reduction.monitor.len(), MAX_TRACK_EFFECTS);
+        // The song does not move while only the input plays.
+        assert_eq!(engine.position(), 0.0);
+    }
+
+    #[test]
+    fn switched_off_or_muted_it_is_silent() {
+        for params in [
+            MonitorParams {
+                enabled: false,
+                ..Default::default()
+            },
+            MonitorParams {
+                mute: true,
+                ..Default::default()
+            },
+        ] {
+            let (mut engine, ring) = engine_with_monitor(params);
+            let heard = listen(&mut engine, &ring, 0.5);
+            assert!(rms(&heard[2_400..]) < 1e-6);
+        }
+    }
+
+    #[test]
+    fn solo_works_both_ways() {
+        // A soloed track silences the monitor: with the song stopped, nothing is heard.
+        let (mut engine, ring) = engine_with_monitor(MonitorParams::default());
+        engine.set_mix(
+            0,
+            BusMix {
+                solo: true,
+                ..Default::default()
+            },
+        );
+        let heard = listen(&mut engine, &ring, 0.5);
+        assert!(rms(&heard[2_400..]) < 1e-6);
+
+        // A soloed monitor silences the song: only the 220 Hz tone is left.
+        let (mut engine, ring) = engine_with_monitor(MonitorParams {
+            solo: true,
+            ..Default::default()
+        });
+        engine.play();
+        let heard = listen(&mut engine, &ring, 1.0);
+        assert!((frequency(&heard[4_800..]) - 220.0).abs() < 3.0);
+        assert!(engine.take_meters().tracks.iter().all(|&p| p == 0.0));
+    }
+
+    #[test]
+    fn a_crash_bypasses_its_chain_too() {
+        let (mut engine, ring) = engine_with_monitor(MonitorParams::default());
+        let loud = rms(&listen(&mut engine, &ring, 0.5)[2_400..]);
+        engine.quarantine();
+        let dry = rms(&listen(&mut engine, &ring, 0.5)[2_400..]);
+        // The 6 dB boost is gone; the input still plays.
+        assert!(dry > 0.1 && dry < loud * 0.7, "{dry} vs {loud}");
+    }
+}

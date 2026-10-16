@@ -165,7 +165,7 @@ fn main() {
         Err(e) => println!("- no output: {e}"),
         Ok(rate) => {
             let engine = Arc::new(Mutex::new(Engine::new(font, rate as f32)));
-            match Output::open(engine) {
+            match Output::open(engine, false) {
                 Err(e) => println!("- cannot open: {e}"),
                 Ok(out) => {
                     std::thread::sleep(std::time::Duration::from_millis(500));

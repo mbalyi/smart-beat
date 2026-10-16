@@ -341,8 +341,8 @@ function PedalControls({
 }
 
 export interface PedalboardTarget {
-  /** Track index, or null for the master bus. */
-  track: number | null;
+  /** Track index, "monitor" for the monitor track, or null for the master bus. */
+  track: number | "monitor" | null;
   /** "Rhythm guitar", "Master". */
   name: string;
   presetTarget: PresetTarget;
@@ -875,7 +875,9 @@ export function PedalboardDialog({
             Up to {limit} effects, played from left to right.{" "}
             {target.track === null
               ? "The mastering chain processes the whole mix. Drag effects from the library onto the board, or use their Add buttons."
-              : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
+              : target.track === "monitor"
+                ? "Your audio input plays live through these effects. Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."
+                : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -1363,7 +1365,9 @@ export function PedalboardDialog({
                           reduction={(m) =>
                             (target.track === null
                               ? m.reduction?.master[i]
-                              : m.reduction?.tracks[target.track]?.[i]) ?? 0
+                              : target.track === "monitor"
+                                ? m.reduction?.monitor?.[i]
+                                : m.reduction?.tracks[target.track]?.[i]) ?? 0
                           }
                           library={library}
                           onChange={(next) => onChange(replaceEffect(chain, i, next))}

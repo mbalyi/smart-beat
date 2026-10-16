@@ -10,6 +10,7 @@ import {
   type MenuAction,
   type MenuState,
   type MixerSettings,
+  type MonitorParams,
   type Shortcut,
 } from "@/lib/tauri";
 
@@ -49,6 +50,7 @@ export const SHORTCUTS: Shortcut[] = [
 ];
 
 type CommandHandler = (args?: InvokeArgs) => unknown;
+type MockMonitor = { params: MonitorParams; device: string | null; channel: number | null };
 
 export interface IpcCall {
   cmd: string;
@@ -61,6 +63,7 @@ export interface IpcCall {
  */
 export const backend = {
   pluginsEnabled: false,
+  monitor: null as { params: MonitorParams; device: string | null; channel: number | null } | null,
   files: new Map<string, Uint8Array>(),
   mixes: new Map<string, MixerSettings>(),
   /** Path the Open dialog picks, or `null` for Cancel. */
@@ -111,6 +114,7 @@ function readScoreFile(args?: InvokeArgs): ArrayBuffer {
 export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCall[] {
   const calls: IpcCall[] = [];
   backend.pluginsEnabled = false;
+  backend.monitor = null;
   backend.files.clear();
   backend.mixes.clear();
   backend.dialogResult = null;
@@ -241,6 +245,22 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         case "kits_remove":
         case "audio_set_track_kit":
           return null;
+        case "audio_input_channels":
+          return 2;
+        case "audio_set_monitor":
+          backend.monitor = (args as { monitor: MockMonitor | null }).monitor;
+          return backend.monitor
+            ? {
+                open: backend.monitor.params.enabled,
+                device: backend.monitor.device ?? "System default",
+                channels: 2,
+                sampleRate: 48000,
+                latencyMs: 5,
+                error: null,
+              }
+            : null;
+        case "audio_set_monitor_chain":
+          return [];
         case "audio_set_chain":
           return [];
         case "audio_set_sounds":

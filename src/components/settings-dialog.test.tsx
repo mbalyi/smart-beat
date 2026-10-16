@@ -1,7 +1,12 @@
 import { act, screen, waitFor } from "@testing-library/react";
 
 import { SettingsDialog } from "@/components/settings-dialog";
-import { readAudioInput, storeAudioInput } from "@/lib/audio/input";
+import {
+  readAudioInput,
+  readAudioInputChannel,
+  storeAudioInput,
+  storeAudioInputChannel,
+} from "@/lib/audio/input";
 import { expectNoA11yViolations } from "@/test/axe";
 import { installMediaDevices } from "@/test/media-devices";
 import { renderWithProviders } from "@/test/render";
@@ -110,9 +115,13 @@ describe("SettingsDialog: audio input", () => {
     const { user } = renderSettings();
 
     expect(await input()).toHaveTextContent("System default");
-    expect(await input()).toHaveAccessibleDescription(/What the tuner listens to/);
+    expect(await input()).toHaveAccessibleDescription(
+      /What the tuner and the monitor track listen to/,
+    );
     expect(screen.getByRole("region", { name: "Audio" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show all inputs" })).not.toBeInTheDocument();
+    // The channel is for the monitor track, which needs the desktop app.
+    expect(screen.queryByRole("combobox", { name: "Channel" })).not.toBeInTheDocument();
     await expectNoA11yViolations();
 
     await user.click(await input());
@@ -175,5 +184,58 @@ describe("SettingsDialog: audio input", () => {
     const { user } = renderSettings();
     expect(await input()).toHaveTextContent(/^Scarlett 2i2 USB$/);
     expect(await options(user)).toEqual(["System default", BUILT_IN.label, SCARLETT.label]);
+  });
+});
+
+describe("SettingsDialog: input channel (the monitor track's)", () => {
+  it("has no channel choice in the browser even for a multi-input interface", async () => {
+    installMediaDevices({ inputs: [SCARLETT] });
+    storeAudioInput(SCARLETT);
+    renderSettings();
+    await screen.findByRole("combobox", { name: "Input" });
+    expect(screen.queryByRole("combobox", { name: "Channel" })).not.toBeInTheDocument();
+  });
+  const channel = () => screen.findByRole("combobox", { name: "Channel" });
+
+  it("chooses the channel of a multi-input interface, in the desktop app", async () => {
+    const calls = mockTauri({ audio_input_channels: () => 2 });
+    storeAudioInput(SCARLETT);
+    installMediaDevices({ inputs: [BUILT_IN, SCARLETT] });
+    const { user } = renderSettings();
+
+    expect(await channel()).toHaveTextContent("Input 1");
+    expect(await channel()).toHaveAccessibleDescription(/What the monitor track plays/);
+    expect(calls.find((c) => c.cmd === "audio_input_channels")?.args).toEqual({
+      device: "Scarlett 2i2 USB",
+    });
+    await expectNoA11yViolations();
+
+    await user.click(await channel());
+    await user.click(await screen.findByRole("option", { name: "Input 2" }));
+    expect(readAudioInputChannel()).toBe(1);
+    await user.click(await channel());
+    await user.click(await screen.findByRole("option", { name: "All inputs mixed" }));
+    expect(readAudioInputChannel()).toBeNull();
+  });
+
+  it("starts another input on its first channel", async () => {
+    mockTauri({ audio_input_channels: () => 2 });
+    storeAudioInput(SCARLETT);
+    storeAudioInputChannel(1);
+    installMediaDevices({ inputs: [BUILT_IN, SCARLETT] });
+    const { user } = renderSettings();
+
+    await user.click(await screen.findByRole("combobox", { name: "Input" }));
+    await user.click(await screen.findByRole("option", { name: BUILT_IN.label }));
+    expect(readAudioInputChannel()).toBe(0);
+  });
+
+  it("has no channel choice for an input with one channel", async () => {
+    const calls = mockTauri({ audio_input_channels: () => 1 });
+    installMediaDevices({ inputs: [BUILT_IN] });
+    renderSettings();
+    await screen.findByRole("combobox", { name: "Input" });
+    await waitFor(() => expect(calls.some((c) => c.cmd === "audio_input_channels")).toBe(true));
+    expect(screen.queryByRole("combobox", { name: "Channel" })).not.toBeInTheDocument();
   });
 });

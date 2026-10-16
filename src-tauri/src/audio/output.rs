@@ -18,6 +18,9 @@ use super::engine::Engine;
 
 /// Interleaved scratch size (frames) used when the device asks for more.
 const MAX_FRAMES: usize = 8_192;
+/// The buffer the output asks for while the monitor track listens (frames),
+/// when the device allows it: a short way from the input to the speakers.
+pub const LOW_LATENCY_FRAMES: u32 = 128;
 /// About 5 ms at 48 kHz. Large default device callbacks also delay isolated plugins.
 const TARGET_BUFFER_FRAMES: u32 = 256;
 
@@ -41,6 +44,9 @@ pub struct Published {
 pub struct Output {
     pub sample_rate: u32,
     pub channels: u16,
+    /// Runs with the small buffer of [`LOW_LATENCY_FRAMES`] (asked for; the
+    /// device may not allow it).
+    pub low_latency: bool,
     pub published: Arc<Published>,
     stop: mpsc::Sender<()>,
     thread: Option<JoinHandle<()>>,
@@ -57,13 +63,15 @@ pub fn default_sample_rate() -> Result<u32, String> {
 }
 
 impl Output {
-    pub fn open(engine: Arc<Mutex<Engine>>) -> Result<Self, String> {
+    /// Opens the default output. `low_latency` asks for a small buffer (for
+    /// the monitor track) when the device reports one in its range.
+    pub fn open(engine: Arc<Mutex<Engine>>, low_latency: bool) -> Result<Self, String> {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(u32, u16, Arc<Published>), String>>();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let thread = std::thread::Builder::new()
             .name("smart-beat-audio".into())
             .spawn(move || {
-                let stream = match build_stream(engine) {
+                let stream = match build_stream(engine, low_latency) {
                     Ok((stream, rate, channels, published)) => {
                         if let Err(e) = stream.play() {
                             let _ = ready_tx.send(Err(e.to_string()));
@@ -89,6 +97,7 @@ impl Output {
         Ok(Self {
             sample_rate,
             channels,
+            low_latency,
             published,
             stop: stop_tx,
             thread: Some(thread),
@@ -124,7 +133,7 @@ fn publish(
 
 type Built = (cpal::Stream, u32, u16, Arc<Published>);
 
-fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
+fn build_stream(engine: Arc<Mutex<Engine>>, low_latency: bool) -> Result<Built, String> {
     let host = cpal::default_host();
     let device = host
         .default_output_device()
@@ -136,7 +145,7 @@ fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
             supported.sample_format()
         ));
     }
-    let requested = preferred_buffer_size(*supported.buffer_size());
+    let requested = preferred_buffer_size(*supported.buffer_size(), low_latency);
     let mut config: cpal::StreamConfig = supported.into();
     let rate = config.sample_rate;
     let channels = config.channels.max(1);
@@ -154,10 +163,18 @@ fn build_stream(engine: Arc<Mutex<Engine>>) -> Result<Built, String> {
     Ok((stream, rate, channels, published))
 }
 
-fn preferred_buffer_size(supported: cpal::SupportedBufferSize) -> cpal::BufferSize {
+fn preferred_buffer_size(
+    supported: cpal::SupportedBufferSize,
+    low_latency: bool,
+) -> cpal::BufferSize {
+    let target = if low_latency {
+        LOW_LATENCY_FRAMES
+    } else {
+        TARGET_BUFFER_FRAMES
+    };
     let frames = match supported {
-        cpal::SupportedBufferSize::Range { min, max } => TARGET_BUFFER_FRAMES.clamp(min, max),
-        cpal::SupportedBufferSize::Unknown => TARGET_BUFFER_FRAMES,
+        cpal::SupportedBufferSize::Range { min, max } => target.clamp(min, max),
+        cpal::SupportedBufferSize::Unknown => target,
     };
     cpal::BufferSize::Fixed(frames)
 }
@@ -239,21 +256,48 @@ mod tests {
     fn low_latency_buffer_respects_device_limits() {
         use cpal::{BufferSize::Fixed, SupportedBufferSize::*};
         assert_eq!(
-            preferred_buffer_size(Range { min: 32, max: 2048 }),
+            preferred_buffer_size(Range { min: 32, max: 2048 }, false),
             Fixed(256)
         );
         assert_eq!(
-            preferred_buffer_size(Range {
-                min: 512,
-                max: 2048
-            }),
+            preferred_buffer_size(
+                Range {
+                    min: 512,
+                    max: 2048
+                },
+                false
+            ),
             Fixed(512)
         );
         assert_eq!(
-            preferred_buffer_size(Range { min: 32, max: 128 }),
+            preferred_buffer_size(Range { min: 32, max: 128 }, false),
             Fixed(128)
         );
-        assert_eq!(preferred_buffer_size(Unknown), Fixed(256));
+        assert_eq!(preferred_buffer_size(Unknown, false), Fixed(256));
+    }
+
+    #[test]
+    fn monitoring_requests_a_smaller_buffer_with_the_same_device_limits() {
+        use cpal::{BufferSize::Fixed, SupportedBufferSize::*};
+        assert_eq!(
+            preferred_buffer_size(Range { min: 32, max: 2048 }, true),
+            Fixed(128)
+        );
+        assert_eq!(
+            preferred_buffer_size(
+                Range {
+                    min: 256,
+                    max: 2048
+                },
+                true
+            ),
+            Fixed(256)
+        );
+        assert_eq!(
+            preferred_buffer_size(Range { min: 32, max: 64 }, true),
+            Fixed(64)
+        );
+        assert_eq!(preferred_buffer_size(Unknown, true), Fixed(128));
     }
 
     #[test]

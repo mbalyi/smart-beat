@@ -141,3 +141,27 @@ it("stays applying until the newest opt-in change reaches the backend", async ()
   });
   await waitFor(() => expect(result.current.applying).toBe(false));
 });
+
+it("addresses monitor plugin status, editor and presets independently of score tracks", async () => {
+  localStorage.setItem("smart-beat.plugins-enabled", "1");
+  const calls = mockTauri({
+    plugins_set_enabled: () => null,
+    plugins_enabled: () => true,
+    audio_plugin_info: () => [
+      { index: 0, name: "Gain", latencySamples: 64, latencyMs: 1.3, alive: true, error: "" },
+    ],
+    plugin_open_editor: () => [800, 600],
+    plugin_save_state: () => "cHJlc2V0",
+  });
+  const { result } = renderHook(() => usePlugins({ track: "monitor" }, 0, chain));
+  await waitFor(() => expect(result.current.info.size).toBe(1));
+  expect(await result.current.openEditor(0)).toBeNull();
+  expect(await result.current.saveState(0)).toEqual({ state: "cHJlc2V0" });
+  for (const cmd of ["audio_plugin_info", "plugin_open_editor", "plugin_save_state"]) {
+    expect(calls.find((call) => call.cmd === cmd)?.args).toEqual({
+      track: "monitor",
+      sound: 0,
+      ...(cmd !== "audio_plugin_info" && { index: 0 }),
+    });
+  }
+});

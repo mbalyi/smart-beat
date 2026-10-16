@@ -71,6 +71,25 @@ Plugins are third-party code, so this is about hearing them work and hearing the
 - Pull the plugin's audio: rename the plugin file while it is loaded, then keep playing. The block should pass your dry signal (no silence, no stuck notes) and report the failure.
 - Remove the block: the plugin's editor window closes and the helper process is gone in Activity Monitor (one per block).
 
+### 2f. The monitor track
+
+Install the bundled app with "Native engine with effects" on. Plug in an audio interface with a guitar in input 1, choose it in Help › Settings… › **Input**, and wear headphones.
+
+- **Channel** under the input lists **Input 1**, **Input 2** and **All inputs mixed**. Choose **Input 1**.
+- Open **Practice mix** and switch **Monitor my input** on. Native effects playback turns on if needed. Use **Input settings…** to choose the interface and channel. The guitar is heard straight away, with the song stopped. The row names the interface and the input, and shows a delay of about 10 ms or less. The input level moves with the guitar.
+- Play along with the song: the guitar does not drift behind the song after several minutes, and there are no clicks or dropouts. Try a loop and a speed change.
+- **Input effects…** in Practice mix or **Effects (pedalboard)…** from the row's menu opens the same pedalboard as the tracks, titled "Pedalboard: Monitor". Add an amp capture and a cabinet: the tone changes while you play. A preset from the guitar presets works too.
+- In Practice mix choose **Backing only**: your score part is silent, the other tracks play, and you still hear the live input. **Hear only this track** plays the selected score track alongside the live input. **Normal mix** restores the score mix without stopping monitoring.
+- Switch **Monitor my input** off and on: the input closes and reopens, and the pedalboard and levels remain.
+- On the monitor pedalboard, switch **Third-party plugins** on, scan, and add a VST3 amp or CLAP effect. **Open editor…** opens its own window. Change a setting, **Save settings**, save and reopen the song: the setting returns. The same plugin on a score track or master bus keeps its own settings.
+- Turn **Third-party plugins** off and on: monitoring passes dry, then the plugin returns. Remove the monitor plugin or monitor track and check its helper exits.
+- Mute, solo, volume, pan and the EQ act like a track's. Soloing a song track silences the monitor track until it is soloed as well.
+- The switch on the row turns listening off: the microphone indicator in the menu bar goes off. Turn it on again.
+- Choose **Input 2** in Settings with a microphone on input 2: the monitor track now plays the microphone. Choose **System default**: it plays the built-in microphone (keep the headphones on).
+- Export the song as WAV: the monitor track is not in it.
+- Close the song: the guitar is no longer heard. Open another song and add a monitor track: it starts with the same pedalboard, level and EQ.
+- Unplug the interface while listening: the row says the input stopped. Plug it back in and switch the row off and on.
+
 ### 3. The right drum for every drum number
 
 [drum-midi-support.md](drum-midi-support.md) says which numbers sound, not whether the sample is the right instrument. Judge by ear:

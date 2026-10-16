@@ -70,7 +70,7 @@ test.describe("Practice View (#83)", () => {
 });
 
 test.describe("practice mixes (#83)", () => {
-  test("hear only me, backing only and back to the normal mix", async ({ app }) => {
+  test("selected track, backing only and back to the normal mix", async ({ app }) => {
     await openSong(app);
     await app.getByRole("switch", { name: "Native engine with effects" }).click();
     await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
@@ -80,7 +80,7 @@ test.describe("practice mixes (#83)", () => {
     const normal = (await engineMixes(app))!;
     await app.getByRole("button", { name: /^Practice mix/ }).click();
     const popover = app.getByRole("dialog", { name: "Practice mix" });
-    await popover.getByRole("radio", { name: /Hear only me/ }).click();
+    await popover.getByRole("radio", { name: /Hear only this track/ }).click();
     await expect
       .poll(() => engineMixes(app).then((m) => m?.map((t) => t.mute)))
       .toEqual([true, false, true, true]);

@@ -84,7 +84,9 @@ import {
   syncPointsFromTempo,
   type BarOccurrence,
 } from "@/lib/audio/engine-config";
+import { useAudioInput, useAudioInputChannel } from "@/lib/audio/input";
 import { meters } from "@/lib/audio/meter-store";
+import { MONITOR_NAME, newMonitorTrack, rememberMonitorTrack } from "@/lib/audio/monitor";
 import type { EffectProblems } from "@/lib/audio/native-engine";
 import {
   nativeEngineAvailable,
@@ -234,6 +236,7 @@ import {
   type FocusMode,
   type MenuAction,
   type MixerSettings,
+  type MonitorStatus,
   type NoteEffectFlags,
 } from "@/lib/tauri";
 
@@ -486,18 +489,26 @@ export function ScoreWorkspace({
   );
   const [soundFont, setSoundFont] = useState<SoundFontId>(readSoundFontPreference);
   const [audioEngine, setAudioEngine] = useState(readAudioEnginePreference);
+  // The input the monitor track plays (Settings › Audio, for the whole app).
+  const audioInput = useAudioInput();
+  const inputChannel = useAudioInputChannel();
+  const monitorDevice = audioInput?.label ?? null;
+  const monitorInputNow = useEffectEvent(() => ({ device: monitorDevice, channel: inputChannel }));
+  /** The monitor track's input as the engine last reported it (null: no monitor, or closed). */
+  const [monitorStatus, setMonitorStatus] = useState<MonitorStatus | null>(null);
   const [effectProblems, setEffectProblems] = useState<EffectProblems>({
     tracks: [],
     master: [],
   });
   const [pedalboard, setPedalboard] = useState<{
     open: boolean;
-    track: number | null;
+    /** A track, the monitor track, or null for the master. */
+    track: number | "monitor" | null;
     /**
      * The track it was opened for (none: the master). The dialog's Track / Mastering switch
      * goes back to it, whatever track is highlighted in the mixer by then.
      */
-    opened: number | null;
+    opened: number | "monitor" | null;
     focus?: EffectType;
     /** The sound of the track being edited. */
     sound: number;
@@ -575,7 +586,7 @@ export function ScoreWorkspace({
   const [presetBrowser, setPresetBrowser] = useState<{
     open: boolean;
     target: PresetTarget;
-    track: number | null;
+    track: number | "monitor" | null;
     sound: number;
     targets?: PresetTarget[];
   }>({ open: false, target: "guitar", track: null, sound: 0 });
@@ -749,6 +760,7 @@ export function ScoreWorkspace({
         reducedMotion: prefersReducedMotion(),
         audioEngine,
         theme: start.theme,
+        monitorInput: monitorInputNow(),
       },
       {
         onRenderingChange: setRendering,
@@ -782,6 +794,7 @@ export function ScoreWorkspace({
           }),
         onMeters: (m) => meters.set(m),
         onOccurrences: setPlayedBars,
+        onMonitorStatus: setMonitorStatus,
       },
     );
     playerRef.current = player;
@@ -794,6 +807,7 @@ export function ScoreWorkspace({
       loadedAudio.current = "";
       setBackingInfo(null);
       setPlayedBars(null);
+      setMonitorStatus(null);
     };
   }, [song.score, audioEngine, dispatchPractice]);
 
@@ -1112,6 +1126,14 @@ export function ScoreWorkspace({
     });
     setMix(next);
     if (commit) playerRef.current?.setMix(next);
+    if (
+      action.type === "monitor" &&
+      action.value?.enabled &&
+      !mix.monitor?.enabled &&
+      !engineOn &&
+      nativeEngineAvailable()
+    )
+      changeAudioEngine("native");
   };
 
   // --- Panels and Practice View (#83) ------------------------------------------------------
@@ -1216,8 +1238,8 @@ export function ScoreWorkspace({
     setEffectProblems({ tracks: [], master: [] });
     setAudioEngine(kind);
   };
-  const openPedalboard = (track: number | null, focus?: EffectType) => {
-    if (focus && track !== null) {
+  const openPedalboard = (track: number | "monitor" | null, focus?: EffectType) => {
+    if (focus && typeof track === "number") {
       // The EQ button: the track gets an EQ if it has none (and there is room).
       const current = trackEffects(mixRef.current, track);
       const { chain, index } = withFocusBlock(current, focus, MAX_TRACK_EFFECTS);
@@ -1239,11 +1261,13 @@ export function ScoreWorkspace({
   const pedalboardTarget: PedalboardTarget =
     pedalboard.track === null
       ? { track: null, name: "Master", presetTarget: "master" }
-      : {
-          track: pedalboard.track,
-          name: summary.tracks[pedalboard.track]?.name ?? "Track",
-          presetTarget: presetTargetOf(summary.tracks[pedalboard.track] ?? track),
-        };
+      : pedalboard.track === "monitor"
+        ? { track: "monitor", name: MONITOR_NAME, presetTarget: "guitar" }
+        : {
+            track: pedalboard.track,
+            name: summary.tracks[pedalboard.track]?.name ?? "Track",
+            presetTarget: presetTargetOf(summary.tracks[pedalboard.track] ?? track),
+          };
   const drumKitEntries = useMemo(
     () => kitEntries(track.kind === "drums" ? ownDrumKit(trackObject) : []),
     // The kit changes with the track (and its articulations with edits).
@@ -1255,11 +1279,13 @@ export function ScoreWorkspace({
     trackUsage("sound_change");
     const { track, sound } = presetBrowser;
     if (preset.kind === "drumMix") {
-      if (track === null) return;
+      if (typeof track !== "number") return;
       changeMix({ type: "drums", track, drums: drumsOf(preset) });
       changeMix({ type: "sound-effects", track, sound: 0, slots: chainOf(preset) });
     } else if (preset.target === "master" || track === null) {
       changeMix({ type: "master-effects", slots: chainOf(preset).slice(0, MAX_MASTER_EFFECTS) });
+    } else if (track === "monitor") {
+      changeMonitorEffects(chainOf(preset).slice(0, MAX_TRACK_EFFECTS));
     } else {
       changeMix({
         type: "sound-effects",
@@ -1271,19 +1297,32 @@ export function ScoreWorkspace({
     toast(`“${preset.name}” applied`);
   };
 
+  /** A new effect chain for the monitor track. */
+  const changeMonitorEffects = (effects: EffectSlot[]) => {
+    const monitor = mixRef.current.monitor;
+    if (monitor) changeMix({ type: "monitor", value: { ...monitor, effects } });
+  };
   const pedalboardChain =
     pedalboard.track === null
       ? (mix.masterEffects ?? [])
-      : soundEffects(mix, pedalboard.track, pedalboard.sound);
-  const changePedalboardChain = (slots: EffectSlot[]) =>
+      : pedalboard.track === "monitor"
+        ? (mix.monitor?.effects ?? [])
+        : soundEffects(mix, pedalboard.track, pedalboard.sound);
+  const changePedalboardChain = (slots: EffectSlot[]) => {
+    if (pedalboard.track === "monitor") {
+      changeMonitorEffects(slots);
+      return;
+    }
     changeMix(
       pedalboard.track === null
         ? { type: "master-effects", slots }
         : { type: "sound-effects", track: pedalboard.track, sound: pedalboard.sound, slots },
     );
+  };
   const pedalboardSounds: PedalboardSounds | undefined = (() => {
     const t = pedalboard.track;
-    if (t === null) return undefined;
+    // The monitor track has one sound: it plays live, not along the song's bars.
+    if (t === null || t === "monitor") return undefined;
     const own = trackSoundsOf(mix, t);
     const select = (sound: number) => setPedalboard((p) => ({ ...p, sound }));
     return {
@@ -1476,6 +1515,29 @@ export function ScoreWorkspace({
     routeDroppedFile(droppedAudio.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [droppedAudio]);
+
+  // --- Monitor track ---------------------------------------------------------------
+
+  useEffect(() => {
+    playerRef.current?.setMonitorInput({ device: monitorDevice, channel: inputChannel });
+  }, [monitorDevice, inputChannel]);
+  // The next song's new monitor track starts from this one (level, EQ and effects).
+  useEffect(() => {
+    if (mix.monitor) rememberMonitorTrack(mix.monitor);
+  }, [mix.monitor]);
+
+  /** Adds the monitor track: the audio input, played live. */
+  const addMonitorTrack = () => {
+    changeMix({ type: "monitor", value: newMonitorTrack() });
+    toast.info("The monitor track plays your audio input live", {
+      description:
+        "Use headphones if the input is a microphone, or the speakers can feed back into it. Choose the input in Settings.",
+    });
+  };
+  const removeMonitorTrack = () => {
+    changeMix({ type: "monitor", value: null });
+    setPedalboard((p) => (p.track === "monitor" ? { ...p, open: false } : p));
+  };
 
   const toggleInstrumentView = () => {
     // In Practice View the switch ends it and shows the view.
@@ -2189,6 +2251,27 @@ export function ScoreWorkspace({
             onChange={changeMix}
             cutDb={focusCutDb}
             onCutChange={changeFocusCut}
+            monitor={
+              isTauri()
+                ? {
+                    inputName: audioInput?.label ?? "System default",
+                    channel: inputChannel,
+                    message: mix.monitor?.enabled
+                      ? !engineOn
+                        ? "Enable Native engine with effects to hear your input."
+                        : (monitorStatus?.error ?? undefined)
+                      : undefined,
+                    onToggle: (enabled) => {
+                      changeMix({
+                        type: "monitor",
+                        value: { ...(mixRef.current.monitor ?? newMonitorTrack()), enabled },
+                      });
+                    },
+                    onEffects: () => openPedalboard("monitor"),
+                    onInputSettings: onOpenSettings,
+                  }
+                : undefined
+            }
           />
         }
       />
@@ -2400,6 +2483,20 @@ export function ScoreWorkspace({
                 }
               : undefined
           }
+          monitor={
+            isTauri()
+              ? {
+                  status: monitorStatus,
+                  engineOn,
+                  inputName: audioInput?.label ?? "System default",
+                  channel: inputChannel,
+                  onAdd: addMonitorTrack,
+                  onRemove: removeMonitorTrack,
+                  onEffects: () => openPedalboard("monitor"),
+                  onInputSettings: onOpenSettings,
+                }
+              : undefined
+          }
         />
       )}
       {showMixer && audio && audioEditorOpen && (
@@ -2481,9 +2578,15 @@ export function ScoreWorkspace({
             ? []
             : pedalboard.track === null
               ? effectProblems.master
-              : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
+              : pedalboard.track === "monitor"
+                ? (effectProblems.monitor ?? [])
+                : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
         }
-        trackName={summary.tracks[pedalboardTrack]?.name ?? track.name}
+        trackName={
+          pedalboardTrack === "monitor"
+            ? MONITOR_NAME
+            : (summary.tracks[pedalboardTrack]?.name ?? track.name)
+        }
         onTargetChange={(mastering) =>
           setPedalboard((p) => ({
             ...p,

@@ -73,6 +73,16 @@ impl Eq {
         }
     }
 
+    /// Carries filter memory to an EQ prepared outside the audio lock.
+    pub fn copy_state(&mut self, other: &Self) {
+        if self.bands.len() == other.bands.len() {
+            for ((l, r), (old_l, old_r)) in self.bands.iter_mut().zip(&other.bands) {
+                l.copy_state(old_l);
+                r.copy_state(old_r);
+            }
+        }
+    }
+
     /// New band settings, keeping the filter state; false if the number of
     /// bands differs (that needs a new EQ).
     pub fn set_bands(&mut self, bands: &[Band]) -> bool {
