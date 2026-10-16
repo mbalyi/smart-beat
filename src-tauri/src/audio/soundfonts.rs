@@ -797,6 +797,35 @@ mod tests {
         assert!(!dest.exists() && !dest.with_extension("part").exists());
     }
 
+    /// Downloads a real bank from its real address (needs the network), so it only runs on
+    /// request: `SF_TEST_BANK=arachno cargo test --lib -- --ignored real_download`. It checks
+    /// that the address, size and SHA-256 in the catalogue still match the file, that the file
+    /// installs, and that the engine can read it.
+    #[test]
+    #[ignore = "downloads a real SoundFont"]
+    fn real_download_installs_a_catalogue_bank_the_engine_can_read() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let id = std::env::var("SF_TEST_BANK").unwrap_or_else(|_| "generaluser-gs".into());
+        let (_dir, lib) = library();
+        let mut last = 0.0;
+        let info = lib
+            .install_from_catalogue(&id, &mut |phase| {
+                if let Phase::Downloading(fraction) = phase {
+                    assert!(fraction >= last);
+                    last = fraction;
+                }
+            })
+            .unwrap();
+        assert_eq!(info.catalogue.as_deref(), Some(id.as_str()));
+        assert!((last - 1.0).abs() < f32::EPSILON);
+        let path = lib.path_of(&id).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len(), info.bytes);
+        super::super::parse_sound_font(&fs::read(path).unwrap()).unwrap();
+        // The scratch folder is gone and the bank is listed as installed.
+        assert!(!lib.scratch(catalogue_entry(&id).unwrap()).exists());
+        assert!(lib.catalogue().iter().any(|c| c.id == id && c.installed));
+    }
+
     #[test]
     fn unpacks_the_named_member_of_a_zip_and_checks_it() {
         let dir = tempfile::tempdir().unwrap();
