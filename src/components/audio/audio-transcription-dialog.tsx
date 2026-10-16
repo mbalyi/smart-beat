@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { track } from "@/lib/telemetry";
 import { Button } from "@/components/ui/button";
 import { AudioDropArea } from "@/components/audio/audio-drop-area";
 import { Input } from "@/components/ui/input";
@@ -168,6 +169,7 @@ export function AudioTranscriptionDialog({
     try {
       const next = await provider.transcribe(file, selected, opts);
       if (!opts.signal.aborted) {
+        track("audio_transcribe");
         setResult(next);
         setPhase("complete");
       }

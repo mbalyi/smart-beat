@@ -53,7 +53,7 @@ export function useSoundLibrary() {
       }
       try {
         const item = await importLibraryFile(path, kind);
-        track("sound_library_import");
+        track("sound_library_import", kind);
         toast.success(
           `Imported “${item.name}”`,
           item.note ? { description: item.note } : undefined,

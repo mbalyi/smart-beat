@@ -54,10 +54,22 @@ export type TrackedEvent =
   | "restart_on_stop_on"
   | "restart_on_stop_off"
   | "restart_on_stop_used"
-  | "record_to_tab";
+  | "record_to_tab"
+  | "pedal_add"
+  | "pedal_remove"
+  | "pedal_move"
+  | "plugins_on"
+  | "plugin_scan"
+  | "plugin_add"
+  | "plugin_editor_open"
+  | "copy_to_instrument"
+  | "audio_transcribe"
+  | "settings_open"
+  | "audio_input_change"
+  | "piano_model_download";
 
-/** File formats that may accompany `open_file` and `export` (`FORMATS` in the Rust core). */
-const KNOWN_FORMATS = [
+/** File formats for open_file and export. */
+const FILE_FORMATS = [
   "gp3",
   "gp4",
   "gp5",
@@ -76,6 +88,65 @@ const KNOWN_FORMATS = [
   "png",
 ];
 
+/** Fixed details per event; the wire field remains `format` for older apps. */
+const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
+  open_file: FILE_FORMATS,
+  export: FILE_FORMATS,
+  save: FILE_FORMATS,
+  save_as: FILE_FORMATS,
+  pedal_add: [
+    "gate",
+    "compressor",
+    "eq",
+    "drive",
+    "amp_sim",
+    "chorus",
+    "phaser",
+    "tremolo",
+    "delay",
+    "reverb",
+    "limiter",
+    "amp",
+    "cab",
+    "plugin",
+  ],
+  pedal_remove: [
+    "gate",
+    "compressor",
+    "eq",
+    "drive",
+    "amp_sim",
+    "chorus",
+    "phaser",
+    "tremolo",
+    "delay",
+    "reverb",
+    "limiter",
+    "amp",
+    "cab",
+    "plugin",
+  ],
+  plugin_add: ["vst3", "clap"],
+  plugin_editor_open: ["vst3", "clap"],
+  copy_to_instrument: [
+    "guitar",
+    "electric-guitar",
+    "classical-guitar",
+    "guitar-7",
+    "guitar-8",
+    "guitar-9",
+    "bass-4",
+    "bass-5",
+    "bass-6",
+    "banjo",
+    "ukulele",
+    "piano",
+    "other",
+  ],
+  record_to_tab: ["guitar", "bass", "piano", "drums"],
+  sound_library_import: ["amp", "cab"],
+};
+
 /** What the Settings dialog shows (mirrors `UsageSettings` in the Rust core). */
 export interface UsageSettings {
   /** The counters are switched on (they are, until the user says otherwise). */
@@ -88,8 +159,8 @@ export interface UsageSettings {
 
 /**
  * Counts one use of a feature. Fire-and-forget: it does nothing in a browser, does nothing when
- * the counters are off, and never throws or slows the UI. `format` is the file extension for
- * `open_file` and `export`; the Rust side only accepts known formats.
+ * the counters are off, and never throws or slows the UI. `format` carries a fixed event detail;
+ * the Rust side only accepts details allowed for that event.
  */
 export function track(event: TrackedEvent, format?: string): void {
   if (!isTauri()) return;
@@ -97,7 +168,7 @@ export function track(event: TrackedEvent, format?: string): void {
   const known = format?.toLowerCase();
   invoke<void>("track_event", {
     event,
-    format: known && KNOWN_FORMATS.includes(known) ? known : null,
+    format: known && EVENT_DETAILS[event]?.includes(known) ? known : null,
   }).catch(() => {});
 }
 

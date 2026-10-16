@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { track } from "@/lib/telemetry";
 import { downloadPianoModel, isTauri, pianoModelStatus } from "@/lib/tauri";
 
 /** The high-accuracy piano model: whether it is on this computer, and getting it. */
@@ -37,6 +38,7 @@ export function usePianoModel(enabled: boolean): PianoModel {
   const download = useCallback(() => {
     if (running.current) return;
     running.current = true;
+    track("piano_model_download");
     setError(null);
     setProgress(0);
     downloadPianoModel(setProgress)

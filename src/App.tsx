@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { track } from "@/lib/telemetry";
 import { toast } from "sonner";
 
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
@@ -146,6 +147,7 @@ export function App() {
   const closing = songs.find((s) => s.id === pendingClose) ?? null;
 
   const showDialog = (next: AppDialog, returnFocusTo: HTMLElement | null = null) => {
+    if (next === "settings") track("settings_open");
     setReturnFocusTo(returnFocusTo);
     setDialog(next);
   };

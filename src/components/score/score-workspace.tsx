@@ -256,11 +256,6 @@ function trackMixChange(action: MixerAction) {
     case "solo":
       if (action.value) trackUsage("solo_track");
       break;
-    case "effects":
-    case "sound-effects":
-    case "master-effects":
-      trackUsage("effect_pedal");
-      break;
     case "sounds":
     case "drum-kit":
       trackUsage("sound_change");
@@ -1387,6 +1382,7 @@ export function ScoreWorkspace({
       const current = trackEffects(mixRef.current, track);
       const { chain, index } = withFocusBlock(current, focus, MAX_TRACK_EFFECTS);
       if (index >= 0 && chain.length !== current.length) {
+        trackUsage("pedal_add", focus === "ampSim" ? "amp_sim" : focus);
         changeMix({ type: "effects", track, slots: chain });
       }
     }
@@ -1420,6 +1416,7 @@ export function ScoreWorkspace({
   /** Applies a preset from the browser to what it was opened for (#42). */
   const applyPreset = (preset: Preset) => {
     trackUsage("sound_change");
+    trackUsage("effect_pedal");
     const { track, sound } = presetBrowser;
     if (preset.kind === "drumMix") {
       if (typeof track !== "number") return;
@@ -1787,6 +1784,7 @@ export function ScoreWorkspace({
       false,
     );
     const done = result as ConversionResult | null;
+    if (done) trackUsage("copy_to_instrument", preset.id);
     if (done && (done.shifted > 0 || done.dropped > 0)) {
       toast(
         `${done.shifted} ${done.shifted === 1 ? "note was" : "notes were"} moved an octave to fit ${preset.name}` +

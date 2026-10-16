@@ -35,6 +35,28 @@ describe("track", () => {
     ]);
   });
 
+  it("only sends fixed details belonging to the event", () => {
+    const calls = mockTauri();
+    track("pedal_add", "amp_sim");
+    track("plugin_add", "VST3");
+    track("copy_to_instrument", "bass-4");
+    track("record_to_tab", "drums");
+    track("sound_library_import", "cab");
+    track("pedal_add", "vst3");
+    track("plugin_add", "/Library/Audio/Plugins/private.vst3");
+    track("audio_input_change", "My audio interface");
+    expect(tracked(calls)).toEqual([
+      { event: "pedal_add", format: "amp_sim" },
+      { event: "plugin_add", format: "vst3" },
+      { event: "copy_to_instrument", format: "bass-4" },
+      { event: "record_to_tab", format: "drums" },
+      { event: "sound_library_import", format: "cab" },
+      { event: "pedal_add", format: null },
+      { event: "plugin_add", format: null },
+      { event: "audio_input_change", format: null },
+    ]);
+  });
+
   it("never throws or rejects when the core fails", async () => {
     mockTauri({
       track_event: () => {

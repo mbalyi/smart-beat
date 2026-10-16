@@ -54,6 +54,25 @@ async function setup({
 const mixerRegion = () => screen.getByRole("region", { name: "Tracks and mixer" });
 
 describe("ScoreWorkspace", () => {
+  it("does not count every knob change as an effect action", async () => {
+    const { user, calls } = await setup({ desktop: true });
+    await user.click(screen.getByRole("button", { name: "Actions for Guitar" }));
+    await user.click(screen.getByRole("menuitem", { name: "Effects (pedalboard)…" }));
+    const dialog = screen.getByRole("dialog", { name: "Pedalboard: Guitar" });
+    await user.click(within(dialog).getByRole("button", { name: "Add Delay" }));
+    const knob = within(dialog).getByRole("slider", { name: "Delay 1, Time" });
+    knob.focus();
+    await user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}");
+    expect(knob).toHaveAttribute("aria-valuenow", "378");
+    const events = calls
+      .filter((c) => c.cmd === "track_event")
+      .map((c) => c.args as Record<string, unknown>);
+    expect(events.filter((e) => e?.event === "effect_pedal")).toHaveLength(0);
+    expect(events.filter((e) => e?.event === "pedal_add")).toEqual([
+      { event: "pedal_add", format: "delay" },
+    ]);
+  });
+
   it("creates a player for the song's first track", async () => {
     const { song, player } = await setup();
 

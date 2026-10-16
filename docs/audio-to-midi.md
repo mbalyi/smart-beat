@@ -118,8 +118,8 @@ same bytes the import uses. No temporary MIDI file is needed.
 ## Privacy
 
 The recording travels from the native app to Smart Beat's server over HTTPS. The server
-processes it in memory. Smart Beat has no transcription analytics, and the app sends no
-file name.
+processes it in memory. Smart Beat counts completed transcriptions in its anonymous usage
+counters, without file names or transcription content. See [analytics](analytics.md).
 
 ## Licensing
 

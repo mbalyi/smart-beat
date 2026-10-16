@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { EVENTS, EVENT_DETAILS } from "../src/events";
 import worker from "../src/index";
 import { cleanup, MAX_ENTRIES, type Env } from "../src/logic";
 import { fakeD1 } from "./d1";
@@ -216,5 +217,28 @@ describe("entry module", () => {
   it("exports only the handler: the Workers runtime refuses anything else", async () => {
     const entry = await import("../src/index");
     expect(Object.keys(entry)).toEqual(["default"]);
+  });
+});
+
+describe("event details", () => {
+  it("accepts every event with no detail and each of its fixed details", async () => {
+    for (const event of EVENTS) {
+      for (const format of [undefined, ...(EVENT_DETAILS[event] ?? [])]) {
+        expect((await post(batch([{ day: today, event, format, count: 1 }]))).status).toBe(200);
+      }
+    }
+  });
+  it("rejects free text and details belonging to other events", async () => {
+    for (const [event, format] of [
+      ["pedal_add", "vst3"],
+      ["plugin_add", "amp"],
+      ["record_to_tab", "gp5"],
+      ["copy_to_instrument", "My instrument"],
+      ["audio_input_change", "USB device"],
+      ["plugin_editor_open", "/Library/private.vst3"],
+      ["play", "pdf"],
+    ]) {
+      expect((await post(batch([{ day: today, event, format, count: 1 }]))).status).toBe(400);
+    }
   });
 });

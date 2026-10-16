@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { track } from "@/lib/telemetry";
 import type { EffectSlot } from "@/lib/audio/effects";
 import {
   getPluginsEnabled,
@@ -98,12 +99,14 @@ export function usePlugins(
   }, [available]);
 
   const setEnabled = useCallback((on: boolean) => {
+    if (on) track("plugins_on");
     setEnabledState(on);
     if (!on) setInfo(new Map());
   }, []);
 
   const refresh = useCallback(() => {
     if (!available || scanning) return;
+    track("plugin_scan");
     setScanning(true);
     scanPlugins()
       .then((report) => {

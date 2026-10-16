@@ -267,7 +267,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
         });
         showWarnings(added.warnings);
       }
-      track("record_to_tab");
+      track("record_to_tab", setup.instrument);
     }, "Couldn't turn your take into tab");
   };
 
@@ -311,7 +311,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
       showWarnings(
         openAsSong(heard, tuning, file.name.replace(/\.[^.]+$/, "") || RECORDING_NAME, instrument),
       );
-      track("record_to_tab");
+      track("record_to_tab", instrument);
     }, "Couldn't turn this recording into tab");
   };
 

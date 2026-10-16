@@ -88,6 +88,61 @@ pub enum Event {
     RestartOnStopOff,
     RestartOnStopUsed,
     RecordToTab,
+    PedalAdd,
+    PedalRemove,
+    PedalMove,
+    PluginsOn,
+    PluginScan,
+    PluginAdd,
+    PluginEditorOpen,
+    CopyToInstrument,
+    AudioTranscribe,
+    SettingsOpen,
+    AudioInputChange,
+    PianoModelDownload,
+}
+
+impl Event {
+    fn details(self) -> &'static [&'static str] {
+        match self {
+            Self::OpenFile | Self::Export | Self::Save | Self::SaveAs => FORMATS,
+            Self::PedalAdd | Self::PedalRemove => &[
+                "gate",
+                "compressor",
+                "eq",
+                "drive",
+                "amp_sim",
+                "chorus",
+                "phaser",
+                "tremolo",
+                "delay",
+                "reverb",
+                "limiter",
+                "amp",
+                "cab",
+                "plugin",
+            ],
+            Self::PluginAdd | Self::PluginEditorOpen => &["vst3", "clap"],
+            Self::CopyToInstrument => &[
+                "guitar",
+                "electric-guitar",
+                "classical-guitar",
+                "guitar-7",
+                "guitar-8",
+                "guitar-9",
+                "bass-4",
+                "bass-5",
+                "bass-6",
+                "banjo",
+                "ukulele",
+                "piano",
+                "other",
+            ],
+            Self::RecordToTab => &["guitar", "bass", "piano", "drums"],
+            Self::SoundLibraryImport => &["amp", "cab"],
+            _ => &[],
+        }
+    }
 }
 
 /// File formats that may accompany `open_file` and `export`.
@@ -236,11 +291,12 @@ impl Telemetry {
         }
         let format = match format {
             Some(f) => Some(
-                FORMATS
+                event
+                    .details()
                     .iter()
                     .find(|known| known.eq_ignore_ascii_case(f))
                     .ok_or_else(|| {
-                        CommandError::new(ErrorKind::InvalidSettings, "Unknown file format.")
+                        CommandError::new(ErrorKind::InvalidSettings, "Unknown event detail.")
                     })?,
             ),
             None => None,
@@ -523,6 +579,47 @@ mod tests {
             format: Some("pdf".into()),
             count: 1,
         }));
+    }
+
+    #[test]
+    fn event_details_are_fixed_and_event_specific() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        for name in [
+            "pedal_add",
+            "pedal_remove",
+            "pedal_move",
+            "plugins_on",
+            "plugin_scan",
+            "plugin_add",
+            "plugin_editor_open",
+            "copy_to_instrument",
+            "audio_transcribe",
+            "settings_open",
+            "audio_input_change",
+            "piano_model_download",
+            "record_to_tab",
+            "sound_library_import",
+            "open_file",
+            "export",
+        ] {
+            let event: Event = serde_json::from_value(serde_json::json!(name)).unwrap();
+            t.record_on("2026-01-01", event, None).unwrap();
+            for detail in event.details() {
+                t.record_on("2026-01-01", event, Some(detail)).unwrap();
+            }
+            assert!(
+                t.record_on("2026-01-01", event, Some("private name or path"))
+                    .is_err()
+            );
+        }
+        for (event, detail) in [
+            (Event::PedalAdd, "vst3"),
+            (Event::PluginAdd, "amp"),
+            (Event::RecordToTab, "gp5"),
+            (Event::Play, "pdf"),
+        ] {
+            assert!(t.record_on("2026-01-01", event, Some(detail)).is_err());
+        }
     }
 
     #[test]
