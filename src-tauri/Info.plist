@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Smart Beat listens to your instrument only while the tuner is listening, to show how far each string is from its note. Settings also asks once to show the names of your audio inputs.</string>
+	<string>Smart Beat listens to your instrument only while the tuner is listening or the monitor track is on: to show how far each string is from its note, and to play your instrument through its effects. Settings also asks once to show the names of your audio inputs.</string>
 </dict>
 </plist>

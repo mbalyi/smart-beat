@@ -93,6 +93,7 @@ fn play_through(engine_rate: u32, capture_rate: f64) -> Vec<f32> {
         engine_rate as f32,
         BLOCK,
         &assets,
+        &smart_beat_lib::audio::plugin::PluginPool::default(),
     );
     assert!(chain.problems.is_empty(), "{:?}", chain.problems);
     let mut engine = Engine::new(sonivox(), engine_rate as f32);
@@ -156,6 +157,7 @@ fn a_chain_with_a_removed_asset_still_plays_the_rest() {
         48_000.0,
         BLOCK,
         &library.assets(48_000),
+        &smart_beat_lib::audio::plugin::PluginPool::default(),
     );
     assert_eq!(chain.problems.len(), 1);
     assert_eq!(chain.problems[0].index, 1);
@@ -172,6 +174,7 @@ fn a_chain_with_a_removed_asset_still_plays_the_rest() {
         48_000.0,
         BLOCK,
         &library.assets(48_000),
+        &smart_beat_lib::audio::plugin::PluginPool::default(),
     );
     assert_eq!(chain.problems.len(), 2);
     assert!(chain.is_empty());

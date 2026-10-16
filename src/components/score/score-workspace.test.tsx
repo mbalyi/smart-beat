@@ -231,12 +231,12 @@ describe("ScoreWorkspace", () => {
     const { user, player } = await setup();
     await user.click(screen.getByRole("button", { name: /^Practice mix/ }));
     const popover = await screen.findByRole("dialog", { name: "Practice mix" });
-    await user.click(within(popover).getByRole("radio", { name: /Hear only me/ }));
+    await user.click(within(popover).getByRole("radio", { name: /Hear only this track/ }));
     expect(player.setMix).toHaveBeenLastCalledWith(
       expect.objectContaining({ focus: 0, focusMode: "onlyMe" }),
     );
     expect(
-      screen.getByRole("button", { name: /^Practice mix: Hear only me, Guitar/ }),
+      screen.getByRole("button", { name: /^Practice mix: Hear only this track, Guitar/ }),
     ).toBeInTheDocument();
     await user.click(within(popover).getByRole("radio", { name: /Others turned down/ }));
     await user.click(within(popover).getByRole("radio", { name: "Strong" }));

@@ -29,6 +29,7 @@ import {
   NativeEngine,
   trackChannels,
   type EffectProblems,
+  type MonitorInputChoice,
 } from "@/lib/audio/native-engine";
 import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
 import { playableDrumKey } from "@/lib/score/drum-map";
@@ -67,6 +68,7 @@ import {
   type BackingSource,
   type EngineMeters,
   type MixerSettings,
+  type MonitorStatus,
 } from "@/lib/tauri";
 
 const { PlayerState, PlaybackRange } = synth;
@@ -131,6 +133,8 @@ export interface ScorePlayerCallbacks {
   onEffectProblems?: (problems: EffectProblems) => void;
   /** Native engine: the bars in playback order (after every MIDI load), for the audio track. */
   onOccurrences?: (occurrences: BarOccurrence[]) => void;
+  /** Native engine: the monitor track's input opened, closed or failed (null: no monitor). */
+  onMonitorStatus?: (status: MonitorStatus | null) => void;
 }
 
 /**
@@ -155,6 +159,8 @@ export interface ScorePlayerOptions {
   audioEngine?: AudioEngineKind;
   /** The score's colours (#83); default: light. */
   theme?: ScoreTheme;
+  /** The audio input the monitor track plays (default: the system's default, first channel). */
+  monitorInput?: MonitorInputChoice;
 }
 
 /** Puts a palette's colours in alphaTab's settings. */
@@ -307,6 +313,7 @@ export class ScorePlayer {
     this.score = options.score;
     this.trackIndex = options.trackIndex;
     this.mix = options.mix;
+    this.monitorInput = options.monitorInput ?? { device: null, channel: 0 };
     this.theme = options.theme ?? "light";
     this.callbacks = callbacks;
 
@@ -320,6 +327,7 @@ export class ScorePlayer {
         ? new NativeEngine({
             onMeters: (meters) => callbacks.onMeters?.(meters),
             onFault: () => callbacks.onEngineFault?.(),
+            onMonitorStatus: (status) => callbacks.onMonitorStatus?.(status),
             onError: (error) => callbacks.onError?.(error),
             // The engine starts loops again by itself and reports them (#83).
             onLoops: (count) => {
@@ -420,7 +428,7 @@ export class ScorePlayer {
         // as they are played (repeats included).
         this.occurrences = barOccurrences(this.score, lookup ?? null);
         callbacks.onOccurrences?.(this.occurrences);
-        this.engine.prepare(engineExtras(this.mix, this.occurrences));
+        this.engine.prepare(engineExtras(this.mix, this.occurrences, this.monitorInput));
         this.engine
           .loadSong(file, trackChannels(this.score))
           .then(() => this.applyExtras(this.mix))
@@ -612,7 +620,7 @@ export class ScorePlayer {
     if (!engine) return;
     if (this.occurrences.length === 0) this.occurrences = barOccurrences(this.score, null);
     engine
-      .configure(engineExtras(mix, this.occurrences))
+      .configure(engineExtras(mix, this.occurrences, this.monitorInput))
       .then((problems) => this.callbacks.onEffectProblems?.(problems))
       .catch((error: unknown) => this.callbacks.onError?.(asError(error)));
   }
@@ -978,6 +986,18 @@ export class ScorePlayer {
 
   clearBacking(): Promise<void> {
     return this.engine?.clearBacking() ?? Promise.resolve();
+  }
+
+  /** The audio input the monitor track plays (Settings › Audio). */
+  private monitorInput: MonitorInputChoice;
+
+  /** Plays another input on the monitor track (the choice in Settings changed). */
+  setMonitorInput(input: MonitorInputChoice) {
+    if (input.device === this.monitorInput.device && input.channel === this.monitorInput.channel) {
+      return;
+    }
+    this.monitorInput = input;
+    if (this.ready) this.applyExtras(this.mix);
   }
 
   get usesNativeEngine(): boolean {

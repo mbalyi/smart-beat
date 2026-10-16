@@ -9,6 +9,7 @@ license = "PolyForm-Noncommercial-1.0.0"
 homepage = "https://github.com/mbalyi/smart-beat"
 repository = "https://github.com/mbalyi/smart-beat"
 publish = false
+default-run = "smart-beat"
 
 [lib]
 # `_lib` suffix avoids a name clash with the binary on Windows.
@@ -30,6 +31,8 @@ serde_json = "1"
 # Import from Audio (src/transcription.rs) talks to Smart Beat's MuScriptor server from here,
 # so the webview's CSP keeps every remote host out.
 base64 = "0.22"
+# Fixed-size host/helper audio mapping; already used transitively by Tauri.
+memmap2 = "0.9"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy", "multipart"] }
 # Already in the tree through Tauri. `time` waits between retries while the server is busy.
 tokio = { version = "1.53", default-features = false, features = ["time"] }
@@ -42,6 +45,13 @@ cpal = "0.18"
 realfft = "3.5"
 hound = "3.5"
 nam-rs = "0.4"
+# Third-party plugin hosting (#80): VST3 via vst3-host (MIT) with its
+# out-of-process helper, CLAP via clack (MIT OR Apache-2.0) inside the same
+# helper. No default features: we use neither crate's audio backend, only
+# hosting + isolation (AppKit windowing is used directly, no window-handle interop).
+vst3-host = { version = "0.10", default-features = false, features = ["process-isolation"] }
+clack-host = "0.2"
+clack-extensions = { version = "0.2", features = ["audio-ports", "gui", "latency", "state", "clack-host"] }
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "aiff"] }
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 tauri-plugin-opener = "2.7"
@@ -60,6 +70,8 @@ objc2-web-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioBuffer", "AVAudioFile", "AVAudioFormat", "AVAudioSettings", "AVAudioTypes"] }
 
 [dev-dependencies]
+# ABI types for the original synthetic CLAP fixture, built by rustc in tests.
+clap-sys = "0.5"
 # Tests src/service_url.rs, which build.rs includes.
 url = "2"
 tauri = { version = "2.12", features = ["test"] }

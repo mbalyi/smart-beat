@@ -37,10 +37,16 @@ This is fine for internal testing. **Set up signing before the first public rele
 5. **What happens in CI:** `release.yml` imports the certificate into a temporary keychain. Tauri signs the app with the hardened runtime, submits it to `notarytool`, and staples the notarization ticket to the `.app` and `.dmg`. If the secrets are missing, the workflow falls back to ad-hoc signing, which is today's behavior.
 6. **Entitlements:** `src-tauri/Entitlements.plist` (set as `bundle.macOS.entitlements`) grants `com.apple.security.device.audio-input` for the tuner's microphone (#83), and `src-tauri/Info.plist` adds the `NSMicrophoneUsageDescription` macOS shows when it asks. Without both, macOS silently denies the microphone under the hardened runtime.
 
+The plugin helper alone uses `PluginHelper.entitlements.plist`, which disables library validation so it can load third-party VST3 and CLAP binaries. The main app retains library validation. `stage-plugin-helper.mjs` signs the helper with the release identity or ad-hoc identity before bundling. With CI certificate secrets, it imports a separate temporary keychain and deletes it afterward.
+
+Tauri CLI 2.12.1 applies the app entitlement file to every binary in its signing list, replacing pre-existing sidecar signatures. The macOS platform configuration therefore disables `externalBin` and copies the signed helper through `bundle.macOS.files`. Tauri copies these custom files after collecting signing targets, then signs the containing app. Destinations in this map are relative to `Contents`. Runtime discovery prefers this `smart-beat-plugin-helper` executable over Cargo's extra `vst3-host-helper` copy. Keep this ordering when upgrading Tauri, and verify the final bundle rather than only the staged executable. See upstream [bundle construction](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.1/crates/tauri-bundler/src/bundle/macos/app.rs) and [global signing entitlements](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.1/crates/tauri-bundler/src/bundle/macos/sign.rs).
+
 To verify a build locally:
 
 ```bash
 codesign --verify --deep --strict --verbose=2 "Smart Beat.app"
+codesign -d --entitlements :- "Smart Beat.app"  # microphone only
+codesign -d --entitlements :- "Smart Beat.app/Contents/MacOS/smart-beat-plugin-helper"  # helper exception
 spctl --assess --type execute --verbose "Smart Beat.app"
 xcrun stapler validate "Smart Beat.dmg"
 ```

@@ -117,6 +117,9 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::audio_load_backing,
             audio::audio_set_backing,
             audio::audio_clear_backing,
+            audio::audio_set_monitor,
+            audio::audio_set_monitor_chain,
+            audio::audio_input_channels,
             audio::audio_state,
             audio::audio_render,
             audio::library_list,
@@ -127,6 +130,13 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::kits_import,
             audio::kits_remove,
             audio::audio_set_track_kit,
+            audio::plugins_scan,
+            audio::plugins_set_enabled,
+            audio::plugins_enabled,
+            audio::plugin_open_editor,
+            audio::plugin_close_editor,
+            audio::plugin_save_state,
+            audio::audio_plugin_info,
         ])
         .on_menu_event(menu::handle_event)
 }

@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm soundfonts:fetch && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm soundfonts:fetch && pnpm licenses:generate && pnpm build",
+    "beforeBuildCommand": "pnpm soundfonts:fetch && pnpm licenses:generate && pnpm build && node scripts/stage-plugin-helper.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -63,6 +63,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": ["binaries/smart-beat-plugin-helper"],
     "category": "Music",
     "publisher": "Mark Balyi",
     "homepage": "https://github.com/mbalyi/smart-beat",

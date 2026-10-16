@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   AudioLinesIcon,
+  CableIcon,
   CopyIcon,
   CopyPlusIcon,
   ListOrderedIcon,
@@ -15,6 +16,7 @@ import {
   MoreVerticalIcon,
   PaletteIcon,
   PianoIcon,
+  PlugIcon,
   PlusIcon,
   RotateCcwIcon,
   Settings2Icon,
@@ -51,6 +53,7 @@ import {
   EMPTY_AUTOMATION,
   heardMix,
   isAudible,
+  isMonitorAudible,
   trackAutomation,
   trackEq,
   type MixerChange,
@@ -59,7 +62,14 @@ import type { Score } from "@/lib/score/model";
 import type { TrackSummary } from "@/lib/score/score";
 import { TrackColorDialog } from "@/components/shell/track-color-dialog";
 import { trackColor } from "@/lib/score/track-colors";
-import type { AutomationLaneKind, BackingInfo, MixerSettings } from "@/lib/tauri";
+import { describeLatency, MONITOR_NAME } from "@/lib/audio/monitor";
+import type {
+  AutomationLaneKind,
+  BackingInfo,
+  MixerSettings,
+  MonitorStatus,
+  MonitorTrackSettings,
+} from "@/lib/tauri";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { cn } from "@/lib/utils";
 
@@ -253,6 +263,194 @@ function LowSoundMark({ track, soundFont }: { track: TrackSummary; soundFont?: S
   );
 }
 
+/** What the track list needs for the monitor track (missing: none, and none can be added). */
+export interface MonitorRowProps {
+  /** Its input, as the engine reports it (null: not listening). */
+  status: MonitorStatus | null;
+  /** The native engine plays it (it is silent with alphaTab's synthesizer). */
+  engineOn: boolean;
+  /** The input chosen in Settings ("System default"). */
+  inputName: string;
+  /** The channel chosen in Settings: 0-based, or null for all mixed. */
+  channel: number | null;
+  onAdd: () => void;
+  onRemove: () => void;
+  /** Opens its pedalboard. */
+  onEffects: () => void;
+  /** Opens Settings, where the input is chosen; focus returns to `from`. */
+  onInputSettings?: (from: HTMLElement) => void;
+}
+
+/** What the monitor track is listening to, or why it is silent. */
+function monitorText(
+  monitor: MonitorTrackSettings,
+  props: MonitorRowProps,
+): { text: string; problem: boolean } {
+  if (!props.engineOn) {
+    return { text: "Plays with effects playback (the native audio engine) on", problem: true };
+  }
+  if (!monitor.enabled) return { text: `Off · ${props.inputName}`, problem: false };
+  const status = props.status;
+  if (status?.error) return { text: status.error, problem: true };
+  if (!status?.open) return { text: `Opening ${props.inputName}…`, problem: false };
+  const channel =
+    status.channels < 2
+      ? ""
+      : props.channel === null
+        ? " · all inputs"
+        : ` · input ${Math.min(props.channel, status.channels - 1) + 1}`;
+  return {
+    text: `${status.device}${channel} · about ${describeLatency(status.latencyMs)} delay`,
+    problem: false,
+  };
+}
+
+/**
+ * The monitor track: the audio input (Settings › Audio) played live through its own effects,
+ * with the same mute, solo, volume, pan and EQ as the other tracks.
+ */
+function MonitorRow({
+  monitor,
+  props,
+  audible,
+  onChange,
+}: {
+  monitor: MonitorTrackSettings;
+  props: MonitorRowProps;
+  /** Not muted, and not silenced by another track's solo. */
+  audible: boolean;
+  onChange: (monitor: MonitorTrackSettings) => void;
+}) {
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const { text, problem } = monitorText(monitor, props);
+  return (
+    <li className="flex border-b" data-testid="monitor-track-row">
+      <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r bg-card px-2 py-1">
+        <div className={cn(CONTROLS, "w-full")}>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span aria-hidden="true" className="h-5 w-1 shrink-0 rounded-full bg-emerald-500" />
+            <CableIcon className="size-4 shrink-0" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={props.onEffects}
+              title={`${props.inputName}: effects (pedalboard)`}
+              aria-label={`Effects of the ${MONITOR_NAME.toLowerCase()} track`}
+              className="min-w-0 truncate rounded text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              {MONITOR_NAME}
+            </button>
+          </div>
+          <div className="flex items-center">
+            <Switch
+              checked={monitor.enabled}
+              onCheckedChange={(enabled) => onChange({ ...monitor, enabled })}
+              aria-label="Monitor track on (listen to the input)"
+            />
+          </div>
+          <div className="flex gap-0.5">
+            <Toggle
+              size="sm"
+              variant="outline"
+              pressed={monitor.mute}
+              onPressedChange={(mute) => onChange({ ...monitor, mute })}
+              aria-label="Mute the monitor track"
+              title="Mute"
+              className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
+            >
+              M
+            </Toggle>
+            <Toggle
+              size="sm"
+              variant="outline"
+              pressed={monitor.solo}
+              onPressedChange={(solo) => onChange({ ...monitor, solo })}
+              aria-label="Solo the monitor track"
+              title="Solo"
+              className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
+            >
+              S
+            </Toggle>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <LabeledSlider
+              label="Volume, monitor track"
+              valueText={describeVolume(monitor.volume)}
+              value={monitor.volume}
+              onValueChange={(volume) => onChange({ ...monitor, volume })}
+            />
+            <LevelMeter label="Level, monitor track" select={(m) => m.monitor ?? 0} />
+          </div>
+          <PanControl
+            label="Pan, monitor track"
+            value={monitor.pan}
+            onValueChange={(pan) => onChange({ ...monitor, pan })}
+          />
+          <div className="flex items-center justify-end gap-0.5">
+            <EqPopover
+              name="monitor track"
+              eq={monitor.eq}
+              onChange={(eq) => onChange({ ...monitor, eq })}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  ref={menuButton}
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Actions for the monitor track"
+                  title="Track actions"
+                >
+                  <MoreVerticalIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={props.onEffects}>
+                  <SlidersHorizontalIcon />
+                  Effects (pedalboard)…
+                </DropdownMenuItem>
+                {props.onInputSettings && (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      menuButton.current && props.onInputSettings?.(menuButton.current)
+                    }
+                  >
+                    <PlugIcon />
+                    Input settings…
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={props.onRemove}>
+                  <Trash2Icon />
+                  Remove
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </div>
+      <div className="flex min-w-0 items-center gap-2 px-2 text-xs">
+        {monitor.enabled && props.engineOn && (
+          <LevelMeter
+            label="Input level, monitor track"
+            select={(m) => m.monitorInput ?? 0}
+            className="w-24"
+          />
+        )}
+        <span
+          role="status"
+          className={cn(
+            "whitespace-nowrap",
+            problem ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground",
+            !audible && !problem && "opacity-60",
+          )}
+        >
+          {text}
+        </span>
+      </div>
+    </li>
+  );
+}
+
 export function TrackList({
   score,
   revision,
@@ -268,6 +466,7 @@ export function TrackList({
   playing,
   onMasterEffects,
   audio,
+  monitor,
   soundFont,
 }: {
   score: Score;
@@ -291,6 +490,8 @@ export function TrackList({
   playing: boolean;
   /** Opens the master bus's effects. */
   onMasterEffects?: () => void;
+  /** The monitor track row (missing: none and none can be added here). */
+  monitor?: MonitorRowProps;
   /** The audio track row (missing: none and none can be added here). */
   audio?: {
     info: BackingInfo | null;
@@ -347,6 +548,17 @@ export function TrackList({
                     onClick={audio.onAdd}
                   >
                     <FileMusicIcon />
+                  </Button>
+                )}
+                {monitor && !mix.monitor && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Add monitor track"
+                    title="Add monitor track (hear your audio input live, with effects)"
+                    onClick={monitor.onAdd}
+                  >
+                    <CableIcon />
                   </Button>
                 )}
                 <h2 className="font-semibold text-foreground">Tracks</h2>
@@ -753,6 +965,14 @@ export function TrackList({
                 )}
               </button>
             </li>
+          )}
+          {monitor && mix.monitor && (
+            <MonitorRow
+              monitor={mix.monitor}
+              props={monitor}
+              audible={isMonitorAudible(mix)}
+              onChange={(value) => onChange({ type: "monitor", value })}
+            />
           )}
         </ol>
 

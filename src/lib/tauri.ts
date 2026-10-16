@@ -290,6 +290,25 @@ export interface AudioTrackSettings extends BackingParams {
   sync: SyncPoint[];
 }
 
+/** Mirrors `MonitorParams` in `src-tauri/src/audio/monitor.rs`: how the monitor track plays. */
+export interface MonitorParams {
+  /** Listening to the input (off: the input is closed). */
+  enabled: boolean;
+  volume: number;
+  pan: number;
+  mute: boolean;
+  solo: boolean;
+  eq: TrackEq;
+}
+
+/**
+ * Mirrors `MonitorTrack` in `src-tauri/src/mixer.rs`: the monitor track of a song. It plays the
+ * audio input (Settings › Audio) live, through its own effect chain.
+ */
+export interface MonitorTrackSettings extends MonitorParams {
+  effects: EffectSlot[];
+}
+
 /** Mirrors `ChainPreset`: an effect chain preset saved with the song. */
 export interface SongPreset {
   name: string;
@@ -335,6 +354,8 @@ export interface MixerSettings {
   /** A colour chosen for each track, `#rrggbb` (null: the default one; #83). */
   trackColors?: (string | null)[];
   audioTrack?: AudioTrackSettings;
+  /** The monitor track: the audio input, played live. */
+  monitor?: MonitorTrackSettings;
   /** Effect chain presets saved with the song. */
   presets?: SongPreset[];
   /** Drum notes on a chosen line of the drum tab (#53). Mirrors `DrumLine` in `mixer.rs`. */
@@ -636,8 +657,26 @@ export interface EngineMeters {
   drums?: number[][];
   /** The audio track. */
   backing?: number;
+  /** The monitor track, after its effects and fader. */
+  monitor?: number;
+  /** The audio input of the monitor track, before its effects. */
+  monitorInput?: number;
   /** Gain reduction (dB) of each pedalboard slot's compressor or limiter (#39). */
-  reduction?: { tracks: number[][]; master: number[] };
+  reduction?: { tracks: number[][]; master: number[]; monitor?: number[] };
+}
+
+/** Mirrors `MonitorStatus` in `src-tauri/src/audio/mod.rs`: the monitor track's input. */
+export interface MonitorStatus {
+  /** Listening now. */
+  open: boolean;
+  /** The input's name as the system gives it. */
+  device: string;
+  channels: number;
+  sampleRate: number;
+  /** From the input to the output, estimated. */
+  latencyMs: number;
+  /** Why the input is not open, or why it stopped. */
+  error: string | null;
 }
 
 /** Mirrors `AutomationData` in `src-tauri/src/audio/mixing.rs`: lanes in ticks. */
@@ -685,6 +724,8 @@ export interface EngineStatus {
   /** Loops played to the end since the last report (#83). */
   loops: number;
   meters: EngineMeters;
+  /** The monitor track's input (null: no monitor track). */
+  monitor?: MonitorStatus | null;
 }
 
 /** Mirrors `SongData` in `src-tauri/src/audio/song.rs`. */
@@ -793,6 +834,22 @@ export const setEngineBacking = (params: BackingParams, sync: { tick: number; ms
   call<void>("audio_set_backing", { params, sync });
 
 export const clearEngineBacking = () => call<void>("audio_clear_backing");
+
+/**
+ * The monitor track (null removes it): its settings, and the input it plays. `device` is the
+ * input's name (null: the system's default input); `channel` is 0-based (null: all mixed).
+ */
+export const setEngineMonitor = (
+  monitor: { params: MonitorParams; device: string | null; channel: number | null } | null,
+) => call<MonitorStatus | null>("audio_set_monitor", { monitor });
+
+/** The monitor track's effect chain. Resolves to the blocks that cannot run. */
+export const setEngineMonitorChain = (slots: EffectSlot[]) =>
+  call<BlockProblem[]>("audio_set_monitor_chain", { slots });
+
+/** How many channels an input has (null: the system's default input). */
+export const engineInputChannels = (device: string | null) =>
+  call<number>("audio_input_channels", { device });
 
 /** Native Open dialog for an audio track recording. */
 export async function pickAudioFile(): Promise<string | null> {
@@ -968,3 +1025,65 @@ export async function cancelRecordingTranscription(): Promise<void> {
   if (!isTauri()) return;
   await invoke<void>("cancel_recording_transcription");
 }
+
+// --- Third-party plugins: VST3 and CLAP (#80) -------------------------------
+
+/** Mirrors `PluginFormat` in `src-tauri/src/audio/plugin.rs`. */
+export type NativePluginFormat = "vst3" | "clap";
+
+/** Mirrors `ScannedPlugin` in `src-tauri/src/audio/plugin.rs`. */
+export interface ScannedPlugin {
+  format: NativePluginFormat;
+  path: string;
+  name: string;
+  vendor: string;
+  version: string;
+  hasGui: boolean;
+}
+
+/** Mirrors `PluginScanReport` in `src-tauri/src/audio/plugin.rs`. */
+export interface PluginScanReport {
+  plugins: ScannedPlugin[];
+  /** Installed files that could not be loaded (one line each). */
+  skipped: string[];
+}
+
+/** Mirrors `PluginSlotInfo` in `src-tauri/src/audio/plugin.rs`. */
+export interface PluginSlotInfo {
+  index: number;
+  name: string;
+  latencySamples: number;
+  /** Added latency in milliseconds (what the UI shows). */
+  latencyMs: number;
+  alive: boolean;
+  loading: boolean;
+  /** The last failure in plain words (empty while healthy). */
+  error: string;
+}
+
+/** Lists the installed VST3 and CLAP plugins (each probed in isolation). */
+export const scanPlugins = () => call<PluginScanReport>("plugins_scan");
+
+/** Switches third-party plugin blocks on or off (off by default). */
+export const setPluginsEnabled = (enabled: boolean) =>
+  call<void>("plugins_set_enabled", { enabled });
+
+export const getPluginsEnabled = () => call<boolean>("plugins_enabled");
+
+/**
+ * Opens the plugin's own editor window (owned by the helper process).
+ * Resolves to the editor size in pixels.
+ */
+export const openPluginEditor = (track: number | "monitor" | null, sound: number, index: number) =>
+  call<[number, number]>("plugin_open_editor", { track, sound, index });
+
+export const closePluginEditor = (track: number | "monitor" | null, sound: number, index: number) =>
+  call<void>("plugin_close_editor", { track, sound, index });
+
+/** Saves the plugin's current settings as base64 (stored in the block). */
+export const savePluginState = (track: number | "monitor" | null, sound: number, index: number) =>
+  call<string>("plugin_save_state", { track, sound, index });
+
+/** Live status of every plugin block of a chain. */
+export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
+  call<PluginSlotInfo[]>("audio_plugin_info", { track, sound });

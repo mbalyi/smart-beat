@@ -109,6 +109,8 @@ declare global {
     __pdfExports?: { path: string; page: Record<string, unknown>; parts: number }[];
     __pdfFail?: string;
     __engineChains?: Record<string, { type: string }[]>;
+    __pluginsEnabled?: boolean;
+    __pluginLoading?: boolean;
     __engineConfig: {
       sounds: Record<string, { sounds: unknown[][]; switches: [number, number][] }>;
       automation: Record<string, { enabled: boolean; volume: [number, number][] }>;
@@ -124,6 +126,11 @@ declare global {
     } | null;
     __projectSettings: Record<string, { audioTrack?: { name: string; sync: unknown[] } }>;
     __embeddedAudio: boolean;
+    __engineMonitor?: {
+      params: { enabled: boolean };
+      device: string | null;
+      channel: number | null;
+    } | null;
     __meters: { tracks: number[]; master: number; drums?: number[][]; backing?: number };
     __saveResult: string | null;
     __recent: string[];

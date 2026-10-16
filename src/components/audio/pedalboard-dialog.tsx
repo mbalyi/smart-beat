@@ -54,6 +54,7 @@ import {
   formatParam,
   insertAsset,
   insertEffect,
+  insertPlugin,
   MAX_MASTER_EFFECTS,
   MAX_TRACK_EFFECTS,
   moveEffect,
@@ -66,6 +67,7 @@ import {
   withParam,
   type EffectSlot,
   type EffectType,
+  type PluginFormat,
 } from "@/lib/audio/effects";
 import {
   chainOf,
@@ -88,9 +90,11 @@ import type {
   BlockProblem,
   EngineMeters,
   LibraryItem,
+  ScannedPlugin,
   SongPreset,
   SoundSwitch,
 } from "@/lib/tauri";
+import { usePlugins } from "@/hooks/use-plugins";
 import { cn } from "@/lib/utils";
 
 const formatFreq = (hz: number) => (hz >= 1000 ? `${hz / 1000} kHz` : `${hz} Hz`);
@@ -98,7 +102,7 @@ const formatGain = (db: number) => `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
 
 /**
  * What is being dragged: a new effect from the library, an amp or cabinet
- * from the user's sound library, or a pedal of the board.
+ * from the user's sound library, an installed plugin, or a pedal of the board.
  *
  * Dragging is built on pointer events, not HTML5 drag events: on macOS the
  * window handles file drops natively, so the webview never delivers
@@ -107,6 +111,7 @@ const formatGain = (db: number) => `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
 type Dragged =
   | { kind: "new"; type: EffectType }
   | { kind: "asset"; asset: { kind: AssetKind; id: string }; name: string }
+  | { kind: "plugin"; plugin: { format: PluginFormat; path: string; name: string } }
   | { kind: "move"; from: number };
 
 /** Where a pointer drag would land: a chain position, or the library (remove). */
@@ -123,6 +128,7 @@ const CONTROL =
 const draggedLabel = (item: Dragged, chain: EffectSlot[]): string => {
   if (item.kind === "new") return EFFECT_LABELS[item.type];
   if (item.kind === "asset") return item.name;
+  if (item.kind === "plugin") return item.plugin.name;
   return `${EFFECT_LABELS[chain[item.from]?.type ?? "gate"]} ${item.from + 1}`;
 };
 
@@ -335,8 +341,8 @@ function PedalControls({
 }
 
 export interface PedalboardTarget {
-  /** Track index, or null for the master bus. */
-  track: number | null;
+  /** Track index, "monitor" for the monitor track, or null for the master bus. */
+  track: number | "monitor" | null;
   /** "Rhythm guitar", "Master". */
   name: string;
   presetTarget: PresetTarget;
@@ -516,6 +522,88 @@ function SoundAutomation({ sounds }: { sounds: PedalboardSounds }) {
 }
 
 /**
+ * The controls on a plugin pedal: the plugin's own editor window, saving its
+ * settings into the block, and its live status (latency, health). The plugin
+ * has no knobs here — its window is its interface, like in other DAWs.
+ */
+function PluginPedalControls({
+  slot,
+  index,
+  plugins,
+  onChange,
+}: {
+  slot: Extract<EffectSlot, { type: "plugin" }>;
+  index: number;
+  plugins: ReturnType<typeof usePlugins>;
+  onChange: (slot: EffectSlot) => void;
+}) {
+  const [busy, setBusy] = useState<"editor" | "save" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const status = plugins.info.get(index);
+  const openEditor = async () => {
+    setBusy("editor");
+    setError(await plugins.openEditor(index));
+    setBusy(null);
+  };
+  const saveSettings = async () => {
+    setBusy("save");
+    const result = await plugins.saveState(index);
+    if ("state" in result) {
+      setError(null);
+      onChange({ ...slot, state: result.state });
+    } else {
+      setError(result.error);
+    }
+    setBusy(null);
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-1 text-xs">
+        <span className="min-w-0 flex-1 truncate font-medium">{slot.name || "Plugin"}</span>
+        <span className="rounded-sm bg-muted px-1 py-0.5 text-[10px] text-foreground uppercase">
+          {slot.format}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">{plugins.describe(slot, index)}</p>
+      {status?.error && (
+        <p role="alert" className="flex gap-1 text-xs text-amber-700 dark:text-amber-400">
+          <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden="true" />
+          {status.error}
+          {!status.alive && " Playing without it."}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="flex gap-1 text-xs text-amber-700 dark:text-amber-400">
+          <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden="true" />
+          {error}
+        </p>
+      )}
+      <div className="flex gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1"
+          disabled={busy !== null || !plugins.enabled || !slot.enabled || status?.loading}
+          onClick={openEditor}
+        >
+          {busy === "editor" ? "Opening…" : "Open editor…"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1"
+          disabled={busy !== null || !plugins.enabled || !slot.enabled || status?.loading}
+          onClick={saveSettings}
+          title="Save the plugin's current settings into this block"
+        >
+          {busy === "save" ? "Saving…" : "Save settings"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The pedalboard: a track's (or the master's) chain of effects, played from
  * left to right. Drag effects from the library onto the board (or use their
  * Add buttons), drag pedals to reorder them (or Alt+←/→), drag them back to
@@ -594,6 +682,9 @@ export function PedalboardDialog({
   const ownPresets = songPresets.filter((p) => p.target === target.presetTarget);
   // The user's own amps and cabinets, and the generated cabinets, to drag onto the board.
   const mySounds = library.filter((item) => item.kind === "amp" || item.kind === "cab");
+  // Third-party plugins (opt-in, desktop only). Their blocks come from the
+  // scan above, never from the library's effect categories.
+  const plugins = usePlugins(target, sounds?.current ?? 0, chain);
   const libraryTypes =
     category === "all"
       ? EFFECT_CATEGORIES.flatMap((c) => c.types)
@@ -630,6 +721,14 @@ export function PedalboardDialog({
   const addAsset = (asset: { kind: AssetKind; id: string }, at = chain.length) => {
     if (full) return;
     onChange(insertAsset(chain, asset, at, limit));
+    setSelected(Math.min(at, chain.length));
+  };
+  const addPlugin = (
+    plugin: { format: PluginFormat; path: string; name: string },
+    at = chain.length,
+  ) => {
+    if (full) return;
+    onChange(insertPlugin(chain, plugin, at, limit));
     setSelected(Math.min(at, chain.length));
   };
 
@@ -687,6 +786,7 @@ export function PedalboardDialog({
         if (item.kind === "move") remove(item.from);
       } else if (item.kind === "new") add(item.type, at.index);
       else if (item.kind === "asset") addAsset(item.asset, at.index);
+      else if (item.kind === "plugin") addPlugin(item.plugin, at.index);
       // Dropping a pedal back where it was (or just before itself) is a no-op.
       else move(item.from, item.from < at.index ? at.index - 1 : at.index);
     }
@@ -775,7 +875,9 @@ export function PedalboardDialog({
             Up to {limit} effects, played from left to right.{" "}
             {target.track === null
               ? "The mastering chain processes the whole mix. Drag effects from the library onto the board, or use their Add buttons."
-              : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
+              : target.track === "monitor"
+                ? "Your audio input plays live through these effects. Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."
+                : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -1006,6 +1108,106 @@ export function PedalboardDialog({
                   })}
                 </ul>
               )}
+              <h4 className="mt-1 text-xs font-semibold tracking-wide uppercase">Plugins</h4>
+              {!plugins.available ? (
+                <p className="text-xs text-muted-foreground">
+                  Third-party plugins need the desktop app.
+                </p>
+              ) : (
+                <>
+                  <span className="flex items-center justify-between gap-2 text-xs">
+                    Third-party plugins
+                    <Switch
+                      checked={plugins.enabled}
+                      onCheckedChange={plugins.setEnabled}
+                      disabled={plugins.applying}
+                      aria-label="Use third-party plugins"
+                    />
+                  </span>
+                  {plugins.applying && (
+                    <p className="text-xs text-muted-foreground">Loading plugins…</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Your own VST3 and CLAP plugins (amp sims, pedals, cabinets). Each runs isolated
+                    outside the app, so a crashing plugin cannot take your song down.
+                  </p>
+                  {plugins.enabled && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={plugins.scanning}
+                        onClick={plugins.refresh}
+                      >
+                        {plugins.scanning
+                          ? "Scanning…"
+                          : plugins.scanned.length === 0
+                            ? "Scan for plugins…"
+                            : "Scan again"}
+                      </Button>
+                      {plugins.scanned.length === 0 && !plugins.scanning ? (
+                        <p className="text-xs text-muted-foreground">
+                          No plugins scanned yet. Install a VST3 or CLAP plugin, then scan.
+                        </p>
+                      ) : (
+                        <ul className="flex flex-col gap-1" aria-label="Installed plugins">
+                          {plugins.scanned.map((item: ScannedPlugin) => {
+                            const plugin = {
+                              format: item.format,
+                              path: item.path,
+                              name: item.name,
+                            };
+                            const label = `plugin ${item.name}`;
+                            return (
+                              // Dragging is a mouse shortcut; the Add button does the same.
+                              <li
+                                key={`${item.format}:${item.path}`}
+                                onPointerDown={(e) =>
+                                  onDragPointerDown(e, { kind: "plugin", plugin })
+                                }
+                                data-testid="library-plugin"
+                                className={cn(
+                                  "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
+                                  !full && "cursor-grab",
+                                  dragging?.kind === "plugin" &&
+                                    dragging.plugin.path === item.path &&
+                                    "opacity-40",
+                                )}
+                                title={`${item.vendor} ${item.version}`.trim()}
+                              >
+                                <GripVerticalIcon
+                                  className="size-3.5 shrink-0 text-muted-foreground"
+                                  aria-hidden="true"
+                                />
+                                <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
+                                <span className="text-[10px] text-muted-foreground uppercase">
+                                  {item.format}
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  disabled={full}
+                                  aria-label={`Add ${label}`}
+                                  onClick={() => addPlugin(plugin)}
+                                >
+                                  <PlusIcon />
+                                </Button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                      {plugins.skipped.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {plugins.skipped.length} file{plugins.skipped.length === 1 ? "" : "s"}{" "}
+                          could not load and {plugins.skipped.length === 1 ? "was" : "were"}{" "}
+                          skipped.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
               <h4 className="mt-1 text-xs font-semibold tracking-wide uppercase">Effects</h4>
               <Select value={category} onValueChange={setCategory}>
                 <SelectTrigger size="sm" aria-label="Effect category" className="w-full">
@@ -1096,7 +1298,9 @@ export function PedalboardDialog({
                 )}
                 {chain.map((slot, i) => {
                   const problem = problemOf(i);
-                  const name = `${EFFECT_LABELS[slot.type]} ${i + 1}`;
+                  const pedalName =
+                    slot.type === "plugin" && slot.name ? slot.name : EFFECT_LABELS[slot.type];
+                  const name = `${pedalName} ${i + 1}`;
                   return (
                     // A pedal is focusable so Delete and Alt+←/→ work on it; the
                     // header and grip drag it (its controls keep their own pointers).
@@ -1134,7 +1338,7 @@ export function PedalboardDialog({
                           aria-hidden="true"
                         />
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {i + 1}. {EFFECT_LABELS[slot.type]}
+                          {i + 1}. {pedalName}
                         </span>
                         <Switch
                           checked={slot.enabled}
@@ -1153,18 +1357,29 @@ export function PedalboardDialog({
                           {problem}
                         </p>
                       )}
-                      <PedalControls
-                        slot={slot}
-                        name={name}
-                        reduction={(m) =>
-                          (target.track === null
-                            ? m.reduction?.master[i]
-                            : m.reduction?.tracks[target.track]?.[i]) ?? 0
-                        }
-                        library={library}
-                        onChange={(next) => onChange(replaceEffect(chain, i, next))}
-                        onImport={onImport}
-                      />
+                      {slot.type === "plugin" ? (
+                        <PluginPedalControls
+                          slot={slot}
+                          index={i}
+                          plugins={plugins}
+                          onChange={(next) => onChange(replaceEffect(chain, i, next))}
+                        />
+                      ) : (
+                        <PedalControls
+                          slot={slot}
+                          name={name}
+                          reduction={(m) =>
+                            (target.track === null
+                              ? m.reduction?.master[i]
+                              : target.track === "monitor"
+                                ? m.reduction?.monitor?.[i]
+                                : m.reduction?.tracks[target.track]?.[i]) ?? 0
+                          }
+                          library={library}
+                          onChange={(next) => onChange(replaceEffect(chain, i, next))}
+                          onImport={onImport}
+                        />
+                      )}
                       <div className="flex items-center justify-between">
                         <Button
                           variant="ghost"
