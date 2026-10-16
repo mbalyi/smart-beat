@@ -531,6 +531,7 @@ export function Inspector({
               size="sm"
               className="self-start"
               onClick={actions.onNormalizeDrums}
+              data-tour="normalize-drums"
             >
               <ListOrderedIcon data-icon="inline-start" />
               Normalize drum notation
@@ -542,6 +543,7 @@ export function Inspector({
               size="sm"
               className="self-start"
               onClick={actions.onCopyToInstrument}
+              data-tour="copy-instrument"
             >
               <CopyPlusIcon data-icon="inline-start" />
               Copy to instrument…

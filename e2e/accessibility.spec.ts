@@ -240,6 +240,7 @@ test.describe("accessibility", () => {
       ...(features["audio-2-tab"] ? ["Import from Audio…"] : []),
       "New song",
       "Keyboard shortcuts",
+      "Take a tour",
     ];
     const focused: string[] = [];
     for (let i = 0; i < expected.length; i++) {

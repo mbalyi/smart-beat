@@ -225,7 +225,7 @@ export function RecordDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl" className="sm:max-w-4xl">
+      <DialogContent size="xl" className="sm:max-w-4xl" data-tour="record-dialog">
         {/* Mounted only while open: it starts from the defaults and remembered choices again. */}
         {open && (
           <RecordForm
@@ -435,7 +435,7 @@ function RecordForm({
           />
         </DialogTitle>
         <DialogDescription>{description}</DialogDescription>
-        <p role="note" className="text-sm text-muted-foreground">
+        <p role="note" className="text-sm text-muted-foreground" data-tour="record-limits">
           {recordToTabBetaNote(instrument, engine)}
         </p>
       </DialogHeader>
@@ -445,6 +445,7 @@ function RecordForm({
           variant="default"
           spacing={2}
           aria-label="Instrument"
+          data-tour="record-instrument"
           value={instrument}
           onValueChange={(value) => value && changeInstrument(value as RecordInstrument)}
           className="flex-wrap gap-2.5 pt-2"
@@ -469,7 +470,7 @@ function RecordForm({
 
         <div className="grid gap-x-6 gap-y-5 sm:grid-cols-[1fr_1px_1fr]">
           <div className="flex min-w-0 flex-col gap-4">
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2" data-tour="record-mode">
               <SectionLabel id={ids.mode}>Recording mode</SectionLabel>
               <ToggleGroup
                 type="single"
@@ -561,7 +562,7 @@ function RecordForm({
 
           <div aria-hidden="true" className="hidden bg-border sm:block" data-divider="" />
 
-          <div className="flex min-w-0 flex-col gap-4 sm:pb-14">
+          <div className="flex min-w-0 flex-col gap-4 sm:pb-14" data-tour="record-track">
             {mode === "click" && (
               <>
                 <div className="grid gap-4 sm:grid-cols-[1fr_6rem]">
@@ -623,7 +624,7 @@ function RecordForm({
             )}
 
             {offersModel && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2" data-tour="record-piano-model">
                 <SectionLabel id={ids.engine}>Piano model</SectionLabel>
                 <ToggleGroup
                   type="single"
@@ -734,7 +735,10 @@ function RecordForm({
           </p>
         )}
       </DialogBody>
-      <DialogFooter className="mt-0 border-t-0 bg-transparent px-6 pt-2 sm:absolute sm:right-10 sm:bottom-5 sm:p-0">
+      <DialogFooter
+        data-tour="record-start"
+        className="mt-0 border-t-0 bg-transparent px-6 pt-2 sm:absolute sm:right-10 sm:bottom-5 sm:p-0"
+      >
         <Button
           type="button"
           variant="outline"

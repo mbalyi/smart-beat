@@ -112,13 +112,18 @@ export function DrumMixerDialog({
             value={current.stereo ? "stereo" : "mono"}
             onValueChange={(v) => v && onChange({ ...current, stereo: v === "stereo" })}
             aria-label="Kit output"
+            data-tour="drum-kit-output"
             className="self-start"
           >
             <ToggleGroupItem value="mono">Mono</ToggleGroupItem>
             <ToggleGroupItem value="stereo">Stereo</ToggleGroupItem>
           </ToggleGroup>
 
-          <ol className="flex gap-1 overflow-x-auto rounded-md border p-2" aria-label="Kit pieces">
+          <ol
+            className="flex gap-1 overflow-x-auto rounded-md border p-2"
+            aria-label="Kit pieces"
+            data-tour="drum-kit-pieces"
+          >
             {DRUM_ELEMENTS.map((element, i) => {
               const mix = elementMix(current, element.id);
               const set = (change: Partial<typeof mix>) =>
@@ -240,6 +245,7 @@ function BusCompressor({
   return (
     <section
       aria-labelledby={`${presetId}-title`}
+      data-tour="drum-bus"
       className="flex flex-col gap-2 rounded-md border p-3"
     >
       <div className="flex items-center justify-between gap-2">

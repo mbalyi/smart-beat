@@ -14,8 +14,9 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: isCI,
-  // The whole run (WebKit on CI renders in software and takes a quarter of an hour or more).
-  globalTimeout: 45 * 60_000,
+  // The whole run (WebKit on CI renders in software, one test at a time: about an hour with the
+  // guided-tour tests).
+  globalTimeout: 75 * 60_000,
   retries: isCI ? 2 : 0,
   // One test at a time on CI: every song test synthesizes audio in real time,
   // and parallel tests on a 2-core runner starve each other's audio and

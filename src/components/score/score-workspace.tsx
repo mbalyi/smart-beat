@@ -47,6 +47,8 @@ import { useTheme } from "@/hooks/use-theme";
 import { TunerDialog } from "@/components/score/tuner-dialog";
 import { RecordBar } from "@/components/score/record-bar";
 import { RecordDialog, type DroppedTake } from "@/components/score/record-dialog";
+import { onTourPanels as subscribeTourPanels, type TourBusMessage } from "@/lib/tour/tour-bus";
+import { useTour } from "@/hooks/use-tour";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
@@ -176,6 +178,8 @@ import {
   storePracticePrefs,
   type LoopRange,
   type PracticeAction,
+  normalizeRange,
+  type PracticeState,
 } from "@/lib/score/practice";
 import type { Scale } from "@/lib/score/scales";
 import { summarizeScore, trackMix, type TrackView } from "@/lib/score/score";
@@ -1174,6 +1178,122 @@ export function ScoreWorkspace({
     setInspectorOpen(next);
     rememberPanels({ inspector: next });
   };
+  // --- Guided tours (#84) -----------------------------------------------------------------
+  // A tour asks for a panel, a dialog, Edit mode, other practice settings or playback; what it
+  // changed is put back when the tour ends.
+  const tourSnapshot = useRef<{
+    mixer: boolean;
+    inspector: boolean;
+    inspectorTab: "song" | "track";
+    instrumentView: boolean;
+    editing: boolean;
+    track: number;
+    practice: PracticeState;
+  } | null>(null);
+  const onTourPanels = useEffectEvent((message: TourBusMessage) => {
+    // The song a tour started on restores itself, even if another tab is shown by then.
+    const owner = tourSnapshot.current !== null;
+    if (!active && !(message === "restore" && owner)) return;
+    const closeDialogs = () => {
+      setTrainerOpen(false);
+      setPedalboard((p) => ({ ...p, open: false }));
+      setDrumMixer((d) => ({ ...d, open: false }));
+      recording.close();
+    };
+    const restorePractice = (saved: PracticeState) => {
+      dispatchPracticeAction({ type: "stop-trainer" });
+      dispatchPracticeAction({ type: "speed", value: saved.speed });
+      dispatchPracticeAction({ type: "loop", value: saved.loop, range: saved.range });
+      dispatchPracticeAction({ type: "metronome", value: saved.metronome });
+      dispatchPracticeAction({ type: "count-in", value: saved.countIn });
+    };
+    if (message === "restore") {
+      const saved = tourSnapshot.current;
+      tourSnapshot.current = null;
+      closeDialogs();
+      if (playing) playerRef.current?.playPause();
+      if (!saved) return;
+      setMixerOpen(saved.mixer);
+      setInspectorOpen(saved.inspector);
+      setInspectorTab(saved.inspectorTab);
+      setInstrumentView(saved.instrumentView);
+      setEditing(saved.editing);
+      restorePractice(saved.practice);
+      changeTrack(saved.track);
+      return;
+    }
+    tourSnapshot.current ??= {
+      mixer: mixerOpen,
+      inspector: inspectorOpen,
+      inspectorTab,
+      instrumentView,
+      editing,
+      track: trackIndex,
+      practice,
+    };
+    leavePracticeView();
+    if (message.mixer !== undefined) setMixerOpen(message.mixer);
+    if (message.inspector !== undefined) setInspectorOpen(message.inspector);
+    if (message.inspectorTab !== undefined) setInspectorTab(message.inspectorTab);
+    if (message.instrumentView !== undefined) setInstrumentView(message.instrumentView);
+    if (message.editing !== undefined) setEditing(message.editing);
+    let shownTrack = trackIndex;
+    if (message.track !== undefined) {
+      const wanted =
+        typeof message.track === "number"
+          ? message.track
+          : summary.tracks.findIndex((t) =>
+              message.track === "drums" ? t.kind === "drums" : t.kind !== "drums",
+            );
+      if (wanted >= 0) {
+        changeTrack(wanted);
+        shownTrack = wanted;
+      }
+    }
+    const settings = message.practice && {
+      ...message.practice,
+      // A loop must lie inside this song, which may be shorter than the tour assumes.
+      loop:
+        message.practice.loop === undefined || message.practice.loop === false
+          ? message.practice.loop
+          : normalizeRange(message.practice.loop, score.masterBars.length),
+    };
+    if (settings) {
+      if (settings.trainer === "stop") dispatchPracticeAction({ type: "stop-trainer" });
+      if (settings.speed !== undefined)
+        dispatchPracticeAction({ type: "speed", value: settings.speed });
+      if (settings.loop !== undefined) {
+        dispatchPracticeAction(
+          settings.loop
+            ? { type: "loop", value: true, range: settings.loop }
+            : { type: "loop", value: false, range: practice.range },
+        );
+      }
+      if (settings.metronome !== undefined)
+        dispatchPracticeAction({ type: "metronome", value: settings.metronome });
+      if (settings.countIn !== undefined)
+        dispatchPracticeAction({ type: "count-in", value: settings.countIn });
+      if (settings.trainer && settings.trainer !== "stop") {
+        dispatchPracticeAction({
+          type: "start-trainer",
+          trainer: settings.trainer,
+          range: settings.loop || practice.range,
+        });
+      }
+    }
+    // One dialog at a time: asking for another closes the one that is open.
+    if (message.dialog !== undefined) closeDialogs();
+    if (message.dialog === "speed-trainer") setTrainerOpen(true);
+    else if (message.dialog === "pedalboard") openPedalboard(shownTrack);
+    else if (message.dialog === "master-pedalboard") openPedalboard(null);
+    else if (message.dialog === "drum-mixer") {
+      const drums = summary.tracks.findIndex((t) => t.kind === "drums");
+      if (drums >= 0) setDrumMixer({ open: true, track: drums });
+    } else if (message.dialog === "record") recording.open();
+    if (message.play !== undefined && message.play !== playing) playerRef.current?.playPause();
+  });
+  useEffect(() => subscribeTourPanels((message) => onTourPanels(message)), []);
+
   const changeFocusCut = (db: number) => {
     setFocusCutDb(db);
     storeFocusCutDb(db);
@@ -1223,6 +1343,29 @@ export function ScoreWorkspace({
   });
   const pianoModel = usePianoModel(recordEnabled && recording.dialogOpen);
   const recordBusy = recording.phase.kind !== "idle";
+
+  // One-time tips the first time an advanced area is opened (#84).
+  const tour = useTour();
+  const showTip = useEffectEvent(tour.hint);
+  useEffect(() => {
+    if (!active) return;
+    if (editing && !practiceView)
+      showTip("editing", "editing", "New to editing? A short tour shows the tools.");
+    if (trainerOpen)
+      showTip(
+        "speed-trainer",
+        "speed-trainer",
+        "First time with the Speed Trainer? A short tour explains it.",
+      );
+    if (pedalboard.open)
+      showTip("effects", "effects", "First time with effects? A short tour shows where they live.");
+    if (recording.dialogOpen)
+      showTip(
+        "record-to-tab",
+        "record-to-tab",
+        "First time recording to tab? A short tour explains it.",
+      );
+  }, [active, editing, practiceView, trainerOpen, pedalboard.open, recording.dialogOpen]);
   const [recordDrop, setRecordDrop] = useState<DroppedTake | null>(null);
 
   const playPause = () => {
@@ -2121,21 +2264,24 @@ export function ScoreWorkspace({
   const lyricsTrack = lyricsDialog.track;
 
   const problemBars = new Set(problems.map((p) => p.bar)).size;
+  // The red Record to Tab button sits after the undo and redo buttons, next to the transport.
+  const recordButton =
+    recordEnabled && !recordBusy ? (
+      <Tip label="Record to Tab…">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Record to Tab"
+          data-record-button=""
+          data-tour="record"
+          onClick={() => recording.open()}
+        >
+          <CircleIcon className="fill-red-500 text-red-500" aria-hidden="true" />
+        </Button>
+      </Tip>
+    ) : null;
   const fileActionsMenu = (
     <>
-      {recordEnabled && !recordBusy && (
-        <Tip label="Record to Tab…">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Record to Tab"
-            data-record-button=""
-            onClick={() => recording.open()}
-          >
-            <CircleIcon className="fill-red-500 text-red-500" aria-hidden="true" />
-          </Button>
-        </Tip>
-      )}
       <FileMenu
         onImportAudio={onImportAudio}
         onRecordToTab={recordEnabled && !recordBusy ? () => recording.open() : undefined}
@@ -2190,6 +2336,7 @@ export function ScoreWorkspace({
         onZoomChange={changeZoom}
         onOpen={onOpen}
         actions={fileActionsMenu}
+        record={recordButton}
         editing={editing}
         onToggleEditing={toggleEditing}
         edited={editor.edited}

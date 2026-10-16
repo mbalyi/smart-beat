@@ -81,6 +81,14 @@ export type MenuAction =
   | "settings"
   | "licenses"
   | "check-for-updates"
+  | "tour"
+  | "tour-editing"
+  | "tour-speed-trainer"
+  | "tour-effects"
+  | "tour-record-to-tab"
+  | "demo-song"
+  | "whats-new"
+  | "reset-tips"
   | "about";
 
 /** Mirrors `MENU_EVENT` in `src-tauri/src/menu.rs`. */

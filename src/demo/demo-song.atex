@@ -1,0 +1,113 @@
+\title "Smart Beat Demo"
+\artist "Smart Beat"
+\subtitle "An original song to try the app on"
+\tempo 100
+\track "Guitar"
+  \staff {score tabs}
+  \instrument 29
+  \section "Intro" :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) |
+  :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) |
+  :8 (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) |
+  :8 (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) |
+  \section "Verse" :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) |
+  :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) |
+  :8 (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) |
+  :8 (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) |
+  :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) |
+  :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) |
+  :8 (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) |
+  :8 (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) |
+  \section "Chorus" :8 (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) |
+  :8 (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) (1.6 3.5) |
+  :8 (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) |
+  :8 (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) (3.5 5.4) |
+  :8 (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) |
+  :8 (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) (3.6 5.5) |
+  :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) |
+  :8 (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) |
+  \section "Outro" :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) |
+  :8 (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) (5.5 7.4) |
+  :8 (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) (0.6 2.5) |
+  :8 (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5) (5.6 7.5)
+\track "Bass"
+  \staff {tabs}
+  \tuning (G2 D2 A1 E1)
+  \instrument 33
+  :4 0.3 0.3 0.3 0.3 |
+  :4 0.3 0.3 0.3 0.3 |
+  :4 0.4 0.4 0.4 0.4 |
+  :4 0.4 0.4 0.4 0.4 |
+  :4 0.3 0.3 0.3 0.3 |
+  :4 0.3 0.3 0.3 0.3 |
+  :4 0.2 0.2 0.2 0.2 |
+  :4 0.2 0.2 0.2 0.2 |
+  :4 0.3 0.3 0.3 0.3 |
+  :4 0.3 0.3 0.3 0.3 |
+  :4 0.4 0.4 0.4 0.4 |
+  :4 0.4 0.4 0.4 0.4 |
+  :4 1.4 1.4 1.4 1.4 |
+  :4 1.4 1.4 1.4 1.4 |
+  :4 3.3 3.3 3.3 3.3 |
+  :4 3.3 3.3 3.3 3.3 |
+  :4 3.4 3.4 3.4 3.4 |
+  :4 3.4 3.4 3.4 3.4 |
+  :4 0.3 0.3 0.3 0.3 |
+  :4 0.4 0.4 0.4 0.4 |
+  :4 0.3 0.3 0.3 0.3 |
+  :4 0.2 0.2 0.2 0.2 |
+  :4 0.4 0.4 0.4 0.4 |
+  :4 0.3 0.3 0.3 0.3
+\track "Drums"
+  \instrument percussion
+  \articulation defaults
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") ("Snare (hit)" "Hi-Hat (closed)") |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") ("Snare (hit)" "Hi-Hat (closed)") |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") ("Snare (hit)" "Hi-Hat (closed)") |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" |
+  :8 ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" "Hi-Hat (closed)" "Hi-Hat (closed)" ("Snare (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)" ("Kick (hit)" "Hi-Hat (closed)") "Hi-Hat (closed)"
+\track "Piano"
+  \staff {score}
+  \instrument 0
+  :2 (A3 C4 E4) (A3 C4 E4) |
+  :2 (A3 C4 E4) (A3 C4 E4) |
+  :2 (E4 G#4 B4) (E4 G#4 B4) |
+  :2 (E4 G#4 B4) (E4 G#4 B4) |
+  :2 (A3 C4 E4) (A3 C4 E4) |
+  :2 (A3 C4 E4) (A3 C4 E4) |
+  :2 (D4 F4 A4) (D4 F4 A4) |
+  :2 (D4 F4 A4) (D4 F4 A4) |
+  :2 (A3 C4 E4) (A3 C4 E4) |
+  :2 (A3 C4 E4) (A3 C4 E4) |
+  :2 (E4 G#4 B4) (E4 G#4 B4) |
+  :2 (E4 G#4 B4) (E4 G#4 B4) |
+  :2 (F3 A3 C4) (F3 A3 C4) |
+  :2 (F3 A3 C4) (F3 A3 C4) |
+  :2 (C4 E4 G4) (C4 E4 G4) |
+  :2 (C4 E4 G4) (C4 E4 G4) |
+  :2 (G3 B3 D4) (G3 B3 D4) |
+  :2 (G3 B3 D4) (G3 B3 D4) |
+  :2 (A3 C4 E4) (A3 C4 E4) |
+  :2 (E4 G#4 B4) (E4 G#4 B4) |
+  :2 (A3 C4 E4) (A3 C4 E4) |
+  :2 (D4 F4 A4) (D4 F4 A4) |
+  :2 (E4 G#4 B4) (E4 G#4 B4) |
+  :2 (A3 C4 E4) (A3 C4 E4)

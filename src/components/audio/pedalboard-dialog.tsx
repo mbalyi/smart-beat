@@ -889,6 +889,7 @@ export function PedalboardDialog({
               value={target.track === null ? "master" : "track"}
               onValueChange={(v) => v && onTargetChange(v === "master")}
               aria-label="Chain to edit"
+              data-tour="pedalboard-target"
               className="self-start"
             >
               <ToggleGroupItem value="track">Current track: {trackName}</ToggleGroupItem>
@@ -900,7 +901,7 @@ export function PedalboardDialog({
 
           {sounds && target.track !== null && <SoundsBar sounds={sounds} />}
 
-          <div className="flex flex-wrap items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2" data-tour="pedalboard-presets">
             <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground" id={`${ids}-genre`}>
                 Genre
@@ -1043,6 +1044,7 @@ export function PedalboardDialog({
               aria-labelledby={`${ids}-library`}
               data-drop-zone="library"
               data-testid="effect-library"
+              data-tour="pedalboard-library"
               className={cn(
                 "flex flex-col gap-2 rounded-md border p-2",
                 dragging?.kind === "move" && "border-dashed border-destructive bg-destructive/5",
@@ -1256,7 +1258,11 @@ export function PedalboardDialog({
               </ul>
             </section>
 
-            <section aria-labelledby={`${ids}-board`} className="flex min-w-0 flex-col gap-2">
+            <section
+              aria-labelledby={`${ids}-board`}
+              data-tour="pedalboard-chain"
+              className="flex min-w-0 flex-col gap-2"
+            >
               <h3 id={`${ids}-board`} className="text-xs font-semibold tracking-wide uppercase">
                 Signal chain{" "}
                 <span className="font-normal text-muted-foreground normal-case">

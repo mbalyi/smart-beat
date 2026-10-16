@@ -5,8 +5,9 @@ import {
   FolderOpenIcon,
   InfoIcon,
   KeyboardIcon,
+  CompassIcon,
 } from "lucide-react";
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import { BuiltWith } from "@/components/built-with";
 import { SectionKicker } from "@/components/section-kicker";
@@ -35,6 +36,8 @@ export function Welcome({
   recent = [],
   onOpenRecent,
   onShowLicenses,
+  onTakeTour,
+  tour,
 }: {
   onOpenFile: () => void;
   /** Import from Audio; left out while the `audio-2-tab` feature is off. */
@@ -46,6 +49,10 @@ export function Welcome({
   onOpenRecent?: (path: string) => void;
   /** "View open-source notices": opens Help › Open-Source Licenses. */
   onShowLicenses?: () => void;
+  /** Starts the guided tour (also Help › Take the Tour). */
+  onTakeTour?: () => void;
+  /** A first launch: offered the guided tour, once (#84). */
+  tour?: { onStart: () => void; onSkip: () => void };
 }) {
   return (
     <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-14 px-4 pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-14 lg:px-8 lg:pt-8">
@@ -62,7 +69,7 @@ export function Welcome({
           AI that turns a hummed melody into a full accompaniment.
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:gap-3">
-          <Button size="lg" className={HERO_BUTTON} onClick={onOpenFile}>
+          <Button size="lg" className={HERO_BUTTON} onClick={onOpenFile} data-tour="open-file">
             <FolderOpenIcon data-icon="inline-start" />
             Open a file…
           </Button>
@@ -80,7 +87,35 @@ export function Welcome({
             <KeyboardIcon data-icon="inline-start" />
             Keyboard shortcuts
           </Button>
+          {onTakeTour && (
+            <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onTakeTour}>
+              <CompassIcon data-icon="inline-start" />
+              Take a tour
+            </Button>
+          )}
         </div>
+        {tour && (
+          <section
+            aria-labelledby="tour-offer-title"
+            className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-foreground/10 bg-card p-4 sm:mt-8"
+          >
+            <div className="min-w-0">
+              <h2 id="tour-offer-title" className="text-lg font-bold">
+                New here? Take a quick tour
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Two minutes with a demo song: play it, slow it down, loop a part. You can replay it
+                from Help › Take the Tour.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={tour.onSkip}>
+                Skip for now
+              </Button>
+              <Button onClick={tour.onStart}>Take a quick tour</Button>
+            </div>
+          </section>
+        )}
         <p className="mt-5 max-w-[1260px] text-[13px] leading-relaxed text-muted-foreground sm:mt-6 sm:text-sm">
           Opens Guitar Pro 3–8 files (.gp3, .gp4, .gp5, .gpx, .gp), MusicXML (.musicxml, .mxl),
           MIDI, MuseScore (.mscx, .mscz), alphaTex (.atex), Capella (.capx) and text tab (.txt)
@@ -177,8 +212,26 @@ const STATUS_BADGE: Record<Feature["status"], string> = {
  */
 function FeatureCard({ feature }: { feature: Feature }) {
   const limitsId = useId();
+  // The popup opens from the "Limits" button (hover or focus), and also while the card is hovered.
+  const [open, setOpen] = useState(false);
+  const [cardHovered, setCardHovered] = useState(false);
+  const limits = feature.limits;
+  const limitsButton = limits && (
+    <button
+      type="button"
+      aria-describedby={limitsId}
+      className="inline-flex items-center gap-1 rounded-sm text-sm text-muted-foreground underline-offset-4 outline-none hover:underline focus-visible:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <InfoIcon className="size-4" aria-hidden="true" />
+      Limits
+    </button>
+  );
   const card = (
-    <article className="flex h-full flex-col gap-4 rounded-[19px] border border-foreground/10 bg-card p-4">
+    <article
+      onPointerEnter={limits ? () => setCardHovered(true) : undefined}
+      onPointerLeave={limits ? () => setCardHovered(false) : undefined}
+      className="flex h-full flex-col gap-4 rounded-[19px] border border-foreground/10 bg-card p-4"
+    >
       <h3 className="sr-only">{feature.title}</h3>
       <img
         src={feature.image}
@@ -194,16 +247,7 @@ function FeatureCard({ feature }: { feature: Feature }) {
         >
           {feature.badge}
         </Badge>
-        {feature.limits && (
-          <button
-            type="button"
-            aria-describedby={limitsId}
-            className="inline-flex items-center gap-1 rounded-sm text-sm text-muted-foreground underline-offset-4 outline-none hover:underline focus-visible:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            <InfoIcon className="size-4" aria-hidden="true" />
-            Limits
-          </button>
-        )}
+        {limitsButton && <HoverCardTrigger asChild>{limitsButton}</HoverCardTrigger>}
       </div>
       <div className="text-[15px] leading-relaxed text-muted-foreground">
         <p>{feature.description}</p>
@@ -215,25 +259,30 @@ function FeatureCard({ feature }: { feature: Feature }) {
           </ul>
         )}
       </div>
-      {feature.limits && (
+      {limits && (
         <ul id={limitsId} className="sr-only">
-          {feature.limits.map((limit) => (
+          {limits.map((limit) => (
             <li key={limit}>{limit}</li>
           ))}
         </ul>
       )}
     </article>
   );
-  if (!feature.limits) return card;
+  if (!limits) return card;
   return (
-    <HoverCard>
-      {/* Hovering the card, or focus on its button (focus events bubble), opens the popup. */}
-      <HoverCardTrigger asChild>{card}</HoverCardTrigger>
+    <HoverCard open={open || cardHovered} onOpenChange={setOpen}>
+      {card}
       {/* The button describes itself with the same list: the popup is for the eyes only. */}
-      <HoverCardContent aria-hidden="true" className="w-80">
+      <HoverCardContent
+        aria-hidden="true"
+        side="bottom"
+        align="start"
+        collisionPadding={16}
+        className="w-[min(34rem,calc(100vw-2rem))]"
+      >
         <strong className="mb-1.5 block text-[15px]">{feature.title}: what to expect</strong>
         <ul className="list-disc pl-5 text-[13px] leading-normal text-muted-foreground">
-          {feature.limits.map((limit) => (
+          {limits.map((limit) => (
             <li key={limit}>{limit}</li>
           ))}
         </ul>

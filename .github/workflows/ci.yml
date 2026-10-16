@@ -60,7 +60,7 @@ jobs:
     # playwright.config.ts).
     name: Browser (${{ matrix.browser }})
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 85
     strategy:
       fail-fast: false
       matrix:

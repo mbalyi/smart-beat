@@ -521,6 +521,7 @@ export function TrackList({
   return (
     <section
       aria-label="Tracks and mixer"
+      data-tour="tracks"
       className="flex max-h-[32vh] min-h-0 shrink-0 flex-col overflow-auto border-t bg-card text-sm"
     >
       <div className="flex min-w-max flex-col">
@@ -534,6 +535,7 @@ export function TrackList({
                   aria-label="Add track"
                   title="Add track…"
                   onClick={actions.onAdd}
+                  data-tour="add-track"
                 >
                   <PlusIcon />
                 </Button>
@@ -770,11 +772,21 @@ export function TrackList({
                         >
                           A
                         </Toggle>
-                        <EqPopover
-                          name={track.name}
-                          eq={trackEq(mix, i)}
-                          onChange={(eq) => onChange({ type: "eq", track: i, eq })}
-                        />
+                        {isShown ? (
+                          // The Effects tour points at the EQ of the track shown in the score.
+                          <EqPopover
+                            data-tour="track-eq"
+                            name={track.name}
+                            eq={trackEq(mix, i)}
+                            onChange={(eq) => onChange({ type: "eq", track: i, eq })}
+                          />
+                        ) : (
+                          <EqPopover
+                            name={track.name}
+                            eq={trackEq(mix, i)}
+                            onChange={(eq) => onChange({ type: "eq", track: i, eq })}
+                          />
+                        )}
                         <TrackRowMenu
                           track={track}
                           count={tracks.length}
@@ -991,6 +1003,7 @@ export function TrackList({
                   disabled={!onMasterEffects}
                   onClick={onMasterEffects}
                   aria-label="Mastering effects"
+                  data-tour="mastering"
                   title="Mastering effects (pedalboard)"
                 >
                   <SlidersVerticalIcon />

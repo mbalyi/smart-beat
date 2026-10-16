@@ -126,11 +126,14 @@ export function EqPopover({
   eq,
   onChange,
   disabled,
+  "data-tour": tour,
 }: {
   name: string;
   eq: TrackEq;
   onChange: (eq: TrackEq) => void;
   disabled?: boolean;
+  /** Marks the button for a guided tour step. */
+  "data-tour"?: string;
 }) {
   const active = !isFlat(eq);
   return (
@@ -142,6 +145,7 @@ export function EqPopover({
           disabled={disabled}
           aria-label={`EQ for ${name}${active ? " (on)" : ""}`}
           title="Channel EQ"
+          data-tour={tour}
           className={cn(active && "text-primary")}
         >
           <SlidersVerticalIcon />

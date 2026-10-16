@@ -97,11 +97,19 @@ pub enum MenuAction {
     Settings,
     Licenses,
     CheckForUpdates,
+    Tour,
+    TourEditing,
+    TourSpeedTrainer,
+    TourEffects,
+    TourRecordToTab,
+    DemoSong,
+    WhatsNew,
+    ResetTips,
     About,
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 67] = [
+    pub const ALL: [Self; 75] = [
         Self::NewSong,
         Self::Open,
         Self::ImportAudio,
@@ -168,6 +176,14 @@ impl MenuAction {
         Self::Settings,
         Self::Licenses,
         Self::CheckForUpdates,
+        Self::Tour,
+        Self::TourEditing,
+        Self::TourSpeedTrainer,
+        Self::TourEffects,
+        Self::TourRecordToTab,
+        Self::DemoSong,
+        Self::WhatsNew,
+        Self::ResetTips,
         Self::About,
     ];
 
@@ -240,6 +256,14 @@ impl MenuAction {
             Self::Settings => "help.settings",
             Self::Licenses => "help.licenses",
             Self::CheckForUpdates => "help.check-for-updates",
+            Self::Tour => "help.tour",
+            Self::TourEditing => "help.tour-editing",
+            Self::TourSpeedTrainer => "help.tour-speed-trainer",
+            Self::TourEffects => "help.tour-effects",
+            Self::TourRecordToTab => "help.tour-record-to-tab",
+            Self::DemoSong => "help.demo-song",
+            Self::WhatsNew => "help.whats-new",
+            Self::ResetTips => "help.reset-tips",
             Self::About => "help.about",
         }
     }
@@ -314,6 +338,14 @@ impl MenuAction {
             | Self::Settings
             | Self::Licenses
             | Self::CheckForUpdates
+            | Self::Tour
+            | Self::TourEditing
+            | Self::TourSpeedTrainer
+            | Self::TourEffects
+            | Self::TourRecordToTab
+            | Self::DemoSong
+            | Self::WhatsNew
+            | Self::ResetTips
             | Self::About => "Help",
         }
     }
@@ -386,6 +418,14 @@ impl MenuAction {
             Self::Settings => "Settings…",
             Self::Licenses => "Open-Source Licenses",
             Self::CheckForUpdates => "Check for Updates…",
+            Self::Tour => "Take the Tour",
+            Self::TourEditing => "Editing Tour",
+            Self::TourSpeedTrainer => "Speed Trainer Tour",
+            Self::TourEffects => "Effects Tour",
+            Self::TourRecordToTab => "Record to Tab Tour",
+            Self::DemoSong => "Open Demo Song",
+            Self::WhatsNew => "What's New",
+            Self::ResetTips => "Reset Tips",
             Self::About => "About Smart Beat",
         }
     }
@@ -463,6 +503,14 @@ impl MenuAction {
             | Self::ExportPdf
             | Self::Transpose
             | Self::FixBarDurations
+            | Self::Tour
+            | Self::TourEditing
+            | Self::TourSpeedTrainer
+            | Self::TourEffects
+            | Self::TourRecordToTab
+            | Self::DemoSong
+            | Self::WhatsNew
+            | Self::ResetTips
             | Self::About => None,
         }
     }
@@ -759,6 +807,16 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let settings = item(app, Settings)?;
     let licenses = item(app, Licenses)?;
     let updates = item(app, CheckForUpdates)?;
+    let tour = item(app, Tour)?;
+    let demo_song = item(app, DemoSong)?;
+    let whats_new = item(app, WhatsNew)?;
+    let reset_tips = item(app, ResetTips)?;
+    let tours = SubmenuBuilder::new(app, "Tours")
+        .item(&item(app, TourEditing)?)
+        .item(&item(app, TourSpeedTrainer)?)
+        .item(&item(app, TourEffects)?)
+        .item(&item(app, TourRecordToTab)?)
+        .build()?;
 
     crate::recent::ensure_store(app)?;
     let recent = Submenu::with_id(app, RECENT_MENU_ID, "Open Recent", true)?;
@@ -913,11 +971,23 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     // On macOS, Settings and About live in the app menu instead.
     let help = if cfg!(target_os = "macos") {
         SubmenuBuilder::new(app, "Help")
+            .item(&tour)
+            .item(&tours)
+            .item(&demo_song)
+            .item(&whats_new)
+            .item(&reset_tips)
+            .separator()
             .item(&shortcuts)
             .item(&licenses)
             .item(&updates)
     } else {
         SubmenuBuilder::new(app, "Help")
+            .item(&tour)
+            .item(&tours)
+            .item(&demo_song)
+            .item(&whats_new)
+            .item(&reset_tips)
+            .separator()
             .item(&shortcuts)
             .item(&settings)
             .item(&licenses)
@@ -1321,6 +1391,69 @@ mod tests {
         assert!(!action.needs_song());
         assert_eq!(action.accelerator_for("macos"), None);
         assert_eq!(action.accelerator_for("windows"), None);
+    }
+
+    #[test]
+    fn the_tour_items_are_help_items_the_ui_handles() {
+        let cases = [
+            (MenuAction::Tour, "help.tour", "Take the Tour", "tour"),
+            (
+                MenuAction::TourEditing,
+                "help.tour-editing",
+                "Editing Tour",
+                "tour-editing",
+            ),
+            (
+                MenuAction::TourSpeedTrainer,
+                "help.tour-speed-trainer",
+                "Speed Trainer Tour",
+                "tour-speed-trainer",
+            ),
+            (
+                MenuAction::TourEffects,
+                "help.tour-effects",
+                "Effects Tour",
+                "tour-effects",
+            ),
+            (
+                MenuAction::TourRecordToTab,
+                "help.tour-record-to-tab",
+                "Record to Tab Tour",
+                "tour-record-to-tab",
+            ),
+            (
+                MenuAction::DemoSong,
+                "help.demo-song",
+                "Open Demo Song",
+                "demo-song",
+            ),
+            (
+                MenuAction::WhatsNew,
+                "help.whats-new",
+                "What's New",
+                "whats-new",
+            ),
+            (
+                MenuAction::ResetTips,
+                "help.reset-tips",
+                "Reset Tips",
+                "reset-tips",
+            ),
+        ];
+        for (action, id, label, event) in cases {
+            assert_eq!(action.id(), id);
+            assert_eq!(action.menu(), "Help");
+            assert_eq!(action.label(), label);
+            assert_eq!(
+                serde_json::to_string(&action).unwrap(),
+                format!("\"{event}\"")
+            );
+            // The UI runs them; they work without a song and have no shortcut.
+            assert!(!action.is_native());
+            assert!(!action.needs_song());
+            assert_eq!(action.accelerator_for("macos"), None);
+            assert_eq!(MenuAction::from_id(id), Some(action));
+        }
     }
 
     #[test]

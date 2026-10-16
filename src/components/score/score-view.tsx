@@ -91,6 +91,7 @@ export function ScoreView({
     <div className="relative isolate min-h-32 flex-1">
       <div
         ref={viewportRef}
+        data-tour="score"
         role="region"
         aria-label={label}
         aria-roledescription={editing ? "score editor" : undefined}

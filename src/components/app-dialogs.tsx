@@ -2,11 +2,14 @@ import { AboutDialog } from "@/components/about-dialog";
 import { LicensesDialog } from "@/components/licenses-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
+import { WhatsNewDialog } from "@/components/whats-new-dialog";
+import type { FeatureEntry, TourId } from "@/lib/tour/feature-registry";
 import { AudioTranscriptionDialog } from "@/components/audio/audio-transcription-dialog";
 import type { AudioTranscriptionProvider } from "@/lib/audio-transcription/provider";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
 
-export type AppDialog = "about" | "shortcuts" | "licenses" | "settings" | "audio-transcription";
+export type AppDialog =
+  "about" | "shortcuts" | "licenses" | "settings" | "audio-transcription" | "whats-new";
 
 export interface AppDialogProps {
   open: boolean;
@@ -23,6 +26,8 @@ export function AppDialogs({
   droppedRecording,
   onAudioImport,
   onAudioSave,
+  whatsNew,
+  onShowTour,
 }: {
   open: AppDialog | null;
   onOpenChange: (dialog: AppDialog | null) => void;
@@ -36,6 +41,9 @@ export function AppDialogs({
   droppedRecording?: DroppedRecording | null;
   onAudioImport: (midi: Uint8Array<ArrayBuffer>, name: string) => Promise<void>;
   onAudioSave: (midi: Uint8Array<ArrayBuffer>, name: string) => Promise<void>;
+  /** The features the What's New dialog lists. */
+  whatsNew: { version: string; features: readonly FeatureEntry[] };
+  onShowTour: (tour: TourId) => void;
 }) {
   const restoreFocus = (event: Event) => {
     if (returnFocusTo?.isConnected) {
@@ -56,6 +64,12 @@ export function AppDialogs({
       <ShortcutsDialog {...props("shortcuts")} />
       <LicensesDialog {...props("licenses")} />
       <SettingsDialog {...props("settings")} />
+      <WhatsNewDialog
+        {...props("whats-new")}
+        version={whatsNew.version}
+        features={whatsNew.features}
+        onShowMe={onShowTour}
+      />
       <AudioTranscriptionDialog
         open={open === "audio-transcription"}
         onOpenChange={(isOpen) => onOpenChange(isOpen ? "audio-transcription" : null)}

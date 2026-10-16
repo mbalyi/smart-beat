@@ -63,6 +63,7 @@ export function WorkspaceToolbar({
   onZoomChange,
   onOpen,
   actions,
+  record,
   editing,
   onToggleEditing,
   edited,
@@ -109,6 +110,8 @@ export function WorkspaceToolbar({
   onOpen: () => void;
   /** File and tools menus. */
   actions?: ReactNode;
+  /** The Record to Tab button, after the undo and redo buttons and the "Edited" badge. */
+  record?: ReactNode;
   editing: boolean;
   onToggleEditing: () => void;
   /** The song was changed since it was opened. */
@@ -161,7 +164,7 @@ export function WorkspaceToolbar({
           <span className="max-2xl:sr-only">Open…</span>
         </Button>
         {actions}
-        <div className="flex gap-1" role="group" aria-label="History">
+        <div className="flex gap-1" role="group" aria-label="History" data-tour="history">
           <Button
             variant="outline"
             size="icon-sm"
@@ -188,6 +191,7 @@ export function WorkspaceToolbar({
             Edited
           </Badge>
         )}
+        {record}
       </div>
 
       <div
@@ -222,6 +226,7 @@ export function WorkspaceToolbar({
             onClick={onPlayPause}
             disabled={!ready}
             aria-label={playing ? "Pause" : "Play"}
+            data-tour="play"
             title={playing ? "Pause (Space)" : "Play (Space)"}
             className="rounded-full"
           >
@@ -267,6 +272,7 @@ export function WorkspaceToolbar({
             pressed={practiceView}
             onPressedChange={onTogglePracticeView}
             aria-label="Practice View"
+            data-tour="practice-view"
             title="Practice View: just the score and the playback controls, your track in focus"
           >
             <ScanEyeIcon data-icon="inline-start" />
@@ -293,6 +299,7 @@ export function WorkspaceToolbar({
           size="sm"
           pressed={editing}
           onPressedChange={onToggleEditing}
+          data-tour="edit"
           title="Edit mode: write notes with the keyboard and mouse"
           className={EDIT_PRESSED}
         >
@@ -304,6 +311,7 @@ export function WorkspaceToolbar({
           size="sm"
           pressed={instrumentView}
           onPressedChange={onToggleInstrumentView}
+          data-tour="instrument"
         >
           <KeyboardMusicIcon data-icon="inline-start" />
           <span className="max-2xl:sr-only">{instrumentLabel}</span>

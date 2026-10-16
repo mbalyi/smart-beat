@@ -24,7 +24,7 @@ These terms are a draft and have not been reviewed by a lawyer yet. If you canno
 1. Pick an issue from the [project board](https://github.com/users/mbalyi/projects/3) and move it to **In progress**.
 2. Branch from `main` (`feat/<short-name>` or `fix/<short-name>`).
 3. Before pushing, run `pnpm check` and `pnpm test:e2e` locally. If you added dependencies, also run `pnpm licenses:check`.
-4. Open a PR that closes the issue (`Closes #N`). CI must be green on all three OSes before merging.
+4. Open a PR that closes the issue (`Closes #N`). CI must be green on all three OSes before merging. A new user-facing feature also gets an entry in `src/lib/tour/feature-registry.ts` (the release it ships in) and, where it fits, steps in the guided tour (`src/lib/tour/tours.ts`), so the "What's new" dialog and the tours show it after an update.
 
 ## Standards
 

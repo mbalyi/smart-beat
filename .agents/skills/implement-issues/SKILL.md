@@ -8,6 +8,7 @@ Implement the issue numbers or range provided by the user from mbalyi/smart-beat
 1. **Sync**: `git fetch` and start from the latest `origin/main` (use a worktree branch if one is not already set up).
 2. **Read** each issue with `gh issue view <n>` and the relevant code. Do not open Jira or Atlassian; status lives only on GitHub project board 3.
 3. **Plan first**: write a short plan (per issue: approach, files, tests, open questions) and get the user's approval before coding, unless the user has already authorized implementation. Ask only about decisions that are truly the user's.
+   - **Onboarding tour**: for every issue that adds or visibly changes a user-facing feature, ask the user (AskUserQuestion) whether it belongs in the guided tour: the main tour, a mini-tour (editing, Speed Trainer, effects, Record to tab), a one-time hint, and/or the "What's new" list. Record the answer in the plan. If yes, implement it with the feature: an entry in `src/lib/tour/feature-registry.ts` with `since` set to the release it ships in (the next version after `package.json`), `data-tour` targets on the controls, steps in `src/lib/tour/tours.ts`, and tests. If no, say why in the PR. Bug fixes and internal changes need no question.
 4. **Board**: move every issue to **In progress** on project 3 (see the `gh project` commands below).
 5. **Implement** on one branch for all issues. Add tests on both sides:
    - UI: Vitest unit/integration and Playwright e2e (Chromium and WebKit), including axe accessibility scans in light and dark mode for new screens.

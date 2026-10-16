@@ -4,6 +4,10 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+- A guided tour for new users (Help › Take the Tour): ten short steps from opening a song to playing and practising it, with a demo song (Help › Open Demo Song). Short tours for Editing, Speed Trainer, Effects and Record to tab are under Help › Tours, and a one-time tip offers each the first time you open that area.
+- Help › What's New lists the features of a release; after an update it opens once with a "Show me" for each.
+- The "Limits" popup of Record to tab on the start page opens at its link and is wider.
+
 - Fixed live monitoring losing playback after an output-open failure, blocking the UI while an interface opens, and using a closed or background song's input settings. Monitor startup fades in, EQ changes prepare outside the audio lock, saved rigs reject malformed effects, and both monitoring switches enable effects playback. Input selection now requires an exact device name, ignoring case and browser-added USB IDs.
 
 - Plugin blocks now have independent audio and preset state, bypass immediately when plugins are switched off, and release their helpers when removed. Audio uses bounded shared-memory buffers with no callback allocations; synthetic-plugin tests exercise isolation and recovery in CI. Blocks cross to the helper in order and are taken back in order, so every block of a render callback gets plugin output instead of one in eight; missing or wrong-sized answers are skipped instead of stalling later blocks. Queued preset changes preserve undo order, and preset-load failures remain visible while audio continues with the last accepted settings. A preset you save is applied without waiting for the helper, so saving no longer holds the audio engine's lock, and a mono CLAP plugin now gets its own channel counts instead of a stereo guess.
