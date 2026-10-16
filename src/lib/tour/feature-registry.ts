@@ -57,6 +57,13 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     tour: "record-to-tab",
   },
   {
+    id: "soundfonts",
+    title: "More instrument sounds",
+    summary:
+      "Import your own SoundFont or download a recommended one, then pick it under Instrument sounds. Added SoundFonts can be removed again.",
+    since: "1.1.0",
+  },
+  {
     id: "pan-control",
     title: "Pan control",
     summary: "Pan each track left or right; double-click the control to centre it.",
