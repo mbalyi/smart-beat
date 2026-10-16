@@ -10,6 +10,7 @@ import { midi, type synth } from "@coderline/alphatab";
 import type { EffectSlot } from "@/lib/audio/effects";
 import type { Score } from "@/lib/score/score";
 import {
+  activateStoredSoundFont,
   clearEngineBacking,
   engineState,
   engineTransport,
@@ -339,6 +340,16 @@ export class NativeEngine implements synth.IExternalMediaHandler {
       await loadEngineSoundFont(id, bytes);
       return startEngine(id);
     });
+    this.soundFontId = id;
+    return status;
+  }
+
+  /**
+   * Plays with a SoundFont the user added: the engine reads it from the app data folder (the
+   * bytes never pass through the page, which matters for banks of several hundred MB).
+   */
+  async useStoredSoundFont(id: string): Promise<EngineStatus> {
+    const status = await this.enqueue(async () => startEngine(await activateStoredSoundFont(id)));
     this.soundFontId = id;
     return status;
   }

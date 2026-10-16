@@ -100,6 +100,31 @@ pub enum Event {
     SettingsOpen,
     AudioInputChange,
     PianoModelDownload,
+    /// The user picked a sound set (#153); detail: which one.
+    SoundfontSelect,
+    /// Playback started with this sound set (#153); detail: which one.
+    PlaySoundfont,
+    /// A recommended SoundFont was downloaded (#81); detail: which one.
+    SoundfontDownload,
+    /// A SoundFont file was imported from the user's computer (#81).
+    SoundfontImport,
+    /// A live Record to Tab take was started (#153); detail: the instrument.
+    RecordToTabStart,
+    /// Record to Tab was started from an audio file (#153); detail: the instrument.
+    RecordToTabFile,
+    DrumNormalize,
+    TrackDuplicate,
+    PracticeSpeed,
+    PracticeRange,
+    SpeedTrainerStop,
+    SpeedTrainerHold,
+    PracticeView,
+    /// A guided tour (#84) began (#153); detail: which tour.
+    TourStart,
+    TourFinish,
+    TourSkip,
+    /// The tour was closed before its end.
+    TourClose,
 }
 
 impl Event {
@@ -138,12 +163,45 @@ impl Event {
                 "piano",
                 "other",
             ],
-            Self::RecordToTab => &["guitar", "bass", "piano", "drums"],
+            Self::RecordToTab | Self::RecordToTabStart | Self::RecordToTabFile => {
+                &["guitar", "bass", "piano", "drums"]
+            }
             Self::SoundLibraryImport => &["amp", "cab"],
+            Self::SoundfontSelect | Self::PlaySoundfont => SOUNDFONT_IDS,
+            Self::SoundfontDownload => &[
+                "musescore-general",
+                "generaluser-gs",
+                "fluidr3-gm",
+                "timbres-of-heaven",
+                "arachno",
+            ],
+            Self::TourStart | Self::TourFinish | Self::TourSkip | Self::TourClose => TOURS,
             _ => &[],
         }
     }
 }
+
+/// The sound sets that may accompany `soundfont_select` and `play_soundfont`: the two bundled
+/// ones, the recommended banks (`soundfonts.rs`), and `custom` for any file the user imported.
+const SOUNDFONT_IDS: &[&str] = &[
+    "sonivox",
+    "fluidr3",
+    "musescore-general",
+    "generaluser-gs",
+    "fluidr3-gm",
+    "timbres-of-heaven",
+    "arachno",
+    "custom",
+];
+
+/// The guided tours (`TourId` in `src/lib/tour/feature-registry.ts`).
+const TOURS: &[&str] = &[
+    "main",
+    "editing",
+    "speed-trainer",
+    "effects",
+    "record-to-tab",
+];
 
 /// File formats that may accompany `open_file` and `export`.
 const FORMATS: &[&str] = &[
@@ -601,6 +659,16 @@ mod tests {
             "sound_library_import",
             "open_file",
             "export",
+            "soundfont_select",
+            "play_soundfont",
+            "soundfont_download",
+            "soundfont_import",
+            "record_to_tab_start",
+            "record_to_tab_file",
+            "tour_start",
+            "tour_finish",
+            "tour_skip",
+            "tour_close",
         ] {
             let event: Event = serde_json::from_value(serde_json::json!(name)).unwrap();
             t.record_on("2026-01-01", event, None).unwrap();
@@ -775,6 +843,89 @@ mod tests {
         ] {
             let event: Event = serde_json::from_value(name.into()).unwrap();
             assert_eq!(serde_json::to_value(event).unwrap(), name);
+        }
+    }
+
+    #[test]
+    fn the_1_0_1_counters_are_known_and_take_only_their_details() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        // Counters without a detail.
+        for name in [
+            "drum_normalize",
+            "track_duplicate",
+            "practice_speed",
+            "practice_range",
+            "speed_trainer_stop",
+            "speed_trainer_hold",
+            "practice_view",
+        ] {
+            let event: Event = serde_json::from_value(name.into()).unwrap();
+            assert_eq!(serde_json::to_value(event).unwrap(), name);
+            t.record_on("2026-01-01", event, None).unwrap();
+            assert!(t.record_on("2026-01-01", event, Some("pdf")).is_err());
+        }
+        // Sound sets: the two bundled, the five recommended banks, and "custom" for any file the
+        // user imported. A file or bank name is never accepted.
+        for set in [
+            "sonivox",
+            "fluidr3",
+            "musescore-general",
+            "generaluser-gs",
+            "fluidr3-gm",
+            "timbres-of-heaven",
+            "arachno",
+            "custom",
+        ] {
+            t.record_on("2026-01-01", Event::SoundfontSelect, Some(set))
+                .unwrap();
+            t.record_on("2026-01-01", Event::PlaySoundfont, Some(set))
+                .unwrap();
+        }
+        for private in ["My Bank.sf2", "stored:my-bank", "my-bank"] {
+            assert!(
+                t.record_on("2026-01-01", Event::SoundfontSelect, Some(private))
+                    .is_err()
+            );
+            assert!(
+                t.record_on("2026-01-01", Event::PlaySoundfont, Some(private))
+                    .is_err()
+            );
+        }
+        // Only catalogue banks are counted as downloads; imports carry no name.
+        t.record_on("2026-01-01", Event::SoundfontDownload, Some("arachno"))
+            .unwrap();
+        assert!(
+            t.record_on("2026-01-01", Event::SoundfontDownload, Some("custom"))
+                .is_err()
+        );
+        assert!(
+            t.record_on("2026-01-01", Event::SoundfontImport, Some("custom"))
+                .is_err()
+        );
+        // Record to Tab: live and from a file, per instrument.
+        for event in [Event::RecordToTabStart, Event::RecordToTabFile] {
+            for instrument in ["guitar", "bass", "piano", "drums"] {
+                t.record_on("2026-01-01", event, Some(instrument)).unwrap();
+            }
+            assert!(t.record_on("2026-01-01", event, Some("violin")).is_err());
+        }
+        // The tours, each separately; a tour name that does not exist is refused.
+        for event in [
+            Event::TourStart,
+            Event::TourFinish,
+            Event::TourSkip,
+            Event::TourClose,
+        ] {
+            for tour in [
+                "main",
+                "editing",
+                "speed-trainer",
+                "effects",
+                "record-to-tab",
+            ] {
+                t.record_on("2026-01-01", event, Some(tour)).unwrap();
+            }
+            assert!(t.record_on("2026-01-01", event, Some("secret")).is_err());
         }
     }
 

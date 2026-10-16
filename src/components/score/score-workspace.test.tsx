@@ -82,7 +82,7 @@ describe("ScoreWorkspace", () => {
       view: { notation: "score-tab", rhythm: false },
       layout: "page",
       mix: song.mix,
-      soundFontUrl: "/soundfont/sonivox.sf3",
+      soundFontUrl: "/soundfont/FluidR3Mono_GM.sf3",
       reducedMotion: false,
     });
     const region = screen.getByRole("region", { name: "Score: Guitar" });
@@ -364,11 +364,15 @@ describe("ScoreWorkspace", () => {
     const { user, player } = await setup();
     player.becomeReady();
 
+    // High quality is the default, so the other one is the choice that gets remembered.
+    expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toHaveTextContent(
+      "High quality",
+    );
     await user.click(screen.getByRole("combobox", { name: "Instrument sounds" }));
-    await user.click(await screen.findByRole("option", { name: /High quality/ }));
+    await user.click(await screen.findByRole("option", { name: /Standard/ }));
 
-    expect(player.setSoundFont).toHaveBeenCalledWith("/soundfont/FluidR3Mono_GM.sf3");
-    expect(localStorage.getItem(SOUNDFONT_STORAGE_KEY)).toBe("fluidr3");
+    expect(player.setSoundFont).toHaveBeenCalledWith("/soundfont/sonivox.sf3");
+    expect(localStorage.getItem(SOUNDFONT_STORAGE_KEY)).toBe("sonivox");
   });
 
   it("falls back to the standard sounds if the others fail to load", async () => {
@@ -387,6 +391,7 @@ describe("ScoreWorkspace", () => {
   });
 
   it("keeps playing the standard sounds when the others fail to download", async () => {
+    localStorage.setItem(SOUNDFONT_STORAGE_KEY, "sonivox"); // playing with the standard sounds
     const { user, player } = await setup();
     player.becomeReady();
     await user.click(screen.getByRole("combobox", { name: "Instrument sounds" }));
@@ -397,6 +402,26 @@ describe("ScoreWorkspace", () => {
 
     expect(await screen.findByText("High quality sounds are not available")).toBeInTheDocument();
     expect(player.setSoundFont).not.toHaveBeenCalled(); // no reload, no pause
+    expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toHaveTextContent(
+      "Standard",
+    );
+  });
+
+  it("loads the standard sounds when a SoundFont the user added cannot be loaded (#81)", async () => {
+    localStorage.setItem(SOUNDFONT_STORAGE_KEY, "stored:my-bank");
+    const { player } = await setup();
+    expect(player.options.soundFontUrl).toBe("stored:my-bank");
+    player.becomeReady();
+    player.setSoundFont.mockClear();
+
+    // The sounds that were kept may belong to another bank, so the fallback is loaded even then.
+    player.emit("onSoundFontError", new Error("This SoundFont is not installed."), {
+      previousKept: true,
+    });
+
+    expect(await screen.findByText("The SoundFont could not be loaded")).toBeInTheDocument();
+    expect(player.setSoundFont).toHaveBeenCalledWith("/soundfont/sonivox.sf3");
+    expect(localStorage.getItem(SOUNDFONT_STORAGE_KEY)).toBe("sonivox");
     expect(screen.getByRole("combobox", { name: "Instrument sounds" })).toHaveTextContent(
       "Standard",
     );
@@ -415,6 +440,7 @@ describe("ScoreWorkspace", () => {
   });
 
   it("reports when no sounds can be loaded", async () => {
+    localStorage.setItem(SOUNDFONT_STORAGE_KEY, "sonivox"); // the built-in set that is always there
     const { player } = await setup();
 
     player.emit("onSoundFontError", new Error("offline"), { previousKept: false });

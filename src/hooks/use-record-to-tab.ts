@@ -298,6 +298,8 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     engine: PianoEngine,
   ) => {
     if (transcribing.current || session.current) return;
+    // Counted when it starts, per instrument, apart from takes recorded in the app.
+    track("record_to_tab_file", instrument);
     setDialog({ open: false, track: null });
     void transcribe(async () => {
       const decoded = await decodeTake(await file.arrayBuffer());
@@ -352,6 +354,8 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
       setPhase({ kind: "idle" });
       return;
     }
+    // The microphone is open and the take has begun: counted per instrument.
+    track("record_to_tab_start", setup.instrument);
 
     const masterBar = score.masterBars[setup.startBar];
     const beats = masterBar?.timeSignatureNumerator ?? 4;

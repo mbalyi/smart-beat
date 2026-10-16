@@ -87,6 +87,63 @@
   window.__engineConfig = { sounds: {}, automation: {}, eq: {}, drums: {}, kits: {} };
   /** Imported drum kits (#40). */
   window.__kits = [];
+  /**
+   * SoundFonts the user added (#81, src-tauri/src/audio/soundfonts.rs). `hold` keeps a download
+   * running until the test cancels it or sets `fail`.
+   */
+  window.__soundfonts = { items: [], activated: [], downloads: [], cancelled: 0, hold: false };
+  const SOUNDFONT_CATALOGUE = [
+    {
+      id: "musescore-general",
+      name: "MuseScore General",
+      description: "A large General MIDI bank made for MuseScore and built on FluidR3.",
+      licence: "MIT",
+      personalUseOnly: false,
+      page: "https://musescore.org/en/handbook/3/soundfonts-and-sfz-files",
+      downloadBytes: 39900972,
+      bytes: 39900972,
+    },
+    {
+      id: "generaluser-gs",
+      name: "GeneralUser GS",
+      description: "A small General MIDI and GS bank with 259 presets and 11 drum kits.",
+      licence: "GeneralUser GS License v2.0 (free, including commercial use)",
+      personalUseOnly: false,
+      page: "https://github.com/mrbumpy409/GeneralUser-GS",
+      downloadBytes: 32319396,
+      bytes: 32319396,
+    },
+    {
+      id: "fluidr3-gm",
+      name: "FluidR3 GM (stereo)",
+      description: "The classic full stereo FluidR3 General MIDI bank.",
+      licence: "MIT",
+      personalUseOnly: false,
+      page: "https://github.com/pianobooster/fluid-soundfont",
+      downloadBytes: 148398306,
+      bytes: 148398306,
+    },
+    {
+      id: "timbres-of-heaven",
+      name: "Timbres of Heaven",
+      description: "A very detailed General MIDI, GS and XG bank. Very large.",
+      licence: "Free for personal use only. Do not redistribute.",
+      personalUseOnly: true,
+      page: "https://midkar.com/SoundFonts/TOH.html",
+      downloadBytes: 264239592,
+      bytes: 395249188,
+    },
+    {
+      id: "arachno",
+      name: "Arachno",
+      description: "A full-size General MIDI bank with 9 drum kits.",
+      licence: "Free for personal use only. Do not redistribute.",
+      personalUseOnly: true,
+      page: "http://www.arachnosoft.com/main/download.php?id=soundfont-sf2",
+      downloadBytes: 143356181,
+      bytes: 155405818,
+    },
+  ];
   window.__engineBacking = null;
   /** Levels the engine reports while playing. */
   window.__meters = {
@@ -369,6 +426,74 @@
       case "kits_remove":
         window.__kits = window.__kits.filter((k) => k.id !== args.id);
         return null;
+      case "soundfonts_list":
+        return window.__soundfonts.items;
+      case "soundfonts_catalogue":
+        return SOUNDFONT_CATALOGUE.map((item) => ({
+          ...item,
+          installed: window.__soundfonts.items.some((i) => i.id === item.id),
+        }));
+      case "soundfonts_import": {
+        // Like the Rust side: only .sf2 and .sf3 files, named after the file.
+        if (!/\.(sf2|sf3)$/i.test(args.path)) {
+          throw { kind: "audio", message: "Choose a SoundFont file (.sf2 or .sf3)." };
+        }
+        const file = args.path.split("/").at(-1);
+        const name = file.replace(/\.[^.]+$/, "");
+        const base = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        let id = base;
+        for (let n = 2; window.__soundfonts.items.some((i) => i.id === id); n += 1) {
+          id = `${base}-${n}`;
+        }
+        const item = { id, name, file, bytes: 5000000, catalogue: null };
+        window.__soundfonts.items = [...window.__soundfonts.items, item];
+        return item;
+      }
+      case "soundfonts_download": {
+        const entry = SOUNDFONT_CATALOGUE.find((i) => i.id === args.id);
+        window.__soundfonts.downloads.push(args.id);
+        window.__emitTauriEvent("soundfont-download-progress", {
+          id: args.id,
+          fraction: 0.5,
+          unpacking: false,
+        });
+        if (window.__soundfonts.hold) {
+          await new Promise((resolve, reject) => {
+            window.__soundfonts.release = { resolve, reject };
+          });
+        }
+        if (window.__soundfonts.fail) throw { kind: "audio", message: window.__soundfonts.fail };
+        window.__emitTauriEvent("soundfont-download-progress", {
+          id: args.id,
+          fraction: 1,
+          unpacking: true,
+        });
+        const item = {
+          id: entry.id,
+          name: entry.name,
+          file: `${entry.id}.sf2`,
+          bytes: entry.bytes,
+          catalogue: entry.id,
+        };
+        window.__soundfonts.items = [...window.__soundfonts.items, item];
+        return item;
+      }
+      case "soundfonts_cancel_download":
+        window.__soundfonts.cancelled += 1;
+        window.__soundfonts.release?.reject({ kind: "audio", message: "cancelled" });
+        return null;
+      case "soundfonts_remove":
+        window.__soundfonts.items = window.__soundfonts.items.filter((i) => i.id !== args.id);
+        return null;
+      case "soundfonts_activate":
+        window.__soundfonts.activated.push(args.id);
+        return `sf:${args.id}`;
+      case "soundfonts_read":
+        // A real SoundFont, so alphaTab's synthesizer can load it.
+        return (await fetch("/soundfont/sonivox.sf3")).arrayBuffer();
       case "audio_set_track_kit":
         window.__engineConfig.kits[args.track] = args.kit;
         return null;

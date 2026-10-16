@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { CoachCard, CoachMark, type CoachData } from "@/components/tour/coach-mark";
 import { CoachActionsContext, TourContext, type TourApi, type TourHost } from "@/hooks/use-tour";
 import { APP_VERSION } from "@/lib/project-info";
+import { track } from "@/lib/telemetry";
 import type { TourId } from "@/lib/tour/feature-registry";
 import { requestTourPanels } from "@/lib/tour/tour-bus";
 import { findTourTarget } from "@/lib/tour/target";
@@ -114,6 +115,11 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const finish = useCallback(
     (tour: string, ended: TourEnd, step: number) => {
       requestTourPanels("restore");
+      // Counted per tour: finished on its last step, skipped with Skip, or closed part-way.
+      track(
+        ended === "done" ? "tour_finish" : ended === "skipped" ? "tour_skip" : "tour_close",
+        tour,
+      );
       const progress: TourProgress =
         ended === "interrupted" && step > 0
           ? { step }
@@ -168,6 +174,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
             (step.needsSong === true && host.current?.hasSong() === false)),
       );
       if (index < 0) return;
+      // Counted when a tour really begins (also when a part-way tour is continued).
+      track("tour_start", id);
       prepare(def.steps[index]);
       setRun(startRun(id, index));
     },
@@ -264,7 +272,11 @@ export function TourProvider({ children }: { children: ReactNode }) {
       init,
       bindHost,
       start,
-      dismissMainTour: () => update((s) => ({ ...s, tours: { ...s.tours, main: "skipped" } })),
+      dismissMainTour: () => {
+        // "Skip for now" on the start page: the tour was offered and declined.
+        track("tour_skip", "main");
+        update((s) => ({ ...s, tours: { ...s.tours, main: "skipped" } }));
+      },
       resumeStep: (id) => {
         const progress = state?.tours[id];
         return typeof progress === "object" ? progress.step : null;

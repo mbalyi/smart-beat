@@ -58,14 +58,9 @@ The macOS and Windows buttons start the download of the newest release's install
         <li>Guitar, bass, piano and drums. A piano take becomes a right-hand and a left-hand track, a drum take a drum track.</li>
         <li>No cloud AI: a small note-finding model runs on your computer. For strings, Smart Beat's own rules pick the string and fret.</li>
         <li>Record inside the app, or use an existing recording.</li>
-        <li>Guitar: roughly 7 of 10 notes are found (note F1 about 72%), and the right string is picked for about 64% of them.</li>
-        <li>Piano, built-in model: roughly 9 of 10 notes are found (note F1 about 86%).</li>
-        <li>Piano, High accuracy model (a one-time 55 MB download): nearly every note is found (note F1 about 99%), and a take is processed in about half its own length.</li>
-        <li>Measured on rendered piano music: a real recording will score lower.</li>
-        <li>Drums: kick, snare and hi-hat (closed and open) are found well (about 9 of 10 hits on rendered kits). Toms and crash cymbals are experimental and often wrong.</li>
-        <li>Measured on rendered drum kits: a real room and microphone will score lower.</li>
         <li>Review the result afterwards. You will probably need to correct it by hand.</li>
       </ul>
+      <p><sub>* Limitations: see <a href="#record-to-tab-beta">Record to tab (beta)</a> under More about the features, below.</sub></p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/speech-to-tab.png" alt="Speech to tab" width="100%">
@@ -87,12 +82,24 @@ The macOS and Windows buttons start the download of the newest release's install
 - **Read the music** as standard notation, tablature, or both, per track, optionally with rhythm under the tab. Choose the track, and a page or a continuous (horizontal) layout.
 - **Play it**: play, pause, stop (Space plays and pauses), start from any bar by clicking it or typing its number. The cursor follows the music and the score scrolls with it. Tempo changes in the song are respected.
 - **Mix it**: master volume, and volume, pan, mute and solo per track. The mix starts from the file's own settings and is saved per song (by its content, so renaming or moving the file keeps it). Volume, mute and solo apply instantly. Pan applies at the next pause, because changing it mid-song would cut off ringing notes.
-- **Two sound sets**: _Standard_ (Sonivox, 1 MB, the default) or _High quality_ (FluidR3 Mono, 15 MB), switchable in the mixer. Switching during playback keeps the current sounds playing while the new ones download, then continues from the same point after a short pause while they load.
+- **Two built-in sound sets**: _High quality_ (FluidR3 Mono, 15 MB, the default) or _Standard_ (Sonivox, 1 MB, quicker to load), switchable in the inspector. Switching during playback keeps the current sounds playing while the new ones download, then continues from the same point after a short pause while they load.
+- **Add more SoundFonts**: **SoundFonts…** next to _Instrument sounds_ in the inspector opens a dialog where you can import any `.sf2` or `.sf3` file from your computer, or download one of the recommended banks with its description, size and licence: MuseScore General, GeneralUser GS, FluidR3 GM (stereo), Timbres of Heaven and Arachno. Downloads are checked by the app, stay on your computer, and appear in _Instrument sounds_ right away. You can remove any SoundFont you added to free the space. Timbres of Heaven and Arachno are free for personal use only. Very large banks (Timbres of Heaven is almost 400 MB) take a while to load and need plenty of memory.
 - **Practice**: loop a range of bars (type them, or drag across bars in the score), play at 25–200 % speed, and let the **Speed Trainer** loop the bars from a slow speed up to a target, a step after each loop (or every few loops). Metronome and count-in, remembered between songs. All in the Playback menu too (Loop ⌘L, Metronome ⇧⌘M).
 - **Fretboard, keyboard and drum pads** (View › Fretboard and Keyboard, ⇧⌘F): the notes being played on the track's instrument, following its tuning and capo. In edit mode, click a fret, key or pad to write that note.
 - **Write music** (Edit › Edit Mode, ⌘E; File › New, ⌘N): an edit cursor on tab and staff. Type frets (two quick digits for 10–29) and pitches by letter (A–G), set note values, dots, rests, ties and tuplets (nested ones too), odd time signatures such as 7/8 and 11/16, write a second voice, select beats (Shift+arrows, drag, ⌘A) to copy, cut and paste them, with unlimited undo and redo (the Edit menu names what it will undo). Moving past the end of a bar or of the song adds beats and bars. The full key list is in Help › Keyboard Shortcuts.
 - **Tracks and instruments** (the Tracks panel and the Track menu): add, remove, reorder and duplicate tracks. Guitars with 3–10 strings (7, 8 and 9-string presets for djent and deathcore), basses with 4–6, banjo, ukulele, drums and any General MIDI instrument, with tuning presets (drop D, C, B, A, A#, F# standard, drop E…), custom tunings (string by string) and a capo. A note appears when the lowest string is far below what the sound was recorded at. See [docs/extended-range-guitars.md](docs/extended-range-guitars.md). Drum tracks use the standard Guitar Pro drum-kit notation, shown in the track settings.
 - **Stays up to date** (desktop app): a quiet check for a new version at most once a day, and Help › Check for Updates… on request. A new version shows its release notes and downloads only after you click **Download & Install**. During the beta, new beta versions are not offered automatically: download them from the releases page.
+
+#### Record to tab (beta)
+
+Record to tab is a beta feature. It runs on your computer (no cloud AI), and it gives you a starting point to edit, not a finished transcription.
+
+- **Instruments:** guitar, bass, piano and drums, one instrument at a time. A recording of a whole band or a full mix is not supported.
+- **Guitar:** roughly 7 of 10 notes are found (note F1 about 72%), and the right string is picked for about 64% of them.
+- **Piano:** the built-in model finds roughly 9 of 10 notes (note F1 about 86%). The High accuracy model, a one-time 55 MB download, finds nearly every note (note F1 about 99%) and processes a take in about half its own length.
+- **Drums:** kick, snare and hi-hat (closed and open) are found well, about 9 of 10 hits on rendered kits. Toms and crash cymbals are experimental and often wrong.
+- **Measured on rendered audio:** these numbers come from rendered piano music and rendered drum kits. A real room and microphone will score lower.
+- **Review the result:** you will probably need to correct it by hand.
 
 ## Made possible by open source
 
@@ -190,6 +197,7 @@ pnpm tauri dev      # desktop app with hot reload
 | `pnpm typecheck`                                         | TypeScript project check                                                                                                                              |
 | `pnpm test` / `pnpm test:watch` / `pnpm test:coverage`   | Vitest unit and integration tests (UI)                                                                                                                |
 | `pnpm test:e2e`                                          | Playwright browser integration tests (Chromium and WebKit, a11y and responsive checks). Run `pnpm exec playwright install chromium webkit` once first |
+| `pnpm test:e2e:smoke` / `pnpm test:e2e:additional`       | The two CI groups of `pnpm test:e2e`: core flows, and the guided-tour tests (the `tour*.spec.ts` files)                                               |
 | `pnpm rust:test` / `pnpm rust:lint` / `pnpm rust:fmt`    | Rust tests, clippy (`-D warnings`), rustfmt check                                                                                                     |
 | `pnpm licenses:check`                                    | Enforce the license policy for npm packages and Rust crates                                                                                           |
 | `pnpm licenses:generate`                                 | Regenerate `public/third-party-licenses.txt` (runs automatically before `tauri build`)                                                                |
@@ -271,7 +279,7 @@ docs/                Licensing, code signing, releases and updates, ADRs
 
 - **[CI](.github/workflows/ci.yml)** runs on every PR and every push to `main`:
   - lint, format, types and Vitest with coverage;
-  - Playwright, one job per browser (Chromium and WebKit);
+  - Playwright, in two groups so neither is too slow: **E2E smoke tests** (the core flows) and **E2E additional functions** (the guided tour), each with one job per browser (Chromium and WebKit);
   - Rust fmt, clippy and tests, plus an app compile on **macOS, Windows and Linux**;
   - the license policy (npm and cargo-deny, including advisories);
   - a secret scan of the files and the full git history ([gitleaks](https://github.com/gitleaks/gitleaks), settings in [`.gitleaks.toml`](.gitleaks.toml)).

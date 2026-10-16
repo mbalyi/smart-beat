@@ -19,6 +19,7 @@ mod plugin_process;
 pub mod plugin_wire;
 pub mod sf3;
 pub mod song;
+pub mod soundfonts;
 
 /// Synthetic assets for the unit tests (the integration tests build their own).
 #[cfg(test)]
@@ -53,7 +54,7 @@ use std::sync::{Arc, Mutex};
 
 use rustysynth::SoundFont;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::error::{CommandError, ErrorKind};
 use backing::{Backing, BackingParams, DecodedAudio, PEAKS_PER_SECOND, SyncMap};
@@ -67,7 +68,7 @@ use output::Output;
 use song::{Song, SongData};
 
 /// Largest SoundFont accepted from the UI.
-const MAX_SOUNDFONT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_SOUNDFONT_BYTES: usize = soundfonts::MAX_BYTES as usize;
 
 fn audio_error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
@@ -258,6 +259,8 @@ pub struct AudioState {
     pub library: Arc<Library>,
     /// Imported drum kits (#40), next to the sound library.
     pub kits: Arc<kits::KitLibrary>,
+    /// SoundFonts the user imported or downloaded (#81).
+    pub soundfonts: Arc<soundfonts::SoundFontLibrary>,
     /// Third-party plugin workers (VST3 and CLAP, #80).
     pub plugins: plugin::PluginPool,
 }
@@ -267,10 +270,14 @@ impl AudioState {
         let kits_dir = library_dir
             .parent()
             .map_or_else(|| library_dir.join("kits"), |p| p.join("kits"));
+        let soundfonts_dir = library_dir
+            .parent()
+            .map_or_else(|| library_dir.join("soundfonts"), |p| p.join("soundfonts"));
         Self {
             inner: Mutex::new(Inner::default()),
             library: Arc::new(Library::new(library_dir)),
             kits: Arc::new(kits::KitLibrary::new(kits_dir)),
+            soundfonts: Arc::new(soundfonts::SoundFontLibrary::new(soundfonts_dir)),
             plugins: plugin::PluginPool::default(),
         }
     }
@@ -1520,6 +1527,129 @@ pub fn render_offline(
         frames += l.len();
     }
     Ok(out)
+}
+
+// --- Extra SoundFonts (#81) ----------------------------------------------------
+
+#[tauri::command(async)]
+pub fn soundfonts_list(state: State<'_, AudioState>) -> Vec<soundfonts::SoundFontInfo> {
+    state.soundfonts.list()
+}
+
+/// The recommended banks, with whether each is installed.
+#[tauri::command(async)]
+pub fn soundfonts_catalogue(state: State<'_, AudioState>) -> Vec<soundfonts::CatalogueItem> {
+    state.soundfonts.catalogue()
+}
+
+/// Imports a `.sf2` or `.sf3` from the user's files.
+#[tauri::command(async)]
+pub fn soundfonts_import(
+    path: PathBuf,
+    state: State<'_, AudioState>,
+) -> Result<soundfonts::SoundFontInfo, CommandError> {
+    state.soundfonts.import(&path).map_err(audio_error)
+}
+
+/// Deletes an imported or downloaded SoundFont and frees what the engine held of it.
+#[tauri::command(async)]
+pub fn soundfonts_remove(id: String, state: State<'_, AudioState>) -> Result<(), CommandError> {
+    state.soundfonts.remove(&id).map_err(audio_error)?;
+    let engine_id = soundfonts::engine_id(&id);
+    state.inner.lock().unwrap().sound_fonts.remove(&engine_id);
+    Ok(())
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundFontProgress {
+    id: String,
+    /// 0 to 1 while downloading.
+    fraction: f32,
+    /// The download is done and the file is being unpacked.
+    unpacking: bool,
+}
+
+const SOUNDFONT_PROGRESS_EVENT: &str = "soundfont-download-progress";
+
+/// Downloads a catalogue bank. Emits `soundfont-download-progress`. The error text
+/// `cancelled` means the user stopped it.
+#[tauri::command]
+pub async fn soundfonts_download<R: Runtime>(
+    id: String,
+    app: AppHandle<R>,
+    state: State<'_, AudioState>,
+) -> Result<soundfonts::SoundFontInfo, CommandError> {
+    let library = state.soundfonts.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let event_id = id.clone();
+        library.install_from_catalogue(&id, &mut |phase| {
+            let (fraction, unpacking) = match phase {
+                soundfonts::Phase::Downloading(fraction) => (fraction, false),
+                soundfonts::Phase::Unpacking => (1.0, true),
+            };
+            let _ = app.emit(
+                SOUNDFONT_PROGRESS_EVENT,
+                SoundFontProgress {
+                    id: event_id.clone(),
+                    fraction,
+                    unpacking,
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|_| audio_error("Could not download the SoundFont."))?
+    .map_err(audio_error)
+}
+
+/// The bytes of a stored SoundFont, for the alphaTab synthesizer (the native engine reads the
+/// file itself, see `soundfonts_activate`).
+#[tauri::command(async)]
+pub fn soundfonts_read(
+    id: String,
+    state: State<'_, AudioState>,
+) -> Result<tauri::ipc::Response, CommandError> {
+    let path = state
+        .soundfonts
+        .path_of(&id)
+        .ok_or_else(|| audio_error("This SoundFont is not installed."))?;
+    std::fs::read(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| audio_error(format!("The SoundFont cannot be read: {e}")))
+}
+
+#[tauri::command]
+pub fn soundfonts_cancel_download() {
+    soundfonts::cancel_download();
+}
+
+/// Loads a stored SoundFont into the engine from its file (no copy through the page) and lets
+/// go of the other stored banks, so only one large bank is in memory. Returns the id to pass
+/// to `audio_start`.
+#[tauri::command(async)]
+pub fn soundfonts_activate(
+    id: String,
+    state: State<'_, AudioState>,
+) -> Result<String, CommandError> {
+    let key = soundfonts::engine_id(&id);
+    if state.inner.lock().unwrap().sound_fonts.contains_key(&key) {
+        return Ok(key);
+    }
+    let path = state
+        .soundfonts
+        .path_of(&id)
+        .ok_or_else(|| audio_error("This SoundFont is not installed."))?;
+    let bytes = std::fs::read(&path)
+        .map_err(|e| audio_error(format!("The SoundFont cannot be read: {e}")))?;
+    let font = Arc::new(parse_sound_font(&bytes).map_err(audio_error)?);
+    drop(bytes);
+    let mut inner = state.inner.lock().unwrap();
+    inner
+        .sound_fonts
+        .retain(|loaded, _| !loaded.starts_with(soundfonts::ENGINE_PREFIX));
+    inner.sound_fonts.insert(key.clone(), font);
+    Ok(key)
 }
 
 // --- Drum kits (#40) -----------------------------------------------------------

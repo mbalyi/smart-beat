@@ -33,6 +33,8 @@ import {
 } from "@/lib/audio/native-engine";
 import { concatSamples, type RenderedAudio } from "@/lib/export/wav";
 import { playableDrumKey } from "@/lib/score/drum-map";
+import { isStoredSoundFontId, storedKey } from "@/lib/score/soundfonts";
+import { readStoredSoundFont } from "@/lib/tauri";
 import {
   mirrorBeatOf,
   mirrorNoteOf,
@@ -1067,9 +1069,13 @@ export class ScorePlayer {
   async setSoundFont(url: string): Promise<void> {
     const request = ++this.soundFontRequest;
     const isCurrent = () => request === this.soundFontRequest && !this.destroyed;
-    let bytes: Uint8Array;
+    // A SoundFont the user added is read by the native engine itself, from the app data folder;
+    // alphaTab's synthesizer gets its bytes.
+    const stored = isStoredSoundFontId(url);
+    let bytes: Uint8Array | null = null;
     try {
-      bytes = await downloadSoundFont(url);
+      if (!stored) bytes = await downloadSoundFont(url);
+      else if (!this.engine) bytes = await readStoredSoundFont(storedKey(url));
       await this.synthReady;
     } catch (error) {
       if (isCurrent()) {
@@ -1083,6 +1089,7 @@ export class ScorePlayer {
       await this.useEngineSoundFont(url, bytes, isCurrent);
       return;
     }
+    if (!bytes) return;
 
     const { api } = this;
     // While a previous switch is still loading, keep the position from before it.
@@ -1096,16 +1103,30 @@ export class ScorePlayer {
   }
 
   /** Native engine: hands the sounds to the engine, then playback is ready. */
-  private async useEngineSoundFont(url: string, bytes: Uint8Array, isCurrent: () => boolean) {
+  private async useEngineSoundFont(
+    url: string,
+    bytes: Uint8Array | null,
+    isCurrent: () => boolean,
+  ) {
     const engine = this.engine!;
     const wasPlaying = this.playing;
     if (wasPlaying) this.api.pause();
     this.setReady(false);
     try {
-      await engine.useSoundFont(url.split("/").pop() ?? url, bytes);
+      if (bytes) await engine.useSoundFont(url.split("/").pop() ?? url, bytes);
+      else await engine.useStoredSoundFont(storedKey(url));
     } catch (error) {
       if (isCurrent()) {
         this.callbacks.onSoundFontError?.(asError(error), { previousKept: this.hasSounds });
+        // A failed load leaves the engine with the sounds it had, so playback is usable again:
+        // without this, Play and the sound picker would stay disabled after the pause above.
+        if (this.hasSounds && this.alphaTabReady) {
+          this.setReady(true);
+          if (wasPlaying) {
+            this.playing = true;
+            this.api.play();
+          }
+        }
       }
       return;
     }

@@ -5,6 +5,15 @@ import type { Page } from "@playwright/test";
 const TOUR_KEY = "smart-beat:tour";
 
 const coachMark = (page: Page) => page.getByTestId("coach-mark");
+/** The usage counters the page asked the core to record (#153), as `event:tour`. */
+const counted = (page: Page) =>
+  page.evaluate(() =>
+    window.__ipcCalls
+      .filter((call) => call.cmd === "track_event")
+      .map((call) => call.args as { event: string; format: string | null })
+      .filter((args) => args.event.startsWith("tour_"))
+      .map((args) => `${args.event}:${args.format}`),
+  );
 const tourState = (page: Page) =>
   page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), TOUR_KEY);
 /** What the tour saved for `id`, once it has been saved. */
@@ -32,6 +41,7 @@ test.describe("first launch", () => {
     await offer.getByRole("button", { name: "Skip for now" }).click();
     await expect(offer).toHaveCount(0);
     expect((await tourState(app)).tours.main).toBe("skipped");
+    expect(await counted(app)).toEqual(["tour_skip:main"]);
 
     await app.reload();
     await expect(app.getByRole("heading", { level: 1 })).toBeVisible();
@@ -43,7 +53,7 @@ test.describe("first launch", () => {
   }) => {
     await app.getByRole("button", { name: "Take a quick tour" }).click();
     await expect(coachMark(app)).toContainText("Open a song");
-    await expect(coachMark(app)).toContainText("Step 1 of 10");
+    await expect(coachMark(app)).toContainText("Step 1 of 11");
     await coachMark(app).getByRole("button", { name: "Next" }).click();
 
     // Step 2 needs a song: the demo song (4 tracks, 24 bars) opens by itself.
@@ -60,10 +70,18 @@ test.describe("first launch", () => {
     await expect(coachMark(app)).toContainText("Tracks and mixer");
     await expect(app.getByRole("region", { name: "Tracks and mixer" })).toBeVisible();
 
+    // The SoundFonts dialog is part of the tour (#81): the step shows the track panel and points
+    // at its SoundFonts… button.
+    await coachMark(app).getByRole("button", { name: "Next" }).click();
+    await expect(coachMark(app)).toContainText("More instrument sounds");
+    await expect(coachMark(app)).toContainText("SoundFonts…");
+    await expect(app.getByRole("button", { name: "SoundFonts…" })).toBeVisible();
+
     await clickThrough(app);
     // ...and puts it back when the tour ends.
     await expect(app.getByRole("region", { name: "Tracks and mixer" })).toHaveCount(0);
     await savedProgress(app, "main").toBe("done");
+    expect(await counted(app)).toEqual(["tour_start:main", "tour_finish:main"]);
 
     await app.reload();
     await expect(app.getByRole("heading", { level: 1 })).toBeVisible();
@@ -83,6 +101,7 @@ test.describe("first launch", () => {
     await coachMark(app).getByRole("button", { name: "Skip" }).click();
     await expect(coachMark(app)).toHaveCount(0);
     await savedProgress(app, "main").toBe("skipped");
+    expect(await counted(app)).toEqual(["tour_start:main", "tour_skip:main"]);
   });
 
   test("works with the keyboard alone: Enter goes on, Escape closes", async ({ app }) => {
@@ -96,6 +115,7 @@ test.describe("first launch", () => {
     await expect(coachMark(app)).toHaveCount(0);
     // Closing midway remembers the step and never leaves the demo's panels changed.
     await savedProgress(app, "main").toEqual({ step: 1 });
+    expect(await counted(app)).toEqual(["tour_start:main", "tour_close:main"]);
   });
 });
 

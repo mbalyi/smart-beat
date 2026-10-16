@@ -54,13 +54,13 @@ jobs:
           path: coverage/
           retention-days: 14
 
-  browser:
-    # One runner per browser: the tests play real audio and render in software,
-    # and two browsers sharing a 2-core runner starve each other (see
+  e2e-smoke:
+    # The core flows. One runner per browser: the tests play real audio and render
+    # in software, and two browsers sharing a 2-core runner starve each other (see
     # playwright.config.ts).
-    name: Browser (${{ matrix.browser }})
+    name: E2E smoke tests (${{ matrix.browser }})
     runs-on: ubuntu-latest
-    timeout-minutes: 85
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -81,13 +81,49 @@ jobs:
         run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
 
       - name: Browser integration tests (Playwright + axe)
-        run: pnpm test:e2e --project=${{ matrix.browser }}
+        run: pnpm test:e2e:smoke --project=${{ matrix.browser }}
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report-${{ matrix.browser }}
+          name: playwright-report-smoke-${{ matrix.browser }}
+          path: playwright-report/
+          retention-days: 14
+
+  e2e-additional:
+    # The guided-tour tests, in their own job so the smoke job stays short (the
+    # groups are defined in playwright.config.ts).
+    name: E2E additional functions (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Browser integration tests (Playwright + axe)
+        run: pnpm test:e2e:additional --project=${{ matrix.browser }}
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-additional-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 14
 

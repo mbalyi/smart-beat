@@ -13,7 +13,7 @@ import { CircleIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { isEnabled } from "@/lib/features";
-import { track as trackUsage } from "@/lib/telemetry";
+import { soundFontCounterId, track as trackUsage } from "@/lib/telemetry";
 
 import { AudioTrackPanel } from "@/components/audio/audio-track-panel";
 import { DrumMixerDialog } from "@/components/audio/drum-mixer-dialog";
@@ -104,7 +104,9 @@ import {
 } from "@/lib/audio/presets";
 import { PresetBrowserDialog } from "@/components/audio/preset-browser-dialog";
 import { DrumKitDialog } from "@/components/audio/drum-kit-dialog";
+import { SoundFontsDialog } from "@/components/audio/soundfonts-dialog";
 import { useDrumKits } from "@/hooks/use-drum-kits";
+import { useSoundFonts } from "@/hooks/use-soundfonts";
 import { errorText } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
@@ -197,8 +199,12 @@ import {
 } from "@/lib/score/structure";
 import {
   DEFAULT_SOUNDFONT,
+  FALLBACK_SOUNDFONT,
   getSoundFont,
+  isStoredSoundFontId,
   readSoundFontPreference,
+  soundFontUrl,
+  storedSoundFontId,
   storeSoundFontPreference,
   type SoundFontId,
 } from "@/lib/score/soundfonts";
@@ -530,6 +536,8 @@ export function ScoreWorkspace({
   const library = useSoundLibrary();
   const drumKits = useDrumKits();
   const [kitsOpen, setKitsOpen] = useState(false);
+  const soundFonts = useSoundFonts();
+  const [soundFontsOpen, setSoundFontsOpen] = useState(false);
   // The panels the user left open (a new install starts without them, #83).
   const [mixerOpen, setMixerOpen] = useState(() => (readLayoutPrefs() ?? CLASSIC_LAYOUT).mixer);
   // Side panels cover the score in narrow windows: start without the inspector there.
@@ -613,6 +621,10 @@ export function ScoreWorkspace({
     else if (action.type === "metronome" && action.value) trackUsage("metronome_on");
     else if (action.type === "count-in" && action.value) trackUsage("count_in_on");
     else if (action.type === "start-trainer") trackUsage("speed_trainer_start");
+    else if (action.type === "stop-trainer") trackUsage("speed_trainer_stop");
+    else if (action.type === "hold-trainer" && action.value) trackUsage("speed_trainer_hold");
+    else if (action.type === "speed") trackUsage("practice_speed");
+    else if (action.type === "range") trackUsage("practice_range");
     else if (action.type === "restart-on-stop")
       trackUsage(action.value ? "restart_on_stop_on" : "restart_on_stop_off");
     dispatchPracticeAction(action);
@@ -644,24 +656,38 @@ export function ScoreWorkspace({
 
   const changeSoundFont = (id: SoundFontId) => {
     trackUsage("sound_change");
+    trackUsage("soundfont_select", soundFontCounterId(getSoundFont(id, soundFonts.fonts)));
+    previousSoundFont.current = soundFont;
     setSoundFont(id);
     storeSoundFontPreference(id);
-    void playerRef.current?.setSoundFont(getSoundFont(id).url);
+    void playerRef.current?.setSoundFont(soundFontUrl(id));
   };
+
+  /** The sound set that was in use before the last switch, i.e. what is kept if the switch fails. */
+  const previousSoundFont = useRef<SoundFontId | null>(null);
 
   const onSoundFontError = useEffectEvent(
     (error: Error, { previousKept }: { previousKept: boolean }) => {
-      if (soundFont === DEFAULT_SOUNDFONT) {
+      if (soundFont === FALLBACK_SOUNDFONT) {
         toast.error("Instrument sounds could not be loaded", { description: errorText(error) });
         return;
       }
-      toast.error(`${getSoundFont(soundFont).label} sounds are not available`, {
-        description: "Using the standard sounds instead.",
-      });
-      setSoundFont(DEFAULT_SOUNDFONT);
-      storeSoundFontPreference(DEFAULT_SOUNDFONT);
-      // The standard sounds may still be loaded: then don't interrupt playback.
-      if (!previousKept) void playerRef.current?.setSoundFont(getSoundFont(DEFAULT_SOUNDFONT).url);
+      const added = isStoredSoundFontId(soundFont);
+      const name = soundFonts.fonts.find((font) => font.id === soundFont)?.label ?? "The SoundFont";
+      toast.error(
+        added
+          ? `${name} could not be loaded`
+          : `${getSoundFont(soundFont).label} sounds are not available`,
+        { description: "Using the standard sounds instead." },
+      );
+      setSoundFont(FALLBACK_SOUNDFONT);
+      storeSoundFontPreference(FALLBACK_SOUNDFONT);
+      // The standard sounds may still be loaded (the ones playing before the switch): then don't
+      // interrupt playback. If the kept sounds are another bank's, load the standard ones so the
+      // picker and the sound agree.
+      if (!previousKept || previousSoundFont.current !== FALLBACK_SOUNDFONT) {
+        void playerRef.current?.setSoundFont(soundFontUrl(FALLBACK_SOUNDFONT));
+      }
     },
   );
 
@@ -755,7 +781,7 @@ export function ScoreWorkspace({
         view: start.view,
         layout: start.layout,
         mix: mixRef.current,
-        soundFontUrl: getSoundFont(start.soundFont).url,
+        soundFontUrl: soundFontUrl(start.soundFont),
         reducedMotion: prefersReducedMotion(),
         audioEngine,
         theme: start.theme,
@@ -1143,6 +1169,7 @@ export function ScoreWorkspace({
   const rememberPanels = (change: Partial<LayoutPrefs>) =>
     storeLayoutPrefs({ ...(readLayoutPrefs() ?? CLASSIC_LAYOUT), ...change });
   const enterPracticeView = () => {
+    trackUsage("practice_view");
     setPracticeView({ editing, focus: mix.focus, focusMode: mix.focusMode });
     setEditing(false);
     if (mix.focus === undefined) changeMix({ type: "focus", track: trackIndex });
@@ -1365,6 +1392,10 @@ export function ScoreWorkspace({
 
   const playPause = () => {
     trackUsage(playing ? "pause" : "play");
+    // Which sounds people actually listen with, not only which they picked.
+    if (!playing) {
+      trackUsage("play_soundfont", soundFontCounterId(getSoundFont(soundFont, soundFonts.fonts)));
+    }
     playerRef.current?.playPause();
   };
   useSpaceToPlay(playPause, ready && active && !recordBusy);
@@ -1731,7 +1762,10 @@ export function ScoreWorkspace({
   const trackActions: TrackActions = {
     onShow: changeTrack,
     onMove: (index, to) => changeTracks("Move track", () => moveTrack(score, index, to)),
-    onDuplicate: (index) => changeTracks("Duplicate track", () => duplicateTrack(score, index)),
+    onDuplicate: (index) => {
+      trackUsage("track_duplicate");
+      changeTracks("Duplicate track", () => duplicateTrack(score, index));
+    },
     onRemove: (index) => {
       const name = summary.tracks[index]?.name ?? "the track";
       changeTracks("Remove track", () => removeTrack(score, index));
@@ -1757,6 +1791,7 @@ export function ScoreWorkspace({
   function normalizeDrums(index: number) {
     const target = score.tracks[index];
     if (!target || !canNormalizeDrums(target)) return;
+    trackUsage("drum_normalize");
     editor.run(
       "Normalize drum notation",
       () => [...trackContent(target)],
@@ -2555,6 +2590,11 @@ export function ScoreWorkspace({
               color={mix.trackColors?.[trackIndex]}
               soundFont={soundFont}
               onSoundFontChange={changeSoundFont}
+              soundFonts={soundFonts.fonts}
+              onManageSoundFonts={() => {
+                setSoundFontsOpen(true);
+                void soundFonts.refresh(); // another song may have added or removed one
+              }}
               soundsReady={ready}
               syncOffset={syncOffset}
               onSyncOffsetChange={(ms) => {
@@ -2785,6 +2825,24 @@ export function ScoreWorkspace({
             if (kit === id) changeMix({ type: "drum-kit", track: i, kit: null });
           }
           void drumKits.remove(id);
+        }}
+      />
+      <SoundFontsDialog
+        open={soundFontsOpen}
+        onOpenChange={setSoundFontsOpen}
+        fonts={soundFonts.fonts}
+        stored={soundFonts.stored}
+        catalogue={soundFonts.catalogue}
+        available={soundFonts.available}
+        activeId={soundFont}
+        onPick={soundFonts.pick}
+        onImport={soundFonts.importFrom}
+        onDownload={soundFonts.download}
+        onCancelDownload={soundFonts.cancelDownload}
+        onRemove={async (id) => {
+          // Playing with it: go back to the standard sounds before the file is deleted.
+          if (soundFont === storedSoundFontId(id)) changeSoundFont(DEFAULT_SOUNDFONT);
+          return soundFonts.remove(id);
         }}
       />
       <PresetBrowserDialog
