@@ -15,6 +15,10 @@ vi.mock("sonner", () => ({
 vi.mock("@/lib/audio/recorder", () => ({ startRecorder: vi.fn() }));
 vi.mock("@/lib/audio/decode-take", () => ({ decodeTake: vi.fn() }));
 vi.mock("@/lib/telemetry", () => ({ track: vi.fn() }));
+
+/** The finished takes that were counted (apart from `record_to_tab_start` and `_file`). */
+const finishedTakes = () =>
+  vi.mocked(track).mock.calls.filter(([event]) => event === "record_to_tab");
 vi.mock("@/lib/import/recording", () => ({
   alignOffset: vi.fn(() => 0),
   recordingToSong: vi.fn(),
@@ -244,7 +248,8 @@ describe("click mode", () => {
     expect(alignOffset).toHaveBeenCalledWith(expect.anything(), 0.5);
     expect(hook.editor.placeCursorOnTrack).toHaveBeenCalledWith(1);
     expect(track).toHaveBeenCalledWith("record_to_tab", "guitar");
-    expect(track).toHaveBeenCalledTimes(1);
+    expect(finishedTakes()).toHaveLength(1);
+    expect(track).toHaveBeenCalledWith("record_to_tab_start", "guitar");
     expect(toast).toHaveBeenCalledWith(
       "Added your take to “Rhythm”",
       expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
@@ -373,7 +378,7 @@ describe("keys", () => {
     expect(hook.result.current.phase.kind).toBe("idle");
     expect(hook.player.setMetronome).toHaveBeenLastCalledWith(false);
     expect(transcribeRecording).not.toHaveBeenCalled();
-    expect(track).not.toHaveBeenCalled();
+    expect(finishedTakes()).toHaveLength(0);
   });
 
   it("Escape after the count-in stops the take and keeps it", async () => {
@@ -628,7 +633,7 @@ describe("free mode", () => {
       "Your take was simplified",
       expect.objectContaining({ description: "Tempo is a guess." }),
     );
-    expect(track).toHaveBeenCalledTimes(1);
+    expect(finishedTakes()).toHaveLength(1);
   });
 
   it("Escape stops a free take", async () => {
@@ -669,7 +674,7 @@ describe("transcribing", () => {
     await waitFor(() => expect(hook.result.current.phase.kind).toBe("idle"));
     expect(toast.info).toHaveBeenCalledWith("Transcription stopped", expect.anything());
     expect(writeRecording).not.toHaveBeenCalled();
-    expect(track).not.toHaveBeenCalled();
+    expect(finishedTakes()).toHaveLength(0);
   });
 });
 
@@ -698,7 +703,7 @@ describe("errors", () => {
       expect.objectContaining({ description: "Broken model." }),
     );
     expect(hook.editor.run).not.toHaveBeenCalled();
-    expect(track).not.toHaveBeenCalled();
+    expect(finishedTakes()).toHaveLength(0);
   });
 
   it("reports a failed write, which leaves the song as it was", async () => {
@@ -713,7 +718,7 @@ describe("errors", () => {
       "Couldn't turn your take into tab",
       expect.objectContaining({ description: "Bar 9 is missing." }),
     );
-    expect(track).not.toHaveBeenCalled();
+    expect(finishedTakes()).toHaveLength(0);
   });
 
   it("says when no note was heard", async () => {
@@ -724,7 +729,7 @@ describe("errors", () => {
     await stop(hook);
     expect(toast.info).toHaveBeenCalledWith("No notes were heard", expect.anything());
     expect(writeRecording).not.toHaveBeenCalled();
-    expect(track).not.toHaveBeenCalled();
+    expect(finishedTakes()).toHaveLength(0);
   });
 
   it("says that a take stopped at the limit, even when no note was heard", async () => {
@@ -793,6 +798,9 @@ describe("an existing recording", () => {
     );
     expect(hook.player.playPause).not.toHaveBeenCalled();
     expect(track).toHaveBeenCalledWith("record_to_tab", "guitar");
+    // A file is counted when it starts, apart from takes recorded in the app (#153).
+    expect(track).toHaveBeenCalledWith("record_to_tab_file", "guitar");
+    expect(track).not.toHaveBeenCalledWith("record_to_tab_start", expect.anything());
     await waitFor(() => expect(hook.result.current.phase.kind).toBe("idle"));
   });
 

@@ -39,8 +39,21 @@ export function useSoundFonts() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!isTauri()) return;
+    let current = true;
+    Promise.all([listStoredSoundFonts(), soundFontCatalogue()])
+      .then(([list, items]) => {
+        if (!current) return;
+        setStored(list);
+        setCatalogue(items);
+      })
+      .catch((error: unknown) =>
+        toast.error("The SoundFonts could not be read", { description: errorText(error) }),
+      );
+    return () => {
+      current = false;
+    };
+  }, []);
 
   /** The picker entries of the added SoundFonts. */
   const fonts: readonly SoundFont[] = useMemo(() => stored.map(soundFontFromStored), [stored]);

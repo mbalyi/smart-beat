@@ -248,8 +248,9 @@ fn imported_sounds_stay_on_this_computer() {
     assert!(stored.contains(&format!("{id}.nam")), "{stored:?}");
 
     // Two network clients, both used from Rust, never from the page: `ureq` for the usage
-    // counters (src/telemetry.rs) and the piano model download (src/recording/piano_model.rs),
-    // and `reqwest` for audio transcription (src/transcription.rs).
+    // counters (src/telemetry.rs), the piano model download (src/recording/piano_model.rs) and
+    // the SoundFont downloads (src/audio/soundfonts.rs), and `reqwest` for audio transcription
+    // (src/transcription.rs).
     // No other client, no fs/http/shell permission, no remote host in the CSP. The updater
     // plugin makes its own request from Rust.
     let manifest = env!("CARGO_MANIFEST_DIR");
@@ -265,7 +266,14 @@ fn imported_sounds_stay_on_this_computer() {
         let source = std::fs::read_to_string(&file).unwrap();
         for (client, owners) in [
             ("reqwest", &["transcription.rs"][..]),
-            ("ureq", &["telemetry.rs", "recording/piano_model.rs"][..]),
+            (
+                "ureq",
+                &[
+                    "telemetry.rs",
+                    "recording/piano_model.rs",
+                    "audio/soundfonts.rs",
+                ][..],
+            ),
         ] {
             assert!(
                 owners.iter().any(|owner| file == src.join(owner)) || !source.contains(client),
@@ -288,6 +296,31 @@ fn imported_sounds_stay_on_this_computer() {
         !model.contains(".post("),
         "piano_model.rs must only download"
     );
+    // The SoundFont downloads (#81) only GET, from the fixed catalogue addresses, over https.
+    // Nothing the user types or imports is part of a request.
+    let soundfonts = std::fs::read_to_string(src.join("audio/soundfonts.rs")).unwrap();
+    assert!(
+        !soundfonts.contains(".post(") && !soundfonts.contains(".put("),
+        "soundfonts.rs must only download"
+    );
+    let hosts = [
+        "https://ftp.osuosl.org/",
+        "https://raw.githubusercontent.com/",
+        "https://github.com/",
+        "https://midkar.com/",
+        "https://www.dropbox.com/",
+    ];
+    let catalogue_urls: Vec<&str> = soundfonts
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("url: \""))
+        .collect();
+    assert_eq!(catalogue_urls.len(), 5, "one address per recommended bank");
+    for url in catalogue_urls {
+        assert!(
+            hosts.iter().any(|host| url.starts_with(host)),
+            "unexpected SoundFont address {url}"
+        );
+    }
     for name in ["telemetry.rs", "transcription.rs", "lib.rs", "commands.rs"] {
         let code = std::fs::read_to_string(src.join(name)).unwrap();
         // The endpoints come from the build, never a literal host.

@@ -9,8 +9,10 @@ const coachMark = (page: Page) => page.getByTestId("coach-mark");
 const counted = (page: Page) =>
   page.evaluate(() =>
     window.__ipcCalls
-      .filter((call) => call.cmd === "track_event" && String(call.args.event).startsWith("tour_"))
-      .map((call) => `${call.args.event}:${call.args.format}`),
+      .filter((call) => call.cmd === "track_event")
+      .map((call) => call.args as { event: string; format: string | null })
+      .filter((args) => args.event.startsWith("tour_"))
+      .map((args) => `${args.event}:${args.format}`),
   );
 const tourState = (page: Page) =>
   page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), TOUR_KEY);
