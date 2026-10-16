@@ -9,6 +9,7 @@ import {
   type ScorePlayerOptions,
 } from "@/lib/score/player";
 import { parseScore } from "@/lib/score/score";
+import { readStoredSoundFont } from "@/lib/tauri";
 import { FakeAlphaTabApi } from "@/test/fake-alphatab";
 import { generateMidi, noteOns } from "@/test/playback";
 import { fixtureBytes } from "@/test/score";
@@ -18,6 +19,11 @@ const { PlayerState } = synth;
 vi.mock(import("@coderline/alphatab"), async (importOriginal) => ({
   ...(await importOriginal()),
   AlphaTabApi: (await import("@/test/fake-alphatab")).FakeAlphaTabApi as never,
+}));
+
+vi.mock(import("@/lib/tauri"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  readStoredSoundFont: vi.fn(async () => soundFont(7)),
 }));
 
 type Callback<K extends keyof ScorePlayerCallbacks> = NonNullable<ScorePlayerCallbacks[K]>;
@@ -426,6 +432,31 @@ describe("ScorePlayer", () => {
   });
 
   describe("switching SoundFonts", () => {
+    it("loads a SoundFont the user added from the app data folder, not from the web (#81)", async () => {
+      const { player, api } = await readySetup();
+
+      await player.setSoundFont("stored:my-bank");
+      await flush();
+
+      expect(readStoredSoundFont).toHaveBeenCalledWith("my-bank");
+      expect(fetch).not.toHaveBeenCalledWith("stored:my-bank");
+      expect(api.resetSoundFonts).toHaveBeenCalledOnce();
+      expect(api.loadSoundFont).toHaveBeenCalledExactlyOnceWith(soundFont(7), false);
+    });
+
+    it("reports an added SoundFont that cannot be read and keeps the sounds (#81)", async () => {
+      const { player, api, callbacks } = await readySetup();
+      vi.mocked(readStoredSoundFont).mockRejectedValueOnce(new Error("The file is gone."));
+
+      await player.setSoundFont("stored:gone");
+
+      expect(callbacks.onSoundFontError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "The file is gone." }),
+        { previousKept: true },
+      );
+      expect(api.resetSoundFonts).not.toHaveBeenCalled();
+    });
+
     it("keeps playing while the new sounds download", async () => {
       const { player, api, setPlaying } = await readySetup();
       setPlaying(true);

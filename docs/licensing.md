@@ -139,6 +139,24 @@ Smart Beat bundles no sampled drum kits. Users import free kits themselves (SFZ,
 
 The SFZ reader, the sampler and the kit library are our own code (`src-tauri/src/audio/kits`); tests use tiny synthetic kits generated in the tests, never a real third-party kit.
 
+## SoundFonts the user adds (#81)
+
+Smart Beat bundles two SoundFonts (Sonivox, FluidR3 Mono; see the table above). Users can add more: import a `.sf2` or `.sf3` from their computer, or download one of five recommended banks from the in-app list (SoundFonts… in the inspector). Added files live in the app data folder (`soundfonts/`), can be removed again, and are never uploaded.
+
+The list is compiled into the app (`src-tauri/src/audio/soundfonts.rs`): name, description, licence, source, size and SHA-256 of what is downloaded, and for archives the file inside. The download starts only when the user clicks **Download**, comes from the bank's own site (never from Smart Beat's servers or releases), is checked against its size and SHA-256 (a wrong file is deleted), and is unpacked by the app. **Smart Beat does not host or redistribute any of these files**; the user fetches them, as with a browser.
+
+| Bank                                | Licence (as published)                                                                       | Source                                                      | In the app                                                                   |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| MuseScore General (SF3, 40 MB)      | MIT (S. Christian Collins; built on FluidR3)                                                 | `ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/` | Download; licence shown in the list                                          |
+| GeneralUser GS 2.0.3 (SF2, 32 MB)   | GeneralUser GS License v2.0: free, including commercial use                                  | GitHub `mrbumpy409/GeneralUser-GS`, pinned to a commit      | Download; some samples come from other free banks and cannot be fully traced |
+| FluidR3 GM, stereo (SF2, 148 MB)    | MIT (Frank Wen); same bytes as the Debian `fluid-soundfont-gm` package                       | GitHub release `pianobooster/fluid-soundfont` v3.1          | Download                                                                     |
+| Timbres of Heaven 3.4 (SF2, 395 MB) | Personal use only, no redistribution (author's terms, as listed on Polyphone)                | `midkar.com/SoundFonts/` (`.7z`)                            | Download from the author's site; the list says "Personal use only"           |
+| Arachno 1.0 (SF2, 155 MB)           | Personal use only, no redistribution (as listed on Polyphone; packaged as unfree in nixpkgs) | Author's Dropbox link from `arachnosoft.com` (`.zip`)       | Download from the author's site; the list says "Personal use only"           |
+
+The personal-use banks may be fetched to the user's own computer for their own use. They are never bundled, mirrored or put on a release, and a build that distributes the app must not include them. The licence texts were read from third-party listings, not from files shipped with each bank: re-read each bank's own readme (included in its download) before a commercial release.
+
+Only the two bundled banks are credited in Help › Open-Source Licenses; downloaded and imported banks are the user's own files and carry their own licence.
+
 ## Must NOT copy code from
 
 | Project                                                            | License             | Why                                                                               |

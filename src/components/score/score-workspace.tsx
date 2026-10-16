@@ -104,7 +104,9 @@ import {
 } from "@/lib/audio/presets";
 import { PresetBrowserDialog } from "@/components/audio/preset-browser-dialog";
 import { DrumKitDialog } from "@/components/audio/drum-kit-dialog";
+import { SoundFontsDialog } from "@/components/audio/soundfonts-dialog";
 import { useDrumKits } from "@/hooks/use-drum-kits";
+import { useSoundFonts } from "@/hooks/use-soundfonts";
 import { errorText } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { diagramFromNotes, recognizeChord } from "@/lib/score/chords";
@@ -199,6 +201,8 @@ import {
   DEFAULT_SOUNDFONT,
   getSoundFont,
   readSoundFontPreference,
+  soundFontUrl,
+  storedSoundFontId,
   storeSoundFontPreference,
   type SoundFontId,
 } from "@/lib/score/soundfonts";
@@ -530,6 +534,8 @@ export function ScoreWorkspace({
   const library = useSoundLibrary();
   const drumKits = useDrumKits();
   const [kitsOpen, setKitsOpen] = useState(false);
+  const soundFonts = useSoundFonts();
+  const [soundFontsOpen, setSoundFontsOpen] = useState(false);
   // The panels the user left open (a new install starts without them, #83).
   const [mixerOpen, setMixerOpen] = useState(() => (readLayoutPrefs() ?? CLASSIC_LAYOUT).mixer);
   // Side panels cover the score in narrow windows: start without the inspector there.
@@ -646,7 +652,7 @@ export function ScoreWorkspace({
     trackUsage("sound_change");
     setSoundFont(id);
     storeSoundFontPreference(id);
-    void playerRef.current?.setSoundFont(getSoundFont(id).url);
+    void playerRef.current?.setSoundFont(soundFontUrl(id));
   };
 
   const onSoundFontError = useEffectEvent(
@@ -655,7 +661,7 @@ export function ScoreWorkspace({
         toast.error("Instrument sounds could not be loaded", { description: errorText(error) });
         return;
       }
-      toast.error(`${getSoundFont(soundFont).label} sounds are not available`, {
+      toast.error(`${getSoundFont(soundFont, soundFonts.fonts).label} sounds are not available`, {
         description: "Using the standard sounds instead.",
       });
       setSoundFont(DEFAULT_SOUNDFONT);
@@ -755,7 +761,7 @@ export function ScoreWorkspace({
         view: start.view,
         layout: start.layout,
         mix: mixRef.current,
-        soundFontUrl: getSoundFont(start.soundFont).url,
+        soundFontUrl: soundFontUrl(start.soundFont),
         reducedMotion: prefersReducedMotion(),
         audioEngine,
         theme: start.theme,
@@ -2555,6 +2561,8 @@ export function ScoreWorkspace({
               color={mix.trackColors?.[trackIndex]}
               soundFont={soundFont}
               onSoundFontChange={changeSoundFont}
+              soundFonts={soundFonts.fonts}
+              onManageSoundFonts={() => setSoundFontsOpen(true)}
               soundsReady={ready}
               syncOffset={syncOffset}
               onSyncOffsetChange={(ms) => {
@@ -2785,6 +2793,24 @@ export function ScoreWorkspace({
             if (kit === id) changeMix({ type: "drum-kit", track: i, kit: null });
           }
           void drumKits.remove(id);
+        }}
+      />
+      <SoundFontsDialog
+        open={soundFontsOpen}
+        onOpenChange={setSoundFontsOpen}
+        fonts={soundFonts.fonts}
+        stored={soundFonts.stored}
+        catalogue={soundFonts.catalogue}
+        available={soundFonts.available}
+        activeId={soundFont}
+        onPick={soundFonts.pick}
+        onImport={soundFonts.importFrom}
+        onDownload={soundFonts.download}
+        onCancelDownload={soundFonts.cancelDownload}
+        onRemove={async (id) => {
+          // Playing with it: go back to the standard sounds before the file is deleted.
+          if (soundFont === storedSoundFontId(id)) changeSoundFont(DEFAULT_SOUNDFONT);
+          return soundFonts.remove(id);
         }}
       />
       <PresetBrowserDialog

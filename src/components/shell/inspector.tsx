@@ -28,7 +28,12 @@ import { PLAYING_STYLES, type Interpretation, type PlayingStyle } from "@/lib/sc
 import { describePan, describeVolume } from "@/lib/score/mixer";
 import { tuningLabel, tuningNotes } from "@/lib/score/music";
 import type { NotationView, TrackSummary, TrackView } from "@/lib/score/score";
-import { isSoundFontId, SOUNDFONTS, type SoundFontId } from "@/lib/score/soundfonts";
+import {
+  allSoundFonts,
+  isSoundFontId,
+  type SoundFont,
+  type SoundFontId,
+} from "@/lib/score/soundfonts";
 import { MAX_SYNC_OFFSET_MS, MIN_SYNC_OFFSET_MS } from "@/lib/score/sync";
 import { trackColor } from "@/lib/score/track-colors";
 import type { DrumKit, TrackMix } from "@/lib/tauri";
@@ -311,6 +316,8 @@ export function Inspector({
   color,
   soundFont,
   onSoundFontChange,
+  soundFonts,
+  onManageSoundFonts,
   soundsReady,
   syncOffset,
   onSyncOffsetChange,
@@ -337,6 +344,10 @@ export function Inspector({
   color?: string | null;
   soundFont: SoundFontId;
   onSoundFontChange: (id: SoundFontId) => void;
+  /** The SoundFonts the user added (#81), listed after the built-in ones. */
+  soundFonts?: readonly SoundFont[];
+  /** Opens the dialog where SoundFonts are imported, downloaded and removed. */
+  onManageSoundFonts?: () => void;
   /** False while instrument sounds load: switching again is disabled. */
   soundsReady: boolean;
   /** Milliseconds the cursor is delayed on top of the measured output latency. */
@@ -482,7 +493,7 @@ export function Inspector({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SOUNDFONTS.map((font) => (
+                {allSoundFonts(soundFonts).map((font) => (
                   <SelectItem key={font.id} value={font.id}>
                     {font.label}
                     <span className="text-muted-foreground"> · {font.description}</span>
@@ -490,6 +501,11 @@ export function Inspector({
                 ))}
               </SelectContent>
             </Select>
+            {onManageSoundFonts && (
+              <Button variant="outline" size="sm" onClick={onManageSoundFonts}>
+                SoundFonts…
+              </Button>
+            )}
           </div>
           <div className="flex items-center justify-between gap-2 text-sm">
             <label htmlFor={syncId}>Sync offset (ms)</label>

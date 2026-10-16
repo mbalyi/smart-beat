@@ -24,6 +24,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
   return {
     ...actual,
     loadEngineSoundFont: vi.fn(() => Promise.resolve()),
+    activateStoredSoundFont: vi.fn((id: string) => Promise.resolve(`sf:${id}`)),
     startEngine: vi.fn(() => Promise.resolve({})),
     loadEngineSong: vi.fn(() => Promise.resolve()),
     engineState: vi.fn(() => Promise.resolve({ durationMs: 5_000, positionMs: 0, playing: false })),
@@ -58,6 +59,7 @@ async function setup() {
   const onEffectProblems = vi.fn();
   const onReadyChange = vi.fn();
   const onLoopRestart = vi.fn();
+  const onSoundFontError = vi.fn();
   const mix = mixFromScore(summary);
   const player = new ScorePlayer(
     {
@@ -71,10 +73,10 @@ async function setup() {
       soundFontUrl: "/soundfont/sonivox.sf3",
       audioEngine: "native",
     },
-    { onEffectProblems, onReadyChange, onLoopRestart },
+    { onEffectProblems, onReadyChange, onLoopRestart, onSoundFontError },
   );
   const api = FakeAlphaTabApi.last;
-  return { player, api, mix, onEffectProblems, onReadyChange, onLoopRestart };
+  return { player, api, mix, onEffectProblems, onReadyChange, onLoopRestart, onSoundFontError };
 }
 
 describe("ScorePlayer with the native engine", () => {
@@ -93,6 +95,38 @@ describe("ScorePlayer with the native engine", () => {
     await vi.waitFor(() => expect(onReadyChange).toHaveBeenCalledWith(true));
     expect(mocked.loadEngineSoundFont).toHaveBeenCalledWith("sonivox.sf3", expect.any(Uint8Array));
     expect(mocked.setEngineMix).toHaveBeenCalled();
+  });
+
+  it("plays with a SoundFont the user added: the engine reads the file, the page does not (#81)", async () => {
+    const { player, api, onReadyChange } = await setup();
+    api.player.ready.trigger();
+    api.player.readyForPlayback.trigger();
+    await vi.waitFor(() => expect(onReadyChange).toHaveBeenCalledWith(true));
+    const fetches = vi.mocked(fetch).mock.calls.length;
+
+    await player.setSoundFont("stored:my-bank");
+
+    expect(mocked.activateStoredSoundFont).toHaveBeenCalledWith("my-bank");
+    expect(mocked.startEngine).toHaveBeenLastCalledWith("sf:my-bank");
+    expect(vi.mocked(fetch).mock.calls.length).toBe(fetches); // nothing downloaded by the page
+    expect(mocked.loadEngineSoundFont).toHaveBeenCalledTimes(1); // only the bundled one was sent
+  });
+
+  it("reports a stored SoundFont that cannot be loaded and keeps the sounds it had (#81)", async () => {
+    const { player, api, onReadyChange, onSoundFontError } = await setup();
+    api.player.ready.trigger();
+    api.player.readyForPlayback.trigger();
+    await vi.waitFor(() => expect(onReadyChange).toHaveBeenCalledWith(true));
+    mocked.activateStoredSoundFont.mockRejectedValueOnce(
+      new Error("This SoundFont is not installed."),
+    );
+
+    await player.setSoundFont("stored:gone");
+
+    expect(onSoundFontError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "This SoundFont is not installed." }),
+      { previousKept: true },
+    );
   });
 
   it("sends alphaTab's MIDI, the effect chains and the metronome to the engine", async () => {

@@ -936,6 +936,90 @@ export async function pickKitFile(): Promise<string | null> {
   });
 }
 
+// --- Extra SoundFonts (#81) --------------------------------------------------
+
+/** Mirrors `SoundFontInfo` in `src-tauri/src/audio/soundfonts.rs`. */
+export interface StoredSoundFont {
+  id: string;
+  name: string;
+  file: string;
+  bytes: number;
+  /** The catalogue bank it was downloaded as (none: imported from the user's files). */
+  catalogue: string | null;
+}
+
+/** Mirrors `CatalogueItem` in `src-tauri/src/audio/soundfonts.rs`. */
+export interface SoundFontCatalogueItem {
+  id: string;
+  name: string;
+  description: string;
+  licence: string;
+  personalUseOnly: boolean;
+  page: string;
+  /** What is downloaded, in bytes. */
+  downloadBytes: number;
+  /** Its size on disk once installed. */
+  bytes: number;
+  installed: boolean;
+}
+
+export const listStoredSoundFonts = () => call<StoredSoundFont[]>("soundfonts_list");
+export const soundFontCatalogue = () => call<SoundFontCatalogueItem[]>("soundfonts_catalogue");
+export const importStoredSoundFont = (path: string) =>
+  call<StoredSoundFont>("soundfonts_import", { path });
+export const removeStoredSoundFont = (id: string) => call<void>("soundfonts_remove", { id });
+export const cancelSoundFontDownload = () => call<void>("soundfonts_cancel_download");
+/** Loads a stored SoundFont in the audio engine from its file; resolves to its engine id. */
+export const activateStoredSoundFont = (id: string) => call<string>("soundfonts_activate", { id });
+
+/** The bytes of a stored SoundFont, for the alphaTab synthesizer. */
+export async function readStoredSoundFont(id: string): Promise<Uint8Array> {
+  // The Rust command answers with raw bytes, which arrive as an ArrayBuffer.
+  return new Uint8Array(await call<ArrayBuffer>("soundfonts_read", { id }));
+}
+
+/** The error text of a download the user stopped. */
+export const SOUNDFONT_DOWNLOAD_CANCELLED = "cancelled";
+
+const SOUNDFONT_PROGRESS_EVENT = "soundfont-download-progress";
+
+export interface SoundFontDownloadProgress {
+  id: string;
+  /** 0…1 while downloading. */
+  fraction: number;
+  /** The download is done and the file is being unpacked. */
+  unpacking: boolean;
+}
+
+/** Downloads a catalogue bank (checked and unpacked by the app). `onProgress` reports the steps. */
+export async function downloadCatalogueSoundFont(
+  id: string,
+  onProgress?: (progress: SoundFontDownloadProgress) => void,
+): Promise<StoredSoundFont> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<SoundFontDownloadProgress>(SOUNDFONT_PROGRESS_EVENT, (event) => {
+        if (event.payload.id === id) onProgress(event.payload);
+      })
+    : () => {};
+  try {
+    return await invoke<StoredSoundFont>("soundfonts_download", { id });
+  } finally {
+    stopListening();
+  }
+}
+
+/** Native Open dialog for a SoundFont. */
+export async function pickSoundFontFile(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: "Import a SoundFont",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "SoundFonts", extensions: ["sf2", "sf3"] }],
+  });
+}
+
 // --- Record to tab -----------------------------------------------------------
 
 const RECORDING_PROGRESS_EVENT = "recording-transcription-progress";
