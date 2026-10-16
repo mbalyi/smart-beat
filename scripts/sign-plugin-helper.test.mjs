@@ -3,6 +3,47 @@ import path from "node:path";
 import { expect, it, vi } from "vitest";
 import { signPluginHelper } from "./sign-plugin-helper.mjs";
 
+const certificateHash = "1234567890ABCDEF1234567890ABCDEF12345678";
+const existingKeychain = "/Users/runner/Library/Keychains/login keychain-db";
+
+function signingCommands(implementation = () => {}) {
+  return vi.fn((command, args) => {
+    const result = implementation(command, args);
+    if (result !== undefined) return result;
+    if (command === "security" && args[0] === "list-keychains" && !args.includes("-s"))
+      return `    "${existingKeychain}"\n`;
+    if (command === "security" && args[0] === "find-identity")
+      return `  1) ${certificateHash} "Developer ID Application: Certificate Owner"\n     1 valid identities found\n`;
+  });
+}
+
+it("registers the imported keychain and signs with its certificate identity", () => {
+  let registered = false;
+  const run = signingCommands((command, args) => {
+    if (command === "security" && args[0] === "list-keychains" && args.includes("-s"))
+      registered = args.length > 5;
+    if (command === "codesign" && args.includes("--sign")) {
+      if (!registered || args[args.indexOf("--sign") + 1] !== certificateHash)
+        throw new Error("no identity found");
+    }
+  });
+  signPluginHelper("/tmp/helper", {
+    env: {
+      APPLE_SIGNING_IDENTITY: "A configured name that differs from the imported certificate",
+      APPLE_CERTIFICATE: "dGVzdA==",
+    },
+    run,
+  });
+  expect(registered).toBe(false);
+  expect(run.mock.calls.at(-2)[1]).toEqual([
+    "list-keychains",
+    "-d",
+    "user",
+    "-s",
+    existingKeychain,
+  ]);
+});
+
 it("keeps the library validation exception out of the app entitlements", () => {
   const root = path.resolve(import.meta.dirname, "../src-tauri");
   const app = readFileSync(path.join(root, "Entitlements.plist"), "utf8");
@@ -41,7 +82,7 @@ it("ad-hoc signs and verifies the helper with its own hardened entitlements", ()
 });
 
 it("imports CI credentials into a temporary keychain and deletes it after signing", () => {
-  const run = vi.fn();
+  const run = signingCommands();
   signPluginHelper("/tmp/helper", {
     env: {
       APPLE_SIGNING_IDENTITY: "Developer ID: Test",
@@ -58,7 +99,7 @@ it("imports CI credentials into a temporary keychain and deletes it after signin
 });
 
 it("cleans the keychain and redacts credential arguments when import fails", () => {
-  const run = vi.fn((command, args) => {
+  const run = signingCommands((command, args) => {
     if (command === "security" && args[0] === "import")
       throw new Error("command failed -P supersecret");
   });
@@ -76,7 +117,7 @@ it("cleans the keychain and redacts credential arguments when import fails", () 
 });
 
 it("cleans the keychain if codesign fails", () => {
-  const run = vi.fn((command) => {
+  const run = signingCommands((command) => {
     if (command === "codesign") throw new Error("signature failed");
   });
   expect(() =>
@@ -85,5 +126,33 @@ it("cleans the keychain if codesign fails", () => {
       run,
     }),
   ).toThrow("signature failed");
+  expect(run.mock.calls.at(-2)[1]).toEqual([
+    "list-keychains",
+    "-d",
+    "user",
+    "-s",
+    existingKeychain,
+  ]);
+  expect(run.mock.calls.at(-1)[1][0]).toBe("delete-keychain");
+});
+
+it("rejects an imported certificate without a valid identity and restores the search list", () => {
+  const run = signingCommands((command, args) => {
+    if (command === "security" && args[0] === "find-identity") return "0 valid identities found\n";
+  });
+  expect(() =>
+    signPluginHelper("/tmp/helper", {
+      env: { APPLE_SIGNING_IDENTITY: "Configured", APPLE_CERTIFICATE: "dGVzdA==" },
+      run,
+    }),
+  ).toThrow("no valid code-signing identity");
+  expect(run.mock.calls.some(([command]) => command === "codesign")).toBe(false);
+  expect(run.mock.calls.at(-2)[1]).toEqual([
+    "list-keychains",
+    "-d",
+    "user",
+    "-s",
+    existingKeychain,
+  ]);
   expect(run.mock.calls.at(-1)[1][0]).toBe("delete-keychain");
 });

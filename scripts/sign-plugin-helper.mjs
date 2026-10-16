@@ -4,7 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 export function signPluginHelper(binary, { env = process.env, run = execFileSync } = {}) {
@@ -13,11 +13,11 @@ export function signPluginHelper(binary, { env = process.env, run = execFileSync
     import.meta.dirname,
     "../src-tauri/PluginHelper.entitlements.plist",
   );
-  const sign = (keychain) => {
+  const sign = (keychain, signingIdentity = identity) => {
     const args = [
       "--force",
       "--sign",
-      identity,
+      signingIdentity,
       "--options",
       "runtime",
       "--entitlements",
@@ -36,20 +36,26 @@ export function signPluginHelper(binary, { env = process.env, run = execFileSync
   // Tauri imports its certificate later, during bundling. Import a separate,
   // short-lived keychain for this helper rather than relying on that future step.
   const directory = mkdtempSync(path.join(tmpdir(), "smart-beat-helper-sign-"));
-  const keychain = path.join(directory, "helper.keychain-db");
+  const keychain = path.join(homedir(), "Library", "Keychains", `${randomUUID()}.keychain-db`);
   const certificate = path.join(directory, "certificate.p12");
   const password = randomUUID();
   let created = false;
+  let originalKeychains = [];
+  let searchListChanged = false;
+  const security = (args) => {
+    try {
+      return run("security", args, { stdio: "pipe", encoding: "utf8" });
+    } catch {
+      // execFileSync errors include their arguments, including passwords.
+      throw new Error(`Plugin helper signing failed during security ${args[0]}`);
+    }
+  };
   try {
     writeFileSync(certificate, Buffer.from(env.APPLE_CERTIFICATE, "base64"), { mode: 0o600 });
-    const security = (args) => {
-      try {
-        run("security", args, { stdio: "pipe" });
-      } catch {
-        // execFileSync errors include their arguments, including passwords.
-        throw new Error(`Plugin helper signing failed during security ${args[0]}`);
-      }
-    };
+    originalKeychains = security(["list-keychains", "-d", "user"])
+      .split("\n")
+      .map((line) => line.trim().replace(/^"|"$/g, ""))
+      .filter(Boolean);
     security(["create-keychain", "-p", password, keychain]);
     created = true;
     security(["unlock-keychain", "-p", password, keychain]);
@@ -72,12 +78,27 @@ export function signPluginHelper(binary, { env = process.env, run = execFileSync
       password,
       keychain,
     ]);
-    sign(keychain);
+    // Match Tauri's certificate import: codesign needs the keychain registered
+    // in the user search list, even when --keychain is passed explicitly.
+    searchListChanged = true;
+    security(["list-keychains", "-d", "user", "-s", ...originalKeychains, keychain]);
+    // Tauri uses the imported certificate when APPLE_CERTIFICATE is supplied.
+    // Its identity can differ from APPLE_SIGNING_IDENTITY; select its hash
+    // rather than asking codesign to resolve an unrelated configured name.
+    const identities = security(["find-identity", "-v", "-p", "codesigning", keychain]);
+    const importedIdentity = identities.match(/^\s*\d+\)\s+([a-f0-9]{40})\s/im)?.[1];
+    if (!importedIdentity)
+      throw new Error("The imported plugin signing certificate has no valid code-signing identity");
+    sign(keychain, importedIdentity);
   } finally {
     try {
-      if (created) run("security", ["delete-keychain", keychain], { stdio: "pipe" });
+      if (searchListChanged) security(["list-keychains", "-d", "user", "-s", ...originalKeychains]);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      try {
+        if (created) security(["delete-keychain", keychain]);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
     }
   }
 }
