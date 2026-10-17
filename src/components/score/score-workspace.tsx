@@ -229,6 +229,13 @@ import {
   uniqueTrackName,
   type ConversionResult,
 } from "@/lib/score/tracks";
+import {
+  moveInStack,
+  reconcileStack,
+  stackFromIndexes,
+  stackToIndexes,
+  toggleInStack,
+} from "@/lib/score/visible-tracks";
 import { canNormalizeDrums, normalizeDrumNotation } from "@/lib/score/drum-normalize";
 import {
   AUDIO_EXTENSIONS,
@@ -471,7 +478,23 @@ export function ScoreWorkspace({
     return barProblems(score, trackIndex);
   }, [score, trackIndex, revision]);
 
-  const [layout, setLayout] = useState<Layout>("page");
+  // The tracks stacked in the continuous view, in display order; the shown track is always one.
+  const [stackedTracks, setStackedTracks] = useState<Track[]>(() =>
+    stackFromIndexes(song.mix.visibleTracks ?? [], score.tracks, score.tracks[0]!),
+  );
+  const stack = reconcileStack(stackedTracks, score.tracks, trackObject);
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
+  const [layout, setLayout] = useState<Layout>(() =>
+    (song.mix.visibleTracks?.length ?? 0) > 1 ? "horizontal" : "page",
+  );
+  /** A stack for the player; only several tracks make one. */
+  const stackArg = (tracks: readonly Track[]) => (tracks.length > 1 ? stackFor(tracks) : undefined);
+  /** The stack as the player takes it (score indexes and the notation of each track). */
+  const stackFor = (tracks: readonly Track[]) => ({
+    indexes: stackToIndexes(tracks, score.tracks),
+    views: tracks.map((t) => viewOf(t, score.tracks.indexOf(t))),
+  });
   const [rendering, setRendering] = useState(true);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -610,6 +633,8 @@ export function ScoreWorkspace({
   const afterRender = useRef<(() => void) | null>(null);
   /** Where bars with the wrong length are drawn (shown track). */
   const [problemRects, setProblemRects] = useState<Rect[]>([]);
+  /** The bars of the other stacked tracks, drawn dimmed (they are context, not editable). */
+  const [contextRects, setContextRects] = useState<Rect[]>([]);
   const [scale, setScale] = useState<Scale | null>(null);
   const scalePickerRef = useRef<HTMLButtonElement>(null);
   const [practice, dispatchPracticeAction] = useReducer(practiceReducer, undefined, () =>
@@ -708,6 +733,10 @@ export function ScoreWorkspace({
     });
   });
 
+  const refreshContextRects = useEffectEvent(() => {
+    setContextRects(playerRef.current?.contextRects() ?? []);
+  });
+
   /** Draws a frame around every bar of the shown track with the wrong length. */
   const refreshProblemRects = useEffectEvent(() => {
     const player = playerRef.current;
@@ -724,8 +753,13 @@ export function ScoreWorkspace({
   const onBeatClick = useEffectEvent(
     ({ beat, note, extend }: Parameters<NonNullable<ScorePlayerCallbacks["onBeatClick"]>>[0]) => {
       // Outside edit mode too, so a selection made there is kept for edit mode (#53).
-      if (beat.voice.bar.staff.track !== trackObject) return;
-      if (extend) trackUsage("shift_select");
+      const clicked = beat.voice.bar.staff.track;
+      if (clicked !== trackObject) {
+        // A stacked track is context: clicking it makes it the one being edited.
+        const index = score.tracks.indexOf(clicked);
+        if (index < 0 || !stackRef.current.includes(clicked)) return;
+        changeTrack(index);
+      } else if (extend) trackUsage("shift_select");
       editor.setCursorTo(
         { bar: beat.voice.bar.index, beat: beat.index, voice: beat.voice.index, note },
         extend,
@@ -747,10 +781,24 @@ export function ScoreWorkspace({
   // straight to the player from the handlers below.
   // The score follows the app's light or dark mode; printing stays light (#83).
   const { resolvedTheme } = useTheme();
-  const initial = useRef({ trackIndex, view, layout, soundFont, theme: resolvedTheme });
+  const initial = useRef({
+    trackIndex,
+    view,
+    layout,
+    stack: stackArg(stack),
+    soundFont,
+    theme: resolvedTheme,
+  });
   // Kept current, for a player created again (the audio engine changed).
   useEffect(() => {
-    initial.current = { trackIndex, view, layout, soundFont, theme: resolvedTheme };
+    initial.current = {
+      trackIndex,
+      view,
+      layout,
+      stack: stackArg(stack),
+      soundFont,
+      theme: resolvedTheme,
+    };
   });
 
   /** A new player for the same song (other audio engine) gets the current settings. */
@@ -780,6 +828,7 @@ export function ScoreWorkspace({
         trackIndex: start.trackIndex,
         view: start.view,
         layout: start.layout,
+        stack: start.stack,
         mix: mixRef.current,
         soundFontUrl: soundFontUrl(start.soundFont),
         reducedMotion: prefersReducedMotion(),
@@ -802,6 +851,7 @@ export function ScoreWorkspace({
         onRendered: () => {
           updateOverlay();
           refreshProblemRects();
+          refreshContextRects();
           const next = afterRender.current;
           afterRender.current = null;
           next?.();
@@ -860,6 +910,19 @@ export function ScoreWorkspace({
   const loopCountIn = !!practice.trainer?.countInBetween && audioEngine === "native";
   useEffect(() => playerRef.current?.setLoopCountIn(loopCountIn), [loopCountIn]);
 
+  // The stacked tracks are saved with the song (as score indexes).
+  const stackKey = stackToIndexes(stack, score.tracks).join(",");
+  useEffect(() => {
+    const visible = stack.length > 1 ? stackToIndexes(stack, score.tracks) : undefined;
+    const saved = mixRef.current.visibleTracks;
+    if ((saved ?? []).join(",") === (visible ?? []).join(",")) return;
+    const next = { ...mixRef.current, visibleTracks: visible };
+    if (!visible) delete next.visibleTracks;
+    mixRef.current = next;
+    setMix(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the saved form of the stack
+  }, [stackKey]);
+
   /** After every change to the music: new mix order, re-render, new MIDI. */
   const onModelChange = useEffectEvent(() => {
     const states = score.tracks.map((t) => {
@@ -908,6 +971,7 @@ export function ScoreWorkspace({
       trackIndex: index,
       view: viewOf(shown, index),
       mix: mixRef.current,
+      stack: stackArg(reconcileStack(stackRef.current, score.tracks, shown)),
     });
     dispatchPractice({ type: "bar-count", count: score.masterBars.length });
     // Right away (not in an effect): a New or Open right after an edit must ask first.
@@ -1121,8 +1185,44 @@ export function ScoreWorkspace({
   const changeTrack = (index: number) => {
     const next = score.tracks[index];
     if (!next) return;
+    // Another track becomes the one being edited; a stacked view keeps its tracks (the new one
+    // takes the place of the old one when it was not in it).
+    const current = stackRef.current;
+    const nextStack =
+      current.length < 2 || current.includes(next)
+        ? current
+        : current.map((t) => (t === trackObject ? next : t));
+    const stacked = current.length < 2 ? [next] : nextStack;
+    setStackedTracks(stacked);
+    stackRef.current = stacked;
     editor.setTrack(index);
-    playerRef.current?.showTrack(index, viewOf(next, index));
+    const shownView = viewOf(next, index);
+    const forPlayer = stackArg(stacked);
+    if (forPlayer) playerRef.current?.showTrack(index, shownView, forPlayer);
+    else playerRef.current?.showTrack(index, shownView);
+  };
+
+  /** Adds a track to the continuous view or takes it out (the one being edited stays). */
+  const toggleStacked = (index: number) => {
+    const target = score.tracks[index];
+    if (!target) return;
+    const before = stackRef.current;
+    const next = toggleInStack(before, target, trackObject);
+    applyStack(next);
+    if (before.length < 2 && next.length > 1) trackUsage("multi_track_view");
+  };
+
+  /** Moves a stacked track up or down in the view; the order in the file is untouched. */
+  const moveStacked = (index: number, delta: number) => {
+    const target = score.tracks[index];
+    if (!target) return;
+    applyStack(moveInStack(stackRef.current, target, delta));
+  };
+
+  const applyStack = (next: Track[]) => {
+    setStackedTracks(next);
+    stackRef.current = next;
+    playerRef.current?.setStack(stackFor(next));
   };
 
   const changeView = (next: TrackView) => {
@@ -1137,6 +1237,7 @@ export function ScoreWorkspace({
   };
 
   const changeLayout = (next: Layout) => {
+    if (next === "horizontal" && layout !== "horizontal") trackUsage("continuous_view");
     setLayout(next);
     playerRef.current?.setLayout(next);
   };
@@ -1761,6 +1862,8 @@ export function ScoreWorkspace({
 
   const trackActions: TrackActions = {
     onShow: changeTrack,
+    onToggleVisible: toggleStacked,
+    onMoveInView: moveStacked,
     onMove: (index, to) => changeTracks("Move track", () => moveTrack(score, index, to)),
     onDuplicate: (index) => {
       trackUsage("track_duplicate");
@@ -2503,6 +2606,7 @@ export function ScoreWorkspace({
               editing={editing}
               overlay={overlay}
               problemRects={problemRects}
+              contextRects={contextRects}
               describedBy={editing ? statusId : undefined}
             />
           </ScoreContextMenu>
@@ -2649,6 +2753,10 @@ export function ScoreWorkspace({
           revision={revision}
           tracks={summary.tracks}
           shown={trackIndex}
+          stack={{
+            indexes: stackToIndexes(stack, score.tracks),
+            stacking: layout === "horizontal",
+          }}
           mix={mix}
           onChange={changeMix}
           onReset={resetMix}

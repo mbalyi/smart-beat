@@ -96,6 +96,10 @@ pub struct MixerSettings {
     /// files have no place for it, so it travels in Smart Beat's settings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drum_lines: Vec<DrumLine>,
+    /// The tracks stacked in the continuous view (#157), as score indexes in display order. Empty:
+    /// only the shown track.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub visible_tracks: Vec<u32>,
 }
 
 /// The drum-tab line of one drum note, by its position in the score (0-based
@@ -446,6 +450,17 @@ impl MixerSettings {
         {
             return Err("a drum line is out of range".into());
         }
+        if self.visible_tracks.len() > MAX_TRACKS {
+            return Err("more visible tracks than tracks".into());
+        }
+        let mut seen = std::collections::HashSet::new();
+        if self
+            .visible_tracks
+            .iter()
+            .any(|&t| t as usize >= MAX_TRACKS || !seen.insert(t))
+        {
+            return Err("a visible track is out of range or repeated".into());
+        }
         Ok(())
     }
 }
@@ -590,6 +605,7 @@ mod tests {
             drum_kits: Vec::new(),
             track_colors: Vec::new(),
             drum_lines: Vec::new(),
+            visible_tracks: Vec::new(),
         }
     }
 
@@ -779,6 +795,7 @@ mod tests {
                 note: 1,
                 line: 6,
             }],
+            visible_tracks: vec![1, 0],
             ..settings()
         }
     }
@@ -803,6 +820,30 @@ mod tests {
             ..settings()
         };
         assert!(good.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_bad_visible_tracks() {
+        for tracks in [vec![MAX_TRACKS as u32], vec![0, 1, 0]] {
+            let bad = MixerSettings {
+                visible_tracks: tracks,
+                ..settings()
+            };
+            assert!(bad.validate().unwrap_err().contains("visible track"));
+        }
+        let good = MixerSettings {
+            visible_tracks: vec![2, 0, 1],
+            ..settings()
+        };
+        assert!(good.validate().is_ok());
+    }
+
+    #[test]
+    fn settings_without_visible_tracks_still_load() {
+        let json = serde_json::to_string(&settings()).unwrap();
+        assert!(!json.contains("visible_tracks") && !json.contains("visibleTracks"));
+        let back: MixerSettings = serde_json::from_str(&json).unwrap();
+        assert!(back.visible_tracks.is_empty());
     }
 
     #[test]

@@ -68,6 +68,7 @@ export function ScoreView({
   editing = false,
   overlay = null,
   problemRects = [],
+  contextRects = [],
   describedBy,
 }: {
   viewportRef: Ref<HTMLDivElement>;
@@ -81,6 +82,8 @@ export function ScoreView({
   overlay?: EditOverlay | null;
   /** Bars with the wrong length, highlighted (also outside edit mode). */
   problemRects?: Rect[];
+  /** Bars of the other stacked tracks: dimmed, since only the active track is edited (#157). */
+  contextRects?: Rect[];
   /** Id of the element describing the editor's keys and state. */
   describedBy?: string;
 }) {
@@ -115,6 +118,18 @@ export function ScoreView({
         >
           <div className="relative">
             <div ref={surfaceRef} />
+            {contextRects.length > 0 && (
+              <div className="pointer-events-none absolute inset-0 z-[4]" aria-hidden="true">
+                {contextRects.map((rect, i) => (
+                  <div
+                    key={i}
+                    data-testid="bar-context"
+                    className="absolute bg-white/25 dark:bg-[#18181b]/30"
+                    style={box(rect)}
+                  />
+                ))}
+              </div>
+            )}
             {problemRects.length > 0 && (
               <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden="true">
                 {problemRects.map((rect, i) => (

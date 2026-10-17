@@ -23,6 +23,9 @@ export class FakeScorePlayer {
   readonly callbacks: ScorePlayerCallbacks;
   showTrack = vi.fn();
   setView = vi.fn();
+  setStack = vi.fn();
+  /** The dimmed bars of the other stacked tracks (#157). */
+  contextRects = vi.fn((): { x: number; y: number; w: number; h: number }[] => []);
   setLayout = vi.fn();
   setMix = vi.fn();
   setFocusCut = vi.fn();

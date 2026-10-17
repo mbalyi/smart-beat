@@ -19,6 +19,14 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "stacked-tracks",
+    title: "Several tracks at once",
+    summary:
+      "In the continuous layout, show more than one track under each other, bar-aligned, and reorder them. You still edit one track at a time.",
+    since: "1.0.2",
+    tour: "main",
+  },
+  {
     id: "guided-tour",
     title: "A guided tour",
     summary:
