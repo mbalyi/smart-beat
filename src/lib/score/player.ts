@@ -145,6 +145,12 @@ export interface ScorePlayerCallbacks {
  */
 export type AudioEngineKind = "alphatab" | "native";
 
+/** The tracks stacked in the continuous view (#157): score indexes in display order, each with its notation. */
+export interface TrackStack {
+  indexes: number[];
+  views: TrackView[];
+}
+
 export interface ScorePlayerOptions {
   /** Where the notation is drawn. */
   element: HTMLElement;
@@ -154,6 +160,8 @@ export interface ScorePlayerOptions {
   trackIndex: number;
   view: TrackView;
   layout: Layout;
+  /** Tracks shown together in the continuous layout (default: only `trackIndex`). */
+  stack?: TrackStack;
   mix: MixerSettings;
   soundFontUrl: string;
   reducedMotion?: boolean;
@@ -246,6 +254,8 @@ export class ScorePlayer {
   private readonly score: Score;
   private readonly callbacks: ScorePlayerCallbacks;
   private trackIndex: number;
+  private layout: Layout;
+  private stack: number[] = [];
   private mix: MixerSettings;
   private ready = false;
   /**
@@ -314,6 +324,8 @@ export class ScorePlayer {
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks = {}) {
     this.score = options.score;
     this.trackIndex = options.trackIndex;
+    this.layout = options.layout;
+    if (options.stack) this.applyStack(options.stack);
     this.mix = options.mix;
     this.monitorInput = options.monitorInput ?? { device: null, channel: 0 };
     this.theme = options.theme ?? "light";
@@ -368,7 +380,7 @@ export class ScorePlayer {
     this.subscribe();
     this.hasMirror = this.score.tracks.some((t) => mirrorOf(t) !== null);
     this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !this.hasMirror);
-    this.api.renderScore(this.score, [this.trackIndex]);
+    this.api.renderScore(this.score, this.shownIndexes());
     void this.setSoundFont(options.soundFontUrl);
   }
 
@@ -564,6 +576,28 @@ export class ScorePlayer {
     applyTrackView(this.track, view);
   }
 
+  /** Keeps the stack and gives each stacked track its notation. */
+  private applyStack(stack: TrackStack | undefined) {
+    this.stack = stack?.indexes ?? [];
+    stack?.indexes.forEach((index, i) => {
+      const track = this.score.tracks[index];
+      const view = stack.views[i];
+      if (track && view && index !== this.trackIndex) applyTrackView(track, view);
+    });
+  }
+
+  /** Several tracks are drawn one under another in the continuous layout only. */
+  private shownIndexes(): number[] {
+    return this.layout === "horizontal" && this.stack.length > 1 ? this.stack : [this.trackIndex];
+  }
+
+  private shownTracks() {
+    return this.shownIndexes().flatMap((i) => {
+      const track = this.score.tracks[i];
+      return track ? [track] : [];
+    });
+  }
+
   /** Writes pan values into the model. Returns whether any changed. */
   private applyPans(mix: MixerSettings): boolean {
     let changed = false;
@@ -641,10 +675,11 @@ export class ScorePlayer {
     api.tickPosition = resume.tick;
   }
 
-  showTrack(trackIndex: number, view: TrackView) {
+  showTrack(trackIndex: number, view: TrackView, stack?: TrackStack) {
     const track = this.score.tracks[trackIndex];
     if (!track) return;
     this.trackIndex = trackIndex;
+    this.applyStack(stack);
     // alphaTab draws the previous track's tuning over a drum tab shown straight
     // from another track (seen in 1.8.4). Showing the drum track's score first,
     // then its drum tab, draws it correctly (#53).
@@ -653,7 +688,7 @@ export class ScorePlayer {
     this.applyView(first);
     this.api.settings.notation.rhythmMode = rhythmMode(first);
     this.afterViewChange();
-    this.api.renderTracks([track]);
+    this.api.renderTracks(this.shownTracks());
     if (drumTab) this.setView(view);
   }
 
@@ -666,9 +701,21 @@ export class ScorePlayer {
   }
 
   setLayout(layout: Layout) {
+    this.layout = layout;
     this.api.settings.display.layoutMode = LAYOUT_MODES[layout];
     this.api.updateSettings();
-    this.api.render();
+    if (this.stack.length > 1) this.api.renderTracks(this.shownTracks());
+    else this.api.render();
+  }
+
+  /** Changes which tracks are stacked (continuous layout) without moving the active one. */
+  setStack(stack: TrackStack) {
+    const before = this.shownIndexes().join();
+    this.applyStack(stack);
+    if (this.shownIndexes().join() === before) return;
+    this.afterViewChange();
+    this.api.updateSettings();
+    this.api.renderTracks(this.shownTracks());
   }
 
   /**
@@ -710,10 +757,21 @@ export class ScorePlayer {
    * MIDI (at the next pause during playback, like pan). `trackIndex` is where
    * the shown track is now, and `mix` the mix in the new track order.
    */
-  refresh({ trackIndex, view, mix }: { trackIndex: number; view: TrackView; mix: MixerSettings }) {
+  refresh({
+    trackIndex,
+    view,
+    mix,
+    stack,
+  }: {
+    trackIndex: number;
+    view: TrackView;
+    mix: MixerSettings;
+    stack?: TrackStack;
+  }) {
     const track = this.score.tracks[trackIndex];
     if (!track) return;
     this.trackIndex = trackIndex;
+    this.applyStack(stack);
     this.mix = mix;
     this.applyPans(mix);
     this.applyView(view);
@@ -721,7 +779,7 @@ export class ScorePlayer {
     this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !this.hasMirror);
     this.api.updateSettings();
     this.quietRender = true;
-    this.api.renderTracks([track]);
+    this.api.renderTracks(this.shownTracks());
     this.regenerateMidiSoon();
   }
 
@@ -974,7 +1032,7 @@ export class ScorePlayer {
       applyPalette(this.api.settings, this.theme);
       this.api.updateSettings();
       this.quietRender = true;
-      this.api.renderTracks([this.track]);
+      this.api.renderTracks(this.shownTracks());
     };
   }
 
@@ -1016,6 +1074,23 @@ export class ScorePlayer {
         const bar = bounds.barBounds.visualBounds;
         return { x: bounds.realBounds.x, y: bar.y, w: bounds.realBounds.w, h: bar.h };
       });
+  }
+
+  /** The bars drawn for the stacked tracks other than the one being edited (read-only context; #157). */
+  contextRects(): Rect[] {
+    if (this.shownIndexes().length < 2) return [];
+    const active = this.track;
+    return (this.api.boundsLookup?.staffSystems ?? []).flatMap((system) =>
+      system.bars.flatMap((masterBar) =>
+        masterBar.bars
+          // A bar's owner: alphaTab leaves `bar` unset on some bounds, then its first beat knows.
+          .filter((bounds) => {
+            const track = (bounds.bar ?? bounds.beats[0]?.beat.voice.bar)?.staff.track;
+            return track !== undefined && track !== active;
+          })
+          .map(({ visualBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
+      ),
+    );
   }
 
   /** Where a note's head (or fret number) is drawn, on each staff. */

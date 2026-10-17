@@ -387,6 +387,77 @@ describe("ScorePlayer", () => {
     expect(api.renderTracks).toHaveBeenCalledOnce();
   });
 
+  describe("stacked tracks in the continuous layout (#157)", () => {
+    const tab = { notation: "tab", rhythm: false } as const;
+    const score = { notation: "score", rhythm: false } as const;
+
+    it("draws the stacked tracks in their order, each with its notation", async () => {
+      const { player, api, score: song } = await setup({ layout: "horizontal" });
+
+      player.setStack({ indexes: [2, 0, 1], views: [score, tab, tab] });
+
+      expect(api.renderTracks).toHaveBeenLastCalledWith([
+        song.tracks[2],
+        song.tracks[0],
+        song.tracks[1],
+      ]);
+      expect(song.tracks[1]!.staves[0]!.showStandardNotation).toBe(false);
+    });
+
+    it("keeps editing the shown track while others are stacked", async () => {
+      const { player, api, score: song } = await setup({ layout: "horizontal" });
+
+      player.showTrack(1, tab, { indexes: [0, 1], views: [tab, tab] });
+
+      expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0], song.tracks[1]]);
+      player.setView(score);
+      expect(song.tracks[1]!.staves[0]!.showTablature).toBe(false);
+      expect(song.tracks[0]!.staves[0]!.showTablature).toBe(true);
+    });
+
+    it("draws only the shown track in the page layout and all of them when continuous", async () => {
+      const { player, api, score: song } = await setup();
+      player.setStack({ indexes: [0, 2], views: [tab, tab] });
+      expect(api.renderTracks).not.toHaveBeenCalled(); // page layout: nothing changes
+
+      player.setLayout("horizontal");
+      expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0], song.tracks[2]]);
+
+      player.setLayout("page");
+      expect(api.settings.display.layoutMode).toBe(LayoutMode.Page);
+      expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0]]);
+    });
+
+    it("refreshes after an edit with the whole stack", async () => {
+      const { player, api, score: song, mix } = await setup({ layout: "horizontal" });
+
+      player.refresh({
+        trackIndex: 0,
+        view: tab,
+        mix,
+        stack: { indexes: [0, 1], views: [tab, tab] },
+      });
+
+      expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0], song.tracks[1]]);
+    });
+
+    it("dims nothing for one track and the other tracks' bars for several", async () => {
+      const { player, api, score: song } = await setup({ layout: "horizontal" });
+      const bar = (track: unknown, x: number) => ({
+        bar: { staff: { track } },
+        visualBounds: { x, y: 0, w: 50, h: 40 },
+      });
+      api.boundsLookup = {
+        staffSystems: [{ bars: [{ bars: [bar(song.tracks[0], 0), bar(song.tracks[1], 100)] }] }],
+      } as never;
+
+      expect(player.contextRects()).toEqual([]);
+
+      player.setStack({ indexes: [0, 1], views: [tab, tab] });
+      expect(player.contextRects()).toEqual([{ x: 100, y: 0, w: 50, h: 40 }]);
+    });
+  });
+
   it("re-renders for notation and layout changes without touching playback", async () => {
     const { player, api, score, setPlaying } = await readySetup();
     setPlaying(true);

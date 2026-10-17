@@ -73,6 +73,8 @@ export const EVENTS = [
   "speed_trainer_stop",
   "speed_trainer_hold",
   "practice_view",
+  "continuous_view",
+  "multi_track_view",
   "tour_start",
   "tour_finish",
   "tour_skip",

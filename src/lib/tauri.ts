@@ -360,6 +360,8 @@ export interface MixerSettings {
   presets?: SongPreset[];
   /** Drum notes on a chosen line of the drum tab (#53). Mirrors `DrumLine` in `mixer.rs`. */
   drumLines?: DrumLine[];
+  /** The tracks stacked in the continuous view (score indexes in display order; missing: only the shown one; #157). */
+  visibleTracks?: number[];
 }
 
 /** The drum-tab line (1 bottom … 6 top) of the drum note at a position (0-based indices). */
