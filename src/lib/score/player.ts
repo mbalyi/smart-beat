@@ -253,6 +253,9 @@ export class ScorePlayer {
   private readonly api: AlphaTabApi;
   private readonly score: Score;
   private readonly callbacks: ScorePlayerCallbacks;
+  /** Where the notation is drawn, and the scrolled region around it. */
+  private readonly surface: HTMLElement;
+  private readonly scroller: HTMLElement;
   private trackIndex: number;
   private layout: Layout;
   private stack: number[] = [];
@@ -325,6 +328,8 @@ export class ScorePlayer {
     this.score = options.score;
     this.trackIndex = options.trackIndex;
     this.layout = options.layout;
+    this.surface = options.element;
+    this.scroller = options.scrollElement;
     if (options.stack) this.applyStack(options.stack);
     this.mix = options.mix;
     this.monitorInput = options.monitorInput ?? { device: null, channel: 0 };
@@ -1283,6 +1288,27 @@ export class ScorePlayer {
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick; // seeking while new sounds load
     this.reportBar(barIndex);
+    this.scrollToBar(barIndex);
+  }
+
+  /**
+   * Brings the start of a bar into view at once, also while playing (alphaTab only follows
+   * the cursor as it moves, and a seek by bar must show the bar it went to): the continuous
+   * layout scrolls sideways to the bar, the page layout down to its line.
+   */
+  private scrollToBar(barIndex: number) {
+    const bounds = this.api.boundsLookup?.findMasterBarByIndex(barIndex)?.visualBounds;
+    if (!bounds) return;
+    const scroller = this.scroller.getBoundingClientRect();
+    const surface = this.surface.getBoundingClientRect();
+    const margin = 16;
+    if (this.layout === "horizontal") {
+      const x = surface.left - scroller.left + this.scroller.scrollLeft + bounds.x;
+      this.scroller.scrollTo({ left: Math.max(0, x - margin), behavior: "instant" });
+    } else {
+      const y = surface.top - scroller.top + this.scroller.scrollTop + bounds.y;
+      this.scroller.scrollTo({ top: Math.max(0, y - margin), behavior: "instant" });
+    }
   }
 
   /**

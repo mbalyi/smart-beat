@@ -387,6 +387,52 @@ describe("ScorePlayer", () => {
     expect(api.renderTracks).toHaveBeenCalledOnce();
   });
 
+  describe("showing the bar that was picked", () => {
+    const scrollerOf = () => {
+      const scroller = document.createElement("div");
+      scroller.scrollTo = vi.fn() as never;
+      return scroller;
+    };
+    const barAt = (api: FakeAlphaTabApi, x: number, y: number) => {
+      api.boundsLookup = {
+        findMasterBarByIndex: () => ({ visualBounds: { x, y, w: 200, h: 100 } }),
+      } as never;
+    };
+
+    it("scrolls the continuous row to the start of the bar, also while playing", async () => {
+      const scroller = scrollerOf();
+      const { player, api, setPlaying } = await readySetup({
+        layout: "horizontal",
+        scrollElement: scroller,
+      });
+      barAt(api, 2400, 0);
+      setPlaying(true);
+
+      player.seekToBar(3);
+
+      expect(scroller.scrollTo).toHaveBeenCalledWith({ left: 2384, behavior: "instant" });
+    });
+
+    it("scrolls the page layout down to the line of the bar", async () => {
+      const scroller = scrollerOf();
+      const { player, api } = await readySetup({ scrollElement: scroller });
+      barAt(api, 40, 1800);
+
+      player.seekToBar(3);
+
+      expect(scroller.scrollTo).toHaveBeenCalledWith({ top: 1784, behavior: "instant" });
+    });
+
+    it("does nothing before the score is drawn", async () => {
+      const scroller = scrollerOf();
+      const { player } = await readySetup({ scrollElement: scroller });
+
+      player.seekToBar(1);
+
+      expect(scroller.scrollTo).not.toHaveBeenCalled();
+    });
+  });
+
   describe("stacked tracks in the continuous layout (#157)", () => {
     const tab = { notation: "tab", rhythm: false } as const;
     const score = { notation: "score", rhythm: false } as const;

@@ -124,7 +124,7 @@ export function ScoreView({
                   <div
                     key={i}
                     data-testid="bar-context"
-                    className="absolute bg-white/60 dark:bg-[#18181b]/60"
+                    className="absolute bg-white/25 dark:bg-[#18181b]/30"
                     style={box(rect)}
                   />
                 ))}

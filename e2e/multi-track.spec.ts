@@ -193,3 +193,33 @@ test.describe("several tracks in the continuous view (#157)", () => {
     });
   }
 });
+
+test.describe("picking a bar in the track list shows it in the score", () => {
+  test.use({ viewport: { width: 700, height: 900 } });
+
+  for (const playing of [false, true]) {
+    test(`scrolls the continuous row to the bar${playing ? " while playing" : ""}`, async ({
+      app,
+    }) => {
+      await openSong(app);
+      await app.getByRole("radio", { name: "Continuous" }).click();
+      await waitForScore(app);
+      const score = scoreRegion(app);
+      await expect
+        .poll(() => score.evaluate((el) => el.scrollWidth - el.clientWidth))
+        .toBeGreaterThan(100);
+      await app.waitForTimeout(500);
+      const before = await score.evaluate((el) => el.scrollLeft);
+      if (playing) {
+        await app.getByRole("button", { name: "Play" }).click();
+        await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
+      }
+
+      await mixer(app).locator("ol > li").first().locator("button[tabindex='-1']").nth(3).click();
+
+      // The fourth bar is now at the left edge of the score, without waiting for the cursor.
+      await expect.poll(() => score.evaluate((el) => el.scrollLeft)).toBeGreaterThan(before + 50);
+      await expect(app.getByRole("spinbutton", { name: "Bar" })).toHaveValue("4");
+    });
+  }
+});
