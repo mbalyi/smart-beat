@@ -161,7 +161,7 @@ pub fn write_settings(
     let zip_error = |e: zip::result::ZipError| io_error(path, e);
     for i in 0..archive.len() {
         let entry = archive.by_index_raw(i).map_err(zip_error)?;
-        let name = entry.name().to_owned();
+        let name = entry.name().map_err(zip_error)?.into_owned();
         let ours = name == SETTINGS_ENTRY || name.starts_with(AUDIO_PREFIX);
         if ours && keep_audio.as_deref() != Some(name.as_str()) {
             continue;
@@ -213,7 +213,10 @@ mod tests {
 
     fn entries(path: &Path) -> Vec<String> {
         let archive = open(path).unwrap();
-        archive.file_names().map(str::to_owned).collect()
+        archive
+            .file_names()
+            .map(|name| name.unwrap().into_owned())
+            .collect()
     }
 
     fn with_audio(embedded: bool) -> MixerSettings {
