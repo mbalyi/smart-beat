@@ -95,7 +95,7 @@ export function WhatsNewDialog({
                 <li
                   key={feature.id}
                   data-testid="whats-new-card"
-                  className="flex flex-col items-center gap-0.5 rounded-xl border bg-card/85 px-2 pt-1 pb-2.5 text-center backdrop-blur-[1px] dark:bg-card/80"
+                  className="flex flex-col items-center gap-0.5 rounded-xl border bg-card/85 px-2 pt-1 pb-2.5 text-center dark:bg-card/80"
                 >
                   <img
                     src={iconFor(index)}
