@@ -539,22 +539,6 @@ describe("ScorePlayer", () => {
         expect(mirrorOf(drumsOf(song))).toBeNull();
       });
     });
-
-    it("dims nothing for one track and the other tracks' bars for several", async () => {
-      const { player, api, score: song } = await setup({ layout: "horizontal" });
-      const bar = (track: unknown, x: number) => ({
-        bar: { staff: { track } },
-        visualBounds: { x, y: 0, w: 50, h: 40 },
-      });
-      api.boundsLookup = {
-        staffSystems: [{ bars: [{ bars: [bar(song.tracks[0], 0), bar(song.tracks[1], 100)] }] }],
-      } as never;
-
-      expect(player.contextRects()).toEqual([]);
-
-      player.setStack({ indexes: [0, 1], views: [tab, tab] });
-      expect(player.contextRects()).toEqual([{ x: 100, y: 0, w: 50, h: 40 }]);
-    });
   });
 
   it("re-renders for notation and layout changes without touching playback", async () => {

@@ -1098,23 +1098,6 @@ export class ScorePlayer {
       });
   }
 
-  /** The bars drawn for the stacked tracks other than the one being edited (read-only context; #157). */
-  contextRects(): Rect[] {
-    if (this.shownIndexes().length < 2) return [];
-    const active = this.track;
-    return (this.api.boundsLookup?.staffSystems ?? []).flatMap((system) =>
-      system.bars.flatMap((masterBar) =>
-        masterBar.bars
-          // A bar's owner: alphaTab leaves `bar` unset on some bounds, then its first beat knows.
-          .filter((bounds) => {
-            const track = (bounds.bar ?? bounds.beats[0]?.beat.voice.bar)?.staff.track;
-            return track !== undefined && track !== active;
-          })
-          .map(({ visualBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
-      ),
-    );
-  }
-
   /** Where a note's head (or fret number) is drawn, on each staff. */
   noteRects(note: Note): Rect[] {
     const mirror = mirrorNoteOf(note);

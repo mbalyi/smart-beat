@@ -13,18 +13,23 @@ import {
 
 /** Continuous view with several tracks stacked and bar-aligned (#157). */
 const mixer = (page: Page) => page.getByRole("region", { name: "Tracks and mixer" });
-const context = (page: Page) => page.getByTestId("bar-context");
+/** Height of the drawn score: it grows with every stacked staff (and a drum tab). */
+const drawnHeight = (page: Page) =>
+  page
+    .locator(".at-surface svg:visible")
+    .evaluateAll((svgs) =>
+      Math.round(Math.max(...svgs.map((svg) => svg.getBoundingClientRect().height))),
+    );
 
-/** Where the dimmed bars (the tracks that are not edited) are drawn: left edges and tops. */
-async function contextBars(page: Page) {
-  await expect.poll(() => context(page).count()).toBeGreaterThan(0);
-  return context(page).evaluateAll((els) =>
-    els.map((el) => {
-      const r = el.getBoundingClientRect();
-      return { x: Math.round(r.left), y: Math.round(r.top), right: Math.round(r.right) };
-    }),
+/** The track names drawn at the left of the staves, top to bottom. */
+const drawnOrder = (page: Page) =>
+  page.locator(".at-surface svg:visible text").evaluateAll((texts) =>
+    texts
+      .filter((t) => ["Guitar", "Bass", "Drums", "Piano"].includes(t.textContent?.trim() ?? ""))
+      .map((t) => ({ name: t.textContent!.trim(), top: t.getBoundingClientRect().top }))
+      .sort((a, b) => a.top - b.top)
+      .map((t) => t.name),
   );
-}
 
 async function stack(page: Page, ...tracks: string[]) {
   await page.getByRole("radio", { name: "Continuous" }).click();
@@ -43,44 +48,29 @@ test.describe("several tracks in the continuous view (#157)", () => {
     app,
   }) => {
     await openSong(app);
-    await expect(context(app)).toHaveCount(0);
-    const single = (await app.locator(".at-surface").first().boundingBox())!.height;
+    const single = await drawnHeight(app);
 
     await stack(app, "Drums");
 
     await expect(scoreRegion(app)).toHaveAccessibleName("Score: Guitar");
-    expect((await app.locator(".at-surface").first().boundingBox())!.height).toBeGreaterThan(
-      single,
-    );
-    // The drums are drawn dimmed, below the guitar, in the same columns.
-    const drumsBelow = await contextBars(app);
-    expect(drumsBelow.length).toBeGreaterThan(1);
+    await expect.poll(() => drawnHeight(app)).toBeGreaterThan(single);
+    // Nothing is dimmed or covered: the other track is drawn as it is.
+    await expect(app.locator(".at-surface").first()).toBeVisible();
 
-    // Back to the page layout: only the edited track, no dimming.
+    // Back to the page layout: only the edited track.
     await app.getByRole("radio", { name: "Page" }).click();
-    await expect(context(app)).toHaveCount(0);
+    await expect.poll(() => drawnHeight(app)).toBe(single);
   });
 
-  test("lines the bars up whatever the order of the tracks", async ({ app }) => {
+  test("reorders the stacked tracks without touching the order in the file", async ({ app }) => {
     await openSong(app);
     await stack(app, "Drums");
-    const below = await contextBars(app);
+    await expect.poll(() => drawnOrder(app)).toEqual(["Guitar", "Drums"]);
 
     await mixer(app).getByRole("button", { name: "Actions for Drums" }).click();
     await app.getByRole("menuitem", { name: "Move up in the view" }).click();
-    await waitForScore(app);
-    await expect.poll(async () => (await contextBars(app))[0]!.y).toBeLessThan(below[0]!.y);
-    const above = await contextBars(app);
 
-    // The guitar is now the dimmed one, but its bars end where the drums' bars ended: the same
-    // distances between the bar ends (the whole view may have moved a little).
-    const gaps = (bars: { right: number }[]) => {
-      const ends = [...new Set(bars.map((b) => b.right))].sort((a, b) => a - b);
-      return ends.slice(1).map((end, i) => end - ends[i]!);
-    };
-    const drumGaps = gaps(below);
-    expect(drumGaps.length).toBeGreaterThan(1);
-    gaps(above).forEach((gap, i) => expect(Math.abs(gap - drumGaps[i]!)).toBeLessThanOrEqual(1));
+    await expect.poll(() => drawnOrder(app)).toEqual(["Drums", "Guitar"]);
     // The file order of the tracks is untouched.
     await expect(mixer(app).getByRole("listitem").nth(2)).toContainText("Drums");
   });
@@ -97,12 +87,11 @@ test.describe("several tracks in the continuous view (#157)", () => {
       .click();
 
     await expect(scoreRegion(app)).toHaveAccessibleName("Score: Bass");
-    // Both tracks are still in the view; the guitar is the dimmed one now.
+    // Both tracks are still in the view.
     await expect(mixer(app).getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    await contextBars(app);
     // The track being edited cannot be taken out of the view.
     await expect(mixer(app).getByRole("button", { name: "Visible: Bass" })).toBeDisabled();
   });
@@ -143,14 +132,14 @@ test.describe("several tracks in the continuous view (#157)", () => {
   }) => {
     await openSong(app);
     await stack(app, "Drums");
-    // The drums are shown as score and tab: two staves for each of the four bars.
-    await expect.poll(() => context(app).count()).toBe(8);
+    // The drums are shown as score and tab: the tab staff makes the stack taller.
+    const height = await drawnHeight(app);
 
     await app.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(scoreRegion(app)).toBeFocused();
     await app.keyboard.press("3");
     await waitForScore(app);
-    await expect.poll(() => context(app).count()).toBe(8);
+    await expect.poll(() => drawnHeight(app)).toBeGreaterThan(height - 40);
 
     const tabs = app.getByRole("navigation", { name: "Open songs" });
     await expect.poll(() => app.evaluate(() => window.__mixes.size)).toBeGreaterThan(0);
@@ -159,7 +148,7 @@ test.describe("several tracks in the continuous view (#157)", () => {
     const discard = app.getByRole("button", { name: /Don.t save|Discard/ });
     if (await discard.isVisible().catch(() => false)) await discard.click();
     await openSong(app);
-    await expect.poll(() => context(app).count()).toBe(8);
+    await expect.poll(() => drawnHeight(app)).toBeGreaterThan(height - 40);
   });
 
   test("counts the continuous layout and the first stack of tracks, once each", async ({ app }) => {

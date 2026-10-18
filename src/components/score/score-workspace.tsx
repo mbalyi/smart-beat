@@ -633,8 +633,6 @@ export function ScoreWorkspace({
   const afterRender = useRef<(() => void) | null>(null);
   /** Where bars with the wrong length are drawn (shown track). */
   const [problemRects, setProblemRects] = useState<Rect[]>([]);
-  /** The bars of the other stacked tracks, drawn dimmed (they are context, not editable). */
-  const [contextRects, setContextRects] = useState<Rect[]>([]);
   const [scale, setScale] = useState<Scale | null>(null);
   const scalePickerRef = useRef<HTMLButtonElement>(null);
   const [practice, dispatchPracticeAction] = useReducer(practiceReducer, undefined, () =>
@@ -731,10 +729,6 @@ export function ScoreWorkspace({
         .map((b) => union(player.beatRects(b)))
         .filter((r): r is Rect => r !== null),
     });
-  });
-
-  const refreshContextRects = useEffectEvent(() => {
-    setContextRects(playerRef.current?.contextRects() ?? []);
   });
 
   /** Draws a frame around every bar of the shown track with the wrong length. */
@@ -851,7 +845,6 @@ export function ScoreWorkspace({
         onRendered: () => {
           updateOverlay();
           refreshProblemRects();
-          refreshContextRects();
           const next = afterRender.current;
           afterRender.current = null;
           next?.();
@@ -2606,7 +2599,6 @@ export function ScoreWorkspace({
               editing={editing}
               overlay={overlay}
               problemRects={problemRects}
-              contextRects={contextRects}
               describedBy={editing ? statusId : undefined}
             />
           </ScoreContextMenu>
