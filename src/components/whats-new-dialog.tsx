@@ -63,9 +63,9 @@ export function WhatsNewDialog({
       >
         <div className="relative isolate flex min-h-0 flex-1 flex-col">
           <WhatsNewArt />
-          <DialogHeader className="flex-row items-center gap-4 px-6 pt-4 md:px-10">
+          <DialogHeader className="flex-row items-center gap-4 px-6 pt-2 pb-0 md:px-10">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <DialogTitle className="flex items-center">
+              <DialogTitle className="mt-[-8px] ml-[-32px] flex items-start">
                 <img
                   src={title}
                   alt=""
@@ -74,7 +74,7 @@ export function WhatsNewDialog({
                 />
                 <span className="sr-only">What’s new in {version}</span>
               </DialogTitle>
-              <DialogDescription className="-mt-10 text-base">
+              <DialogDescription className="text-base">
                 New and changed features in version {version}. “Show me” opens a short tour of the
                 feature.
               </DialogDescription>
@@ -83,10 +83,10 @@ export function WhatsNewDialog({
               src={hero}
               alt=""
               aria-hidden="true"
-              className="hidden w-[34%] max-w-[360px] shrink-0 md:block"
+              className="mt-[-16px] mr-[-32px] hidden w-[40%] max-w-[360px] shrink-0 md:block"
             />
           </DialogHeader>
-          <DialogBody className="px-6 pt-1 pb-6 md:px-10">
+          <DialogBody className="mt-[-8px] px-6 pt-0 pb-6 md:px-10">
             <ul
               aria-label="New features"
               className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
@@ -103,8 +103,8 @@ export function WhatsNewDialog({
                     aria-hidden="true"
                     className="-mb-1 size-32 shrink-0 object-contain"
                   />
-                  <h3 className="text-base font-semibold">{feature.title}</h3>
-                  <p className="text-sm text-muted-foreground">{feature.summary}</p>
+                  <h3 className="mt-[-8px] text-base font-semibold">{feature.title}</h3>
+                  <p className="mb-2 text-sm text-muted-foreground">{feature.summary}</p>
                   {feature.tour && (
                     <Button
                       variant="outline"
