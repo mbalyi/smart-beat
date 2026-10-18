@@ -47,6 +47,40 @@ describe("WhatsNewDialog", () => {
     expect(onShowMe).toHaveBeenCalledExactlyOnceWith("editing");
   });
 
+  it("cycles three decorative icons over the cards", () => {
+    const many: FeatureEntry[] = ["a", "b", "c", "d"].map((id) => ({
+      id,
+      title: `Feature ${id}`,
+      summary: "Does it.",
+      since: "1.1.0",
+    }));
+    renderWithProviders(
+      <WhatsNewDialog
+        open
+        onOpenChange={vi.fn()}
+        version="1.1.0"
+        features={many}
+        onShowMe={vi.fn()}
+      />,
+    );
+    const cards = screen.getAllByTestId("whats-new-card");
+    const srcs = cards.map((card) => card.querySelector("img")!.getAttribute("src"));
+    expect(new Set(srcs).size).toBe(3);
+    expect(srcs[3]).toBe(srcs[0]);
+    for (const card of cards) {
+      expect(card.querySelector("img")).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it("lays the cards out in one, two or three columns by width", () => {
+    renderDialog();
+    expect(screen.getByRole("list", { name: "New features" })).toHaveClass(
+      "grid-cols-1",
+      "sm:grid-cols-2",
+      "lg:grid-cols-3",
+    );
+  });
+
   it("has no accessibility violations", async () => {
     renderDialog();
     await expectNoA11yViolations();

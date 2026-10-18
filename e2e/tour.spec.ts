@@ -211,6 +211,40 @@ test.describe("What's new", () => {
   });
 });
 
+test.describe("What's new layout", () => {
+  const widths = [
+    { width: 375, columns: 1 },
+    { width: 800, columns: 2 },
+    { width: 1280, columns: 3 },
+  ];
+  for (const { width, columns } of widths) {
+    test(`shows ${columns} card(s) per row at ${width}px without sideways scrolling`, async ({
+      app,
+    }) => {
+      await app.setViewportSize({ width, height: 800 });
+      await app.evaluate(() =>
+        localStorage.setItem(
+          "smart-beat:tour",
+          JSON.stringify({ tours: { main: "done" }, hints: {}, lastSeenVersion: "0.9.0" }),
+        ),
+      );
+      await app.reload();
+      const dialog = app.getByRole("dialog", { name: /What’s new in/ });
+      await expect(dialog).toBeVisible();
+      const xs = await dialog
+        .getByTestId("whats-new-card")
+        .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().x)));
+      expect(new Set(xs).size).toBe(Math.min(columns, xs.length));
+      const body = dialog.locator("[data-slot='dialog-body']");
+      expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+      for (const colorScheme of ["light", "dark"] as const) {
+        await app.emulateMedia({ colorScheme });
+        await expectNoA11yViolations(app, { popup: "[role='dialog']" });
+      }
+    });
+  }
+});
+
 test.describe("responsive and accessible", () => {
   test.use({ firstLaunch: true });
 
