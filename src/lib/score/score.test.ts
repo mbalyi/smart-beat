@@ -93,11 +93,14 @@ describe("applyTrackView", () => {
     expect(drums.staves[0]!.showTablature).toBe(false);
   });
 
-  it("removes the drum tab when another track is shown", () => {
+  it("keeps the drum tab when the view of another track is applied (stacked tracks, #157)", () => {
     const { score } = parseScore(fixture("practice-song.gp"));
-    applyTrackView(score.tracks[2]!, { notation: "tab", rhythm: false });
+    applyTrackView(score.tracks[2]!, { notation: "score-tab", rhythm: false });
+    expect(score.tracks[2]!.staves).toHaveLength(2);
+
     applyTrackView(score.tracks[0]!, { notation: "tab", rhythm: false });
-    expect(score.tracks[2]!.staves).toHaveLength(1);
+
+    expect(score.tracks[2]!.staves).toHaveLength(2);
   });
 
   it("keeps keyboards in standard notation", () => {

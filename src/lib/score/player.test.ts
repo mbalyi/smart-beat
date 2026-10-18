@@ -1,14 +1,15 @@
 import { LayoutMode, midi, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
 
 import { mixerReducer, mixFromScore } from "@/lib/score/mixer";
-import { cloneNote } from "@/lib/score/model";
+import { mirrorOf } from "@/lib/score/drum-tab";
+import { cloneNote, type Track } from "@/lib/score/model";
 import {
   isSoundFont,
   ScorePlayer,
   type ScorePlayerCallbacks,
   type ScorePlayerOptions,
 } from "@/lib/score/player";
-import { parseScore } from "@/lib/score/score";
+import { parseScore, type TrackView } from "@/lib/score/score";
 import { readStoredSoundFont } from "@/lib/tauri";
 import { FakeAlphaTabApi } from "@/test/fake-alphatab";
 import { generateMidi, noteOns } from "@/test/playback";
@@ -485,6 +486,58 @@ describe("ScorePlayer", () => {
       });
 
       expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0], song.tracks[1]]);
+    });
+
+    describe("the drum tab of a stacked drum track", () => {
+      const both = { notation: "score-tab", rhythm: false } as const;
+      const stackOf = (views: TrackView[]) => ({ indexes: [0, 2], views });
+      const drumsOf = (song: { tracks: unknown[] }) => song.tracks[2] as never as Track;
+
+      it("is there when the stack is restored with the guitar active", async () => {
+        const { score: song } = await setup({ layout: "horizontal", stack: stackOf([both, both]) });
+
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+      });
+
+      it("survives an edit of the active guitar and a change of its notation", async () => {
+        const {
+          player,
+          score: song,
+          mix,
+        } = await setup({
+          layout: "horizontal",
+          stack: stackOf([both, both]),
+        });
+
+        player.refresh({ trackIndex: 0, view: both, mix, stack: stackOf([both, both]) });
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+
+        player.setView({ notation: "tab", rhythm: false });
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+      });
+
+      it("keeps a drum track that is shown as Tab", async () => {
+        const tabOnly = { notation: "tab", rhythm: false } as const;
+        const { score: song } = await setup({
+          layout: "horizontal",
+          stack: stackOf([both, tabOnly]),
+        });
+
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+        expect(drumsOf(song).staves[0]!.showStandardNotation).toBe(false);
+      });
+
+      it("is dropped again when only the guitar is drawn, and built when the layout changes", async () => {
+        const { player, score: song } = await setup({ stack: stackOf([both, both]) });
+        // Page layout: only the guitar is drawn.
+        expect(mirrorOf(drumsOf(song))).toBeNull();
+
+        player.setLayout("horizontal");
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+
+        player.setStack({ indexes: [0], views: [both] });
+        expect(mirrorOf(drumsOf(song))).toBeNull();
+      });
     });
 
     it("dims nothing for one track and the other tracks' bars for several", async () => {

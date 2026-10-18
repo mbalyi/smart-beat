@@ -41,6 +41,7 @@ import {
   mirrorOf,
   realBeatOf,
   realNoteOf,
+  pruneMirrors,
   removeMirrorNotes,
 } from "@/lib/score/drum-tab";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
@@ -259,6 +260,7 @@ export class ScorePlayer {
   private trackIndex: number;
   private layout: Layout;
   private stack: number[] = [];
+  private stackViews: TrackView[] = [];
   private mix: MixerSettings;
   private ready = false;
   /**
@@ -579,16 +581,29 @@ export class ScorePlayer {
 
   private applyView(view: TrackView) {
     applyTrackView(this.track, view);
+    this.syncStack();
   }
 
-  /** Keeps the stack and gives each stacked track its notation. */
+  /** Keeps the stack (the notation of each stacked track is applied by `syncStack`). */
   private applyStack(stack: TrackStack | undefined) {
     this.stack = stack?.indexes ?? [];
-    stack?.indexes.forEach((index, i) => {
-      const track = this.score.tracks[index];
-      const view = stack.views[i];
-      if (track && view && index !== this.trackIndex) applyTrackView(track, view);
-    });
+    this.stackViews = stack?.views ?? [];
+  }
+
+  /**
+   * Gives each drawn track its own notation, each drum track its own drum tab, and drops the drum
+   * tab of the tracks that are not drawn. Per track: showing one never changes another (#157).
+   */
+  private syncStack() {
+    const shown = this.shownIndexes();
+    if (shown.length > 1) {
+      this.stack.forEach((index, i) => {
+        const track = this.score.tracks[index];
+        const view = this.stackViews[i];
+        if (track && view && index !== this.trackIndex) applyTrackView(track, view);
+      });
+    }
+    pruneMirrors(this.score, this.shownTracks());
   }
 
   /** Several tracks are drawn one under another in the continuous layout only. */
@@ -707,6 +722,7 @@ export class ScorePlayer {
 
   setLayout(layout: Layout) {
     this.layout = layout;
+    this.syncStack();
     this.api.settings.display.layoutMode = LAYOUT_MODES[layout];
     this.api.updateSettings();
     if (this.stack.length > 1) this.api.renderTracks(this.shownTracks());
@@ -717,6 +733,7 @@ export class ScorePlayer {
   setStack(stack: TrackStack) {
     const before = this.shownIndexes().join();
     this.applyStack(stack);
+    this.syncStack();
     if (this.shownIndexes().join() === before) return;
     this.afterViewChange();
     this.api.updateSettings();

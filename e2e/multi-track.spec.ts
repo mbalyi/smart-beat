@@ -138,6 +138,30 @@ test.describe("several tracks in the continuous view (#157)", () => {
     ).toBeVisible();
   });
 
+  test("keeps the drum tab of a stacked drum track while the guitar is edited and after reopening", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await stack(app, "Drums");
+    // The drums are shown as score and tab: two staves for each of the four bars.
+    await expect.poll(() => context(app).count()).toBe(8);
+
+    await app.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(scoreRegion(app)).toBeFocused();
+    await app.keyboard.press("3");
+    await waitForScore(app);
+    await expect.poll(() => context(app).count()).toBe(8);
+
+    const tabs = app.getByRole("navigation", { name: "Open songs" });
+    await expect.poll(() => app.evaluate(() => window.__mixes.size)).toBeGreaterThan(0);
+    await tabs.getByRole("button", { name: "Close Practice Song" }).click();
+    // An edited song asks before it closes.
+    const discard = app.getByRole("button", { name: /Don.t save|Discard/ });
+    if (await discard.isVisible().catch(() => false)) await discard.click();
+    await openSong(app);
+    await expect.poll(() => context(app).count()).toBe(8);
+  });
+
   test("counts the continuous layout and the first stack of tracks, once each", async ({ app }) => {
     await openSong(app);
     await stack(app, "Drums", "Bass");

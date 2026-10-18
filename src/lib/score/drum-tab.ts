@@ -139,31 +139,33 @@ export function buildMirror(drums: Staff): Staff {
   return staff;
 }
 
-/** Removes every mirror staff from the score. Returns whether there was one. */
-function detachMirrors(score: Score): boolean {
+/**
+ * Shows (`true`) or hides the drum tab of a drum track: rebuilds the mirror
+ * from the drum staff (after edits too), or removes it. Other tracks' mirrors
+ * are left alone, so several drum tracks can show their tab together (the
+ * stacked continuous view, #157). Re-links the model afterwards.
+ */
+export function setDrumTab(score: Score, track: Track, shown: boolean): void {
+  track.staves = realStaves(track);
+  const drums = track.staves[0];
+  if (shown && drums?.isPercussion) {
+    track.addStaff(buildMirror(drums));
+  }
+  refinish(score);
+}
+
+/** Removes the mirror staves of every track that is not in `keep` (they are not drawn). */
+export function pruneMirrors(score: Score, keep: readonly Track[]): void {
   let removed = false;
   for (const track of score.tracks) {
+    if (keep.includes(track)) continue;
     const kept = realStaves(track);
     if (kept.length !== track.staves.length) {
       track.staves = kept;
       removed = true;
     }
   }
-  return removed;
-}
-
-/**
- * Shows (`true`) or hides the drum tab of a drum track: rebuilds the mirror
- * from the drum staff (after edits too), or removes it. Any other track's
- * mirror is removed. Re-links the model afterwards.
- */
-export function setDrumTab(score: Score, track: Track, shown: boolean): void {
-  detachMirrors(score);
-  const drums = track.staves[0];
-  if (shown && drums?.isPercussion) {
-    track.addStaff(buildMirror(drums));
-  }
-  refinish(score);
+  if (removed) refinish(score);
 }
 
 /** The drum track's mirror staff, if the drum tab is shown. */
