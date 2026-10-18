@@ -525,12 +525,21 @@ describe("App: recent songs and saving", () => {
 
   it("opens the song File › Open Recent names", async () => {
     await renderWithRecent();
-    await waitFor(async () => {
-      await act(() => emitOpenRecent(SONG));
-      expect(
-        await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
-      ).toBeInTheDocument();
-    });
+    // The menu listener is added after the first render: ask again until it answers (a slow
+    // runner needs more than the default second for each try and for all of them).
+    await waitFor(
+      async () => {
+        await act(() => emitOpenRecent(SONG));
+        expect(
+          await screen.findByRole(
+            "heading",
+            { level: 1, name: "Practice Song" },
+            { timeout: 3000 },
+          ),
+        ).toBeInTheDocument();
+      },
+      { timeout: 12_000 },
+    );
   });
 
   it("File › Open Recent opens the song in a new tab, leaving an edited song alone", async () => {
