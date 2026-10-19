@@ -362,6 +362,8 @@ export interface MixerSettings {
   drumLines?: DrumLine[];
   /** The tracks stacked in the continuous view (score indexes in display order; missing: only the shown one; #157). */
   visibleTracks?: number[];
+  /** The track being edited when several are stacked (restored with them; #157). */
+  activeTrack?: number;
 }
 
 /** The drum-tab line (1 bottom … 6 top) of the drum note at a position (0-based indices). */

@@ -261,12 +261,41 @@ describe("ScoreWorkspace", () => {
         });
 
         const saved = calls.filter((c) => c.cmd === "save_mixer_settings").at(-1)!;
-        expect(
-          (saved.args as { settings: { visibleTracks?: number[] } }).settings.visibleTracks,
-        ).toEqual([0, 2]);
+        expect((saved.args as { settings: object }).settings).toMatchObject({
+          visibleTracks: [0, 2],
+          activeTrack: 0,
+        });
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("reopens on the track that was edited, with the stack it was saved with", async () => {
+      const song = await makeSong();
+      // Bass was edited and Drums stacked: track 0 is not in the view.
+      song.mix = { ...song.mix, visibleTracks: [1, 2], activeTrack: 1 };
+      renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+      const player = FakeScorePlayer.last;
+
+      expect(player.options.trackIndex).toBe(1);
+      expect(player.options.stack?.indexes).toEqual([1, 2]);
+      expect(screen.getByRole("region", { name: "Score: Bass" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      // Opening it does not change what was saved.
+      await act(async () => {});
+      expect(song.mix.visibleTracks).toEqual([1, 2]);
+    });
+
+    it("ignores a saved active track that is not in the saved stack", async () => {
+      const song = await makeSong();
+      song.mix = { ...song.mix, visibleTracks: [1, 2], activeTrack: 0 };
+      renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+
+      expect(FakeScorePlayer.last.options.trackIndex).toBe(0);
+      expect(FakeScorePlayer.last.options.stack?.indexes).toEqual([0, 1, 2]);
     });
 
     it("restores a saved stack and its continuous layout", async () => {

@@ -445,7 +445,17 @@ export function ScoreWorkspace({
   onOpenSettings?: (from: HTMLElement) => void;
 }) {
   const score = song.score;
-  const editor = useScoreEditor(score, song.unsaved);
+  // The track the song was left on, when several were stacked (#157): the saved stack only makes
+  // sense with the track that was being edited.
+  const [startTrack] = useState(() => {
+    const { activeTrack, visibleTracks = [] } = song.mix;
+    const valid =
+      activeTrack !== undefined &&
+      !!score.tracks[activeTrack] &&
+      (visibleTracks.length === 0 || visibleTracks.includes(activeTrack));
+    return valid ? activeTrack : 0;
+  });
+  const editor = useScoreEditor(score, song.unsaved, startTrack);
   const summary = summarizeScore(score);
   const statusId = useId();
 
@@ -480,7 +490,7 @@ export function ScoreWorkspace({
 
   // The tracks stacked in the continuous view, in display order; the shown track is always one.
   const [stackedTracks, setStackedTracks] = useState<Track[]>(() =>
-    stackFromIndexes(song.mix.visibleTracks ?? [], score.tracks, score.tracks[0]!),
+    stackFromIndexes(song.mix.visibleTracks ?? [], score.tracks, score.tracks[startTrack]!),
   );
   const stack = reconcileStack(stackedTracks, score.tracks, trackObject);
   const stackRef = useRef(stack);
@@ -903,14 +913,26 @@ export function ScoreWorkspace({
   const loopCountIn = !!practice.trainer?.countInBetween && audioEngine === "native";
   useEffect(() => playerRef.current?.setLoopCountIn(loopCountIn), [loopCountIn]);
 
-  // The stacked tracks are saved with the song (as score indexes).
-  const stackKey = stackToIndexes(stack, score.tracks).join(",");
+  // The stacked tracks and the one being edited are saved with the song (as score indexes).
+  const stackKey = `${stackToIndexes(stack, score.tracks).join(",")}|${trackIndex}`;
   useEffect(() => {
     const visible = stack.length > 1 ? stackToIndexes(stack, score.tracks) : undefined;
-    const saved = mixRef.current.visibleTracks;
-    if ((saved ?? []).join(",") === (visible ?? []).join(",")) return;
-    const next = { ...mixRef.current, visibleTracks: visible };
-    if (!visible) delete next.visibleTracks;
+    const saved = mixRef.current;
+    if (
+      (saved.visibleTracks ?? []).join(",") === (visible ?? []).join(",") &&
+      (visible ? saved.activeTrack === trackIndex : saved.activeTrack === undefined)
+    ) {
+      return;
+    }
+    const next = {
+      ...saved,
+      visibleTracks: visible,
+      activeTrack: visible ? trackIndex : undefined,
+    };
+    if (!visible) {
+      delete next.visibleTracks;
+      delete next.activeTrack;
+    }
     mixRef.current = next;
     setMix(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the saved form of the stack

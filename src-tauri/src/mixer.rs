@@ -100,6 +100,9 @@ pub struct MixerSettings {
     /// only the shown track.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub visible_tracks: Vec<u32>,
+    /// The track being edited while several are stacked (#157), as a score index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_track: Option<u32>,
 }
 
 /// The drum-tab line of one drum note, by its position in the score (0-based
@@ -461,6 +464,13 @@ impl MixerSettings {
         {
             return Err("a visible track is out of range or repeated".into());
         }
+        if let Some(active) = self.active_track {
+            if active as usize >= MAX_TRACKS
+                || (!self.visible_tracks.is_empty() && !self.visible_tracks.contains(&active))
+            {
+                return Err("the active track is out of range or not in the visible tracks".into());
+            }
+        }
         Ok(())
     }
 }
@@ -606,6 +616,7 @@ mod tests {
             track_colors: Vec::new(),
             drum_lines: Vec::new(),
             visible_tracks: Vec::new(),
+            active_track: None,
         }
     }
 
@@ -796,6 +807,7 @@ mod tests {
                 line: 6,
             }],
             visible_tracks: vec![1, 0],
+            active_track: Some(1),
             ..settings()
         }
     }
@@ -836,6 +848,27 @@ mod tests {
             ..settings()
         };
         assert!(good.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_an_active_track_outside_the_visible_ones() {
+        let bad = MixerSettings {
+            visible_tracks: vec![1, 2],
+            active_track: Some(0),
+            ..settings()
+        };
+        assert!(bad.validate().unwrap_err().contains("active track"));
+        let good = MixerSettings {
+            visible_tracks: vec![1, 2],
+            active_track: Some(2),
+            ..settings()
+        };
+        assert!(good.validate().is_ok());
+        let range = MixerSettings {
+            active_track: Some(MAX_TRACKS as u32),
+            ..settings()
+        };
+        assert!(range.validate().is_err());
     }
 
     #[test]

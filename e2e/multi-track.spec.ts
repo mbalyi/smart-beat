@@ -151,6 +151,41 @@ test.describe("several tracks in the continuous view (#157)", () => {
     await expect.poll(() => drawnHeight(app)).toBeGreaterThan(height - 40);
   });
 
+  test("reopens on the edited track with the stack it was saved with, even without the first track", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await app.getByRole("radio", { name: "Continuous" }).click();
+    await mixer(app)
+      .getByRole("button", { name: /^Show Bass/ })
+      .click();
+    await mixer(app).getByRole("button", { name: "Visible: Drums" }).click();
+    const saved = () =>
+      app.evaluate(() =>
+        [...window.__mixes.values()].map((m) => {
+          const { visibleTracks, activeTrack } = m as unknown as {
+            visibleTracks?: number[];
+            activeTrack?: number;
+          };
+          return { visibleTracks, activeTrack };
+        }),
+      );
+    await expect.poll(saved).toEqual([{ visibleTracks: [1, 2], activeTrack: 1 }]);
+
+    const tabs = app.getByRole("navigation", { name: "Open songs" });
+    await tabs.getByRole("button", { name: "Close Practice Song" }).click();
+    await openSong(app);
+
+    await expect(scoreRegion(app)).toHaveAccessibleName("Score: Bass");
+    await expect(mixer(app).getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    // Reopening did not change what was saved (the first track was not added back).
+    await app.waitForTimeout(1200);
+    expect(await saved()).toEqual([{ visibleTracks: [1, 2], activeTrack: 1 }]);
+  });
+
   test("counts the continuous layout and the first stack of tracks, once each", async ({ app }) => {
     await openSong(app);
     await stack(app, "Drums", "Bass");
