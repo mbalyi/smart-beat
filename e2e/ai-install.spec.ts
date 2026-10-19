@@ -31,7 +31,9 @@ async function settled(app: Page) {
 }
 
 const installer = (app: Page) =>
-  app.getByRole("dialog", { name: /Powered by MuScriptor|Models|Register|Downloading|set up/ });
+  app.getByRole("dialog", {
+    name: /Powered by MuScriptor|Pick your model|Register|Downloading|set up/,
+  });
 
 async function openAudio(app: Page) {
   const welcome = app.getByRole("button", { name: "Import from Audio…" });
@@ -50,7 +52,7 @@ async function walkInstaller(app: Page, size: "Small" | "Medium" | "Large" = "Me
   await dialog.getByRole("button", { name: "Choose a model" }).click();
   await dialog.getByRole("radio", { name: new RegExp(size) }).check();
   await dialog.getByRole("button", { name: "Continue" }).click();
-  const download = dialog.getByRole("button", { name: new RegExp(`^Download ${size}`) });
+  const download = dialog.getByRole("button", { name: "Continue" });
   await expect(download).toBeDisabled();
   await dialog.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }).check();
   await expect(download).toBeDisabled();
@@ -153,11 +155,11 @@ test.describe("AI installer (#150)", () => {
       expect(box.width).toBeCloseTo(boxes[0].width, 0);
       expect(box.height).toBeCloseTo(boxes[0].height, 0);
     }
-    // Back, the primary action and Close stay put (the primary's width follows its label).
+    // Close or Back on the left and the primary action on the right stay put.
     for (const row of footer) {
-      expect(row).toHaveLength(3);
+      expect(row).toHaveLength(2);
       expect(row[0].x).toBeCloseTo(footer[0][0].x, 0);
-      expect(row[2].x + row[2].width).toBeCloseTo(footer[0][2].x + footer[0][2].width, 0);
+      expect(row[1].x + row[1].width).toBeCloseTo(footer[0][1].x + footer[0][1].width, 0);
       expect(row[0].y).toBeCloseTo(footer[0][0].y, 0);
     }
   });
@@ -173,7 +175,7 @@ test.describe("AI installer (#150)", () => {
     await dialog.getByRole("button", { name: "Continue" }).click();
     await dialog.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }).check();
     await dialog.getByRole("checkbox", { name: /only use MuScriptor with my own music/ }).check();
-    await dialog.getByRole("button", { name: /^Download Medium/ }).click();
+    await dialog.getByRole("button", { name: "Continue" }).click();
     await expect(dialog.getByText("The network dropped.")).toBeVisible();
     await app.evaluate(() => {
       window.__muscriptor.fail = null;
@@ -193,12 +195,9 @@ test.describe("AI installer (#150)", () => {
     await dialog.getByRole("button", { name: "Continue" }).click();
     await dialog.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }).check();
     await dialog.getByRole("checkbox", { name: /only use MuScriptor with my own music/ }).check();
-    await dialog.getByRole("button", { name: /^Download Medium/ }).click();
+    await dialog.getByRole("button", { name: "Continue" }).click();
     await expect(dialog.getByRole("progressbar", { name: "Download" })).toBeVisible();
-    await dialog
-      .locator('[data-slot="dialog-footer"]')
-      .getByRole("button", { name: "Close" })
-      .click();
+    await dialog.getByRole("button", { name: "Close" }).click();
     await expect.poll(() => app.evaluate(() => window.__muscriptor.cancelled)).toBeGreaterThan(0);
     await expect(app.getByRole("dialog", { name: "Import from Audio" })).toBeVisible();
     await expect(app.getByTestId("audio-needs-model")).toBeVisible();

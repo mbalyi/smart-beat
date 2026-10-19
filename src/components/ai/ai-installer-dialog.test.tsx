@@ -73,8 +73,10 @@ describe("AiInstallerDialog", () => {
     expect(
       screen.getByText(/not affiliated with or endorsed by Kyutai or Mirelo/),
     ).toBeInTheDocument();
-    // No logos: text only.
-    expect(installer().querySelector("img")).toBeNull();
+    // The pictures are decoration only: no alternative text, and no logo of the model's authors.
+    const pictures = Array.from(installer().querySelectorAll("img"));
+    expect(pictures.length).toBeGreaterThan(0);
+    for (const picture of pictures) expect(picture.getAttribute("alt")).toBe("");
   });
 
   it("walks models, terms and download, and needs both boxes before it downloads", async () => {
@@ -82,14 +84,14 @@ describe("AiInstallerDialog", () => {
     onInstallerReturn("audio", back);
     const { user } = await open("audio");
     await user.click(screen.getByRole("button", { name: "Choose a model" }));
-    expect(screen.getByRole("heading", { name: "Models and performance" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pick your model size" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Medium/ })).toBeChecked();
     await user.click(screen.getByRole("radio", { name: /Small/ }));
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    const download = screen.getByRole("button", { name: /^Download Small/ });
+    const download = screen.getByRole("button", { name: "Continue" });
     expect(download).toBeDisabled();
-    expect(screen.getByRole("link", { name: /huggingface.co\/MuScriptor/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /Read the model card/ })).toHaveAttribute(
       "href",
       "https://huggingface.co/MuScriptor/muscriptor-medium",
     );
@@ -104,7 +106,7 @@ describe("AiInstallerDialog", () => {
 
     tauri.downloadMuscriptorModel.mockResolvedValue(statusWith(["small"]));
     await user.click(download);
-    await screen.findByRole("heading", { name: "Everything is set up" });
+    await screen.findByRole("heading", { name: "Everything is set up!" });
     expect(tauri.acceptMuscriptorTerms).toHaveBeenCalledWith(true);
     expect(tauri.downloadMuscriptorModel).toHaveBeenCalledWith("small", expect.any(Function));
 
@@ -121,13 +123,27 @@ describe("AiInstallerDialog", () => {
     names.push(footerNames() as string[]);
     await user.click(screen.getByRole("button", { name: "Continue" }));
     names.push(footerNames() as string[]);
-    // Always Back, the primary action and Close, in this order.
-    for (const row of names) {
-      expect(row[0]).toBe("Back");
-      expect(row[2]).toBe("Close");
-    }
+    // Two buttons, always: Close or Back on the left, the primary action on the right.
+    for (const row of names) expect(row).toHaveLength(2);
+    expect(names.map((row) => row[0])).toEqual(["Close", "Back", "Back"]);
     // The frame never changes: one fixed height class on every step.
-    expect(installer().className).toContain("h-[min(42rem,calc(100dvh-2rem))]");
+    expect(installer().className).toContain("h-[min(48rem,calc(100dvh-2rem))]");
+  });
+
+  it("shows the five steps and where the user is", async () => {
+    const { user } = await open();
+    const steps = () => screen.getAllByRole("listitem").filter((li) => li.closest("ol"));
+    expect(steps().map((li) => li.textContent?.replace(/\(.*\)/, "").trim())).toEqual([
+      "1About",
+      "2Model",
+      "3Terms",
+      "4Download",
+      "5Complete",
+    ]);
+    expect(steps()[0]).toHaveAttribute("aria-current", "step");
+    await user.click(screen.getByRole("button", { name: "Choose a model" }));
+    expect(steps()[0]).not.toHaveAttribute("aria-current");
+    expect(steps()[1]).toHaveAttribute("aria-current", "step");
   });
 
   it("shows a failed download with its reason and lets the user try again", async () => {
@@ -141,11 +157,11 @@ describe("AiInstallerDialog", () => {
       screen.getByRole("checkbox", { name: /only use MuScriptor with my own music/ }),
     );
     tauri.downloadMuscriptorModel.mockRejectedValueOnce({ message: "The network dropped." });
-    await user.click(screen.getByRole("button", { name: /^Download Medium/ }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("The network dropped.")).toBeInTheDocument();
     const retry = screen.getByRole("button", { name: "Try again" });
     await user.click(retry);
-    await screen.findByRole("heading", { name: "Everything is set up" });
+    await screen.findByRole("heading", { name: "Everything is set up!" });
   });
 
   it("stops a running download when it is closed, and returns the user", async () => {
@@ -162,9 +178,9 @@ describe("AiInstallerDialog", () => {
     );
     await user.click(screen.getByRole("button", { name: "Choose a model" }));
     await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(screen.getByRole("button", { name: /^Download Medium/ }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByRole("button", { name: "Downloading…" });
-    await user.click(footerButtons()[2]!);
+    await user.click(screen.getByRole("button", { name: "Close" }));
     expect(tauri.cancelMuscriptorDownload).toHaveBeenCalled();
     release?.();
     await waitFor(() => expect(getAiState().download).toBeNull());
