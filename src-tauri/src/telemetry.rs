@@ -25,8 +25,10 @@ pub const SETTINGS_FILE: &str = "settings.json";
 pub const MAX_DAYS: usize = 30;
 /// Most entries in one request (the Worker enforces the same limit).
 pub const MAX_ENTRIES: usize = 500;
-/// Pause between two upload attempts.
+/// Pause after a successful upload before the next background upload.
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(60 * 60);
+/// Pause after a failed upload before the next background attempt.
+pub const RETRY_AFTER: Duration = Duration::from_secs(60);
 /// Network timeout of one upload.
 pub const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -266,8 +268,24 @@ pub struct Telemetry {
     installer: String,
     version: String,
     lock: Mutex<()>,
+    /// When the last upload was accepted. Only a success starts the hourly pause.
     last_flush: Mutex<Option<Instant>>,
+    /// When the last upload failed; a short back-off, not the hourly pause.
+    last_failure: Mutex<Option<Instant>>,
+    /// Serialises uploads so a final flush never sends what a running upload already carries.
+    upload_lock: Mutex<()>,
     flushing: AtomicBool,
+}
+
+/// What one upload attempt did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// Nothing was sent: the counters are off, there is no endpoint or the queue is empty.
+    Idle,
+    /// The server accepted the batch.
+    Sent,
+    /// The batch stays queued. Holds the HTTP status or error kind, nothing else.
+    Failed(String),
 }
 
 impl Telemetry {
@@ -281,6 +299,8 @@ impl Telemetry {
             version: version.to_owned(),
             lock: Mutex::new(()),
             last_flush: Mutex::new(None),
+            last_failure: Mutex::new(None),
+            upload_lock: Mutex::new(()),
             flushing: AtomicBool::new(false),
         }
     }
@@ -394,20 +414,83 @@ impl Telemetry {
     /// server acknowledged (2xx); anything recorded meanwhile, and everything after a failure,
     /// stays for the next attempt. Returns whether a batch was accepted.
     pub fn flush(&self) -> bool {
+        self.attempt() == Outcome::Sent
+    }
+
+    /// One upload that ignores the pauses (used when the app quits). Blocks for at most
+    /// [`TIMEOUT`] plus the time of an upload that is already running.
+    pub fn flush_final(&self) -> Outcome {
+        self.attempt()
+    }
+
+    /// Uploads whatever an earlier session left, on a background thread, ignoring the hourly
+    /// pause. Called by the core at launch, so it does not depend on the page.
+    pub fn flush_at_launch(self: &std::sync::Arc<Self>) {
+        self.spawn_upload(false);
+    }
+
+    /// Starts an upload on a background thread unless the hourly pause (after a success) or the
+    /// short back-off (after a failure) is running, or an upload is. Never blocks and never
+    /// reports a failure to the caller.
+    pub fn flush_in_background(self: &std::sync::Arc<Self>) {
+        self.spawn_upload(true);
+    }
+
+    fn spawn_upload(self: &std::sync::Arc<Self>, respect_pauses: bool) {
+        if !self.active() || (respect_pauses && !self.due()) {
+            return;
+        }
+        if self.flushing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let this = std::sync::Arc::clone(self);
+        std::thread::spawn(move || {
+            this.attempt();
+            this.flushing.store(false, Ordering::SeqCst);
+        });
+    }
+
+    fn due(&self) -> bool {
+        let recent = |slot: &Mutex<Option<Instant>>, pause: Duration| {
+            slot.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some_and(|at| at.elapsed() < pause)
+        };
+        !recent(&self.last_flush, FLUSH_INTERVAL) && !recent(&self.last_failure, RETRY_AFTER)
+    }
+
+    /// Runs one upload and updates the pauses: only a success starts the hourly pause, a failure
+    /// only the short back-off, an empty queue neither.
+    fn attempt(&self) -> Outcome {
+        let _upload = self.upload_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let outcome = self.upload();
+        let now = Some(Instant::now());
+        match &outcome {
+            Outcome::Sent => *self.last_flush.lock().unwrap_or_else(|e| e.into_inner()) = now,
+            Outcome::Failed(kind) => {
+                *self.last_failure.lock().unwrap_or_else(|e| e.into_inner()) = now;
+                // Kind only: never counters, paths or the address.
+                eprintln!("smart-beat: usage upload failed ({kind})");
+            }
+            Outcome::Idle => {}
+        }
+        outcome
+    }
+
+    fn upload(&self) -> Outcome {
         let Some(endpoint) = self.endpoint.as_deref() else {
-            return false;
+            return Outcome::Idle;
         };
         if !self.settings().enabled {
-            return false;
+            return Outcome::Idle;
         }
         let sent = self.pending();
         if sent.is_empty() {
-            return false;
+            return Outcome::Idle;
         }
-        let os = std::env::consts::OS;
         let batch = Batch {
             version: &self.version,
-            os,
+            os: std::env::consts::OS,
             installer: &self.installer,
             counts: &sent,
         };
@@ -415,35 +498,17 @@ impl Telemetry {
             .timeout_global(Some(TIMEOUT))
             .build()
             .into();
-        let response = agent.post(endpoint).send_json(&batch);
-        let accepted = matches!(response, Ok(ref r) if r.status().is_success());
-        if accepted {
-            self.subtract(&sent);
-        }
-        accepted
-    }
-
-    /// Starts [`Telemetry::flush`] on a background thread unless one ran within the last hour
-    /// or is running. Never blocks and never reports a failure.
-    pub fn flush_in_background(self: &std::sync::Arc<Self>) {
-        if !self.active() {
-            return;
-        }
-        {
-            let mut last = self.last_flush.lock().unwrap_or_else(|e| e.into_inner());
-            if last.is_some_and(|at| at.elapsed() < FLUSH_INTERVAL) {
-                return;
+        match agent.post(endpoint).send_json(&batch) {
+            Ok(r) if r.status().is_success() => {
+                self.subtract(&sent);
+                Outcome::Sent
             }
-            *last = Some(Instant::now());
+            Ok(r) => Outcome::Failed(format!("HTTP {}", r.status().as_u16())),
+            Err(ureq::Error::StatusCode(code)) => Outcome::Failed(format!("HTTP {code}")),
+            Err(ureq::Error::Timeout(_)) => Outcome::Failed("timeout".into()),
+            Err(ureq::Error::Io(_)) => Outcome::Failed("network".into()),
+            Err(_) => Outcome::Failed("other".into()),
         }
-        if self.flushing.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        let this = std::sync::Arc::clone(self);
-        std::thread::spawn(move || {
-            this.flush();
-            this.flushing.store(false, Ordering::SeqCst);
-        });
     }
 
     fn subtract(&self, sent: &[Entry]) {
@@ -792,6 +857,82 @@ mod tests {
         assert!(t.flush());
         assert!(t.pending().is_empty());
         assert_eq!(server.join().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_failed_upload_only_starts_the_short_back_off() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:1/v1/batch"));
+        let t = std::sync::Arc::new(t);
+        t.record_on("2026-01-01", Event::Play, None).unwrap();
+        assert!(t.due());
+        assert!(matches!(t.flush_final(), Outcome::Failed(_)));
+        assert!(!t.due(), "back-off right after a failure");
+        *t.last_failure.lock().unwrap() = Some(Instant::now() - RETRY_AFTER);
+        assert!(t.due(), "a failure never waits for the hour");
+        assert!(t.last_flush.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn an_empty_queue_sets_no_pause() {
+        let (url, _server) = mock_server(vec![]);
+        let (_dir, t) = telemetry(Some(&url));
+        assert_eq!(t.flush_final(), Outcome::Idle);
+        assert!(t.due());
+        assert!(t.last_flush.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_success_starts_the_hourly_pause() {
+        let (url, server) = mock_server(vec![200]);
+        let (_dir, t) = telemetry(Some(&url));
+        t.record_on("2026-01-01", Event::Play, None).unwrap();
+        assert!(t.flush());
+        assert!(!t.due());
+        *t.last_flush.lock().unwrap() = Some(Instant::now() - FLUSH_INTERVAL);
+        assert!(t.due());
+        assert_eq!(server.join().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_final_flush_ignores_the_pauses_and_keeps_counters_on_failure() {
+        let (url, server) = mock_server(vec![500, 200]);
+        let (_dir, t) = telemetry(Some(&url));
+        t.record_on("2026-01-01", Event::Play, None).unwrap();
+        *t.last_flush.lock().unwrap() = Some(Instant::now());
+        assert_eq!(t.flush_final(), Outcome::Failed("HTTP 500".into()));
+        assert_eq!(t.pending().len(), 1);
+        assert_eq!(t.flush_final(), Outcome::Sent);
+        assert!(t.pending().is_empty());
+        assert_eq!(server.join().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn counters_of_a_failed_final_flush_arrive_with_the_next_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let offline = Telemetry::new(&data, Some("http://127.0.0.1:1/v1/batch"), "1.2.3");
+        offline.record_on("2026-01-01", Event::Play, None).unwrap();
+        assert!(matches!(offline.flush_final(), Outcome::Failed(_)));
+        drop(offline);
+
+        let (url, server) = mock_server(vec![200]);
+        let next = std::sync::Arc::new(Telemetry::new(&data, Some(&url), "1.2.3"));
+        next.record_on("2026-01-02", Event::AppStart, None).unwrap();
+        next.flush_at_launch();
+        let bodies = server.join().unwrap();
+        assert!(bodies[0].contains("\"play\"") && bodies[0].contains("\"app_start\""));
+    }
+
+    #[test]
+    fn a_short_session_is_delivered_by_the_final_flush() {
+        let (url, server) = mock_server(vec![200]);
+        let (_dir, t) = telemetry(Some(&url));
+        for e in [Event::AppStart, Event::Play, Event::Stop] {
+            t.record_on("2026-01-01", e, None).unwrap();
+        }
+        assert_eq!(t.flush_final(), Outcome::Sent);
+        let body = &server.join().unwrap()[0];
+        assert!(body.contains("app_start") && body.contains("play") && body.contains("stop"));
     }
 
     #[test]

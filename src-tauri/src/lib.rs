@@ -66,6 +66,10 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                     &version,
                 )));
             }
+            // Counters of an earlier session go out now, not when the page first tracks.
+            if let Some(t) = app.try_state::<std::sync::Arc<telemetry::Telemetry>>() {
+                t.flush_at_launch();
+            }
             startup::show_later(app.handle());
             Ok(())
         })
@@ -74,6 +78,12 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             // Import from Audio reads only files the user dropped (src/transcription.rs).
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 window.state::<transcription::Dropped>().record(paths);
+            }
+            // The last window is gone (the process may stay alive on macOS): send the counters.
+            if matches!(event, tauri::WindowEvent::Destroyed)
+                && window.app_handle().webview_windows().is_empty()
+            {
+                flush_on_quit(window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -158,6 +168,18 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .menu(menu::build)
-        .run(tauri::generate_context!())
-        .expect("error while running Smart Beat");
+        .build(tauri::generate_context!())
+        .expect("error while building Smart Beat")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                flush_on_quit(app);
+            }
+        });
+}
+
+/// Sends the unsent usage counters once, ignoring the hourly pause. At most the upload timeout.
+fn flush_on_quit<R: Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(t) = app.try_state::<std::sync::Arc<telemetry::Telemetry>>() {
+        t.flush_final();
+    }
 }
