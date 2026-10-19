@@ -22,7 +22,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: "ai-transcription",
     title: "AI transcription with MuScriptor",
     summary:
-      "Import from Audio now works on your computer, and Record to tab has a new AI tab. Both use MuScriptor, an optional model you download once with a guided setup. Non-commercial use only.",
+      "Import from Audio now works on your computer, and Record to tab has a new AI tab. Both use MuScriptor by Kyutai and Mirelo, an optional model you download once with a guided setup. Non-commercial use only.",
     since: "1.1.0",
   },
   {

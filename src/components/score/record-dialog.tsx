@@ -465,7 +465,7 @@ function RecordForm({
         <DialogDescription>{description}</DialogDescription>
         <p role="note" className="text-sm text-muted-foreground" data-tour="record-limits">
           {aiOn
-            ? `Beta. AI mode: MuScriptor listens for ${instrument === "drums" ? "drum hits" : `the ${instrument}`} on this computer. Non-commercial use only, and only on music you have the rights to. Review the result and correct it.`
+            ? `Beta. AI mode: MuScriptor by Kyutai and Mirelo listens for ${instrument === "drums" ? "drum hits" : `the ${instrument}`} on this computer. Non-commercial use only, and only on music you have the rights to. Review the result and correct it.`
             : recordToTabBetaNote(instrument, pianoEngine)}
         </p>
       </DialogHeader>
@@ -705,8 +705,9 @@ function RecordForm({
                             ))}
                         </ToggleGroup>
                         <p className="text-sm text-muted-foreground">
-                          Runs MuScriptor on this computer. Finds several instruments and drum hits;
-                          the instrument you picked limits what it listens for.
+                          Runs MuScriptor by Kyutai and Mirelo on this computer. Finds several
+                          instruments and drum hits; the instrument you picked limits what it
+                          listens for.
                         </p>
                         <Button
                           type="button"
@@ -725,9 +726,9 @@ function RecordForm({
                     ) : (
                       <div className="flex flex-col gap-2">
                         <p className="text-sm">
-                          The AI mode uses MuScriptor, a model you download once (
-                          {sizeInfo(ai.size).megabytes} MB for {sizeInfo(ai.size).label}). A guided
-                          setup walks you through the terms and brings you back here. Your
+                          The AI mode uses MuScriptor by Kyutai and Mirelo, a model you download
+                          once ({sizeInfo(ai.size).megabytes} MB for {sizeInfo(ai.size).label}). A
+                          guided setup walks you through the terms and brings you back here. Your
                           recordings are never uploaded.
                         </p>
                         <Button

@@ -256,9 +256,10 @@ export function AudioTranscriptionDialog({
               >
                 <p className="font-medium">Download MuScriptor to transcribe recordings</p>
                 <p>
-                  Import from Audio runs the MuScriptor AI model on this computer. Download it once
-                  ({sizeInfo(ai.size).label}, about {sizeInfo(ai.size).megabytes} MB); a guided
-                  setup walks you through the terms. Your recordings never leave this computer.
+                  Import from Audio runs MuScriptor by Kyutai and Mirelo, an AI model, on this
+                  computer. Download it once ({sizeInfo(ai.size).label}, about{" "}
+                  {sizeInfo(ai.size).megabytes} MB); a guided setup walks you through the terms.
+                  Your recordings never leave this computer.
                 </p>
                 <Button
                   onClick={() => {

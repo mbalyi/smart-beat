@@ -5,7 +5,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { MUSCRIPTOR } from "@/lib/credits";
+import { MUSCRIPTOR, MUSCRIPTOR_AUTHORS } from "@/lib/credits";
 import { SIZES } from "@/lib/ai/muscriptor-sizes";
 
 /** The text that explains what MuScriptor is: where it comes from, its licence and the links. */
@@ -14,7 +14,15 @@ export function MuscriptorFacts({ withSpeeds = false }: { withSpeeds?: boolean }
     <div className="flex flex-col gap-3">
       <p>{MUSCRIPTOR.about}</p>
       <p>
-        Made by {MUSCRIPTOR.authors}. The weights are licensed{" "}
+        Made by{" "}
+        <ExternalLink className="underline" href={MUSCRIPTOR_AUTHORS[0]!.url}>
+          {MUSCRIPTOR_AUTHORS[0]!.name}
+        </ExternalLink>{" "}
+        and{" "}
+        <ExternalLink className="underline" href={MUSCRIPTOR_AUTHORS[1]!.url}>
+          {MUSCRIPTOR_AUTHORS[1]!.name}
+        </ExternalLink>
+        . The weights are licensed{" "}
         <ExternalLink className="underline" href={MUSCRIPTOR.licence.url}>
           {MUSCRIPTOR.licence.name}
         </ExternalLink>

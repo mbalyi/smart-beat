@@ -327,6 +327,15 @@ describe("Welcome: optional add-ons (#150)", () => {
       "https://huggingface.co/MuScriptor",
     );
     expect(section).toHaveTextContent("Kyutai and Mirelo");
+    // Both organisations are credited by name with a link of their own, as text.
+    expect(within(section).getByRole("link", { name: "Kyutai" })).toHaveAttribute(
+      "href",
+      "https://kyutai.org/",
+    );
+    expect(within(section).getByRole("link", { name: "Mirelo" })).toHaveAttribute(
+      "href",
+      "https://mirelo.ai/",
+    );
     expect(section).toHaveTextContent("CC BY-NC 4.0");
     expect(section).toHaveTextContent("Non-commercial use only");
     // Text only: no logos of the model's authors.

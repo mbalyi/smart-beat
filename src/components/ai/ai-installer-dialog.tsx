@@ -111,8 +111,8 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
       <DialogHeader>
         <DialogTitle>{TITLES[step]}</DialogTitle>
         <DialogDescription>
-          Step {index + 1} of {STEPS.length}. MuScriptor is an optional AI model that runs on this
-          computer. You download it once.
+          Step {index + 1} of {STEPS.length}. MuScriptor by Kyutai and Mirelo is an optional AI
+          model that runs on this computer. You download it once.
         </DialogDescription>
       </DialogHeader>
       <DialogBody>

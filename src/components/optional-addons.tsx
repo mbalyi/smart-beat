@@ -1,7 +1,7 @@
 import { PoweredByMuscriptor } from "@/components/ai/powered-by-muscriptor";
 import { ExternalLink } from "@/components/external-link";
 import { SectionKicker } from "@/components/section-kicker";
-import { MUSCRIPTOR } from "@/lib/credits";
+import { MUSCRIPTOR, MUSCRIPTOR_AUTHORS } from "@/lib/credits";
 
 /**
  * Optional add-ons the user downloads themselves (#150). A section of its own, apart from the
@@ -25,9 +25,21 @@ export function OptionalAddons() {
           >
             {MUSCRIPTOR.name}
           </ExternalLink>{" "}
-          by {MUSCRIPTOR.authors} ({MUSCRIPTOR.licence.name}) powers the AI mode of Record to tab
-          and Import from Audio. It is not part of Smart Beat: you download it once, accept its
-          terms, and it runs on your computer. Non-commercial use only.
+          by{" "}
+          {MUSCRIPTOR_AUTHORS.map((author, index) => (
+            <span key={author.name}>
+              {index > 0 ? " and " : ""}
+              <ExternalLink
+                href={author.url}
+                className="font-medium text-foreground underline underline-offset-4"
+              >
+                {author.name}
+              </ExternalLink>
+            </span>
+          ))}{" "}
+          ({MUSCRIPTOR.licence.name}) powers the AI mode of Record to tab and Import from Audio. It
+          is not part of Smart Beat: you download it once, accept its terms, and it runs on your
+          computer. Non-commercial use only.
         </p>
       </div>
       <div className="max-w-3xl">

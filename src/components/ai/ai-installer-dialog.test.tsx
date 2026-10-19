@@ -58,6 +58,14 @@ describe("AiInstallerDialog", () => {
     await open();
     expect(screen.getByRole("heading", { name: "Powered by MuScriptor" })).toBeInTheDocument();
     expect(screen.getByText(/non-commercial use only/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Kyutai" })).toHaveAttribute(
+      "href",
+      "https://kyutai.org/",
+    );
+    expect(screen.getByRole("link", { name: "Mirelo" })).toHaveAttribute(
+      "href",
+      "https://mirelo.ai/",
+    );
     expect(screen.getByRole("link", { name: "Online demo" })).toHaveAttribute(
       "href",
       "https://muscriptor.kyutai.org/",

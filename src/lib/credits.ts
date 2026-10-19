@@ -77,6 +77,20 @@ export interface Addon extends Credit {
   links: readonly { label: string; url: string; note?: string }[];
 }
 
+/** The two organisations behind MuScriptor. Text only, no logos (docs/brand/README.md). */
+export const MUSCRIPTOR_AUTHORS: readonly { name: string; url: string; description: string }[] = [
+  {
+    name: "Kyutai",
+    url: "https://kyutai.org/",
+    description: "A non-profit AI research lab, co-author of MuScriptor.",
+  },
+  {
+    name: "Mirelo",
+    url: "https://mirelo.ai/",
+    description: "An AI audio company, co-author of MuScriptor.",
+  },
+];
+
 export const MUSCRIPTOR: Addon = {
   name: "MuScriptor",
   authors: "Kyutai and Mirelo",
@@ -113,6 +127,7 @@ export const ADDON_URLS: readonly string[] = [
     MUSCRIPTOR.url,
     MUSCRIPTOR.licence.url,
     MUSCRIPTOR.modelCard,
+    ...MUSCRIPTOR_AUTHORS.map((author) => author.url),
     ...MUSCRIPTOR.links.map((link) => link.url),
   ]),
 ];
