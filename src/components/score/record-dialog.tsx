@@ -5,6 +5,7 @@ import {
   FileAudioIcon,
   HeadphonesIcon,
   Music2Icon,
+  SparklesIcon,
   WandSparklesIcon,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -15,6 +16,8 @@ import hero from "@/assets/record-to-tab/hero.webp";
 import iconBass from "@/assets/record-to-tab/icon-bass.webp";
 import iconDrums from "@/assets/record-to-tab/icon-drums.webp";
 import iconGuitar from "@/assets/record-to-tab/icon-guitar.webp";
+import iconJam from "@/assets/record-to-tab/icon-jam.webp";
+import modeSplash from "@/assets/record-to-tab/mode-splash.webp";
 import iconPiano from "@/assets/record-to-tab/icon-piano.webp";
 import logo from "@/assets/record-to-tab/logo.webp";
 import sparklesLeft from "@/assets/record-to-tab/sparkles-left.webp";
@@ -169,7 +172,7 @@ function RecordArt() {
  * and name, and a crown over the name when it is the one.
  */
 const INSTRUMENT_BUTTON =
-  "relative h-[54px] min-w-0 gap-1.5 rounded-lg border border-border bg-card px-1.5 pr-3 text-[15px] font-semibold hover:bg-card data-[state=on]:border-brand data-[state=on]:bg-card! data-[state=on]:text-foreground! data-[state=on]:shadow-[0_0_16px_color-mix(in_oklab,var(--brand)_60%,transparent)] data-[state=on]:ring-2 data-[state=on]:ring-brand/70 data-[state=on]:inset-ring-0";
+  "relative h-[54px] min-w-0 gap-1 rounded-lg border border-border bg-card px-1 pr-2.5 text-[15px] font-semibold hover:bg-card disabled:opacity-100 data-[state=on]:border-brand data-[state=on]:bg-card! data-[state=on]:text-foreground! data-[state=on]:shadow-[0_0_16px_color-mix(in_oklab,var(--brand)_60%,transparent)] data-[state=on]:ring-2 data-[state=on]:ring-brand/70 data-[state=on]:inset-ring-0";
 /** A recording mode to choose: filled purple when it is the one. */
 const MODE_BUTTON =
   "h-9 gap-2 rounded-md border border-border bg-card px-4 text-sm font-semibold data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_55%,transparent)]";
@@ -235,7 +238,7 @@ export function RecordDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         size="xl"
-        className="h-[min(48rem,calc(100dvh-2rem))] sm:max-w-4xl"
+        className="h-[min(48rem,calc(100dvh-2rem))] shadow-[0_0_32px_color-mix(in_oklab,var(--primary)_55%,transparent)] ring-2 ring-primary/90 sm:max-w-4xl"
         data-tour="record-dialog"
       >
         {/* Mounted only while open: it starts from the defaults and remembered choices again. */}
@@ -431,6 +434,8 @@ function RecordForm({
     { value: "bass", label: "Bass", icon: iconBass },
     { value: "piano", label: "Piano", icon: iconPiano },
     { value: "drums", label: "Drums", icon: iconDrums },
+    // Humming and singing to tab is not available yet: shown, but it cannot be picked.
+    { value: "jam", label: "Jam", icon: iconJam, soon: true },
   ] as const;
   const modes = [
     { value: "click", label: "Click", icon: WandSparklesIcon },
@@ -479,7 +484,7 @@ function RecordForm({
             value={aiOn ? "ai" : "default"}
             className="flex flex-col gap-3 overflow-visible"
           >
-            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 pt-2 md:flex-nowrap">
               <ToggleGroup
                 type="single"
                 variant="default"
@@ -488,38 +493,80 @@ function RecordForm({
                 data-tour="record-instrument"
                 value={instrument}
                 onValueChange={(value) => value && changeInstrument(value as RecordInstrument)}
-                className="flex-wrap gap-2.5 pt-2"
+                className="flex-wrap gap-2 md:flex-nowrap"
               >
-                {instruments.map(({ value, label, icon }) => (
-                  <ToggleGroupItem key={value} value={value} className={INSTRUMENT_BUTTON}>
-                    <img
-                      src={icon}
-                      alt=""
-                      aria-hidden="true"
-                      className="-mt-2 -mb-1 size-[58px] shrink-0 object-contain"
-                    />
-                    <span className="relative flex flex-col items-center justify-end self-stretch pt-4 pb-3">
-                      {instrument === value && (
-                        <Crown className="absolute top-0.5 left-1/2 size-6 -translate-x-1/2" />
-                      )}
-                      {label}
-                    </span>
-                  </ToggleGroupItem>
-                ))}
+                {instruments.map((entry) => {
+                  const { value, label, icon } = entry;
+                  const soon = "soon" in entry;
+                  return (
+                    <ToggleGroupItem
+                      key={value}
+                      value={value}
+                      disabled={soon}
+                      aria-label={soon ? `${label} (coming soon)` : label}
+                      title={soon ? "Coming soon" : undefined}
+                      className={INSTRUMENT_BUTTON}
+                    >
+                      <img
+                        src={icon}
+                        alt=""
+                        aria-hidden="true"
+                        className={cn(
+                          "-mt-2 -mb-1 size-[50px] shrink-0 object-contain",
+                          soon && "opacity-50 grayscale",
+                        )}
+                      />
+                      <span
+                        aria-hidden={soon ? "true" : undefined}
+                        className={cn(
+                          "relative flex flex-col items-center justify-end self-stretch pt-4 pb-3",
+                          soon && "text-muted-foreground",
+                        )}
+                      >
+                        {instrument === value && !soon && (
+                          <Crown className="absolute top-0.5 left-1/2 size-6 -translate-x-1/2" />
+                        )}
+                        {label}
+                      </span>
+                    </ToggleGroupItem>
+                  );
+                })}
               </ToggleGroup>
               {offersAi && (
                 <TabsList
                   aria-label="Transcription engine"
                   data-tour="record-ai-tabs"
-                  className="w-44 shrink-0 self-end sm:mb-1"
+                  className="relative isolate h-9 w-[220px] max-w-full shrink-0 items-stretch gap-0 rounded-full border border-primary/50 bg-black/35 p-0 shadow-[inset_0_0_14px_color-mix(in_oklab,var(--primary)_30%,transparent)]"
                 >
-                  <TabsTrigger value="default">Default</TabsTrigger>
-                  <TabsTrigger value="ai">AI</TabsTrigger>
+                  {(["default", "ai"] as const).map((mode) => (
+                    <TabsTrigger
+                      key={mode}
+                      value={mode}
+                      className="relative flex flex-1 items-center justify-center gap-1.5 rounded-full border-0 bg-transparent text-xs font-bold tracking-[0.12em] text-muted-foreground hover:bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-white"
+                    >
+                      {(mode === "ai") === aiOn && (
+                        <img
+                          src={modeSplash}
+                          alt=""
+                          aria-hidden="true"
+                          data-mode-splash=""
+                          className="pointer-events-none absolute -inset-x-2 -inset-y-1.5 -z-10 h-[calc(100%+0.75rem)] w-[calc(100%+1rem)] max-w-none object-fill"
+                        />
+                      )}
+                      <span className="relative">{mode === "ai" ? "AI" : "Default"}</span>
+                      {mode === "ai" && (
+                        <SparklesIcon
+                          aria-hidden="true"
+                          className="relative size-3.5 text-yellow-300"
+                        />
+                      )}
+                    </TabsTrigger>
+                  ))}
                 </TabsList>
               )}
             </div>
 
-            <div className="grid gap-x-6 gap-y-5 sm:grid-cols-[1fr_1px_1fr]">
+            <div className="grid gap-x-6 gap-y-5 sm:grid-cols-[1fr_1px_1fr] md:grid-cols-[calc(58%-6px)_1px_minmax(0,1fr)]">
               <div className="flex min-w-0 flex-col gap-4">
                 <div className="flex flex-col gap-2" data-tour="record-mode">
                   <SectionLabel id={ids.mode}>Recording mode</SectionLabel>
@@ -561,7 +608,7 @@ function RecordForm({
                   </AudioDropArea>
                 ) : (
                   <>
-                    <AudioInputSetting stacked />
+                    <AudioInputSetting stacked showChannel={false} showDiscovery={false} />
                     <div className="flex flex-col gap-1.5">
                       <LiveWaveform level={level} className="h-9" />
                       {heard.kind === "asking" && (
@@ -682,28 +729,31 @@ function RecordForm({
                     <SectionLabel>AI model</SectionLabel>
                     {aiReady ? (
                       <>
-                        <ToggleGroup
-                          type="single"
-                          variant="outline"
-                          spacing={0}
-                          aria-label="AI model size"
+                        <Select
                           value={ai.size}
-                          onValueChange={(value) => value && chooseSize(value as MuscriptorSize)}
-                          className="self-start"
+                          onValueChange={(value) => chooseSize(value as MuscriptorSize)}
                         >
-                          {ai.status?.sizes
-                            .filter((entry) => entry.installed)
-                            .map((entry) => (
-                              <ToggleGroupItem
-                                key={entry.size}
-                                value={entry.size}
-                                className={SEGMENT_BUTTON}
-                              >
-                                {sizeInfo(entry.size).label}
-                                {ai.size === entry.size && <Crown />}
-                              </ToggleGroupItem>
-                            ))}
-                        </ToggleGroup>
+                          <SelectTrigger
+                            aria-label="AI model size"
+                            className="w-44 rounded-xl border-primary bg-primary text-primary-foreground shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_55%,transparent)] hover:bg-primary/90 dark:bg-primary dark:hover:bg-primary/90 [&_svg]:text-primary-foreground"
+                          >
+                            <SelectValue>
+                              <span className="flex items-center gap-1.5 font-semibold">
+                                {sizeInfo(ai.size).label}
+                                <Crown />
+                              </span>
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ai.status?.sizes
+                              .filter((entry) => entry.installed)
+                              .map((entry) => (
+                                <SelectItem key={entry.size} value={entry.size}>
+                                  {sizeInfo(entry.size).label}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
                         <p className="text-sm text-muted-foreground">
                           Runs MuScriptor by Kyutai and Mirelo on this computer. Finds several
                           instruments and drum hits; the instrument you picked limits what it

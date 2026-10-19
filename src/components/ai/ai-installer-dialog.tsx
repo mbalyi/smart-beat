@@ -21,6 +21,7 @@ import {
   installModel,
   isInstalled,
   refreshAi,
+  removeModel,
   stopInstall,
   useAiState,
 } from "@/lib/ai/ai-store";
@@ -121,7 +122,20 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
             <MuscriptorFacts withSpeeds />
           </div>
         )}
-        {step === "models" && <ModelPicker state={ai} value={ai.size} onChange={chooseSize} />}
+        {step === "models" && (
+          <>
+            <ModelPicker
+              state={ai}
+              value={ai.size}
+              onChange={chooseSize}
+              onDelete={(size) => void removeModel(size)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Deleting a model frees its disk space. You can download it again later; the accepted
+              terms stay on file.
+            </p>
+          </>
+        )}
         {step === "terms" && (
           <div className="flex flex-col gap-4 text-sm">
             <ol className="list-decimal space-y-2 pl-5">

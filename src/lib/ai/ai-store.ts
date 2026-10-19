@@ -4,6 +4,7 @@ import { errorText } from "@/lib/errors";
 import {
   acceptMuscriptorTerms,
   cancelMuscriptorDownload,
+  deleteMuscriptorModel,
   downloadMuscriptorModel,
   isTauri,
   muscriptorStatus,
@@ -140,6 +141,20 @@ export async function installModel(size: MuscriptorSize, rightsConfirmed: boolea
   } finally {
     running = false;
     set({ download: null });
+  }
+}
+
+/** Deletes a downloaded size from this computer. The accepted terms stay on file. */
+export async function removeModel(size: MuscriptorSize): Promise<void> {
+  if (running) return;
+  set({ error: null });
+  try {
+    const status = await deleteMuscriptorModel(size);
+    // The chosen size follows what is left, like after any refresh.
+    const left = status.sizes.find((entry) => entry.installed)?.size;
+    set({ status, size: state.size === size && left ? left : state.size });
+  } catch (reason) {
+    set({ error: errorText(reason) });
   }
 }
 
