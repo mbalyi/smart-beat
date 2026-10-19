@@ -16,7 +16,7 @@ describe("AboutDialog", () => {
     renderAbout();
 
     const dialog = screen.getByRole("dialog", { name: "Smart Beat" });
-    expect(dialog).toHaveAccessibleDescription(/self-hosted AI accompaniment/);
+    expect(dialog).toHaveAccessibleDescription(/self-hosted AI tools/);
     expect(await screen.findByText(APP_INFO.version)).toBeInTheDocument();
     expect(screen.getByText("macOS (Apple Silicon)")).toBeInTheDocument();
     expect(screen.getByText(APP_INFO.tauriVersion)).toBeInTheDocument();

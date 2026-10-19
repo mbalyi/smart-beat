@@ -266,7 +266,7 @@ describe("App", () => {
       expect(calls).toContainEqual(expect.objectContaining({ cmd: "plugin:dialog|open" })),
     );
     expect(calls.some((c) => c.cmd === "read_score_file")).toBe(false);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/Write, play/);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/Practice, create/);
   });
 
   it("opens a file dropped onto the window", async () => {
@@ -294,7 +294,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Couldn't open “corrupt.gp5”")).toBeInTheDocument();
     expect(screen.getByText(/damaged or is in a format Smart Beat can't read/)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/Write, play/);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/Practice, create/);
   });
 
   it("explains which files it opens", async () => {
@@ -576,7 +576,7 @@ describe("App: recent songs and saving", () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      "Write, play and arrange guitar music",
+      "Practice, create and break the era",
     );
   });
 

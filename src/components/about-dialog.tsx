@@ -62,7 +62,9 @@ export function AboutDialog({ open, onOpenChange, onCloseAutoFocus }: AppDialogP
           <DialogTitle className="text-lg">
             <img src={wordmark} alt="Smart Beat" draggable={false} className="h-12 w-auto" />
           </DialogTitle>
-          <DialogDescription>Tablature editor with self-hosted AI accompaniment.</DialogDescription>
+          <DialogDescription>
+            Free tablature editor with optional self-hosted AI tools.
+          </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <AppDetails />
