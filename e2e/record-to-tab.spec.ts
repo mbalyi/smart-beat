@@ -76,6 +76,14 @@ async function untilRecorded(page: Page) {
   await expect(page.getByLabel("Time recorded")).not.toHaveText("0:00", { timeout: 10_000 });
 }
 
+/**
+ * Hides the hint toasts (they sit over the dialog's buttons in a short window), so that axe
+ * scans the dialog itself.
+ */
+async function hideToasts(page: Page) {
+  await page.addStyleTag({ content: "[data-sonner-toaster] { display: none !important; }" });
+}
+
 async function openRecordDialog(page: Page) {
   await page.getByRole("button", { name: "File" }).click();
   await page.getByRole("menuitem", { name: /^Record to Tab…/ }).click();
@@ -96,6 +104,7 @@ test.describe("Record to Tab (#108)", () => {
       await app.emulateMedia({ colorScheme });
       await newSong(app);
       const dialog = await openRecordDialog(app);
+      await hideToasts(app);
       await expect(dialog.getByRole("meter", { name: "Input level" })).toBeVisible();
       await expect(dialog.getByText("Asking for the microphone…")).toBeHidden();
       await expectNoA11yViolations(app);
@@ -118,6 +127,7 @@ test.describe("Record to Tab (#108)", () => {
       await app.emulateMedia({ colorScheme });
       await newSong(app);
       const dialog = await openRecordDialog(app);
+      await hideToasts(app);
       await dialog.getByRole("radio", { name: "Piano" }).click();
       // A piano has no strings to tune.
       await expect(dialog.getByRole("combobox", { name: "Tuning" })).toBeHidden();
@@ -135,6 +145,7 @@ test.describe("Record to Tab (#108)", () => {
       await app.emulateMedia({ colorScheme });
       await newSong(app);
       const dialog = await openRecordDialog(app);
+      await hideToasts(app);
       await dialog.getByRole("radio", { name: "Piano" }).click();
       await dialog.getByRole("radio", { name: "High accuracy" }).click();
       await expect(dialog.getByRole("button", { name: "Download the model" })).toBeVisible();
@@ -216,6 +227,7 @@ test.describe("Record to Tab (#108)", () => {
       await app.emulateMedia({ colorScheme });
       await newSong(app);
       const dialog = await openRecordDialog(app);
+      await hideToasts(app);
       await dialog.getByRole("radio", { name: "Drums" }).click();
       // Drums have no strings to tune.
       await expect(dialog.getByRole("combobox", { name: "Tuning" })).toBeHidden();

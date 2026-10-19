@@ -1,18 +1,8 @@
-import path from "node:path";
-
 import type { Page } from "@playwright/test";
 
 import features from "../src/lib/features.json" with { type: "json" };
 
-import {
-  emitMenuAction,
-  expect,
-  expectNoA11yViolations,
-  FIXTURES_DIR,
-  openSong,
-  tabKey,
-  test,
-} from "./fixtures";
+import { emitMenuAction, expect, expectNoA11yViolations, openSong, tabKey, test } from "./fixtures";
 
 declare global {
   interface Window {
@@ -43,7 +33,32 @@ function midiBase64(): string {
   ]).toString("base64");
 }
 
-const RECORDING = path.join(FIXTURES_DIR, "backing-a440.mp3");
+/**
+ * A four-second mono 16-bit WAV of silence. Every webview reads its length; WebKit on Linux has no
+ * MP3 decoder, so an MP3 would never show its duration there.
+ */
+function wavFile(seconds = 4, rate = 8000) {
+  const data = rate * seconds * 2;
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + data, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(data, 40);
+  return {
+    name: "recording.wav",
+    mimeType: "audio/wav",
+    buffer: Buffer.concat([header, Buffer.alloc(data)]),
+  };
+}
+const RECORDING = wavFile();
 
 /** MuScriptor is on this computer and the terms are accepted. */
 async function installModel(app: Page) {
@@ -79,7 +94,7 @@ test.describe("Import from Audio (#88)", () => {
     await expect(dialog.getByText(/transcribed on this computer/)).toBeVisible();
 
     await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
-    await expect(dialog.getByText("backing-a440.mp3")).toBeVisible();
+    await expect(dialog.getByText("recording.wav")).toBeVisible();
     // The webview reads the duration before anything is uploaded.
     await expect(dialog.getByText(/MiB · \d+:\d\d/)).toBeVisible();
 
@@ -95,7 +110,7 @@ test.describe("Import from Audio (#88)", () => {
 
     expect(await app.evaluate(() => window.__transcription.requests)).toEqual([
       expect.objectContaining({
-        "file-type": "mp3",
+        "file-type": "wav",
         instruments: "electric_bass",
         "model-size": "medium",
       }),
@@ -103,11 +118,11 @@ test.describe("Import from Audio (#88)", () => {
 
     await dialog.getByRole("button", { name: "Import MIDI into Smart Beat" }).click();
     await expect(dialog).toBeHidden();
-    await expect(app.getByRole("heading", { name: "backing-a440" })).toBeVisible();
+    await expect(app.getByRole("heading", { name: "recording" })).toBeVisible();
 
     // The song exists only in memory, so closing it asks first.
     await expect(app.getByText("Edited")).toBeVisible();
-    await app.getByRole("button", { name: "Close backing-a440" }).click();
+    await app.getByRole("button", { name: "Close recording" }).click();
     await expect(app.getByRole("alertdialog")).toBeVisible();
   });
 
