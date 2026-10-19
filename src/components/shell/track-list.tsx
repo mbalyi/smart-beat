@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -11,6 +11,7 @@ import {
   DrumIcon,
   EyeIcon,
   FileMusicIcon,
+  GripVerticalIcon,
   GuitarIcon,
   MicVocalIcon,
   MoreVerticalIcon,
@@ -75,6 +76,10 @@ import { cn } from "@/lib/utils";
 
 export interface TrackActions {
   onShow: (index: number) => void;
+  /** Adds the track to the continuous view or takes it out (#157). */
+  onToggleVisible?: (index: number) => void;
+  /** Moves a stacked track up or down (-1, +1) in the continuous view, apart from the file order. */
+  onMoveInView?: (index: number, delta: number) => void;
   onMove: (index: number, to: number) => void;
   onDuplicate: (index: number) => void;
   onRemove: (index: number) => void;
@@ -98,7 +103,7 @@ export const BAR_PX = 21;
 
 /** Width of the controls next to the bar grid. */
 const CONTROLS =
-  "grid grid-cols-[minmax(7rem,1fr)_2rem_3.5rem_minmax(5rem,1.5fr)_minmax(3.5rem,1fr)_4.5rem] items-center gap-x-2";
+  "grid grid-cols-[minmax(7rem,1fr)_var(--eye-col,2rem)_3.5rem_minmax(5rem,1.5fr)_minmax(3.5rem,1fr)_4.5rem] items-center gap-x-2";
 
 function TrackIcon({ track }: { track: TrackSummary }) {
   const Icon =
@@ -150,10 +155,13 @@ function TrackRowMenu({
   focused,
   onFocus,
   onColor,
+  place,
 }: {
   track: TrackSummary;
   count: number;
   actions: TrackActions;
+  /** Position in the continuous view and how many tracks it has (null: not stacked). */
+  place: { position: number; of: number } | null;
   focused: boolean;
   onFocus: (focus: boolean) => void;
   /** Opens the colour picker of the track. */
@@ -208,6 +216,24 @@ function TrackRowMenu({
           Colour…
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        {place && place.of > 1 && actions.onMoveInView && (
+          <>
+            <DropdownMenuItem
+              disabled={place.position === 0}
+              onSelect={() => actions.onMoveInView?.(i, -1)}
+            >
+              <ArrowUpIcon />
+              Move up in the view
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={place.position === place.of - 1}
+              onSelect={() => actions.onMoveInView?.(i, 1)}
+            >
+              <ArrowDownIcon />
+              Move down in the view
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuItem disabled={i === 0} onSelect={() => actions.onMove(i, i - 1)}>
           <ArrowUpIcon />
           Move up
@@ -456,6 +482,7 @@ export function TrackList({
   revision,
   tracks,
   shown,
+  stack,
   mix,
   onChange,
   onReset,
@@ -477,6 +504,11 @@ export function TrackList({
   tracks: TrackSummary[];
   /** Index of the track shown in the score. */
   shown: number;
+  /**
+   * The tracks stacked in the continuous view, in display order, and whether that layout is on
+   * (otherwise the eye just shows the track, as before; #157).
+   */
+  stack?: { indexes: number[]; stacking: boolean };
   mix: MixerSettings;
   onChange: MixerChange;
   onReset: () => void;
@@ -503,6 +535,8 @@ export function TrackList({
 }) {
   const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
   const [colorTrack, setColorTrack] = useState<number | null>(null);
+  const dragged = useRef<number | null>(null);
+  const stacking = !!stack?.stacking;
   const barCount = score.masterBars.length;
   const grids = useMemo(() => {
     void revision;
@@ -522,6 +556,7 @@ export function TrackList({
     <section
       aria-label="Tracks and mixer"
       data-tour="tracks"
+      style={{ "--eye-col": stacking ? "3.75rem" : undefined } as CSSProperties}
       className="flex max-h-[32vh] min-h-0 shrink-0 flex-col overflow-auto border-t bg-card text-sm"
     >
       <div className="flex min-w-max flex-col">
@@ -644,6 +679,10 @@ export function TrackList({
             if (!trackMix) return null;
             const audible = isAudible(heardMix(mix), i);
             const isShown = i === shown;
+            const position = stack ? stack.indexes.indexOf(i) : -1;
+            const stacked = stacking && position >= 0;
+            const place =
+              stacking && stack && position >= 0 ? { position, of: stack.indexes.length } : null;
             const automation = trackAutomation(mix, i);
             const lane = lanes[i] ?? "volume";
             const focused = mix.focus === i;
@@ -655,7 +694,21 @@ export function TrackList({
                 className={cn("flex flex-col border-b bg-card", isShown && "bg-muted")}
                 aria-current={isShown ? "true" : undefined}
               >
-                <div className="flex">
+                <div
+                  role="presentation"
+                  className="flex"
+                  onDragOver={(event) => {
+                    if (stacked && dragged.current !== null) event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    const from = dragged.current;
+                    dragged.current = null;
+                    if (!stacked || from === null || !stack) return;
+                    event.preventDefault();
+                    const delta = position - stack.indexes.indexOf(from);
+                    if (delta !== 0) actions.onMoveInView?.(from, delta);
+                  }}
+                >
                   <div
                     className={cn(
                       "sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r px-2 py-1",
@@ -673,8 +726,23 @@ export function TrackList({
                         <button
                           type="button"
                           onClick={() => actions.onShow(i)}
+                          onKeyDown={(event) => {
+                            if (!place || !event.altKey) return;
+                            const delta =
+                              event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+                            if (delta === 0) return;
+                            event.preventDefault();
+                            actions.onMoveInView?.(i, delta);
+                          }}
+                          aria-keyshortcuts={
+                            place && place.of > 1 ? "Alt+ArrowUp Alt+ArrowDown" : undefined
+                          }
                           title={describeInstrument(track)}
-                          aria-label={`Show ${track.name}${focused ? " (in focus)" : ""}`}
+                          aria-label={`Show ${track.name}${focused ? " (in focus)" : ""}${
+                            place && place.of > 1
+                              ? ` (position ${place.position + 1} of ${place.of} in the view)`
+                              : ""
+                          }`}
                           className="min-w-0 truncate rounded text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
                         >
                           <span className="tabular-nums">{i + 1}. </span>
@@ -700,12 +768,50 @@ export function TrackList({
                         <LowSoundMark track={track} soundFont={soundFont} />
                       </div>
                       <div className="flex items-center">
+                        {place && place.of > 1 && (
+                          <button
+                            type="button"
+                            draggable
+                            data-testid="view-handle"
+                            aria-label={`Reorder ${track.name} in the view`}
+                            aria-keyshortcuts="ArrowUp ArrowDown"
+                            onDragStart={(event) => {
+                              dragged.current = i;
+                              event.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragEnd={() => (dragged.current = null)}
+                            onKeyDown={(event) => {
+                              const delta =
+                                event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+                              if (delta === 0) return;
+                              event.preventDefault();
+                              actions.onMoveInView?.(i, delta);
+                            }}
+                            title="Drag to reorder in the view, or use the Up and Down arrows"
+                            className="mr-0.5 flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                          >
+                            <GripVerticalIcon className="size-3.5" aria-hidden="true" />
+                          </button>
+                        )}
                         <Toggle
                           size="sm"
-                          pressed={isShown}
-                          onPressedChange={() => actions.onShow(i)}
+                          pressed={stacking ? stacked : isShown}
+                          disabled={stacking && isShown}
+                          onPressedChange={() =>
+                            stacking && actions.onToggleVisible
+                              ? actions.onToggleVisible(i)
+                              : actions.onShow(i)
+                          }
                           aria-label={`Visible: ${track.name}`}
-                          title="Show in the score"
+                          title={
+                            stacking
+                              ? isShown
+                                ? "The track you edit is always in the view"
+                                : stacked
+                                  ? "Take out of the continuous view"
+                                  : "Show in the continuous view"
+                              : "Show in the score"
+                          }
                           className="size-7 min-w-7 px-0"
                         >
                           <EyeIcon />
@@ -794,6 +900,7 @@ export function TrackList({
                           focused={focused}
                           onFocus={(on) => onChange({ type: "focus", track: on ? i : null })}
                           onColor={() => setColorTrack(i)}
+                          place={place}
                         />
                       </div>
                     </div>

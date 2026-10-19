@@ -383,6 +383,7 @@ export function WorkspaceToolbar({
             size="sm"
             spacing={0}
             aria-label="Layout"
+            data-tour="layout"
             value={layout}
             onValueChange={(value) => isLayout(value) && onLayoutChange(value)}
           >

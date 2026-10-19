@@ -225,7 +225,10 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
 
     // Save As is asked for, and the song is saved as the file the user picked.
     await waitFor(() => expect(backend.written.has("/songs/old.gp4")).toBe(true));
-    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ path: "/songs/old.gp4" }));
+    // The file is written before the app is told: wait for that too (slow on Windows runners).
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ path: "/songs/old.gp4" })),
+    );
     expect((await screen.findAllByText("“old.gp4” was saved with limits")).length).toBeGreaterThan(
       0,
     );

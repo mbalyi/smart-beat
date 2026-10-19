@@ -119,6 +119,10 @@ pub enum Event {
     SpeedTrainerStop,
     SpeedTrainerHold,
     PracticeView,
+    /// The score was switched to the continuous layout (#157).
+    ContinuousView,
+    /// Two or more tracks were stacked in the continuous view (#157).
+    MultiTrackView,
     /// A guided tour (#84) began (#153); detail: which tour.
     TourStart,
     TourFinish,
@@ -858,6 +862,8 @@ mod tests {
             "speed_trainer_stop",
             "speed_trainer_hold",
             "practice_view",
+            "continuous_view",
+            "multi_track_view",
         ] {
             let event: Event = serde_json::from_value(name.into()).unwrap();
             assert_eq!(serde_json::to_value(event).unwrap(), name);

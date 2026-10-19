@@ -23,6 +23,7 @@ export class FakeScorePlayer {
   readonly callbacks: ScorePlayerCallbacks;
   showTrack = vi.fn();
   setView = vi.fn();
+  setStack = vi.fn();
   setLayout = vi.fn();
   setMix = vi.fn();
   setFocusCut = vi.fn();

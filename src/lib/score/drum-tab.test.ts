@@ -11,6 +11,7 @@ import {
   realNoteOf,
   realStaves,
   removeMirrorNotes,
+  pruneMirrors,
   setDrumTab,
   withoutDrumTabs,
 } from "@/lib/score/drum-tab";
@@ -68,11 +69,25 @@ describe("the mirror staff", () => {
     expect(track.staves).toHaveLength(2);
     expect(realStaves(track)).toHaveLength(1);
     expect(mirrorOf(track)!.index).toBe(1);
-    setDrumTab(score, score.tracks[0]!, true); // a guitar: no mirror anywhere
-    expect(score.tracks.every((t) => mirrorOf(t) === null)).toBe(true);
+    setDrumTab(score, score.tracks[0]!, true); // a guitar has no drum staff: no mirror of its own
+    expect(mirrorOf(score.tracks[0]!)).toBeNull();
     setDrumTab(score, track, true);
     setDrumTab(score, track, false);
     expect(track.staves).toHaveLength(1);
+  });
+
+  it("belongs to its track: showing or hiding another track's tab leaves it alone (#157)", () => {
+    const { score, track } = drums();
+    setDrumTab(score, track, true);
+    const mirror = mirrorOf(track);
+
+    setDrumTab(score, score.tracks[0]!, false);
+    expect(mirrorOf(track)).toBe(mirror);
+
+    pruneMirrors(score, [score.tracks[0]!, track]);
+    expect(mirrorOf(track)).toBe(mirror);
+    pruneMirrors(score, [score.tracks[0]!]);
+    expect(mirrorOf(track)).toBeNull();
   });
 
   it("maps beats and notes both ways", () => {

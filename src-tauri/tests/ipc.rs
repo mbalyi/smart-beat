@@ -298,6 +298,46 @@ fn mixer_settings_round_trip_over_ipc() {
 }
 
 #[test]
+fn stacked_tracks_round_trip_over_ipc_and_bad_ones_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_mixer_dir(dir.path());
+    let window = main_window(&app);
+    let track = json!({ "volume": 0.5, "pan": 0.0, "mute": false, "solo": false });
+    let settings = json!({
+        "version": 2,
+        "master": 1.0,
+        "tracks": [track, track, track],
+        "visibleTracks": [2, 0],
+    });
+
+    invoke_with(
+        &window,
+        "save_mixer_settings",
+        json!({ "fileKey": FILE_KEY, "settings": settings }),
+    )
+    .expect("save_mixer_settings failed");
+    let loaded = invoke_with(
+        &window,
+        "load_mixer_settings",
+        json!({ "fileKey": FILE_KEY }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(loaded["visibleTracks"], json!([2, 0]));
+
+    let mut repeated = settings.clone();
+    repeated["visibleTracks"] = json!([1, 1]);
+    let error = invoke_with(
+        &window,
+        "save_mixer_settings",
+        json!({ "fileKey": FILE_KEY, "settings": repeated }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "invalid-settings");
+}
+
+#[test]
 fn mixer_commands_validate_their_input() {
     let dir = tempfile::tempdir().unwrap();
     let app = app_with_mixer_dir(dir.path());

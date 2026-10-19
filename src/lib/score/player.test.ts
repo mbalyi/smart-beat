@@ -1,14 +1,15 @@
 import { LayoutMode, midi, PlayerOutputMode, synth, TabRhythmMode } from "@coderline/alphatab";
 
 import { mixerReducer, mixFromScore } from "@/lib/score/mixer";
-import { cloneNote } from "@/lib/score/model";
+import { mirrorOf } from "@/lib/score/drum-tab";
+import { cloneNote, type Track } from "@/lib/score/model";
 import {
   isSoundFont,
   ScorePlayer,
   type ScorePlayerCallbacks,
   type ScorePlayerOptions,
 } from "@/lib/score/player";
-import { parseScore } from "@/lib/score/score";
+import { parseScore, type TrackView } from "@/lib/score/score";
 import { readStoredSoundFont } from "@/lib/tauri";
 import { FakeAlphaTabApi } from "@/test/fake-alphatab";
 import { generateMidi, noteOns } from "@/test/playback";
@@ -385,6 +386,159 @@ describe("ScorePlayer", () => {
 
     player.showTrack(42, { notation: "tab", rhythm: true });
     expect(api.renderTracks).toHaveBeenCalledOnce();
+  });
+
+  describe("showing the bar that was picked", () => {
+    const scrollerOf = () => {
+      const scroller = document.createElement("div");
+      scroller.scrollTo = vi.fn() as never;
+      return scroller;
+    };
+    const barAt = (api: FakeAlphaTabApi, x: number, y: number) => {
+      api.boundsLookup = {
+        findMasterBarByIndex: () => ({ visualBounds: { x, y, w: 200, h: 100 } }),
+      } as never;
+    };
+
+    it("scrolls the continuous row to the start of the bar, also while playing", async () => {
+      const scroller = scrollerOf();
+      const { player, api, setPlaying } = await readySetup({
+        layout: "horizontal",
+        scrollElement: scroller,
+      });
+      barAt(api, 2400, 0);
+      setPlaying(true);
+
+      player.seekToBar(3);
+
+      expect(scroller.scrollTo).toHaveBeenCalledWith({ left: 2384, behavior: "instant" });
+    });
+
+    it("scrolls the page layout down to the line of the bar", async () => {
+      const scroller = scrollerOf();
+      const { player, api } = await readySetup({ scrollElement: scroller });
+      barAt(api, 40, 1800);
+
+      player.seekToBar(3);
+
+      expect(scroller.scrollTo).toHaveBeenCalledWith({ top: 1784, behavior: "instant" });
+    });
+
+    it("does nothing before the score is drawn", async () => {
+      const scroller = scrollerOf();
+      const { player } = await readySetup({ scrollElement: scroller });
+
+      player.seekToBar(1);
+
+      expect(scroller.scrollTo).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("stacked tracks in the continuous layout (#157)", () => {
+    const tab = { notation: "tab", rhythm: false } as const;
+    const score = { notation: "score", rhythm: false } as const;
+
+    it("draws the stacked tracks in their order, each with its notation", async () => {
+      const { player, api, score: song } = await setup({ layout: "horizontal" });
+
+      player.setStack({ indexes: [2, 0, 1], views: [score, tab, tab] });
+
+      expect(api.renderTracks).toHaveBeenLastCalledWith([
+        song.tracks[2],
+        song.tracks[0],
+        song.tracks[1],
+      ]);
+      expect(song.tracks[1]!.staves[0]!.showStandardNotation).toBe(false);
+    });
+
+    it("keeps editing the shown track while others are stacked", async () => {
+      const { player, api, score: song } = await setup({ layout: "horizontal" });
+
+      player.showTrack(1, tab, { indexes: [0, 1], views: [tab, tab] });
+
+      expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0], song.tracks[1]]);
+      player.setView(score);
+      expect(song.tracks[1]!.staves[0]!.showTablature).toBe(false);
+      expect(song.tracks[0]!.staves[0]!.showTablature).toBe(true);
+    });
+
+    it("draws only the shown track in the page layout and all of them when continuous", async () => {
+      const { player, api, score: song } = await setup();
+      player.setStack({ indexes: [0, 2], views: [tab, tab] });
+      expect(api.renderTracks).not.toHaveBeenCalled(); // page layout: nothing changes
+
+      player.setLayout("horizontal");
+      expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0], song.tracks[2]]);
+
+      player.setLayout("page");
+      expect(api.settings.display.layoutMode).toBe(LayoutMode.Page);
+      expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0]]);
+    });
+
+    it("refreshes after an edit with the whole stack", async () => {
+      const { player, api, score: song, mix } = await setup({ layout: "horizontal" });
+
+      player.refresh({
+        trackIndex: 0,
+        view: tab,
+        mix,
+        stack: { indexes: [0, 1], views: [tab, tab] },
+      });
+
+      expect(api.renderTracks).toHaveBeenLastCalledWith([song.tracks[0], song.tracks[1]]);
+    });
+
+    describe("the drum tab of a stacked drum track", () => {
+      const both = { notation: "score-tab", rhythm: false } as const;
+      const stackOf = (views: TrackView[]) => ({ indexes: [0, 2], views });
+      const drumsOf = (song: { tracks: unknown[] }) => song.tracks[2] as never as Track;
+
+      it("is there when the stack is restored with the guitar active", async () => {
+        const { score: song } = await setup({ layout: "horizontal", stack: stackOf([both, both]) });
+
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+      });
+
+      it("survives an edit of the active guitar and a change of its notation", async () => {
+        const {
+          player,
+          score: song,
+          mix,
+        } = await setup({
+          layout: "horizontal",
+          stack: stackOf([both, both]),
+        });
+
+        player.refresh({ trackIndex: 0, view: both, mix, stack: stackOf([both, both]) });
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+
+        player.setView({ notation: "tab", rhythm: false });
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+      });
+
+      it("keeps a drum track that is shown as Tab", async () => {
+        const tabOnly = { notation: "tab", rhythm: false } as const;
+        const { score: song } = await setup({
+          layout: "horizontal",
+          stack: stackOf([both, tabOnly]),
+        });
+
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+        expect(drumsOf(song).staves[0]!.showStandardNotation).toBe(false);
+      });
+
+      it("is dropped again when only the guitar is drawn, and built when the layout changes", async () => {
+        const { player, score: song } = await setup({ stack: stackOf([both, both]) });
+        // Page layout: only the guitar is drawn.
+        expect(mirrorOf(drumsOf(song))).toBeNull();
+
+        player.setLayout("horizontal");
+        expect(mirrorOf(drumsOf(song))).not.toBeNull();
+
+        player.setStack({ indexes: [0], views: [both] });
+        expect(mirrorOf(drumsOf(song))).toBeNull();
+      });
+    });
   });
 
   it("re-renders for notation and layout changes without touching playback", async () => {

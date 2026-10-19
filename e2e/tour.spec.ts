@@ -20,9 +20,9 @@ const tourState = (page: Page) =>
 const savedProgress = (page: Page, id: string) =>
   expect.poll(async () => (await tourState(page))?.tours[id], { timeout: 15_000 });
 
-/** Presses the coach mark's Next button until the tour is over (at most 12 steps). */
+/** Presses the coach mark's Next button until the tour is over (at most 14 steps). */
 async function clickThrough(page: Page) {
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 14; i++) {
     const mark = coachMark(page);
     await expect(mark).toBeVisible({ timeout: 60_000 });
     const last = (await mark.getByRole("button", { name: "Done" }).count()) > 0;
@@ -53,7 +53,7 @@ test.describe("first launch", () => {
   }) => {
     await app.getByRole("button", { name: "Take a quick tour" }).click();
     await expect(coachMark(app)).toContainText("Open a song");
-    await expect(coachMark(app)).toContainText("Step 1 of 11");
+    await expect(coachMark(app)).toContainText("Step 1 of 13");
     await coachMark(app).getByRole("button", { name: "Next" }).click();
 
     // Step 2 needs a song: the demo song (4 tracks, 24 bars) opens by itself.
@@ -62,13 +62,23 @@ test.describe("first launch", () => {
     await expect(app.getByRole("timer")).toContainText("/ 0:57");
 
     // The mixer step shows the panel the user had closed...
-    for (const title of ["Play it", "Slow it down", "Metronome", "Practice View"]) {
+    for (const title of [
+      "Play it",
+      "Slow it down",
+      "Metronome",
+      "Practice View",
+      "Page or continuous",
+    ]) {
       await coachMark(app).getByRole("button", { name: "Next" }).click();
       await expect(coachMark(app)).toContainText(title);
     }
     await coachMark(app).getByRole("button", { name: "Next" }).click();
     await expect(coachMark(app)).toContainText("Tracks and mixer");
     await expect(app.getByRole("region", { name: "Tracks and mixer" })).toBeVisible();
+
+    // Stacking tracks (#157) points at the same panel.
+    await coachMark(app).getByRole("button", { name: "Next" }).click();
+    await expect(coachMark(app)).toContainText("Show several tracks at once");
 
     // The SoundFonts dialog is part of the tour (#81): the step shows the track panel and points
     // at its SoundFonts… button.
@@ -281,7 +291,7 @@ test.describe("the start page and the header", () => {
     await emitMenuAction(app, "demo-song");
     await waitForScore(app);
     await emitMenuAction(app, "tour");
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 14; i++) {
       await expect(coachMark(app)).toBeVisible();
       if (await coachMark(app).getByRole("button", { name: "Editing tour" }).count()) break;
       await coachMark(app).getByRole("button", { name: "Next" }).click();

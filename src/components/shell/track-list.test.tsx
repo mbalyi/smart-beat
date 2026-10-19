@@ -541,4 +541,93 @@ describe("TrackList", () => {
     void rerender;
     void rest;
   });
+
+  describe("the continuous view (#157)", () => {
+    const stacking = { indexes: [0, 2], stacking: true };
+    const stackActions = (): TrackActions => ({
+      onShow: vi.fn(),
+      onMove: vi.fn(),
+      onDuplicate: vi.fn(),
+      onRemove: vi.fn(),
+      onSettings: vi.fn(),
+      onLyrics: vi.fn(),
+      onAdd: vi.fn(),
+      onToggleVisible: vi.fn(),
+      onMoveInView: vi.fn(),
+    });
+
+    it("only shows the track while the layout is not continuous", async () => {
+      const { user, actions } = setup({ stack: { indexes: [0, 2], stacking: false } });
+
+      await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+
+      expect(actions.onShow).toHaveBeenCalledWith(1);
+      expect(screen.queryByTestId("view-handle")).not.toBeInTheDocument();
+    });
+
+    it("adds and removes tracks from the eye, and keeps the edited one", async () => {
+      const actions = stackActions();
+      const { user } = setup({ stack: stacking, actions });
+
+      const guitar = screen.getByRole("button", { name: "Visible: Guitar" });
+      expect(guitar).toHaveAttribute("aria-pressed", "true");
+      expect(guitar).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Visible: Bass" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+
+      await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+
+      expect(actions.onToggleVisible).toHaveBeenNthCalledWith(1, 1);
+      expect(actions.onToggleVisible).toHaveBeenNthCalledWith(2, 2);
+      expect(actions.onShow).not.toHaveBeenCalled();
+    });
+
+    it("reorders with Alt and the arrows on the name, and with the grip", async () => {
+      const actions = stackActions();
+      const { user } = setup({ stack: stacking, actions });
+
+      screen.getByRole("button", { name: /^Show Drums/ }).focus();
+      await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
+      screen.getByRole("button", { name: "Reorder Guitar in the view" }).focus();
+      await user.keyboard("{ArrowDown}");
+
+      expect(actions.onMoveInView).toHaveBeenNthCalledWith(1, 2, -1);
+      expect(actions.onMoveInView).toHaveBeenNthCalledWith(2, 0, 1);
+      expect(screen.getByRole("button", { name: /^Show Drums/ })).toHaveAccessibleName(
+        /position 2 of 2 in the view/,
+      );
+    });
+
+    it("drops a dragged track on another by the distance between them", () => {
+      const actions = stackActions();
+      setup({ stack: { indexes: [2, 0, 1], stacking: true }, actions });
+
+      // Bass is third in the view; dropped on Drums, which is first: two places up.
+      fireEvent.dragStart(screen.getAllByTestId("view-handle")[1]!, {
+        dataTransfer: { effectAllowed: "" },
+      });
+      fireEvent.drop(screen.getAllByRole("listitem")[2]!.firstElementChild!);
+
+      expect(actions.onMoveInView).toHaveBeenCalledWith(1, -2);
+    });
+
+    it("offers Move up and down in the view for stacked tracks only", async () => {
+      const actions = stackActions();
+      const { user } = setup({ stack: stacking, actions });
+
+      await trackAction(user, "Drums", "Move up in the view");
+      expect(actions.onMoveInView).toHaveBeenCalledWith(2, -1);
+
+      await user.click(screen.getByRole("button", { name: "Actions for Bass" }));
+      expect(screen.queryByRole("menuitem", { name: /in the view/ })).not.toBeInTheDocument();
+    });
+
+    it("has no accessibility violations while stacking", async () => {
+      setup({ stack: stacking, actions: stackActions() });
+      await expectNoA11yViolations();
+    });
+  });
 });

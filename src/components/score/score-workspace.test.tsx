@@ -1,6 +1,6 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
-import { ScoreWorkspace } from "@/components/score/score-workspace";
+import { SAVE_DELAY_MS, ScoreWorkspace } from "@/components/score/score-workspace";
 import { Toaster } from "@/components/ui/sonner";
 import type { ScoreDocument } from "@/hooks/use-score-document";
 import { fileKey } from "@/lib/score/format";
@@ -13,6 +13,7 @@ import { FakeScorePlayer } from "@/test/fake-score-player";
 import { renderWithProviders } from "@/test/render";
 import { fixtureBytes, SUMMARY } from "@/test/score";
 import { mockTauri, type IpcCall } from "@/test/tauri";
+import { trackAction } from "@/test/track-actions";
 
 vi.mock("@/lib/score/player", async () => ({
   ScorePlayer: (await import("@/test/fake-score-player")).FakeScorePlayer,
@@ -162,6 +163,151 @@ describe("ScoreWorkspace", () => {
       "data-layout",
       "horizontal",
     );
+  });
+
+  describe("several tracks in the continuous view (#157)", () => {
+    const usage = (calls: IpcCall[]) =>
+      calls.filter((c) => c.cmd === "track_event").map((c) => (c.args as { event: string }).event);
+
+    it("counts the switch to the continuous layout once, not going back to Page", async () => {
+      const { user, calls } = await setup({ desktop: true });
+
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      await user.click(screen.getByRole("radio", { name: "Page" }));
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+
+      expect(usage(calls).filter((e) => e === "continuous_view")).toHaveLength(2);
+      expect(usage(calls)).not.toContain("multi_track_view");
+    });
+
+    it("stacks tracks from the eye, keeping the one being edited", async () => {
+      const { user, player, calls } = await setup({ desktop: true });
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+
+      expect(player.setStack).toHaveBeenLastCalledWith({
+        indexes: [0, 2],
+        views: expect.any(Array),
+      });
+      expect(usage(calls).filter((e) => e === "multi_track_view")).toHaveLength(1);
+      expect(screen.getByRole("region", { name: "Score: Guitar" })).toBeInTheDocument();
+      // A third track is not a new first use.
+      await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+      expect(usage(calls).filter((e) => e === "multi_track_view")).toHaveLength(1);
+    });
+
+    it("only shows the track when the layout is Page, as before", async () => {
+      const { user, player } = await setup();
+
+      await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+
+      expect(player.showTrack).toHaveBeenLastCalledWith(1, expect.anything());
+      expect(player.setStack).not.toHaveBeenCalled();
+    });
+
+    it("reorders the view without touching the order in the file", async () => {
+      const { user, player, song } = await setup();
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+      const fileOrder = song.score.tracks.map((t) => t.name);
+
+      await trackAction(user, "Drums", "Move up in the view");
+
+      expect(player.setStack).toHaveBeenLastCalledWith({
+        indexes: [2, 0],
+        views: expect.any(Array),
+      });
+      expect(song.score.tracks.map((t) => t.name)).toEqual(fileOrder);
+    });
+
+    it("makes a track the one being edited when its eye or name is used, and keeps the stack", async () => {
+      const { user, player } = await setup();
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+
+      await user.click(screen.getByRole("button", { name: /^Show Drums/ }));
+
+      expect(player.showTrack).toHaveBeenLastCalledWith(2, expect.anything(), {
+        indexes: [0, 2],
+        views: expect.any(Array),
+      });
+      expect(screen.getByRole("region", { name: "Score: Drums" })).toBeInTheDocument();
+    });
+
+    it("makes a stacked track the active one when its notes are clicked, and ignores others", async () => {
+      const { user, player, song } = await setup();
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+      const beatOf = (track: number) =>
+        song.score.tracks[track]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+
+      // Bass is not in the view: nothing happens.
+      player.emit("onBeatClick", { beat: beatOf(1), note: undefined, extend: false } as never);
+      expect(screen.getByRole("region", { name: "Score: Guitar" })).toBeInTheDocument();
+
+      player.emit("onBeatClick", { beat: beatOf(2), note: undefined, extend: false } as never);
+      expect(screen.getByRole("region", { name: "Score: Drums" })).toBeInTheDocument();
+    });
+
+    it("saves the stack with the song and restores it, in the continuous layout", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const { user, calls } = await setup({ desktop: true });
+        await user.click(screen.getByRole("radio", { name: "Continuous" }));
+        await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS + 50);
+        });
+
+        const saved = calls.filter((c) => c.cmd === "save_mixer_settings").at(-1)!;
+        expect((saved.args as { settings: object }).settings).toMatchObject({
+          visibleTracks: [0, 2],
+          activeTrack: 0,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reopens on the track that was edited, with the stack it was saved with", async () => {
+      const song = await makeSong();
+      // Bass was edited and Drums stacked: track 0 is not in the view.
+      song.mix = { ...song.mix, visibleTracks: [1, 2], activeTrack: 1 };
+      renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+      const player = FakeScorePlayer.last;
+
+      expect(player.options.trackIndex).toBe(1);
+      expect(player.options.stack?.indexes).toEqual([1, 2]);
+      expect(screen.getByRole("region", { name: "Score: Bass" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      // Opening it does not change what was saved.
+      await act(async () => {});
+      expect(song.mix.visibleTracks).toEqual([1, 2]);
+    });
+
+    it("ignores a saved active track that is not in the saved stack", async () => {
+      const song = await makeSong();
+      song.mix = { ...song.mix, visibleTracks: [1, 2], activeTrack: 0 };
+      renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+
+      expect(FakeScorePlayer.last.options.trackIndex).toBe(0);
+      expect(FakeScorePlayer.last.options.stack?.indexes).toEqual([0, 1, 2]);
+    });
+
+    it("restores a saved stack and its continuous layout", async () => {
+      const song = await makeSong();
+      song.mix = { ...song.mix, visibleTracks: [2, 0, 99] };
+      renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+      const player = FakeScorePlayer.last;
+
+      expect(player.options.layout).toBe("horizontal");
+      expect(player.options.stack?.indexes).toEqual([2, 0]);
+      expect(screen.getByRole("radio", { name: "Continuous" })).toBeChecked();
+    });
   });
 
   it("opens another file", async () => {

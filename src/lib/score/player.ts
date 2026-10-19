@@ -41,6 +41,7 @@ import {
   mirrorOf,
   realBeatOf,
   realNoteOf,
+  pruneMirrors,
   removeMirrorNotes,
 } from "@/lib/score/drum-tab";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
@@ -145,6 +146,12 @@ export interface ScorePlayerCallbacks {
  */
 export type AudioEngineKind = "alphatab" | "native";
 
+/** The tracks stacked in the continuous view (#157): score indexes in display order, each with its notation. */
+export interface TrackStack {
+  indexes: number[];
+  views: TrackView[];
+}
+
 export interface ScorePlayerOptions {
   /** Where the notation is drawn. */
   element: HTMLElement;
@@ -154,6 +161,8 @@ export interface ScorePlayerOptions {
   trackIndex: number;
   view: TrackView;
   layout: Layout;
+  /** Tracks shown together in the continuous layout (default: only `trackIndex`). */
+  stack?: TrackStack;
   mix: MixerSettings;
   soundFontUrl: string;
   reducedMotion?: boolean;
@@ -245,7 +254,13 @@ export class ScorePlayer {
   private readonly api: AlphaTabApi;
   private readonly score: Score;
   private readonly callbacks: ScorePlayerCallbacks;
+  /** Where the notation is drawn, and the scrolled region around it. */
+  private readonly surface: HTMLElement;
+  private readonly scroller: HTMLElement;
   private trackIndex: number;
+  private layout: Layout;
+  private stack: number[] = [];
+  private stackViews: TrackView[] = [];
   private mix: MixerSettings;
   private ready = false;
   /**
@@ -314,6 +329,10 @@ export class ScorePlayer {
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks = {}) {
     this.score = options.score;
     this.trackIndex = options.trackIndex;
+    this.layout = options.layout;
+    this.surface = options.element;
+    this.scroller = options.scrollElement;
+    if (options.stack) this.applyStack(options.stack);
     this.mix = options.mix;
     this.monitorInput = options.monitorInput ?? { device: null, channel: 0 };
     this.theme = options.theme ?? "light";
@@ -368,7 +387,7 @@ export class ScorePlayer {
     this.subscribe();
     this.hasMirror = this.score.tracks.some((t) => mirrorOf(t) !== null);
     this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !this.hasMirror);
-    this.api.renderScore(this.score, [this.trackIndex]);
+    this.api.renderScore(this.score, this.shownIndexes());
     void this.setSoundFont(options.soundFontUrl);
   }
 
@@ -562,6 +581,41 @@ export class ScorePlayer {
 
   private applyView(view: TrackView) {
     applyTrackView(this.track, view);
+    this.syncStack();
+  }
+
+  /** Keeps the stack (the notation of each stacked track is applied by `syncStack`). */
+  private applyStack(stack: TrackStack | undefined) {
+    this.stack = stack?.indexes ?? [];
+    this.stackViews = stack?.views ?? [];
+  }
+
+  /**
+   * Gives each drawn track its own notation, each drum track its own drum tab, and drops the drum
+   * tab of the tracks that are not drawn. Per track: showing one never changes another (#157).
+   */
+  private syncStack() {
+    const shown = this.shownIndexes();
+    if (shown.length > 1) {
+      this.stack.forEach((index, i) => {
+        const track = this.score.tracks[index];
+        const view = this.stackViews[i];
+        if (track && view && index !== this.trackIndex) applyTrackView(track, view);
+      });
+    }
+    pruneMirrors(this.score, this.shownTracks());
+  }
+
+  /** Several tracks are drawn one under another in the continuous layout only. */
+  private shownIndexes(): number[] {
+    return this.layout === "horizontal" && this.stack.length > 1 ? this.stack : [this.trackIndex];
+  }
+
+  private shownTracks() {
+    return this.shownIndexes().flatMap((i) => {
+      const track = this.score.tracks[i];
+      return track ? [track] : [];
+    });
   }
 
   /** Writes pan values into the model. Returns whether any changed. */
@@ -641,10 +695,11 @@ export class ScorePlayer {
     api.tickPosition = resume.tick;
   }
 
-  showTrack(trackIndex: number, view: TrackView) {
+  showTrack(trackIndex: number, view: TrackView, stack?: TrackStack) {
     const track = this.score.tracks[trackIndex];
     if (!track) return;
     this.trackIndex = trackIndex;
+    this.applyStack(stack);
     // alphaTab draws the previous track's tuning over a drum tab shown straight
     // from another track (seen in 1.8.4). Showing the drum track's score first,
     // then its drum tab, draws it correctly (#53).
@@ -653,7 +708,7 @@ export class ScorePlayer {
     this.applyView(first);
     this.api.settings.notation.rhythmMode = rhythmMode(first);
     this.afterViewChange();
-    this.api.renderTracks([track]);
+    this.api.renderTracks(this.shownTracks());
     if (drumTab) this.setView(view);
   }
 
@@ -666,9 +721,23 @@ export class ScorePlayer {
   }
 
   setLayout(layout: Layout) {
+    this.layout = layout;
+    this.syncStack();
     this.api.settings.display.layoutMode = LAYOUT_MODES[layout];
     this.api.updateSettings();
-    this.api.render();
+    if (this.stack.length > 1) this.api.renderTracks(this.shownTracks());
+    else this.api.render();
+  }
+
+  /** Changes which tracks are stacked (continuous layout) without moving the active one. */
+  setStack(stack: TrackStack) {
+    const before = this.shownIndexes().join();
+    this.applyStack(stack);
+    this.syncStack();
+    if (this.shownIndexes().join() === before) return;
+    this.afterViewChange();
+    this.api.updateSettings();
+    this.api.renderTracks(this.shownTracks());
   }
 
   /**
@@ -710,10 +779,21 @@ export class ScorePlayer {
    * MIDI (at the next pause during playback, like pan). `trackIndex` is where
    * the shown track is now, and `mix` the mix in the new track order.
    */
-  refresh({ trackIndex, view, mix }: { trackIndex: number; view: TrackView; mix: MixerSettings }) {
+  refresh({
+    trackIndex,
+    view,
+    mix,
+    stack,
+  }: {
+    trackIndex: number;
+    view: TrackView;
+    mix: MixerSettings;
+    stack?: TrackStack;
+  }) {
     const track = this.score.tracks[trackIndex];
     if (!track) return;
     this.trackIndex = trackIndex;
+    this.applyStack(stack);
     this.mix = mix;
     this.applyPans(mix);
     this.applyView(view);
@@ -721,7 +801,7 @@ export class ScorePlayer {
     this.api.settings.notation.elements.set(NotationElement.GuitarTuning, !this.hasMirror);
     this.api.updateSettings();
     this.quietRender = true;
-    this.api.renderTracks([track]);
+    this.api.renderTracks(this.shownTracks());
     this.regenerateMidiSoon();
   }
 
@@ -974,7 +1054,7 @@ export class ScorePlayer {
       applyPalette(this.api.settings, this.theme);
       this.api.updateSettings();
       this.quietRender = true;
-      this.api.renderTracks([this.track]);
+      this.api.renderTracks(this.shownTracks());
     };
   }
 
@@ -1208,6 +1288,27 @@ export class ScorePlayer {
     this.api.tickPosition = tick;
     if (this.resume) this.resume.tick = tick; // seeking while new sounds load
     this.reportBar(barIndex);
+    this.scrollToBar(barIndex);
+  }
+
+  /**
+   * Brings the start of a bar into view at once, also while playing (alphaTab only follows
+   * the cursor as it moves, and a seek by bar must show the bar it went to): the continuous
+   * layout scrolls sideways to the bar, the page layout down to its line.
+   */
+  private scrollToBar(barIndex: number) {
+    const bounds = this.api.boundsLookup?.findMasterBarByIndex(barIndex)?.visualBounds;
+    if (!bounds) return;
+    const scroller = this.scroller.getBoundingClientRect();
+    const surface = this.surface.getBoundingClientRect();
+    const margin = 16;
+    if (this.layout === "horizontal") {
+      const x = surface.left - scroller.left + this.scroller.scrollLeft + bounds.x;
+      this.scroller.scrollTo({ left: Math.max(0, x - margin), behavior: "instant" });
+    } else {
+      const y = surface.top - scroller.top + this.scroller.scrollTop + bounds.y;
+      this.scroller.scrollTo({ top: Math.max(0, y - margin), behavior: "instant" });
+    }
   }
 
   /**

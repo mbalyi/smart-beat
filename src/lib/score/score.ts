@@ -17,7 +17,7 @@ import {
 import { adoptLyrics } from "@/lib/score/lyrics";
 import type { TrackKind } from "@/lib/score/music";
 import type { TrackMix } from "@/lib/tauri";
-import { mirrorOf, setDrumTab } from "@/lib/score/drum-tab";
+import { setDrumTab } from "@/lib/score/drum-tab";
 import { applyAlphaTabFixes } from "@/lib/score/alphatab-fixes";
 
 applyAlphaTabFixes();
@@ -229,7 +229,6 @@ export function applyTrackView(track: model.Track, view: TrackView) {
     track.staves[0]!.showStandardNotation = view.notation !== "tab";
     return;
   }
-  if (track.score.tracks.some((t) => mirrorOf(t))) setDrumTab(track.score, track, false);
   for (const staff of track.staves) {
     const stringed = !track.isPercussion && staff.tuning.length > 0;
     staff.showTablature = stringed && view.notation !== "score";

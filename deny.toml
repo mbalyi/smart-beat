@@ -54,3 +54,11 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # Only flag unmaintained crates we depend on directly; Tauri's transitive
 # GTK 3 bindings are tracked upstream.
 unmaintained = "workspace"
+# zip 4.6.1 comes only from tauri-plugin-updater (2.13 and 2.14 both pin it). These advisories are
+# about `ZipArchive::extract` on untrusted archives; the updater only unpacks update bundles whose
+# minisign signature it has already verified. Remove these when the plugin moves to zip >= 9.
+ignore = [
+    { id = "RUSTSEC-2026-0367", reason = "zip 4.6.1 via tauri-plugin-updater: signature-verified update bundles only" },
+    { id = "RUSTSEC-2026-0368", reason = "zip 4.6.1 via tauri-plugin-updater: signature-verified update bundles only" },
+    { id = "RUSTSEC-2026-0369", reason = "zip 4.6.1 via tauri-plugin-updater: signature-verified update bundles only" },
+]
