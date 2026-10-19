@@ -59,12 +59,30 @@ fn native_muscriptor() {
     match env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("macos") => {
             println!("cargo:rustc-link-lib=c++");
+            link_clang_runtime();
             for framework in ["Metal", "MetalKit", "Foundation", "CoreFoundation"] {
                 println!("cargo:rustc-link-lib=framework={framework}");
             }
         }
         Ok("linux") => println!("cargo:rustc-link-lib=stdc++"),
         _ => {}
+    }
+}
+
+/// ggml's Metal code uses `@available`, which calls `__isPlatformVersionAtLeast` from clang's
+/// runtime. Release builds link with `-nodefaultlibs`, so the runtime has to be named here.
+fn link_clang_runtime() {
+    let Ok(output) = std::process::Command::new("cc")
+        .arg("--print-file-name=libclang_rt.osx.a")
+        .output()
+    else {
+        return;
+    };
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let path = Path::new(&path);
+    if let (true, Some(dir)) = (path.is_absolute() && path.exists(), path.parent()) {
+        println!("cargo:rustc-link-search=native={}", dir.display());
+        println!("cargo:rustc-link-lib=static=clang_rt.osx");
     }
 }
 
