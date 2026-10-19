@@ -62,11 +62,12 @@ export function Welcome({
           id="welcome-title"
           className="mb-4 max-w-[1120px] font-heading text-[clamp(40px,6vw,68px)] leading-[1.04] font-bold tracking-[-0.06em] text-balance max-sm:text-[clamp(40px,10vw,58px)]"
         >
-          Write, play and arrange guitar music
+          Practice, create and break the era
         </h1>
         <p className="max-w-[900px] text-[18px] leading-[1.55] text-pretty text-muted-foreground sm:text-[clamp(18px,2.1vw,27px)]">
-          Smart Beat is a tablature editor for macOS, Windows and Linux, with optional self-hosted
-          AI that turns a hummed melody into a full accompaniment.
+          Smart Beat is a free tablature editor for musicians and learners on macOS, Windows and
+          Linux. Record your ideas, get the band together with in-person and online jamming, and
+          practice with optional, self-hosted AI tools too.
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:gap-3">
           <Button size="lg" className={HERO_BUTTON} onClick={onOpenFile} data-tour="open-file">

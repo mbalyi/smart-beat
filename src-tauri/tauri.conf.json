@@ -68,8 +68,8 @@
     "publisher": "Mark Balyi",
     "homepage": "https://github.com/mbalyi/smart-beat",
     "copyright": "Copyright © 2026 @mbalyi (github.com/mbalyi). Source code licensed under PolyForm Noncommercial 1.0.0.",
-    "shortDescription": "Tablature editor with self-hosted AI accompaniment",
-    "longDescription": "Smart Beat opens, plays and edits guitar tablature and scores, and (optionally) generates accompaniment for a hummed melody with a self-hosted AI service.",
+    "shortDescription": "Practice, create and break the era",
+    "longDescription": "Smart Beat is a free tablature editor for musicians and learners on macOS, Windows and Linux. Record your ideas, get the band together with in-person and online jamming, and practice with optional, self-hosted AI tools too.",
     "licenseFile": "../EULA.md",
     "icon": [
       "icons/32x32.png",

@@ -50,6 +50,6 @@ test.describe("native menu integration", () => {
       .poll(() => app.evaluate(() => window.__ipcCalls.some((c) => c.cmd === "plugin:dialog|open")))
       .toBe(true);
     // Cancelled (the mock's default): the welcome screen stays.
-    await expect(app.getByRole("heading", { level: 1 })).toHaveText(/Write, play/);
+    await expect(app.getByRole("heading", { level: 1 })).toHaveText(/Practice, create/);
   });
 });

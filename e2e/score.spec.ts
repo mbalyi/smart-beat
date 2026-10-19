@@ -84,7 +84,7 @@ test.describe("opening Guitar Pro files (#4)", () => {
 
     await expect(app.getByText("Couldn't open “corrupt.gp5”")).toBeVisible();
     await expect(app.getByText(/damaged or is in a format Smart Beat can't read/)).toBeVisible();
-    await expect(app.getByRole("heading", { level: 1 })).toHaveText(/Write, play/);
+    await expect(app.getByRole("heading", { level: 1 })).toHaveText(/Practice, create/);
   });
 
   test("explains which files it opens", async ({ app }) => {
