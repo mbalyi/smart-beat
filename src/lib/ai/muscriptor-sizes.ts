@@ -14,6 +14,12 @@ export interface SizeInfo {
   gpuSeconds: number;
   /** Seconds per minute on the CPU alone, or null when nobody measured it. */
   cpuSeconds: number | null;
+  /** Parameters, from the file size (float16, two bytes each). */
+  params: string;
+  /** Real-time factor on an Apple Silicon GPU: 2 means a minute of audio takes half a minute. */
+  gpuFactor: number;
+  /** Real-time factor on the CPU alone, or null when nobody measured it. */
+  cpuFactor: number | null;
   /** Estimated RAM floor (GB). */
   ramGb: number;
   note: string;
@@ -26,6 +32,9 @@ export const SIZES: readonly SizeInfo[] = [
     megabytes: 210,
     gpuSeconds: 17,
     cpuSeconds: 31,
+    params: "~103M",
+    gpuFactor: 3.5,
+    cpuFactor: 1.9,
     ramGb: 4,
     note: "Fastest. Runs on almost any modern computer.",
   },
@@ -35,6 +44,9 @@ export const SIZES: readonly SizeInfo[] = [
     megabytes: 620,
     gpuSeconds: 38,
     cpuSeconds: 87,
+    params: "~307M",
+    gpuFactor: 1.6,
+    cpuFactor: 0.7,
     ramGb: 8,
     note: "The default. A graphics processor is recommended.",
   },
@@ -44,6 +56,9 @@ export const SIZES: readonly SizeInfo[] = [
     megabytes: 2740,
     gpuSeconds: 125,
     cpuSeconds: null,
+    params: "~1.4B",
+    gpuFactor: 0.5,
+    cpuFactor: null,
     ramGb: 16,
     note: "Slowest. Needs a strong graphics processor and patience.",
   },
