@@ -29,6 +29,13 @@ agree, do not install or use the Software.
    for personal or professional purposes, including making and selling your
    own music with it. The Software is provided free of charge.
 
+   Exception: the optional MuScriptor transcription model (see clause 5)
+   may be used for non-commercial purposes only, and only on music you
+   own or have the rights to transcribe. You confirm this when you
+   download the model. You must not use it for paid work or on music you
+   have no rights to, and you indemnify Mirelo, Kyutai and Licensor
+   against claims arising from use that does not follow this clause.
+
 3. RESTRICTIONS
    Except where this Agreement, the source licence or mandatory law allows
    it, you may not:
@@ -53,7 +60,10 @@ agree, do not install or use the Software.
 
 5. AI FEATURES AND MODELS
    Optional AI features may use models that are downloaded separately or
-   run on a server. Each model has its own license, which is shown before
+   run on a server. The MuScriptor model is never part of the Software and
+   is not hosted by Licensor: you download it yourself from Hugging Face,
+   its terms (CC BY-NC 4.0) are shown and must be accepted before the
+   download, and you are responsible for your use of it. Each model has its own license, which is shown before
    download or first use. Some AI features may later be offered for a fee
    under additional terms, which will be shown before you agree to them.
    Licensor does not claim any rights in what you create with the AI

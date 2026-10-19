@@ -8,11 +8,20 @@ import type {
   TranscriptionResult,
 } from "@/lib/audio-transcription/provider";
 import { renderWithProviders } from "@/test/render";
+import { getAiState, resetAiStore, seedAiState, statusWith } from "@/lib/ai/ai-store";
+import { track } from "@/lib/telemetry";
 import { expectNoA11yViolations } from "@/test/axe";
 
 vi.mock("@/lib/audio-transcription/duration", () => ({
   audioDurationMs: vi.fn().mockResolvedValue(272_000),
 }));
+
+vi.mock("@/lib/telemetry", () => ({ track: vi.fn() }));
+beforeEach(() => {
+  // MuScriptor is on this computer and the terms are accepted.
+  seedAiState({ ready: true, status: statusWith(["medium"]) });
+});
+afterEach(() => resetAiStore());
 
 const MIDI: TranscriptionResult = {
   midi: new Uint8Array([77, 84, 104, 100]),
@@ -44,17 +53,17 @@ async function transcribe(user: ReturnType<typeof setup>["user"]) {
   await user.click(button);
 }
 describe("audio transcription", () => {
-  it("disables transcription when the build has no transcription server", async () => {
+  it("disables transcription outside the desktop app", async () => {
     const { user } = setup({ configured: vi.fn().mockResolvedValue(false) });
     expect(
-      await screen.findByText("Audio transcription is not available in this build."),
+      await screen.findByText("Audio transcription is available in the desktop app."),
     ).toBeInTheDocument();
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
     expect(screen.getByRole("button", { name: "Transcribe" })).toBeDisabled();
   });
-  it("says where the recording goes and shows its duration before upload", async () => {
+  it("says that the recording stays on this computer and shows its duration", async () => {
     const { user, provider } = setup();
-    expect(screen.getByText(/uploaded to Smart Beat's transcription server/)).toBeInTheDocument();
+    expect(screen.getByText(/transcribed on this computer/)).toBeInTheDocument();
     expect(screen.getByText(/by Kyutai and Mirelo/)).toBeInTheDocument();
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
     expect(await screen.findByText(/· 4:32/)).toBeInTheDocument();
@@ -184,5 +193,30 @@ describe("audio transcription", () => {
     await user.click(await screen.findByRole("button", { name: "New transcription" }));
     expect(screen.queryByText("my-song.wav")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose recording…" })).toBeEnabled();
+  });
+
+  it("offers the download first while MuScriptor is not on this computer", async () => {
+    seedAiState({ ready: true, status: statusWith([], false) });
+    const { user, onOpenChange } = setup();
+    expect(await screen.findByTestId("audio-needs-model")).toBeInTheDocument();
+    // Nothing to drop or transcribe yet.
+    expect(screen.queryByLabelText("Choose an audio recording")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Transcribe" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Download MuScriptor" }));
+    // The dialog steps aside and the installer opens, remembering where to return to.
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(getAiState().installer).toEqual({ open: true, returnTo: "audio" });
+  });
+  it("counts every start with the state of the rights confirmation", async () => {
+    const { user } = setup();
+    await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
+    await transcribe(user);
+    await screen.findByText("Import MIDI into Smart Beat");
+    expect(track).toHaveBeenCalledWith("ai_transcribe_file", "rights_confirmed");
+  });
+  it("keeps the transcribe button off when the terms are not on file", async () => {
+    seedAiState({ ready: true, status: { ...statusWith(["medium"]), termsAccepted: false } });
+    setup();
+    expect(await screen.findByTestId("audio-needs-model")).toBeInTheDocument();
   });
 });

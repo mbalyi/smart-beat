@@ -131,6 +131,14 @@ pub enum Event {
     TourSkip,
     /// The tour was closed before its end.
     TourClose,
+    /// A MuScriptor size finished downloading (the size is the detail).
+    AiInstall,
+    /// The user ticked "I only use music I have the rights to" when installing MuScriptor.
+    AiRightsConfirmed,
+    /// A live take went through the AI engine; the detail says whether the confirmation is on file.
+    AiTranscribeStart,
+    /// An audio file went through the AI engine (Record to tab or Import from Audio).
+    AiTranscribeFile,
 }
 
 impl Event {
@@ -182,6 +190,10 @@ impl Event {
                 "arachno",
             ],
             Self::TourStart | Self::TourFinish | Self::TourSkip | Self::TourClose => TOURS,
+            Self::AiInstall => &["small", "medium", "large"],
+            Self::AiTranscribeStart | Self::AiTranscribeFile => {
+                &["rights_confirmed", "rights_unconfirmed"]
+            }
             _ => &[],
         }
     }
@@ -773,6 +785,10 @@ mod tests {
             "tour_finish",
             "tour_skip",
             "tour_close",
+            "ai_install",
+            "ai_rights_confirmed",
+            "ai_transcribe_start",
+            "ai_transcribe_file",
         ] {
             let event: Event = serde_json::from_value(serde_json::json!(name)).unwrap();
             t.record_on("2026-01-01", event, None).unwrap();

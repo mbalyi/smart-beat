@@ -49,8 +49,8 @@ The macOS and Windows buttons start the download of the newest release's install
   <tr>
     <td valign="top" width="25%">
       <img src="src/assets/features/audio-to-tab.png" alt="Audio to tab" width="100%">
-      <p><b>🟣 AI · Coming soon</b></p>
-      <p>Upload an audio file and let AI generate MIDI and tab for you.</p>
+      <p><b>🟣 AI · Beta</b></p>
+      <p>Drop an audio file and let AI turn it into MIDI and tab, on your computer. It needs a one-time download of the optional MuScriptor model (non-commercial use only, see <a href="#optional-add-ons-you-download-yourself">below</a>).</p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/record-to-tab.png" alt="Record to tab" width="100%">
@@ -58,7 +58,7 @@ The macOS and Windows buttons start the download of the newest release's install
       <p>Record yourself playing guitar, bass, piano or drums, or use a recording, and get tab or staves you can edit.</p>
       <ul>
         <li>Guitar, bass, piano and drums. A piano take becomes a right-hand and a left-hand track, a drum take a drum track.</li>
-        <li>No cloud AI: a small note-finding model runs on your computer. For strings, Smart Beat's own rules pick the string and fret.</li>
+        <li>No cloud AI: a small note-finding model runs on your computer (plus an optional AI mode with the MuScriptor download). For strings, Smart Beat's own rules pick the string and fret.</li>
         <li>Record inside the app, or use an existing recording.</li>
         <li>Review the result afterwards. You will probably need to correct it by hand.</li>
       </ul>
@@ -122,6 +122,10 @@ A heartfelt thank you to the maintainers whose work makes Smart Beat possible. M
 
 Special thanks to **[alphaTab](https://alphatab.net/)** ([source](https://github.com/CoderLine/alphaTab), MPL-2.0), the heart of Smart Beat: this project would not exist without it. If you like what Smart Beat does with scores, please give alphaTab a star, try it in your own project, and thank its maintainer, [Danielku15](https://github.com/Danielku15), and the contributors. alphaTab's logo and the RustAudio logo are shown with the maintainers' permission. Smart Beat is independent and is not affiliated with or endorsed by alphaTab or any of these projects. Record to tab listens with **[Basic Pitch](https://github.com/spotify/basic-pitch)** (Spotify, Apache-2.0) and, for the high-accuracy piano mode, **[Transkun](https://github.com/Yujia-Yan/Transkun)** by Yujia Yan (MIT): thank you both for sharing your work openly. All notices are in Help › Open-Source Licenses.
 
+## Optional add-ons you download yourself
+
+**[MuScriptor](https://huggingface.co/MuScriptor)** by Kyutai and Mirelo powers the AI mode of Record to tab and Import from Audio. It is **not part of Smart Beat**: you download it once from inside the app (the weights come straight from the [GGUF mirror](https://huggingface.co/DamRsn/muscriptor-gguf) on Hugging Face, converted to float16 without retraining by DamRsn, and run with [muscriptor.cpp](https://github.com/DamRsn/muscriptor.cpp), MIT), accept its terms on the [official model card](https://huggingface.co/MuScriptor/muscriptor-medium) and confirm that you only use music you have the rights to. The weights are licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): **non-commercial use only**. Transcription runs on your computer; your recordings never leave it. More: [online demo](https://muscriptor.kyutai.org/) (runs on Kyutai's servers, not on your computer), [paper](https://arxiv.org/abs/2607.08168), [announcement](https://kyutai.org/blog/2026-07-10-muscriptor/), [reference code](https://github.com/muscriptor/muscriptor). Smart Beat is independent and is not affiliated with or endorsed by Kyutai or Mirelo.
+
 ## Sponsors
 
 **We are looking for sponsors.** Smart Beat is free, and we want to keep it that way, including the features that cost money to run. Sponsorship would pay for the server and AI work behind them, for example:
@@ -171,6 +175,7 @@ Install these once per machine.
 | pnpm            | `corepack enable`                                                                           | `corepack enable`                                                                                                                                                     | `corepack enable`                                                                                                                                      |
 | Rust (stable)   | [rustup](https://rustup.rs)                                                                 | [rustup](https://rustup.rs) (MSVC toolchain)                                                                                                                          | [rustup](https://rustup.rs)                                                                                                                            |
 | System          | Xcode or Xcode Command Line Tools (`xcode-select --install`)                                | [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) ("Desktop development with C++") and WebView2 (preinstalled on Windows 10/11) | `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev` |
+| CMake 3.24+     | `brew install cmake` (the AI model engine, `src-tauri/native`)                              | [cmake.org](https://cmake.org/download/) (the Visual Studio generator works)                                                                                          | `sudo apt install cmake` (or pip install cmake if apt is older than 3.24)                                                                              |
 | License tooling | `cargo install cargo-about --locked --features cli` and `cargo install cargo-deny --locked` | same                                                                                                                                                                  | same                                                                                                                                                   |
 
 Optional: to build the universal (Apple Silicon + Intel) macOS app, run `rustup target add x86_64-apple-darwin aarch64-apple-darwin`.

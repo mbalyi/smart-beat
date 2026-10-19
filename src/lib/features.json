@@ -1,5 +1,6 @@
 {
-  "audio-2-tab": false,
+  "audio-2-tab": true,
+  "muscriptor-record": true,
   "record-2-tab": true,
   "speech-2-tab": false,
   "hum-2-accompaniment": false

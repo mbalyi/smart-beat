@@ -3,6 +3,8 @@ import { track } from "@/lib/telemetry";
 import { toast } from "sonner";
 
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
+import { AiInstallerDialog } from "@/components/ai/ai-installer-dialog";
+import { onInstallerReturn } from "@/lib/ai/ai-store";
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { DocumentTabs } from "@/components/shell/document-tabs";
@@ -165,6 +167,9 @@ export function App() {
       toast.error("Couldn't show the Open dialog", { description: errorText(error) });
     }
   };
+
+  // The installer hands the user back to Import from Audio when it closes.
+  useEffect(() => onInstallerReturn("audio", () => setDialog("audio-transcription")), []);
 
   const open = () => void showOpenDialog();
   // Import from Audio stays out of reach until the feature is switched on.
@@ -436,6 +441,7 @@ export function App() {
           if (path) await writeScoreFile(path, midi);
         }}
       />
+      <AiInstallerDialog />
       <UpdateDialog updater={updater} />
       <Toaster position="bottom-right" />
     </>

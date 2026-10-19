@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import instrumentIds from "@/lib/audio-transcription/instrument-ids.json";
 import { audioDurationMs } from "@/lib/audio-transcription/duration";
+import { getAiState } from "@/lib/ai/ai-store";
 import { isTauri } from "@/lib/tauri";
 import {
   validateAudio,
@@ -34,7 +35,7 @@ interface NativeResult {
   notes: TranscriptionNote[];
   durationSeconds: number;
 }
-/** Smart Beat's self-hosted MuScriptor server (src-tauri/src/transcription.rs). */
+/** MuScriptor on this computer (src-tauri/src/transcription.rs): the downloaded model, no upload. */
 export const muscriptorProvider: AudioTranscriptionProvider = {
   name: "MuScriptor",
   credit: "MuScriptor is a music transcription model by Kyutai and Mirelo.",
@@ -42,10 +43,9 @@ export const muscriptorProvider: AudioTranscriptionProvider = {
   instruments: instrumentIds,
   maxBytes: 100 * 1024 * 1024,
   maxDurationMs: 15 * 60_000,
-  privacy:
-    "Smart Beat's transcription server processes it in memory and keeps neither the recording nor the MIDI.",
-  configured: () =>
-    isTauri() ? invoke<boolean>("transcription_configured") : Promise.resolve(false),
+  privacy: "It is transcribed on this computer. Nothing is uploaded.",
+  // Only the desktop app can run the model. Whether it is downloaded is the AI store's business.
+  configured: () => Promise.resolve(isTauri()),
   async readFile(path) {
     const name = path.split(/[\\/]/).pop() ?? "recording";
     const bytes = await invoke<ArrayBuffer>("read_transcription_audio", { path });
@@ -65,7 +65,7 @@ export const muscriptorProvider: AudioTranscriptionProvider = {
         if (id === operationId && !options.signal.aborted) options.onProgress(progress);
       },
     );
-    // Closing the connection makes the server stop working on this recording.
+    // Stops the model between two steps.
     const cancel = () => void invoke("cancel_transcription", { operationId }).catch(() => {});
     try {
       const body = new Uint8Array(await file.arrayBuffer());
@@ -76,6 +76,7 @@ export const muscriptorProvider: AudioTranscriptionProvider = {
           "operation-id": operationId,
           "file-type": file.name.split(".").pop()!.toLowerCase(),
           instruments: instruments.join(","),
+          "model-size": getAiState().size,
         },
       });
       // Only a request that was sent needs a Cancel in Rust.

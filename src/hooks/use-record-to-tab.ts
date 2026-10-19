@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { RecordSetup, RecordTarget } from "@/components/score/record-dialog";
 import { audioInputErrorText, readAudioInput } from "@/lib/audio/input";
 import { decodeTake } from "@/lib/audio/decode-take";
-import type { PianoEngine, RecordInstrument } from "@/lib/audio/record-prefs";
+import type { RecordEngine, RecordInstrument } from "@/lib/audio/record-prefs";
 import { meterLevel, smoothLevel } from "@/lib/audio/level";
 import { startRecorder, type Recorder, type Take } from "@/lib/audio/recorder";
 import {
@@ -47,6 +47,7 @@ import {
   isTauri,
   transcribeRecording,
 } from "@/lib/tauri";
+import { getAiState, rightsDetail } from "@/lib/ai/ai-store";
 import { track } from "@/lib/telemetry";
 
 /** A take shorter than this holds nothing worth transcribing (seconds). */
@@ -105,7 +106,7 @@ export interface RecordToTab {
     file: File,
     tuning: number[],
     instrument: RecordInstrument,
-    engine: PianoEngine,
+    engine: RecordEngine,
   ) => void;
   /** Ends the take and transcribes it. */
   stop: () => void;
@@ -209,7 +210,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     samples: Float32Array,
     sampleRate: number,
     instrument: RecordInstrument,
-    engine: PianoEngine,
+    engine: RecordEngine,
   ) =>
     transcribeRecording(
       samples,
@@ -218,6 +219,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
       // The note finder hears a bass like a guitar.
       instrument === "piano" || instrument === "drums" ? instrument : "guitar",
       engine,
+      getAiState().size,
     ).then((notes) => (instrument === "drums" ? cleanDrumHits(notes) : notes));
 
   const finish = async () => {
@@ -295,11 +297,12 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     file: File,
     tuning: number[],
     instrument: RecordInstrument,
-    engine: PianoEngine,
+    engine: RecordEngine,
   ) => {
     if (transcribing.current || session.current) return;
     // Counted when it starts, per instrument, apart from takes recorded in the app.
     track("record_to_tab_file", instrument);
+    if (engine === "muscriptor") track("ai_transcribe_file", rightsDetail());
     setDialog({ open: false, track: null });
     void transcribe(async () => {
       const decoded = await decodeTake(await file.arrayBuffer());
@@ -356,6 +359,7 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
     }
     // The microphone is open and the take has begun: counted per instrument.
     track("record_to_tab_start", setup.instrument);
+    if (setup.engine === "muscriptor") track("ai_transcribe_start", rightsDetail());
 
     const masterBar = score.masterBars[setup.startBar];
     const beats = masterBar?.timeSignatureNumerator ?? 4;

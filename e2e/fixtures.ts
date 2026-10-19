@@ -103,6 +103,18 @@ interface MixerSettings {
 
 declare global {
   interface Window {
+    __muscriptor: {
+      termsAccepted: boolean;
+      rightsConfirmed: boolean[];
+      installed: Record<"small" | "medium" | "large", boolean>;
+      downloads: string[];
+      cancelled: number;
+      deleted: string[];
+      hold: boolean;
+      fail: string | null;
+      release: (() => void) | null;
+      abort: (() => void) | null;
+    };
     __emitMenuAction: (action: MenuAction) => number;
     __emitTauriEvent: (event: string, payload: unknown) => number;
     __dialogResult: string | null;

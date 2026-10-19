@@ -57,9 +57,70 @@ export const OTHER_CREDITS: readonly Credit[] = [
   },
 ];
 
-/** Every address the "Built with" section can open. */
+/**
+ * An optional add-on the user downloads themselves (#150). Not part of Smart Beat and not built
+ * into it: shown in its own section, apart from the libraries above. The weights are CC BY-NC 4.0,
+ * for non-commercial use only. Text only, no logos: Smart Beat is independent and not affiliated
+ * with or endorsed by Kyutai or Mirelo.
+ */
+export interface Addon extends Credit {
+  /** Who made it. */
+  authors: string;
+  licence: { name: string; url: string };
+  /** Where the terms of the weights are published. The user accepts them there. */
+  modelCard: string;
+  /** Converted for Smart Beat's use (no retraining) by someone else. */
+  conversion: string;
+  /** The paragraph under "Powered by MuScriptor". */
+  about: string;
+  /** More places to read about it. */
+  links: readonly { label: string; url: string; note?: string }[];
+}
+
+export const MUSCRIPTOR: Addon = {
+  name: "MuScriptor",
+  authors: "Kyutai and Mirelo",
+  url: "https://huggingface.co/MuScriptor",
+  description:
+    "An AI model that turns a recording of many instruments into notes. You download it once; it then runs on your computer.",
+  licence: {
+    name: "CC BY-NC 4.0",
+    url: "https://creativecommons.org/licenses/by-nc/4.0/",
+  },
+  modelCard: "https://huggingface.co/MuScriptor/muscriptor-medium",
+  conversion:
+    "The weights are converted to GGUF (float16, no retraining) by DamRsn and run with muscriptor.cpp (MIT).",
+  about:
+    "MuScriptor is a multi-instrument music transcription model from Kyutai and Mirelo, trained on real recordings across many genres. Once you have downloaded it, it runs locally: your recordings never leave this computer.",
+  links: [
+    {
+      label: "Online demo",
+      url: "https://muscriptor.kyutai.org/",
+      note: "runs on Kyutai's servers, not on your computer",
+    },
+    { label: "Paper", url: "https://arxiv.org/abs/2607.08168" },
+    { label: "Announcement", url: "https://kyutai.org/blog/2026-07-10-muscriptor/" },
+    { label: "Reference code", url: "https://github.com/muscriptor/muscriptor" },
+    { label: "Original checkpoints", url: "https://huggingface.co/MuScriptor" },
+    { label: "GGUF weights", url: "https://huggingface.co/DamRsn/muscriptor-gguf" },
+    { label: "muscriptor.cpp", url: "https://github.com/DamRsn/muscriptor.cpp" },
+  ],
+};
+
+/** Every address the add-on text can open. */
+export const ADDON_URLS: readonly string[] = [
+  ...new Set([
+    MUSCRIPTOR.url,
+    MUSCRIPTOR.licence.url,
+    MUSCRIPTOR.modelCard,
+    ...MUSCRIPTOR.links.map((link) => link.url),
+  ]),
+];
+
+/** Every address the "Built with" section and the add-ons can open. */
 export const CREDIT_URLS: readonly string[] = [
   ALPHATAB.url,
   ALPHATAB.source,
   ...OTHER_CREDITS.map((credit) => credit.url),
+  ...ADDON_URLS,
 ];

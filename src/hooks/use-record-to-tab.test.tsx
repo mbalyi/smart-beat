@@ -235,6 +235,7 @@ describe("click mode", () => {
       expect.any(Function),
       "guitar",
       "standard",
+      "medium",
     );
     expect(hook.editor.run).toHaveBeenCalledTimes(1);
     expect(hook.editor.run.mock.calls[0]![0]).toBe("Record to tab");
@@ -443,6 +444,7 @@ describe("piano", () => {
       expect.any(Function),
       "piano",
       "standard",
+      "medium",
     );
     expect(recordingToSong).toHaveBeenCalledWith(expect.anything(), {
       tuning: undefined,
@@ -470,6 +472,7 @@ describe("piano", () => {
       expect.any(Function),
       "piano",
       "accurate",
+      "medium",
     );
   });
 
@@ -537,6 +540,7 @@ describe("drums", () => {
       expect.any(Function),
       "drums",
       "standard",
+      "medium",
     );
     expect(recordingToSong).toHaveBeenCalledWith(
       [kick, snare].map((n) => expect.objectContaining({ pitch: n.pitch })),
@@ -580,6 +584,7 @@ describe("bass", () => {
       expect.any(Function),
       "guitar",
       "standard",
+      "medium",
     );
     expect(recordingToSong).toHaveBeenCalledWith(expect.anything(), {
       tuning,
@@ -784,6 +789,7 @@ describe("an existing recording", () => {
       expect.any(Function),
       "guitar",
       "standard",
+      "medium",
     );
     expect(recordingToSong).toHaveBeenCalledWith(
       expect.anything(),
@@ -795,6 +801,7 @@ describe("an existing recording", () => {
       expect.any(Function),
       "guitar",
       "standard",
+      "medium",
     );
     expect(hook.player.playPause).not.toHaveBeenCalled();
     expect(track).toHaveBeenCalledWith("record_to_tab", "guitar");

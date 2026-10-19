@@ -87,6 +87,26 @@ describe("track", () => {
     ]);
   });
 
+  it("counts the AI engine with the install size and the state of the rights confirmation (#150)", () => {
+    const calls = mockTauri();
+    track("ai_install", "Medium");
+    track("ai_rights_confirmed");
+    track("ai_transcribe_start", "rights_confirmed");
+    track("ai_transcribe_file", "rights_unconfirmed");
+    track("ai_install", "huge");
+    track("ai_transcribe_start", "yes please");
+    track("ai_rights_confirmed", "true");
+    expect(tracked(calls)).toEqual([
+      { event: "ai_install", format: "medium" },
+      { event: "ai_rights_confirmed", format: null },
+      { event: "ai_transcribe_start", format: "rights_confirmed" },
+      { event: "ai_transcribe_file", format: "rights_unconfirmed" },
+      { event: "ai_install", format: null },
+      { event: "ai_transcribe_start", format: null },
+      { event: "ai_rights_confirmed", format: null },
+    ]);
+  });
+
   it("names a sound set by its fixed id, and an imported file only as custom", () => {
     expect(soundFontCounterId({ id: "sonivox" })).toBe("sonivox");
     expect(soundFontCounterId({ id: "fluidr3" })).toBe("fluidr3");

@@ -1045,7 +1045,8 @@ export async function transcribeRecording(
   sampleRate: number,
   onProgress?: (fraction: number) => void,
   instrument: "guitar" | "piano" | "drums" = "guitar",
-  engine: "standard" | "accurate" = "standard",
+  engine: "standard" | "accurate" | "muscriptor" = "standard",
+  modelSize: MuscriptorSize = "medium",
 ): Promise<RecordedNote[]> {
   if (!isTauri()) throw new NotInDesktopAppError();
   const stopListening = onProgress
@@ -1061,6 +1062,7 @@ export async function transcribeRecording(
         "x-sample-rate": String(sampleRate),
         "x-instrument": instrument,
         ...(instrument === "piano" && engine === "accurate" ? { "x-engine": "transkun" } : {}),
+        ...(engine === "muscriptor" ? { "x-engine": "muscriptor", "x-model-size": modelSize } : {}),
       },
     });
     return result.notes;
@@ -1106,6 +1108,75 @@ export async function downloadPianoModel(onProgress?: (fraction: number) => void
   } finally {
     stopListening();
   }
+}
+
+// --- MuScriptor, the optional AI model (#150) --------------------------------
+
+const MUSCRIPTOR_PROGRESS_EVENT = "muscriptor-model-download-progress";
+
+export type MuscriptorSize = "small" | "medium" | "large";
+
+/** Mirrors `Status` in `src-tauri/src/recording/muscriptor_model.rs`. */
+export interface MuscriptorStatus {
+  /** The user accepted the terms and confirmed their rights to the music (current version). */
+  termsAccepted: boolean;
+  termsVersion: number;
+  sizes: {
+    size: MuscriptorSize;
+    /** The size of the download. */
+    bytes: number;
+    installed: boolean;
+    /** Bytes of an interrupted download that the next one continues from. */
+    partialBytes: number;
+  }[];
+}
+
+/** Which MuScriptor sizes are on this computer, and whether the terms were accepted. */
+export async function muscriptorStatus(): Promise<MuscriptorStatus> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<MuscriptorStatus>("muscriptor_status");
+}
+
+/** Records the acceptance of the terms. Rejects unless the rights are confirmed. */
+export async function acceptMuscriptorTerms(rightsConfirmed: boolean): Promise<MuscriptorStatus> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<MuscriptorStatus>("accept_muscriptor_terms", { rightsConfirmed });
+}
+
+/**
+ * Downloads a MuScriptor size, continuing an interrupted download. `onProgress` gets the fraction
+ * done (0…1). Rejects with "Download stopped." after {@link cancelMuscriptorDownload}.
+ */
+export async function downloadMuscriptorModel(
+  size: MuscriptorSize,
+  onProgress?: (fraction: number, bytes: number) => void,
+): Promise<MuscriptorStatus> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<{ size: MuscriptorSize; fraction: number; bytes: number }>(
+        MUSCRIPTOR_PROGRESS_EVENT,
+        (event) => {
+          if (event.payload.size === size) onProgress(event.payload.fraction, event.payload.bytes);
+        },
+      )
+    : () => {};
+  try {
+    return await invoke<MuscriptorStatus>("download_muscriptor_model", { size });
+  } finally {
+    stopListening();
+  }
+}
+
+/** Stops the running download; the part saved so far is kept. */
+export async function cancelMuscriptorDownload(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("cancel_muscriptor_download");
+}
+
+/** Deletes a downloaded size. */
+export async function deleteMuscriptorModel(size: MuscriptorSize): Promise<MuscriptorStatus> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<MuscriptorStatus>("delete_muscriptor_model", { size });
 }
 
 /** Stops the running {@link transcribeRecording}, which then rejects. */

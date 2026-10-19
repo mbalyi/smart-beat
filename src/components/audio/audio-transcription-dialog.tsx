@@ -13,6 +13,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { TranscriptionPreview } from "./transcription-preview";
+import { AI_DIALOG_FRAME } from "@/components/ai/dialog-frame";
+import { PoweredByMuscriptor } from "@/components/ai/powered-by-muscriptor";
+import { canRun, openInstaller, refreshAi, rightsDetail, useAiState } from "@/lib/ai/ai-store";
+import { sizeInfo } from "@/lib/ai/muscriptor-sizes";
 import {
   validateAudio,
   type AudioTranscriptionProvider,
@@ -66,6 +70,10 @@ export function AudioTranscriptionDialog({
   const [progress, setProgress] = useState<TranscriptionProgress | null>(null);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const ai = useAiState();
+  // The model is downloaded and the terms are accepted; until then the dialog offers the download.
+  const ready = canRun(ai);
+  const needsModel = configured === true && ai.ready && !ready;
   const busy = phase === "transcribing";
   const locked = busy || phase === "complete" || saving || importing;
   const candidates = provider.instruments
@@ -75,6 +83,7 @@ export function AudioTranscriptionDialog({
 
   useEffect(() => {
     if (!open) return;
+    void refreshAi();
     let alive = true;
     provider.configured().then(
       (access) => {
@@ -165,7 +174,9 @@ export function AudioTranscriptionDialog({
     const opts = options();
     setError("");
     setPhase("transcribing");
-    setProgress({ phase: "uploading", message: "Reading recording…" });
+    setProgress({ phase: "processing", message: "Reading recording…" });
+    // Counted at every start, with whether the rights confirmation is on file (#150).
+    track("ai_transcribe_file", rightsDetail());
     try {
       const next = await provider.transcribe(file, selected, opts);
       if (!opts.signal.aborted) {
@@ -228,7 +239,7 @@ export function AudioTranscriptionDialog({
   };
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
-      <DialogContent size="xl" onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogContent size="xl" className={AI_DIALOG_FRAME} onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Import from Audio</DialogTitle>
           <DialogDescription>
@@ -238,51 +249,75 @@ export function AudioTranscriptionDialog({
         </DialogHeader>
         <DialogBody>
           <div className="flex flex-col gap-5">
-            <div className="rounded-md border p-3 text-sm">
-              <p>
-                Your recording will be uploaded to Smart Beat&apos;s transcription server.{" "}
-                {provider.privacy}
-              </p>
-              <p className="mt-2">
-                Limit: {provider.maxBytes / 1024 / 1024} MiB and {provider.maxDurationMs / 60_000}{" "}
-                minutes. {provider.credit}
-              </p>
-            </div>
+            {needsModel && (
+              <div
+                className="flex flex-col items-start gap-3 rounded-md border p-4 text-sm"
+                data-testid="audio-needs-model"
+              >
+                <p className="font-medium">Download MuScriptor to transcribe recordings</p>
+                <p>
+                  Import from Audio runs the MuScriptor AI model on this computer. Download it once
+                  ({sizeInfo(ai.size).label}, about {sizeInfo(ai.size).megabytes} MB); a guided
+                  setup walks you through the terms. Your recordings never leave this computer.
+                </p>
+                <Button
+                  onClick={() => {
+                    onOpenChange(false);
+                    openInstaller("audio");
+                  }}
+                >
+                  Download MuScriptor
+                </Button>
+                <PoweredByMuscriptor />
+              </div>
+            )}
+            {!needsModel && (
+              <div className="rounded-md border p-3 text-sm">
+                <p>{provider.privacy}</p>
+                <p className="mt-2">
+                  Limit: {provider.maxBytes / 1024 / 1024} MiB and {provider.maxDurationMs / 60_000}{" "}
+                  minutes. {provider.credit} Non-commercial use only, and only on music you have the
+                  rights to.
+                </p>
+              </div>
+            )}
             {configured === false && (
               <p className="text-sm text-muted-foreground">
-                Audio transcription is not available in this build.
+                Audio transcription is available in the desktop app.
               </p>
             )}
-            <AudioDropArea
-              extensions={provider.extensions}
-              disabled={locked}
-              chosen={file !== null}
-              onFile={choose}
-            >
-              {file && (
-                <div className="mt-3 text-sm">
-                  <p>{file.name}</p>
-                  <p className="text-muted-foreground">
-                    {(file.size / 1024 / 1024).toFixed(2)} MiB
-                    {shownDuration ? ` · ${durationText(shownDuration)}` : ""}
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={locked}
-                    onClick={() => {
-                      choice.current++;
-                      setFile(null);
-                      setError("");
-                      setPhase("select");
-                    }}
-                  >
-                    Remove recording
-                  </Button>
-                </div>
-              )}
-            </AudioDropArea>
-            {file && phase !== "complete" && (
+            {!needsModel && (
+              <AudioDropArea
+                extensions={provider.extensions}
+                disabled={locked}
+                chosen={file !== null}
+                onFile={choose}
+              >
+                {file && (
+                  <div className="mt-3 text-sm">
+                    <p>{file.name}</p>
+                    <p className="text-muted-foreground">
+                      {(file.size / 1024 / 1024).toFixed(2)} MiB
+                      {shownDuration ? ` · ${durationText(shownDuration)}` : ""}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={locked}
+                      onClick={() => {
+                        choice.current++;
+                        setFile(null);
+                        setError("");
+                        setPhase("select");
+                      }}
+                    >
+                      Remove recording
+                    </Button>
+                  </div>
+                )}
+              </AudioDropArea>
+            )}
+            {!needsModel && file && phase !== "complete" && (
               <fieldset disabled={locked} className="flex flex-col gap-3">
                 <legend className="text-sm font-medium">Expected instruments, optional</legend>
                 <p className="text-xs text-muted-foreground">
@@ -327,8 +362,8 @@ export function AudioTranscriptionDialog({
                 </div>
               </fieldset>
             )}
-            {phase === "select" && (
-              <Button disabled={!file || !configured} onClick={() => void transcribe()}>
+            {phase === "select" && !needsModel && (
+              <Button disabled={!file || !configured || !ready} onClick={() => void transcribe()}>
                 Transcribe
               </Button>
             )}

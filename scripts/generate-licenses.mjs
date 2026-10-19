@@ -87,6 +87,16 @@ const ALPHATAB_DIST = path.join(ROOT, "node_modules", "@coderline", "alphatab", 
  */
 const ASSETS = [
   {
+    name: "muscriptor.cpp and ggml (the AI model engine, built into the app)",
+    license: "MIT",
+    homepage: "https://github.com/DamRsn/muscriptor.cpp",
+    // ggml is fetched at build time (pinned commit); its MIT licence is copied to GGML-LICENSE.
+    files: [
+      path.join(ROOT, "src-tauri", "native", "muscriptor", "LICENSE"),
+      path.join(ROOT, "src-tauri", "native", "GGML-LICENSE"),
+    ],
+  },
+  {
     name: "MuScriptor instrument search helpers",
     license: "MIT",
     homepage: "https://github.com/muscriptor/muscriptor",

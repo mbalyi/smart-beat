@@ -177,25 +177,6 @@ jobs:
             echo "args=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check transcription server
-        shell: bash
-        env:
-          TRANSCRIPTION_SERVICE_URL: ${{ vars.TRANSCRIPTION_SERVICE_URL }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          # Import from Audio only works when the build knows Smart Beat's MuScriptor server.
-          # While its flag in src/lib/features.json is off, the feature is hidden and needs no server.
-          if [ "$(node -p "require('./src/lib/features.json')['audio-2-tab'] === true")" != "true" ]; then
-            echo "Audio to Tab is off in src/lib/features.json: no transcription server needed."
-          elif [ -n "$TRANSCRIPTION_SERVICE_URL" ]; then
-            exit 0
-          elif [ -n "$RELEASE_TAG" ]; then
-            echo "::error::The TRANSCRIPTION_SERVICE_URL variable is not set, so $RELEASE_TAG would ship without Import from Audio. See docs/release.md."
-            exit 1
-          else
-            echo "::warning::The TRANSCRIPTION_SERVICE_URL variable is not set: Import from Audio is off in these installers."
-          fi
-
       - name: Build installers
         id: tauri
         uses: tauri-apps/tauri-action@v1
@@ -207,8 +188,6 @@ jobs:
           # build; pull-request builds get no address, which turns the counters off in them.
           SMART_BEAT_INSTALLER: ${{ matrix.installer }}
           SMART_BEAT_ANALYTICS_URL: ${{ github.event_name != 'pull_request' && vars.ANALYTICS_URL || '' }}
-          # Import from Audio's server (src-tauri/src/transcription.rs). Not a secret.
-          TRANSCRIPTION_SERVICE_URL: ${{ vars.TRANSCRIPTION_SERVICE_URL }}
         with:
           args: ${{ matrix.tauri-args }} ${{ steps.updater.outputs.args }}
           tagName: ${{ steps.release.outputs.tag }}

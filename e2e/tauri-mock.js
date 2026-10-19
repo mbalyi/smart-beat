@@ -80,6 +80,34 @@
   };
   /** The high-accuracy piano model (src-tauri/src/recording/piano_model.rs): not downloaded at first. */
   window.__pianoModel = { installed: false, downloads: 0, fail: null };
+  /**
+   * MuScriptor, the optional AI model (#150, src-tauri/src/recording/muscriptor_model.rs): nothing
+   * downloaded and no terms accepted at first. `hold` keeps a download running until `release()`
+   * or a cancel; `fail` makes it reject.
+   */
+  window.__muscriptor = {
+    termsAccepted: false,
+    rightsConfirmed: [],
+    installed: { small: false, medium: false, large: false },
+    downloads: [],
+    cancelled: 0,
+    deleted: [],
+    hold: false,
+    fail: null,
+    release: null,
+    abort: null,
+  };
+  const MUSCRIPTOR_BYTES = { small: 209425152, medium: 618442496, large: 2739142176 };
+  const muscriptorStatus = () => ({
+    termsAccepted: window.__muscriptor.termsAccepted,
+    termsVersion: 1,
+    sizes: ["small", "medium", "large"].map((size) => ({
+      size,
+      bytes: MUSCRIPTOR_BYTES[size],
+      installed: window.__muscriptor.installed[size],
+      partialBytes: 0,
+    })),
+  });
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -669,8 +697,46 @@
       case "audio_render":
         return new Float32Array(2 * 4410).buffer;
       // Import from Audio (src-tauri/src/transcription.rs). Tests set `midiBase64` to the result.
-      case "transcription_configured":
-        return window.__transcription.configured;
+      case "muscriptor_status":
+        return muscriptorStatus();
+      case "accept_muscriptor_terms":
+        if (!args.rightsConfirmed) {
+          throw {
+            kind: "audio",
+            message: "Confirm that you only use music you have the rights to.",
+          };
+        }
+        window.__muscriptor.termsAccepted = true;
+        window.__muscriptor.rightsConfirmed.push(true);
+        return muscriptorStatus();
+      case "download_muscriptor_model": {
+        const m = window.__muscriptor;
+        if (!m.termsAccepted)
+          throw { kind: "audio", message: "Accept the MuScriptor terms first." };
+        m.downloads.push(args.size);
+        window.__emitTauriEvent("muscriptor-model-download-progress", {
+          size: args.size,
+          fraction: 0.5,
+          bytes: MUSCRIPTOR_BYTES[args.size] / 2,
+        });
+        if (m.hold) {
+          await new Promise((resolve, reject) => {
+            m.release = resolve;
+            m.abort = () => reject({ kind: "audio", message: "Download stopped." });
+          });
+        }
+        if (m.fail) throw { kind: "audio", message: m.fail };
+        m.installed[args.size] = true;
+        return muscriptorStatus();
+      }
+      case "cancel_muscriptor_download":
+        window.__muscriptor.cancelled += 1;
+        window.__muscriptor.abort?.();
+        return null;
+      case "delete_muscriptor_model":
+        window.__muscriptor.deleted.push(args.size);
+        window.__muscriptor.installed[args.size] = false;
+        return muscriptorStatus();
       case "cancel_transcription":
         window.__transcription.cancelled.push(args.operationId);
         return null;
@@ -678,6 +744,12 @@
         // Like Tauri's IPC: the recording is the raw body, its details are headers.
         if (!["mp3", "wav", "flac", "ogg"].includes(options.headers["file-type"])) {
           throw { kind: "audio", message: "Choose MP3, WAV, FLAC or OGG audio." };
+        }
+        if (
+          !window.__muscriptor.termsAccepted ||
+          !window.__muscriptor.installed[options.headers["model-size"]]
+        ) {
+          throw { kind: "audio", message: "Download the MuScriptor model first." };
         }
         window.__transcription.requests.push(options.headers);
         return {
@@ -699,7 +771,15 @@
           bytes: args.byteLength,
           instrument: options.headers["x-instrument"],
           engine: options.headers["x-engine"],
+          modelSize: options.headers["x-model-size"],
         });
+        if (
+          options.headers["x-engine"] === "muscriptor" &&
+          (!window.__muscriptor.termsAccepted ||
+            !window.__muscriptor.installed[options.headers["x-model-size"]])
+        ) {
+          throw { kind: "audio", message: "Download the MuScriptor model first." };
+        }
         window.__emitTauriEvent("recording-transcription-progress", { fraction: 0.5 });
         if (state.hold) {
           await new Promise((resolve, reject) => {

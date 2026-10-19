@@ -71,6 +71,7 @@ import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { usePianoModel } from "@/hooks/use-piano-model";
+import { onInstallerReturn } from "@/lib/ai/ai-store";
 import { recordTargets, useRecordToTab } from "@/hooks/use-record-to-tab";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import {
@@ -1485,6 +1486,13 @@ export function ScoreWorkspace({
     onOpenScore: (opened, name) => onOpenScore?.(opened, name),
   });
   const pianoModel = usePianoModel(recordEnabled && recording.dialogOpen);
+  // The AI installer hands the user back to Record to tab when it closes (#150). Only the song
+  // that is on screen answers.
+  const reopenRecord = useRef<() => void>(() => {});
+  reopenRecord.current = () => {
+    if (active && recordEnabled) recording.open();
+  };
+  useEffect(() => onInstallerReturn("record", () => reopenRecord.current()), []);
   const recordBusy = recording.phase.kind !== "idle";
 
   // One-time tips the first time an advanced area is opened (#84).

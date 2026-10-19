@@ -45,7 +45,16 @@ function midiBase64(): string {
 
 const RECORDING = path.join(FIXTURES_DIR, "backing-a440.mp3");
 
-async function openDialog(app: Page) {
+/** MuScriptor is on this computer and the terms are accepted. */
+async function installModel(app: Page) {
+  await app.evaluate(() => {
+    window.__muscriptor.termsAccepted = true;
+    window.__muscriptor.installed.medium = true;
+  });
+}
+
+async function openDialog(app: Page, { installed = true } = {}) {
+  if (installed) await installModel(app);
   await app.evaluate((midi) => {
     window.__transcription.midiBase64 = midi;
   }, midiBase64());
@@ -67,7 +76,7 @@ test.describe("Import from Audio (#88)", () => {
 
   test("transcribes a recording, previews it and opens the MIDI as a new song", async ({ app }) => {
     const dialog = await openDialog(app);
-    await expect(dialog.getByText(/uploaded to Smart Beat's transcription server/)).toBeVisible();
+    await expect(dialog.getByText(/transcribed on this computer/)).toBeVisible();
 
     await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
     await expect(dialog.getByText("backing-a440.mp3")).toBeVisible();
@@ -85,7 +94,11 @@ test.describe("Import from Audio (#88)", () => {
     ).toBeVisible();
 
     expect(await app.evaluate(() => window.__transcription.requests)).toEqual([
-      expect.objectContaining({ "file-type": "mp3", instruments: "electric_bass" }),
+      expect.objectContaining({
+        "file-type": "mp3",
+        instruments: "electric_bass",
+        "model-size": "medium",
+      }),
     ]);
 
     await dialog.getByRole("button", { name: "Import MIDI into Smart Beat" }).click();
@@ -119,6 +132,17 @@ test.describe("Import from Audio (#88)", () => {
     await app.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expect(app.getByRole("heading", { name: "Practice Song" })).toBeVisible();
+  });
+
+  test("offers the download first when MuScriptor is not on this computer", async ({ app }) => {
+    const dialog = await openDialog(app, { installed: false });
+    await expect(dialog.getByTestId("audio-needs-model")).toBeVisible();
+    await expect(dialog.getByLabel("Choose an audio recording")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Transcribe" })).toHaveCount(0);
+    // The dialog steps aside for the installer.
+    await dialog.getByRole("button", { name: "Download MuScriptor" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(app.getByRole("dialog", { name: "Powered by MuScriptor" })).toBeVisible();
   });
 
   for (const colorScheme of ["light", "dark"] as const) {
