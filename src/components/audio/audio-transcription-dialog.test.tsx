@@ -219,4 +219,16 @@ describe("audio transcription", () => {
     setup();
     expect(await screen.findByTestId("audio-needs-model")).toBeInTheDocument();
   });
+
+  it("says so where the engine is not built in, and does not offer the download", async () => {
+    seedAiState({
+      ready: false,
+      unsupported: true,
+      status: { ...statusWith([]), supported: false },
+    });
+    setup();
+    expect(await screen.findByTestId("audio-unsupported")).toBeInTheDocument();
+    expect(screen.queryByTestId("audio-needs-model")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Download MuScriptor" })).not.toBeInTheDocument();
+  });
 });

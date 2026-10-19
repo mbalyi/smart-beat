@@ -536,13 +536,13 @@ function RecordForm({
                 <TabsList
                   aria-label="Transcription engine"
                   data-tour="record-ai-tabs"
-                  className="relative isolate h-9 w-[220px] max-w-full shrink-0 items-stretch gap-0 rounded-full border border-primary/50 bg-black/35 p-0 shadow-[inset_0_0_14px_color-mix(in_oklab,var(--primary)_30%,transparent)]"
+                  className="relative isolate h-9 w-[220px] max-w-full shrink-0 items-stretch gap-0 rounded-full border border-primary/50 bg-zinc-900 p-0 shadow-[inset_0_0_14px_color-mix(in_oklab,var(--primary)_30%,transparent)]"
                 >
                   {(["default", "ai"] as const).map((mode) => (
                     <TabsTrigger
                       key={mode}
                       value={mode}
-                      className="relative flex flex-1 items-center justify-center gap-1.5 rounded-full border-0 bg-transparent text-xs font-bold tracking-[0.12em] text-muted-foreground hover:bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-white"
+                      className="relative flex flex-1 items-center justify-center gap-1.5 rounded-full border-0 bg-transparent text-xs font-bold tracking-[0.12em] text-zinc-300 hover:bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-white"
                     >
                       {(mode === "ai") === aiOn && (
                         <img

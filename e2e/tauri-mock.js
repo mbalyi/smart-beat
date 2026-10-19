@@ -99,6 +99,7 @@
   };
   const MUSCRIPTOR_BYTES = { small: 209425152, medium: 618442496, large: 2739142176 };
   const muscriptorStatus = () => ({
+    supported: true,
     termsAccepted: window.__muscriptor.termsAccepted,
     termsVersion: 1,
     sizes: ["small", "medium", "large"].map((size) => ({

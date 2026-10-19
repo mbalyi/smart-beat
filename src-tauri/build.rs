@@ -46,7 +46,14 @@ fn embed_windows_manifest_in_tests() {
 /// commit pinned in native/muscriptor/CMakeLists.txt. Metal shaders are compiled at run time, so
 /// no extra file ships next to the app.
 fn native_muscriptor() {
+    println!("cargo:rustc-check-cfg=cfg(muscriptor_native)");
     println!("cargo:rerun-if-changed=native");
+    // Linux: the runners' GCC has no C++23 `<expected>`, and the engine is out of scope there
+    // (issue #150). The app builds without it and the AI features report that.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        return;
+    }
+    println!("cargo:rustc-cfg=muscriptor_native");
     let mut config = cmake::Config::new("native");
     config
         .profile("Release")

@@ -1118,6 +1118,8 @@ export type MuscriptorSize = "small" | "medium" | "large";
 
 /** Mirrors `Status` in `src-tauri/src/recording/muscriptor_model.rs`. */
 export interface MuscriptorStatus {
+  /** The engine is built into this app. It is not on Linux. */
+  supported: boolean;
   /** The user accepted the terms and confirmed their rights to the music (current version). */
   termsAccepted: boolean;
   termsVersion: number;

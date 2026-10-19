@@ -24,8 +24,10 @@ export type AiReturn = "record" | "audio";
  * level, and the installer opens above both.
  */
 export interface AiState {
-  /** The status is known (it is never known in a browser). */
+  /** The status is known (it is never known in a browser) and the engine is built in. */
   ready: boolean;
+  /** This platform has no MuScriptor engine (Linux): the AI features say so. */
+  unsupported: boolean;
   status: MuscriptorStatus | null;
   size: MuscriptorSize;
   /** A download is running: its size and 0…1. */
@@ -36,6 +38,7 @@ export interface AiState {
 
 const initial = (): AiState => ({
   ready: false,
+  unsupported: false,
   status: null,
   size: readSize(),
   download: null,
@@ -72,6 +75,7 @@ export function statusWith(
   termsAccepted = true,
 ): NonNullable<AiState["status"]> {
   return {
+    supported: true,
     termsAccepted,
     termsVersion: 1,
     sizes: (["small", "medium", "large"] as const).map((size) => ({
@@ -98,6 +102,10 @@ export async function refreshAi(): Promise<void> {
   if (!isTauri()) return;
   try {
     const status = await muscriptorStatus();
+    if (!status.supported) {
+      set({ ready: false, unsupported: true, status });
+      return;
+    }
     // The chosen size follows what is there: the first installed one when the pick is missing.
     const size = status.sizes.find((entry) => entry.size === state.size)?.installed
       ? state.size

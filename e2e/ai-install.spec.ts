@@ -99,7 +99,7 @@ test.describe("AI installer (#150)", () => {
     await expect(record).toBeVisible();
     await expect(record.getByRole("tab", { name: "AI" })).toHaveAttribute("aria-selected", "true");
     await expect(record.getByRole("button", { name: "Download MuScriptor" })).toHaveCount(0);
-    await expect(record.getByRole("radio", { name: "Medium" })).toBeChecked();
+    await expect(record.getByRole("combobox", { name: "AI model size" })).toContainText("Medium");
   });
 
   test("Record to tab: a file goes through the AI engine with the chosen size", async ({ app }) => {
@@ -112,7 +112,7 @@ test.describe("AI installer (#150)", () => {
     await app.getByRole("menuitem", { name: /^Record to Tab…/ }).click();
     const record = app.getByRole("dialog", { name: /^Record to Tab/ });
     await record.getByRole("tab", { name: "AI" }).click();
-    await expect(record.getByRole("radio", { name: "Small" })).toBeVisible();
+    await expect(record.getByRole("combobox", { name: "AI model size" })).toContainText("Small");
     await record.getByRole("radio", { name: "File" }).click();
     await expect(record.getByRole("button", { name: "Make tab" })).toBeDisabled();
   });

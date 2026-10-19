@@ -61,7 +61,7 @@ jobs:
             tauri-args: ""
             installer: linux
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
 

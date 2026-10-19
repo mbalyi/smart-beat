@@ -142,12 +142,15 @@ pub struct SizeStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
+    /// The engine is built into this app (not on Linux).
+    pub supported: bool,
     pub terms_accepted: bool,
     pub terms_version: u32,
     pub sizes: Vec<SizeStatus>,
 }
 pub fn status_of(dir: &Path) -> Status {
     Status {
+        supported: super::muscriptor_ffi::SUPPORTED,
         terms_accepted: read_terms(dir).is_some(),
         terms_version: TERMS_VERSION,
         sizes: Size::ALL
@@ -576,6 +579,15 @@ mod tests {
         )
         .unwrap();
         assert!(require_terms(dir.path()).is_err());
+    }
+
+    #[test]
+    fn the_status_says_whether_the_engine_is_built_in() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            status_of(dir.path()).supported,
+            super::super::muscriptor_ffi::SUPPORTED
+        );
     }
 
     #[test]

@@ -282,6 +282,11 @@ export function AudioTranscriptionDialog({
                 </p>
               </div>
             )}
+            {configured === true && ai.unsupported && (
+              <p className="text-sm text-muted-foreground" data-testid="audio-unsupported">
+                Audio transcription with MuScriptor is not available on this platform yet.
+              </p>
+            )}
             {configured === false && (
               <p className="text-sm text-muted-foreground">
                 Audio transcription is available in the desktop app.
@@ -364,7 +369,10 @@ export function AudioTranscriptionDialog({
               </fieldset>
             )}
             {phase === "select" && !needsModel && (
-              <Button disabled={!file || !configured || !ready} onClick={() => void transcribe()}>
+              <Button
+                disabled={!file || !configured || !ready || ai.unsupported}
+                onClick={() => void transcribe()}
+              >
                 Transcribe
               </Button>
             )}

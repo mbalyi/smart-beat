@@ -121,4 +121,12 @@ describe("the AI store", () => {
     closeInstaller();
     expect(audio).not.toHaveBeenCalled();
   });
+
+  it("is not ready where the engine is not built in, like Linux", async () => {
+    tauri.muscriptorStatus.mockResolvedValue({ ...statusWith(["medium"]), supported: false });
+    await refreshAi();
+    expect(getAiState().ready).toBe(false);
+    expect(getAiState().unsupported).toBe(true);
+    expect(canRun(getAiState())).toBe(true);
+  });
 });
