@@ -464,12 +464,11 @@ impl MixerSettings {
         {
             return Err("a visible track is out of range or repeated".into());
         }
-        if let Some(active) = self.active_track {
-            if active as usize >= MAX_TRACKS
-                || (!self.visible_tracks.is_empty() && !self.visible_tracks.contains(&active))
-            {
-                return Err("the active track is out of range or not in the visible tracks".into());
-            }
+        if let Some(active) = self.active_track
+            && (active as usize >= MAX_TRACKS
+                || (!self.visible_tracks.is_empty() && !self.visible_tracks.contains(&active)))
+        {
+            return Err("the active track is out of range or not in the visible tracks".into());
         }
         Ok(())
     }
