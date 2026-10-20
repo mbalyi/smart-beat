@@ -417,10 +417,17 @@ impl Telemetry {
         self.attempt() == Outcome::Sent
     }
 
-    /// One upload that ignores the pauses (used when the app quits). Blocks for at most
-    /// [`TIMEOUT`] plus the time of an upload that is already running.
+    /// One upload that ignores the pauses (used when the app quits). Takes at most
+    /// [`TIMEOUT`] in total, including the wait for an upload that is already running.
     pub fn flush_final(&self) -> Outcome {
-        self.attempt()
+        self.flush_final_within(TIMEOUT)
+    }
+
+    /// Like [`Telemetry::flush_final`] with one budget for waiting on a running upload and for
+    /// the final request together; the counters stay queued when it runs out.
+    pub fn flush_final_within(&self, budget: Duration) -> Outcome {
+        let deadline = Instant::now() + budget;
+        self.attempt_until(Some(deadline))
     }
 
     /// Uploads whatever an earlier session left, on a background thread, ignoring the hourly
@@ -462,8 +469,36 @@ impl Telemetry {
     /// Runs one upload and updates the pauses: only a success starts the hourly pause, a failure
     /// only the short back-off, an empty queue neither.
     fn attempt(&self) -> Outcome {
-        let _upload = self.upload_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let outcome = self.upload();
+        self.attempt_until(None)
+    }
+
+    fn attempt_until(&self, deadline: Option<Instant>) -> Outcome {
+        let _upload = match deadline {
+            None => self.upload_lock.lock().unwrap_or_else(|e| e.into_inner()),
+            Some(deadline) => loop {
+                match self.upload_lock.try_lock() {
+                    Ok(guard) => break guard,
+                    Err(std::sync::TryLockError::Poisoned(e)) => break e.into_inner(),
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        if Instant::now() >= deadline {
+                            return Outcome::Failed("busy".into());
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            },
+        };
+        let timeout = match deadline {
+            None => TIMEOUT,
+            Some(deadline) => {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Outcome::Failed("busy".into());
+                }
+                left.min(TIMEOUT)
+            }
+        };
+        let outcome = self.upload(timeout);
         let now = Some(Instant::now());
         match &outcome {
             Outcome::Sent => *self.last_flush.lock().unwrap_or_else(|e| e.into_inner()) = now,
@@ -477,7 +512,7 @@ impl Telemetry {
         outcome
     }
 
-    fn upload(&self) -> Outcome {
+    fn upload(&self, timeout: Duration) -> Outcome {
         let Some(endpoint) = self.endpoint.as_deref() else {
             return Outcome::Idle;
         };
@@ -495,7 +530,7 @@ impl Telemetry {
             counts: &sent,
         };
         let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(TIMEOUT))
+            .timeout_global(Some(timeout))
             .build()
             .into();
         match agent.post(endpoint).send_json(&batch) {
@@ -933,6 +968,26 @@ mod tests {
         assert_eq!(t.flush_final(), Outcome::Sent);
         let body = &server.join().unwrap()[0];
         assert!(body.contains("app_start") && body.contains("play") && body.contains("stop"));
+    }
+
+    #[test]
+    fn the_final_flush_shares_one_deadline_with_a_running_upload() {
+        // A server that accepts and never answers: the running upload hangs until its timeout.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1/batch", listener.local_addr().unwrap());
+        let (_dir, t) = telemetry(Some(&url));
+        let t = std::sync::Arc::new(t);
+        t.record_on("2026-01-01", Event::Play, None).unwrap();
+        let running = std::sync::Arc::clone(&t);
+        let hanging = std::thread::spawn(move || running.flush());
+        let _held = listener.accept().unwrap();
+        let started = Instant::now();
+        let outcome = t.flush_final_within(Duration::from_millis(400));
+        assert_eq!(outcome, Outcome::Failed("busy".into()));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(t.pending().len(), 1, "counters stay for the next launch");
+        drop(_held);
+        let _ = hanging.join();
     }
 
     #[test]
