@@ -44,6 +44,7 @@ import {
   pruneMirrors,
   removeMirrorNotes,
 } from "@/lib/score/drum-tab";
+import { DRUM_TAB_LINES } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import type { LoopRange } from "@/lib/score/practice";
@@ -1108,6 +1109,20 @@ export class ScorePlayer {
           .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
       ),
     );
+  }
+
+  /**
+   * Where a line of the drum tab is drawn at a beat (1 = bottom line), also when nothing is
+   * written on it (#178): the bar spans the six lines, from the top line to the bottom one.
+   */
+  drumLineRect(beat: Beat, line: number): Rect | null {
+    const mirror = mirrorBeatOf(beat);
+    const bounds = mirror ? this.api.boundsLookup?.findBeats(mirror)?.[0] : undefined;
+    if (!bounds) return null;
+    const bar = bounds.barBounds.visualBounds;
+    const spacing = bar.h / (DRUM_TAB_LINES - 1);
+    const { x, w } = bounds.visualBounds;
+    return { x, y: bar.y + (DRUM_TAB_LINES - line) * spacing - spacing / 2, w, h: spacing + 1 };
   }
 
   /**

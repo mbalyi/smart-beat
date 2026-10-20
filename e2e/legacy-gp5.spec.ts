@@ -67,16 +67,18 @@ test.describe("Guitar Pro 5 files (#53)", () => {
     expect(china).toBeLessThan(kick);
     expect(kick).toBeLessThan(snare);
 
-    // Up and down walk the drums of the beat, line by line.
+    // Up and down walk every line of the drum tab, the empty ones too (#178).
     await app.getByRole("button", { name: "Edit" }).click();
     await waitForAnimations(app);
     await app.keyboard.press("ControlOrMeta+ArrowRight"); // bar 2
     await app.keyboard.press("ArrowUp");
     await expect.poll(() => editorStatus(app)).toMatch(/China/);
-    await app.keyboard.press("ArrowDown");
-    await expect.poll(() => editorStatus(app)).toMatch(/Kick/);
-    await app.keyboard.press("ArrowDown");
-    await expect.poll(() => editorStatus(app)).toMatch(/Snare/);
+    for (const drum of [/Kick/, /Snare/]) {
+      for (let i = 0; i < 5 && !drum.test(await editorStatus(app)); i++) {
+        await app.keyboard.press("ArrowDown");
+      }
+      await expect.poll(() => editorStatus(app)).toMatch(drum);
+    }
 
     // Alt+Up moves the snare a line up in the drum tab.
     const before = await yOf("38");

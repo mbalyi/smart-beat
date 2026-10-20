@@ -375,19 +375,17 @@ export function EffectsToolbar({
         )}
       </PaletteSection>
 
-      {!drums && (
-        <PaletteSection title="Dynamics">
-          {exclusive("beat", "dynamics", DYNAMICS)}
-          {beatToggle("crescendo", glyph("dynamicCrescendoHairpin", "text-base"), {
-            label: "Crescendo",
-            value: CrescendoType.Crescendo,
-          })}
-          {beatToggle("crescendo", glyph("dynamicDiminuendoHairpin", "text-base"), {
-            label: "Decrescendo",
-            value: CrescendoType.Decrescendo,
-          })}
-        </PaletteSection>
-      )}
+      <PaletteSection title="Dynamics">
+        {exclusive("beat", "dynamics", DYNAMICS)}
+        {beatToggle("crescendo", glyph("dynamicCrescendoHairpin", "text-base"), {
+          label: "Crescendo",
+          value: CrescendoType.Crescendo,
+        })}
+        {beatToggle("crescendo", glyph("dynamicDiminuendoHairpin", "text-base"), {
+          label: "Decrescendo",
+          value: CrescendoType.Decrescendo,
+        })}
+      </PaletteSection>
 
       {!drums && (
         <PaletteSection title="Accidentals and octaves">

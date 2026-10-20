@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -44,7 +44,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { filledBars } from "@/lib/score/bar-grid";
-import { barTexts, shortText, tempoMarkers } from "@/lib/score/tempo";
+import { barSections, barTexts, shortText, tempoMarkers } from "@/lib/score/tempo";
 import { lowSoundWarning } from "@/lib/audio/sound-ranges";
 import { describeInstrument } from "@/lib/score/instrument-view";
 import { lowestPitch, tuningLabel } from "@/lib/score/music";
@@ -100,6 +100,9 @@ export interface TrackActions {
 const BAR_WIDTH = "1.25rem";
 /** A bar column plus the 1 px gap, in pixels (for drawings that line up with the grid). */
 export const BAR_PX = 21;
+
+/** Width of the sticky name and mixer column left of the bar grid (`w-[30rem]`), in rem. */
+const NAME_COLUMN_REM = 30;
 
 /** Width of the controls next to the bar grid. */
 const CONTROLS =
@@ -536,6 +539,9 @@ export function TrackList({
   const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
   const [colorTrack, setColorTrack] = useState<number | null>(null);
   const dragged = useRef<number | null>(null);
+  const scroller = useRef<HTMLElement>(null);
+  // The user scrolled the panel by hand: leave it alone until the next play or seek (#178).
+  const scrolledByHand = useRef(false);
   const stacking = !!stack?.stacking;
   const barCount = score.masterBars.length;
   const grids = useMemo(() => {
@@ -547,6 +553,27 @@ export function TrackList({
     void revision;
     return barTexts(score);
   }, [score, revision]);
+  useEffect(() => {
+    if (playing) scrolledByHand.current = false;
+  }, [playing]);
+  // Keep the playing bar in view in a long song (#178): the grid is wider than the panel.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!playing || !el || scrolledByHand.current) return;
+    const label = NAME_COLUMN_REM * parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const first = bar * BAR_PX;
+    const room = el.clientWidth - label;
+    if (first >= el.scrollLeft && first + BAR_PX <= el.scrollLeft + room) return;
+    el.scrollLeft = Math.max(0, first - room / 2 + BAR_PX / 2);
+  }, [bar, playing]);
+  const seekBar = (index: number) => {
+    scrolledByHand.current = false;
+    onSeekBar(index);
+  };
+  const sections = useMemo(() => {
+    void revision;
+    return barSections(score);
+  }, [score, revision]);
   const tempos = useMemo(() => {
     void revision;
     return new Map(tempoMarkers(score).map((m) => [m.bar, m]));
@@ -556,6 +583,10 @@ export function TrackList({
     <section
       aria-label="Tracks and mixer"
       data-tour="tracks"
+      ref={scroller}
+      onWheel={() => (scrolledByHand.current = true)}
+      onTouchMove={() => (scrolledByHand.current = true)}
+      onPointerDown={() => (scrolledByHand.current = true)}
       style={{ "--eye-col": stacking ? "3.75rem" : undefined } as CSSProperties}
       className="flex max-h-[32vh] min-h-0 shrink-0 flex-col overflow-auto border-t bg-card text-sm"
     >
@@ -606,6 +637,26 @@ export function TrackList({
             </div>
           </div>
           <div className="flex flex-col justify-center">
+            {sections.size > 0 && (
+              // Section names (Verse, Chorus…) at the bar they start, as in the score (#178).
+              <ul
+                aria-label="Sections of the song"
+                data-testid="bar-sections"
+                className="grid h-3.5 items-center gap-px text-[10px] leading-none font-semibold whitespace-nowrap text-foreground"
+                style={{ gridTemplateColumns: `repeat(${barCount}, ${BAR_WIDTH})` }}
+              >
+                {numbers.map((n) => {
+                  const name = sections.get(n - 1);
+                  return name ? (
+                    <li key={n} title={`Bar ${n}: ${name}`} className="overflow-visible">
+                      {name}
+                    </li>
+                  ) : (
+                    <li key={n} aria-hidden="true" />
+                  );
+                })}
+              </ul>
+            )}
             {/* Tempo markers (GP8 shows them above the bar grid); the score shows them too. */}
             <div
               data-testid="tempo-markers"
@@ -911,7 +962,7 @@ export function TrackList({
                       filled={grids[i] ?? []}
                       current={bar}
                       dimmed={!audible}
-                      onSeek={onSeekBar}
+                      onSeek={seekBar}
                     />
                   </div>
                 </div>

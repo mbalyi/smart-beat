@@ -85,6 +85,11 @@ export interface Cursor {
   string: number;
   /** Pitched and drum tracks: the selected note (pitch or drum sound), if any. */
   pitch: number | null;
+  /**
+   * Drum tracks: the line of the drum tab the cursor is on (1 = bottom, 6 = top), also when
+   * nothing is written on it (#178). Null until the cursor has been put on a line.
+   */
+  line: number | null;
 }
 
 export interface BeatPosition {
@@ -253,7 +258,7 @@ export class ScoreEditor {
 
   constructor(score: Score, track = 0) {
     this.score = score;
-    this._cursor = { track, voice: 0, bar: 0, beat: 0, string: 1, pitch: null };
+    this._cursor = { track, voice: 0, bar: 0, beat: 0, string: 1, pitch: null, line: null };
     this._cursor.string = this.defaultString();
   }
 
@@ -425,8 +430,26 @@ export class ScoreEditor {
   private noteAtCursor(beat: Beat | null = this.beatAt()): Note | null {
     if (!beat) return null;
     if (this.kind === "stringed") return beat.getNoteOnString(this._cursor.string);
-    const { pitch } = this._cursor;
+    const { pitch, line } = this._cursor;
+    if (this.kind === "drums" && line !== null) return this.drumOnLine(beat, line);
     return beat.notes.find((note) => pitchOf(note) === pitch) ?? null;
+  }
+
+  /** Drums: the hit of a beat on a line of the drum tab (1 = bottom). */
+  private drumOnLine(beat: Beat, line: number): Note | null {
+    const lines = placeDrums(beat.notes);
+    return beat.notes.find((note) => lines.get(note) === line) ?? null;
+  }
+
+  /** Drums: the line a hit sits on in the drum tab. */
+  private lineOfDrum(note: Note): number {
+    return placeDrums(note.beat.notes).get(note) ?? drumLine(note) ?? drumTabString(pitchOf(note));
+  }
+
+  /** Drums: the drum sound under the cursor (none on an empty line), for the drum pads. */
+  get cursorDrum(): number | null {
+    const note = this.kind === "drums" ? this.noteAtCursor() : null;
+    return note ? pitchOf(note) : null;
   }
 
   // --- Cursor and selection ------------------------------------------------
@@ -462,7 +485,7 @@ export class ScoreEditor {
   /** Shows another track (the editor always works on the shown track). */
   setTrack(index: number) {
     if (index === this._cursor.track || !this.score.tracks[index]) return;
-    this._cursor = { ...this._cursor, track: index, voice: 0, pitch: null };
+    this._cursor = { ...this._cursor, track: index, voice: 0, pitch: null, line: null };
     this._cursor.string = this.defaultString();
     this._selection = null;
     this.clamp();
@@ -480,7 +503,10 @@ export class ScoreEditor {
     if (target.voice !== undefined) this._cursor.voice = target.voice;
     const note = target.note;
     if (note?.isStringed) this._cursor.string = note.string;
-    else if (note) this._cursor.pitch = pitchOf(note);
+    else if (note) {
+      this._cursor.pitch = pitchOf(note);
+      if (this.kind === "drums") this._cursor.line = this.lineOfDrum(note);
+    }
     this.clamp();
     this.updateSelection(extend, from);
     this.moved();
@@ -559,22 +585,6 @@ export class ScoreEditor {
     this.moved();
   }
 
-  /**
-   * The drums of the cursor's beat, top line of the drum tab first (cymbals …
-   * kick), on the lines they were placed on (#53).
-   */
-  private drumsTopDown(): number[] {
-    const beat = this.beatAt();
-    if (!beat) return [];
-    const lines = placeDrums(beat.notes);
-    const line = (note: Note) => lines.get(note) ?? drumTabString(pitchOf(note));
-    return [
-      ...new Set(
-        [...beat.notes].sort((a, b) => line(b) - line(a) || pitchOf(b) - pitchOf(a)).map(pitchOf),
-      ),
-    ];
-  }
-
   /** Alt+Up/Down on a drum: moves it to the line above or below in the drum tab (#53). */
   private moveDrumToLine(step: 1 | -1) {
     const beat = this.beatAt();
@@ -592,23 +602,30 @@ export class ScoreEditor {
       () => {
         const target = this.noteAtCursor();
         if (target) setDrumLine(target, line);
+        this._cursor.line = line;
       },
       `${drumNumberName(pitchOf(note))} on line ${DRUM_TAB_LINES + 1 - line} of the drum tab`,
     );
   }
 
   /**
-   * Drums: Up and Down walk the beat's drums line by line (as in the drum
-   * tab); past the top or bottom drum they go to the other voice.
+   * Drums: Up and Down move over every line of the drum tab, written on or not (#178); past
+   * the top or bottom line they go to the other voice.
    */
   private moveDrumLine(step: 1 | -1) {
-    const drums = this.drumsTopDown();
-    const index = this._cursor.pitch === null ? -1 : drums.indexOf(this._cursor.pitch);
-    // Up the screen is towards the top line, the start of the list.
-    const next = index < 0 ? (step > 0 ? 0 : drums.length - 1) : index - step;
-    if (drums.length > 0 && next >= 0 && next < drums.length) {
-      this._cursor.pitch = drums[next]!;
-      this.moved();
+    const here =
+      this._cursor.line ??
+      (() => {
+        const note = this.noteAtCursor();
+        return note ? this.lineOfDrum(note) : null;
+      })();
+    // Not on a line yet: the beat's top (Up) or bottom (Down) drum, or the top or bottom line.
+    const beat = this.beatAt();
+    const written = beat ? [...placeDrums(beat.notes).values()] : [];
+    const start = written.length > 0 ? (step > 0 ? Math.max : Math.min)(...written) : null;
+    const next = here !== null ? here + step : (start ?? (step > 0 ? DRUM_TAB_LINES : 1));
+    if (next >= 1 && next <= DRUM_TAB_LINES) {
+      this.putCursorOnLine(next);
       return;
     }
     const other = this._cursor.voice === 0 ? 1 : 0;
@@ -618,8 +635,14 @@ export class ScoreEditor {
       return;
     }
     this.switchVoice(other);
-    const there = this.drumsTopDown();
-    this._cursor.pitch = (step > 0 ? there.at(-1) : there[0]) ?? null;
+    this.putCursorOnLine(step > 0 ? 1 : DRUM_TAB_LINES);
+  }
+
+  /** Drums: puts the cursor on a line of the drum tab. */
+  private putCursorOnLine(line: number) {
+    this._cursor.line = line;
+    const note = this.noteAtCursor();
+    this._cursor.pitch = note ? pitchOf(note) : null;
     this.moved();
   }
 
@@ -676,7 +699,7 @@ export class ScoreEditor {
   placeCursorOnTrack(index: number) {
     if (!this.score.tracks[index]) return;
     if (index !== this._cursor.track) {
-      this._cursor = { ...this._cursor, track: index, voice: 0, pitch: null };
+      this._cursor = { ...this._cursor, track: index, voice: 0, pitch: null, line: null };
       this._cursor.string = this.defaultString();
       this._selection = null;
     }
@@ -755,6 +778,12 @@ export class ScoreEditor {
       );
       const note = info.notes.find((n) => n.string === c.string);
       if (note) parts.push(`fret ${note.fret}${note.tied ? ", tied" : ""}`);
+    } else if (this.kind === "drums" && c.line !== null) {
+      const note = this.noteAtCursor();
+      parts.push(
+        `line ${DRUM_TAB_LINES + 1 - c.line} of the drum tab`,
+        note ? drumNumberName(pitchOf(note)) : "empty",
+      );
     } else if (c.pitch !== null && info.notes.some((n) => n.pitch === c.pitch)) {
       parts.push(
         this.kind === "drums" ? drumNumberName(c.pitch) : pitchName(c.pitch, { spoken: true }),
@@ -925,7 +954,10 @@ export class ScoreEditor {
       () => {
         const beat = this.writableBeat();
         const note = beat.notes.find((n) => pitchOf(n) === sound);
-        if (note) beat.removeNote(note);
+        if (note) {
+          this._cursor.line = this.lineOfDrum(note);
+          beat.removeNote(note);
+        }
         this._cursor.pitch = null;
       },
       `${drumNumberName(sound)} removed`,
@@ -1093,8 +1125,10 @@ export class ScoreEditor {
   enterDrum(sound: number) {
     if (this.kind !== "drums") return;
     const beat = this.beatAt();
-    if (beat?.notes.some((note) => pitchOf(note) === sound)) {
+    const present = beat?.notes.find((note) => pitchOf(note) === sound);
+    if (present) {
       this._cursor.pitch = sound;
+      this._cursor.line = this.lineOfDrum(present);
       this.moved();
       return;
     }
@@ -1108,8 +1142,18 @@ export class ScoreEditor {
         this.prepareForNote(target);
         const note = new model.Note();
         note.percussionArticulation = own >= 0 ? own : sound;
+        // On the line the cursor is on, when that is free; else on its usual line.
+        const wanted = this._cursor.line;
+        if (
+          wanted !== null &&
+          !this.drumOnLine(target, wanted) &&
+          wanted !== drumTabString(sound)
+        ) {
+          setDrumLine(note, wanted);
+        }
         target.addNote(note);
         this._cursor.pitch = sound;
+        this._cursor.line = this.lineOfDrum(note);
       },
       drumNumberName(sound),
     );
@@ -1163,11 +1207,19 @@ export class ScoreEditor {
     }
     const beat = this.beatAt();
     if (!beat) return;
+    // A drum cursor sits on a line of the drum tab: an empty line has nothing to delete.
+    const onLine = this.kind === "drums" && this._cursor.line !== null;
+    if (onLine && !this.noteAtCursor(beat) && beat.notes.length > 0) {
+      this.announce("Nothing on this line");
+      return;
+    }
     const note =
       this.noteAtCursor(beat) ?? (this.kind === "stringed" ? null : (beat.notes.at(-1) ?? null));
     if (note) {
       this.run("Delete note", this.cursorTargets, () => {
         const target = this.noteAtCursor() ?? this.beatAt()!.notes.at(-1)!;
+        // The cursor stays on the same line of a drum tab (#178).
+        if (this.kind === "drums") this._cursor.line = this.lineOfDrum(target);
         target.beat.removeNote(target);
         this._cursor.pitch = null;
       });
@@ -1184,7 +1236,10 @@ export class ScoreEditor {
     if (!this.noteAtCursor()) return false;
     this.run("Delete note", this.cursorTargets, () => {
       const target = this.noteAtCursor();
-      if (target) target.beat.removeNote(target);
+      if (target) {
+        if (this.kind === "drums") this._cursor.line = this.lineOfDrum(target);
+        target.beat.removeNote(target);
+      }
       this._cursor.pitch = null;
     });
     return true;

@@ -82,6 +82,45 @@ test.describe("drum tab (#49)", () => {
     await app.getByRole("button", { name: "Stop" }).click();
   });
 
+  test("the cursor moves over every line of the drum tab and stays after a delete (#178)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await showDrums(app, "Tab");
+    await app.getByRole("button", { name: "Edit" }).click();
+    await expect(app.getByRole("toolbar", { name: "Edit" })).toBeVisible();
+    await waitForAnimations(app);
+    const firstHit = scoreRegion(app)
+      .locator(".at-surface svg text")
+      .filter({ hasText: DRUM_NUMBERS })
+      .first();
+    await firstHit.click({ force: true });
+    await expect(app.getByTestId("edit-cursor")).toBeVisible();
+    // Up goes to the drum on the top line of the beat (WebKit's click does not pick the note).
+    await app.keyboard.press("ArrowUp");
+    await expect(app.getByTestId("edit-cursor-note").first()).toBeVisible();
+    const frame = () => app.getByTestId("edit-cursor-note").last();
+    const before = (await frame().boundingBox())!;
+
+    // Down through the lines, empty ones too: the frame always follows.
+    const ys = new Set<number>();
+    for (let i = 0; i < 5; i++) {
+      await app.keyboard.press("ArrowDown");
+      await expect(frame()).toBeVisible();
+      ys.add(Math.round((await frame().boundingBox())!.y));
+    }
+    expect(ys.size).toBeGreaterThanOrEqual(4);
+
+    // Back on the first hit's line: delete it, the cursor stays on that line.
+    for (let i = 0; i < 5; i++) await app.keyboard.press("ArrowUp");
+    await expect
+      .poll(async () => Math.abs((await frame().boundingBox())!.y - before.y))
+      .toBeLessThan(2);
+    await app.keyboard.press("Delete");
+    await expect(frame()).toBeVisible();
+    expect(Math.abs((await frame().boundingBox())!.y - before.y)).toBeLessThan(2);
+  });
+
   test("is readable in dark mode", async ({ app }) => {
     await app.emulateMedia({ colorScheme: "dark" });
     await openSong(app);

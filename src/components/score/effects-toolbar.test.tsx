@@ -181,6 +181,8 @@ describe("EffectsToolbar", () => {
     setup({ kind: "drums" });
     expect(screen.getByRole("button", { name: "Ghost note" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Accent" })).toBeInTheDocument();
+    // Drum hits have a loudness too (#178).
+    expect(screen.getByRole("button", { name: "Forte (f)" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Staccato" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Picking" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Vibrato and trill" })).not.toBeInTheDocument();
