@@ -7,15 +7,15 @@ const isCI = Boolean(process.env.CI);
 
 /**
  * CI runs two jobs per browser so neither hits a timeout (one serial run of everything took
- * over an hour in WebKit): "smoke" is the core flows, "additional" the guided-tour tests.
+ * over an hour in WebKit): "smoke" is the core flows, "additional" the guided-tour tests and the AI installer.
  * `E2E_GROUP` picks one; unset runs everything (local `pnpm test:e2e`).
  */
-const ADDITIONAL_SPECS = ["**/tour*.spec.ts"];
+const ADDITIONAL_SPECS = ["**/tour*.spec.ts", "**/ai-install.spec.ts"];
 const group = process.env.E2E_GROUP || undefined;
 if (group !== undefined && group !== "smoke" && group !== "additional") {
   throw new Error(`E2E_GROUP must be "smoke" or "additional", not "${group}".`);
 }
-const GROUP_TIMEOUT_MINUTES = { smoke: 50, additional: 40 } as const;
+const GROUP_TIMEOUT_MINUTES = { smoke: 58, additional: 40 } as const;
 
 /**
  * Browser integration tests. They run the real UI in Chromium (Windows uses
