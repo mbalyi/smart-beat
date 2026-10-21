@@ -12,8 +12,7 @@ import heroAbout from "@/assets/ai-installer/hero-about.webp";
 import heroDone from "@/assets/ai-installer/hero-done.webp";
 import heroDownload from "@/assets/ai-installer/hero-download.webp";
 import heroModel from "@/assets/ai-installer/hero-model.webp";
-import splashLeft from "@/assets/record-to-tab/splash-bottom-left.webp";
-import splashRight from "@/assets/record-to-tab/splash-bottom-right.webp";
+import { DIALOG_NEON, DialogArt, DialogLogo, DialogStepper } from "@/components/ai/dialog-art";
 import { AI_DIALOG_FRAME } from "@/components/ai/dialog-frame";
 import { ModelPicker } from "@/components/ai/model-picker";
 import { MuscriptorFacts } from "@/components/ai/powered-by-muscriptor";
@@ -63,82 +62,11 @@ const LABELS: Record<Step, string> = {
 };
 /** The picture of a step, and where it sits: beside the title or beside the text. */
 const HEROES: Partial<Record<Step, { src: string; place: string }>> = {
-  about: { src: heroAbout, place: "top-[26%] right-4 w-[30%]" },
-  models: { src: heroModel, place: "top-1 right-3 w-[22%]" },
+  about: { src: heroAbout, place: "top-[33%] right-0 w-[50%]" },
+  models: { src: heroModel, place: "-top-2 right-14 w-[12%]" },
   download: { src: heroDownload, place: "top-[26%] right-4 w-[28%]" },
   done: { src: heroDone, place: "top-[26%] right-4 w-[28%]" },
 };
-
-/** The five steps as numbered circles on a line: done ones ticked, the current one filled. */
-function Stepper({ current }: { current: number }) {
-  return (
-    <ol aria-label="Steps" className="flex items-start gap-0 pr-2 pb-1 md:pr-[26%]">
-      {STEPS.map((step, index) => {
-        const done = index < current;
-        const on = index === current;
-        return (
-          <li
-            key={step}
-            aria-current={on ? "step" : undefined}
-            className="relative flex min-w-0 flex-1 flex-col items-center gap-1 text-xs"
-          >
-            {index > 0 && (
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "absolute top-[13px] right-1/2 left-[-50%] h-0.5",
-                  index <= current ? "bg-primary" : "bg-border",
-                )}
-              />
-            )}
-            <span
-              className={cn(
-                "relative flex size-7 items-center justify-center rounded-full border-2 text-xs font-bold",
-                done || on
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-muted-foreground",
-                on && "shadow-[0_0_12px_color-mix(in_oklab,var(--primary)_70%,transparent)]",
-              )}
-            >
-              {done ? <CheckIcon aria-hidden="true" className="size-4" /> : index + 1}
-            </span>
-            <span className={cn(on ? "font-semibold text-foreground" : "text-muted-foreground")}>
-              {LABELS[step]}
-              <span className="sr-only">{done ? " (done)" : on ? " (current step)" : ""}</span>
-            </span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-/** The graffiti behind the dialog: splashes along the bottom and the picture of the step. */
-function InstallerArt({ step }: { step: Step }) {
-  const hero = HEROES[step];
-  return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-      <img
-        src={splashLeft}
-        alt=""
-        className="absolute bottom-0 left-0 w-[40%] opacity-50 dark:opacity-90"
-      />
-      <img
-        src={splashRight}
-        alt=""
-        className="absolute right-0 bottom-0 w-[20%] opacity-50 dark:opacity-90"
-      />
-      {hero && (
-        <img
-          src={hero.src}
-          alt=""
-          data-hero={step}
-          className={cn("absolute hidden md:block", hero.place)}
-        />
-      )}
-    </div>
-  );
-}
 
 /**
  * The guided install of the MuScriptor model (#150), one dialog with five steps. Record to tab
@@ -154,11 +82,8 @@ export function AiInstallerDialog() {
   return (
     <Dialog open={ai.installer.open} onOpenChange={(next) => !next && close()}>
       <DialogContent
-        size="xl"
-        className={cn(
-          AI_DIALOG_FRAME,
-          "h-[min(48rem,calc(100dvh-2rem))] shadow-[0_0_32px_color-mix(in_oklab,var(--primary)_55%,transparent)] ring-2 ring-primary/90 sm:max-w-4xl",
-        )}
+        size="md"
+        className={cn(AI_DIALOG_FRAME, "h-[min(44rem,calc(100dvh-2rem))]", DIALOG_NEON)}
         data-testid="ai-installer"
       >
         {/* Mounted only while open: every visit starts at the first step. */}
@@ -245,32 +170,23 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
     ),
   };
   // The text keeps clear of the picture that sits beside it.
-  const beside = step === "about" || step === "download" || step === "done";
+  const beside = step === "download" || step === "done";
 
   return (
     <div className="relative isolate flex min-h-0 flex-1 flex-col">
-      <InstallerArt step={step} />
+      <DialogArt hero={HEROES[step]} name={step} />
       <DialogHeader className="gap-3 px-6 pt-3 md:px-9">
-        <img
-          src={logo}
-          alt=""
-          aria-hidden="true"
-          className="-ml-3 h-[68px] w-auto self-start object-contain"
-        />
-        <Stepper current={index} />
+        <DialogLogo src={logo} />
+        <DialogStepper labels={STEPS.map((s) => LABELS[s])} current={index} />
         <DialogTitle className="text-2xl font-bold">{TITLES[step]}</DialogTitle>
         <DialogDescription
-          className={cn(beside && "md:pr-[32%]", step === "models" && "md:pr-[26%]")}
+          className={cn(beside && "md:pr-[20%]", step === "models" && "md:pr-[26%]")}
         >
           Step {index + 1} of {STEPS.length}. {subtitle[step]}
         </DialogDescription>
       </DialogHeader>
       <DialogBody className="px-6 pb-4 md:px-9">
-        {step === "about" && (
-          <div className="text-sm md:pr-[32%]">
-            <MuscriptorFacts withSpeeds />
-          </div>
-        )}
+        {step === "about" && <MuscriptorFacts withSpeeds />}
         {step === "models" && (
           <>
             <ModelPicker

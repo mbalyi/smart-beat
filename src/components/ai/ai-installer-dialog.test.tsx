@@ -127,7 +127,7 @@ describe("AiInstallerDialog", () => {
     for (const row of names) expect(row).toHaveLength(2);
     expect(names.map((row) => row[0])).toEqual(["Close", "Back", "Back"]);
     // The frame never changes: one fixed height class on every step.
-    expect(installer().className).toContain("h-[min(48rem,calc(100dvh-2rem))]");
+    expect(installer().className).toContain("h-[min(44rem,calc(100dvh-2rem))]");
   });
 
   it("shows the five steps and where the user is", async () => {

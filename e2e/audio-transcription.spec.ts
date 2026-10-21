@@ -96,14 +96,16 @@ test.describe("Import from Audio (#88)", () => {
     await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
     await expect(dialog.getByText("recording.wav")).toBeVisible();
     // The webview reads the duration before anything is uploaded.
-    await expect(dialog.getByText(/MiB · \d+:\d\d/)).toBeVisible();
+    await expect(dialog.getByText(/MB · \d+:\d\d/)).toBeVisible();
 
-    await dialog.getByLabel("Search instruments").fill("bass guitar");
-    await dialog.getByRole("button", { name: "electric bass" }).click();
+    await dialog.getByRole("button", { name: "Automatic detection" }).click();
+    await dialog.page().getByLabel("Search instruments").fill("bass guitar");
+    await dialog.page().getByRole("checkbox", { name: "electric bass" }).click();
+    await dialog.page().keyboard.press("Escape");
     await expect(dialog.getByRole("button", { name: "Remove electric bass" })).toBeVisible();
 
     await dialog.getByRole("button", { name: "Transcribe" }).click();
-    await expect(dialog.getByRole("heading", { name: "Generated MIDI preview" })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "Preview generated MIDI" })).toBeVisible();
     await expect(
       dialog.getByRole("img", { name: "Transcribed notes by instrument" }),
     ).toBeVisible();
@@ -169,7 +171,7 @@ test.describe("Import from Audio (#88)", () => {
 
       await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
       await dialog.getByRole("button", { name: "Transcribe" }).click();
-      await expect(dialog.getByRole("heading", { name: "Generated MIDI preview" })).toBeVisible();
+      await expect(dialog.getByRole("heading", { name: "Preview generated MIDI" })).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[role=dialog]" });
       expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
     });

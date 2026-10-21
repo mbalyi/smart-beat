@@ -11,9 +11,9 @@ import { SIZES } from "@/lib/ai/muscriptor-sizes";
 /** The text that explains what MuScriptor is: where it comes from, its licence and the links. */
 export function MuscriptorFacts({ withSpeeds = false }: { withSpeeds?: boolean }) {
   return (
-    <div className="flex flex-col gap-3">
-      <p>{MUSCRIPTOR.about}</p>
-      <p>
+    <div className="flex flex-col gap-3 text-sm">
+      <p className="md:pr-[30%]">{MUSCRIPTOR.about}</p>
+      <p className="md:pr-[45%]">
         Made by{" "}
         <ExternalLink className="underline" href={MUSCRIPTOR_AUTHORS[0]!.url}>
           {MUSCRIPTOR_AUTHORS[0]!.name}
@@ -30,7 +30,7 @@ export function MuscriptorFacts({ withSpeeds = false }: { withSpeeds?: boolean }
         {MUSCRIPTOR.conversion}
       </p>
       {withSpeeds && (
-        <p className="text-muted-foreground">
+        <p className="text-muted-foreground md:pr-[40%]">
           The authors measured {SIZES.map((s) => `${s.label} ${s.gpuSeconds} s`).join(", ")} per
           minute of audio on an Apple M1 Pro GPU, on one machine only.
         </p>
