@@ -7,7 +7,9 @@ import { test as base, expect, type Page } from "@playwright/test";
 type MenuAction =
   | "new-song"
   | "open"
+  | "ai-models"
   | "import-audio"
+  | "record-to-tab"
   | "save"
   | "save-as"
   | "export-all"
@@ -104,7 +106,7 @@ interface MixerSettings {
 declare global {
   interface Window {
     __muscriptor: {
-      termsAccepted: boolean;
+      terms: Record<"small" | "medium" | "large", boolean>;
       rightsConfirmed: boolean[];
       installed: Record<"small" | "medium" | "large", boolean>;
       downloads: string[];

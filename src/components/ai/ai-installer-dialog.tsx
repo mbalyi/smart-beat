@@ -31,6 +31,7 @@ import {
 import {
   chooseSize,
   closeInstaller,
+  hasTerms,
   installModel,
   isInstalled,
   refreshAi,
@@ -99,8 +100,10 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
   // null: untouched, so the boxes follow the terms on file (already accepted: ticked).
   const [acceptedBox, setAccepted] = useState<boolean | null>(null);
   const [rightsBox, setRights] = useState<boolean | null>(null);
-  const accepted = acceptedBox ?? Boolean(ai.status?.termsAccepted);
-  const rights = rightsBox ?? Boolean(ai.status?.termsAccepted);
+  // The terms are on file per model size: the boxes follow the size that is being installed.
+  const onFile = hasTerms(ai);
+  const accepted = acceptedBox ?? onFile;
+  const rights = rightsBox ?? onFile;
   const installed = isInstalled(ai, ai.size);
   // The download ended: on to the last step; a failure stays on the download step with its error.
   const step: Step = chosen === "download" && !ai.download && installed ? "done" : chosen;
@@ -114,7 +117,8 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
   const size = bytes ? downloadText(bytes) : `${info.megabytes} MB`;
   const downloading = ai.download !== null;
   const index = STEPS.indexOf(step);
-  const back = returnTo === "audio" ? "Import from Audio" : "recording";
+  // Opened from the AI menu there is nothing to go back to.
+  const back = returnTo === "audio" ? "Import from Audio" : returnTo ? "recording" : null;
 
   const start = () => {
     setStep("download");
@@ -133,7 +137,9 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
           ? "Downloading…"
           : "Try again"
         : step === "done"
-          ? `Back to ${back}`
+          ? back
+            ? `Back to ${back}`
+            : "Close"
           : "Continue";
   const primaryDisabled =
     (step === "terms" && !(accepted && rights)) || (step === "download" && downloading);
@@ -164,8 +170,10 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
     ),
     done: (
       <>
-        MuScriptor ({info.label}) is now on this computer, and you&apos;ve confirmed the terms. Go
-        back to {back} and pick the AI mode to start using it.
+        MuScriptor ({info.label}) is now on this computer, and you&apos;ve confirmed the terms.{" "}
+        {back
+          ? `Go back to ${back} and pick the AI mode to start using it.`
+          : "Open Import from Audio or Record to Tab from the AI menu to start using it."}
       </>
     ),
   };

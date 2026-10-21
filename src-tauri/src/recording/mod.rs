@@ -174,7 +174,7 @@ impl RecordingRun {
             *slot = None;
         }
     }
-    fn cancel(&self) {
+    pub(crate) fn cancel(&self) {
         if let Some(stop) = self.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             stop.store(true, Ordering::Relaxed);
         }
@@ -227,7 +227,7 @@ pub async fn transcribe_recording<R: Runtime>(
             .and_then(muscriptor_model::Size::parse)
             .unwrap_or(muscriptor_model::Size::Medium);
         let folder = muscriptor_model::dir(&app)?;
-        muscriptor_model::require_terms(&folder)?;
+        muscriptor_model::require_terms(&folder, size)?;
         if !muscriptor_model::is_installed(&folder, size) {
             return Err(error("Download the MuScriptor model first."));
         }

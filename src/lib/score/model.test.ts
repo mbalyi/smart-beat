@@ -7,10 +7,12 @@ import {
   cloneTrack,
   ensureVoices,
   freeChannels,
+  insertMasterBar,
   isPlaceholderVoice,
   newBar,
   placeholderBeats,
   refinish,
+  removeMasterBar,
   setProgram,
   trackContent,
 } from "@/lib/score/model";
@@ -96,6 +98,44 @@ describe("building the model", () => {
       expect(bar.clef).toBe(track.staves[0]!.bars[3]!.clef);
       expect(isPlaceholderVoice(bar.voices[0]!)).toBe(true);
     }
+  });
+
+  it("inserts a bar in the middle of every track, shaped like a neighbour", () => {
+    const score = load();
+    score.masterBars[1]!.timeSignatureNumerator = 3;
+    const next = score.masterBars[2]!;
+
+    const masterBar = insertMasterBar(score, 2, 1);
+    refinish(score);
+
+    expect(score.masterBars).toHaveLength(5);
+    expect(score.masterBars[2]).toBe(masterBar);
+    expect(score.masterBars[3]).toBe(next);
+    expect(masterBar.timeSignatureNumerator).toBe(3);
+    expect(masterBar.index).toBe(2);
+    expect(masterBar.start).toBe(
+      score.masterBars[1]!.start + score.masterBars[1]!.calculateDuration(),
+    );
+    for (const track of score.tracks) {
+      const staff = track.staves[0]!;
+      expect(staff.bars).toHaveLength(5);
+      expect(staff.bars[2]!.clef).toBe(staff.bars[1]!.clef);
+      expect(staff.bars[2]!.masterBar).toBe(masterBar);
+      expect(isPlaceholderVoice(staff.bars[2]!.voices[0]!)).toBe(true);
+    }
+  });
+
+  it("removes a bar from every track", () => {
+    const score = load();
+    const keep = score.masterBars[2]!;
+
+    removeMasterBar(score, 1);
+    refinish(score);
+
+    expect(score.masterBars).toHaveLength(3);
+    expect(score.masterBars[1]).toBe(keep);
+    expect(keep.index).toBe(1);
+    for (const track of score.tracks) expect(track.staves[0]!.bars).toHaveLength(3);
   });
 
   it("keeps the same number of voices in every bar of a staff", () => {

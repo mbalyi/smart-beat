@@ -251,7 +251,7 @@ describe("audio transcription", () => {
     expect(track).toHaveBeenCalledWith("ai_transcribe_file", "rights_confirmed");
   });
   it("keeps the transcribe button off when the terms are not on file", async () => {
-    seedAiState({ ready: true, status: { ...statusWith(["medium"]), termsAccepted: false } });
+    seedAiState({ ready: true, status: statusWith(["medium"], false) });
     setup();
     expect(await screen.findByTestId("audio-needs-model")).toBeInTheDocument();
   });
@@ -299,5 +299,13 @@ describe("audio transcription", () => {
     await user.click(screen.getByRole("button", { name: "Download or manage models…" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(getAiState().installer).toEqual({ open: true, returnTo: "audio" });
+  });
+  it("shows the model section before a recording is chosen", async () => {
+    seedAiState({ ready: true, status: statusWith(["small", "medium"]) });
+    const { user, onOpenChange } = setup();
+    expect(screen.getByRole("combobox", { name: "Model" })).toBeInTheDocument();
+    expect(screen.queryByText("Expected instruments (optional)")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Download or manage models…" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

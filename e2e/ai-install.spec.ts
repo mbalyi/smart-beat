@@ -1,7 +1,14 @@
 import type { Page } from "@playwright/test";
 
 import features from "../src/lib/features.json" with { type: "json" };
-import { expect, expectNoA11yViolations, newSong, openSong, test } from "./fixtures";
+import {
+  emitMenuAction,
+  expect,
+  expectNoA11yViolations,
+  newSong,
+  openSong,
+  test,
+} from "./fixtures";
 
 /**
  * The guided install of MuScriptor (#150): Import from Audio and the AI tab of Record to tab
@@ -38,10 +45,7 @@ const installer = (app: Page) =>
 async function openAudio(app: Page) {
   const welcome = app.getByRole("button", { name: "Import from Audio…" });
   if (await welcome.isVisible()) await welcome.click();
-  else {
-    await app.getByRole("button", { name: "File" }).click();
-    await app.getByRole("menuitem", { name: "Import from Audio…" }).click();
-  }
+  else await emitMenuAction(app, "import-audio"); // an open song: the AI menu
   const dialog = app.getByRole("dialog", { name: "Import from Audio" });
   await expect(dialog).toBeVisible();
   return dialog;
@@ -84,8 +88,7 @@ test.describe("AI installer (#150)", () => {
 
   test("Record to tab: the AI tab hands over to the installer and comes back", async ({ app }) => {
     await newSong(app);
-    await app.getByRole("button", { name: "File" }).click();
-    await app.getByRole("menuitem", { name: /^Record to Tab…/ }).click();
+    await emitMenuAction(app, "record-to-tab");
     const record = app.getByRole("dialog", { name: /^Record to Tab/ });
     await expect(record.getByRole("tab", { name: "Default" })).toHaveAttribute(
       "aria-selected",
@@ -106,12 +109,11 @@ test.describe("AI installer (#150)", () => {
 
   test("Record to tab: a file goes through the AI engine with the chosen size", async ({ app }) => {
     await app.evaluate(() => {
-      window.__muscriptor.termsAccepted = true;
+      window.__muscriptor.terms.small = true;
       window.__muscriptor.installed.small = true;
     });
     await newSong(app);
-    await app.getByRole("button", { name: "File" }).click();
-    await app.getByRole("menuitem", { name: /^Record to Tab…/ }).click();
+    await emitMenuAction(app, "record-to-tab");
     const record = app.getByRole("dialog", { name: /^Record to Tab/ });
     await record.getByRole("tab", { name: "AI" }).click();
     await expect(record.getByRole("combobox", { name: "AI model size" })).toContainText("Small");
@@ -207,8 +209,7 @@ test.describe("AI installer (#150)", () => {
     test(`has no WCAG violations in ${colorScheme} mode`, async ({ app }) => {
       await app.emulateMedia({ colorScheme });
       await newSong(app);
-      await app.getByRole("button", { name: "File" }).click();
-      await app.getByRole("menuitem", { name: /^Record to Tab…/ }).click();
+      await emitMenuAction(app, "record-to-tab");
       const record = app.getByRole("dialog", { name: /^Record to Tab/ });
       await record.getByRole("tab", { name: "AI" }).click();
       await settled(app);

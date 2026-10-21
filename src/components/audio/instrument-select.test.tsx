@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { InstrumentSelect } from "./instrument-select";
 import { renderWithProviders } from "@/test/render";
@@ -31,6 +31,23 @@ describe("InstrumentSelect", () => {
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Remove drums" }));
     expect(screen.queryByRole("button", { name: "Remove drums" })).not.toBeInTheDocument();
+  });
+  it("toggles an instrument when its name is clicked, not only its box", async () => {
+    const { user } = renderWithProviders(<Harness />);
+    await user.click(screen.getByRole("button", { name: /Automatic detection/ }));
+    const row = () => within(screen.getByRole("list", { name: "Available instruments" }));
+    await user.click(row().getByText("drums"));
+    expect(screen.getByRole("checkbox", { name: "drums" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Remove drums" })).toBeInTheDocument();
+    await user.click(row().getByText("drums"));
+    expect(screen.getByRole("checkbox", { name: "drums" })).not.toBeChecked();
+  });
+  it("toggles once for a key press on the focused box", async () => {
+    const { user } = renderWithProviders(<Harness />);
+    await user.click(screen.getByRole("button", { name: /Automatic detection/ }));
+    screen.getByRole("checkbox", { name: "drums" }).focus();
+    await user.keyboard(" ");
+    expect(screen.getByRole("checkbox", { name: "drums" })).toBeChecked();
   });
   it("says when nothing matches", async () => {
     const { user } = renderWithProviders(<Harness />);

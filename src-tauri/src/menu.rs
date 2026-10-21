@@ -30,7 +30,9 @@ pub const MAIN_WINDOW: &str = "main";
 pub enum MenuAction {
     NewSong,
     Open,
+    AiModels,
     ImportAudio,
+    RecordToTab,
     ClearRecent,
     Save,
     SaveAs,
@@ -109,10 +111,12 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 75] = [
+    pub const ALL: [Self; 77] = [
         Self::NewSong,
         Self::Open,
+        Self::AiModels,
         Self::ImportAudio,
+        Self::RecordToTab,
         Self::ClearRecent,
         Self::Save,
         Self::SaveAs,
@@ -192,7 +196,9 @@ impl MenuAction {
         match self {
             Self::NewSong => "file.new",
             Self::Open => "file.open",
-            Self::ImportAudio => "file.import-audio",
+            Self::AiModels => "ai.models",
+            Self::ImportAudio => "ai.import-audio",
+            Self::RecordToTab => "ai.record-to-tab",
             Self::ClearRecent => "file.clear-recent",
             Self::Save => "file.save",
             Self::SaveAs => "file.save-as",
@@ -277,7 +283,6 @@ impl MenuAction {
         match self {
             Self::NewSong
             | Self::Open
-            | Self::ImportAudio
             | Self::ClearRecent
             | Self::Save
             | Self::SaveAs
@@ -296,6 +301,7 @@ impl MenuAction {
             | Self::Print
             | Self::CloseWindow
             | Self::Quit => "File",
+            Self::AiModels | Self::ImportAudio | Self::RecordToTab => "AI",
             Self::Undo | Self::Redo | Self::ToggleEditMode => "Edit",
             Self::ToggleTheme
             | Self::ToggleFretboard
@@ -354,7 +360,9 @@ impl MenuAction {
         match self {
             Self::NewSong => "New",
             Self::Open => "Open…",
+            Self::AiModels => "AI Models…",
             Self::ImportAudio => "Import from Audio…",
+            Self::RecordToTab => "Record to Tab…",
             Self::ClearRecent => "Clear Menu",
             Self::Save => "Save",
             Self::SaveAs => "Save As…",
@@ -465,7 +473,9 @@ impl MenuAction {
             // The note effects have plain keys in the score (H, P, L...); menu
             // accelerators would take those keys away from text fields.
             Self::AddAudioTrack
+            | Self::AiModels
             | Self::ImportAudio
+            | Self::RecordToTab
             | Self::DuplicateTrack
             | Self::RemoveTrack
             | Self::TrackSettings
@@ -600,6 +610,7 @@ impl MenuAction {
                 | Self::ExportPdf
                 | Self::Print
                 | Self::Transpose
+                | Self::RecordToTab
                 | Self::ToggleEditMode
                 | Self::ToggleFretboard
                 | Self::ToggleMixer
@@ -755,28 +766,42 @@ fn check_item<R: Runtime>(
     )
 }
 
-/// The File menu start. Import from Audio shows only while `audio-2-tab` is on.
+/// The File menu start.
 fn file_menu<'a, R: Runtime>(
     app: &'a AppHandle<R>,
     new_song: &MenuItem<R>,
     open: &MenuItem<R>,
-    import_audio: &MenuItem<R>,
     recent: &Submenu<R>,
 ) -> SubmenuBuilder<'a, R, AppHandle<R>> {
-    let mut file = SubmenuBuilder::new(app, "File").item(new_song).item(open);
-    if crate::features::enabled("audio-2-tab") {
-        file = file.item(import_audio);
-    }
-    file.item(recent)
+    SubmenuBuilder::new(app, "File")
+        .item(new_song)
+        .item(open)
+        .item(recent)
 }
 
-/// The AI menu: one disabled entry for each feature that is not out yet.
+/// The AI menu: the model installer, the AI features that are out (each only while its feature
+/// flag is on), then one disabled entry for each feature that is not out yet.
 fn ai_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Option<Submenu<R>>> {
+    use crate::features::enabled;
+    let audio = enabled("audio-2-tab");
+    let record = enabled("record-2-tab");
     let soon = crate::features::coming_soon();
-    if soon.is_empty() {
+    if !(audio || record) && soon.is_empty() {
         return Ok(None);
     }
     let mut ai = SubmenuBuilder::new(app, "AI");
+    if audio || record || enabled("muscriptor-record") {
+        ai = ai.item(&item(app, MenuAction::AiModels)?);
+    }
+    if audio {
+        ai = ai.item(&item(app, MenuAction::ImportAudio)?);
+    }
+    if record {
+        ai = ai.item(&item(app, MenuAction::RecordToTab)?);
+    }
+    if !soon.is_empty() && (audio || record) {
+        ai = ai.separator();
+    }
     for (id, label) in soon {
         let text = format!("{label} — AI coming soon");
         ai = ai.item(&MenuItem::with_id(
@@ -797,7 +822,6 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let about = item(app, About)?;
     let new_song = item(app, NewSong)?;
     let open = item(app, Open)?;
-    let import_audio = item(app, ImportAudio)?;
     let toggle_theme = item(app, ToggleTheme)?;
     let zoom_in = item(app, ZoomIn)?;
     let zoom_out = item(app, ZoomOut)?;
@@ -867,7 +891,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .build()?;
         menu = menu.item(&app_menu);
 
-        file_menu(app, &new_song, &open, &import_audio, &recent)
+        file_menu(app, &new_song, &open, &recent)
             .separator()
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
@@ -877,7 +901,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .close_window()
             .build()?
     } else {
-        file_menu(app, &new_song, &open, &import_audio, &recent)
+        file_menu(app, &new_song, &open, &recent)
             .separator()
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
@@ -1185,6 +1209,30 @@ mod tests {
     }
 
     #[test]
+    fn the_ai_features_live_in_the_ai_menu_and_only_recording_needs_a_song() {
+        let ai: Vec<_> = MenuAction::ALL
+            .into_iter()
+            .filter(|a| a.menu() == "AI")
+            .collect();
+        assert_eq!(
+            ai,
+            [
+                MenuAction::AiModels,
+                MenuAction::ImportAudio,
+                MenuAction::RecordToTab
+            ]
+        );
+        assert!(!MenuAction::AiModels.needs_song());
+        assert!(!MenuAction::ImportAudio.needs_song());
+        assert!(MenuAction::RecordToTab.needs_song());
+        for action in ai {
+            assert!(action.id().starts_with("ai."), "{action:?}");
+            assert!(!action.is_native());
+            assert_eq!(action.accelerator_for("macos"), None);
+        }
+    }
+
+    #[test]
     fn unknown_ids_are_ignored() {
         assert_eq!(MenuAction::from_id("edit.copy"), None);
         assert_eq!(MenuAction::from_id(""), None);
@@ -1482,7 +1530,7 @@ mod tests {
     #[test]
     fn every_action_has_a_menu_and_a_label() {
         let menus = [
-            "File", "Edit", "View", "Track", "Bar", "Note", "Playback", "Help",
+            "File", "Edit", "View", "Track", "Bar", "Note", "Playback", "AI", "Help",
         ];
         for action in MenuAction::ALL {
             assert!(menus.contains(&action.menu()), "{action:?}");

@@ -48,7 +48,6 @@ async function setup({ desktop = true, path = null as string | null } = {}) {
   const utils = renderWithProviders(
     <>
       <ScoreWorkspace
-        onImportAudio={vi.fn()}
         song={song}
         onOpen={vi.fn()}
         onSaved={onSaved}
@@ -253,7 +252,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     const onSaved = vi.fn();
     renderWithProviders(
       <>
-        <ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} onSaved={onSaved} />
+        <ScoreWorkspace song={song} onOpen={vi.fn()} onSaved={onSaved} />
         <Toaster />
       </>,
     );
@@ -434,9 +433,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     mockTauri({ app_info: () => ({ ...APP_INFO, os: "windows" }) });
     // A new window of the same app on Windows: no M4A item.
     const song = await makeSong();
-    renderWithProviders(
-      <ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} onSaved={vi.fn()} />,
-    );
+    renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} onSaved={vi.fn()} />);
     FakeScorePlayer.last.becomeReady();
     const fileButtons = screen.getAllByRole("button", { name: "File" });
     await user.click(fileButtons[fileButtons.length - 1]!);
@@ -462,7 +459,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     const song = await makeSong();
     renderWithProviders(
       <>
-        <ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} onSaved={vi.fn()} />
+        <ScoreWorkspace song={song} onOpen={vi.fn()} onSaved={vi.fn()} />
         <Toaster />
       </>,
     );
@@ -523,7 +520,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     const song = await makeSong();
     renderWithProviders(
       <>
-        <ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />
+        <ScoreWorkspace song={song} onOpen={vi.fn()} />
         <Toaster />
       </>,
     );
@@ -783,7 +780,7 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     };
     const { user } = renderWithProviders(
       <>
-        <ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />
+        <ScoreWorkspace song={song} onOpen={vi.fn()} />
         <Toaster />
       </>,
     );
@@ -817,7 +814,7 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     mockTauri();
     localStorage.setItem("smart-beat:audio-engine", "native");
     const song = await makeSong("/songs/practice-song.gp");
-    renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+    renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
     const player = FakeScorePlayer.last;
     player.usesNativeEngine = true;
     player.becomeReady();

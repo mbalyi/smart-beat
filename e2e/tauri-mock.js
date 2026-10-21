@@ -86,7 +86,8 @@
    * or a cancel; `fail` makes it reject.
    */
   window.__muscriptor = {
-    termsAccepted: false,
+    // The terms are accepted per model size.
+    terms: { small: false, medium: false, large: false },
     rightsConfirmed: [],
     installed: { small: false, medium: false, large: false },
     downloads: [],
@@ -100,12 +101,12 @@
   const MUSCRIPTOR_BYTES = { small: 209425152, medium: 618442496, large: 2739142176 };
   const muscriptorStatus = () => ({
     supported: true,
-    termsAccepted: window.__muscriptor.termsAccepted,
     termsVersion: 1,
     sizes: ["small", "medium", "large"].map((size) => ({
       size,
       bytes: MUSCRIPTOR_BYTES[size],
       installed: window.__muscriptor.installed[size],
+      termsAccepted: window.__muscriptor.terms[size],
       partialBytes: 0,
     })),
   });
@@ -707,12 +708,12 @@
             message: "Confirm that you only use music you have the rights to.",
           };
         }
-        window.__muscriptor.termsAccepted = true;
+        window.__muscriptor.terms[args.size] = true;
         window.__muscriptor.rightsConfirmed.push(true);
         return muscriptorStatus();
       case "download_muscriptor_model": {
         const m = window.__muscriptor;
-        if (!m.termsAccepted)
+        if (!m.terms[args.size])
           throw { kind: "audio", message: "Accept the MuScriptor terms first." };
         m.downloads.push(args.size);
         window.__emitTauriEvent("muscriptor-model-download-progress", {
@@ -747,7 +748,7 @@
           throw { kind: "audio", message: "Choose MP3, WAV, FLAC or OGG audio." };
         }
         if (
-          !window.__muscriptor.termsAccepted ||
+          !window.__muscriptor.terms[options.headers["model-size"]] ||
           !window.__muscriptor.installed[options.headers["model-size"]]
         ) {
           throw { kind: "audio", message: "Download the MuScriptor model first." };
@@ -776,7 +777,7 @@
         });
         if (
           options.headers["x-engine"] === "muscriptor" &&
-          (!window.__muscriptor.termsAccepted ||
+          (!window.__muscriptor.terms[options.headers["x-model-size"]] ||
             !window.__muscriptor.installed[options.headers["x-model-size"]])
         ) {
           throw { kind: "audio", message: "Download the MuScriptor model first." };

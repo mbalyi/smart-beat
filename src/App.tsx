@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
 import { AiInstallerDialog } from "@/components/ai/ai-installer-dialog";
-import { onInstallerReturn } from "@/lib/ai/ai-store";
+import { onInstallerReturn, openInstaller } from "@/lib/ai/ai-store";
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { DocumentTabs } from "@/components/shell/document-tabs";
@@ -271,6 +271,10 @@ export function App() {
       case "open":
         open();
         break;
+      case "ai-models":
+        // From the AI menu there is no dialog to go back to.
+        openInstaller();
+        break;
       case "import-audio":
         importAudio?.();
         break;
@@ -352,7 +356,6 @@ export function App() {
                     tabs={tabs}
                     headerSlot={headerSlot}
                     onOpen={open}
-                    onImportAudio={importAudio}
                     onOpenScore={(score, name) => void openScore(score, name)}
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}

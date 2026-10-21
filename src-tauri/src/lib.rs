@@ -175,6 +175,14 @@ pub fn run() {
         .expect("error while building Smart Beat")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                // Stop what the AI engine is doing first: a running transcription holds the model,
+                // and unloading it would wait for the end of the song. A download keeps its part.
+                if let Some(running) = app.try_state::<transcription::Running>() {
+                    running.cancel_all();
+                }
+                app.state::<recording::RecordingRun>().cancel();
+                app.state::<recording::muscriptor_model::DownloadRun>()
+                    .stop();
                 // ggml's Metal backend asserts at process exit while a model is still loaded.
                 recording::muscriptor::unload();
                 flush_on_quit(app);

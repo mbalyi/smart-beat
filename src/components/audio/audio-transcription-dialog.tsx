@@ -279,7 +279,7 @@ export function AudioTranscriptionDialog({
     : phase === "select"
       ? { src: heroSelect, place: "top-[23%] right-5 w-[14%]" }
       : phase === "transcribing"
-        ? { src: heroModel, place: "top-[20%] right-2 w-[24%]" }
+        ? { src: heroModel, place: "top-[20%] right-0 w-[38%]" }
         : null;
   const phaseTitle = needsModel
     ? "Install MuScriptor to use Import from Audio"
@@ -317,7 +317,15 @@ export function AudioTranscriptionDialog({
                 {phaseTitle}
               </h2>
             )}
-            <DialogDescription className={cn(phase === "complete" ? "sr-only" : "md:pr-[20%]")}>
+            <DialogDescription
+              className={cn(
+                phase === "complete"
+                  ? "sr-only"
+                  : phase === "transcribing"
+                    ? "md:pr-[40%]"
+                    : "md:pr-[20%]",
+              )}
+            >
               {description}
             </DialogDescription>
           </DialogHeader>
@@ -387,53 +395,51 @@ export function AudioTranscriptionDialog({
                       </p>
                     </div>
                   )}
-                  {file && (
-                    <div className="flex flex-col gap-1.5">
-                      <span id="model-size-label" className="text-sm font-medium">
-                        Model
-                      </span>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Select
-                          value={ai.size}
-                          onValueChange={(next) => chooseSize(next as MuscriptorSize)}
-                          disabled={locked}
+                  <div className="flex flex-col gap-1.5">
+                    <span id="model-size-label" className="text-sm font-medium">
+                      Model
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select
+                        value={ai.size}
+                        onValueChange={(next) => chooseSize(next as MuscriptorSize)}
+                        disabled={locked}
+                      >
+                        <SelectTrigger
+                          aria-labelledby="model-size-label"
+                          className="h-9 min-w-64 flex-1 sm:flex-none"
                         >
-                          <SelectTrigger
-                            aria-labelledby="model-size-label"
-                            className="h-9 min-w-64 flex-1 sm:flex-none"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {SIZES.map((row) => {
-                              const here = isInstalled(ai, row.size);
-                              return (
-                                <SelectItem key={row.size} value={row.size} disabled={!here}>
-                                  {row.label} · {row.megabytes} MB · {row.gpuFactor}×
-                                  {here ? "" : " (not downloaded)"}
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={locked}
-                          onClick={() => {
-                            onOpenChange(false);
-                            openInstaller("audio");
-                          }}
-                        >
-                          Download or manage models…
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        A smaller model is faster, a larger one is more accurate. The installer
-                        brings you back here when you close it.
-                      </p>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SIZES.map((row) => {
+                            const here = isInstalled(ai, row.size);
+                            return (
+                              <SelectItem key={row.size} value={row.size} disabled={!here}>
+                                {row.label} · {row.megabytes} MB · {row.gpuFactor}×
+                                {here ? "" : " (not downloaded)"}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={locked}
+                        onClick={() => {
+                          onOpenChange(false);
+                          openInstaller("audio");
+                        }}
+                      >
+                        Download or manage models…
+                      </Button>
                     </div>
-                  )}
+                    <p className="text-xs text-muted-foreground">
+                      A smaller model is faster, a larger one is more accurate. The installer brings
+                      you back here when you close it.
+                    </p>
+                  </div>
                 </>
               )}
               {busy && <Progress file={file} duration={shownDuration} progress={progress} />}
@@ -735,7 +741,7 @@ function Progress({
   const stateText = { done: " (done)", active: " (in progress)", pending: "" } as const;
   return (
     <div role="status" className="flex flex-col gap-4 text-sm">
-      <ol className="flex flex-col gap-3 md:pr-[28%]">
+      <ol className="flex flex-col gap-3 md:pr-[40%]">
         {stages.map((stage) => (
           <li key={stage.name} className="flex items-start gap-3">
             <span

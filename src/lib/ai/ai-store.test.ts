@@ -11,6 +11,7 @@ import {
   seedAiState,
   statusWith,
   canRun,
+  hasTerms,
   isInstalled,
 } from "@/lib/ai/ai-store";
 
@@ -77,12 +78,43 @@ describe("the AI store", () => {
       return statusWith(["medium"]);
     });
     await installModel("medium", true);
-    expect(tauri.acceptMuscriptorTerms).toHaveBeenCalledWith(true);
+    expect(tauri.acceptMuscriptorTerms).toHaveBeenCalledWith("medium", true);
     expect(track).toHaveBeenCalledWith("ai_rights_confirmed");
     expect(track).toHaveBeenCalledWith("ai_install", "medium");
     expect(getAiState().download).toBeNull();
     expect(canRun(getAiState())).toBe(true);
     expect(rightsDetail()).toBe("rights_confirmed");
+  });
+
+  it("keeps the terms per model size", async () => {
+    tauri.muscriptorStatus.mockResolvedValue(statusWith(["small", "medium"], ["small"]));
+    await refreshAi();
+    chooseSize("small");
+    expect(hasTerms(getAiState())).toBe(true);
+    expect(canRun(getAiState())).toBe(true);
+    chooseSize("medium");
+    expect(hasTerms(getAiState())).toBe(false);
+    expect(canRun(getAiState())).toBe(false);
+    expect(rightsDetail()).toBe("rights_unconfirmed");
+    // Medium is installed but not accepted: installing it asks for its own acceptance.
+    tauri.acceptMuscriptorTerms.mockResolvedValue(
+      statusWith(["small", "medium"], ["small", "medium"]),
+    );
+    tauri.downloadMuscriptorModel.mockResolvedValue(
+      statusWith(["small", "medium"], ["small", "medium"]),
+    );
+    await installModel("medium", true);
+    expect(tauri.acceptMuscriptorTerms).toHaveBeenCalledWith("medium", true);
+    expect(canRun(getAiState())).toBe(true);
+  });
+
+  it("does not ask again for a size that was accepted before", async () => {
+    tauri.muscriptorStatus.mockResolvedValue(statusWith([], ["large"]));
+    await refreshAi();
+    tauri.downloadMuscriptorModel.mockResolvedValue(statusWith(["large"], ["large"]));
+    await installModel("large", false);
+    expect(tauri.acceptMuscriptorTerms).not.toHaveBeenCalled();
+    expect(tauri.downloadMuscriptorModel).toHaveBeenCalled();
   });
 
   it("does not count a confirmation that was refused", async () => {

@@ -1,10 +1,8 @@
 import {
   ArrowUpDownIcon,
-  AudioLinesIcon,
   ChevronDownIcon,
   FileDownIcon,
   GaugeIcon,
-  MicIcon,
   LanguagesIcon,
   PrinterIcon,
   RulerIcon,
@@ -13,7 +11,6 @@ import {
   WrenchIcon,
 } from "lucide-react";
 
-import { BetaBadge } from "@/components/beta-badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -53,10 +50,11 @@ const EXPORTS: { format: ExportFormat; label: string }[] = [
   { format: "ascii-tab", label: "ASCII tab…" },
 ];
 
-/** In-window mirror of the native File › Save, Save As and Export items. */
+/**
+ * In-window mirror of the native File › Save, Save As and Export items. Import from Audio and
+ * Record to Tab live in the AI menu.
+ */
 export function FileMenu({
-  onImportAudio,
-  onRecordToTab,
   onSave,
   onSaveAs,
   onExport,
@@ -67,10 +65,6 @@ export function FileMenu({
   encoding,
 }: {
   encoding?: EncodingMenu;
-  /** Import from Audio (#88). In this menu, beside Open: the header has no room for another button. */
-  onImportAudio?: () => void;
-  /** Record to Tab (#108), beside Import from Audio; left out while the `record-2-tab` feature is off. */
-  onRecordToTab?: () => void;
   onSave: () => void;
   onSaveAs: () => void;
   onExport: (format: ExportFormat) => void;
@@ -93,24 +87,6 @@ export function FileMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-52">
-        {(onImportAudio || onRecordToTab) && (
-          <>
-            {onImportAudio && (
-              <DropdownMenuItem onSelect={onImportAudio}>
-                <AudioLinesIcon />
-                Import from Audio…
-              </DropdownMenuItem>
-            )}
-            {onRecordToTab && (
-              <DropdownMenuItem onSelect={onRecordToTab}>
-                <MicIcon />
-                Record to Tab…
-                <BetaBadge className="ml-auto" />
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-          </>
-        )}
         <DropdownMenuItem onSelect={onSave}>
           <SaveIcon />
           Save

@@ -61,7 +61,7 @@ pub fn run(
     progress: &mut dyn FnMut(Stage, f32),
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Vec<Note>, CommandError> {
-    files::require_terms(folder)?;
+    files::require_terms(folder, size)?;
     if !files::is_installed(folder, size) {
         return Err(error("Download the MuScriptor model first."));
     }
@@ -193,7 +193,7 @@ mod tests {
         .unwrap_err();
         assert!(err.message.contains("Accept the MuScriptor terms"));
         std::fs::write(
-            folder.join("terms.json"),
+            folder.join("terms-small.json"),
             format!(
                 r#"{{"version":{},"rightsConfirmed":true,"acceptedAt":1}}"#,
                 files::TERMS_VERSION
@@ -222,7 +222,7 @@ mod tests {
             .unwrap_or_else(|_| std::env::temp_dir().join("smart-beat-muscriptor-test"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
-            dir.join("terms.json"),
+            dir.join("terms-small.json"),
             format!(
                 r#"{{"version":{},"rightsConfirmed":true,"acceptedAt":1}}"#,
                 files::TERMS_VERSION

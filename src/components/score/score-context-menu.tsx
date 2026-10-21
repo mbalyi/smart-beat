@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from "react";
 import {
   ClipboardCopyIcon,
+  ClipboardPasteIcon,
   GaugeIcon,
   PlayIcon,
+  PlusIcon,
   Repeat2Icon,
   RepeatIcon,
   ScissorsIcon,
@@ -37,6 +39,14 @@ export interface ScoreMenuActions {
   onLoopSelection: () => void;
   onPracticeSelection: () => void;
   onPlaySelection: () => void;
+  /** Edit Mode: whole bars (0-based), in every track, undoable. */
+  onInsertBarBefore: (bar: number) => void;
+  onInsertBarAfter: (bar: number) => void;
+  onCopyBar: (bar: number) => void;
+  onCutBar: (bar: number) => void;
+  onDeleteBar: (bar: number) => void;
+  /** Inserts the copied bars as new bars after this one. */
+  onPasteBarsAfter: (bar: number) => void;
 }
 
 /** The bars a score selection covers (0-based, inclusive). */
@@ -57,6 +67,7 @@ export function ScoreContextMenu({
   actions,
   selection = null,
   editing = false,
+  canPaste = false,
 }: {
   children: ReactNode;
   /** The bar (0-based) under a point of the window, or null. */
@@ -67,6 +78,8 @@ export function ScoreContextMenu({
   selection?: SelectionBars | null;
   /** Cut and Delete change the score, so they need Edit Mode. */
   editing?: boolean;
+  /** Something is on the clipboard: the bar menu offers to paste it. */
+  canPaste?: boolean;
 }) {
   const [bar, setBar] = useState<number | null>(null);
   const section = bar === null ? null : sectionAt(sections, bar);
@@ -121,6 +134,37 @@ export function ScoreContextMenu({
             ? `Bar ${bar + 1}${section ? ` · ${section.name}` : ""}`
             : "Right-click a bar for its actions"}
         </ContextMenuLabel>
+        {editing && on && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={run(actions.onInsertBarBefore)}>
+              <PlusIcon />
+              Insert bar before
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={run(actions.onInsertBarAfter)}>
+              <PlusIcon />
+              Insert bar after
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={run(actions.onCopyBar)}>
+              <ClipboardCopyIcon />
+              Copy bar
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={run(actions.onCutBar)}>
+              <ScissorsIcon />
+              Cut bar
+            </ContextMenuItem>
+            {canPaste && (
+              <ContextMenuItem onSelect={run(actions.onPasteBarsAfter)}>
+                <ClipboardPasteIcon />
+                Paste bar after
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onSelect={run(actions.onDeleteBar)}>
+              <Trash2Icon />
+              Delete bar
+            </ContextMenuItem>
+          </>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem disabled={!on} onSelect={run(actions.onPlayFrom)}>
           <PlayIcon />

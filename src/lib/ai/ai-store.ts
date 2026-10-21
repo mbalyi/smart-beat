@@ -69,19 +69,22 @@ export function resetAiStore(): void {
 export function seedAiState(patch: Partial<AiState>): void {
   set(patch);
 }
-/** A status with the terms accepted and `installed` sizes on disk. For tests. */
+/**
+ * A status with `installed` sizes on disk. `termsAccepted` is true or false for every size, or the
+ * list of the sizes whose terms are on file. For tests.
+ */
 export function statusWith(
   installed: MuscriptorSize[],
-  termsAccepted = true,
+  termsAccepted: boolean | MuscriptorSize[] = true,
 ): NonNullable<AiState["status"]> {
   return {
     supported: true,
-    termsAccepted,
     termsVersion: 1,
     sizes: (["small", "medium", "large"] as const).map((size) => ({
       size,
       bytes: { small: 209_425_152, medium: 618_442_496, large: 2_739_142_176 }[size],
       installed: installed.includes(size),
+      termsAccepted: Array.isArray(termsAccepted) ? termsAccepted.includes(size) : termsAccepted,
       partialBytes: 0,
     })),
   };
@@ -92,11 +95,14 @@ export const useAiState = (): AiState => useSyncExternalStore(subscribe, getAiSt
 
 export const isInstalled = (s: AiState, size: MuscriptorSize = s.size): boolean =>
   s.status?.sizes.find((entry) => entry.size === size)?.installed ?? false;
+/** The terms of `size` are accepted: each model size has its own record. */
+export const hasTerms = (s: AiState, size: MuscriptorSize = s.size): boolean =>
+  s.status?.sizes.find((entry) => entry.size === size)?.termsAccepted ?? false;
 /** The detail of `ai_transcribe_start` and `ai_transcribe_file`: is the rights confirmation on file? */
 export const rightsDetail = (): "rights_confirmed" | "rights_unconfirmed" =>
-  state.status?.termsAccepted ? "rights_confirmed" : "rights_unconfirmed";
-/** Some size is installed and the terms are accepted: the AI mode can run. */
-export const canRun = (s: AiState): boolean => Boolean(s.status?.termsAccepted) && isInstalled(s);
+  hasTerms(state) ? "rights_confirmed" : "rights_unconfirmed";
+/** The chosen size is installed and its terms are accepted: the AI mode can run. */
+export const canRun = (s: AiState): boolean => hasTerms(s) && isInstalled(s);
 
 export async function refreshAi(): Promise<void> {
   if (!isTauri()) return;
@@ -131,8 +137,8 @@ export async function installModel(size: MuscriptorSize, rightsConfirmed: boolea
   running = true;
   set({ error: null, download: { size, fraction: 0 } });
   try {
-    if (!state.status?.termsAccepted) {
-      const accepted = await acceptMuscriptorTerms(rightsConfirmed);
+    if (!hasTerms(state, size)) {
+      const accepted = await acceptMuscriptorTerms(size, rightsConfirmed);
       track("ai_rights_confirmed");
       set({ status: accepted });
     }
@@ -184,7 +190,7 @@ export function onInstallerReturn(to: AiReturn, handler: () => void): () => void
 }
 
 /** Opens the installer above whatever asked for it. The asker closes itself first. */
-export function openInstaller(returnTo: AiReturn): void {
+export function openInstaller(returnTo: AiReturn | null = null): void {
   set({ installer: { open: true, returnTo }, error: null });
 }
 /** Closes the installer and hands the user back to the dialog that opened it. */

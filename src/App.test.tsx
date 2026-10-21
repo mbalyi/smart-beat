@@ -2,6 +2,7 @@
  * Integration tests: the whole UI with the Tauri IPC layer mocked to behave
  * like the Rust core (commands + menu events).
  */
+import { closeInstaller } from "@/lib/ai/ai-store";
 import { act, screen, waitFor, within } from "@testing-library/react";
 
 import { App } from "@/App";
@@ -80,7 +81,7 @@ describe("App", () => {
     }
   });
 
-  it("launches transcription from welcome, the native menu and the open song's File menu", async () => {
+  it("launches transcription from welcome and from the AI menu, also with a song open", async () => {
     const { user } = await renderApp();
     await user.click(screen.getByRole("button", { name: "Import from Audio…" }));
     expect(await screen.findByRole("dialog", { name: "Import from Audio" })).toBeInTheDocument();
@@ -92,13 +93,19 @@ describe("App", () => {
     backend.dialogResult = SONG;
     await menu("open");
     await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
-    // Beside Open, in the File menu.
-    const fileButtons = screen.getAllByRole("button", { name: "File" });
-    await user.click(fileButtons[fileButtons.length - 1]!);
-    await user.click(await screen.findByRole("menuitem", { name: "Import from Audio…" }));
+    // With a song open the AI menu's item still opens it.
+    await menu("import-audio");
     expect(await screen.findByRole("dialog", { name: "Import from Audio" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(openTabs()).toHaveLength(1);
+  });
+
+  it("opens the AI Models dialog from the AI menu", async () => {
+    await renderApp();
+    await menu("ai-models");
+    expect(await screen.findByTestId("ai-installer")).toBeInTheDocument();
+    // The installer state is shared by the tests of this file.
+    act(() => closeInstaller());
   });
 
   it("renders the app shell with landmarks", async () => {

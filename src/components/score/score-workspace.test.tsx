@@ -42,7 +42,7 @@ async function setup({
   const onOpen = vi.fn();
   const utils = renderWithProviders(
     <>
-      <ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={onOpen} />
+      <ScoreWorkspace song={song} onOpen={onOpen} />
       <Toaster />
     </>,
   );
@@ -274,7 +274,7 @@ describe("ScoreWorkspace", () => {
       const song = await makeSong();
       // Bass was edited and Drums stacked: track 0 is not in the view.
       song.mix = { ...song.mix, visibleTracks: [1, 2], activeTrack: 1 };
-      renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+      renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
       const player = FakeScorePlayer.last;
 
       expect(player.options.trackIndex).toBe(1);
@@ -292,7 +292,7 @@ describe("ScoreWorkspace", () => {
     it("ignores a saved active track that is not in the saved stack", async () => {
       const song = await makeSong();
       song.mix = { ...song.mix, visibleTracks: [1, 2], activeTrack: 0 };
-      renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+      renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
 
       expect(FakeScorePlayer.last.options.trackIndex).toBe(0);
       expect(FakeScorePlayer.last.options.stack?.indexes).toEqual([0, 1, 2]);
@@ -301,7 +301,7 @@ describe("ScoreWorkspace", () => {
     it("restores a saved stack and its continuous layout", async () => {
       const song = await makeSong();
       song.mix = { ...song.mix, visibleTracks: [2, 0, 99] };
-      renderWithProviders(<ScoreWorkspace onImportAudio={vi.fn()} song={song} onOpen={vi.fn()} />);
+      renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
       const player = FakeScorePlayer.last;
 
       expect(player.options.layout).toBe("horizontal");

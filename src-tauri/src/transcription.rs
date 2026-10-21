@@ -218,6 +218,16 @@ impl Running {
     fn finish(&self, id: &str) {
         self.slots(Instant::now()).remove(id);
     }
+    /// Stops every running transcription. The app does this when it quits: the engine holds its
+    /// model for the whole run, and unloading it on exit would wait for the end of the song.
+    pub fn cancel_all(&self) {
+        let slots = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        for slot in slots.values() {
+            if let Slot::Running(abort) = slot {
+                abort();
+            }
+        }
+    }
     fn cancel(&self, id: &str) {
         let now = Instant::now();
         let mut slots = self.slots(now);
@@ -285,7 +295,7 @@ pub async fn transcribe_audio<R: Runtime>(
         .ok_or_else(|| error("Choose small, medium or large."))?;
     validate(body, &extension)?;
     let folder = muscriptor_model::dir(&app)?;
-    muscriptor_model::require_terms(&folder)?;
+    muscriptor_model::require_terms(&folder, size)?;
     let bytes = body.to_vec();
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
@@ -328,7 +338,7 @@ fn transcribe(
     stop: &AtomicBool,
 ) -> Result<Transcription, CommandError> {
     let cancelled = || stop.load(Ordering::Relaxed);
-    muscriptor_model::require_terms(folder)?;
+    muscriptor_model::require_terms(folder, size)?;
     emit("Reading the recording", None);
     check_duration(duration_ms(bytes.clone(), extension)?)?;
     let audio = backing::decode(bytes, Some(extension)).map_err(error)?;
@@ -651,6 +661,19 @@ mod tests {
                 .message
                 .contains("Accept the MuScriptor terms")
         );
+    }
+    #[test]
+    fn cancel_all_stops_every_running_transcription() {
+        let running = Running::default();
+        let stopped = Arc::new(Mutex::new(Vec::new()));
+        for id in ["one", "two"] {
+            let log = stopped.clone();
+            assert!(running.start(id, Box::new(move || log.lock().unwrap().push(id))));
+        }
+        running.cancel_all();
+        let mut log = stopped.lock().unwrap().clone();
+        log.sort_unstable();
+        assert_eq!(log, ["one", "two"]);
     }
     #[test]
     fn cancel_stops_a_running_transcription_or_one_not_started_yet() {

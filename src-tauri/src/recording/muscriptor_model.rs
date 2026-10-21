@@ -3,7 +3,8 @@
 //! are never hosted by Smart Beat: they come straight from the GGUF mirror on Hugging Face at a
 //! pinned revision, are checked against the sizes and SHA-256 sums below, and stay in the app's
 //! data folder. The download and the transcription both refuse to run until the user accepted the
-//! terms and confirmed that they only use music they have the rights to (`terms.json`).
+//! terms of that model size and confirmed that they only use music they have the rights to
+//! (`terms-<size>.json`, one record per size).
 
 use super::error;
 use crate::error::CommandError;
@@ -22,7 +23,9 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 pub const REVISION: &str = "d7045f94e8b19427f4ff9542975035e66596e51c";
 const BASE_URL: &str = "https://huggingface.co/DamRsn/muscriptor-gguf/resolve/";
 const FOLDER: &str = "models/muscriptor";
-const TERMS_FILE: &str = "terms.json";
+/// The one record of the first release, for every size at once. It still counts for a size that is
+/// already on this computer, so nobody has to accept again.
+const LEGACY_TERMS_FILE: &str = "terms.json";
 const PROGRESS_EVENT: &str = "muscriptor-model-download-progress";
 /// Bump when the terms the user accepts change; everyone then has to accept again.
 pub const TERMS_VERSION: u32 = 1;
@@ -98,35 +101,63 @@ pub struct Terms {
     /// Seconds since the Unix epoch.
     pub accepted_at: u64,
 }
-fn read_terms(dir: &Path) -> Option<Terms> {
-    let text = std::fs::read_to_string(dir.join(TERMS_FILE)).ok()?;
+fn terms_file(size: Size) -> String {
+    format!("terms-{}.json", size.name())
+}
+fn read_terms_file(path: &Path) -> Option<Terms> {
+    let text = std::fs::read_to_string(path).ok()?;
     let terms: Terms = serde_json::from_str(&text).ok()?;
     (terms.version == TERMS_VERSION && terms.rights_confirmed).then_some(terms)
 }
+/// The acceptance on file for `size`: its own record, or the old shared one while the model is
+/// already downloaded.
+fn read_terms(dir: &Path, size: Size) -> Option<Terms> {
+    read_terms_file(&dir.join(terms_file(size))).or_else(|| {
+        is_installed(dir, size)
+            .then(|| read_terms_file(&dir.join(LEGACY_TERMS_FILE)))
+            .flatten()
+    })
+}
 /// The check every download and transcription goes through, not only the dialog.
-pub fn require_terms(dir: &Path) -> Result<(), CommandError> {
-    read_terms(dir).map(|_| ()).ok_or_else(|| {
+pub fn require_terms(dir: &Path, size: Size) -> Result<(), CommandError> {
+    read_terms(dir, size).map(|_| ()).ok_or_else(|| {
         error("Accept the MuScriptor terms and confirm your rights to the music first.")
     })
 }
-fn write_terms(dir: &Path, rights_confirmed: bool) -> Result<(), CommandError> {
+fn save_terms(dir: &Path, size: Size, terms: &Terms) -> Result<(), CommandError> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| error(format!("Could not make a folder for the model: {e}")))?;
+    let text = serde_json::to_string(terms).expect("terms serialize");
+    std::fs::write(dir.join(terms_file(size)), text)
+        .map_err(|e| error(format!("Could not save your acceptance: {e}")))
+}
+fn write_terms(dir: &Path, size: Size, rights_confirmed: bool) -> Result<(), CommandError> {
     if !rights_confirmed {
         return Err(error(
             "Confirm that you only use music you have the rights to.",
         ));
     }
-    std::fs::create_dir_all(dir)
-        .map_err(|e| error(format!("Could not make a folder for the model: {e}")))?;
-    let terms = Terms {
-        version: TERMS_VERSION,
-        rights_confirmed,
-        accepted_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs()),
-    };
-    let text = serde_json::to_string(&terms).expect("terms serialize");
-    std::fs::write(dir.join(TERMS_FILE), text)
-        .map_err(|e| error(format!("Could not save your acceptance: {e}")))
+    save_terms(
+        dir,
+        size,
+        &Terms {
+            version: TERMS_VERSION,
+            rights_confirmed,
+            accepted_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs()),
+        },
+    )
+}
+/// Turns the old shared acceptance into the record of `size`, so that it survives deleting the
+/// model ("the accepted terms stay on file").
+fn keep_legacy_terms(dir: &Path, size: Size) {
+    if dir.join(terms_file(size)).exists() || !is_installed(dir, size) {
+        return;
+    }
+    if let Some(terms) = read_terms_file(&dir.join(LEGACY_TERMS_FILE)) {
+        let _ = save_terms(dir, size, &terms);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -136,6 +167,8 @@ pub struct SizeStatus {
     /// The download, in bytes.
     pub bytes: u64,
     pub installed: bool,
+    /// The user accepted the terms of this size and confirmed their rights.
+    pub terms_accepted: bool,
     /// Bytes of an interrupted download that a new one continues from.
     pub partial_bytes: u64,
 }
@@ -144,14 +177,12 @@ pub struct SizeStatus {
 pub struct Status {
     /// The engine is built into this app (not on Linux).
     pub supported: bool,
-    pub terms_accepted: bool,
     pub terms_version: u32,
     pub sizes: Vec<SizeStatus>,
 }
 pub fn status_of(dir: &Path) -> Status {
     Status {
         supported: super::muscriptor_ffi::SUPPORTED,
-        terms_accepted: read_terms(dir).is_some(),
         terms_version: TERMS_VERSION,
         sizes: Size::ALL
             .into_iter()
@@ -159,6 +190,7 @@ pub fn status_of(dir: &Path) -> Status {
                 size,
                 bytes: size.bytes(),
                 installed: is_installed(dir, size),
+                terms_accepted: read_terms(dir, size).is_some(),
                 partial_bytes: std::fs::metadata(dir.join(size.file()).with_extension("part"))
                     .map_or(0, |m| m.len().min(size.bytes())),
             })
@@ -169,6 +201,14 @@ pub fn status_of(dir: &Path) -> Status {
 /// The stop switch of the running download.
 #[derive(Default)]
 pub struct DownloadRun(Mutex<Option<Arc<AtomicBool>>>);
+impl DownloadRun {
+    /// Stops the running download, if any. The part already saved is kept.
+    pub fn stop(&self) {
+        if let Some(stop) = self.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+}
 
 /// One download at a time, for the whole app.
 static DOWNLOADING: Mutex<()> = Mutex::new(());
@@ -377,15 +417,17 @@ pub fn muscriptor_status<R: Runtime>(app: AppHandle<R>) -> Result<Status, Comman
     Ok(status_of(&dir(&app)?))
 }
 
-/// Records the acceptance of the terms and the confirmation that the user only uses music they
-/// have the rights to.
+/// Records the acceptance of the terms of one size and the confirmation that the user only uses
+/// music they have the rights to.
 #[tauri::command]
 pub fn accept_muscriptor_terms<R: Runtime>(
     app: AppHandle<R>,
+    size: String,
     rights_confirmed: bool,
 ) -> Result<Status, CommandError> {
+    let size = Size::parse(&size).ok_or_else(|| error("Choose small, medium or large."))?;
     let folder = dir(&app)?;
-    write_terms(&folder, rights_confirmed)?;
+    write_terms(&folder, size, rights_confirmed)?;
     Ok(status_of(&folder))
 }
 
@@ -398,7 +440,7 @@ pub async fn download_muscriptor_model<R: Runtime>(
 ) -> Result<Status, CommandError> {
     let size = Size::parse(&size).ok_or_else(|| error("Choose small, medium or large."))?;
     let folder = dir(&app)?;
-    require_terms(&folder)?;
+    require_terms(&folder, size)?;
     let stop = Arc::new(AtomicBool::new(false));
     if let Some(old) = run
         .0
@@ -447,9 +489,7 @@ pub async fn download_muscriptor_model<R: Runtime>(
 /// Stops the running download. The part already saved is kept, so the next download continues.
 #[tauri::command]
 pub fn cancel_muscriptor_download(run: State<'_, DownloadRun>) {
-    if let Some(stop) = run.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        stop.store(true, Ordering::Relaxed);
-    }
+    run.stop();
 }
 
 /// Deletes a downloaded size and any part of it.
@@ -460,6 +500,7 @@ pub fn delete_muscriptor_model<R: Runtime>(
 ) -> Result<Status, CommandError> {
     let size = Size::parse(&size).ok_or_else(|| error("Choose small, medium or large."))?;
     let folder = dir(&app)?;
+    keep_legacy_terms(&folder, size);
     let file = folder.join(size.file());
     for path in [file.clone(), file.with_extension("part")] {
         match std::fs::remove_file(&path) {
@@ -552,33 +593,95 @@ mod tests {
         assert_eq!(Size::parse("huge"), None);
     }
 
+    fn install(dir: &Path, size: Size) {
+        let file = std::fs::File::create(dir.join(size.file())).unwrap();
+        file.set_len(size.bytes()).unwrap();
+    }
+    fn legacy(dir: &Path, version: u32, confirmed: bool) {
+        std::fs::write(
+            dir.join(LEGACY_TERMS_FILE),
+            format!(r#"{{"version":{version},"rightsConfirmed":{confirmed},"acceptedAt":1}}"#),
+        )
+        .unwrap();
+    }
+    fn accepted(dir: &Path, size: Size) -> bool {
+        status_of(dir)
+            .sizes
+            .iter()
+            .find(|s| s.size == size)
+            .unwrap()
+            .terms_accepted
+    }
+
     #[test]
     fn nothing_runs_before_the_terms_are_accepted() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(require_terms(dir.path()).is_err());
-        assert!(!status_of(dir.path()).terms_accepted);
-        assert!(write_terms(dir.path(), false).is_err());
-        assert!(require_terms(dir.path()).is_err());
-        write_terms(dir.path(), true).unwrap();
-        assert!(require_terms(dir.path()).is_ok());
-        assert!(status_of(dir.path()).terms_accepted);
+        assert!(require_terms(dir.path(), Size::Small).is_err());
+        assert!(!accepted(dir.path(), Size::Small));
+        assert!(write_terms(dir.path(), Size::Small, false).is_err());
+        assert!(require_terms(dir.path(), Size::Small).is_err());
+        write_terms(dir.path(), Size::Small, true).unwrap();
+        assert!(require_terms(dir.path(), Size::Small).is_ok());
+        assert!(accepted(dir.path(), Size::Small));
+    }
+
+    #[test]
+    fn the_acceptance_belongs_to_one_size() {
+        let dir = tempfile::tempdir().unwrap();
+        write_terms(dir.path(), Size::Small, true).unwrap();
+        assert!(accepted(dir.path(), Size::Small));
+        assert!(!accepted(dir.path(), Size::Medium));
+        assert!(!accepted(dir.path(), Size::Large));
+        assert!(require_terms(dir.path(), Size::Medium).is_err());
+        write_terms(dir.path(), Size::Medium, true).unwrap();
+        assert!(accepted(dir.path(), Size::Medium));
+        assert!(!accepted(dir.path(), Size::Large));
     }
 
     #[test]
     fn terms_of_an_older_version_must_be_accepted_again() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
-            dir.path().join(TERMS_FILE),
+            dir.path().join(terms_file(Size::Small)),
             r#"{"version":0,"rightsConfirmed":true,"acceptedAt":1}"#,
         )
         .unwrap();
-        assert!(require_terms(dir.path()).is_err());
+        assert!(require_terms(dir.path(), Size::Small).is_err());
         std::fs::write(
-            dir.path().join(TERMS_FILE),
+            dir.path().join(terms_file(Size::Small)),
             format!(r#"{{"version":{TERMS_VERSION},"rightsConfirmed":false,"acceptedAt":1}}"#),
         )
         .unwrap();
-        assert!(require_terms(dir.path()).is_err());
+        assert!(require_terms(dir.path(), Size::Small).is_err());
+    }
+
+    #[test]
+    fn the_shared_acceptance_of_the_first_release_covers_only_the_sizes_already_downloaded() {
+        let dir = tempfile::tempdir().unwrap();
+        legacy(dir.path(), TERMS_VERSION, true);
+        install(dir.path(), Size::Small);
+        assert!(accepted(dir.path(), Size::Small));
+        assert!(!accepted(dir.path(), Size::Medium), "not downloaded yet");
+        assert!(require_terms(dir.path(), Size::Medium).is_err());
+        // An old version or an unconfirmed record counts for nothing.
+        legacy(dir.path(), 0, true);
+        assert!(!accepted(dir.path(), Size::Small));
+        legacy(dir.path(), TERMS_VERSION, false);
+        assert!(!accepted(dir.path(), Size::Small));
+    }
+
+    #[test]
+    fn deleting_a_model_keeps_its_shared_acceptance_as_its_own_record() {
+        let dir = tempfile::tempdir().unwrap();
+        legacy(dir.path(), TERMS_VERSION, true);
+        install(dir.path(), Size::Small);
+        keep_legacy_terms(dir.path(), Size::Small);
+        std::fs::remove_file(dir.path().join(Size::Small.file())).unwrap();
+        assert!(accepted(dir.path(), Size::Small));
+        assert!(!accepted(dir.path(), Size::Medium));
+        // A size that was never downloaded gets no record from the old one.
+        keep_legacy_terms(dir.path(), Size::Large);
+        assert!(!dir.path().join(terms_file(Size::Large)).exists());
     }
 
     #[test]

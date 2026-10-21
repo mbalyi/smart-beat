@@ -63,7 +63,7 @@ const RECORDING = wavFile();
 /** MuScriptor is on this computer and the terms are accepted. */
 async function installModel(app: Page) {
   await app.evaluate(() => {
-    window.__muscriptor.termsAccepted = true;
+    window.__muscriptor.terms.medium = true;
     window.__muscriptor.installed.medium = true;
   });
 }
@@ -75,11 +75,7 @@ async function openDialog(app: Page, { installed = true } = {}) {
   }, midiBase64());
   const welcome = app.getByRole("button", { name: "Import from Audio…" });
   if (await welcome.isVisible()) await welcome.click();
-  else {
-    // An open song: the File menu beside Open.
-    await app.getByRole("button", { name: "File" }).click();
-    await app.getByRole("menuitem", { name: "Import from Audio…" }).click();
-  }
+  else await emitMenuAction(app, "import-audio"); // an open song: the AI menu
   const dialog = app.getByRole("dialog", { name: "Import from Audio" });
   await expect(dialog).toBeVisible();
   return dialog;

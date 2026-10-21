@@ -107,12 +107,33 @@ describe("AiInstallerDialog", () => {
     tauri.downloadMuscriptorModel.mockResolvedValue(statusWith(["small"]));
     await user.click(download);
     await screen.findByRole("heading", { name: "Everything is set up!" });
-    expect(tauri.acceptMuscriptorTerms).toHaveBeenCalledWith(true);
+    expect(tauri.acceptMuscriptorTerms).toHaveBeenCalledWith("small", true);
     expect(tauri.downloadMuscriptorModel).toHaveBeenCalledWith("small", expect.any(Function));
 
     await user.click(screen.getByRole("button", { name: "Back to Import from Audio" }));
     expect(getAiState().installer.open).toBe(false);
     expect(back).toHaveBeenCalledOnce();
+  });
+
+  it("ticks the boxes only when the terms of the chosen size are on file", async () => {
+    tauri.muscriptorStatus.mockResolvedValue(statusWith([], ["small"]));
+    const { user } = await open();
+    await user.click(screen.getByRole("button", { name: "Choose a model" }));
+    await user.click(screen.getByRole("radio", { name: /Small/ }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    // Small was accepted before: nothing to tick, the download can start.
+    expect(
+      screen.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }),
+    ).toBeChecked();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("radio", { name: /Medium/ }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    // Medium has no record of its own yet: both boxes are open again.
+    expect(
+      screen.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }),
+    ).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   });
 
   it("keeps the footer buttons where they are on every step", async () => {

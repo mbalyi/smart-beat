@@ -82,10 +82,16 @@ export function ModelPicker({
         const active = value === info.size;
         const id = `muscriptor-size-${info.size}`;
         return (
+          // The whole row picks its size; the radio inside stays the keyboard and screen-reader way.
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
           <div
             key={info.size}
+            onClick={(event) => {
+              if (disabled || (event.target as HTMLElement).closest("button")) return;
+              onChange(info.size);
+            }}
             className={cn(
-              "grid items-center gap-x-3 gap-y-2 rounded-xl border bg-card/40 px-4 py-3 has-[:disabled]:opacity-60 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
+              "grid cursor-pointer items-center gap-x-3 gap-y-2 rounded-xl border bg-card/40 px-4 py-3 has-[:disabled]:opacity-60 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
               COLUMNS,
               // The first row sits flush under the header, the others are spaced.
               row === 0 ? "sm:rounded-t-none" : "mt-2",

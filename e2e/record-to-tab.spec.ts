@@ -85,8 +85,7 @@ async function hideToasts(page: Page) {
 }
 
 async function openRecordDialog(page: Page) {
-  await page.getByRole("button", { name: "File" }).click();
-  await page.getByRole("menuitem", { name: /^Record to Tab…/ }).click();
+  await emitMenuAction(page, "record-to-tab");
   const dialog = page.getByRole("dialog", { name: /^Record to Tab/ });
   await expect(dialog).toBeVisible();
   return dialog;
@@ -309,7 +308,7 @@ test.describe("Record to Tab (#108)", () => {
     await newSong(app);
     const record = app.getByRole("button", { name: "Record to Tab" });
     await expect(record).toBeVisible();
-    // After the undo and redo buttons and before the transport; the File menu still lists it too.
+    // After the undo and redo buttons and before the transport; the AI menu lists it too.
     const file = app.getByRole("button", { name: "File" });
     const play = app.getByRole("button", { name: "Play" });
     const [recordBox, fileBox, playBox] = [
@@ -325,8 +324,9 @@ test.describe("Record to Tab (#108)", () => {
     await record.click();
     await expect(app.getByRole("dialog", { name: /^Record to Tab/ })).toBeVisible();
     await app.keyboard.press("Escape");
+    // The File menu no longer lists it: Record to Tab lives in the AI menu.
     await file.click();
-    await expect(app.getByRole("menuitem", { name: /^Record to Tab…/ })).toBeVisible();
+    await expect(app.getByRole("menuitem", { name: /^Record to Tab…/ })).toHaveCount(0);
   });
 
   test("the dialog works at a narrow width", async ({ app }) => {

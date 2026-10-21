@@ -17,7 +17,9 @@ import type { Interpretation } from "@/lib/score/interpretation";
 export type MenuAction =
   | "new-song"
   | "open"
+  | "ai-models"
   | "import-audio"
+  | "record-to-tab"
   | "clear-recent"
   | "save"
   | "save-as"
@@ -1120,14 +1122,14 @@ export type MuscriptorSize = "small" | "medium" | "large";
 export interface MuscriptorStatus {
   /** The engine is built into this app. It is not on Linux. */
   supported: boolean;
-  /** The user accepted the terms and confirmed their rights to the music (current version). */
-  termsAccepted: boolean;
   termsVersion: number;
   sizes: {
     size: MuscriptorSize;
     /** The size of the download. */
     bytes: number;
     installed: boolean;
+    /** The user accepted the terms of this size and confirmed their rights to the music. */
+    termsAccepted: boolean;
     /** Bytes of an interrupted download that the next one continues from. */
     partialBytes: number;
   }[];
@@ -1139,10 +1141,13 @@ export async function muscriptorStatus(): Promise<MuscriptorStatus> {
   return invoke<MuscriptorStatus>("muscriptor_status");
 }
 
-/** Records the acceptance of the terms. Rejects unless the rights are confirmed. */
-export async function acceptMuscriptorTerms(rightsConfirmed: boolean): Promise<MuscriptorStatus> {
+/** Records the acceptance of the terms of one size. Rejects unless the rights are confirmed. */
+export async function acceptMuscriptorTerms(
+  size: MuscriptorSize,
+  rightsConfirmed: boolean,
+): Promise<MuscriptorStatus> {
   if (!isTauri()) throw new NotInDesktopAppError();
-  return invoke<MuscriptorStatus>("accept_muscriptor_terms", { rightsConfirmed });
+  return invoke<MuscriptorStatus>("accept_muscriptor_terms", { size, rightsConfirmed });
 }
 
 /**
