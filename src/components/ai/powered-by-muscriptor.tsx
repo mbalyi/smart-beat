@@ -31,8 +31,8 @@ export function MuscriptorFacts({ withSpeeds = false }: { withSpeeds?: boolean }
       </p>
       {withSpeeds && (
         <p className="text-muted-foreground md:pr-[40%]">
-          The authors measured {SIZES.map((s) => `${s.label} ${s.gpuSeconds} s`).join(", ")} per
-          minute of audio on an Apple M1 Pro GPU, on one machine only.
+          We measured {SIZES.map((s) => `${s.label} ${s.gpuSeconds} s`).join(", ")} per minute of
+          audio on an Apple M2 Pro GPU, on one machine only.
         </p>
       )}
       <ul className="flex flex-wrap gap-x-4 gap-y-1">

@@ -1,6 +1,7 @@
 // C interface to muscriptor.cpp for Rust (src/recording/muscriptor_ffi.rs). Exceptions never
 // cross it: every failure comes back as a message.
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <string>
@@ -33,6 +34,12 @@ static void put(char* err, size_t len, const std::string& text) {
 int sb_ms_load(const char* path, sb_ms** out, sb_cancel_fn cancel, void* user, char* err, size_t err_len) {
     try {
         msl::LoadOptions options;
+        // A diagnostic override for the benchmark (examples/muscriptor_bench.rs): run on the CPU
+        // although a GPU is available. Unset, the engine picks the best device itself.
+        if (const char* wanted = std::getenv("SMART_BEAT_MUSCRIPTOR_DEVICE");
+            wanted != nullptr && std::string(wanted) == "cpu") {
+            options.device = msl::availableDevices().size() - 1;
+        }
         if (cancel != nullptr) options.should_cancel = [=] { return cancel(user) != 0; };
         auto loaded = msl::Transcriber::load(path, std::move(options));
         if (!loaded) {
