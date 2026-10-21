@@ -602,7 +602,8 @@ export class ScoreEditor {
       () => {
         const target = this.noteAtCursor();
         if (target) setDrumLine(target, line);
-        this._cursor.line = line;
+        // Another hit may hold the line: follow this hit to where it really ended up.
+        this._cursor.line = target ? this.lineOfDrum(target) : line;
       },
       `${drumNumberName(pitchOf(note))} on line ${DRUM_TAB_LINES + 1 - line} of the drum tab`,
     );
@@ -678,8 +679,12 @@ export class ScoreEditor {
       this.cursorTargets,
       () => {
         const target = this.noteAtCursor()!;
+        // The new drum stays on the line of the one it replaces, whatever its usual line is.
+        const line = this.lineOfDrum(target);
         target.percussionArticulation = own >= 0 ? own : sound;
+        setDrumLine(target, line);
         this._cursor.pitch = sound;
+        this._cursor.line = this.lineOfDrum(target);
       },
       `${drumNumberName(old)} replaced by ${drumNumberName(sound)}`,
     );

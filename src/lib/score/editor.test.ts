@@ -742,6 +742,34 @@ describe("ScoreEditor: drum numbers and rests", () => {
     expect(hits(editor)).toEqual([36, 42]);
   });
 
+  it("keeps the cursor on a replaced drum that has another usual line (#178)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38); // snare: line 4
+    editor.startDrumReplace();
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(6, 1_100); // kick: its usual line is 2
+    expect(hits(editor)).toEqual([36]);
+    expect(editor.cursorDrum).toBe(36);
+    expect(editor.cursor.line).toBe(4);
+    editor.startDrumReplace(); // a second replacement still finds it
+    expect(editor.message).toMatch(/Replace Kick/);
+    editor.deleteAtCursor();
+    expect(hits(editor)).toEqual([]);
+  });
+
+  it("follows a drum moved onto a line another drum holds (#178)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38); // snare: line 4
+    editor.transpose(-1);
+    expect(editor.cursor.line).toBe(3);
+    editor.moveString(-1); // line 2
+    editor.enterDrum(36); // kick on line 2
+    editor.transpose(1); // wants line 3, which the snare holds
+    expect(editor.cursorDrum).toBe(36);
+    editor.deleteAtCursor();
+    expect(hits(editor)).toEqual([38]);
+  });
+
   it("replaces the drum under the cursor with K and a number (one undo step)", () => {
     const editor = drumSong();
     editor.enterDrum(38);

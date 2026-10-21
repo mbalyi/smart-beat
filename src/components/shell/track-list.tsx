@@ -553,9 +553,16 @@ export function TrackList({
     void revision;
     return barTexts(score);
   }, [score, revision]);
+  const lastBar = useRef(bar);
   useEffect(() => {
     if (playing) scrolledByHand.current = false;
   }, [playing]);
+  useEffect(() => {
+    // Playback moves one bar at a time: any other jump is a seek (the toolbar, the score, a
+    // loop), which resumes following.
+    if (bar !== lastBar.current && bar !== lastBar.current + 1) scrolledByHand.current = false;
+    lastBar.current = bar;
+  }, [bar]);
   // Keep the playing bar in view in a long song (#178): the grid is wider than the panel.
   useEffect(() => {
     const el = scroller.current;

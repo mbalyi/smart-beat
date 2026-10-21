@@ -230,8 +230,10 @@ describe("TrackList", () => {
 
     region.scrollLeft = 0;
     fireEvent.wheel(region);
-    again(200);
+    again(101); // playback goes on: the user's scroll is left alone
     expect(region.scrollLeft).toBe(0);
+    again(200); // a seek from the toolbar or the score: following resumes
+    expect(region.scrollLeft).toBeGreaterThan(0);
   });
 
   it("shortens long texts to a few words", () => {
