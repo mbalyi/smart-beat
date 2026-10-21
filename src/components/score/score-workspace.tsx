@@ -733,7 +733,12 @@ export function ScoreWorkspace({
     const note = editing ? editor.cursorNote() : null;
     setOverlay({
       cursor: beat ? union(player.beatRects(beat)) : null,
-      notes: note ? player.noteRects(note) : [],
+      notes: note
+        ? player.noteRects(note)
+        : // On an empty line of the drum tab the cursor is a frame on that line (#178).
+          beat && editor.cursor.line !== null && editor.kind === "drums"
+          ? [player.drumLineRect(beat, editor.cursor.line)].filter((r): r is Rect => r !== null)
+          : [],
       selection: editor
         .selectedBeatList()
         .map((b) => union(player.beatRects(b)))
@@ -2660,7 +2665,7 @@ export function ScoreWorkspace({
                 if (editing) focusScore();
               }}
               drumKit={drumKitEntries}
-              cursorDrum={editing ? editor.cursor.pitch : null}
+              cursorDrum={editing ? editor.cursorDrum : null}
               onReplaceDrum={(sound) => {
                 editor.replaceDrum(sound);
                 focusScore();

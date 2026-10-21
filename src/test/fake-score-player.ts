@@ -70,6 +70,7 @@ export class FakeScorePlayer {
   /** Where beats and notes are "drawn": one fixed box each. */
   beatRects = vi.fn(() => [{ x: 10, y: 20, w: 30, h: 100 }]);
   noteRects = vi.fn(() => [{ x: 15, y: 60, w: 8, h: 10 }]);
+  drumLineRect = vi.fn(() => ({ x: 15, y: 60, w: 8, h: 10 }));
 
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks) {
     this.options = options;

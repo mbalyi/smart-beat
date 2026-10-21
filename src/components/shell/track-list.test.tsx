@@ -1,3 +1,4 @@
+import { model } from "@coderline/alphatab";
 import { fireEvent, screen, within } from "@testing-library/react";
 
 import { TrackList, type TrackActions } from "@/components/shell/track-list";
@@ -202,6 +203,37 @@ describe("TrackList", () => {
     const texts = screen.getByTestId("bar-texts");
     expect(texts).toHaveTextContent("Valami");
     expect(within(texts).getByTitle("Bar 3: Valami")).toBeInTheDocument();
+  });
+
+  it("shows the section names above the bars they start in (#178)", () => {
+    const { score } = parseScore(fixtureBytes("practice-song.gp"));
+    score.masterBars[2]!.section = Object.assign(new model.Section(), {
+      marker: "",
+      text: "Verse 1",
+    });
+    setup({ score });
+    const sections = screen.getByTestId("bar-sections");
+    expect(sections).toHaveTextContent("Verse 1");
+    expect(within(sections).getByTitle("Bar 3: Verse 1")).toBeInTheDocument();
+  });
+
+  it("scrolls along with the playing bar, unless the user scrolled by hand (#178)", () => {
+    const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
+    const props = { score, tracks: summary.tracks, mix: mixFromScore(summary) };
+    const { rerender, ...rest } = setup({ ...props, bar: 0, playing: true });
+    const region = screen.getByRole("region", { name: "Tracks and mixer" });
+    Object.defineProperty(region, "clientWidth", { value: 800, configurable: true });
+    const again = (bar: number) => rerender(<TrackList {...rest} {...props} bar={bar} playing />);
+
+    again(100);
+    expect(region.scrollLeft).toBeGreaterThan(0);
+
+    region.scrollLeft = 0;
+    fireEvent.wheel(region);
+    again(101); // playback goes on: the user's scroll is left alone
+    expect(region.scrollLeft).toBe(0);
+    again(200); // a seek from the toolbar or the score: following resumes
+    expect(region.scrollLeft).toBeGreaterThan(0);
   });
 
   it("shortens long texts to a few words", () => {

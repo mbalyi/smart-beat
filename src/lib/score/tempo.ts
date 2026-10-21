@@ -10,7 +10,7 @@
 import { model } from "@coderline/alphatab";
 
 import type { MasterBar, Score } from "@/lib/score/model";
-import { DEFAULT_TEMPO, MAX_TEMPO, MIN_TEMPO, tempoAt } from "@/lib/score/structure";
+import { DEFAULT_TEMPO, MAX_TEMPO, MIN_TEMPO, sectionsOf, tempoAt } from "@/lib/score/structure";
 
 const { Automation, AutomationType } = model;
 
@@ -152,6 +152,11 @@ export function barTexts(score: Score): Map<number, string[]> {
     }
   }
   return texts;
+}
+
+/** The section names (Verse, Chorus…) by the bar (0-based) they start in (#178). */
+export function barSections(score: Score): Map<number, string> {
+  return new Map(sectionsOf(score).map((s) => [s.start, s.name]));
 }
 
 const SHORT_WORDS = 6;

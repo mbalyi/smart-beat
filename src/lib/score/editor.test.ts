@@ -661,33 +661,113 @@ describe("ScoreEditor: drum numbers and rests", () => {
     expect(hits(editor)).toEqual([49, 36]);
   });
 
-  it("walks the beat's drums line by line with Up and Down, as in the drum tab", () => {
+  it("walks every line of the drum tab with Up and Down, also the empty ones (#178)", () => {
     const editor = drumSong();
-    editor.enterDrum(36); // kick
-    editor.enterDrum(38); // snare
-    editor.enterDrum(42); // hi-hat
-    editor.moveString(1); // up: towards the top line
-    expect(editor.cursor.pitch).toBe(42);
+    editor.enterDrum(36); // kick: line 2
+    editor.enterDrum(38); // snare: line 4
+    editor.enterDrum(42); // hi-hat: line 6
+    expect(editor.cursor.line).toBe(6);
+    editor.moveString(-1); // down: line 5 has nothing
+    expect([editor.cursor.line, editor.cursor.pitch]).toEqual([5, null]);
     editor.moveString(-1);
-    expect(editor.cursor.pitch).toBe(38);
+    expect([editor.cursor.line, editor.cursor.pitch]).toEqual([4, 38]);
     editor.moveString(-1);
-    expect(editor.cursor.pitch).toBe(36);
-    editor.moveString(-1); // past the kick: voice 2 is empty, so it stays
-    expect([editor.cursor.voice, editor.cursor.pitch]).toEqual([0, 36]);
+    expect(editor.cursor.line).toBe(3);
+    editor.moveString(-1);
+    expect([editor.cursor.line, editor.cursor.pitch]).toEqual([2, 36]);
+    editor.moveString(-1);
+    expect(editor.cursor.line).toBe(1);
+    editor.moveString(-1); // past the bottom line: voice 2 is empty, so it stays
+    expect([editor.cursor.voice, editor.cursor.line]).toEqual([0, 1]);
+    editor.moveString(1);
+    expect(editor.cursor.line).toBe(2);
   });
 
-  it("goes on to the other voice past the last drum", () => {
+  it("starts on the beat's top or bottom drum when the cursor is on no line yet", () => {
+    const editor = drumSong();
+    editor.enterDrum(36);
+    editor.enterDrum(42);
+    editor.setTrack(0);
+    editor.setTrack(1); // drums again: the cursor has no line
+    editor.moveString(-1);
+    expect(editor.cursor.pitch).toBe(36);
+    editor.setTrack(0);
+    editor.setTrack(1);
+    editor.moveString(1);
+    expect(editor.cursor.pitch).toBe(42);
+  });
+
+  it("goes on to the other voice past the last line", () => {
     const editor = drumSong();
     editor.enterDrum(42);
     editor.switchVoice(1);
     editor.enterDrum(36);
     editor.switchVoice(0);
-    editor.moveString(-1); // onto the beat's only drum, the hi-hat
-    expect(editor.cursor.pitch).toBe(42);
+    for (let i = 0; i < 5; i++) editor.moveString(-1); // from the hi-hat's line 6 to line 1
+    expect([editor.cursor.voice, editor.cursor.line]).toEqual([0, 1]);
     editor.moveString(-1); // past it: down goes to voice 2
-    expect([editor.cursor.voice, editor.cursor.pitch]).toEqual([1, 36]);
+    expect(editor.cursor.voice).toBe(1);
     editor.moveString(1); // and back up
-    expect([editor.cursor.voice, editor.cursor.pitch]).toEqual([0, 42]);
+    expect(editor.cursor.voice).toBe(0);
+  });
+
+  it("types a drum on the empty line the cursor is on (#178)", () => {
+    const editor = drumSong();
+    editor.enterDrum(42); // hi-hat: line 6
+    editor.moveString(-1);
+    editor.moveString(-1); // line 4, empty
+    editor.enterDrum(36); // the kick would go to line 2, but the cursor is on line 4
+    expect(editor.cursor.line).toBe(4);
+    expect(hits(editor)).toEqual([42, 36]);
+    expect(editor.cursorDrum).toBe(36);
+  });
+
+  it("keeps the cursor on the same line after deleting a drum, and only deletes there (#178)", () => {
+    const editor = drumSong();
+    editor.enterDrum(36);
+    editor.enterDrum(38);
+    editor.enterDrum(42); // lines 2, 4 and 6
+    editor.moveString(-1);
+    editor.moveString(-1); // line 4: the snare
+    editor.deleteAtCursor();
+    expect(hits(editor)).toEqual([36, 42]);
+    expect(editor.cursor.line).toBe(4);
+    editor.deleteAtCursor(); // nothing on the line now: nothing else is deleted
+    expect(hits(editor)).toEqual([36, 42]);
+    editor.moveString(1);
+    editor.moveString(1); // line 6
+    editor.deleteAtCursor();
+    expect([hits(editor), editor.cursor.line]).toEqual([[36], 6]);
+    editor.undo();
+    expect(hits(editor)).toEqual([36, 42]);
+  });
+
+  it("keeps the cursor on a replaced drum that has another usual line (#178)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38); // snare: line 4
+    editor.startDrumReplace();
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(6, 1_100); // kick: its usual line is 2
+    expect(hits(editor)).toEqual([36]);
+    expect(editor.cursorDrum).toBe(36);
+    expect(editor.cursor.line).toBe(4);
+    editor.startDrumReplace(); // a second replacement still finds it
+    expect(editor.message).toMatch(/Replace Kick/);
+    editor.deleteAtCursor();
+    expect(hits(editor)).toEqual([]);
+  });
+
+  it("follows a drum moved onto a line another drum holds (#178)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38); // snare: line 4
+    editor.transpose(-1);
+    expect(editor.cursor.line).toBe(3);
+    editor.moveString(-1); // line 2
+    editor.enterDrum(36); // kick on line 2
+    editor.transpose(1); // wants line 3, which the snare holds
+    expect(editor.cursorDrum).toBe(36);
+    editor.deleteAtCursor();
+    expect(hits(editor)).toEqual([38]);
   });
 
   it("replaces the drum under the cursor with K and a number (one undo step)", () => {
