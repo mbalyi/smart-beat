@@ -95,6 +95,10 @@ describe("AiInstallerDialog", () => {
       "href",
       "https://huggingface.co/MuScriptor/muscriptor-medium",
     );
+    // The confirmations stay hidden until the model card was opened.
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByTestId("terms-locked")).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: /Read the model card/ }));
     await user.click(
       screen.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }),
     );
@@ -129,7 +133,9 @@ describe("AiInstallerDialog", () => {
     await user.click(screen.getByRole("button", { name: "Back" }));
     await user.click(screen.getByRole("radio", { name: /Medium/ }));
     await user.click(screen.getByRole("button", { name: "Continue" }));
-    // Medium has no record of its own yet: both boxes are open again.
+    // Medium has no record of its own yet: the confirmations wait for the model card.
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: /Read the model card/ }));
     expect(
       screen.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }),
     ).not.toBeChecked();
@@ -171,6 +177,7 @@ describe("AiInstallerDialog", () => {
     const { user } = await open();
     await user.click(screen.getByRole("button", { name: "Choose a model" }));
     await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("link", { name: /Read the model card/ }));
     await user.click(
       screen.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }),
     );

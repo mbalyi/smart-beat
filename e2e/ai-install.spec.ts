@@ -58,6 +58,9 @@ async function walkInstaller(app: Page, size: "Small" | "Medium" | "Large" = "Me
   await dialog.getByRole("button", { name: "Continue" }).click();
   const download = dialog.getByRole("button", { name: "Continue" });
   await expect(download).toBeDisabled();
+  // The confirmations appear once the model card was opened.
+  await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+  await dialog.getByRole("link", { name: /Read the model card/ }).click();
   await dialog.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }).check();
   await expect(download).toBeDisabled();
   await dialog.getByRole("checkbox", { name: /only use MuScriptor with my own music/ }).check();
@@ -175,6 +178,7 @@ test.describe("AI installer (#150)", () => {
     const dialog = installer(app);
     await dialog.getByRole("button", { name: "Choose a model" }).click();
     await dialog.getByRole("button", { name: "Continue" }).click();
+    await dialog.getByRole("link", { name: /Read the model card/ }).click();
     await dialog.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }).check();
     await dialog.getByRole("checkbox", { name: /only use MuScriptor with my own music/ }).check();
     await dialog.getByRole("button", { name: "Continue" }).click();
@@ -195,6 +199,7 @@ test.describe("AI installer (#150)", () => {
     const dialog = installer(app);
     await dialog.getByRole("button", { name: "Choose a model" }).click();
     await dialog.getByRole("button", { name: "Continue" }).click();
+    await dialog.getByRole("link", { name: /Read the model card/ }).click();
     await dialog.getByRole("checkbox", { name: /accepted the MuScriptor weight terms/ }).check();
     await dialog.getByRole("checkbox", { name: /only use MuScriptor with my own music/ }).check();
     await dialog.getByRole("button", { name: "Continue" }).click();

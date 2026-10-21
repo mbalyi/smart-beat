@@ -104,6 +104,10 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
   const onFile = hasTerms(ai);
   const accepted = acceptedBox ?? onFile;
   const rights = rightsBox ?? onFile;
+  // The confirmations appear once the model card was opened, so they cannot be ticked unread.
+  // Terms already on file need no reading again.
+  const [cardOpened, setCardOpened] = useState(false);
+  const showBoxes = cardOpened || onFile;
   const installed = isInstalled(ai, ai.size);
   // The download ended: on to the last step; a failure stays on the download step with its error.
   const step: Step = chosen === "download" && !ai.download && installed ? "done" : chosen;
@@ -204,10 +208,10 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
               onDelete={(size) => void removeModel(size)}
             />
             <p className="text-xs text-muted-foreground">
-              Measured on an Apple M1 Pro by the authors, on one machine only. Speed is relative to
-              the length of the audio: at 2×, a four-minute song is transcribed in about two
-              minutes, and at 0.5× in about eight. Deleting a model frees its disk space; the
-              accepted terms stay on file.
+              Measured by Smart Beat on an Apple M2 Pro, on one machine and one recording only; your
+              computer will differ. Speed is relative to the length of the audio: at 2×, a
+              four-minute song is transcribed in about two minutes, and at 0.5× in about eight.
+              Deleting a model frees its disk space; the accepted terms stay on file.
             </p>
           </>
         )}
@@ -215,6 +219,7 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
           <div className="flex flex-col gap-4 text-sm">
             <ExternalLink
               href={MUSCRIPTOR.modelCard}
+              onClick={() => setCardOpened(true)}
               className="flex items-center gap-4 rounded-xl border bg-card/60 px-4 py-3 outline-none hover:bg-card focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <FileTextIcon aria-hidden="true" className="size-8 shrink-0" />
@@ -228,30 +233,39 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
               </span>
               <ExternalLinkIcon aria-hidden="true" className="size-5 shrink-0" />
             </ExternalLink>
-            <div className="flex items-start gap-3">
-              <Checkbox
-                id="ai-terms"
-                className="mt-0.5"
-                checked={accepted}
-                onCheckedChange={(v) => setAccepted(v === true)}
-              />
-              <label htmlFor="ai-terms">
-                I have read and accepted the MuScriptor weight terms on the official model card, and
-                I use the model for <strong>non-commercial purposes only</strong>.
-              </label>
-            </div>
-            <div className="flex items-start gap-3">
-              <Checkbox
-                id="ai-rights"
-                className="mt-0.5"
-                checked={rights}
-                onCheckedChange={(v) => setRights(v === true)}
-              />
-              <label htmlFor="ai-rights">
-                I only use MuScriptor with my own music or music I have the rights to, and I am
-                responsible for that.
-              </label>
-            </div>
+            {showBoxes ? (
+              <>
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="ai-terms"
+                    className="mt-0.5"
+                    checked={accepted}
+                    onCheckedChange={(v) => setAccepted(v === true)}
+                  />
+                  <label htmlFor="ai-terms">
+                    I have read and accepted the MuScriptor weight terms on the official model card,
+                    and I use the model for <strong>non-commercial purposes only</strong>.
+                  </label>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="ai-rights"
+                    className="mt-0.5"
+                    checked={rights}
+                    onCheckedChange={(v) => setRights(v === true)}
+                  />
+                  <label htmlFor="ai-rights">
+                    I only use MuScriptor with my own music or music I have the rights to, and I am
+                    responsible for that.
+                  </label>
+                </div>
+              </>
+            ) : (
+              <p className="text-muted-foreground" data-testid="terms-locked">
+                Open the model card above and read the terms. The confirmations appear after you
+                have opened it.
+              </p>
+            )}
           </div>
         )}
         {step === "download" && (
