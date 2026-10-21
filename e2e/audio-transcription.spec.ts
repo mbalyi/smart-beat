@@ -96,7 +96,8 @@ test.describe("Import from Audio (#88)", () => {
 
     await dialog.getByRole("button", { name: "Automatic detection" }).click();
     await dialog.page().getByLabel("Search instruments").fill("bass guitar");
-    await dialog.page().getByRole("checkbox", { name: "electric bass" }).click();
+    // The whole row toggles, so the click goes to the name, as a user would.
+    await dialog.page().getByText("electric bass", { exact: true }).click();
     await dialog.page().keyboard.press("Escape");
     await expect(dialog.getByRole("button", { name: "Remove electric bass" })).toBeVisible();
 
