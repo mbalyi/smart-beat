@@ -2,13 +2,15 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { RecordDialog, type RecordSetup } from "@/components/score/record-dialog";
 import type { PianoModel } from "@/hooks/use-piano-model";
+import { getAiState, resetAiStore, seedAiState, statusWith } from "@/lib/ai/ai-store";
 import { storeAudioInput } from "@/lib/audio/input";
 import {
+  readAiMode,
   readAlignToBeat,
   readInstrument,
   readPianoEngine,
   readTuningChoice,
-  type PianoEngine,
+  type RecordEngine,
   type RecordInstrument,
 } from "@/lib/audio/record-prefs";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -33,7 +35,7 @@ function setup(
   const onOpenChange = vi.fn();
   const onRecordFile =
     vi.fn<
-      (file: File, tuning: number[], instrument: RecordInstrument, engine: PianoEngine) => void
+      (file: File, tuning: number[], instrument: RecordInstrument, engine: RecordEngine) => void
     >();
   const element = (more: Partial<Parameters<typeof RecordDialog>[0]> = {}) => (
     <RecordDialog
@@ -594,6 +596,84 @@ describe("RecordDialog", () => {
     await user.click(screen.getByRole("radio", { name: "Free" }));
     await expectNoA11yViolations(dialog());
     await user.click(screen.getByRole("radio", { name: "File" }));
+    await expectNoA11yViolations(dialog());
+  });
+});
+
+describe("RecordDialog: the AI tab (#150)", () => {
+  const ready = (installed: ("small" | "medium" | "large")[], termsAccepted = true) =>
+    seedAiState({ ready: true, status: statusWith(installed, termsAccepted) });
+  beforeEach(() => {
+    localStorage.clear();
+    resetAiStore();
+  });
+
+  it("offers Default and AI tabs in the desktop app, Default first", () => {
+    ready([]);
+    setup();
+    const tabs = within(dialog()).getByRole("tablist", { name: "Transcription engine" });
+    expect(within(tabs).getByRole("tab", { name: "Default" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(within(tabs).getByRole("tab", { name: "AI" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("has no tabs where the model status is unknown, like a browser", () => {
+    resetAiStore();
+    setup();
+    expect(within(dialog()).queryByRole("tablist", { name: "Transcription engine" })).toBeNull();
+  });
+
+  it("offers the guided download on the AI tab, hands over and blocks recording", async () => {
+    ready([]);
+    const { user, onOpenChange, onRecord } = setup();
+    await user.click(within(dialog()).getByRole("tab", { name: "AI" }));
+    expect(within(dialog()).getByRole("button", { name: "Record" })).toBeDisabled();
+    await user.click(within(dialog()).getByRole("button", { name: "Download MuScriptor" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(getAiState().installer).toEqual({ open: true, returnTo: "record" });
+    expect(onRecord).not.toHaveBeenCalled();
+  });
+
+  it("records with the muscriptor engine once the model is installed", async () => {
+    ready(["medium"]);
+    const { user, onRecord } = setup();
+    await user.click(within(dialog()).getByRole("tab", { name: "AI" }));
+    expect(readAiMode()).toBe(true);
+    const record = within(dialog()).getByRole("button", { name: "Record" });
+    await waitFor(() => expect(record).toBeEnabled());
+    await user.click(record);
+    expect(onRecord).toHaveBeenCalledWith(expect.objectContaining({ engine: "muscriptor" }));
+  });
+
+  it("does not use the AI engine without the terms on file", async () => {
+    ready(["medium"], false);
+    const { user } = setup();
+    await user.click(within(dialog()).getByRole("tab", { name: "AI" }));
+    expect(within(dialog()).getByRole("button", { name: "Record" })).toBeDisabled();
+  });
+
+  it("turns a file into tab with the AI engine and keeps Default untouched", async () => {
+    ready(["medium"]);
+    const { user, onRecordFile } = setup();
+    await user.click(within(dialog()).getByRole("tab", { name: "AI" }));
+    await user.click(within(dialog()).getByRole("radio", { name: "File" }));
+    const file = new File(["x"], "take.wav", { type: "audio/wav" });
+    await user.upload(screen.getByLabelText("Choose an audio recording"), file);
+    await user.click(within(dialog()).getByRole("button", { name: "Make tab" }));
+    expect(onRecordFile).toHaveBeenCalledWith(file, expect.any(Array), "guitar", "muscriptor");
+    // Back on Default the same file goes through the built-in engine.
+    onRecordFile.mockClear();
+    await user.click(within(dialog()).getByRole("tab", { name: "Default" }));
+    await user.click(within(dialog()).getByRole("button", { name: "Make tab" }));
+    expect(onRecordFile).toHaveBeenCalledWith(file, expect.any(Array), "guitar", "standard");
+  });
+
+  it("has no accessibility violations on the AI tab", async () => {
+    ready([]);
+    const { user } = setup();
+    await user.click(within(dialog()).getByRole("tab", { name: "AI" }));
     await expectNoA11yViolations(dialog());
   });
 });

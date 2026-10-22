@@ -12,23 +12,12 @@ const base = {
   onPrint: vi.fn(),
 };
 
-describe("FileMenu: Record to Tab (#108)", () => {
-  it("lists Record to Tab… next to Import from Audio…", async () => {
-    const onRecordToTab = vi.fn();
-    const { user } = renderWithProviders(
-      <FileMenu {...base} onImportAudio={vi.fn()} onRecordToTab={onRecordToTab} />,
-    );
-    await user.click(screen.getByRole("button", { name: /File/ }));
-    const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    expect(items.slice(0, 2)).toEqual(["Import from Audio…", "Record to Tab…Beta"]);
-    await user.click(screen.getByRole("menuitem", { name: /^Record to Tab…/ }));
-    expect(onRecordToTab).toHaveBeenCalledTimes(1);
-  });
-
-  it("leaves it out while the feature is off", async () => {
+describe("FileMenu", () => {
+  it("lists Save first: Import from Audio and Record to Tab live in the AI menu", async () => {
     const { user } = renderWithProviders(<FileMenu {...base} />);
     await user.click(screen.getByRole("button", { name: /File/ }));
-    expect(screen.queryByRole("menuitem", { name: /^Record to Tab…/ })).not.toBeInTheDocument();
     expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Save");
+    expect(screen.queryByRole("menuitem", { name: /Import from Audio/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Record to Tab/ })).not.toBeInTheDocument();
   });
 });

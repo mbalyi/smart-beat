@@ -5,6 +5,7 @@ import {
   FileAudioIcon,
   HeadphonesIcon,
   Music2Icon,
+  SparklesIcon,
   WandSparklesIcon,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -15,6 +16,8 @@ import hero from "@/assets/record-to-tab/hero.webp";
 import iconBass from "@/assets/record-to-tab/icon-bass.webp";
 import iconDrums from "@/assets/record-to-tab/icon-drums.webp";
 import iconGuitar from "@/assets/record-to-tab/icon-guitar.webp";
+import iconJam from "@/assets/record-to-tab/icon-jam.webp";
+import modeSplash from "@/assets/record-to-tab/mode-splash.webp";
 import iconPiano from "@/assets/record-to-tab/icon-piano.webp";
 import logo from "@/assets/record-to-tab/logo.webp";
 import sparklesLeft from "@/assets/record-to-tab/sparkles-left.webp";
@@ -44,7 +47,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { canRun, chooseSize, openInstaller, refreshAi, useAiState } from "@/lib/ai/ai-store";
+import { sizeInfo } from "@/lib/ai/muscriptor-sizes";
+import type { MuscriptorSize } from "@/lib/tauri";
+import { isEnabled } from "@/lib/features";
 import { useInputLevel } from "@/hooks/use-input-level";
 import type { PianoModel } from "@/hooks/use-piano-model";
 import { isTakeFile, TAKE_FILE_EXTENSIONS } from "@/lib/audio/decode-take";
@@ -54,17 +62,20 @@ import {
   RECORD_STRING_COUNTS,
   readAlignToBeat,
   readInstrument,
+  readAiMode,
   readPianoEngine,
   readPlayOthers,
   readTuningChoice,
   standardTuningChoice,
   storeAlignToBeat,
   storeInstrument,
+  storeAiMode,
   storePianoEngine,
   storePlayOthers,
   storeTuningChoice,
   tuningOf,
   type PianoEngine,
+  type RecordEngine,
   type RecordInstrument,
   type TuningChoice,
 } from "@/lib/audio/record-prefs";
@@ -89,8 +100,8 @@ export interface RecordSetup {
   /** The tuning of a new track, or of the new song in free mode. Unused for a piano. */
   tuning: number[];
   instrument: RecordInstrument;
-  /** A piano: the built-in note finder, or the downloaded high-accuracy model. */
-  engine: PianoEngine;
+  /** A piano: the built-in note finder, or the downloaded high-accuracy model. "muscriptor" is the AI tab. */
+  engine: RecordEngine;
 }
 
 /** An audio file dropped on the window while the dialog is open. */
@@ -161,7 +172,7 @@ function RecordArt() {
  * and name, and a crown over the name when it is the one.
  */
 const INSTRUMENT_BUTTON =
-  "relative h-[54px] min-w-0 gap-1.5 rounded-lg border border-border bg-card px-1.5 pr-3 text-[15px] font-semibold hover:bg-card data-[state=on]:border-brand data-[state=on]:bg-card! data-[state=on]:text-foreground! data-[state=on]:shadow-[0_0_16px_color-mix(in_oklab,var(--brand)_60%,transparent)] data-[state=on]:ring-2 data-[state=on]:ring-brand/70 data-[state=on]:inset-ring-0";
+  "relative h-[54px] min-w-0 gap-1 rounded-lg border border-border bg-card px-1 pr-2.5 text-[15px] font-semibold hover:bg-card disabled:opacity-100 data-[state=on]:border-brand data-[state=on]:bg-card! data-[state=on]:text-foreground! data-[state=on]:shadow-[0_0_16px_color-mix(in_oklab,var(--brand)_60%,transparent)] data-[state=on]:ring-2 data-[state=on]:ring-brand/70 data-[state=on]:inset-ring-0";
 /** A recording mode to choose: filled purple when it is the one. */
 const MODE_BUTTON =
   "h-9 gap-2 rounded-md border border-border bg-card px-4 text-sm font-semibold data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_55%,transparent)]";
@@ -217,7 +228,7 @@ export function RecordDialog({
     file: File,
     tuning: number[],
     instrument: RecordInstrument,
-    engine: PianoEngine,
+    engine: RecordEngine,
   ) => void;
   droppedFile?: DroppedTake | null;
   /** The high-accuracy piano model. Without it, the dialog offers only the built-in one. */
@@ -225,7 +236,11 @@ export function RecordDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl" className="sm:max-w-4xl" data-tour="record-dialog">
+      <DialogContent
+        size="xl"
+        className="h-[min(48rem,calc(100dvh-2rem))] shadow-[0_0_32px_color-mix(in_oklab,var(--primary)_55%,transparent)] ring-2 ring-primary/90 sm:max-w-4xl"
+        data-tour="record-dialog"
+      >
         {/* Mounted only while open: it starts from the defaults and remembered choices again. */}
         {open && (
           <RecordForm
@@ -269,7 +284,7 @@ function RecordForm({
     file: File,
     tuning: number[],
     instrument: RecordInstrument,
-    engine: PianoEngine,
+    engine: RecordEngine,
   ) => void;
   droppedFile: DroppedTake | null;
   pianoModel: PianoModel | undefined;
@@ -289,8 +304,20 @@ function RecordForm({
   const [chosenEngine, setEngine] = useState<PianoEngine>(readPianoEngine);
   // The choice only exists where the model can be looked up: the desktop app.
   const offersModel = piano && pianoModel?.ready === true;
-  const engine: PianoEngine = offersModel ? chosenEngine : "standard";
-  const needsModel = offersModel && engine === "accurate" && !pianoModel.installed;
+  const pianoEngine: PianoEngine = offersModel ? chosenEngine : "standard";
+  // The AI tab (MuScriptor, #150): offered in the desktop app, where the model status is known.
+  const ai = useAiState();
+  const offersAi = isEnabled("muscriptor-record") && ai.ready;
+  const [chosenAi, setAi] = useState(readAiMode);
+  const aiOn = offersAi && chosenAi;
+  const aiReady = canRun(ai);
+  const engine: RecordEngine = aiOn && aiReady ? "muscriptor" : pianoEngine;
+  const needsAiModel = aiOn && !aiReady;
+  const needsModel =
+    needsAiModel || (!aiOn && offersModel && pianoEngine === "accurate" && !pianoModel.installed);
+  useEffect(() => {
+    void refreshAi();
+  }, []);
   const [mode, setMode] = useState<Source>("click");
   const fromFile = mode === "file";
   const input = useAudioInput();
@@ -361,6 +388,10 @@ function RecordForm({
     setInstrument(value);
     storeInstrument(value);
   };
+  const changeAi = (value: boolean) => {
+    setAi(value);
+    storeAiMode(value);
+  };
   const changeEngine = (value: PianoEngine) => {
     setEngine(value);
     storePianoEngine(value);
@@ -403,6 +434,8 @@ function RecordForm({
     { value: "bass", label: "Bass", icon: iconBass },
     { value: "piano", label: "Piano", icon: iconPiano },
     { value: "drums", label: "Drums", icon: iconDrums },
+    // Humming and singing to tab is not available yet: shown, but it cannot be picked.
+    { value: "jam", label: "Jam", icon: iconJam, soon: true },
   ] as const;
   const modes = [
     { value: "click", label: "Click", icon: WandSparklesIcon },
@@ -436,304 +469,450 @@ function RecordForm({
         </DialogTitle>
         <DialogDescription>{description}</DialogDescription>
         <p role="note" className="text-sm text-muted-foreground" data-tour="record-limits">
-          {recordToTabBetaNote(instrument, engine)}
+          {aiOn
+            ? `Beta. AI mode: MuScriptor by Kyutai and Mirelo listens for ${instrument === "drums" ? "drum hits" : `the ${instrument}`} on this computer. Non-commercial use only, and only on music you have the rights to. Review the result and correct it.`
+            : recordToTabBetaNote(instrument, pianoEngine)}
         </p>
       </DialogHeader>
       <DialogBody className="gap-3 px-6 pb-6 md:px-10">
-        <ToggleGroup
-          type="single"
-          variant="default"
-          spacing={2}
-          aria-label="Instrument"
-          data-tour="record-instrument"
-          value={instrument}
-          onValueChange={(value) => value && changeInstrument(value as RecordInstrument)}
-          className="flex-wrap gap-2.5 pt-2"
+        <Tabs
+          value={aiOn ? "ai" : "default"}
+          onValueChange={(value) => changeAi(value === "ai")}
+          className="gap-3"
         >
-          {instruments.map(({ value, label, icon }) => (
-            <ToggleGroupItem key={value} value={value} className={INSTRUMENT_BUTTON}>
-              <img
-                src={icon}
-                alt=""
-                aria-hidden="true"
-                className="-mt-2 -mb-1 size-[58px] shrink-0 object-contain"
-              />
-              <span className="relative flex flex-col items-center justify-end self-stretch pt-4 pb-3">
-                {instrument === value && (
-                  <Crown className="absolute top-0.5 left-1/2 size-6 -translate-x-1/2" />
-                )}
-                {label}
-              </span>
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-
-        <div className="grid gap-x-6 gap-y-5 sm:grid-cols-[1fr_1px_1fr]">
-          <div className="flex min-w-0 flex-col gap-4">
-            <div className="flex flex-col gap-2" data-tour="record-mode">
-              <SectionLabel id={ids.mode}>Recording mode</SectionLabel>
+          <TabsContent
+            value={aiOn ? "ai" : "default"}
+            className="flex flex-col gap-3 overflow-visible"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 pt-2 md:flex-nowrap">
               <ToggleGroup
                 type="single"
                 variant="default"
                 spacing={2}
-                aria-labelledby={ids.mode}
-                value={mode}
-                onValueChange={(value) => value && setMode(value as Source)}
-                className="self-start"
+                aria-label="Instrument"
+                data-tour="record-instrument"
+                value={instrument}
+                onValueChange={(value) => value && changeInstrument(value as RecordInstrument)}
+                className="flex-wrap gap-2 md:flex-nowrap"
               >
-                {modes.map(({ value, label, icon: Icon }) => (
-                  <ToggleGroupItem key={value} value={value} className={MODE_BUTTON}>
-                    <Icon aria-hidden="true" />
-                    {label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-            {fromFile ? (
-              <AudioDropArea
-                extensions={TAKE_FILE_EXTENSIONS}
-                disabled={!supported}
-                chosen={file !== null}
-                onFile={chooseFile}
-              >
-                {file && (
-                  <p className="mt-3 flex items-center gap-2 text-sm">
-                    <AudioLinesIcon className="size-4 shrink-0" aria-hidden="true" />
-                    <span className="truncate">{file.name}</span>
-                  </p>
-                )}
-                {fileError && (
-                  <p role="alert" className="mt-3 text-sm text-destructive">
-                    {fileError}
-                  </p>
-                )}
-              </AudioDropArea>
-            ) : (
-              <>
-                <AudioInputSetting stacked />
-                <div className="flex flex-col gap-1.5">
-                  <LiveWaveform level={level} className="h-9" />
-                  {heard.kind === "asking" && (
-                    <p role="status" className="text-sm text-muted-foreground">
-                      Asking for the microphone…
-                    </p>
-                  )}
-                  {heard.kind === "blocked" && (
-                    <p
-                      role="alert"
-                      className="rounded-md border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-sm"
+                {instruments.map((entry) => {
+                  const { value, label, icon } = entry;
+                  const soon = "soon" in entry;
+                  return (
+                    <ToggleGroupItem
+                      key={value}
+                      value={value}
+                      disabled={soon}
+                      aria-label={soon ? `${label} (coming soon)` : label}
+                      title={soon ? "Coming soon" : undefined}
+                      className={INSTRUMENT_BUTTON}
                     >
-                      {heard.message}
-                    </p>
-                  )}
-                </div>
-                {showHeadphones && (
-                  <div className="relative px-6 py-1">
-                    {/* The rays sit outside the box, one set on each side. */}
-                    <img
-                      src={sparklesLeft}
-                      alt=""
-                      aria-hidden="true"
-                      data-sparkles=""
-                      className="pointer-events-none absolute top-1/2 left-0 h-9 w-auto -translate-y-1/2"
-                    />
-                    <img
-                      src={sparklesRight}
-                      alt=""
-                      aria-hidden="true"
-                      data-sparkles=""
-                      className="pointer-events-none absolute top-1/2 right-0 h-9 w-auto -translate-y-1/2"
-                    />
-                    <p
-                      role="note"
-                      className="flex items-center gap-3 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2 text-[15px] text-amber-950 dark:bg-amber-950/80 dark:text-amber-100"
-                    >
-                      <HeadphonesIcon
-                        className="size-6 shrink-0 text-amber-500"
+                      <img
+                        src={icon}
+                        alt=""
                         aria-hidden="true"
+                        className={cn(
+                          "-mt-2 -mb-1 size-[50px] shrink-0 object-contain",
+                          soon && "opacity-50 grayscale",
+                        )}
                       />
-                      <span>Use headphones, or the click will be heard in the recording.</span>
-                    </p>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          <div aria-hidden="true" className="hidden bg-border sm:block" data-divider="" />
-
-          <div className="flex min-w-0 flex-col gap-4 sm:pb-14" data-tour="record-track">
-            {mode === "click" && (
-              <>
-                <div className="grid gap-4 sm:grid-cols-[1fr_6rem]">
-                  <Field label="Track" id={ids.track}>
-                    <Select value={track} onValueChange={setTrack}>
-                      <SelectTrigger id={ids.track} className="w-full rounded-md">
-                        <Music2Icon className="size-5 text-muted-foreground" aria-hidden="true" />
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {shown.map((target) => (
-                          <SelectItem key={target.index} value={String(target.index)}>
-                            {target.name}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value={NEW_TRACK}>New track</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Start bar" id={ids.bar}>
-                    <Input
-                      id={ids.bar}
-                      className="rounded-md"
-                      type="number"
-                      inputMode="numeric"
-                      min={1}
-                      max={Math.max(barCount, 1)}
-                      value={bar}
-                      onChange={(event) => setBar(event.target.value)}
-                    />
-                  </Field>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id={ids.others}
-                    checked={playOthers}
-                    onCheckedChange={(checked) => changeOthers(checked === true)}
-                  />
-                  <label htmlFor={ids.others} className="text-sm">
-                    Play other tracks
-                  </label>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Checkbox
-                    id={ids.align}
-                    checked={alignToBeat}
-                    onCheckedChange={(checked) => changeAlign(checked === true)}
-                    className="mt-0.5"
-                  />
-                  <label htmlFor={ids.align} className="text-sm">
-                    Line up with the beat
-                    <span className="block text-muted-foreground">
-                      Moves the take by up to 80 ms. Turn off if you play behind or ahead of the
-                      beat on purpose.
-                    </span>
-                  </label>
-                </div>
-              </>
-            )}
-
-            {offersModel && (
-              <div className="flex flex-col gap-2" data-tour="record-piano-model">
-                <SectionLabel id={ids.engine}>Piano model</SectionLabel>
-                <ToggleGroup
-                  type="single"
-                  variant="outline"
-                  spacing={0}
-                  aria-labelledby={ids.engine}
-                  value={engine}
-                  onValueChange={(value) => value && changeEngine(value as PianoEngine)}
-                  className="self-start"
-                >
-                  <ToggleGroupItem value="standard" className={SEGMENT_BUTTON}>
-                    Standard
-                    {engine === "standard" && <Crown />}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="accurate" className={SEGMENT_BUTTON}>
-                    High accuracy
-                    {engine === "accurate" && <Crown />}
-                  </ToggleGroupItem>
-                </ToggleGroup>
-                <p className="text-sm text-muted-foreground">
-                  {engine === "standard"
-                    ? "Built in and fast. Finds most notes."
-                    : "Finds nearly every note. Runs on this computer, but takes about half as long as the recording."}
-                </p>
-                {needsModel && (
-                  <div className="flex flex-col gap-2">
-                    <p className="text-sm">
-                      The model is a one-time download of {megabytes(pianoModel.bytes)} MB. Your
-                      recordings are never uploaded.
-                    </p>
-                    {pianoModel.progress === null ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="self-start"
-                        onClick={pianoModel.download}
+                      <span
+                        aria-hidden={soon ? "true" : undefined}
+                        className={cn(
+                          "relative flex flex-col items-center justify-end self-stretch pt-4 pb-3",
+                          soon && "text-muted-foreground",
+                        )}
                       >
-                        <DownloadIcon data-icon="inline-start" />
-                        Download the model
-                      </Button>
-                    ) : (
-                      <p role="status" className="text-sm">
-                        Downloading… {Math.round(pianoModel.progress * 100)}%
+                        {instrument === value && !soon && (
+                          <Crown className="absolute top-0.5 left-1/2 size-6 -translate-x-1/2" />
+                        )}
+                        {label}
+                      </span>
+                    </ToggleGroupItem>
+                  );
+                })}
+              </ToggleGroup>
+              {offersAi && (
+                <TabsList
+                  aria-label="Transcription engine"
+                  data-tour="record-ai-tabs"
+                  className="relative isolate h-9 w-[220px] max-w-full shrink-0 items-stretch gap-0 rounded-full border border-primary/50 bg-zinc-900 p-0 shadow-[inset_0_0_14px_color-mix(in_oklab,var(--primary)_30%,transparent)]"
+                >
+                  {(["default", "ai"] as const).map((mode) => (
+                    <TabsTrigger
+                      key={mode}
+                      value={mode}
+                      className="relative flex flex-1 items-center justify-center gap-1.5 rounded-full border-0 bg-transparent text-xs font-bold tracking-[0.12em] text-zinc-300 hover:bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-white"
+                    >
+                      {(mode === "ai") === aiOn && (
+                        <img
+                          src={modeSplash}
+                          alt=""
+                          aria-hidden="true"
+                          data-mode-splash=""
+                          className="pointer-events-none absolute -inset-x-2 -inset-y-1.5 -z-10 h-[calc(100%+0.75rem)] w-[calc(100%+1rem)] max-w-none object-fill"
+                        />
+                      )}
+                      <span className="relative">{mode === "ai" ? "AI" : "Default"}</span>
+                      {mode === "ai" && (
+                        <SparklesIcon
+                          aria-hidden="true"
+                          className="relative size-3.5 text-yellow-300"
+                        />
+                      )}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              )}
+            </div>
+
+            <div className="grid gap-x-6 gap-y-5 sm:grid-cols-[1fr_1px_1fr] md:grid-cols-[calc(58%-6px)_1px_minmax(0,1fr)]">
+              <div className="flex min-w-0 flex-col gap-4">
+                <div className="flex flex-col gap-2" data-tour="record-mode">
+                  <SectionLabel id={ids.mode}>Recording mode</SectionLabel>
+                  <ToggleGroup
+                    type="single"
+                    variant="default"
+                    spacing={2}
+                    aria-labelledby={ids.mode}
+                    value={mode}
+                    onValueChange={(value) => value && setMode(value as Source)}
+                    className="self-start"
+                  >
+                    {modes.map(({ value, label, icon: Icon }) => (
+                      <ToggleGroupItem key={value} value={value} className={MODE_BUTTON}>
+                        <Icon aria-hidden="true" />
+                        {label}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </div>
+                {fromFile ? (
+                  <AudioDropArea
+                    extensions={TAKE_FILE_EXTENSIONS}
+                    disabled={!supported}
+                    chosen={file !== null}
+                    onFile={chooseFile}
+                  >
+                    {file && (
+                      <p className="mt-3 flex items-center gap-2 text-sm">
+                        <AudioLinesIcon className="size-4 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{file.name}</span>
                       </p>
                     )}
-                    {pianoModel.error && (
-                      <p role="alert" className="text-sm text-destructive">
-                        {pianoModel.error}
+                    {fileError && (
+                      <p role="alert" className="mt-3 text-sm text-destructive">
+                        {fileError}
                       </p>
+                    )}
+                  </AudioDropArea>
+                ) : (
+                  <>
+                    <AudioInputSetting stacked showChannel={false} showDiscovery={false} />
+                    <div className="flex flex-col gap-1.5">
+                      <LiveWaveform level={level} className="h-9" />
+                      {heard.kind === "asking" && (
+                        <p role="status" className="text-sm text-muted-foreground">
+                          Asking for the microphone…
+                        </p>
+                      )}
+                      {heard.kind === "blocked" && (
+                        <p
+                          role="alert"
+                          className="rounded-md border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-sm"
+                        >
+                          {heard.message}
+                        </p>
+                      )}
+                    </div>
+                    {showHeadphones && (
+                      <div className="relative px-6 py-1">
+                        {/* The rays sit outside the box, one set on each side. */}
+                        <img
+                          src={sparklesLeft}
+                          alt=""
+                          aria-hidden="true"
+                          data-sparkles=""
+                          className="pointer-events-none absolute top-1/2 left-0 h-9 w-auto -translate-y-1/2"
+                        />
+                        <img
+                          src={sparklesRight}
+                          alt=""
+                          aria-hidden="true"
+                          data-sparkles=""
+                          className="pointer-events-none absolute top-1/2 right-0 h-9 w-auto -translate-y-1/2"
+                        />
+                        <p
+                          role="note"
+                          className="flex items-center gap-3 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2 text-[15px] text-amber-950 dark:bg-amber-950/80 dark:text-amber-100"
+                        >
+                          <HeadphonesIcon
+                            className="size-6 shrink-0 text-amber-500"
+                            aria-hidden="true"
+                          />
+                          <span>Use headphones, or the click will be heard in the recording.</span>
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div aria-hidden="true" className="hidden bg-border sm:block" data-divider="" />
+
+              <div className="flex min-w-0 flex-col gap-4 sm:pb-14" data-tour="record-track">
+                {mode === "click" && (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-[1fr_6rem]">
+                      <Field label="Track" id={ids.track}>
+                        <Select value={track} onValueChange={setTrack}>
+                          <SelectTrigger id={ids.track} className="w-full rounded-md">
+                            <Music2Icon
+                              className="size-5 text-muted-foreground"
+                              aria-hidden="true"
+                            />
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {shown.map((target) => (
+                              <SelectItem key={target.index} value={String(target.index)}>
+                                {target.name}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value={NEW_TRACK}>New track</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Start bar" id={ids.bar}>
+                        <Input
+                          id={ids.bar}
+                          className="rounded-md"
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={Math.max(barCount, 1)}
+                          value={bar}
+                          onChange={(event) => setBar(event.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id={ids.others}
+                        checked={playOthers}
+                        onCheckedChange={(checked) => changeOthers(checked === true)}
+                      />
+                      <label htmlFor={ids.others} className="text-sm">
+                        Play other tracks
+                      </label>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id={ids.align}
+                        checked={alignToBeat}
+                        onCheckedChange={(checked) => changeAlign(checked === true)}
+                        className="mt-0.5"
+                      />
+                      <label htmlFor={ids.align} className="text-sm">
+                        Line up with the beat
+                        <span className="block text-muted-foreground">
+                          Moves the take by up to 80 ms. Turn off if you play behind or ahead of the
+                          beat on purpose.
+                        </span>
+                      </label>
+                    </div>
+                  </>
+                )}
+
+                {aiOn && (
+                  <div className="flex flex-col gap-3" data-tour="record-ai">
+                    <SectionLabel>AI model</SectionLabel>
+                    {aiReady ? (
+                      <>
+                        <Select
+                          value={ai.size}
+                          onValueChange={(value) => chooseSize(value as MuscriptorSize)}
+                        >
+                          <SelectTrigger
+                            aria-label="AI model size"
+                            className="w-44 rounded-xl border-primary bg-primary text-primary-foreground shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_55%,transparent)] hover:bg-primary/90 dark:bg-primary dark:hover:bg-primary/90 [&_svg]:text-primary-foreground"
+                          >
+                            <SelectValue>
+                              <span className="flex items-center gap-1.5 font-semibold">
+                                {sizeInfo(ai.size).label}
+                                <Crown />
+                              </span>
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ai.status?.sizes
+                              .filter((entry) => entry.installed)
+                              .map((entry) => (
+                                <SelectItem key={entry.size} value={entry.size}>
+                                  {sizeInfo(entry.size).label}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-sm text-muted-foreground">
+                          Runs MuScriptor by Kyutai and Mirelo on this computer. Finds several
+                          instruments and drum hits; the instrument you picked limits what it
+                          listens for.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="self-start"
+                          onClick={() => {
+                            onCancel();
+                            openInstaller("record");
+                          }}
+                        >
+                          <DownloadIcon data-icon="inline-start" />
+                          Add another size
+                        </Button>
+                      </>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <p className="text-sm">
+                          The AI mode uses MuScriptor by Kyutai and Mirelo, a model you download
+                          once ({sizeInfo(ai.size).megabytes} MB for {sizeInfo(ai.size).label}). A
+                          guided setup walks you through the terms and brings you back here. Your
+                          recordings are never uploaded.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="self-start"
+                          onClick={() => {
+                            onCancel();
+                            openInstaller("record");
+                          }}
+                        >
+                          <DownloadIcon data-icon="inline-start" />
+                          Download MuScriptor
+                        </Button>
+                      </div>
                     )}
                   </div>
                 )}
-              </div>
-            )}
 
-            {askTuning && (
-              <div className="grid grid-cols-[7rem_1fr] gap-4">
-                <Field label="Strings" id={ids.strings}>
-                  <Select
-                    key={family}
-                    value={String(tuningChoice.strings)}
-                    onValueChange={(value) => changeTuning(standardTuningChoice(Number(value)))}
-                  >
-                    <SelectTrigger id={ids.strings} className="w-full rounded-md">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(family === "bass" ? RECORD_BASS_STRING_COUNTS : RECORD_STRING_COUNTS).map(
-                        (count) => (
-                          <SelectItem key={count} value={String(count)}>
-                            {count} strings
-                          </SelectItem>
-                        ),
-                      )}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Tuning" id={ids.tuning}>
-                  <Select
-                    key={`${family}-${tuningChoice.strings}`}
-                    value={tuningChoice.name}
-                    onValueChange={(name) =>
-                      name && changeTuning({ strings: tuningChoice.strings, name })
-                    }
-                  >
-                    <SelectTrigger id={ids.tuning} className="w-full rounded-md">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {presets.map((preset) => (
-                        <SelectItem key={preset.name} value={preset.name}>
-                          {preset.name} (
-                          {preset.tuning.map((p) => pitchName(p, { octave: false })).join(" ")})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </div>
-            )}
-          </div>
-        </div>
+                {!aiOn && offersModel && (
+                  <div className="flex flex-col gap-2" data-tour="record-piano-model">
+                    <SectionLabel id={ids.engine}>Piano model</SectionLabel>
+                    <ToggleGroup
+                      type="single"
+                      variant="outline"
+                      spacing={0}
+                      aria-labelledby={ids.engine}
+                      value={engine}
+                      onValueChange={(value) => value && changeEngine(value as PianoEngine)}
+                      className="self-start"
+                    >
+                      <ToggleGroupItem value="standard" className={SEGMENT_BUTTON}>
+                        Standard
+                        {engine === "standard" && <Crown />}
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value="accurate" className={SEGMENT_BUTTON}>
+                        High accuracy
+                        {engine === "accurate" && <Crown />}
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                    <p className="text-sm text-muted-foreground">
+                      {engine === "standard"
+                        ? "Built in and fast. Finds most notes."
+                        : "Finds nearly every note. Runs on this computer, but takes about half as long as the recording."}
+                    </p>
+                    {needsModel && (
+                      <div className="flex flex-col gap-2">
+                        <p className="text-sm">
+                          The model is a one-time download of {megabytes(pianoModel.bytes)} MB. Your
+                          recordings are never uploaded.
+                        </p>
+                        {pianoModel.progress === null ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="self-start"
+                            onClick={pianoModel.download}
+                          >
+                            <DownloadIcon data-icon="inline-start" />
+                            Download the model
+                          </Button>
+                        ) : (
+                          <p role="status" className="text-sm">
+                            Downloading… {Math.round(pianoModel.progress * 100)}%
+                          </p>
+                        )}
+                        {pianoModel.error && (
+                          <p role="alert" className="text-sm text-destructive">
+                            {pianoModel.error}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-        {!supported && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Record to Tab needs the Smart Beat desktop app.
-          </p>
-        )}
+                {askTuning && (
+                  <div className="grid grid-cols-[7rem_1fr] gap-4">
+                    <Field label="Strings" id={ids.strings}>
+                      <Select
+                        key={family}
+                        value={String(tuningChoice.strings)}
+                        onValueChange={(value) => changeTuning(standardTuningChoice(Number(value)))}
+                      >
+                        <SelectTrigger id={ids.strings} className="w-full rounded-md">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(family === "bass"
+                            ? RECORD_BASS_STRING_COUNTS
+                            : RECORD_STRING_COUNTS
+                          ).map((count) => (
+                            <SelectItem key={count} value={String(count)}>
+                              {count} strings
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Tuning" id={ids.tuning}>
+                      <Select
+                        key={`${family}-${tuningChoice.strings}`}
+                        value={tuningChoice.name}
+                        onValueChange={(name) =>
+                          name && changeTuning({ strings: tuningChoice.strings, name })
+                        }
+                      >
+                        <SelectTrigger id={ids.tuning} className="w-full rounded-md">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {presets.map((preset) => (
+                            <SelectItem key={preset.name} value={preset.name}>
+                              {preset.name} (
+                              {preset.tuning.map((p) => pitchName(p, { octave: false })).join(" ")})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {!supported && (
+              <p role="status" className="text-sm text-muted-foreground">
+                Record to Tab needs the Smart Beat desktop app.
+              </p>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogBody>
       <DialogFooter
         data-tour="record-start"

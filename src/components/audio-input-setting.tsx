@@ -122,7 +122,17 @@ function InputChannelSetting({ input }: { input: AudioInput | null }) {
 }
 
 /** Which input Smart Beat listens to, for the whole app (Settings). */
-export function AudioInputSetting({ stacked = false }: { stacked?: boolean } = {}) {
+export function AudioInputSetting({
+  stacked = false,
+  showChannel = true,
+  showDiscovery = true,
+}: {
+  stacked?: boolean;
+  /** The channel of a multi-channel interface. Record to Tab leaves it to Settings. */
+  showChannel?: boolean;
+  /** The "Show all inputs" prompt and its permission error. Record to Tab leaves them to Settings. */
+  showDiscovery?: boolean;
+} = {}) {
   const labelId = useId();
   const descriptionId = useId();
   const chosen = useAudioInput();
@@ -219,8 +229,10 @@ export function AudioInputSetting({ stacked = false }: { stacked?: boolean } = {
         What the tuner and the monitor track listen to. If your instrument is plugged into an audio
         interface, choose the interface.
       </p>
-      {nativeEngineAvailable() && <InputChannelSetting input={match || missing || null} />}
-      {list.namesHidden && (
+      {showChannel && nativeEngineAvailable() && (
+        <InputChannelSetting input={match || missing || null} />
+      )}
+      {showDiscovery && list.namesHidden && (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <p className="text-sm text-muted-foreground">
             Your other inputs show once Smart Beat may use the microphone.
@@ -230,7 +242,7 @@ export function AudioInputSetting({ stacked = false }: { stacked?: boolean } = {
           </Button>
         </div>
       )}
-      {error && (
+      {showDiscovery && error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>

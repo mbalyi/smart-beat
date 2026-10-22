@@ -73,6 +73,10 @@ export type TrackedEvent =
   | "soundfont_import"
   | "record_to_tab_start"
   | "record_to_tab_file"
+  | "ai_install"
+  | "ai_rights_confirmed"
+  | "ai_transcribe_start"
+  | "ai_transcribe_file"
   | "drum_normalize"
   | "track_duplicate"
   | "practice_speed"
@@ -177,6 +181,9 @@ const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
   record_to_tab: ["guitar", "bass", "piano", "drums"],
   record_to_tab_start: ["guitar", "bass", "piano", "drums"],
   record_to_tab_file: ["guitar", "bass", "piano", "drums"],
+  ai_install: ["small", "medium", "large"],
+  ai_transcribe_start: ["rights_confirmed", "rights_unconfirmed"],
+  ai_transcribe_file: ["rights_confirmed", "rights_unconfirmed"],
   sound_library_import: ["amp", "cab"],
   soundfont_select: SOUNDFONT_IDS,
   play_soundfont: SOUNDFONT_IDS,

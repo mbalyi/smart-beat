@@ -71,6 +71,7 @@ import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { usePianoModel } from "@/hooks/use-piano-model";
+import { onInstallerReturn } from "@/lib/ai/ai-store";
 import { recordTargets, useRecordToTab } from "@/hooks/use-record-to-tab";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import {
@@ -410,7 +411,6 @@ export function ScoreWorkspace({
   tabs,
   headerSlot,
   onOpen,
-  onImportAudio,
   onOpenScore,
   onEditedChange,
   onSaved,
@@ -427,8 +427,6 @@ export function ScoreWorkspace({
   /** The app header's centre, where the main controls are shown. */
   headerSlot?: HTMLElement | null;
   onOpen: () => void;
-  /** Import from Audio; left out while the `audio-2-tab` feature is off. */
-  onImportAudio?: () => void;
   /** Free-mode Record to Tab: opens the take as a new song that exists only in memory. */
   onOpenScore?: (score: Score, name: string) => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
@@ -1485,6 +1483,13 @@ export function ScoreWorkspace({
     onOpenScore: (opened, name) => onOpenScore?.(opened, name),
   });
   const pianoModel = usePianoModel(recordEnabled && recording.dialogOpen);
+  // The AI installer hands the user back to Record to tab when it closes (#150). Only the song
+  // that is on screen answers.
+  const reopenRecord = useRef<() => void>(() => {});
+  reopenRecord.current = () => {
+    if (active && recordEnabled) recording.open();
+  };
+  useEffect(() => onInstallerReturn("record", () => reopenRecord.current()), []);
   const recordBusy = recording.phase.kind !== "idle";
 
   // One-time tips the first time an advanced area is opened (#84).
@@ -2210,6 +2215,12 @@ export function ScoreWorkspace({
       trackUsage("delete_selection");
       editor.deleteAtCursor();
     },
+    onInsertBarBefore: (at) => editor.insertBar("before", at),
+    onInsertBarAfter: (at) => editor.insertBar("after", at),
+    onCopyBar: (at) => editor.copyBar(at),
+    onCutBar: (at) => editor.cutBar(at),
+    onDeleteBar: (at) => editor.deleteBar(at),
+    onPasteBarsAfter: (at) => editor.pasteBarsAfter(at),
     onLoopSelection: () => {
       const range = selectedBars();
       if (!range) return;
@@ -2292,6 +2303,10 @@ export function ScoreWorkspace({
         break;
       case "lyrics":
         openLyrics(trackObject);
+        break;
+      case "record-to-tab":
+        // The AI menu's item; the menu also hides it while the feature is off.
+        if (recordEnabled && !recordBusy) recording.open();
         break;
       case "save":
         void fileActions.save();
@@ -2439,8 +2454,6 @@ export function ScoreWorkspace({
   const fileActionsMenu = (
     <>
       <FileMenu
-        onImportAudio={onImportAudio}
-        onRecordToTab={recordEnabled && !recordBusy ? () => recording.open() : undefined}
         onSave={() => void fileActions.save()}
         onSaveAs={() => void fileActions.saveAs()}
         onExport={(format) => void fileActions.exportAs(format)}
@@ -2616,6 +2629,7 @@ export function ScoreWorkspace({
             actions={scoreMenuActions}
             selection={selectedBars()}
             editing={editing}
+            canPaste={editor.hasClipboard}
           >
             <ScoreView
               viewportRef={viewportRef}

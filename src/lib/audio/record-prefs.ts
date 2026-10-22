@@ -10,6 +10,8 @@ const ENGINE_KEY = "smart-beat:record-piano-engine";
 
 /** The piano note finder: the built-in one, or the downloaded high-accuracy model (Transkun). */
 export type PianoEngine = "standard" | "accurate";
+/** What turns a take into notes: the built-in finders, the piano model or MuScriptor (AI, #150). */
+export type RecordEngine = PianoEngine | "muscriptor";
 
 /** What Record to Tab listens to: a guitar or a bass (tab), a piano (two-hand staves) or drums. */
 export type RecordInstrument = "guitar" | "bass" | "piano" | "drums";
@@ -144,5 +146,22 @@ export function storePianoEngine(value: PianoEngine) {
     localStorage.setItem(ENGINE_KEY, value);
   } catch {
     // Not remembered: the built-in model next time.
+  }
+}
+
+const AI_KEY = "smart-beat:record-ai-mode";
+/** The Default / AI tab last used in the Record dialog (Default unless AI was picked). */
+export function readAiMode(): boolean {
+  try {
+    return localStorage.getItem(AI_KEY) === "ai";
+  } catch {
+    return false;
+  }
+}
+export function storeAiMode(value: boolean) {
+  try {
+    localStorage.setItem(AI_KEY, value ? "ai" : "default");
+  } catch {
+    // Not remembered: Default next time.
   }
 }

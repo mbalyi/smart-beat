@@ -71,9 +71,9 @@ TAURI_SIGNING_PRIVATE_KEY=/tmp/test-updater.key TAURI_SIGNING_PRIVATE_KEY_PASSWO
 
 The build reads the key from `TAURI_SIGNING_PRIVATE_KEY`, which can be the key text or the path to the key file. The `.app.tar.gz` and its `.sig` appear under `src-tauri/target/release/bundle/macos/`.
 
-## Transcription server
+## AI model
 
-Import from Audio compiles in the address of Smart Beat's MuScriptor server ([`audio-to-midi.md`](audio-to-midi.md)). Add it as the `TRANSCRIPTION_SERVICE_URL` GitHub Actions variable (Settings › Secrets and variables › Actions › Variables), for example `https://transcribe.example.com`. It is not a secret. While `audio-2-tab` in `src/lib/features.json` is `false` the feature is hidden and the variable is not needed. Once the flag is `true`, a build for a release fails without it. Other builds warn and ship without Import from Audio.
+Import from Audio and the AI tab of Record to tab use MuScriptor, which the user downloads from Hugging Face; no variable or server is needed ([`ai-install.md`](ai-install.md)). The build compiles the vendored muscriptor.cpp with CMake 3.24+, so each release runner needs CMake, a C++23 compiler and network access to fetch ggml.
 
 ## What a release contains
 
@@ -112,8 +112,7 @@ While the repository is private, `latest.json` cannot be downloaded without a lo
 Not done by code, so on the list:
 
 - [ ] Add the two updater secrets on GitHub (the key exists and its public half is in `tauri.conf.json`); back the key file and its password up offline.
-- [ ] Deploy the MuScriptor server on AWS and add the `TRANSCRIPTION_SERVICE_URL` variable on GitHub ([`audio-to-midi.md`](audio-to-midi.md)).
-- [ ] Clear the CC BY-NC 4.0 licence of the MuScriptor weights for Smart Beat's use ([`audio-to-midi.md`](audio-to-midi.md#licensing)).
+- [ ] MuScriptor's CC BY-NC 4.0 weights are a documented, time-limited exception ([`audio-to-midi.md`](audio-to-midi.md#licensing)); a reply from Kyutai and Mirelo is still outstanding. Re-check the revocation triggers in `AGENTS.md` before any paid offer.
 - [ ] Apple Developer ID signing and notarization, and Windows code signing ([`code-signing.md`](code-signing.md)). Updates work without them, but installers show warnings.
 - [ ] Before any paid offer: lawyer review of `LICENSE` use, `COMMERCIAL-LICENSE.md` and `EULA.md` ([licensing.md](licensing.md#legal-review)).
 - [x] Scan the repository **and its git history** for secrets: done for #97 on 2026-10-12 (gitleaks, nothing found); CI repeats it on every PR. Re-run `pnpm licenses:check` right before going public.

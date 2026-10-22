@@ -10,6 +10,8 @@ import {
 import { useId, useState } from "react";
 
 import { BuiltWith } from "@/components/built-with";
+import { OptionalAddons } from "@/components/optional-addons";
+import { isEnabled } from "@/lib/features";
 import { SectionKicker } from "@/components/section-kicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -195,6 +197,7 @@ export function Welcome({
       </section>
 
       <BuiltWith onShowLicenses={onShowLicenses} />
+      {isEnabled("audio-2-tab") || isEnabled("muscriptor-record") ? <OptionalAddons /> : null}
     </div>
   );
 }

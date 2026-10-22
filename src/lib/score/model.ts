@@ -214,6 +214,49 @@ export function appendMasterBar(score: Score): MasterBar {
   return masterBar;
 }
 
+/**
+ * Inserts an empty bar at `index` in every track. Its time signature and triplet feel are those
+ * of the bar `like`; every track's new bar is shaped like that track's bar there (clef, key,
+ * voices). Repeats, sections and tempo changes stay with the bars they belong to.
+ */
+export function insertMasterBar(score: Score, index: number, like: number): MasterBar {
+  const reference = score.masterBars[like]!;
+  const masterBar = new model.MasterBar();
+  masterBar.timeSignatureNumerator = reference.timeSignatureNumerator;
+  masterBar.timeSignatureDenominator = reference.timeSignatureDenominator;
+  masterBar.timeSignatureCommon = reference.timeSignatureCommon;
+  masterBar.tripletFeel = reference.tripletFeel;
+  masterBar.score = score;
+  for (const track of score.tracks) {
+    for (const staff of track.staves) {
+      staff.bars.splice(index, 0, newBar(staff.bars[like]!, masterBar));
+    }
+  }
+  score.masterBars.splice(index, 0, masterBar);
+  return masterBar;
+}
+
+/**
+ * Removes the bar at `index` from every track. A tempo change on it moves to the next bar when
+ * that has none, so the tempo does not fall back to the default (the song's first bar holds
+ * the starting tempo). The song keeps at least one bar: call this only with two or more.
+ */
+export function removeMasterBar(score: Score, index: number): void {
+  const [removed] = score.masterBars.splice(index, 1);
+  for (const track of score.tracks) {
+    for (const staff of track.staves) staff.bars.splice(index, 1);
+  }
+  const next = score.masterBars[index];
+  if (
+    removed &&
+    next &&
+    removed.tempoAutomations.length > 0 &&
+    next.tempoAutomations.length === 0
+  ) {
+    next.tempoAutomations = [...removed.tempoAutomations];
+  }
+}
+
 /** Makes sure every bar of the staff has at least `count` voices. */
 export function ensureVoices(staff: Staff, count: number): void {
   for (const bar of staff.bars) {

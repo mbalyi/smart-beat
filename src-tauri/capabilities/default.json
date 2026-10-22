@@ -48,6 +48,39 @@
         },
         {
           "url": "https://github.com/mbalyi"
+        },
+        {
+          "url": "https://huggingface.co/MuScriptor"
+        },
+        {
+          "url": "https://creativecommons.org/licenses/by-nc/4.0/"
+        },
+        {
+          "url": "https://huggingface.co/MuScriptor/muscriptor-medium"
+        },
+        {
+          "url": "https://muscriptor.kyutai.org/"
+        },
+        {
+          "url": "https://arxiv.org/abs/2607.08168"
+        },
+        {
+          "url": "https://kyutai.org/blog/2026-07-10-muscriptor/"
+        },
+        {
+          "url": "https://github.com/muscriptor/muscriptor"
+        },
+        {
+          "url": "https://huggingface.co/DamRsn/muscriptor-gguf"
+        },
+        {
+          "url": "https://github.com/DamRsn/muscriptor.cpp"
+        },
+        {
+          "url": "https://kyutai.org/"
+        },
+        {
+          "url": "https://mirelo.ai/"
         }
       ]
     }

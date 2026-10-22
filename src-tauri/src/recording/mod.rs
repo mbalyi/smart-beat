@@ -5,6 +5,9 @@
 //! `Transcriber`.
 mod basic_pitch;
 pub mod drums;
+pub mod muscriptor;
+pub mod muscriptor_ffi;
+pub mod muscriptor_model;
 mod notes;
 pub mod piano_model;
 mod resample;
@@ -171,7 +174,7 @@ impl RecordingRun {
             *slot = None;
         }
     }
-    fn cancel(&self) {
+    pub(crate) fn cancel(&self) {
         if let Some(stop) = self.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             stop.store(true, Ordering::Relaxed);
         }
@@ -184,7 +187,7 @@ struct Progress {
 }
 
 /// The take is the raw body: little-endian 32-bit float mono samples. The header
-/// `x-sample-rate` carries their rate in Hz, and the optional `x-instrument` (`guitar`, `piano` or `drums`) picks the note settings, and `x-engine: transkun` the downloaded piano model. Emits `recording-transcription-progress`.
+/// `x-sample-rate` carries their rate in Hz, and the optional `x-instrument` (`guitar`, `piano` or `drums`) picks the note settings, and `x-engine: transkun` the downloaded piano model, `x-engine: muscriptor` (with `x-model-size`) the downloaded MuScriptor model. Emits `recording-transcription-progress`.
 #[tauri::command]
 pub async fn transcribe_recording<R: Runtime>(
     app: AppHandle<R>,
@@ -200,18 +203,35 @@ pub async fn transcribe_recording<R: Runtime>(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u32>().ok())
         .ok_or_else(|| error("Missing x-sample-rate."))?;
-    // `x-engine: transkun` runs the downloaded piano model instead of Basic Pitch.
-    let model_dir = if request
+    // `x-engine: transkun` runs the downloaded piano model instead of Basic Pitch;
+    // `x-engine: muscriptor` runs the downloaded MuScriptor model (`x-model-size`).
+    let engine = request
         .headers()
         .get("x-engine")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.trim().eq_ignore_ascii_case("transkun"))
-    {
+        .map(|value| value.trim().to_ascii_lowercase());
+    let model_dir = if engine.as_deref() == Some("transkun") {
         let folder = piano_model::dir(&app)?;
         if !piano_model::is_installed(&folder) {
             return Err(error("Download the piano model first."));
         }
         Some(folder)
+    } else {
+        None
+    };
+    let ai = if engine.as_deref() == Some("muscriptor") {
+        let size = request
+            .headers()
+            .get("x-model-size")
+            .and_then(|value| value.to_str().ok())
+            .and_then(muscriptor_model::Size::parse)
+            .unwrap_or(muscriptor_model::Size::Medium);
+        let folder = muscriptor_model::dir(&app)?;
+        muscriptor_model::require_terms(&folder, size)?;
+        if !muscriptor_model::is_installed(&folder, size) {
+            return Err(error("Download the MuScriptor model first."));
+        }
+        Some((folder, size))
     } else {
         None
     };
@@ -240,6 +260,15 @@ pub async fn transcribe_recording<R: Runtime>(
             };
             let cancelled = || stop.load(Ordering::Relaxed);
             let result = match model_dir {
+                _ if ai.is_some() => {
+                    let (folder, size) = ai.clone().expect("checked");
+                    let engine = muscriptor::Muscriptor {
+                        folder,
+                        size,
+                        instrument,
+                    };
+                    transcribe_take(&engine, &samples, rate, &mut progress, &cancelled)
+                }
                 _ if instrument == Instrument::Drums => transcribe_take(
                     &DrumOnsets::default(),
                     &samples,

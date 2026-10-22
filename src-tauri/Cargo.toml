@@ -17,8 +17,8 @@ name = "smart_beat_lib"
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
-# Checks TRANSCRIPTION_SERVICE_URL (src/service_url.rs). Already in the tree through Tauri.
-url = "2"
+# Builds the vendored muscriptor.cpp (native/).
+cmake = "0.1"
 
 [dependencies]
 tauri = { version = "2.12", features = [] }
@@ -28,16 +28,10 @@ tauri-plugin-updater = "2.13"
 tauri-plugin-process = "2.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Import from Audio (src/transcription.rs) talks to Smart Beat's MuScriptor server from here,
-# so the webview's CSP keeps every remote host out.
+# Import from Audio (src/transcription.rs) returns the MIDI file to the page as base64.
 base64 = "0.22"
 # Fixed-size host/helper audio mapping; already used transitively by Tauri.
 memmap2 = "0.9"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy", "multipart"] }
-# Already in the tree through Tauri. `time` waits between retries while the server is busy.
-tokio = { version = "1.53", default-features = false, features = ["time"] }
-# Already in the tree through reqwest. One copy of a recording serves every upload attempt.
-bytes = "1"
 tempfile = "3"
 rustysynth = "1.3"
 lewton = "0.10"

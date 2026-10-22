@@ -1,18 +1,8 @@
-import path from "node:path";
-
 import type { Page } from "@playwright/test";
 
 import features from "../src/lib/features.json" with { type: "json" };
 
-import {
-  emitMenuAction,
-  expect,
-  expectNoA11yViolations,
-  FIXTURES_DIR,
-  openSong,
-  tabKey,
-  test,
-} from "./fixtures";
+import { emitMenuAction, expect, expectNoA11yViolations, openSong, tabKey, test } from "./fixtures";
 
 declare global {
   interface Window {
@@ -43,19 +33,49 @@ function midiBase64(): string {
   ]).toString("base64");
 }
 
-const RECORDING = path.join(FIXTURES_DIR, "backing-a440.mp3");
+/**
+ * A four-second mono 16-bit WAV of silence. Every webview reads its length; WebKit on Linux has no
+ * MP3 decoder, so an MP3 would never show its duration there.
+ */
+function wavFile(seconds = 4, rate = 8000) {
+  const data = rate * seconds * 2;
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + data, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(data, 40);
+  return {
+    name: "recording.wav",
+    mimeType: "audio/wav",
+    buffer: Buffer.concat([header, Buffer.alloc(data)]),
+  };
+}
+const RECORDING = wavFile();
 
-async function openDialog(app: Page) {
+/** MuScriptor is on this computer and the terms are accepted. */
+async function installModel(app: Page) {
+  await app.evaluate(() => {
+    window.__muscriptor.terms.medium = true;
+    window.__muscriptor.installed.medium = true;
+  });
+}
+
+async function openDialog(app: Page, { installed = true } = {}) {
+  if (installed) await installModel(app);
   await app.evaluate((midi) => {
     window.__transcription.midiBase64 = midi;
   }, midiBase64());
   const welcome = app.getByRole("button", { name: "Import from Audio…" });
   if (await welcome.isVisible()) await welcome.click();
-  else {
-    // An open song: the File menu beside Open.
-    await app.getByRole("button", { name: "File" }).click();
-    await app.getByRole("menuitem", { name: "Import from Audio…" }).click();
-  }
+  else await emitMenuAction(app, "import-audio"); // an open song: the AI menu
   const dialog = app.getByRole("dialog", { name: "Import from Audio" });
   await expect(dialog).toBeVisible();
   return dialog;
@@ -67,34 +87,41 @@ test.describe("Import from Audio (#88)", () => {
 
   test("transcribes a recording, previews it and opens the MIDI as a new song", async ({ app }) => {
     const dialog = await openDialog(app);
-    await expect(dialog.getByText(/uploaded to Smart Beat's transcription server/)).toBeVisible();
+    await expect(dialog.getByText(/transcribed on this computer/)).toBeVisible();
 
     await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
-    await expect(dialog.getByText("backing-a440.mp3")).toBeVisible();
+    await expect(dialog.getByText("recording.wav")).toBeVisible();
     // The webview reads the duration before anything is uploaded.
-    await expect(dialog.getByText(/MiB · \d+:\d\d/)).toBeVisible();
+    await expect(dialog.getByText(/MB · \d+:\d\d/)).toBeVisible();
 
-    await dialog.getByLabel("Search instruments").fill("bass guitar");
-    await dialog.getByRole("button", { name: "electric bass" }).click();
+    await dialog.getByRole("button", { name: "Automatic detection" }).click();
+    await dialog.page().getByLabel("Search instruments").fill("bass guitar");
+    // The whole row toggles, so the click goes to the name, as a user would.
+    await dialog.page().getByText("electric bass", { exact: true }).click();
+    await dialog.page().keyboard.press("Escape");
     await expect(dialog.getByRole("button", { name: "Remove electric bass" })).toBeVisible();
 
     await dialog.getByRole("button", { name: "Transcribe" }).click();
-    await expect(dialog.getByRole("heading", { name: "Generated MIDI preview" })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "Preview generated MIDI" })).toBeVisible();
     await expect(
       dialog.getByRole("img", { name: "Transcribed notes by instrument" }),
     ).toBeVisible();
 
     expect(await app.evaluate(() => window.__transcription.requests)).toEqual([
-      expect.objectContaining({ "file-type": "mp3", instruments: "electric_bass" }),
+      expect.objectContaining({
+        "file-type": "wav",
+        instruments: "electric_bass",
+        "model-size": "medium",
+      }),
     ]);
 
     await dialog.getByRole("button", { name: "Import MIDI into Smart Beat" }).click();
     await expect(dialog).toBeHidden();
-    await expect(app.getByRole("heading", { name: "backing-a440" })).toBeVisible();
+    await expect(app.getByRole("heading", { name: "recording" })).toBeVisible();
 
     // The song exists only in memory, so closing it asks first.
     await expect(app.getByText("Edited")).toBeVisible();
-    await app.getByRole("button", { name: "Close backing-a440" }).click();
+    await app.getByRole("button", { name: "Close recording" }).click();
     await expect(app.getByRole("alertdialog")).toBeVisible();
   });
 
@@ -121,6 +148,17 @@ test.describe("Import from Audio (#88)", () => {
     await expect(app.getByRole("heading", { name: "Practice Song" })).toBeVisible();
   });
 
+  test("offers the download first when MuScriptor is not on this computer", async ({ app }) => {
+    const dialog = await openDialog(app, { installed: false });
+    await expect(dialog.getByTestId("audio-needs-model")).toBeVisible();
+    await expect(dialog.getByLabel("Choose an audio recording")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Transcribe" })).toHaveCount(0);
+    // The dialog steps aside for the installer.
+    await dialog.getByRole("button", { name: "Download MuScriptor" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(app.getByRole("dialog", { name: "Powered by MuScriptor" })).toBeVisible();
+  });
+
   for (const colorScheme of ["light", "dark"] as const) {
     test(`has no WCAG violations at 375 px in ${colorScheme} mode`, async ({ app }) => {
       await app.setViewportSize({ width: 375, height: 812 });
@@ -130,7 +168,7 @@ test.describe("Import from Audio (#88)", () => {
 
       await dialog.getByLabel("Choose an audio recording").setInputFiles(RECORDING);
       await dialog.getByRole("button", { name: "Transcribe" }).click();
-      await expect(dialog.getByRole("heading", { name: "Generated MIDI preview" })).toBeVisible();
+      await expect(dialog.getByRole("heading", { name: "Preview generated MIDI" })).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[role=dialog]" });
       expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
     });

@@ -247,10 +247,10 @@ fn imported_sounds_stay_on_this_computer() {
         .collect();
     assert!(stored.contains(&format!("{id}.nam")), "{stored:?}");
 
-    // Two network clients, both used from Rust, never from the page: `ureq` for the usage
-    // counters (src/telemetry.rs), the piano model download (src/recording/piano_model.rs) and
-    // the SoundFont downloads (src/audio/soundfonts.rs), and `reqwest` for audio transcription
-    // (src/transcription.rs).
+    // One network client, used from Rust, never from the page: `ureq` for the usage counters
+    // (src/telemetry.rs), the piano model download (src/recording/piano_model.rs), the MuScriptor
+    // model download (src/recording/muscriptor_model.rs) and the SoundFont downloads
+    // (src/audio/soundfonts.rs). Transcription runs on this computer and sends nothing.
     // No other client, no fs/http/shell permission, no remote host in the CSP. The updater
     // plugin makes its own request from Rust.
     let manifest = env!("CARGO_MANIFEST_DIR");
@@ -264,23 +264,18 @@ fn imported_sounds_stay_on_this_computer() {
     let src = std::path::Path::new(manifest).join("src");
     for file in rust_sources(&src) {
         let source = std::fs::read_to_string(&file).unwrap();
-        for (client, owners) in [
-            ("reqwest", &["transcription.rs"][..]),
-            (
-                "ureq",
-                &[
-                    "telemetry.rs",
-                    "recording/piano_model.rs",
-                    "audio/soundfonts.rs",
-                ][..],
-            ),
-        ] {
-            assert!(
-                owners.iter().any(|owner| file == src.join(owner)) || !source.contains(client),
-                "{client} in {}: only src/{owners:?} may use it",
-                file.display()
-            );
-        }
+        let client = "ureq";
+        let owners = [
+            "telemetry.rs",
+            "recording/piano_model.rs",
+            "recording/muscriptor_model.rs",
+            "audio/soundfonts.rs",
+        ];
+        assert!(
+            owners.iter().any(|owner| file == src.join(owner)) || !source.contains(client),
+            "{client} in {}: only src/{owners:?} may use it",
+            file.display()
+        );
     }
     // The piano model download has one fixed address: this repository's release. The recording
     // is never part of it.
@@ -295,6 +290,20 @@ fn imported_sounds_stay_on_this_computer() {
     assert!(
         !model.contains(".post("),
         "piano_model.rs must only download"
+    );
+    // The MuScriptor model download (#150) has one fixed address: the GGUF mirror, pinned to a
+    // revision. Nothing the user records or imports is part of a request.
+    let muscriptor = std::fs::read_to_string(src.join("recording/muscriptor_model.rs")).unwrap();
+    let mirror = "https://huggingface.co/DamRsn/muscriptor-gguf/resolve/";
+    for (index, _) in muscriptor.match_indices("https://") {
+        assert!(
+            muscriptor[index..].starts_with(mirror),
+            "unexpected URL in muscriptor_model.rs"
+        );
+    }
+    assert!(
+        !muscriptor.contains(".post("),
+        "muscriptor_model.rs must only download"
     );
     // The SoundFont downloads (#81) only GET, from the fixed catalogue addresses, over https.
     // Nothing the user types or imports is part of a request.

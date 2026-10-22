@@ -60,7 +60,7 @@ jobs:
     # playwright.config.ts).
     name: E2E smoke tests (${{ matrix.browser }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:

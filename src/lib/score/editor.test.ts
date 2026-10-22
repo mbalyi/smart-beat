@@ -271,12 +271,132 @@ describe("ScoreEditor: note entry", () => {
     expect(editor.cursor.bar).toBe(3);
   });
 
-  it("doesn't add bars after an empty last bar", () => {
+  it("adds a bar after an empty last bar too, like Guitar Pro, but not when extending", () => {
     const { editor, score } = newSong();
     editor.moveBar(1);
     editor.moveBar(1);
     editor.moveBar(1);
+    editor.moveBeat(1, true);
+    expect(score.masterBars).toHaveLength(4);
     editor.moveBeat(1);
+    expect(score.masterBars).toHaveLength(5);
+    expect(editor.cursor).toMatchObject({ bar: 4, beat: 0 });
+    editor.undo();
+    expect(score.masterBars).toHaveLength(4);
+  });
+});
+
+describe("ScoreEditor: bars", () => {
+  const barCounts = (editor: ScoreEditor) =>
+    editor.score.tracks.map((t) => t.staves[0]!.bars.length);
+
+  it("inserts an empty bar after or before a bar in every track, and undoes it", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const before = score.masterBars.length;
+    score.masterBars[1]!.timeSignatureNumerator = 3;
+    const marker = score.masterBars[2]!;
+
+    editor.insertBar("after", 1);
+    expect(score.masterBars).toHaveLength(before + 1);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => before + 1));
+    expect(score.masterBars[2]!.timeSignatureNumerator).toBe(3);
+    expect(score.masterBars[3]).toBe(marker);
+    expect(score.masterBars.map((m) => m.index)).toEqual(score.masterBars.map((_, i) => i));
+    expect(editor.cursor).toMatchObject({ bar: 2, beat: 0 });
+    for (const track of score.tracks) {
+      expect(track.staves[0]!.bars[2]!.voices[0]!.beats.every((b) => b.notes.length === 0)).toBe(
+        true,
+      );
+    }
+
+    editor.insertBar("before", 0);
+    expect(score.masterBars).toHaveLength(before + 2);
+    expect(editor.cursor.bar).toBe(0);
+
+    editor.undo();
+    editor.undo();
+    expect(score.masterBars).toHaveLength(before);
+    expect(score.masterBars[2]).toBe(marker);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => before));
+    editor.redo();
+    expect(score.masterBars).toHaveLength(before + 1);
+    expect(score.masterBars[3]).toBe(marker);
+  });
+
+  it("deletes a bar from every track, keeps the tempo, and undoes it", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const first = score.masterBars[0]!;
+    const second = score.masterBars[1]!;
+    const length = score.masterBars.length;
+    // A tempo change on the first bar, none on the second.
+    const change = new model.Automation();
+    change.type = model.AutomationType.Tempo;
+    change.value = 90;
+    first.tempoAutomations = [change];
+    second.tempoAutomations = [];
+
+    expect(editor.deleteBar(0)).toBe(true);
+    expect(score.masterBars).toHaveLength(length - 1);
+    expect(score.masterBars[0]).toBe(second);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => length - 1));
+    expect(second.tempoAutomations).toEqual([change]);
+
+    editor.undo();
+    expect(score.masterBars[0]).toBe(first);
+    expect(score.masterBars).toHaveLength(length);
+    expect(second.tempoAutomations).toEqual([]);
+  });
+
+  it("keeps the last bar of a song", () => {
+    const { editor, score } = newSong();
+    editor.deleteBar();
+    editor.deleteBar();
+    editor.deleteBar();
+    expect(score.masterBars).toHaveLength(1);
+    expect(editor.deleteBar()).toBe(false);
+    expect(score.masterBars).toHaveLength(1);
+    expect(editor.message).toContain("at least one bar");
+  });
+
+  it("copies a bar and inserts it as a new bar after another, keeping the music there", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const length = score.masterBars.length;
+    const written = (bar: number) =>
+      voice(editor, bar).beats.map((b) => b.notes.map((n) => `${n.string}:${n.fret}`).join(" "));
+    const copied = written(0);
+
+    editor.copyBar(0);
+    expect(editor.hasClipboard).toBe(true);
+    editor.pasteBarsAfter(2);
+    expect(score.masterBars).toHaveLength(length + 1);
+    expect(written(3)).toEqual(copied);
+    expect(editor.cursor).toMatchObject({ bar: 3, beat: 0 });
+    // The bars around it are untouched.
+    expect(written(0)).toEqual(copied);
+
+    editor.undo();
+    expect(score.masterBars).toHaveLength(length);
+  });
+
+  it("cuts a bar out of the song, so it can be pasted elsewhere", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const length = score.masterBars.length;
+    const copied = voice(editor, 0).beats.map((b) => b.notes.length);
+
+    editor.cutBar(0);
+    expect(score.masterBars).toHaveLength(length - 1);
+    editor.pasteBarsAfter(length - 2);
+    expect(score.masterBars).toHaveLength(length);
+    expect(voice(editor, length - 1).beats.map((b) => b.notes.length)).toEqual(copied);
+  });
+
+  it("pastes nothing without a clipboard", () => {
+    const { editor, score } = newSong();
+    editor.pasteBarsAfter(0);
     expect(score.masterBars).toHaveLength(4);
   });
 });

@@ -49,8 +49,10 @@ describe("Welcome", () => {
     );
 
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings[headings.length - 2]).toBe("Features");
-    expect(headings[headings.length - 1]).toBe("Made possible by open source.");
+    expect(headings[headings.length - 3]).toBe("Features");
+    expect(headings[headings.length - 2]).toBe("Made possible by open source.");
+    // The optional add-ons are a section of their own, after the libraries (#150).
+    expect(headings[headings.length - 1]).toBe("Add-ons you download yourself.");
     const section = screen
       .getByRole("heading", { name: "Made possible by open source." })
       .closest("section")!;
@@ -101,7 +103,7 @@ describe("Welcome", () => {
       "Open, play and practice (Available)",
       "Write tabs and scores (Available)",
       "Learning mode (Available)",
-      "Audio to tab (AI · Coming soon)",
+      "Audio to tab (AI · Beta)",
       "Record to tab (Beta)",
       "Speech to tab (AI · Coming soon)",
       "Hum to accompaniment (AI · Coming soon)",
@@ -311,5 +313,41 @@ describe("Welcome: recent songs", () => {
       />,
     );
     await expectNoA11yViolations();
+  });
+});
+
+describe("Welcome: optional add-ons (#150)", () => {
+  it("credits MuScriptor in a section of its own, as an add-on the user downloads", async () => {
+    const { user } = renderWelcome();
+    const section = screen
+      .getByRole("heading", { name: "Add-ons you download yourself." })
+      .closest("section")!;
+    expect(within(section).getByRole("link", { name: "MuScriptor" })).toHaveAttribute(
+      "href",
+      "https://huggingface.co/MuScriptor",
+    );
+    expect(section).toHaveTextContent("Kyutai and Mirelo");
+    // Both organisations are credited by name with a link of their own, as text.
+    expect(within(section).getByRole("link", { name: "Kyutai" })).toHaveAttribute(
+      "href",
+      "https://kyutai.org/",
+    );
+    expect(within(section).getByRole("link", { name: "Mirelo" })).toHaveAttribute(
+      "href",
+      "https://mirelo.ai/",
+    );
+    expect(section).toHaveTextContent("CC BY-NC 4.0");
+    expect(section).toHaveTextContent("Non-commercial use only");
+    // Text only: no logos of the model's authors.
+    expect(section.querySelector("img")).toBeNull();
+    // The facts sit in a collapsed accordion.
+    const trigger = within(section).getByRole("button", { name: "Powered by MuScriptor" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await user.click(trigger);
+    expect(within(section).getByRole("link", { name: "Online demo" })).toHaveAttribute(
+      "href",
+      "https://muscriptor.kyutai.org/",
+    );
+    expect(section).toHaveTextContent("not affiliated with or endorsed by Kyutai or Mirelo");
   });
 });

@@ -37,6 +37,8 @@ import { History } from "@/lib/score/history";
 import { keyAlteration } from "@/lib/score/keys";
 import {
   appendMasterBar,
+  insertMasterBar,
+  removeMasterBar,
   barContent,
   cloneBeat,
   cloneNote,
@@ -524,8 +526,8 @@ export class ScoreEditor {
 
   /**
    * Moves to the next or previous beat. Past the last beat, it adds a beat
-   * (when the bar still has room) or a new bar at the end of the song, so
-   * music can be typed without reaching for the mouse.
+   * (when the bar still has room) or a new bar at the end of the song (even when the last bar
+   * is empty, as in Guitar Pro), so music can be typed without reaching for the mouse.
    */
   moveBeat(step: 1 | -1, extend = false) {
     const from: BeatPosition = { bar: this._cursor.bar, beat: this._cursor.beat };
@@ -544,7 +546,8 @@ export class ScoreEditor {
     } else if (c.bar < this.staff.bars.length - 1) {
       c.bar++;
       c.beat = 0;
-    } else if (!extend && this.hasWrittenMusic(this.beatAt())) {
+    } else if (!extend) {
+      // Like Guitar Pro: past the last beat of the last bar, a new bar opens.
       this.addBarAtEnd();
       return;
     }
@@ -1323,6 +1326,102 @@ export class ScoreEditor {
         this._selection = null;
       },
     );
+  }
+
+  /**
+   * Inserts an empty bar before or after the bar `at` (default: the cursor's), in every track,
+   * with that bar's time signature, and puts the cursor in it.
+   */
+  insertBar(where: "before" | "after", at = this._cursor.bar) {
+    if (!this.score.masterBars[at]) return;
+    const index = where === "before" ? at : at + 1;
+    this.run(
+      "Insert bar",
+      () => this.structureTargets(),
+      () => {
+        insertMasterBar(this.score, index, at);
+        this.placeCursorInBar(index);
+      },
+      `Inserted bar ${index + 1}`,
+    );
+  }
+
+  /** Removes the bar `at` (default: the cursor's) from every track. A song keeps one bar. */
+  deleteBar(at = this._cursor.bar): boolean {
+    if (!this.score.masterBars[at]) return false;
+    if (this.score.masterBars.length < 2) {
+      this._message = "A song needs at least one bar";
+      this.emit("cursor");
+      return false;
+    }
+    this.run(
+      "Delete bar",
+      () => [...this.structureTargets(), ...masterBarContent(this.score, at, at + 1)],
+      () => {
+        removeMasterBar(this.score, at);
+        this.placeCursorInBar(Math.min(at, this.score.masterBars.length - 1));
+      },
+      `Deleted bar ${at + 1}`,
+    );
+    return true;
+  }
+
+  /** Copies the notes of the bar `at` (this track, this voice) to the clipboard. */
+  copyBar(at = this._cursor.bar, record = true) {
+    if (!this.score.masterBars[at]) return;
+    this._cursor.bar = at;
+    this._cursor.beat = 0;
+    const last = this.beatCount(at) - 1;
+    this._selection =
+      last > 0 ? { anchor: { bar: at, beat: 0 }, head: { bar: at, beat: last } } : null;
+    this.copy(record);
+  }
+
+  /** Copies the bar `at` and removes it from the song. */
+  cutBar(at = this._cursor.bar) {
+    if (!this.score.masterBars[at]) return;
+    this.copyBar(at, false);
+    track("cut");
+    this.deleteBar(at);
+  }
+
+  /**
+   * Inserts the copied bars as new bars after the bar `at` (default: the cursor's), keeping
+   * the music that is there. Other tracks get empty bars. Paste (Ctrl+V) writes over instead.
+   */
+  pasteBarsAfter(at = this._cursor.bar) {
+    const clipboard = this.clipboard;
+    if (!clipboard || !this.score.masterBars[at]) return;
+    const count = clipboard.bars.length;
+    const beats = clipboard.bars.flat().length;
+    this.run(
+      "Paste bars",
+      () => [
+        ...this.structureTargets(),
+        ...(this._cursor.voice < this.bar().voices.length ? [] : staffContent(this.staff)),
+      ],
+      () => {
+        ensureVoices(this.staff, this._cursor.voice + 1);
+        clipboard.bars.forEach((copied, i) => {
+          insertMasterBar(this.score, at + 1 + i, at + i);
+          const voice = this.bar(at + 1 + i).voices[this._cursor.voice]!;
+          voice.beats.splice(
+            0,
+            voice.beats.length,
+            ...copied.map((c) => this.convertBeat(c, clipboard.kind)),
+          );
+        });
+        this.placeCursorInBar(at + 1);
+        this._selection = null;
+      },
+      `Pasted ${count} ${count === 1 ? "bar" : "bars"} (${beats} ${beats === 1 ? "beat" : "beats"})`,
+    );
+  }
+
+  private placeCursorInBar(index: number) {
+    this._cursor.bar = index;
+    this._cursor.beat = 0;
+    this._selection = null;
   }
 
   /** Objects whose lists change when bars or tracks are added or removed. */

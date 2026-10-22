@@ -8,7 +8,7 @@ test.describe("Built with (start page)", () => {
     await expect(section.locator("img").first()).toBeVisible();
     await expect(section).toContainText("not affiliated with or endorsed by alphaTab");
     const headings = await app.getByRole("heading", { level: 2 }).allTextContents();
-    expect(headings[headings.length - 2]).toBe("Features");
+    expect(headings[headings.length - 3]).toBe("Features");
     await expect(section).toContainText("Made possible by open source.");
   });
 

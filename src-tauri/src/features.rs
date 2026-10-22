@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 const FEATURES: &str = include_str!("../../src/lib/features.json");
 
 /// Menu names of the flags, in menu order.
-const LABELS: [(&str, &str); 4] = [
+const LABELS: [(&str, &str); 5] = [
     ("audio-2-tab", "Audio to Tab"),
+    ("muscriptor-record", "Recording to Tab with AI"),
     ("record-2-tab", "Recording to Tab"),
     ("speech-2-tab", "Speech to Tab"),
     ("hum-2-accompaniment", "Hum to Accompaniment"),

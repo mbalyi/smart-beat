@@ -1,9 +1,6 @@
 use std::env;
 use std::path::Path;
 
-#[path = "src/service_url.rs"]
-mod service_url;
-
 /// Windows application manifest selecting Common Controls v6. Shared by the
 /// app binary (via tauri-build) and the test executables (below).
 const WINDOWS_MANIFEST: &str = "windows-app-manifest.xml";
@@ -13,7 +10,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SMART_BEAT_ANALYTICS_URL");
     println!("cargo:rerun-if-env-changed=SMART_BEAT_INSTALLER");
     embed_windows_manifest_in_tests();
-    transcription_service();
+    native_muscriptor();
     ensure_helper_placeholder();
 
     let windows = tauri_build::WindowsAttributes::new()
@@ -44,33 +41,79 @@ fn embed_windows_manifest_in_tests() {
     );
 }
 
-/// Import from Audio's server: Smart Beat's self-hosted MuScriptor (`option_env!` in
-/// src/transcription.rs). Release builds get `TRANSCRIPTION_SERVICE_URL` from a GitHub
-/// variable. Locally, an exported variable wins, else the repository's `.env` provides it.
-/// Without one, transcription is off.
-fn transcription_service() {
-    const NAME: &str = "TRANSCRIPTION_SERVICE_URL";
-    println!("cargo:rerun-if-env-changed={NAME}");
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo");
-    let dotenv = Path::new(&manifest_dir).join("../.env");
-    let dotenv_text = std::fs::read_to_string(&dotenv).ok();
-    if dotenv_text.is_some() {
-        println!("cargo:rerun-if-changed={}", dotenv.display());
+/// Builds the vendored muscriptor.cpp (native/, MIT) with ggml and links it statically. Needs
+/// CMake 3.24 or newer, a C++23 compiler and git with network access: ggml is fetched at the
+/// commit pinned in native/muscriptor/CMakeLists.txt. Metal shaders are compiled at run time, so
+/// no extra file ships next to the app.
+fn native_muscriptor() {
+    println!("cargo:rustc-check-cfg=cfg(muscriptor_native)");
+    println!("cargo:rerun-if-changed=native");
+    // Linux: the runners' GCC has no C++23 `<expected>`, and the engine is out of scope there
+    // (issue #150). The app builds without it and the AI features report that.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        return;
     }
-    let url = env::var(NAME)
-        .ok()
-        .map(|v| v.trim().to_owned())
-        .filter(|v| !v.is_empty())
-        .or_else(|| {
-            dotenv_text
-                .as_deref()
-                .and_then(|text| dotenv_value(text, NAME))
-        });
-    let Some(url) = url else {
+    println!("cargo:rustc-cfg=muscriptor_native");
+    let mut config = cmake::Config::new("native");
+    config
+        .profile("Release")
+        .define("MUSCRIPTOR_METAL_PRECOMPILED", "OFF")
+        .define("BUILD_TESTING", "OFF")
+        .build_target("sb_muscriptor");
+    let out = config.build();
+    let build = out.join("build");
+    link_static_libraries(&build);
+    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("macos") => {
+            println!("cargo:rustc-link-lib=c++");
+            link_clang_runtime();
+            for framework in ["Metal", "MetalKit", "Foundation", "CoreFoundation"] {
+                println!("cargo:rustc-link-lib=framework={framework}");
+            }
+        }
+        Ok("linux") => println!("cargo:rustc-link-lib=stdc++"),
+        _ => {}
+    }
+}
+
+/// ggml's Metal code uses `@available`, which calls `__isPlatformVersionAtLeast` from clang's
+/// runtime. Release builds link with `-nodefaultlibs`, so the runtime has to be named here.
+fn link_clang_runtime() {
+    let Ok(output) = std::process::Command::new("cc")
+        .arg("--print-file-name=libclang_rt.osx.a")
+        .output()
+    else {
         return;
     };
-    let url = service_url::check(&url).unwrap_or_else(|reason| panic!("{NAME} {reason}"));
-    println!("cargo:rustc-env={NAME}={url}");
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let path = Path::new(&path);
+    if let (true, Some(dir)) = (path.is_absolute() && path.exists(), path.parent()) {
+        println!("cargo:rustc-link-search=native={}", dir.display());
+        println!("cargo:rustc-link-lib=static=clang_rt.osx");
+    }
+}
+
+/// Links every static library CMake produced below `dir`.
+fn link_static_libraries(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            link_static_libraries(&path);
+            continue;
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let stem = name
+            .strip_prefix("lib")
+            .and_then(|n| n.strip_suffix(".a"))
+            .or_else(|| name.strip_suffix(".lib"));
+        if let (Some(stem), Some(parent)) = (stem, path.parent()) {
+            println!("cargo:rustc-link-search=native={}", parent.display());
+            println!("cargo:rustc-link-lib=static={stem}");
+        }
+    }
 }
 
 /// The plugin helper sidecar (`externalBin` in tauri.conf.json) is staged by
@@ -96,22 +139,4 @@ fn ensure_helper_placeholder() {
     {
         let _ = std::fs::write(&staged, []);
     }
-}
-
-/// `NAME=value` from a `.env` file. Accepts `export`, quotes and a trailing ` # comment`.
-fn dotenv_value(text: &str, name: &str) -> Option<String> {
-    text.lines().rev().find_map(|line| {
-        let line = line.trim();
-        let line = line.strip_prefix("export ").unwrap_or(line);
-        let value = line
-            .strip_prefix(name)?
-            .trim_start()
-            .strip_prefix('=')?
-            .trim();
-        let value = match value.chars().next() {
-            Some(quote @ ('"' | '\'')) => value[1..].split(quote).next().unwrap_or(""),
-            _ => value.split(" #").next().unwrap_or("").trim(),
-        };
-        (!value.is_empty()).then(|| value.to_owned())
-    })
 }

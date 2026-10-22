@@ -14,8 +14,6 @@ pub mod recent;
 pub mod recording;
 pub mod score_file;
 pub mod score_write;
-#[cfg(test)]
-mod service_url;
 pub mod startup;
 pub mod telemetry;
 pub mod transcription;
@@ -40,6 +38,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(zoom::ZoomState::default())
         .manage(menu_state::MenuStateStore::default())
         .manage(transcription::Dropped::default())
+        .manage(recording::muscriptor_model::DownloadRun::default())
         .manage(recording::RecordingRun::default())
         .setup(|app| {
             if app.try_state::<mixer::MixerStore>().is_none() {
@@ -101,11 +100,15 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::add_recent_file,
             commands::remove_recent_file,
             commands::clear_recent_files,
-            transcription::transcription_configured,
             transcription::read_transcription_audio,
             transcription::transcribe_audio,
             transcription::cancel_transcription,
             recording::transcribe_recording,
+            recording::muscriptor_model::muscriptor_status,
+            recording::muscriptor_model::accept_muscriptor_terms,
+            recording::muscriptor_model::download_muscriptor_model,
+            recording::muscriptor_model::cancel_muscriptor_download,
+            recording::muscriptor_model::delete_muscriptor_model,
             recording::cancel_recording_transcription,
             recording::piano_model::piano_model_status,
             recording::piano_model::download_piano_model,
@@ -172,6 +175,16 @@ pub fn run() {
         .expect("error while building Smart Beat")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                // Stop what the AI engine is doing first: a running transcription holds the model,
+                // and unloading it would wait for the end of the song. A download keeps its part.
+                if let Some(running) = app.try_state::<transcription::Running>() {
+                    running.cancel_all();
+                }
+                app.state::<recording::RecordingRun>().cancel();
+                app.state::<recording::muscriptor_model::DownloadRun>()
+                    .stop();
+                // ggml's Metal backend asserts at process exit while a model is still loaded.
+                recording::muscriptor::unload();
                 flush_on_quit(app);
             }
         });
