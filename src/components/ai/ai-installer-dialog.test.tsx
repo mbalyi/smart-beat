@@ -192,6 +192,57 @@ describe("AiInstallerDialog", () => {
     await screen.findByRole("heading", { name: "Everything is set up!" });
   });
 
+  it("keeps the size that failed to download, although another size is installed", async () => {
+    // Small is on this computer; Medium is the one that is being installed.
+    const small = statusWith(["small"]);
+    seedAiState({ ready: true, status: small });
+    tauri.muscriptorStatus.mockResolvedValue(small);
+    const { user } = await open();
+    await user.click(screen.getByRole("button", { name: "Choose a model" }));
+    await user.click(screen.getByRole("radio", { name: /Medium/ }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    tauri.downloadMuscriptorModel.mockRejectedValueOnce({ message: "The network dropped." });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("The network dropped.")).toBeInTheDocument();
+    // The refresh after the failure moved the chosen size back to Small; the dialog must not
+    // report Small as the result of this attempt.
+    expect(
+      screen.queryByRole("heading", { name: "Everything is set up!" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Downloading" })).toBeInTheDocument();
+    expect(screen.getByText(/Downloading Medium/)).toBeInTheDocument();
+
+    // Try again retries the same size, and only its success ends the install.
+    tauri.downloadMuscriptorModel.mockResolvedValueOnce(statusWith(["small", "medium"]));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("heading", { name: "Everything is set up!" });
+    expect(tauri.downloadMuscriptorModel).toHaveBeenNthCalledWith(
+      2,
+      "medium",
+      expect.any(Function),
+    );
+    expect(screen.getByText(/MuScriptor \(Medium\) is now on this computer/)).toBeInTheDocument();
+  });
+
+  it("keeps a stopped download on its retry step, naming the size that was stopped", async () => {
+    const small = statusWith(["small"]);
+    seedAiState({ ready: true, status: small });
+    tauri.muscriptorStatus.mockResolvedValue(small);
+    const { user } = await open();
+    await user.click(screen.getByRole("button", { name: "Choose a model" }));
+    await user.click(screen.getByRole("radio", { name: /Medium/ }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    tauri.downloadMuscriptorModel.mockRejectedValueOnce({ message: "Download stopped." });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(
+      screen.queryByRole("heading", { name: "Everything is set up!" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Downloading Medium/)).toBeInTheDocument();
+  });
+
   it("stops a running download when it is closed, and returns the user", async () => {
     const back = vi.fn();
     onInstallerReturn("record", back);

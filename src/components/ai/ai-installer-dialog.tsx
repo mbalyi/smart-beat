@@ -40,6 +40,7 @@ import {
   useAiState,
 } from "@/lib/ai/ai-store";
 import type { AiState } from "@/lib/ai/ai-store";
+import type { MuscriptorSize } from "@/lib/tauri";
 import { downloadText, sizeInfo } from "@/lib/ai/muscriptor-sizes";
 import { MUSCRIPTOR } from "@/lib/credits";
 import { cn } from "@/lib/utils";
@@ -97,27 +98,32 @@ export function AiInstallerDialog() {
 function Installer({ ai, close }: { ai: AiState; close: () => void }) {
   const { returnTo } = ai.installer;
   const [chosen, setStep] = useState<Step>("about");
+  // The size an install was started for. A failed or stopped download makes the store fall back
+  // to a size that is installed, so the download step keeps naming and retrying this one.
+  const [attempt, setAttempt] = useState<MuscriptorSize | null>(null);
+  const target = chosen === "download" && attempt ? attempt : ai.size;
   // null: untouched, so the boxes follow the terms on file (already accepted: ticked).
   const [acceptedBox, setAccepted] = useState<boolean | null>(null);
   const [rightsBox, setRights] = useState<boolean | null>(null);
   // The terms are on file per model size: the boxes follow the size that is being installed.
-  const onFile = hasTerms(ai);
+  const onFile = hasTerms(ai, target);
   const accepted = acceptedBox ?? onFile;
   const rights = rightsBox ?? onFile;
   // The confirmations appear once the model card was opened, so they cannot be ticked unread.
   // Terms already on file need no reading again.
   const [cardOpened, setCardOpened] = useState(false);
   const showBoxes = cardOpened || onFile;
-  const installed = isInstalled(ai, ai.size);
-  // The download ended: on to the last step; a failure stays on the download step with its error.
+  const installed = isInstalled(ai, target);
+  // The download of that size ended: on to the last step. A failure or a stop stays on the
+  // download step, whatever else is installed.
   const step: Step = chosen === "download" && !ai.download && installed ? "done" : chosen;
 
   useEffect(() => {
     void refreshAi();
   }, []);
 
-  const info = sizeInfo(ai.size);
-  const bytes = ai.status?.sizes.find((s) => s.size === ai.size)?.bytes;
+  const info = sizeInfo(target);
+  const bytes = ai.status?.sizes.find((s) => s.size === target)?.bytes;
   const size = bytes ? downloadText(bytes) : `${info.megabytes} MB`;
   const downloading = ai.download !== null;
   const index = STEPS.indexOf(step);
@@ -125,8 +131,9 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
   const back = returnTo === "audio" ? "Import from Audio" : returnTo ? "recording" : null;
 
   const start = () => {
+    setAttempt(target);
     setStep("download");
-    void installModel(ai.size, rights);
+    void installModel(target, rights);
   };
   const next = () => {
     if (step === "terms" || (step === "download" && !downloading && !installed)) start();
