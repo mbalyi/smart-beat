@@ -1,6 +1,12 @@
 import capability from "../../src-tauri/capabilities/default.json";
+import catalogueSource from "../../src-tauri/src/audio/soundfonts.rs?raw";
 import { ALPHATAB, CREDIT_URLS, OTHER_CREDITS } from "@/lib/credits";
 import { PROJECT_LINKS } from "@/lib/project-info";
+
+// The bank pages live in the Rust catalogue; read them from there so the two cannot drift apart.
+const CATALOGUE_PAGES = [...catalogueSource.matchAll(/^\s*page: "([^"]+)",$/gm)].map(
+  (match) => match[1]!,
+);
 
 describe("credits", () => {
   const opener = capability.permissions.find(
@@ -21,10 +27,15 @@ describe("credits", () => {
     }
   });
 
+  it("reads every recommended bank page from the catalogue", () => {
+    expect(CATALOGUE_PAGES.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(CATALOGUE_PAGES).size).toBe(CATALOGUE_PAGES.length);
+  });
+
   it("is exactly what the app is allowed to open: no link that does nothing, no extra address", () => {
     expect(opener).toBeDefined();
     expect(opener!.allow.map((entry) => entry.url).sort()).toEqual(
-      [...CREDIT_URLS, ...PROJECT_LINKS].sort(),
+      [...CREDIT_URLS, ...PROJECT_LINKS, ...CATALOGUE_PAGES].sort(),
     );
   });
 });

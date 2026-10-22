@@ -105,6 +105,26 @@ test.describe("SoundFonts (#81)", () => {
     await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
   });
 
+  test("opens a bank's own page from its source link", async ({ app }) => {
+    await openSong(app);
+    const dialog = await openDialog(app);
+    await dialog
+      .getByRole("link", {
+        name: "MuseScore General: read the details and licence on musescore.org",
+      })
+      .click();
+    await expect
+      .poll(() => app.evaluate(() => window.__ipcCalls.map((call) => call.cmd)))
+      .toContain("plugin:opener|open_url");
+    const call = await app.evaluate(() =>
+      window.__ipcCalls.find((c) => c.cmd === "plugin:opener|open_url"),
+    );
+    expect(call?.args).toMatchObject({
+      url: "https://musescore.org/en/handbook/3/soundfonts-and-sfz-files",
+    });
+    await expect(dialog).toBeVisible();
+  });
+
   test("shows progress, lets the user cancel and then try again", async ({ app }) => {
     await openSong(app);
     await app.evaluate(() => (window.__soundfonts.hold = true));
