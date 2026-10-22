@@ -380,48 +380,68 @@ fn transcribe(
     })
 }
 
-/// The `instrument-ids.json` id that fits a General MIDI program.
+/// The MIDI program the model emits for each instrument group, by group id: the
+/// `GROUP_REPRESENTATIVE` table of `native/muscriptor/src/instrument_groups.inc`. A group
+/// is not a General MIDI family (group 1, the electric piano, is program 2), and the model
+/// emits only the representative. A test reads the `.inc` file and fails if this drifts.
+const GROUP_REPRESENTATIVE: [u8; 66] = [
+    0, 2, 8, 16, 24, 26, 29, 32, 33, 40, 41, 42, 43, 46, 47, 48, 50, 52, 55, 56, 57, 58, 60, 61,
+    64, 66, 67, 68, 69, 70, 71, 72, 80, 88, 100, 101, 96, 97, 98, 99, 102, 103, 104, 105, 106, 107,
+    108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126,
+    127,
+];
+
+/// The `instrument-ids.json` ids of the named groups 0 to 33, by group id. The groups after
+/// them have no id of their own (drums are group 36, told apart by the drum flag).
+const GROUP_IDS: [&str; 34] = [
+    "acoustic_piano",
+    "electric_piano",
+    "chromatic_percussion",
+    "organ",
+    "acoustic_guitar",
+    "clean_electric_guitar",
+    "distorted_electric_guitar",
+    "acoustic_bass",
+    "electric_bass",
+    "violin",
+    "viola",
+    "cello",
+    "contrabass",
+    "orchestral_harp",
+    "timpani",
+    "string_ensemble",
+    "synth_strings",
+    "voice",
+    "orchestra_hit",
+    "trumpet",
+    "trombone",
+    "tuba",
+    "french_horn",
+    "brass_section",
+    "soprano_and_alto_sax",
+    "tenor_sax",
+    "baritone_sax",
+    "oboe",
+    "english_horn",
+    "bassoon",
+    "clarinet",
+    "flutes",
+    "synth_lead",
+    "synth_pad",
+];
+
+/// The `instrument-ids.json` id of the instrument group the model put a note in, found by the
+/// program it emits for that group. A program no group emits has no id: "other".
 fn instrument_id(note: &ModelNote) -> &'static str {
     if note.is_drum {
         return "drums";
     }
-    match note.program {
-        0..=3 => "acoustic_piano",
-        4..=7 => "electric_piano",
-        8..=15 => "chromatic_percussion",
-        16..=23 => "organ",
-        24..=25 => "acoustic_guitar",
-        26..=28 => "clean_electric_guitar",
-        29..=31 => "distorted_electric_guitar",
-        32 => "acoustic_bass",
-        33..=39 => "electric_bass",
-        40 => "violin",
-        41 => "viola",
-        42 => "cello",
-        43 => "contrabass",
-        44..=45 | 48..=49 => "string_ensemble",
-        46 => "orchestral_harp",
-        47 => "timpani",
-        50..=51 => "synth_strings",
-        52..=54 => "voice",
-        55 => "orchestra_hit",
-        56 | 59 => "trumpet",
-        57 => "trombone",
-        58 => "tuba",
-        60 => "french_horn",
-        61..=63 => "brass_section",
-        64..=65 => "soprano_and_alto_sax",
-        66 => "tenor_sax",
-        67 => "baritone_sax",
-        68 => "oboe",
-        69 => "english_horn",
-        70 => "bassoon",
-        71 => "clarinet",
-        72..=79 => "flutes",
-        80..=87 => "synth_lead",
-        88..=95 => "synth_pad",
-        _ => "other",
-    }
+    GROUP_REPRESENTATIVE
+        .iter()
+        .position(|&program| program == note.program)
+        .and_then(|group| GROUP_IDS.get(group))
+        .copied()
+        .unwrap_or("other")
 }
 
 fn preview_notes(notes: &[ModelNote]) -> Vec<Note> {
@@ -438,7 +458,8 @@ fn preview_notes(notes: &[ModelNote]) -> Vec<Note> {
 }
 
 /// A Standard MIDI file (format 1) of the notes: one track per decoded program, drums on
-/// channel 10. The tempo is a fixed 120 beats per minute, so the notes keep their real time
+/// channel 10. Every melodic track has a channel of its own; past the 15 melodic channels of a
+/// port the next tracks go to a further port (`melodic_slot`). The tempo is a fixed 120 beats per minute, so the notes keep their real time
 /// (960 ticks per second); the page's import path lays them on a grid.
 fn midi_file(notes: &[ModelNote]) -> Vec<u8> {
     const TICKS_PER_SECOND: f64 = 960.0;
@@ -463,20 +484,22 @@ fn midi_file(notes: &[ModelNote]) -> Vec<u8> {
     out.extend_from_slice(&480u16.to_be_bytes());
     // Tempo track: 120 bpm.
     push_track(&mut out, &[(0, vec![0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20])]);
-    let mut channel = 0u8;
+    let mut melodic = 0usize;
     for ((is_drum, program), list) in tracks {
-        let ch = if is_drum {
-            9
+        let (port, ch) = if is_drum {
+            (0, 9)
         } else {
-            if channel == 9 {
-                channel += 1;
-            }
-            let ch = channel % 16;
-            channel += 1;
-            ch
+            let slot = melodic_slot(melodic);
+            melodic += 1;
+            slot
         };
         // (tick, order, event): note-offs sort before note-ons at the same tick.
         let mut events: Vec<(u64, u8, Vec<u8>)> = Vec::new();
+        // The first port is the default; a later one is named, so players with several ports
+        // keep the programs on a channel number apart.
+        if port > 0 {
+            events.push((0, 0, vec![0xFF, 0x21, 0x01, port]));
+        }
         if !is_drum {
             events.push((0, 0, vec![0xC0 | ch, program]));
         }
@@ -491,6 +514,19 @@ fn midi_file(notes: &[ModelNote]) -> Vec<u8> {
         push_track(&mut out, &events);
     }
     out
+}
+
+/// The MIDI port and channel of the `index`-th melodic track. A port has 16 channels and channel
+/// 10 (index 9) belongs to the drums, so each port holds 15 melodic tracks; the next track
+/// starts a new port instead of reusing a channel. A file has at most 128 melodic programs, so
+/// the port number always fits in a byte.
+fn melodic_slot(index: usize) -> (u8, u8) {
+    const MELODIC_CHANNELS: usize = 15;
+    let channel = (index % MELODIC_CHANNELS) as u8;
+    (
+        (index / MELODIC_CHANNELS) as u8,
+        channel + u8::from(channel >= 9),
+    )
 }
 
 /// Writes one `MTrk` chunk from events at absolute ticks.
@@ -594,6 +630,64 @@ mod tests {
         assert_eq!(name(33, false), "electric_bass");
         assert_eq!(name(128, true), "drums");
         assert_eq!(name(120, false), "other");
+        // Group 1 is the electric piano and the model emits program 2 for it.
+        assert_eq!(name(2, false), "electric_piano");
+        // A program no group emits has no id.
+        assert_eq!(name(1, false), "other");
+    }
+    #[test]
+    fn two_piano_groups_keep_two_labels() {
+        let notes = [
+            model_note(0.0, 1.0, 60, 0, false),
+            model_note(0.0, 1.0, 64, 2, false),
+        ];
+        let labels: Vec<_> = preview_notes(&notes)
+            .into_iter()
+            .map(|n| n.instrument.unwrap())
+            .collect();
+        assert_eq!(labels, ["acoustic_piano", "electric_piano"]);
+    }
+    /// Reads the native group table, so a change to it fails here instead of mislabelling notes.
+    #[test]
+    fn the_group_tables_match_the_native_ones() {
+        let inc = include_str!("../native/muscriptor/src/instrument_groups.inc");
+        let block = |start: &str| {
+            let from = inc.find(start).unwrap_or_else(|| panic!("{start} is gone"));
+            let rest = &inc[from..];
+            let open = rest.find("{{").unwrap() + 2;
+            let close = rest.find("}}").unwrap();
+            rest[open..close].to_owned()
+        };
+        let representatives: Vec<u8> = block("GROUP_REPRESENTATIVE")
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap())
+            .collect();
+        assert_eq!(representatives, GROUP_REPRESENTATIVE);
+        // NAMED_GROUPS entries are {"name", group id}: the named groups 0 to 33 are in id
+        // order, then the drums (group 36).
+        let named = block("NAMED_GROUPS");
+        let named: Vec<(&str, usize)> = named
+            .split('{')
+            .filter_map(|entry| {
+                let (name, id) = entry.split_once(',')?;
+                Some((
+                    name.trim().trim_matches('"'),
+                    id.trim()
+                        .trim_end_matches([',', '}', ' ', '\n'])
+                        .parse()
+                        .ok()?,
+                ))
+            })
+            .collect();
+        for (name, id) in named.iter().filter(|(_, id)| *id < GROUP_IDS.len()) {
+            assert_eq!(GROUP_IDS[*id], *name, "group {id}");
+        }
+        assert_eq!(
+            named.iter().filter(|(_, id)| *id < GROUP_IDS.len()).count(),
+            GROUP_IDS.len()
+        );
+        assert!(named.contains(&("drums", 36)));
     }
     #[test]
     fn writes_a_midi_file_with_a_track_per_program() {
@@ -623,6 +717,116 @@ mod tests {
         );
         // 0.5 s is 480 ticks, the variable length 0x83 0x60.
         assert!(file.windows(2).any(|w| w == [0x83, 0x60]));
+    }
+    /// Where each track of a file the writer made plays: (port, channel, drums). The writer
+    /// uses explicit status bytes, so no running status is read.
+    fn slots_of(file: &[u8]) -> Vec<(u8, u8, bool)> {
+        fn variable(bytes: &[u8], at: &mut usize) -> usize {
+            let mut value = 0usize;
+            loop {
+                let byte = bytes[*at];
+                *at += 1;
+                value = (value << 7) | usize::from(byte & 0x7F);
+                if byte & 0x80 == 0 {
+                    return value;
+                }
+            }
+        }
+        let mut slots = Vec::new();
+        let mut at = 14;
+        while at < file.len() {
+            assert_eq!(&file[at..at + 4], b"MTrk");
+            let length = u32::from_be_bytes(file[at + 4..at + 8].try_into().unwrap()) as usize;
+            let (start, end) = (at + 8, at + 8 + length);
+            let mut cursor = start;
+            let (mut port, mut channel) = (0u8, None);
+            while cursor < end {
+                variable(file, &mut cursor);
+                let status = file[cursor];
+                cursor += 1;
+                match status {
+                    0xFF => {
+                        let kind = file[cursor];
+                        cursor += 1;
+                        let len = variable(file, &mut cursor);
+                        if kind == 0x21 {
+                            port = file[cursor];
+                        }
+                        cursor += len;
+                    }
+                    0xC0..=0xCF => {
+                        channel = Some(status & 0x0F);
+                        cursor += 1;
+                    }
+                    0x80..=0x9F => {
+                        channel = Some(status & 0x0F);
+                        cursor += 2;
+                    }
+                    other => panic!("unexpected status {other:#x}"),
+                }
+            }
+            if let Some(channel) = channel {
+                slots.push((port, channel, channel == 9));
+            }
+            at = end;
+        }
+        slots
+    }
+    fn programs(count: u8) -> Vec<ModelNote> {
+        (0..count)
+            .map(|program| model_note(0.0, 1.0, 60, program, false))
+            .collect()
+    }
+    #[test]
+    fn fifteen_melodic_programs_get_fifteen_channels_without_the_drum_channel() {
+        let slots = slots_of(&midi_file(&programs(15)));
+        let mut channels: Vec<u8> = slots.iter().map(|(_, channel, _)| *channel).collect();
+        channels.sort_unstable();
+        assert_eq!(
+            channels,
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
+        );
+        assert!(slots.iter().all(|(port, _, _)| *port == 0));
+    }
+    #[test]
+    fn more_programs_move_to_further_ports_instead_of_reusing_a_channel() {
+        for count in [16u8, 20, 40, 128] {
+            let mut notes = programs(count);
+            notes.push(model_note(0.0, 0.01, 38, 128, true));
+            let slots = slots_of(&midi_file(&notes));
+            let melodic: Vec<_> = slots.iter().filter(|(_, _, drums)| !drums).collect();
+            assert_eq!(melodic.len(), usize::from(count));
+            let mut seen = std::collections::HashSet::new();
+            for (port, channel, _) in &melodic {
+                assert_ne!(*channel, 9, "no melodic track on the drum channel");
+                assert!(
+                    seen.insert((*port, *channel)),
+                    "{count}: a channel is shared"
+                );
+            }
+            // The drums stay on channel 10 of the first port.
+            assert_eq!(slots.iter().filter(|(_, _, drums)| *drums).count(), 1);
+            assert!(slots.contains(&(0, 9, true)));
+            assert_eq!(
+                melodic.iter().map(|(port, _, _)| *port).max().unwrap(),
+                (count as usize - 1) as u8 / 15,
+                "{count}: 15 melodic channels per port"
+            );
+        }
+    }
+    #[test]
+    fn the_first_port_is_the_default_and_later_ones_are_named() {
+        let file = midi_file(&programs(16));
+        assert_eq!(
+            file.windows(4)
+                .filter(|w| *w == [0xFF, 0x21, 0x01, 1])
+                .count(),
+            1
+        );
+        assert_eq!(
+            file.windows(3).filter(|w| w[..2] == [0xFF, 0x21]).count(),
+            1
+        );
     }
     #[test]
     fn an_empty_result_is_still_a_valid_file() {
