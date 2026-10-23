@@ -1,7 +1,7 @@
 import { model } from "@coderline/alphatab";
 import { fireEvent, screen, within } from "@testing-library/react";
 
-import { TrackList, type TrackActions } from "@/components/shell/track-list";
+import { NOTES_STORAGE_KEY, TrackList, type TrackActions } from "@/components/shell/track-list";
 import { shortText } from "@/lib/score/tempo";
 import { mixFromScore } from "@/lib/score/mixer";
 import { parseScore } from "@/lib/score/score";
@@ -194,6 +194,46 @@ describe("TrackList", () => {
     const markers = screen.getByTestId("tempo-markers");
     expect(markers).toHaveTextContent("♩60");
     expect(markers).toHaveTextContent("♩120");
+  });
+
+  it("hides and shows the sections, tempo markers and texts with the eye toggle", () => {
+    localStorage.removeItem(NOTES_STORAGE_KEY);
+    const { score } = parseScore(fixtureBytes("practice-song.gp"));
+    score.tracks[1]!.staves[0]!.bars[2]!.voices[0]!.beats[0]!.text = "Valami";
+    score.masterBars[2]!.section = Object.assign(new model.Section(), {
+      marker: "",
+      text: "Verse",
+    });
+    setup({ score });
+    const eye = screen.getByRole("button", {
+      name: "Show sections, tempo markers and texts",
+    });
+    expect(eye).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("tempo-markers")).toBeInTheDocument();
+
+    fireEvent.click(eye);
+    expect(eye).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByTestId("tempo-markers")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("bar-texts")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("bar-sections")).not.toBeInTheDocument();
+    expect(localStorage.getItem(NOTES_STORAGE_KEY)).toBe("hidden");
+
+    fireEvent.click(eye);
+    expect(eye).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("tempo-markers")).toBeInTheDocument();
+    expect(screen.getByTestId("bar-texts")).toBeInTheDocument();
+    expect(screen.getByTestId("bar-sections")).toBeInTheDocument();
+    localStorage.removeItem(NOTES_STORAGE_KEY);
+  });
+
+  it("remembers that the rows above the bars were hidden", () => {
+    localStorage.setItem(NOTES_STORAGE_KEY, "hidden");
+    setup();
+    expect(screen.queryByTestId("tempo-markers")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show sections, tempo markers and texts" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    localStorage.removeItem(NOTES_STORAGE_KEY);
   });
 
   it("shows the texts of the bars above all the tracks", () => {

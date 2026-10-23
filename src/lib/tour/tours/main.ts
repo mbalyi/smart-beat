@@ -79,6 +79,15 @@ export const mainTour: TourDefinition = {
       placement: "top",
     },
     {
+      id: "track-notes",
+      target: "track-notes",
+      title: "Sections, tempo markers and texts",
+      body: "The eye at the right of the Tracks header shows or hides the section names, tempo markers and texts above the bars. Hide them to get the rows back for the tracks.",
+      needsSong: true,
+      show: { mixer: true },
+      placement: "top",
+    },
+    {
       id: "soundfonts",
       target: "soundfonts",
       title: "More instrument sounds",

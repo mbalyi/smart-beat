@@ -104,6 +104,26 @@ export const BAR_PX = 21;
 /** Width of the sticky name and mixer column left of the bar grid (`w-[30rem]`), in rem. */
 const NAME_COLUMN_REM = 30;
 
+/** Remembers whether the rows above the bars (sections, tempo markers, texts) are shown. */
+export const NOTES_STORAGE_KEY = "smart-beat:track-notes";
+
+/** The rows above the bars are shown unless the user hid them. */
+function readNotesShown(): boolean {
+  try {
+    return localStorage.getItem(NOTES_STORAGE_KEY) !== "hidden";
+  } catch {
+    return true;
+  }
+}
+
+function storeNotesShown(shown: boolean) {
+  try {
+    localStorage.setItem(NOTES_STORAGE_KEY, shown ? "shown" : "hidden");
+  } catch {
+    // Not remembered: shown next time.
+  }
+}
+
 /** Width of the controls next to the bar grid. */
 const CONTROLS =
   "grid grid-cols-[minmax(7rem,1fr)_var(--eye-col,2rem)_3.5rem_minmax(5rem,1.5fr)_minmax(3.5rem,1fr)_4.5rem] items-center gap-x-2";
@@ -538,6 +558,7 @@ export function TrackList({
 }) {
   const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
   const [colorTrack, setColorTrack] = useState<number | null>(null);
+  const [notesShown, setNotesShown] = useState(readNotesShown);
   const dragged = useRef<number | null>(null);
   const scroller = useRef<HTMLElement>(null);
   // The user scrolled the panel by hand: leave it alone until the next play or seek (#178).
@@ -600,6 +621,25 @@ export function TrackList({
       <div className="flex min-w-max flex-col">
         <div className="sticky top-0 z-10 flex border-b bg-card">
           <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 flex-col gap-0.5 border-r bg-card px-2 py-1">
+            <Toggle
+              size="sm"
+              variant="outline"
+              pressed={notesShown}
+              onPressedChange={(value) => {
+                setNotesShown(value);
+                storeNotesShown(value);
+              }}
+              aria-label="Show sections, tempo markers and texts"
+              title={
+                notesShown
+                  ? "Hide sections, tempo markers and texts"
+                  : "Show sections, tempo markers and texts"
+              }
+              data-tour="track-notes"
+              className="absolute top-1 right-2 size-6 min-w-6 px-0"
+            >
+              <EyeIcon className="size-3.5" />
+            </Toggle>
             <div className={cn(CONTROLS, "text-xs text-muted-foreground")}>
               <div className="flex items-center gap-1">
                 <Button
@@ -644,7 +684,7 @@ export function TrackList({
             </div>
           </div>
           <div className="flex flex-col justify-center">
-            {sections.size > 0 && (
+            {notesShown && sections.size > 0 && (
               // Section names (Verse, Chorus…) at the bar they start, as in the score (#178).
               <ul
                 aria-label="Sections of the song"
@@ -665,26 +705,28 @@ export function TrackList({
               </ul>
             )}
             {/* Tempo markers (GP8 shows them above the bar grid); the score shows them too. */}
-            <div
-              data-testid="tempo-markers"
-              className="grid h-3.5 items-center gap-px text-[9px] leading-none whitespace-nowrap text-amber-700 tabular-nums dark:text-amber-400"
-              style={{ gridTemplateColumns: `repeat(${barCount}, ${BAR_WIDTH})` }}
-            >
-              {numbers.map((n) => {
-                const marker = tempos.get(n - 1);
-                return marker ? (
-                  <span
-                    key={n}
-                    className="overflow-visible"
-                    title={`Bar ${n}: ${marker.label ? `${marker.label}, ` : ""}${marker.bpm} BPM`}
-                  >
-                    ♩{marker.bpm}
-                  </span>
-                ) : (
-                  <span key={n} />
-                );
-              })}
-            </div>
+            {notesShown && (
+              <div
+                data-testid="tempo-markers"
+                className="grid h-3.5 items-center gap-px text-[9px] leading-none whitespace-nowrap text-amber-700 tabular-nums dark:text-amber-400"
+                style={{ gridTemplateColumns: `repeat(${barCount}, ${BAR_WIDTH})` }}
+              >
+                {numbers.map((n) => {
+                  const marker = tempos.get(n - 1);
+                  return marker ? (
+                    <span
+                      key={n}
+                      className="overflow-visible"
+                      title={`Bar ${n}: ${marker.label ? `${marker.label}, ` : ""}${marker.bpm} BPM`}
+                    >
+                      ♩{marker.bpm}
+                    </span>
+                  ) : (
+                    <span key={n} />
+                  );
+                })}
+              </div>
+            )}
             <div
               aria-hidden="true"
               className="grid items-center gap-px text-center text-[10px] text-muted-foreground tabular-nums"
@@ -694,7 +736,7 @@ export function TrackList({
                 <span key={n}>{n === 1 || n % 4 === 0 ? n : ""}</span>
               ))}
             </div>
-            {texts.size > 0 && (
+            {notesShown && texts.size > 0 && (
               // Texts written on the beats of any track, above all the tracks.
               <ul
                 aria-label="Texts in the song"

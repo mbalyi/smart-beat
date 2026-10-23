@@ -26,6 +26,14 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     since: "1.1.0",
   },
   {
+    id: "track-notes-toggle",
+    title: "Hide sections, tempo markers and texts",
+    summary:
+      "An eye in the Tracks header shows or hides the section names, tempo markers and texts above the bars, so the header can be as small as before.",
+    since: "1.0.2",
+    tour: "main",
+  },
+  {
     id: "stacked-tracks",
     title: "Several tracks at once",
     summary:
