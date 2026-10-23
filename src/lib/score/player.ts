@@ -47,7 +47,8 @@ import {
 import { DRUM_TAB_LINES } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
-import type { LoopRange } from "@/lib/score/practice";
+import { playCountInClicks, type ClickRun } from "@/lib/audio/count-in-clicks";
+import type { ClickSoundId, LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
 import { tempoAt } from "@/lib/score/structure";
 import {
@@ -865,13 +866,16 @@ export class ScorePlayer {
     this.applyLoop();
   }
 
-  /** A bar of clicks in the tempo and time of bar `index` (beat length at normal speed). */
-  private countInAt(index: number): { beats: number; beatSeconds: number } | null {
+  /** Clicks in the tempo and time of bar `index` (beat length at normal speed). */
+  private countInAt(
+    index: number,
+    beats: number | null = null,
+  ): { beats: number; beatSeconds: number } | null {
     const bar =
       this.score.masterBars[Math.max(0, Math.min(index, this.score.masterBars.length - 1))];
     if (!bar) return null;
     const beatSeconds = (60 / tempoAt(this.score, index)) * (4 / bar.timeSignatureDenominator);
-    return { beats: bar.timeSignatureNumerator, beatSeconds };
+    return { beats: beats ?? bar.timeSignatureNumerator, beatSeconds };
   }
 
   private applyLoop() {
@@ -955,32 +959,51 @@ export class ScorePlayer {
     this.api.playbackSpeed = percent / 100;
   }
 
-  setMetronome(on: boolean) {
-    this.api.metronomeVolume = on ? 1 : 0;
-    this.engine?.setMetronome(on ? 1 : 0);
+  /**
+   * Metronome: `volume` goes up to 3 (above the master volume). The native engine clicks in
+   * the chosen `sound`; alphaTab's synthesizer has one fixed click, and in the native engine
+   * it must stay silent so the click is not doubled.
+   */
+  setMetronome(on: boolean, volume = 1, sound: ClickSoundId = "classic") {
+    this.api.metronomeVolume = on && !this.engine ? volume : 0;
+    this.engine?.setClickSound(sound);
+    this.engine?.setMetronome(on ? volume : 0);
   }
 
+  /** The count-in is on, and for how many beats (null: the bar's time signature). */
+  private countInOn = false;
+  private countInBeats: number | null = null;
+  private countInVolume = 1;
+  /** The count-in clicks of the synthesizer path that wait for playback to start. */
+  private synthCount: { run: ClickRun | null; timer: ReturnType<typeof setTimeout> } | null = null;
+
   /**
-   * Count-in: one bar of clicks before the song. alphaTab's own count-in
-   * only exists in its synthesizer; the native engine plays and times its own
-   * (the song starts right after the last click, and so does the cursor).
+   * Count-in: `beats` clicks before the song (no value: one bar). alphaTab's own count-in
+   * only exists in its synthesizer and only counts one bar, so the synthesizer path clicks
+   * its own; the native engine plays and times its own (the song starts right after the last
+   * click, and so does the cursor).
    */
-  setCountIn(on: boolean) {
-    if (!this.engine) {
-      this.api.countInVolume = on ? 1 : 0;
-      return;
-    }
+  setCountIn(on: boolean, beats?: number, volume = 1) {
+    this.countInOn = on;
+    this.countInBeats = beats ?? null;
+    this.countInVolume = volume;
     this.api.countInVolume = 0;
+    if (!on) this.cancelSynthCount();
+    if (!this.engine) return;
     this.engine.countIn = on
       ? () => {
           const index = Math.max(0, Math.min(this.lastBar, this.score.masterBars.length - 1));
-          const bar = this.score.masterBars[index];
-          if (!bar) return null;
-          const beatSeconds =
-            (60 / tempoAt(this.score, index)) * (4 / bar.timeSignatureDenominator);
-          return { beats: bar.timeSignatureNumerator, beatSeconds };
+          return this.countInAt(index, this.countInBeats);
         }
       : null;
+  }
+
+  private cancelSynthCount() {
+    if (!this.synthCount) return;
+    clearTimeout(this.synthCount.timer);
+    this.synthCount.run?.cancel();
+    this.synthCount = null;
+    this.playing = false; // the song never started: Play must start it, not pause it
   }
 
   /**
@@ -1240,8 +1263,35 @@ export class ScorePlayer {
 
   playPause() {
     if (!this.ready) return;
+    if (this.synthCount) {
+      // Paused while the count-in clicks.
+      this.cancelSynthCount();
+      this.playing = false;
+      return;
+    }
     this.flushMidi();
     this.restartPending = false;
+    if (!this.playing && !this.engine && this.countInOn) {
+      const clicks = this.countInAt(
+        Math.max(0, Math.min(this.lastBar, this.score.masterBars.length - 1)),
+        this.countInBeats,
+      );
+      if (clicks) {
+        const beatSeconds = clicks.beatSeconds / this.api.playbackSpeed;
+        this.playing = true;
+        this.synthCount = {
+          run: playCountInClicks(clicks.beats, beatSeconds, this.countInVolume),
+          timer: setTimeout(
+            () => {
+              this.synthCount = null;
+              this.api.playPause();
+            },
+            clicks.beats * beatSeconds * 1000,
+          ),
+        };
+        return;
+      }
+    }
     this.playing = !this.playing;
     this.api.playPause();
   }
@@ -1286,8 +1336,10 @@ export class ScorePlayer {
       this.resume = { tick: restart ? this.appliedRange!.startTick : 0, play: false };
     this.playing = false;
     this.delayer.clear();
+    this.cancelSynthCount();
     this.api.stop();
     if (restart) this.api.tickPosition = this.appliedRange!.startTick;
+    else this.scrollToBar(0); // Stop shows the start of the score again; Pause stays where it is
     this.restartPending = restart;
     this.callbacks.onActiveBeatsChange?.([]);
     return restart;

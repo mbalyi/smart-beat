@@ -1,11 +1,11 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { initialPractice, type PracticeState } from "@/lib/score/practice";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 
-function setup(practice: Partial<PracticeState> = {}) {
+function setup(practice: Partial<PracticeState> = {}, extra: { nativeAudio?: boolean } = {}) {
   const props = {
     practice: { ...initialPractice(), ...practice },
     barCount: 8,
@@ -14,8 +14,12 @@ function setup(practice: Partial<PracticeState> = {}) {
     onSpeedChange: vi.fn(),
     onMetronomeChange: vi.fn(),
     onCountInChange: vi.fn(),
+    onCountInBeatsChange: vi.fn(),
+    onMetronomeSoundChange: vi.fn(),
+    onMetronomeVolumeChange: vi.fn(),
     onOpenTrainer: vi.fn(),
     onStopTrainer: vi.fn(),
+    ...extra,
   };
   return { ...renderWithProviders(<PracticeControls {...props} />), props };
 }
@@ -75,6 +79,69 @@ describe("PracticeControls", () => {
     setup({ metronome: true, countIn: true });
     expect(screen.getByRole("button", { name: "Count-in" }).className).toContain("bg-[#9a2ae6]");
     expect(screen.getByRole("button", { name: "Metronome" }).className).toContain("bg-[#9a2ae6]");
+  });
+
+  describe("settings popups (#182)", () => {
+    it("shows the gears only while Metronome and Count-in are on", () => {
+      const { unmount } = setup();
+      expect(screen.queryByRole("button", { name: "Click sound and volume" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Beats to count in" })).toBeNull();
+      unmount();
+
+      setup({ metronome: true, countIn: true });
+      expect(screen.getByRole("button", { name: "Click sound and volume" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Beats to count in" })).toBeInTheDocument();
+    });
+
+    it("picks the number of beats to count in with the keyboard", async () => {
+      const { user, props } = setup({ countIn: true });
+      screen.getByRole("button", { name: "Beats to count in" }).focus();
+      await user.keyboard("{Enter}");
+      const select = await screen.findByRole("combobox", { name: "Beats to count in" });
+      expect(select).toHaveTextContent("4 beats");
+
+      await user.click(select);
+      expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+        "1 beat",
+        "2 beats",
+        "4 beats",
+        "6 beats",
+        "8 beats",
+        "12 beats",
+      ]);
+      await user.click(screen.getByRole("option", { name: "6 beats" }));
+      expect(props.onCountInBeatsChange).toHaveBeenCalledWith(6);
+    });
+
+    it("picks the click sound and a volume above the master volume", async () => {
+      const { user, props } = setup({ metronome: true, metronomeVolume: 1.5 });
+      await user.click(screen.getByRole("button", { name: "Click sound and volume" }));
+
+      const volume = await screen.findByRole("slider", { name: "Click volume" });
+      expect(volume).toHaveAttribute("max", "3");
+      expect(volume).toHaveAttribute("aria-valuetext", "150 percent");
+      fireEvent.change(volume, { target: { value: "3" } });
+      expect(props.onMetronomeVolumeChange).toHaveBeenLastCalledWith(3);
+
+      await user.click(screen.getByRole("combobox", { name: "Click sound" }));
+      expect(screen.getAllByRole("option")).toHaveLength(4);
+      await user.click(screen.getByRole("option", { name: "Cowbell" }));
+      expect(props.onMetronomeSoundChange).toHaveBeenCalledWith("cowbell");
+    });
+
+    it("explains that other sounds need the native engine", async () => {
+      const { user } = setup({ metronome: true }, { nativeAudio: false });
+      await user.click(screen.getByRole("button", { name: "Click sound and volume" }));
+      expect(await screen.findByText(/need the native audio engine/)).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Click sound" })).toBeDisabled();
+    });
+
+    it("has no accessibility violations with a popup open", async () => {
+      const { user } = setup({ metronome: true, countIn: true });
+      await user.click(screen.getByRole("button", { name: "Click sound and volume" }));
+      await screen.findByRole("slider", { name: "Click volume" });
+      await expectNoA11yViolations();
+    });
   });
 
   it("shows the Speed Trainer's progress and stops it", async () => {

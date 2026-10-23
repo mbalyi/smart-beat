@@ -8,6 +8,7 @@
 import { midi, type synth } from "@coderline/alphatab";
 
 import type { EffectSlot } from "@/lib/audio/effects";
+import type { ClickSoundId } from "@/lib/score/practice";
 import type { Score } from "@/lib/score/score";
 import {
   activateStoredSoundFont,
@@ -213,6 +214,7 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   private mixes: BusMix[] | null = null;
   private loop: { startTick: number; endTick: number } | null = null;
   private metronomeVolume: number | null = null;
+  private clickSound: ClickSoundId | null = null;
   private backing: BackingSource | null = null;
   /** The monitor track listens: the engine is read while paused too (its level meter). */
   private monitoring = false;
@@ -311,6 +313,9 @@ export class NativeEngine implements synth.IExternalMediaHandler {
       });
       if (this.metronomeVolume !== null) {
         await engineTransport({ type: "metronome", volume: this.metronomeVolume });
+      }
+      if (this.clickSound !== null) {
+        await engineTransport({ type: "clickSound", sound: this.clickSound });
       }
     }).catch((error) => this.callbacks.onError?.(asError(error)));
   }
@@ -554,6 +559,13 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   /** Ends the previewed notes of a channel. */
   previewStop(channel: number) {
     this.send({ type: "previewStop", channel });
+  }
+
+  /** The sound of the metronome and count-in clicks (#182). */
+  setClickSound(sound: ClickSoundId) {
+    this.clickSound = sound;
+    if (!this.ownsOrFree) return;
+    this.send({ type: "clickSound", sound });
   }
 
   setMetronome(volume: number) {

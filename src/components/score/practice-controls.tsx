@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   GaugeIcon,
   PauseIcon,
+  Settings2Icon,
   Repeat2Icon,
   SquareIcon,
   TimerIcon,
@@ -27,13 +28,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Toggle } from "@/components/ui/toggle";
 import {
+  CLICK_SOUNDS,
+  COUNT_IN_BEATS,
   DEFAULT_TRAINER,
+  MAX_METRONOME_VOLUME,
   MAX_SPEED,
   MIN_SPEED,
   normalizeRange,
   SPEED_PRESETS,
+  type ClickSoundId,
   type LoopRange,
   type PracticeState,
   type SpeedTrainer,
@@ -131,6 +137,10 @@ export function PracticeControls({
   onSpeedChange,
   onMetronomeChange,
   onCountInChange,
+  onCountInBeatsChange,
+  onMetronomeSoundChange,
+  onMetronomeVolumeChange,
+  nativeAudio = true,
   onRestartOnStopChange,
   onOpenTrainer,
   onStopTrainer,
@@ -144,6 +154,11 @@ export function PracticeControls({
   onSpeedChange: (percent: number) => void;
   onMetronomeChange: (on: boolean) => void;
   onCountInChange: (on: boolean) => void;
+  onCountInBeatsChange?: (beats: number) => void;
+  onMetronomeSoundChange?: (sound: ClickSoundId) => void;
+  onMetronomeVolumeChange?: (volume: number) => void;
+  /** Only the native engine can click in other sounds (#182). */
+  nativeAudio?: boolean;
   /** Stop inside a loop restarts it from the loop start (#93). */
   onRestartOnStopChange?: (on: boolean) => void;
   onOpenTrainer: () => void;
@@ -154,6 +169,9 @@ export function PracticeControls({
   sections?: readonly SongSection[];
 }) {
   const speedLabelId = useId();
+  const soundId = useId();
+  const volumeId = useId();
+  const beatsId = useId();
   const { loop, range, speed, trainer } = practice;
   const speeds = [...new Set<number>([...SPEED_PRESETS, speed])].sort((a, b) => a - b);
   const setRange = (next: LoopRange) => onRangeChange(normalizeRange(next, barCount));
@@ -261,24 +279,138 @@ export function PracticeControls({
       </div>
 
       <div className="flex items-center gap-1" data-tour="metronome">
-        <Toggle
-          variant="outline"
-          size="sm"
-          pressed={practice.metronome}
-          onPressedChange={onMetronomeChange}
-        >
-          <TimerIcon data-icon="inline-start" />
-          <span className="max-xl:sr-only">Metronome</span>
-        </Toggle>
-        <Toggle
-          variant="outline"
-          size="sm"
-          pressed={practice.countIn}
-          onPressedChange={onCountInChange}
-          title="Count one bar in before playing"
-        >
-          Count-in
-        </Toggle>
+        <span className="inline-flex items-center" role="group" aria-label="Metronome">
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={practice.metronome}
+            onPressedChange={onMetronomeChange}
+            className={practice.metronome && onMetronomeVolumeChange ? "rounded-r-none" : undefined}
+          >
+            <TimerIcon data-icon="inline-start" />
+            <span className="max-xl:sr-only">Metronome</span>
+          </Toggle>
+          {practice.metronome && onMetronomeVolumeChange && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="-ml-px rounded-l-none"
+                  aria-label="Click sound and volume"
+                  title="Click sound and volume"
+                >
+                  <Settings2Icon />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="flex w-64 flex-col gap-3"
+                align="start"
+                aria-label="Metronome click"
+              >
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor={soundId} className="text-sm font-medium">
+                    Click sound
+                  </label>
+                  <Select
+                    value={practice.metronomeSound}
+                    onValueChange={(value) => onMetronomeSoundChange?.(value as ClickSoundId)}
+                    disabled={!nativeAudio}
+                  >
+                    <SelectTrigger id={soundId} className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CLICK_SOUNDS.map((sound) => (
+                        <SelectItem key={sound.id} value={sound.id}>
+                          {sound.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {!nativeAudio && (
+                    <p className="text-xs text-muted-foreground">
+                      Other click sounds need the native audio engine.
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor={volumeId} className="flex justify-between text-sm font-medium">
+                    <span>Click volume</span>
+                    <span className="tabular-nums" aria-hidden="true">
+                      {Math.round(practice.metronomeVolume * 100)}%
+                    </span>
+                  </label>
+                  <input
+                    id={volumeId}
+                    type="range"
+                    min={0}
+                    max={MAX_METRONOME_VOLUME}
+                    step={0.05}
+                    value={practice.metronomeVolume}
+                    onChange={(event) => onMetronomeVolumeChange(Number(event.target.value))}
+                    aria-valuetext={`${Math.round(practice.metronomeVolume * 100)} percent`}
+                    className="w-full accent-primary"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    100% is as loud as the master volume; the click can go above it.
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+        </span>
+        <span className="inline-flex items-center" role="group" aria-label="Count-in">
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={practice.countIn}
+            onPressedChange={onCountInChange}
+            title="Count in before playing"
+            className={practice.countIn && onCountInBeatsChange ? "rounded-r-none" : undefined}
+          >
+            Count-in
+          </Toggle>
+          {practice.countIn && onCountInBeatsChange && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="-ml-px rounded-l-none"
+                  aria-label="Beats to count in"
+                  title="Beats to count in"
+                >
+                  <Settings2Icon />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="flex w-56 flex-col gap-1.5"
+                align="start"
+                aria-label="Count-in length"
+              >
+                <label htmlFor={beatsId} className="text-sm font-medium">
+                  Beats to count in
+                </label>
+                <Select
+                  value={String(practice.countInBeats)}
+                  onValueChange={(value) => onCountInBeatsChange(Number(value))}
+                >
+                  <SelectTrigger id={beatsId} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COUNT_IN_BEATS.map((beats) => (
+                      <SelectItem key={beats} value={String(beats)}>
+                        {beats} {beats === 1 ? "beat" : "beats"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </PopoverContent>
+            </Popover>
+          )}
+        </span>
         {onRestartOnStopChange && practice.loop && (
           <Toggle
             variant="outline"

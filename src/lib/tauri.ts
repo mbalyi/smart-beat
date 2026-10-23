@@ -761,6 +761,8 @@ export type TransportCommand =
       countIn?: { beats: number; beatSeconds: number } | null;
     }
   | { type: "metronome"; volume: number }
+  /** The sound of metronome and count-in clicks (#182). */
+  | { type: "clickSound"; sound: "classic" | "woodblock" | "cowbell" | "bell" }
   | { type: "masterVolume"; value: number }
   | { type: "masterPan"; value: number }
   | { type: "preview"; channel: number; key: number; velocity: number; program?: number }
