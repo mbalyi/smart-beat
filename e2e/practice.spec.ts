@@ -160,6 +160,31 @@ test.describe("practice tools (#7)", () => {
     );
   });
 
+  test("the metronome clicks in the chosen sound with the synthesizer (#182)", async ({ app }) => {
+    await openSong(app);
+    await app.evaluate(() => {
+      const w = window as unknown as { __clicks: number };
+      w.__clicks = 0;
+      const original = AudioContext.prototype.createBufferSource;
+      AudioContext.prototype.createBufferSource = function (this: AudioContext) {
+        w.__clicks++;
+        return original.call(this);
+      };
+    });
+    await app.getByRole("button", { name: "Metronome" }).click();
+    await app.getByRole("button", { name: "Click sound and volume" }).click();
+    await app.getByRole("combobox", { name: "Click sound" }).click();
+    await app.getByRole("option", { name: "Woodblock" }).click();
+    await app.keyboard.press("Escape");
+
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect
+      .poll(() => app.evaluate(() => (window as unknown as { __clicks: number }).__clicks), {
+        timeout: 10_000,
+      })
+      .toBeGreaterThanOrEqual(2);
+  });
+
   test("remembers the metronome and count-in", async ({ app }) => {
     await openSong(app);
     await app.getByRole("button", { name: "Metronome" }).click();

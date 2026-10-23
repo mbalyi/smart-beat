@@ -387,7 +387,12 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
         if (!click || !player) return;
         player.pause();
         player.setMetronome(before.metronome, before.metronomeVolume, before.metronomeSound);
-        player.setCountIn(before.countIn, before.countInBeats, before.metronomeVolume);
+        player.setCountIn(
+          before.countIn,
+          before.countInBeats,
+          before.metronomeVolume,
+          before.metronomeSound,
+        );
         player.setLoop(before.loop);
         setTrackStates(mixBefore.map((state, i) => ({ track: i, ...state })));
       },

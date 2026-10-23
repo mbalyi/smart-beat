@@ -291,7 +291,7 @@ describe("ScoreWorkspace: practice", () => {
     await user.click(screen.getByRole("button", { name: "Metronome" }));
     await user.click(screen.getByRole("button", { name: "Count-in" }));
     expect(player.setMetronome).toHaveBeenLastCalledWith(true, 1, "classic");
-    expect(player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1);
+    expect(player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1, "classic");
     expect(JSON.parse(localStorage.getItem("smart-beat:practice")!)).toEqual({
       metronome: true,
       countIn: true,
@@ -546,7 +546,7 @@ describe("ScoreWorkspace: menu", () => {
     await menu("toggle-metronome");
     expect(player.setMetronome).toHaveBeenLastCalledWith(true, 1, "classic");
     await menu("toggle-count-in");
-    expect(player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1);
+    expect(player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1, "classic");
     await menu("toggle-fretboard");
     expect(screen.getByRole("region", { name: "Fretboard" })).toBeInTheDocument();
 

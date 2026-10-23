@@ -1,11 +1,45 @@
 /**
- * The count-in of the alphaTab synthesizer path (#182): alphaTab can only count one bar in,
- * so the chosen number of beats is clicked here, with the Web Audio API, before playback starts.
+ * Clicks of the alphaTab synthesizer path, played with the Web Audio API (#182): alphaTab can
+ * only count one bar in and has a single metronome sound, so the chosen count-in beats and
+ * the other metronome sounds are played here.
  */
+import { clickBuffer } from "@/lib/audio/click-sounds";
+import type { ClickSoundId } from "@/lib/score/practice";
 
 let context: AudioContext | null = null;
+const buffers = new Map<string, AudioBuffer>();
 
-const CLICK_SECONDS = 0.03;
+function audio(): AudioContext {
+  context ??= new AudioContext();
+  void context.resume();
+  return context;
+}
+
+function buffer(ctx: AudioContext, sound: ClickSoundId, accent: boolean): AudioBuffer {
+  const key = `${sound}:${accent}`;
+  let found = buffers.get(key);
+  if (!found) {
+    found = clickBuffer(ctx, sound, accent);
+    buffers.set(key, found);
+  }
+  return found;
+}
+
+function schedule(
+  ctx: AudioContext,
+  sound: ClickSoundId,
+  accent: boolean,
+  volume: number,
+  at: number,
+): AudioBufferSourceNode {
+  const source = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  source.buffer = buffer(ctx, sound, accent);
+  gain.gain.value = volume;
+  source.connect(gain).connect(ctx.destination);
+  source.start(at);
+  return source;
+}
 
 export interface ClickRun {
   /** Silences the clicks that have not sounded yet. */
@@ -13,37 +47,27 @@ export interface ClickRun {
 }
 
 /**
- * Clicks `beats` times, `beatSeconds` apart, the first one higher (the first beat of a bar).
+ * Clicks `beats` times, `beatSeconds` apart, the first one accented (the first beat of a bar).
  * Returns null when the browser has no Web Audio.
  */
 export function playCountInClicks(
   beats: number,
   beatSeconds: number,
   volume: number,
+  sound: ClickSoundId = "classic",
 ): ClickRun | null {
   try {
-    context ??= new AudioContext();
-    const ctx = context;
-    void ctx.resume();
+    const ctx = audio();
     const start = ctx.currentTime + 0.02;
-    const nodes: OscillatorNode[] = [];
+    const nodes: AudioBufferSourceNode[] = [];
     for (let beat = 0; beat < beats; beat++) {
-      const at = start + beat * beatSeconds;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.frequency.value = beat === 0 ? 1760 : 1320;
-      gain.gain.setValueAtTime(0.3 * volume, at);
-      gain.gain.linearRampToValueAtTime(0, at + CLICK_SECONDS);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(at);
-      osc.stop(at + CLICK_SECONDS);
-      nodes.push(osc);
+      nodes.push(schedule(ctx, sound, beat === 0, volume, start + beat * beatSeconds));
     }
     return {
       cancel() {
-        for (const osc of nodes) {
+        for (const node of nodes) {
           try {
-            osc.stop();
+            node.stop();
           } catch {
             // Already stopped.
           }
@@ -52,5 +76,15 @@ export function playCountInClicks(
     };
   } catch {
     return null;
+  }
+}
+
+/** One metronome click now. */
+export function playClick(sound: ClickSoundId, accent: boolean, volume: number): void {
+  try {
+    const ctx = audio();
+    schedule(ctx, sound, accent, volume, ctx.currentTime);
+  } catch {
+    // No Web Audio: the click is skipped.
   }
 }

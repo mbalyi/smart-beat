@@ -815,7 +815,12 @@ export function ScoreWorkspace({
     player.setLoop(practice.loop ? practice.range : null);
     player.setSpeed(practice.speed);
     player.setMetronome(practice.metronome, practice.metronomeVolume, practice.metronomeSound);
-    player.setCountIn(practice.countIn, practice.countInBeats, practice.metronomeVolume);
+    player.setCountIn(
+      practice.countIn,
+      practice.countInBeats,
+      practice.metronomeVolume,
+      practice.metronomeSound,
+    );
     player.setRestartOnStop(practice.restartOnStop);
     player.setLoopCountIn(!!practice.trainer?.countInBetween && audioEngine === "native");
     player.setFocusCut(focusCutDb);
@@ -915,7 +920,7 @@ export function ScoreWorkspace({
   useEffect(() => playerRef.current?.setSpeed(speed), [speed]);
   useEffect(() => {
     playerRef.current?.setMetronome(metronome, metronomeVolume, metronomeSound);
-    playerRef.current?.setCountIn(countIn, countInBeats, metronomeVolume);
+    playerRef.current?.setCountIn(countIn, countInBeats, metronomeVolume, metronomeSound);
     playerRef.current?.setRestartOnStop(restartOnStop);
     storePracticePrefs({
       metronome,
@@ -2566,7 +2571,6 @@ export function ScoreWorkspace({
             onMetronomeVolumeChange={(value) =>
               dispatchPractice({ type: "metronome-volume", value })
             }
-            nativeAudio={audioEngine === "native"}
             onRestartOnStopChange={(value) => dispatchPractice({ type: "restart-on-stop", value })}
             onOpenTrainer={() => setTrainerOpen(true)}
             onStopTrainer={() => dispatchPractice({ type: "stop-trainer" })}

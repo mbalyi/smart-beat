@@ -23,6 +23,8 @@ export class FakeAlphaTabApi {
   error = new Emitter<Error>();
   playerStateChanged = new Emitter<{ state: PlayerState; stopped: boolean }>();
   playerPositionChanged = new Emitter<Record<string, number>>();
+  midiEventsPlayed = new Emitter<{ events: unknown[] }>();
+  midiEventsPlayedFilter: unknown[] = [];
   postRenderFinished = new Emitter();
   playedBeatChanged = new Emitter<{ voice: { bar: { index: number } } }>();
   activeBeatsChanged = new Emitter<{ activeBeats: unknown[] }>();

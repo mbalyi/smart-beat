@@ -227,7 +227,7 @@ describe("click mode", () => {
     await stop(hook);
     expect(hook.player.pause).toHaveBeenCalledTimes(2);
     expect(hook.player.setMetronome).toHaveBeenLastCalledWith(false, 1, "classic");
-    expect(hook.player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1);
+    expect(hook.player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1, "classic");
     expect(hook.player.setLoop).toHaveBeenLastCalledWith({ start: 1, end: 2 });
     expect(hook.setTrackStates).toHaveBeenLastCalledWith([
       { track: 0, mute: false, solo: true },

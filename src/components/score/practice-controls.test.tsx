@@ -5,7 +5,7 @@ import { initialPractice, type PracticeState } from "@/lib/score/practice";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 
-function setup(practice: Partial<PracticeState> = {}, extra: { nativeAudio?: boolean } = {}) {
+function setup(practice: Partial<PracticeState> = {}) {
   const props = {
     practice: { ...initialPractice(), ...practice },
     barCount: 8,
@@ -19,7 +19,6 @@ function setup(practice: Partial<PracticeState> = {}, extra: { nativeAudio?: boo
     onMetronomeVolumeChange: vi.fn(),
     onOpenTrainer: vi.fn(),
     onStopTrainer: vi.fn(),
-    ...extra,
   };
   return { ...renderWithProviders(<PracticeControls {...props} />), props };
 }
@@ -127,13 +126,6 @@ describe("PracticeControls", () => {
       expect(screen.getAllByRole("option")).toHaveLength(4);
       await user.click(screen.getByRole("option", { name: "Cowbell" }));
       expect(props.onMetronomeSoundChange).toHaveBeenCalledWith("cowbell");
-    });
-
-    it("explains that other sounds need the native engine", async () => {
-      const { user } = setup({ metronome: true }, { nativeAudio: false });
-      await user.click(screen.getByRole("button", { name: "Click sound and volume" }));
-      expect(await screen.findByText(/need the native audio engine/)).toBeInTheDocument();
-      expect(screen.getByRole("combobox", { name: "Click sound" })).toBeDisabled();
     });
 
     it("has no accessibility violations with a popup open", async () => {

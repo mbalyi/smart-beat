@@ -140,7 +140,6 @@ export function PracticeControls({
   onCountInBeatsChange,
   onMetronomeSoundChange,
   onMetronomeVolumeChange,
-  nativeAudio = true,
   onRestartOnStopChange,
   onOpenTrainer,
   onStopTrainer,
@@ -157,8 +156,6 @@ export function PracticeControls({
   onCountInBeatsChange?: (beats: number) => void;
   onMetronomeSoundChange?: (sound: ClickSoundId) => void;
   onMetronomeVolumeChange?: (volume: number) => void;
-  /** Only the native engine can click in other sounds (#182). */
-  nativeAudio?: boolean;
   /** Stop inside a loop restarts it from the loop start (#93). */
   onRestartOnStopChange?: (on: boolean) => void;
   onOpenTrainer: () => void;
@@ -315,7 +312,6 @@ export function PracticeControls({
                   <Select
                     value={practice.metronomeSound}
                     onValueChange={(value) => onMetronomeSoundChange?.(value as ClickSoundId)}
-                    disabled={!nativeAudio}
                   >
                     <SelectTrigger id={soundId} className="w-full">
                       <SelectValue />
@@ -328,11 +324,6 @@ export function PracticeControls({
                       ))}
                     </SelectContent>
                   </Select>
-                  {!nativeAudio && (
-                    <p className="text-xs text-muted-foreground">
-                      Other click sounds need the native audio engine.
-                    </p>
-                  )}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor={volumeId} className="flex justify-between text-sm font-medium">

@@ -47,7 +47,7 @@ import {
 import { DRUM_TAB_LINES } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
-import { playCountInClicks, type ClickRun } from "@/lib/audio/count-in-clicks";
+import { playClick, playCountInClicks, type ClickRun } from "@/lib/audio/count-in-clicks";
 import type { ClickSoundId, LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
 import { tempoAt } from "@/lib/score/structure";
@@ -484,6 +484,14 @@ export class ScorePlayer {
     });
     // Dragging selects beats in both modes (alphaTab also highlights the range outside edit mode).
     api.beatMouseMove.on((beat) => callbacks.onBeatDrag?.(realBeatOf(beat)));
+    api.midiEventsPlayed?.on((e) => {
+      const click = this.ownClick;
+      if (!click) return;
+      for (const event of e.events) {
+        const tick = event as { isMetronome?: boolean; metronomeNumerator?: number };
+        if (tick.isMetronome) playClick(click.sound, tick.metronomeNumerator === 0, click.volume);
+      }
+    });
     api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
     api.playerFinished.on(() => {
       // The native engine reports its own loops (see onLoops).
@@ -965,10 +973,19 @@ export class ScorePlayer {
    * it must stay silent so the click is not doubled.
    */
   setMetronome(on: boolean, volume = 1, sound: ClickSoundId = "classic") {
-    this.api.metronomeVolume = on && !this.engine ? volume : 0;
+    // alphaTab's synthesizer has one click: the other sounds are played from its metronome
+    // events with the Web Audio API.
+    const own = on && !this.engine && sound !== "classic";
+    this.ownClick = own ? { sound, volume } : null;
+    this.api.metronomeVolume = on && !this.engine && !own ? volume : 0;
+    this.api.midiEventsPlayedFilter = own ? [midi.MidiEventType.AlphaTabMetronome] : [];
     this.engine?.setClickSound(sound);
     this.engine?.setMetronome(on ? volume : 0);
   }
+
+  /** The metronome sound and volume played from alphaTab's metronome events (synthesizer path). */
+  private ownClick: { sound: ClickSoundId; volume: number } | null = null;
+  private countInSound: ClickSoundId = "classic";
 
   /** The count-in is on, and for how many beats (null: the bar's time signature). */
   private countInOn = false;
@@ -983,7 +1000,8 @@ export class ScorePlayer {
    * its own; the native engine plays and times its own (the song starts right after the last
    * click, and so does the cursor).
    */
-  setCountIn(on: boolean, beats?: number, volume = 1) {
+  setCountIn(on: boolean, beats?: number, volume = 1, sound: ClickSoundId = "classic") {
+    this.countInSound = sound;
     this.countInOn = on;
     this.countInBeats = beats ?? null;
     this.countInVolume = volume;
@@ -1280,7 +1298,7 @@ export class ScorePlayer {
         const beatSeconds = clicks.beatSeconds / this.api.playbackSpeed;
         this.playing = true;
         this.synthCount = {
-          run: playCountInClicks(clicks.beats, beatSeconds, this.countInVolume),
+          run: playCountInClicks(clicks.beats, beatSeconds, this.countInVolume, this.countInSound),
           timer: setTimeout(
             () => {
               this.synthCount = null;
@@ -1340,8 +1358,15 @@ export class ScorePlayer {
     this.delayer.clear();
     this.cancelSynthCount();
     this.api.stop();
-    if (restart) this.api.tickPosition = this.appliedRange!.startTick;
-    else this.scrollToBar(0); // Stop shows the start of the score again; Pause stays where it is
+    if (restart) {
+      this.api.tickPosition = this.appliedRange!.startTick;
+      this.reportBar(this.loop!.start);
+    } else {
+      // Stop shows the start of the score again (the cursor of the track panel too); Pause
+      // stays where it is.
+      this.scrollToBar(0);
+      this.reportBar(0);
+    }
     this.restartPending = restart;
     this.callbacks.onActiveBeatsChange?.([]);
     return restart;

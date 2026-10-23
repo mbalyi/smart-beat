@@ -10,7 +10,7 @@ import {
   type ScorePlayerOptions,
 } from "@/lib/score/player";
 import { parseScore, type TrackView } from "@/lib/score/score";
-import { playCountInClicks } from "@/lib/audio/count-in-clicks";
+import { playClick, playCountInClicks } from "@/lib/audio/count-in-clicks";
 import { readStoredSoundFont } from "@/lib/tauri";
 import { FakeAlphaTabApi } from "@/test/fake-alphatab";
 import { generateMidi, noteOns } from "@/test/playback";
@@ -25,6 +25,7 @@ vi.mock(import("@coderline/alphatab"), async (importOriginal) => ({
 
 vi.mock(import("@/lib/audio/count-in-clicks"), () => ({
   playCountInClicks: vi.fn(() => ({ cancel: vi.fn() })),
+  playClick: vi.fn(),
 }));
 
 vi.mock(import("@/lib/tauri"), async (importOriginal) => ({
@@ -419,6 +420,25 @@ describe("ScorePlayer", () => {
       barAt(paged.api, 0, 24);
       paged.player.stop();
       expect(page.scrollTo).toHaveBeenCalledWith({ top: 8, behavior: "instant" });
+    });
+
+    it("reports the first bar on Stop, so the track panel's cursor goes back too", async () => {
+      const { player, callbacks, api } = await readySetup();
+      player.seekToBar(3);
+      callbacks.onBarChange.mockClear();
+      api.tickPosition = 5000;
+      player.stop();
+      expect(callbacks.onBarChange).toHaveBeenCalledWith(0);
+    });
+
+    it("reports the loop start bar when Stop restarts the loop", async () => {
+      const { player, callbacks } = await readySetup();
+      player.setRestartOnStop(true);
+      player.setLoop({ start: 1, end: 2 });
+      player.seekToBar(2);
+      callbacks.onBarChange.mockClear();
+      player.stop();
+      expect(callbacks.onBarChange).toHaveBeenCalledWith(1);
     });
 
     it("does not scroll on Pause", async () => {
@@ -1064,7 +1084,7 @@ describe("ScorePlayer", () => {
         player.playPause();
 
         // 4/4 at 120 BPM: a beat lasts half a second.
-        expect(playCountInClicks).toHaveBeenCalledWith(6, expect.any(Number), 1);
+        expect(playCountInClicks).toHaveBeenCalledWith(6, expect.any(Number), 1, "classic");
         const beatSeconds = vi.mocked(playCountInClicks).mock.calls[0]![1];
         expect(api.playPause).not.toHaveBeenCalled();
         vi.advanceTimersByTime(6 * beatSeconds * 1000 - 50);
@@ -1078,7 +1098,7 @@ describe("ScorePlayer", () => {
         vi.useFakeTimers();
         player.setCountIn(true);
         player.playPause();
-        expect(playCountInClicks).toHaveBeenCalledWith(4, expect.any(Number), 1);
+        expect(playCountInClicks).toHaveBeenCalledWith(4, expect.any(Number), 1, "classic");
       });
 
       it("shows Pause while the clicks sound and Play again when they are cancelled (#182)", async () => {
@@ -1149,6 +1169,45 @@ describe("ScorePlayer", () => {
         player.playPause();
         expect(playCountInClicks).not.toHaveBeenCalled();
         expect(api.playPause).toHaveBeenCalledOnce();
+      });
+    });
+
+    describe("metronome sounds on the synthesizer (#182)", () => {
+      const tick = (numerator: number) => ({
+        events: [{ isMetronome: true, metronomeNumerator: numerator }],
+      });
+
+      beforeEach(() => vi.mocked(playClick).mockClear());
+
+      it("keeps alphaTab's own click for Classic", async () => {
+        const { player, api } = await readySetup();
+        player.setMetronome(true, 2, "classic");
+        expect(api.metronomeVolume).toBe(2);
+        api.midiEventsPlayed.trigger(tick(0) as never);
+        expect(playClick).not.toHaveBeenCalled();
+      });
+
+      it("plays the other sounds itself, accenting the first beat, and silences alphaTab's click", async () => {
+        const { player, api } = await readySetup();
+        player.setMetronome(true, 2, "cowbell");
+        expect(api.metronomeVolume).toBe(0);
+        expect(api.midiEventsPlayedFilter).toEqual([midi.MidiEventType.AlphaTabMetronome]);
+
+        api.midiEventsPlayed.trigger(tick(0) as never);
+        api.midiEventsPlayed.trigger(tick(2) as never);
+        expect(vi.mocked(playClick).mock.calls).toEqual([
+          ["cowbell", true, 2],
+          ["cowbell", false, 2],
+        ]);
+      });
+
+      it("stops clicking when the metronome is switched off", async () => {
+        const { player, api } = await readySetup();
+        player.setMetronome(true, 1, "bell");
+        player.setMetronome(false, 1, "bell");
+        api.midiEventsPlayed.trigger(tick(0) as never);
+        expect(playClick).not.toHaveBeenCalled();
+        expect(api.midiEventsPlayedFilter).toEqual([]);
       });
     });
 
@@ -1450,7 +1509,8 @@ describe("ScorePlayer: cursor in sync with the sound", () => {
     api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
     player.stop();
     vi.advanceTimersByTime(300);
-    expect(callbacks.onBarChange.mock.calls).toEqual([[1]]);
+    // Stop reports the first bar, and the bar 2 that was waiting is dropped.
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1], [0]]);
   });
 
   it("keeps showing what is still audible for a moment after a pause, in order", async () => {
