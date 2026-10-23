@@ -216,12 +216,12 @@ test.describe("accessibility", () => {
 
       await app.getByRole("button", { name: "Beats to count in" }).click();
       await expect(app.getByRole("dialog", { name: "Count-in length" })).toBeVisible();
-      await expectNoA11yViolations(app);
+      await expectNoA11yViolations(app, { popup: '[aria-label="Count-in length"]' });
       await app.keyboard.press("Escape");
 
       await app.getByRole("button", { name: "Click sound and volume" }).click();
       await expect(app.getByRole("dialog", { name: "Metronome click" })).toBeVisible();
-      await expectNoA11yViolations(app);
+      await expectNoA11yViolations(app, { popup: '[aria-label="Metronome click"]' });
     });
   }
 
