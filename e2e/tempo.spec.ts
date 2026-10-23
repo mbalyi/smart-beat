@@ -64,6 +64,20 @@ test.describe("tempo (#46)", () => {
     await expect(app.getByRole("dialog", { name: "Tempo" })).toBeVisible();
   });
 
+  test("the eye toggle hides and shows the tempo markers", async ({ app }) => {
+    await openSong(app);
+    const markers = app.getByTestId("tempo-markers");
+    const eye = app.getByRole("button", { name: "Show sections, tempo markers and texts" });
+    await expect(eye).toHaveAttribute("aria-pressed", "true");
+    await expect(markers).toBeVisible();
+    await eye.click();
+    await expect(eye).toHaveAttribute("aria-pressed", "false");
+    await expect(markers).toHaveCount(0);
+
+    await eye.click();
+    await expect(markers).toContainText("♩60");
+  });
+
   test("a slower practice speed follows the tempo map (speed trainer)", async ({ app }) => {
     await openSong(app);
     const display = app.getByRole("group", { name: "Display" });

@@ -53,7 +53,7 @@ test.describe("first launch", () => {
   }) => {
     await app.getByRole("button", { name: "Take a quick tour" }).click();
     await expect(coachMark(app)).toContainText("Open a song");
-    await expect(coachMark(app)).toContainText("Step 1 of 13");
+    await expect(coachMark(app)).toContainText("Step 1 of 14");
     await coachMark(app).getByRole("button", { name: "Next" }).click();
 
     // Step 2 needs a song: the demo song (4 tracks, 24 bars) opens by itself.
@@ -79,6 +79,13 @@ test.describe("first launch", () => {
     // Stacking tracks (#157) points at the same panel.
     await coachMark(app).getByRole("button", { name: "Next" }).click();
     await expect(coachMark(app)).toContainText("Show several tracks at once");
+
+    // The eye in the Tracks header shows or hides the rows above the bars.
+    await coachMark(app).getByRole("button", { name: "Next" }).click();
+    await expect(coachMark(app)).toContainText("Sections, tempo markers and texts");
+    await expect(
+      app.getByRole("button", { name: "Show sections, tempo markers and texts" }),
+    ).toBeVisible();
 
     // The SoundFonts dialog is part of the tour (#81): the step shows the track panel and points
     // at its SoundFonts… button.
