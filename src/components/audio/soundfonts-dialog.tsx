@@ -12,6 +12,7 @@ import note4 from "@/assets/soundfonts/note-4.webp";
 import splashLeft from "@/assets/soundfonts/splash-bottom-left.webp";
 import splashRight from "@/assets/soundfonts/splash-bottom-right.webp";
 import title from "@/assets/soundfonts/title.webp";
+import { ExternalLink } from "@/components/external-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -249,8 +250,15 @@ export function SoundFontsDialog({
                         <span className="text-muted-foreground">{item.description}</span>
                         <span className="text-xs text-muted-foreground">
                           {item.personalUseOnly ? `${item.licence} ` : `Licence: ${item.licence}. `}
-                          Source: {sourceHost(item.page)}. Download:{" "}
-                          {formatSize(item.downloadBytes)}.
+                          Source:{" "}
+                          <ExternalLink
+                            href={item.page}
+                            aria-label={`${item.name}: read the details and licence on ${sourceHost(item.page)}`}
+                            className="underline underline-offset-2 hover:text-foreground"
+                          >
+                            {sourceHost(item.page)}
+                          </ExternalLink>
+                          . Download: {formatSize(item.downloadBytes)}.
                         </span>
                         {active && (
                           <>

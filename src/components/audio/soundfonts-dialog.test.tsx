@@ -105,6 +105,18 @@ describe("SoundFontsDialog (#81)", () => {
     await expectNoA11yViolations();
   });
 
+  it("links each bank's source page, named by where it goes", () => {
+    const { dialog } = setup();
+    const [muse, arachno] = within(dialog).getAllByTestId("catalogue-soundfont");
+    const museLink = within(muse!).getByRole("link", {
+      name: "MuseScore General: read the details and licence on musescore.org",
+    });
+    expect(museLink).toHaveAttribute("href", CATALOGUE[0]!.page);
+    expect(museLink).toHaveTextContent("musescore.org");
+    const arachnoLink = within(arachno!).getByRole("link", { name: /^Arachno.*read the details/ });
+    expect(arachnoLink).toHaveAttribute("href", CATALOGUE[1]!.page);
+  });
+
   it("downloads a bank and shows the progress", async () => {
     let report: (progress: SoundFontDownloadProgress) => void = () => {};
     let finish: (font: StoredSoundFont | null) => void = () => {};

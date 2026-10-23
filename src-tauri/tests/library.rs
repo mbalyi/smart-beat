@@ -337,8 +337,16 @@ fn imported_sounds_stay_on_this_computer() {
     }
     let capabilities =
         std::fs::read_to_string(format!("{manifest}/capabilities/default.json")).unwrap();
-    for plugin in ["http:", "shell:", "fs:", "upload:", "websocket:"] {
-        assert!(!capabilities.contains(plugin), "permission {plugin}");
+    // Only the permission names count: the opener allow-list holds `http://` page addresses.
+    let capabilities: serde_json::Value = serde_json::from_str(&capabilities).unwrap();
+    for permission in capabilities["permissions"].as_array().unwrap() {
+        let identifier = permission
+            .as_str()
+            .or_else(|| permission["identifier"].as_str())
+            .unwrap();
+        for plugin in ["http:", "shell:", "fs:", "upload:", "websocket:"] {
+            assert!(!identifier.starts_with(plugin), "permission {identifier}");
+        }
     }
     let config: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(format!("{manifest}/tauri.conf.json")).unwrap(),
