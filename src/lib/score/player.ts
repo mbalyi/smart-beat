@@ -988,7 +988,6 @@ export class ScorePlayer {
     this.countInBeats = beats ?? null;
     this.countInVolume = volume;
     this.api.countInVolume = 0;
-    if (!on) this.cancelSynthCount();
     if (!this.engine) return;
     this.engine.countIn = on
       ? () => {
@@ -1004,6 +1003,7 @@ export class ScorePlayer {
     this.synthCount.run?.cancel();
     this.synthCount = null;
     this.playing = false; // the song never started: Play must start it, not pause it
+    this.callbacks.onPlayingChange?.(false);
   }
 
   /**
@@ -1289,6 +1289,8 @@ export class ScorePlayer {
             clicks.beats * beatSeconds * 1000,
           ),
         };
+        // The button shows Pause while the clicks sound, and a second Play cannot cancel them.
+        this.callbacks.onPlayingChange?.(true);
         return;
       }
     }

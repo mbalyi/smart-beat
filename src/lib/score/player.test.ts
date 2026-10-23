@@ -1081,6 +1081,16 @@ describe("ScorePlayer", () => {
         expect(playCountInClicks).toHaveBeenCalledWith(4, expect.any(Number), 1);
       });
 
+      it("shows Pause while the clicks sound and Play again when they are cancelled (#182)", async () => {
+        const { player, callbacks } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 2);
+        player.playPause();
+        expect(callbacks.onPlayingChange).toHaveBeenLastCalledWith(true);
+        player.playPause();
+        expect(callbacks.onPlayingChange).toHaveBeenLastCalledWith(false);
+      });
+
       it("does not start playing when paused or stopped during the count-in", async () => {
         const { player, api } = await readySetup();
         vi.useFakeTimers();
@@ -1096,19 +1106,40 @@ describe("ScorePlayer", () => {
         expect(api.playPause).not.toHaveBeenCalled();
       });
 
-      it("starts playing on the next Play after the count-in was switched off (#182)", async () => {
+      it("lets a running count-in finish when the setting is switched off (#182)", async () => {
         const { player, api } = await readySetup();
         vi.useFakeTimers();
-        player.setCountIn(true, 4);
+        player.setCountIn(true, 2);
         player.playPause();
-        player.setCountIn(false); // cancels the clicks before the song started
+        player.setCountIn(false); // e.g. the tour or a menu command, while the clicks sound
+        expect(api.playPause).not.toHaveBeenCalled();
+        vi.runAllTimers();
+        expect(api.playPause).toHaveBeenCalledOnce(); // the song still starts after the clicks
+      });
+
+      it("shows Pause while the clicks sound and Play again when they are cancelled (#182)", async () => {
+        const { player, callbacks } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 2);
+        player.playPause();
+        expect(callbacks.onPlayingChange).toHaveBeenLastCalledWith(true);
+        player.playPause();
+        expect(callbacks.onPlayingChange).toHaveBeenLastCalledWith(false);
+      });
+
+      it("does not start playing when paused or stopped during the count-in", async () => {
+        const { player, api } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 2);
+        player.playPause();
+        player.playPause(); // pause
         vi.runAllTimers();
         expect(api.playPause).not.toHaveBeenCalled();
 
-        player.playPause(); // must start, not "pause" a song that never played
-        expect(api.playPause).toHaveBeenCalledOnce();
-        player.pause(); // only pauses when the player knows it is playing
-        expect(api.playPause).toHaveBeenCalledTimes(2);
+        player.playPause();
+        player.stop();
+        vi.runAllTimers();
+        expect(api.playPause).not.toHaveBeenCalled();
       });
 
       it("plays at once with the count-in off", async () => {
