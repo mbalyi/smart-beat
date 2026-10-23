@@ -183,6 +183,17 @@ describe("ScorePlayer with the native engine", () => {
     await vi.waitFor(() =>
       expect(mocked.engineTransport).toHaveBeenCalledWith({ type: "metronome", volume: 1 }),
     );
+
+    // A sound and a volume above the master volume (#182); alphaTab's own click stays silent.
+    player.setMetronome(true, 2.5, "woodblock");
+    await vi.waitFor(() =>
+      expect(mocked.engineTransport).toHaveBeenCalledWith({ type: "metronome", volume: 2.5 }),
+    );
+    expect(mocked.engineTransport).toHaveBeenCalledWith({
+      type: "clickSound",
+      sound: "woodblock",
+    });
+    expect(api.metronomeVolume).toBe(0);
   });
 
   it("exports audio rendered by the engine (with the effects)", async () => {

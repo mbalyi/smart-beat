@@ -205,6 +205,26 @@ test.describe("accessibility", () => {
     await expectNoA11yViolations(app);
   });
 
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`count-in and metronome popups have no WCAG violations in ${colorScheme} mode (#182)`, async ({
+      app,
+    }) => {
+      await app.emulateMedia({ colorScheme });
+      await openSong(app);
+      await app.getByRole("button", { name: "Count-in" }).click();
+      await app.getByRole("button", { name: "Metronome" }).click();
+
+      await app.getByRole("button", { name: "Beats to count in" }).click();
+      await expect(app.getByRole("dialog", { name: "Count-in length" })).toBeVisible();
+      await expectNoA11yViolations(app, { popup: '[aria-label="Count-in length"]' });
+      await app.keyboard.press("Escape");
+
+      await app.getByRole("button", { name: "Click sound and volume" }).click();
+      await expect(app.getByRole("dialog", { name: "Metronome click" })).toBeVisible();
+      await expectNoA11yViolations(app, { popup: '[aria-label="Metronome click"]' });
+    });
+  }
+
   for (const action of ["about", "shortcuts", "licenses"] as const) {
     test(`${action} dialog has no WCAG violations`, async ({ app }) => {
       await emitMenuAction(app, action);

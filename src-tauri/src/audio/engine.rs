@@ -38,7 +38,71 @@ pub const POLYPHONY: usize = 64;
 const ELEMENT_POLYPHONY: usize = 16;
 /// How long playback continues after the last bar (release tails).
 const TAIL_SECONDS: f64 = 1.5;
-const CLICK_SECONDS: f64 = 0.03;
+
+/// The sound of the metronome and count-in clicks (#182).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClickSound {
+    /// A short sine beep.
+    #[default]
+    Classic,
+    /// A dry, high wood tick.
+    Woodblock,
+    /// Two inharmonic square tones, like a cowbell.
+    Cowbell,
+    /// A ringing bell with overtones.
+    Bell,
+}
+
+impl ClickSound {
+    /// How long a click rings, in seconds.
+    pub fn seconds(self) -> f64 {
+        match self {
+            Self::Classic => 0.03,
+            Self::Woodblock => 0.04,
+            Self::Cowbell => 0.12,
+            Self::Bell => 0.25,
+        }
+    }
+
+    /// One sample of a click `t` seconds after it started (before the volume);
+    /// the first beat of a bar is accented with a higher pitch.
+    pub fn sample(self, accent: bool, t: f64) -> f32 {
+        let tau = std::f64::consts::TAU;
+        let len = self.seconds();
+        let linear = (1.0 - t / len).max(0.0);
+        let value = match self {
+            Self::Classic => {
+                let f = if accent { 1_760.0 } else { 1_320.0 };
+                (t * f * tau).sin() * linear * 0.3
+            }
+            Self::Woodblock => {
+                let f = if accent { 2_400.0 } else { 1_800.0 };
+                let decay = (-t * 110.0).exp();
+                ((t * f * tau).sin() + 0.4 * (t * f * 2.3 * tau).sin()) * decay * linear * 0.3
+            }
+            Self::Cowbell => {
+                let k = if accent { 1.25 } else { 1.0 };
+                let square = |f: f64| {
+                    if (t * f * k * tau).sin() >= 0.0 {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                };
+                (square(540.0) + square(800.0)) * 0.5 * (-t * 28.0).exp() * linear * 0.2
+            }
+            Self::Bell => {
+                let f = if accent { 1_568.0 } else { 1_175.0 };
+                let partials = (t * f * tau).sin()
+                    + 0.5 * (t * f * 2.76 * tau).sin()
+                    + 0.25 * (t * f * 5.4 * tau).sin();
+                partials * (-t * 16.0).exp() * linear * 0.2
+            }
+        };
+        value as f32
+    }
+}
 /// Crossfade when automation switches a track to another sound.
 const SOUND_FADE_MS: f32 = 30.0;
 /// Sounds (effect chains) per track.
@@ -423,7 +487,9 @@ pub struct Engine {
     rate: f64,
     loop_range: Option<(f64, f64)>,
     metronome_volume: f32,
-    click_phase: f64,
+    click_sound: ClickSound,
+    /// Seconds since the current click started.
+    click_time: f64,
     click_left: f64,
     click_accent: bool,
     /// A count-in click sounds even with the metronome off: its own volume.
@@ -472,7 +538,8 @@ impl Engine {
             rate: 1.0,
             loop_range: None,
             metronome_volume: 0.0,
-            click_phase: 0.0,
+            click_sound: ClickSound::default(),
+            click_time: 0.0,
             click_left: 0.0,
             click_accent: false,
             click_forced: None,
@@ -697,6 +764,11 @@ impl Engine {
 
     pub fn set_metronome_volume(&mut self, volume: f32) {
         self.metronome_volume = volume.clamp(0.0, 3.0);
+    }
+
+    /// The sound of the next clicks (a click already ringing finishes as it began).
+    pub fn set_click_sound(&mut self, sound: ClickSound) {
+        self.click_sound = sound;
     }
 
     pub fn set_master_volume(&mut self, volume: f32) {
@@ -958,8 +1030,8 @@ impl Engine {
                 self.click_accent = count_in.clicks_left == count_in.total;
                 count_in.clicks_left -= 1;
                 count_in.until_next += count_in.beat;
-                self.click_left = CLICK_SECONDS;
-                self.click_phase = 0.0;
+                self.click_left = self.click_sound.seconds();
+                self.click_time = 0.0;
                 self.click_forced = Some(1.0);
             }
             count_in.until_next -= n as f64 / self.sample_rate as f64;
@@ -983,8 +1055,8 @@ impl Engine {
                 && time < block_end
             {
                 self.next_click += 1;
-                self.click_left = CLICK_SECONDS;
-                self.click_phase = 0.0;
+                self.click_left = self.click_sound.seconds();
+                self.click_time = 0.0;
                 self.click_accent = accent;
                 self.click_forced = None;
             }
@@ -1062,20 +1134,15 @@ impl Engine {
 
         let click_volume = self.click_forced.unwrap_or(self.metronome_volume);
         if self.click_left > 0.0 && click_volume > 0.0 {
-            let freq = if self.click_accent { 1_760.0 } else { 1_320.0 };
             let dt = 1.0 / self.sample_rate as f64;
             for i in 0..n {
                 if self.click_left <= 0.0 {
                     break;
                 }
-                let envelope = (self.click_left / CLICK_SECONDS) as f32;
-                let s = (self.click_phase * std::f64::consts::TAU).sin() as f32
-                    * 0.3
-                    * envelope
-                    * click_volume;
+                let s = self.click_sound.sample(self.click_accent, self.click_time) * click_volume;
                 out_l[i] += s;
                 out_r[i] += s;
-                self.click_phase += freq * dt;
+                self.click_time += dt;
                 self.click_left -= dt;
             }
         }

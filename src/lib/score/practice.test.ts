@@ -21,11 +21,59 @@ describe("practice", () => {
       trainer: null,
       metronome: false,
       countIn: false,
+      countInBeats: 4,
+      metronomeSound: "classic",
+      metronomeVolume: 1,
       restartOnStop: true,
     });
     expect(initialPractice({ metronome: true, countIn: true })).toMatchObject({
       metronome: true,
       countIn: true,
+    });
+  });
+
+  it("keeps the count-in length, metronome sound and volume, ignoring invalid values (#182)", () => {
+    let state = practiceReducer(start(), { type: "count-in-beats", value: 8 });
+    expect(state.countInBeats).toBe(8);
+    expect(practiceReducer(state, { type: "count-in-beats", value: 5 }).countInBeats).toBe(8);
+
+    state = practiceReducer(state, { type: "metronome-sound", value: "cowbell" });
+    expect(state.metronomeSound).toBe("cowbell");
+    expect(
+      practiceReducer(state, { type: "metronome-sound", value: "kazoo" as never }).metronomeSound,
+    ).toBe("cowbell");
+
+    // Louder than the master volume (1) is allowed, up to 3.
+    expect(practiceReducer(state, { type: "metronome-volume", value: 2.5 }).metronomeVolume).toBe(
+      2.5,
+    );
+    expect(practiceReducer(state, { type: "metronome-volume", value: 9 }).metronomeVolume).toBe(3);
+    expect(practiceReducer(state, { type: "metronome-volume", value: -1 }).metronomeVolume).toBe(0);
+  });
+
+  it("remembers the count-in length, sound and volume, and falls back on bad stored values", () => {
+    storePracticePrefs({
+      metronome: true,
+      countIn: true,
+      countInBeats: 12,
+      metronomeSound: "bell",
+      metronomeVolume: 2,
+      restartOnStop: true,
+    });
+    expect(readPracticePrefs()).toMatchObject({
+      countInBeats: 12,
+      metronomeSound: "bell",
+      metronomeVolume: 2,
+    });
+
+    localStorage.setItem(
+      "smart-beat:practice",
+      JSON.stringify({ countInBeats: 3, metronomeSound: "x", metronomeVolume: "loud" }),
+    );
+    expect(readPracticePrefs()).toMatchObject({
+      countInBeats: 4,
+      metronomeSound: "classic",
+      metronomeVolume: 1,
     });
   });
 
@@ -134,11 +182,28 @@ describe("practice", () => {
   });
 
   it("remembers the metronome and count-in", () => {
-    expect(readPracticePrefs()).toEqual({ metronome: false, countIn: false, restartOnStop: true });
-    storePracticePrefs({ metronome: true, countIn: false, restartOnStop: false });
-    expect(readPracticePrefs()).toEqual({ metronome: true, countIn: false, restartOnStop: false });
+    expect(readPracticePrefs()).toMatchObject({
+      metronome: false,
+      countIn: false,
+      restartOnStop: true,
+    });
+    storePracticePrefs({
+      ...readPracticePrefs(),
+      metronome: true,
+      countIn: false,
+      restartOnStop: false,
+    });
+    expect(readPracticePrefs()).toMatchObject({
+      metronome: true,
+      countIn: false,
+      restartOnStop: false,
+    });
     localStorage.setItem("smart-beat:practice", "{broken");
-    expect(readPracticePrefs()).toEqual({ metronome: false, countIn: false, restartOnStop: true });
+    expect(readPracticePrefs()).toMatchObject({
+      metronome: false,
+      countIn: false,
+      restartOnStop: true,
+    });
   });
 
   it("switches restarting the loop after Stop on and off (#93)", () => {

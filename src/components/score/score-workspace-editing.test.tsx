@@ -290,11 +290,14 @@ describe("ScoreWorkspace: practice", () => {
 
     await user.click(screen.getByRole("button", { name: "Metronome" }));
     await user.click(screen.getByRole("button", { name: "Count-in" }));
-    expect(player.setMetronome).toHaveBeenLastCalledWith(true);
-    expect(player.setCountIn).toHaveBeenLastCalledWith(true);
+    expect(player.setMetronome).toHaveBeenLastCalledWith(true, 1, "classic");
+    expect(player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1, "classic");
     expect(JSON.parse(localStorage.getItem("smart-beat:practice")!)).toEqual({
       metronome: true,
       countIn: true,
+      countInBeats: 4,
+      metronomeSound: "classic",
+      metronomeVolume: 1,
       restartOnStop: true,
     });
 
@@ -541,9 +544,9 @@ describe("ScoreWorkspace: menu", () => {
     await menu("toggle-loop");
     expect(player.setLoop).toHaveBeenLastCalledWith({ start: 0, end: 0 });
     await menu("toggle-metronome");
-    expect(player.setMetronome).toHaveBeenLastCalledWith(true);
+    expect(player.setMetronome).toHaveBeenLastCalledWith(true, 1, "classic");
     await menu("toggle-count-in");
-    expect(player.setCountIn).toHaveBeenLastCalledWith(true);
+    expect(player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1, "classic");
     await menu("toggle-fretboard");
     expect(screen.getByRole("region", { name: "Fretboard" })).toBeInTheDocument();
 

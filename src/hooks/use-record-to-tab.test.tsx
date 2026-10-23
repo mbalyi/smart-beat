@@ -113,7 +113,15 @@ function setup(over: Partial<RecordEnv> = {}) {
     editor,
     player: () => player,
     ready: true,
-    practice: () => ({ metronome: false, countIn: false, loop: null, speed: 100 }),
+    practice: () => ({
+      metronome: false,
+      countIn: false,
+      countInBeats: 4,
+      metronomeSound: "classic" as const,
+      metronomeVolume: 1,
+      loop: null,
+      speed: 100,
+    }),
     mix: () => ({
       version: 1,
       master: 1,
@@ -204,14 +212,22 @@ describe("click mode", () => {
 
   it("puts the metronome, count-in, loop and mix back when the take ends", async () => {
     const hook = setup({
-      practice: () => ({ metronome: false, countIn: true, loop: { start: 1, end: 2 }, speed: 100 }),
+      practice: () => ({
+        metronome: false,
+        countIn: true,
+        countInBeats: 4,
+        metronomeSound: "classic" as const,
+        metronomeVolume: 1,
+        loop: { start: 1, end: 2 },
+        speed: 100,
+      }),
     });
     fakeRecorder();
     await begin(hook, click());
     await stop(hook);
     expect(hook.player.pause).toHaveBeenCalledTimes(2);
-    expect(hook.player.setMetronome).toHaveBeenLastCalledWith(false);
-    expect(hook.player.setCountIn).toHaveBeenLastCalledWith(true);
+    expect(hook.player.setMetronome).toHaveBeenLastCalledWith(false, 1, "classic");
+    expect(hook.player.setCountIn).toHaveBeenLastCalledWith(true, 4, 1, "classic");
     expect(hook.player.setLoop).toHaveBeenLastCalledWith({ start: 1, end: 2 });
     expect(hook.setTrackStates).toHaveBeenLastCalledWith([
       { track: 0, mute: false, solo: true },
@@ -261,7 +277,15 @@ describe("click mode", () => {
     vi.spyOn(performance, "now").mockReturnValue(1000);
     vi.mocked(transcribeRecording).mockResolvedValue([{ start: 5.1, end: 5.6, ...NOTE }]);
     const hook = setup({
-      practice: () => ({ metronome: false, countIn: false, loop: null, speed: 50 }),
+      practice: () => ({
+        metronome: false,
+        countIn: false,
+        countInBeats: 4,
+        metronomeSound: "classic" as const,
+        metronomeVolume: 1,
+        loop: null,
+        speed: 50,
+      }),
     });
     fakeRecorder();
     await begin(hook, click());
@@ -377,7 +401,7 @@ describe("keys", () => {
     press("Escape");
     expect(recorder.cancel).toHaveBeenCalled();
     expect(hook.result.current.phase.kind).toBe("idle");
-    expect(hook.player.setMetronome).toHaveBeenLastCalledWith(false);
+    expect(hook.player.setMetronome).toHaveBeenLastCalledWith(false, 1, "classic");
     expect(transcribeRecording).not.toHaveBeenCalled();
     expect(finishedTakes()).toHaveLength(0);
   });
@@ -764,7 +788,7 @@ describe("errors", () => {
     await begin(hook, click());
     hook.unmount();
     expect(recorder.cancel).toHaveBeenCalled();
-    expect(hook.player.setMetronome).toHaveBeenLastCalledWith(false);
+    expect(hook.player.setMetronome).toHaveBeenLastCalledWith(false, 1, "classic");
   });
 });
 

@@ -10,6 +10,7 @@ import {
   type ScorePlayerOptions,
 } from "@/lib/score/player";
 import { parseScore, type TrackView } from "@/lib/score/score";
+import { playClick, playCountInClicks } from "@/lib/audio/count-in-clicks";
 import { readStoredSoundFont } from "@/lib/tauri";
 import { FakeAlphaTabApi } from "@/test/fake-alphatab";
 import { generateMidi, noteOns } from "@/test/playback";
@@ -20,6 +21,11 @@ const { PlayerState } = synth;
 vi.mock(import("@coderline/alphatab"), async (importOriginal) => ({
   ...(await importOriginal()),
   AlphaTabApi: (await import("@/test/fake-alphatab")).FakeAlphaTabApi as never,
+}));
+
+vi.mock(import("@/lib/audio/count-in-clicks"), () => ({
+  playCountInClicks: vi.fn(() => ({ cancel: vi.fn() })),
+  playClick: vi.fn(),
 }));
 
 vi.mock(import("@/lib/tauri"), async (importOriginal) => ({
@@ -386,6 +392,73 @@ describe("ScorePlayer", () => {
 
     player.showTrack(42, { notation: "tab", rhythm: true });
     expect(api.renderTracks).toHaveBeenCalledOnce();
+  });
+
+  describe("Stop scrolls back to the start (#182)", () => {
+    const scrollerOf = () => {
+      const scroller = document.createElement("div");
+      scroller.scrollTo = vi.fn() as never;
+      return scroller;
+    };
+    const barAt = (api: FakeAlphaTabApi, x: number, y: number) => {
+      api.boundsLookup = {
+        findMasterBarByIndex: (index: number) => ({
+          visualBounds: { x: index === 0 ? x : 9999, y, w: 200, h: 100 },
+        }),
+      } as never;
+    };
+
+    it("scrolls the row and the page back to the first bar on Stop", async () => {
+      const row = scrollerOf();
+      const horizontal = await readySetup({ layout: "horizontal", scrollElement: row });
+      barAt(horizontal.api, 16, 0);
+      horizontal.player.stop();
+      expect(row.scrollTo).toHaveBeenCalledWith({ left: 0, behavior: "instant" });
+
+      const page = scrollerOf();
+      const paged = await readySetup({ scrollElement: page });
+      barAt(paged.api, 0, 24);
+      paged.player.stop();
+      expect(page.scrollTo).toHaveBeenCalledWith({ top: 8, behavior: "instant" });
+    });
+
+    it("reports the first bar on Stop, so the track panel's cursor goes back too", async () => {
+      const { player, callbacks, api } = await readySetup();
+      player.seekToBar(3);
+      callbacks.onBarChange.mockClear();
+      api.tickPosition = 5000;
+      player.stop();
+      expect(callbacks.onBarChange).toHaveBeenCalledWith(0);
+    });
+
+    it("reports the loop start bar when Stop restarts the loop", async () => {
+      const { player, callbacks } = await readySetup();
+      player.setRestartOnStop(true);
+      player.setLoop({ start: 1, end: 2 });
+      player.seekToBar(2);
+      callbacks.onBarChange.mockClear();
+      player.stop();
+      expect(callbacks.onBarChange).toHaveBeenCalledWith(1);
+    });
+
+    it("does not scroll on Pause", async () => {
+      const scroller = scrollerOf();
+      const { player, api } = await readySetup({ scrollElement: scroller });
+      barAt(api, 0, 24);
+      player.playPause();
+      player.playPause();
+      expect(scroller.scrollTo).not.toHaveBeenCalled();
+    });
+
+    it("stays at the loop start when Stop restarts the loop", async () => {
+      const scroller = scrollerOf();
+      const { player, api } = await readySetup({ scrollElement: scroller });
+      barAt(api, 0, 24);
+      player.setRestartOnStop(true);
+      player.setLoop({ start: 1, end: 2 });
+      player.stop();
+      expect(scroller.scrollTo).not.toHaveBeenCalled();
+    });
   });
 
   describe("showing the bar that was picked", () => {
@@ -991,11 +1064,157 @@ describe("ScorePlayer", () => {
       player.setCountIn(true);
       expect(api.playbackSpeed).toBe(0.75);
       expect(api.metronomeVolume).toBe(1);
-      expect(api.countInVolume).toBe(1);
+      // The synthesizer only counts one bar: the player clicks its own count-in.
+      expect(api.countInVolume).toBe(0);
       player.setMetronome(false);
       player.setCountIn(false);
       expect(api.metronomeVolume).toBe(0);
       expect(api.countInVolume).toBe(0);
+    });
+
+    describe("count-in on the synthesizer (#182)", () => {
+      // Fake timers go on after the player is set up: its setup waits on real timers.
+      beforeEach(() => vi.mocked(playCountInClicks).mockClear());
+      afterEach(() => vi.useRealTimers());
+
+      it("clicks the chosen beats, then starts playing", async () => {
+        const { player, api } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 6);
+        player.playPause();
+
+        // 4/4 at 120 BPM: a beat lasts half a second.
+        expect(playCountInClicks).toHaveBeenCalledWith(6, expect.any(Number), 1, "classic");
+        const beatSeconds = vi.mocked(playCountInClicks).mock.calls[0]![1];
+        expect(api.playPause).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(6 * beatSeconds * 1000 - 50);
+        expect(api.playPause).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(100);
+        expect(api.playPause).toHaveBeenCalledOnce();
+      });
+
+      it("counts in one bar when no number of beats is given", async () => {
+        const { player } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true);
+        player.playPause();
+        expect(playCountInClicks).toHaveBeenCalledWith(4, expect.any(Number), 1, "classic");
+      });
+
+      it("shows Pause while the clicks sound and Play again when they are cancelled (#182)", async () => {
+        const { player, callbacks } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 2);
+        player.playPause();
+        expect(callbacks.onPlayingChange).toHaveBeenLastCalledWith(true);
+        player.playPause();
+        expect(callbacks.onPlayingChange).toHaveBeenLastCalledWith(false);
+      });
+
+      it("does not start playing when paused or stopped during the count-in", async () => {
+        const { player, api } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 2);
+        player.playPause();
+        player.playPause(); // pause
+        vi.runAllTimers();
+        expect(api.playPause).not.toHaveBeenCalled();
+
+        player.playPause();
+        player.stop();
+        vi.runAllTimers();
+        expect(api.playPause).not.toHaveBeenCalled();
+      });
+
+      it("lets a running count-in finish when the setting is switched off (#182)", async () => {
+        const { player, api } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 2);
+        player.playPause();
+        player.setCountIn(false); // e.g. the tour or a menu command, while the clicks sound
+        expect(api.playPause).not.toHaveBeenCalled();
+        vi.runAllTimers();
+        expect(api.playPause).toHaveBeenCalledOnce(); // the song still starts after the clicks
+      });
+
+      it("shows Pause while the clicks sound and Play again when they are cancelled (#182)", async () => {
+        const { player, callbacks } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 2);
+        player.playPause();
+        expect(callbacks.onPlayingChange).toHaveBeenLastCalledWith(true);
+        player.playPause();
+        expect(callbacks.onPlayingChange).toHaveBeenLastCalledWith(false);
+      });
+
+      it("does not start playing when paused or stopped during the count-in", async () => {
+        const { player, api } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(true, 2);
+        player.playPause();
+        player.playPause(); // pause
+        vi.runAllTimers();
+        expect(api.playPause).not.toHaveBeenCalled();
+
+        player.playPause();
+        player.stop();
+        vi.runAllTimers();
+        expect(api.playPause).not.toHaveBeenCalled();
+      });
+
+      it("plays at once with the count-in off", async () => {
+        const { player, api } = await readySetup();
+        vi.useFakeTimers();
+        player.setCountIn(false, 6);
+        player.playPause();
+        expect(playCountInClicks).not.toHaveBeenCalled();
+        expect(api.playPause).toHaveBeenCalledOnce();
+      });
+    });
+
+    describe("metronome sounds on the synthesizer (#182)", () => {
+      const tick = (numerator: number) => ({
+        events: [{ isMetronome: true, metronomeNumerator: numerator }],
+      });
+
+      beforeEach(() => vi.mocked(playClick).mockClear());
+
+      it("keeps alphaTab's own click for Classic", async () => {
+        const { player, api } = await readySetup();
+        player.setMetronome(true, 2, "classic");
+        expect(api.metronomeVolume).toBe(2);
+        api.midiEventsPlayed.trigger(tick(0) as never);
+        expect(playClick).not.toHaveBeenCalled();
+      });
+
+      it("plays the other sounds itself, accenting the first beat, and silences alphaTab's click", async () => {
+        const { player, api } = await readySetup();
+        player.setMetronome(true, 2, "cowbell");
+        expect(api.metronomeVolume).toBe(0);
+        expect(api.midiEventsPlayedFilter).toEqual([midi.MidiEventType.AlphaTabMetronome]);
+
+        api.midiEventsPlayed.trigger(tick(0) as never);
+        api.midiEventsPlayed.trigger(tick(2) as never);
+        expect(vi.mocked(playClick).mock.calls).toEqual([
+          ["cowbell", true, 2],
+          ["cowbell", false, 2],
+        ]);
+      });
+
+      it("stops clicking when the metronome is switched off", async () => {
+        const { player, api } = await readySetup();
+        player.setMetronome(true, 1, "bell");
+        player.setMetronome(false, 1, "bell");
+        api.midiEventsPlayed.trigger(tick(0) as never);
+        expect(playClick).not.toHaveBeenCalled();
+        expect(api.midiEventsPlayedFilter).toEqual([]);
+      });
+    });
+
+    it("lets the metronome click louder than the master volume (#182)", async () => {
+      const { player, api } = await readySetup();
+      player.setMetronome(true, 2.5);
+      expect(api.metronomeVolume).toBe(2.5);
     });
   });
 
@@ -1290,7 +1509,8 @@ describe("ScorePlayer: cursor in sync with the sound", () => {
     api.playedBeatChanged.trigger({ voice: { bar: { index: 2 } } });
     player.stop();
     vi.advanceTimersByTime(300);
-    expect(callbacks.onBarChange.mock.calls).toEqual([[1]]);
+    // Stop reports the first bar, and the bar 2 that was waiting is dropped.
+    expect(callbacks.onBarChange.mock.calls).toEqual([[1], [0]]);
   });
 
   it("keeps showing what is still audible for a moment after a pause, in order", async () => {

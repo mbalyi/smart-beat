@@ -59,7 +59,7 @@ use tauri::{AppHandle, Emitter, Runtime, State};
 use crate::error::{CommandError, ErrorKind};
 use backing::{Backing, BackingParams, DecodedAudio, PEAKS_PER_SECOND, SyncMap};
 use chain::{BlockProblem, Chain, EffectSlot, MAX_MASTER_EFFECTS, MAX_TRACK_EFFECTS};
-use engine::{BLOCK, BusMix, DrumSplit, Engine, MAX_DRUM_ELEMENTS, MAX_SOUNDS, Meters};
+use engine::{BLOCK, BusMix, ClickSound, DrumSplit, Engine, MAX_DRUM_ELEMENTS, MAX_SOUNDS, Meters};
 use input::Input;
 use library::{AssetKind, Library, LibraryItem};
 use mixing::{Automation, AutomationData, TrackEq};
@@ -348,6 +348,10 @@ pub enum Transport {
     },
     Metronome {
         volume: f32,
+    },
+    /// The sound of metronome and count-in clicks (#182).
+    ClickSound {
+        sound: ClickSound,
     },
     MasterVolume {
         value: f32,
@@ -903,6 +907,7 @@ pub fn audio_transport(
             engine.set_loop(range)
         }
         Transport::Metronome { volume } => engine.set_metronome_volume(volume),
+        Transport::ClickSound { sound } => engine.set_click_sound(sound),
         Transport::MasterVolume { value } => engine.set_master_volume(value),
         Transport::MasterPan { value } => engine.set_master_pan(value),
         Transport::Preview {

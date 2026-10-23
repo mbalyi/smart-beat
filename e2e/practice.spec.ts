@@ -120,6 +120,71 @@ test.describe("practice tools (#7)", () => {
     await expect.poll(() => playedSeconds(app), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
   });
 
+  test("count-in and metronome have settings popups that are remembered (#182)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    // The gears only show while the control is on.
+    await expect(app.getByRole("button", { name: "Beats to count in" })).toHaveCount(0);
+    await app.getByRole("button", { name: "Count-in" }).click();
+    await app.getByRole("button", { name: "Metronome" }).click();
+
+    // Keyboard: the gear opens the popup, and the arrow keys pick the beats.
+    await app.getByRole("button", { name: "Beats to count in" }).focus();
+    await app.keyboard.press("Enter");
+    const beats = app.getByRole("combobox", { name: "Beats to count in" });
+    await expect(beats).toContainText("4 beats");
+    await beats.click();
+    await app.getByRole("option", { name: "8 beats" }).click();
+    await expect(beats).toContainText("8 beats");
+    await app.keyboard.press("Escape");
+
+    await app.getByRole("button", { name: "Click sound and volume" }).click();
+    await expect(app.getByRole("combobox", { name: "Click sound" })).toBeVisible();
+    await app.getByRole("slider", { name: "Click volume" }).fill("2");
+    await expect(app.getByRole("slider", { name: "Click volume" })).toHaveAttribute(
+      "aria-valuetext",
+      "200 percent",
+    );
+    await app.keyboard.press("Escape");
+
+    await app.reload();
+    await openSong(app);
+    await app.getByRole("button", { name: "Beats to count in" }).click();
+    await expect(app.getByRole("combobox", { name: "Beats to count in" })).toContainText("8 beats");
+    await app.keyboard.press("Escape");
+    await app.getByRole("button", { name: "Click sound and volume" }).click();
+    await expect(app.getByRole("slider", { name: "Click volume" })).toHaveAttribute(
+      "aria-valuetext",
+      "200 percent",
+    );
+  });
+
+  test("the metronome clicks in the chosen sound with the synthesizer (#182)", async ({ app }) => {
+    await openSong(app);
+    await app.evaluate(() => {
+      const w = window as unknown as { __clicks: number };
+      w.__clicks = 0;
+      const original = AudioContext.prototype.createBufferSource;
+      AudioContext.prototype.createBufferSource = function (this: AudioContext) {
+        w.__clicks++;
+        return original.call(this);
+      };
+    });
+    await app.getByRole("button", { name: "Metronome" }).click();
+    await app.getByRole("button", { name: "Click sound and volume" }).click();
+    await app.getByRole("combobox", { name: "Click sound" }).click();
+    await app.getByRole("option", { name: "Woodblock" }).click();
+    await app.keyboard.press("Escape");
+
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect
+      .poll(() => app.evaluate(() => (window as unknown as { __clicks: number }).__clicks), {
+        timeout: 10_000,
+      })
+      .toBeGreaterThanOrEqual(2);
+  });
+
   test("remembers the metronome and count-in", async ({ app }) => {
     await openSong(app);
     await app.getByRole("button", { name: "Metronome" }).click();
