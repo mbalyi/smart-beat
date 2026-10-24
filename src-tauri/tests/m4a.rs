@@ -1,7 +1,7 @@
-//! M4A export with the macOS system encoder: the file is written, then read
+//! M4A export with the system encoder (macOS, Windows): the file is written, then read
 //! back with the app's own decoder (symphonia, with the AAC and MP4 readers
 //! enabled for the tests) to check the sound that comes out.
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", windows))]
 
 use std::f64::consts::TAU;
 use std::fs;

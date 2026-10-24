@@ -860,7 +860,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&item(app, ExportAsciiTab)?)
         .separator()
         .item(&item(app, ExportAudio)?);
-    // AAC comes from the system's encoder, which only macOS has wired in so far.
+    // AAC comes from the system's encoder: macOS and Windows have one, Linux does not.
     if crate::m4a::SUPPORTED {
         export = export.item(&item(app, ExportAudioM4a)?);
     }

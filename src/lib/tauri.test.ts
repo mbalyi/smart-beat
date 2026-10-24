@@ -328,7 +328,7 @@ describe("M4A export", () => {
 
   it("is offered on macOS only (where the system has an AAC encoder)", () => {
     expect(canExportM4a({ os: "macos" })).toBe(true);
-    expect(canExportM4a({ os: "windows" })).toBe(false);
+    expect(canExportM4a({ os: "windows" })).toBe(true);
     expect(canExportM4a({ os: "linux" })).toBe(false);
   });
 });

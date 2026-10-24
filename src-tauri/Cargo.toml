@@ -64,6 +64,10 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "objc2-app-kit", "WKWebView"] }
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioBuffer", "AVAudioFile", "AVAudioFormat", "AVAudioSettings", "AVAudioTypes"] }
 
+# Windows: Media Foundation's AAC encoder writes `.m4a` exports (src/m4a.rs).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_MediaFoundation", "Win32_System_Com"] }
+
 [dev-dependencies]
 # ABI types for the original synthetic CLAP fixture, built by rustc in tests.
 clap-sys = "0.5"
