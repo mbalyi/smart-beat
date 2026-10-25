@@ -218,6 +218,9 @@ test.describe("accessibility", () => {
       await expect(app.getByRole("dialog", { name: "Count-in length" })).toBeVisible();
       await expectNoA11yViolations(app, { popup: '[aria-label="Count-in length"]' });
       await app.keyboard.press("Escape");
+      // The first popup gives focus back to its button as it closes: opening the next one
+      // before that happens would close it again (focus outside).
+      await expect(app.getByRole("dialog", { name: "Count-in length" })).toBeHidden();
 
       await app.getByRole("button", { name: "Click sound and volume" }).click();
       await expect(app.getByRole("dialog", { name: "Metronome click" })).toBeVisible();
