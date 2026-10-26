@@ -146,15 +146,18 @@ pub fn encode(wav: &[u8], path: &Path) -> Result<(), CommandError> {
         ));
     }
     // The encoder picks the file type from the extension, so the temporary file has it too.
+    // Only the path is kept: an open handle would lock the file against the
+    // encoder on Windows. The file is still removed if the encoding fails.
     let temp = tempfile::Builder::new()
         .prefix(".smart-beat-")
         .suffix(".m4a")
         .tempfile_in(dir)
-        .map_err(|e| io_error(&e))?;
-    write_aac(&pcm, temp.path())?;
+        .map_err(|e| io_error(&e))?
+        .into_temp_path();
+    write_aac(&pcm, &temp)?;
     // Keep the permissions of the file being replaced, as the other saves do.
     if let Ok(metadata) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(temp.path(), metadata.permissions());
+        let _ = std::fs::set_permissions(&temp, metadata.permissions());
     }
     temp.persist(path).map_err(|e| io_error(&e.error))?;
     Ok(())
