@@ -119,6 +119,7 @@ fn replaces_an_existing_file_and_leaves_no_temporary_files() {
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn keeps_the_permissions_of_the_replaced_file() {
     use std::os::unix::fs::PermissionsExt;
