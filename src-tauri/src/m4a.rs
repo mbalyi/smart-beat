@@ -6,8 +6,9 @@
 //! to the same 16-bit WAV the WAV export writes and hands those bytes over;
 //! the file appears complete or not at all (temporary file, then rename).
 //!
-//! Other platforms answer with an error until their system encoders (Windows
-//! Media Foundation) are wired in.
+//! Windows has one too (Media Foundation, an `IMFSinkWriter` with an MPEG-4
+//! sink). Linux has no system AAC encoder, so it answers with an error and the
+//! menu item is not shown.
 
 use std::io::{self, Cursor};
 use std::path::Path;
@@ -20,11 +21,11 @@ const MIN_RATE: u32 = 8_000;
 const MAX_RATE: u32 = 96_000;
 
 /// Frames given to the encoder at a time.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 const CHUNK_FRAMES: usize = 32_768;
 
 /// Whether this build can write `.m4a` files.
-pub const SUPPORTED: bool = cfg!(target_os = "macos");
+pub const SUPPORTED: bool = cfg!(any(target_os = "macos", windows));
 
 /// Sound ready for the encoder: interleaved samples between -1 and 1.
 #[derive(Debug, Clone, PartialEq)]
@@ -85,7 +86,7 @@ pub fn decode_wav(wav: &[u8]) -> Result<Pcm, CommandError> {
 }
 
 /// The bit rate for the AAC stream (bits per second): 128 kbps per channel is transparent for this music.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 fn bit_rate(channels: u16) -> u32 {
     if channels == 1 { 128_000 } else { 192_000 }
 }
@@ -119,7 +120,7 @@ pub fn encode(wav: &[u8], path: &Path) -> Result<(), CommandError> {
     }
     if !SUPPORTED {
         return Err(audio_error(
-            "M4A export needs macOS for now. Export a WAV file instead.",
+            "M4A export is not available on this system. Export a WAV file instead.",
         ));
     }
     let pcm = decode_wav(wav)?;
@@ -145,15 +146,18 @@ pub fn encode(wav: &[u8], path: &Path) -> Result<(), CommandError> {
         ));
     }
     // The encoder picks the file type from the extension, so the temporary file has it too.
+    // Only the path is kept: an open handle would lock the file against the
+    // encoder on Windows. The file is still removed if the encoding fails.
     let temp = tempfile::Builder::new()
         .prefix(".smart-beat-")
         .suffix(".m4a")
         .tempfile_in(dir)
-        .map_err(|e| io_error(&e))?;
-    write_aac(&pcm, temp.path())?;
+        .map_err(|e| io_error(&e))?
+        .into_temp_path();
+    write_aac(&pcm, &temp)?;
     // Keep the permissions of the file being replaced, as the other saves do.
     if let Ok(metadata) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(temp.path(), metadata.permissions());
+        let _ = std::fs::set_permissions(&temp, metadata.permissions());
     }
     temp.persist(path).map_err(|e| io_error(&e.error))?;
     Ok(())
@@ -260,10 +264,158 @@ fn write_aac(pcm: &Pcm, path: &Path) -> Result<(), CommandError> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn write_aac(pcm: &Pcm, path: &Path) -> Result<(), CommandError> {
+    use windows::Win32::Media::MediaFoundation::{
+        IMFAttributes, IMFMediaType, MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION,
+        MF_MT_AAC_PAYLOAD_TYPE, MF_MT_AUDIO_AVG_BYTES_PER_SECOND, MF_MT_AUDIO_BITS_PER_SAMPLE,
+        MF_MT_AUDIO_BLOCK_ALIGNMENT, MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND,
+        MF_MT_AVG_BITRATE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_TRANSCODE_CONTAINERTYPE, MF_VERSION,
+        MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateAttributes, MFCreateMediaType,
+        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Audio,
+        MFSTARTUP_FULL, MFShutdown, MFStartup, MFTranscodeContainerType_MPEG4,
+    };
+    use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+    use windows::core::HSTRING;
+
+    /// Ends Media Foundation when the encoding is over, however it ends.
+    struct Started;
+    impl Drop for Started {
+        fn drop(&mut self) {
+            // SAFETY: paired with the successful `MFStartup` below.
+            let _ = unsafe { MFShutdown() };
+        }
+    }
+
+    /// The system's AAC encoder only takes these rates.
+    const RATES: [u32; 2] = [44_100, 48_000];
+    /// 100-nanosecond ticks in a second (Media Foundation's time unit).
+    const TICKS: i64 = 10_000_000;
+
+    if !RATES.contains(&pcm.sample_rate) {
+        return Err(audio_error(format!(
+            "The Windows AAC encoder needs a sample rate of 44100 or 48000 Hz, not {} Hz.",
+            pcm.sample_rate
+        )));
+    }
+    let failed = |what: &str, error: windows::core::Error| {
+        audio_error(format!("{what}: {}", error.message()))
+    };
+    let start = |e| failed("The system's AAC encoder could not start", e);
+    let write = |e| failed("The system's AAC encoder failed", e);
+    let path_text = path
+        .to_str()
+        .ok_or_else(|| audio_error("The file name is not valid text."))?;
+    let channels = u32::from(pcm.channels);
+    let rate = pcm.sample_rate;
+    let frame_bytes = 2 * channels;
+
+    // SAFETY: plain Media Foundation / COM calls; every pointer passed is a
+    // reference to a live local, and each COM object is released when dropped.
+    unsafe {
+        // The thread may already be set up for COM in another mode: that is fine.
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(start)?;
+        let _started = Started;
+
+        // Without this the writer picks the container from the file name.
+        let mut attributes: Option<IMFAttributes> = None;
+        MFCreateAttributes(&mut attributes, 1).map_err(start)?;
+        let attributes =
+            attributes.ok_or_else(|| audio_error("The system could not make an encoder."))?;
+        attributes
+            .SetGUID(&MF_TRANSCODE_CONTAINERTYPE, &MFTranscodeContainerType_MPEG4)
+            .map_err(start)?;
+        let writer = MFCreateSinkWriterFromURL(&HSTRING::from(path_text), None, &attributes)
+            .map_err(start)?;
+
+        let aac: IMFMediaType = MFCreateMediaType().map_err(start)?;
+        aac.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
+            .map_err(start)?;
+        aac.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_AAC)
+            .map_err(start)?;
+        aac.SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, 16)
+            .map_err(start)?;
+        aac.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, rate)
+            .map_err(start)?;
+        aac.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, channels)
+            .map_err(start)?;
+        aac.SetUINT32(
+            &MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
+            bit_rate(pcm.channels) / 8,
+        )
+        .map_err(start)?;
+        aac.SetUINT32(&MF_MT_AVG_BITRATE, bit_rate(pcm.channels))
+            .map_err(start)?;
+        // Raw AAC frames in the MP4, AAC-LC level 2.
+        aac.SetUINT32(&MF_MT_AAC_PAYLOAD_TYPE, 0).map_err(start)?;
+        aac.SetUINT32(&MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION, 0x29)
+            .map_err(start)?;
+        let stream = writer.AddStream(&aac).map_err(start)?;
+
+        let input: IMFMediaType = MFCreateMediaType().map_err(start)?;
+        input
+            .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
+            .map_err(start)?;
+        input
+            .SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_PCM)
+            .map_err(start)?;
+        input
+            .SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, 16)
+            .map_err(start)?;
+        input
+            .SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, rate)
+            .map_err(start)?;
+        input
+            .SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, channels)
+            .map_err(start)?;
+        input
+            .SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, frame_bytes)
+            .map_err(start)?;
+        input
+            .SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, rate * frame_bytes)
+            .map_err(start)?;
+        writer
+            .SetInputMediaType(stream, &input, None)
+            .map_err(start)?;
+        writer.BeginWriting().map_err(start)?;
+
+        let mut written_frames: i64 = 0;
+        for chunk in pcm.samples.chunks(CHUNK_FRAMES * usize::from(pcm.channels)) {
+            let frames = (chunk.len() / usize::from(pcm.channels)) as u32;
+            let bytes = frames * frame_bytes;
+            let buffer = MFCreateMemoryBuffer(bytes).map_err(write)?;
+            let mut data: *mut u8 = std::ptr::null_mut();
+            buffer.Lock(&mut data, None, None).map_err(write)?;
+            // SAFETY: the buffer holds `bytes` bytes, which is `chunk.len()` 16-bit samples.
+            let target = std::slice::from_raw_parts_mut(data.cast::<i16>(), chunk.len());
+            for (out, sample) in target.iter_mut().zip(chunk) {
+                *out = (sample.clamp(-1.0, 1.0) * 32_767.0).round() as i16;
+            }
+            buffer.Unlock().map_err(write)?;
+            buffer.SetCurrentLength(bytes).map_err(write)?;
+
+            let sample = MFCreateSample().map_err(write)?;
+            sample.AddBuffer(&buffer).map_err(write)?;
+            sample
+                .SetSampleTime(written_frames * TICKS / i64::from(rate))
+                .map_err(write)?;
+            sample
+                .SetSampleDuration(i64::from(frames) * TICKS / i64::from(rate))
+                .map_err(write)?;
+            writer.WriteSample(stream, &sample).map_err(write)?;
+            written_frames += i64::from(frames);
+        }
+        // Finalizing writes the index and sizes that make the `.m4a` complete.
+        writer.Finalize().map_err(write)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn write_aac(_pcm: &Pcm, _path: &Path) -> Result<(), CommandError> {
     Err(audio_error(
-        "M4A export needs macOS for now. Export a WAV file instead.",
+        "M4A export is not available on this system. Export a WAV file instead.",
     ))
 }
 
@@ -380,12 +532,12 @@ mod tests {
         assert!(encode(&wav, &target).is_err());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     #[test]
     fn says_so_where_there_is_no_system_encoder() {
         let dir = tempfile::tempdir().unwrap();
         let error = encode(&wav16(2, 44_100, &[0; 8]), &dir.path().join("a.m4a")).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Audio);
-        assert!(error.message.contains("needs macOS"));
+        assert!(error.message.contains("not available on this system"));
     }
 }

@@ -4,6 +4,8 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+- File › Export › Audio (M4A) now works on Windows, through the system's Media Foundation AAC encoder. Linux has no system AAC encoder, so the item stays macOS and Windows only.
+
 ## [1.0.1]
 
 New features and fixes since 1.0.0:

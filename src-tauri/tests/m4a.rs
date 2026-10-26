@@ -1,7 +1,7 @@
-//! M4A export with the macOS system encoder: the file is written, then read
+//! M4A export with the system encoder (macOS, Windows): the file is written, then read
 //! back with the app's own decoder (symphonia, with the AAC and MP4 readers
 //! enabled for the tests) to check the sound that comes out.
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", windows))]
 
 use std::f64::consts::TAU;
 use std::fs;
@@ -119,6 +119,7 @@ fn replaces_an_existing_file_and_leaves_no_temporary_files() {
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn keeps_the_permissions_of_the_replaced_file() {
     use std::os::unix::fs::PermissionsExt;

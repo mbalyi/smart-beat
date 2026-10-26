@@ -505,7 +505,7 @@ export async function writeScoreFile(path: string, bytes: Uint8Array): Promise<v
 /**
  * Encodes rendered audio (the bytes of a 16-bit WAV file) as AAC and writes it
  * to the `.m4a` file `path`, with the operating system's own encoder. Rejects
- * with a {@link CommandError}; only macOS has one so far (see {@link canExportM4a}).
+ * with a {@link CommandError}; macOS and Windows have one (see {@link canExportM4a}).
  */
 export async function writeM4aFile(path: string, wav: Uint8Array): Promise<void> {
   if (!isTauri()) throw new NotInDesktopAppError();
@@ -525,7 +525,7 @@ export async function writePdfFile(path: string, page: PdfPage): Promise<void> {
 export const canExportPdf = ({ os }: Pick<AppInfo, "os">) => os === "macos";
 
 /** Whether this platform can export `.m4a` files (mirrors `m4a::SUPPORTED` in `src-tauri/src/m4a.rs`). */
-export const canExportM4a = ({ os }: Pick<AppInfo, "os">) => os === "macos";
+export const canExportM4a = ({ os }: Pick<AppInfo, "os">) => os === "macos" || os === "windows";
 
 /** The recently opened songs, most recent first. Empty in a browser. */
 export async function loadRecentFiles(): Promise<string[]> {

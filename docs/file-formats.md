@@ -96,7 +96,7 @@ alphaTex export uses alphaTab's own exporter (`src/lib/export/alphatex.ts`). Com
 
 ## Audio export (WAV, M4A)
 
-WAV is 16-bit PCM of the song rendered with the current mix. **M4A** is AAC in an MP4 file (192 kbit/s stereo, 128 kbit/s mono), made by the **operating system's own encoder**: on macOS the AVFoundation `AVAudioFile` (`src-tauri/src/m4a.rs`); the UI renders the same WAV and hands it over. The menu item only exists on macOS. A Windows version through Windows Media Foundation (and Linux) is future work; until then the other platforms answer with a clear error.
+WAV is 16-bit PCM of the song rendered with the current mix. **M4A** is AAC in an MP4 file (192 kbit/s stereo, 128 kbit/s mono), made by the **operating system's own encoder**: on macOS the AVFoundation `AVAudioFile`, on Windows Media Foundation (an `IMFSinkWriter` with an MPEG-4 sink, through the MIT/Apache `windows` crate; it takes 44.1 and 48 kHz sound, which is what the export renders), both in `src-tauri/src/m4a.rs`; the UI renders the same WAV and hands it over. The menu item exists on macOS and Windows only. **Linux has no system AAC encoder** and an LGPL/GPL one (FFmpeg, FAAC, fdk-aac) cannot be bundled, so the item is left out there and the command answers with a clear error; export a WAV file instead.
 
 **No MP3.** Every usable MP3 encoder is LGPL (LAME, shine, lamejs), and Smart Beat's binaries may be licensed commercially and link statically, so none can be bundled ([licensing.md](licensing.md)). The system encoders are the way to get a compressed file without a licence problem (the operating system vendor holds the codec licence); the other option, asking the user to install an encoder, was not taken.
 

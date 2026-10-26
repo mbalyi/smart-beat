@@ -430,8 +430,8 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
 
   it("offers M4A only where the desktop app can encode it", async () => {
     const { user } = await setup();
-    mockTauri({ app_info: () => ({ ...APP_INFO, os: "windows" }) });
-    // A new window of the same app on Windows: no M4A item.
+    mockTauri({ app_info: () => ({ ...APP_INFO, os: "linux" }) });
+    // A new window of the same app on Linux (no system AAC encoder): no M4A item.
     const song = await makeSong();
     renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} onSaved={vi.fn()} />);
     FakeScorePlayer.last.becomeReady();

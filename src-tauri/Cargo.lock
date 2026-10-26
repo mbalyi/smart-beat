@@ -4336,6 +4336,7 @@ dependencies = [
  "ureq",
  "url",
  "vst3-host",
+ "windows",
  "zip 9.0.5",
 ]
 
