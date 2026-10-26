@@ -18,6 +18,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useMenuActions } from "@/hooks/use-menu-actions";
+import { useExternalOpen } from "@/hooks/use-external-open";
 import { useRecentFiles } from "@/hooks/use-recent-files";
 import { initLayoutPrefs, readLayoutPrefs } from "@/lib/score/layout";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
@@ -177,6 +178,7 @@ export function App() {
     ? () => showDialog("audio-transcription")
     : undefined;
   const recent = useRecentFiles((path) => void openPath(path), recentsVersion);
+  useExternalOpen((path) => void openPath(path));
   // A new install starts with a quiet layout; earlier users keep their panels (#83).
   const tour = useTour();
   // What's new after an update: once per version, never on a fresh install (it gets the welcome).

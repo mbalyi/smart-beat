@@ -64,6 +64,80 @@
     "active": true,
     "targets": "all",
     "externalBin": ["binaries/smart-beat-plugin-helper"],
+    "fileAssociations": [
+      {
+        "ext": ["gp3", "gp4", "gp5", "gpx", "gp"],
+        "name": "Guitar Pro tab",
+        "description": "Guitar Pro tab",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "application/x-guitar-pro",
+        "exportedType": {
+          "identifier": "com.mbalyi.smartbeat.guitarpro",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["mid", "midi"],
+        "name": "MIDI file",
+        "description": "MIDI file",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "audio/midi",
+        "exportedType": {
+          "identifier": "com.mbalyi.smartbeat.midi",
+          "conformsTo": ["public.midi-audio"]
+        }
+      },
+      {
+        "ext": ["musicxml", "mxl"],
+        "name": "MusicXML score",
+        "description": "MusicXML score",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "application/vnd.recordare.musicxml",
+        "exportedType": {
+          "identifier": "com.mbalyi.smartbeat.musicxml",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["mscx", "mscz"],
+        "name": "MuseScore score",
+        "description": "MuseScore score",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "application/x-musescore",
+        "exportedType": {
+          "identifier": "com.mbalyi.smartbeat.musescore",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["atex"],
+        "name": "alphaTex tab",
+        "description": "alphaTex tab",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "text/x-alphatex",
+        "exportedType": {
+          "identifier": "com.mbalyi.smartbeat.alphatex",
+          "conformsTo": ["public.text"]
+        }
+      },
+      {
+        "ext": ["capx"],
+        "name": "Capella score",
+        "description": "Capella score",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "application/x-capella",
+        "exportedType": {
+          "identifier": "com.mbalyi.smartbeat.capella",
+          "conformsTo": ["public.data"]
+        }
+      }
+    ],
     "category": "Music",
     "publisher": "Mark Balyi",
     "homepage": "https://github.com/mbalyi/smart-beat",

@@ -50,6 +50,17 @@ test.describe("recent songs (#31)", () => {
     await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
   });
 
+  test("opens a song the system hands over (double-click, Open With)", async ({ app }) => {
+    await app.evaluate((p) => {
+      window.__pendingOpen.push(p);
+      return window.__emitTauriEvent("open-external-file", null);
+    }, STRUCTURE_SONG);
+    await waitForScore(app);
+    await expect(app.getByRole("heading", { level: 1, name: "Structure Song" })).toBeVisible();
+    expect(await app.evaluate(() => window.__recent)).toEqual([STRUCTURE_SONG]);
+    expect(await app.evaluate(() => window.__pendingOpen)).toEqual([]);
+  });
+
   test("forgets a song that cannot be found any more", async ({ app }) => {
     const gone = "/Users/me/Music/gone.gp";
     await app.evaluate((p) => window.__emitTauriEvent("recent-changed", [p]), gone);

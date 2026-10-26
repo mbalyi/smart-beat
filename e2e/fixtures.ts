@@ -148,6 +148,7 @@ declare global {
     __meters: { tracks: number[]; master: number; drums?: number[][]; backing?: number };
     __saveResult: string | null;
     __recent: string[];
+    __pendingOpen: string[];
     /** Usage counter settings (#99): `available` simulates a release build. */
     __usage: { enabled: boolean; available: boolean; noticeSeen: boolean };
     __written: Map<string, Uint8Array>;

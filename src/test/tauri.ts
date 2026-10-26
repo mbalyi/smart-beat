@@ -72,6 +72,8 @@ export const backend = {
   menuState: null as MenuState | null,
   /** Recently opened songs, most recent first (see `src-tauri/src/recent.rs`). */
   recent: [] as string[],
+  /** Songs the system asked to open that the page has not collected (`src-tauri/src/open_file.rs`). */
+  pendingOpen: [] as string[],
   /** Path the Save dialog picks, or `null` for Cancel. */
   saveResult: null as string | null,
   /** Files written by `write_score_file`, by path. */
@@ -120,6 +122,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.dialogResult = null;
   backend.menuState = null;
   backend.recent = [];
+  backend.pendingOpen = [];
   backend.saveResult = null;
   backend.written.clear();
   backend.projectSettings.clear();
@@ -147,6 +150,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           backend.mixes.set(fileKey, settings);
           return null;
         }
+        case "take_pending_open_files":
+          return backend.pendingOpen.splice(0);
         case "load_recent_files":
           return backend.recent;
         case "add_recent_file": {
@@ -317,6 +322,12 @@ export async function emitMenuAction(action: MenuAction) {
 /** Simulates File › Open Recent: the core sends the chosen path. */
 export async function emitOpenRecent(path: string) {
   await emit("open-recent", path);
+}
+
+/** Simulates the system handing songs to the app: they are queued, then the page is told. */
+export async function emitOpenExternalFiles(paths: string[]) {
+  backend.pendingOpen.push(...paths);
+  await emit("open-external-file");
 }
 
 /** Simulates the OS dragging files onto the window (Tauri webview events). */

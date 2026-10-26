@@ -99,6 +99,9 @@ export const MENU_EVENT = "menu-action";
 /** Mirrors `OPEN_RECENT_EVENT` in `src-tauri/src/menu.rs`: payload is the path to open. */
 export const OPEN_RECENT_EVENT = "open-recent";
 
+/** Mirrors `OPEN_EXTERNAL_FILE_EVENT` in `src-tauri/src/open_file.rs`: the system queued songs to open. */
+export const OPEN_EXTERNAL_FILE_EVENT = "open-external-file";
+
 /** Mirrors `RECENT_CHANGED_EVENT` in `src-tauri/src/menu.rs`: payload is the new list. */
 export const RECENT_CHANGED_EVENT = "recent-changed";
 
@@ -554,6 +557,22 @@ export async function clearRecentFiles(): Promise<string[]> {
 export async function onOpenRecent(handler: (path: string) => void): Promise<UnlistenFn> {
   if (!isTauri()) return () => {};
   return listen<string>(OPEN_RECENT_EVENT, (event) => handler(event.payload));
+}
+
+/**
+ * Subscribes to songs the system asks Smart Beat to open (double-click in Finder or Explorer,
+ * "Open With"). The event only says that files are waiting: `handler` is called with the
+ * waiting paths, so a file that arrived before the page was ready is not lost.
+ */
+export async function onOpenExternalFiles(handler: (paths: string[]) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  const drain = () =>
+    invoke<string[]>("take_pending_open_files").then((paths) => {
+      if (paths.length > 0) handler(paths);
+    }, console.error);
+  const stop = await listen(OPEN_EXTERNAL_FILE_EVENT, drain);
+  await drain();
+  return stop;
 }
 
 /** Subscribes to changes of the recent files list made natively (Clear Menu). */

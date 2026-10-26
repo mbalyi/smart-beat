@@ -8,6 +8,7 @@ pub mod m4a;
 pub mod menu;
 pub mod menu_state;
 pub mod mixer;
+pub mod open_file;
 pub mod pdf;
 pub mod project;
 pub mod recent;
@@ -38,6 +39,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(zoom::ZoomState::default())
         .manage(menu_state::MenuStateStore::default())
         .manage(transcription::Dropped::default())
+        .manage(open_file::PendingOpen::default())
         .manage(recording::muscriptor_model::DownloadRun::default())
         .manage(recording::RecordingRun::default())
         .setup(|app| {
@@ -89,6 +91,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::app_info,
             commands::menu_shortcuts,
             commands::read_score_file,
+            open_file::take_pending_open_files,
             commands::write_score_file,
             commands::export_m4a,
             commands::export_pdf,
@@ -164,7 +167,14 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 
 /// Starts the desktop application.
 pub fn run() {
-    setup(Builder::default())
+    let builder = Builder::default();
+    // First, so a second launch hands its file to this instance before anything else starts.
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        open_file::deliver(app, open_file::paths_from_args(args));
+        open_file::show_main_window(app);
+    }));
+    let app = setup(builder)
         // Not in `setup`: the updater needs its public key and endpoint from tauri.conf.json,
         // which the integration tests' mock context does not have.
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -172,22 +182,31 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .menu(menu::build)
         .build(tauri::generate_context!())
-        .expect("error while building Smart Beat")
-        .run(|app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                // Stop what the AI engine is doing first: a running transcription holds the model,
-                // and unloading it would wait for the end of the song. A download keeps its part.
-                if let Some(running) = app.try_state::<transcription::Running>() {
-                    running.cancel_all();
-                }
-                app.state::<recording::RecordingRun>().cancel();
-                app.state::<recording::muscriptor_model::DownloadRun>()
-                    .stop();
-                // ggml's Metal backend asserts at process exit while a model is still loaded.
-                recording::muscriptor::unload();
-                flush_on_quit(app);
+        .expect("error while building Smart Beat");
+    // Windows and Linux start Smart Beat with the file as an argument.
+    app.state::<open_file::PendingOpen>()
+        .push(open_file::paths_from_args(std::env::args()));
+    app.run(|app, event| {
+        // macOS: Finder double-click or "Open With", also while the app is already running.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = &event {
+            open_file::deliver(app, open_file::paths_from_urls(urls));
+            open_file::show_main_window(app);
+        }
+        if matches!(event, tauri::RunEvent::Exit) {
+            // Stop what the AI engine is doing first: a running transcription holds the model,
+            // and unloading it would wait for the end of the song. A download keeps its part.
+            if let Some(running) = app.try_state::<transcription::Running>() {
+                running.cancel_all();
             }
-        });
+            app.state::<recording::RecordingRun>().cancel();
+            app.state::<recording::muscriptor_model::DownloadRun>()
+                .stop();
+            // ggml's Metal backend asserts at process exit while a model is still loaded.
+            recording::muscriptor::unload();
+            flush_on_quit(app);
+        }
+    });
 }
 
 /// Sends the unsent usage counters once, ignoring the hourly pause. At most the upload timeout.
