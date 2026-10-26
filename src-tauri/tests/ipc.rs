@@ -769,11 +769,11 @@ fn export_m4a_writes_an_aac_file_where_the_system_has_an_encoder() {
 
     let result = raw_request(&window, "export_m4a", &encode(&path), wav_bytes());
 
-    if cfg!(target_os = "macos") {
+    if smart_beat_lib::m4a::SUPPORTED {
         result.expect("export failed");
         assert_eq!(&std::fs::read(&path).unwrap()[4..8], b"ftyp");
     } else {
-        // No system encoder wired in yet: a clear error, and no file.
+        // No system encoder (Linux): a clear error, and no file.
         assert_eq!(result.unwrap_err()["kind"], "audio");
         assert!(!path.exists());
     }
