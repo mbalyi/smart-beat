@@ -37,7 +37,7 @@ function programFor(instrument: RecordInstrument): number {
   return getPreset("guitar")?.program ?? 25;
 }
 import type { ScorePlayer } from "@/lib/score/player";
-import type { LoopRange } from "@/lib/score/practice";
+import type { ClickSoundId, LoopRange } from "@/lib/score/practice";
 import type { MixerSettings } from "@/lib/tauri";
 import { tempoAt } from "@/lib/score/structure";
 import { createTrack, insertTrack, uniqueTrackName } from "@/lib/score/tracks";
@@ -81,7 +81,15 @@ export interface RecordEnv {
   /** Playback is possible: the sounds and the song are loaded. */
   ready: boolean;
   /** Playback settings now, and what to put back afterwards. */
-  practice: () => { metronome: boolean; countIn: boolean; loop: LoopRange | null; speed: number };
+  practice: () => {
+    metronome: boolean;
+    countIn: boolean;
+    countInBeats: number;
+    metronomeSound: ClickSoundId;
+    metronomeVolume: number;
+    loop: LoopRange | null;
+    speed: number;
+  };
   /** The mix now. */
   mix: () => MixerSettings;
   /** Mutes and unmutes tracks, and sets their solo, without counting it as a use of the mixer. */
@@ -378,8 +386,13 @@ export function useRecordToTab(env: RecordEnv): RecordToTab {
       restore: () => {
         if (!click || !player) return;
         player.pause();
-        player.setMetronome(before.metronome);
-        player.setCountIn(before.countIn);
+        player.setMetronome(before.metronome, before.metronomeVolume, before.metronomeSound);
+        player.setCountIn(
+          before.countIn,
+          before.countInBeats,
+          before.metronomeVolume,
+          before.metronomeSound,
+        );
         player.setLoop(before.loop);
         setTrackStates(mixBefore.map((state, i) => ({ track: i, ...state })));
       },

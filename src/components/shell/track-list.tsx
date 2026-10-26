@@ -594,6 +594,10 @@ export function TrackList({
     if (first >= el.scrollLeft && first + BAR_PX <= el.scrollLeft + room) return;
     el.scrollLeft = Math.max(0, first - room / 2 + BAR_PX / 2);
   }, [bar, playing]);
+  // Stopped at the start: show the first bars again (#182).
+  useEffect(() => {
+    if (!playing && bar === 0 && scroller.current) scroller.current.scrollLeft = 0;
+  }, [bar, playing]);
   const seekBar = (index: number) => {
     scrolledByHand.current = false;
     onSeekBar(index);

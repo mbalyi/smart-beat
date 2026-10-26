@@ -276,6 +276,21 @@ describe("TrackList", () => {
     expect(region.scrollLeft).toBeGreaterThan(0);
   });
 
+  it("scrolls back to the first bar when playback stops at the start (#182)", () => {
+    const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
+    const props = { score, tracks: summary.tracks, mix: mixFromScore(summary) };
+    const { rerender, ...rest } = setup({ ...props, bar: 0, playing: true });
+    const region = screen.getByRole("region", { name: "Tracks and mixer" });
+    Object.defineProperty(region, "clientWidth", { value: 800, configurable: true });
+    rerender(<TrackList {...rest} {...props} bar={100} playing />);
+    expect(region.scrollLeft).toBeGreaterThan(0);
+
+    rerender(<TrackList {...rest} {...props} bar={100} playing={false} />); // Pause stays
+    expect(region.scrollLeft).toBeGreaterThan(0);
+    rerender(<TrackList {...rest} {...props} bar={0} playing={false} />); // Stop
+    expect(region.scrollLeft).toBe(0);
+  });
+
   it("shortens long texts to a few words", () => {
     expect(shortText("one two three")).toBe("one two three");
     expect(shortText("a b c d e f g h")).toBe("a b c d e f…");

@@ -28,6 +28,32 @@ export interface SpeedTrainer {
   countInBetween?: boolean;
 }
 
+/** Beats a count-in can last (#182). */
+export const COUNT_IN_BEATS = [1, 2, 4, 6, 8, 12] as const;
+export const DEFAULT_COUNT_IN_BEATS = 4;
+
+/** The metronome sounds of the native engine (`ClickSound` in `src-tauri/src/audio/engine.rs`). */
+export const CLICK_SOUNDS = [
+  { id: "classic", label: "Classic beep" },
+  { id: "woodblock", label: "Woodblock" },
+  { id: "cowbell", label: "Cowbell" },
+  { id: "bell", label: "Bell" },
+] as const;
+export type ClickSoundId = (typeof CLICK_SOUNDS)[number]["id"];
+export const DEFAULT_CLICK_SOUND: ClickSoundId = "classic";
+
+/** The metronome volume, 1 = as loud as the master volume (alphaTab and the engine allow 3). */
+export const MAX_METRONOME_VOLUME = 3;
+
+const isCountInBeats = (value: unknown): value is number =>
+  COUNT_IN_BEATS.some((beats) => beats === value);
+const isClickSound = (value: unknown): value is ClickSoundId =>
+  CLICK_SOUNDS.some((sound) => sound.id === value);
+const metronomeVolumeOf = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.min(MAX_METRONOME_VOLUME, Math.max(0, value))
+    : 1;
+
 export interface PracticeState {
   loop: boolean;
   range: LoopRange;
@@ -40,21 +66,27 @@ export interface PracticeState {
   trainer: (SpeedTrainer & { loopsAtSpeed: number; holding: boolean }) | null;
   metronome: boolean;
   countIn: boolean;
+  /** Beats of the count-in (#182). */
+  countInBeats: number;
+  metronomeSound: ClickSoundId;
+  /** 1 = as loud as the master volume, up to {@link MAX_METRONOME_VOLUME}. */
+  metronomeVolume: number;
   /** Stop inside a loop makes the next Play start at the loop start; Pause still resumes (#93). */
   restartOnStop: boolean;
 }
 
 export const DEFAULT_TRAINER: SpeedTrainer = { from: 60, to: 100, step: 10, loopsPerStep: 1 };
 
-export const initialPractice = (
-  prefs: { metronome?: boolean; countIn?: boolean; restartOnStop?: boolean } = {},
-): PracticeState => ({
+export const initialPractice = (prefs: Partial<PracticePrefs> = {}): PracticeState => ({
   loop: false,
   range: { start: 0, end: 0 },
   speed: 100,
   trainer: null,
   metronome: prefs.metronome ?? false,
   countIn: prefs.countIn ?? false,
+  countInBeats: prefs.countInBeats ?? DEFAULT_COUNT_IN_BEATS,
+  metronomeSound: prefs.metronomeSound ?? DEFAULT_CLICK_SOUND,
+  metronomeVolume: prefs.metronomeVolume ?? 1,
   restartOnStop: prefs.restartOnStop ?? true,
 });
 
@@ -69,6 +101,9 @@ export type PracticeAction =
   /** Playback reached the end of the loop and starts it again. */
   | { type: "loop-completed" }
   | { type: "metronome"; value: boolean }
+  | { type: "count-in-beats"; value: number }
+  | { type: "metronome-sound"; value: ClickSoundId }
+  | { type: "metronome-volume"; value: number }
   | { type: "count-in"; value: boolean }
   | { type: "restart-on-stop"; value: boolean }
   /** The song's bars changed (edits): keep the range inside it. */
@@ -147,6 +182,12 @@ export function practiceReducer(state: PracticeState, action: PracticeAction): P
       return { ...state, metronome: action.value };
     case "count-in":
       return { ...state, countIn: action.value };
+    case "count-in-beats":
+      return isCountInBeats(action.value) ? { ...state, countInBeats: action.value } : state;
+    case "metronome-sound":
+      return isClickSound(action.value) ? { ...state, metronomeSound: action.value } : state;
+    case "metronome-volume":
+      return { ...state, metronomeVolume: metronomeVolumeOf(action.value) };
     case "restart-on-stop":
       return { ...state, restartOnStop: action.value };
     case "bar-count":
@@ -165,6 +206,9 @@ const STORAGE_KEY = "smart-beat:practice";
 export interface PracticePrefs {
   metronome: boolean;
   countIn: boolean;
+  countInBeats: number;
+  metronomeSound: ClickSoundId;
+  metronomeVolume: number;
   restartOnStop: boolean;
 }
 
@@ -174,10 +218,24 @@ export function readPracticePrefs(): PracticePrefs {
     return {
       metronome: stored.metronome === true,
       countIn: stored.countIn === true,
+      countInBeats: isCountInBeats(stored.countInBeats)
+        ? stored.countInBeats
+        : DEFAULT_COUNT_IN_BEATS,
+      metronomeSound: isClickSound(stored.metronomeSound)
+        ? stored.metronomeSound
+        : DEFAULT_CLICK_SOUND,
+      metronomeVolume: metronomeVolumeOf(stored.metronomeVolume),
       restartOnStop: stored.restartOnStop !== false,
     };
   } catch {
-    return { metronome: false, countIn: false, restartOnStop: true };
+    return {
+      metronome: false,
+      countIn: false,
+      countInBeats: DEFAULT_COUNT_IN_BEATS,
+      metronomeSound: DEFAULT_CLICK_SOUND,
+      metronomeVolume: 1,
+      restartOnStop: true,
+    };
   }
 }
 

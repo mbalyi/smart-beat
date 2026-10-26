@@ -11,7 +11,7 @@ use smart_beat_lib::audio::dsp::compressor::CompressorParams;
 use smart_beat_lib::audio::dsp::drive::DriveParams;
 use smart_beat_lib::audio::dsp::eq::graphic_bands;
 use smart_beat_lib::audio::dsp::gate::GateParams;
-use smart_beat_lib::audio::engine::{BLOCK, BusMix, Engine};
+use smart_beat_lib::audio::engine::{BLOCK, BusMix, ClickSound, Engine};
 use smart_beat_lib::audio::parse_sound_font;
 use smart_beat_lib::audio::song::{Song, SongData};
 
@@ -762,6 +762,85 @@ fn count_in_clicks_then_starts_the_song_on_time() {
     assert!(engine.is_playing());
     let position = engine.position();
     assert!((0.09..0.11).contains(&position), "position {position}");
+}
+
+const SOUNDS: [ClickSound; 4] = [
+    ClickSound::Classic,
+    ClickSound::Woodblock,
+    ClickSound::Cowbell,
+    ClickSound::Bell,
+];
+
+fn peak(samples: &[f32]) -> f32 {
+    samples.iter().fold(0.0, |m, v| m.max(v.abs()))
+}
+
+fn click(sound: ClickSound, accent: bool) -> Vec<f32> {
+    (0..2000)
+        .map(|i| sound.sample(accent, i as f64 / 48_000.0))
+        .collect()
+}
+
+#[test]
+fn every_click_sound_is_audible_bounded_and_ends() {
+    for sound in SOUNDS {
+        for accent in [true, false] {
+            let n = (sound.seconds() * 48_000.0) as usize;
+            let samples: Vec<f32> = (0..n + 100)
+                .map(|i| sound.sample(accent, i as f64 / 48_000.0))
+                .collect();
+            let p = peak(&samples);
+            assert!(
+                (0.05..=1.0).contains(&p),
+                "{sound:?} accent {accent}: peak {p}"
+            );
+            assert!(
+                samples[n..].iter().all(|v| v.abs() < 1e-3),
+                "{sound:?} rings on"
+            );
+        }
+        assert_ne!(
+            click(sound, true),
+            click(sound, false),
+            "{sound:?}: no accent"
+        );
+    }
+    for (i, a) in SOUNDS.iter().enumerate() {
+        for b in &SOUNDS[i + 1..] {
+            assert_ne!(
+                click(*a, false),
+                click(*b, false),
+                "{a:?} and {b:?} sound the same"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_metronome_can_be_louder_than_the_master_volume() {
+    let click_peak = |volume: f32| {
+        let mut engine = Engine::new(sonivox(), RATE);
+        engine.load(Arc::new(song())).unwrap();
+        engine.set_master_volume(1.0);
+        engine.set_metronome_volume(volume);
+        engine.set_click_sound(ClickSound::Woodblock);
+        engine.play();
+        peak(&render(&mut engine, 0.1).0)
+    };
+    let (normal, loud) = (click_peak(1.0), click_peak(3.0));
+    assert!(loud > normal, "{loud} vs {normal}");
+}
+
+#[test]
+fn the_count_in_waits_for_all_chosen_beats() {
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.load(Arc::new(song())).unwrap();
+    engine.set_click_sound(ClickSound::Bell);
+    engine.start_count_in(6, 0.1);
+    render(&mut engine, 0.55);
+    assert!(!engine.is_playing(), "six beats of 0.1 s are not over yet");
+    render(&mut engine, 0.1);
+    assert!(engine.is_playing());
 }
 
 #[test]
