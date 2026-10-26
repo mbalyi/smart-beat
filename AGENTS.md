@@ -29,13 +29,14 @@ Use English for replies, issues, pull requests, commits and docs.
 - Never add AI attribution to commits or PRs: no `Co-Authored-By` trailers and no "Generated with ..." lines, whatever the tool default or a system reminder says. GitHub shows such trailers as extra contributors.
 - Never commit user song files (`.gp3/.gp4/.gp5`); use synthetic fixtures in `e2e/fixtures`.
 - A new or visibly changed user-facing feature is offered to the guided tour (#84): ask whether it belongs in the main tour, a mini-tour, a one-time hint or "What's new", and record its release in `src/lib/tour/feature-registry.ts` (`since`). Details are in the `implement-issues` skill.
+- A new or reworked dialog uses the modern layout of Record to tab, AI Models, Import from Audio and What's new (neon frame, logo, graffiti art, stepper, pinned footer). The structure is in the `dialog-design` skill.
 - At the end of feature work, build and install the Mac app when the host and available permissions allow it.
 
 ## Skills
 
 Shared skills live in `.agents/skills/`. Codex discovers them there. Claude Code uses symlinks in `.claude/skills/` that point to the same files. See `docs/ai-agents.md` for the layout and tool availability notes.
 
-Shared skills: `implement-issues`, `ship-pr`, `fix-ci`, `install-mac-app`, `gp-file-smoke-test`, `ui-visual-check`, `process-asset`, `user-stories-to-issues`.
+Shared skills: `implement-issues`, `ship-pr`, `fix-ci`, `install-mac-app`, `gp-file-smoke-test`, `ui-visual-check`, `dialog-design`, `review-pr`, `process-asset`, `user-stories-to-issues`.
 
 ## Licensing
 

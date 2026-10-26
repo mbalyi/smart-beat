@@ -1,9 +1,13 @@
 import audioToTab from "@/assets/features/audio-to-tab.png";
+import audioTracksEditing from "@/assets/features/audio-tracks-editing.png";
+import cloudSync from "@/assets/features/cloud-sync.png";
 import humToAccompaniment from "@/assets/features/hum-to-accompaniment.png";
 import learningMode from "@/assets/features/learning-mode.png";
 import openPlayAndPractice from "@/assets/features/open-play-and-practice.png";
+import practiceTogether from "@/assets/features/practice-together.png";
 import recordToTab from "@/assets/features/record-to-tab.png";
 import speechToTab from "@/assets/features/speech-to-tab.png";
+import stemSeparation from "@/assets/features/stem-separation.png";
 import writeTabsAndScores from "@/assets/features/write-tabs-and-scores.png";
 import { RECORD_TO_TAB_LIMITS } from "@/components/record-to-tab-notes";
 
@@ -62,6 +66,38 @@ export const FEATURES: readonly Feature[] = [
     description:
       "Record yourself playing guitar, bass or piano, or use a recording, and get tab or staves you can edit.",
     limits: RECORD_TO_TAB_LIMITS,
+  },
+  {
+    title: "Cloud sync",
+    image: cloudSync,
+    badge: "Coming soon",
+    status: "soon",
+    description:
+      "Connect Google Drive, Dropbox or iCloud and keep your tabs, scores and practice sessions in sync across all your devices.",
+  },
+  {
+    title: "Stem separation",
+    image: stemSeparation,
+    badge: "Coming soon",
+    status: "soon",
+    description:
+      "Detect the instruments in any song and mute or solo each track. Perfect for covers, remixes and practice.",
+  },
+  {
+    title: "Practice together",
+    image: practiceTogether,
+    badge: "Coming soon",
+    status: "soon",
+    description:
+      "Practice with other musicians online. Share your metronome, loops and practice mode, and jam together in real time — no matter where you are.",
+  },
+  {
+    title: "Audio tracks & editing",
+    image: audioTracksEditing,
+    badge: "Coming soon",
+    status: "soon",
+    description:
+      "Import, manage and edit audio tracks. Trim, loop, adjust volume, and align them with your score. Create the perfect backing track for practice or performance.",
   },
   {
     title: "Speech to tab",

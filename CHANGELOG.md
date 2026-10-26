@@ -4,7 +4,23 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
-- File › Export › Audio (M4A) now works on Windows, through the system's Media Foundation AAC encoder. Linux has no system AAC encoder, so the item stays macOS and Windows only.
+## [1.1.0]
+
+New features and fixes since 1.0.1:
+
+- AI that runs on your own computer: **Audio to tab** and **Record to tab** can now use MuScriptor, an optional model you download once with a guided setup. Drop in a recording, or play it live, and get tab you can edit. It never uploads your music, and it is for non-commercial use only. Record to tab keeps its built-in Default mode, and the AI menu and the dialogs were redesigned to match.
+- Show several tracks under each other in the continuous layout, lined up bar by bar, and drag them into the order you like.
+- A new eye in the Tracks header shows or hides the section names, tempo markers and texts above the bars.
+- Practice: the count-in and the metronome have their own small settings windows (how many beats, which sound, how loud), a count-in that has started now plays to the end, and Stop takes you back to the start of the song.
+- File › Export › Audio (M4A) now works on Windows too.
+- Smart Beat can be the app that opens your tab and MIDI files on macOS, Windows and Linux: double-click a file and it opens here.
+- Every SoundFont in the SoundFonts window now links to the page it comes from, so you can read about it and its licence.
+- Edit mode: insert, copy, cut, paste and delete whole bars from the right-click menu, and the Right arrow on the last bar adds a new one.
+- A redesigned What's new window, and a new slogan on the welcome screen: "Practice, create and break the era".
+- Fixed: drum notes play at the right loudness, sections show in the Tracks panel, the score follows playback again after you jump to another bar, and the drum cursor moves freely.
+- Fixed: the anonymous usage counters (you can switch them off in Help › Settings…) are sent reliably when the app starts and when it closes.
+- Under the hood: updated parts of the app to their latest, safer versions.
+- Coming soon, not in this version yet: Cloud sync, Stem separation, Practice together and Audio tracks & editing.
 
 ## [1.0.1]
 

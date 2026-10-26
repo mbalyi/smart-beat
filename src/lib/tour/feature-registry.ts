@@ -26,11 +26,25 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     since: "1.1.0",
   },
   {
+    id: "open-with-smart-beat",
+    title: "Double-click to open",
+    summary:
+      "Smart Beat can be the app that opens your tab and MIDI files: double-click a Guitar Pro, MusicXML or MIDI file and it opens here.",
+    since: "1.1.0",
+  },
+  {
+    id: "count-in-metronome-settings",
+    title: "Count-in and metronome settings",
+    summary:
+      "Pick how many beats the count-in has, and how the metronome sounds and how loud it is, in two small settings windows. Stop now takes you back to the start of the song.",
+    since: "1.1.0",
+  },
+  {
     id: "track-notes-toggle",
     title: "Hide sections, tempo markers and texts",
     summary:
       "An eye in the Tracks header shows or hides the section names, tempo markers and texts above the bars, so the header can be as small as before.",
-    since: "1.0.2",
+    since: "1.1.0",
     tour: "main",
   },
   {
@@ -38,7 +52,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     title: "Several tracks at once",
     summary:
       "In the continuous layout, show more than one track under each other, bar-aligned, and reorder them. You still edit one track at a time.",
-    since: "1.0.2",
+    since: "1.1.0",
     tour: "main",
   },
   {

@@ -105,6 +105,10 @@ describe("Welcome", () => {
       "Learning mode (Available)",
       "Audio to tab (AI · Beta)",
       "Record to tab (Beta)",
+      "Cloud sync (Coming soon)",
+      "Stem separation (Coming soon)",
+      "Practice together (Coming soon)",
+      "Audio tracks & editing (Coming soon)",
       "Speech to tab (AI · Coming soon)",
       "Hum to accompaniment (AI · Coming soon)",
     ]);
@@ -197,6 +201,10 @@ describe("Welcome", () => {
       "learning-mode",
       "audio-to-tab",
       "record-to-tab",
+      "cloud-sync",
+      "stem-separation",
+      "practice-together",
+      "audio-tracks-editing",
       "speech-to-tab",
       "hum-to-accompaniment",
     ]);

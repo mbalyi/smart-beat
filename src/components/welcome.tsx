@@ -187,8 +187,8 @@ export function Welcome({
           {FEATURES.map((feature, index) => (
             <li
               key={feature.title}
-              // Four cards in the first row, three (wider) in the second.
-              className={cn("min-w-0", index < 4 ? "lg:col-span-3" : "lg:col-span-4")}
+              // Four cards in each of the first two rows, three (wider) in the last.
+              className={cn("min-w-0", index < 8 ? "lg:col-span-3" : "lg:col-span-4")}
             >
               <FeatureCard feature={feature} />
             </li>

@@ -8,7 +8,7 @@
 
 Smart Beat is a free tablature editor for musicians and learners on macOS, Windows and Linux. Record your ideas, get the band together with in-person and online jamming, and practice with optional, self-hosted AI tools too.
 
-> **Status:** stable release (1.0.0). Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3).
+> **Status:** stable release (1.1.0). Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. The AI features are next. The roadmap lives in the [project board](https://github.com/users/mbalyi/projects/3).
 
 ## Download
 
@@ -43,33 +43,48 @@ The macOS and Windows buttons start the download of the newest release's install
       <img src="src/assets/features/learning-mode.png" alt="Learning mode" width="100%">
       <p><b>🟢 Available</b></p>
       <p>Learn and improve with:</p>
-<ul><li>Speed Trainer</li><li>Loops</li><li>Metronome</li><li>Fretboard view</li><li>Follow mode</li></ul>
+      <ul><li>Speed Trainer</li><li>Loops</li><li>Metronome</li><li>Fretboard view</li><li>Follow mode</li></ul>
     </td>
-  </tr>
-  <tr>
     <td valign="top" width="25%">
       <img src="src/assets/features/audio-to-tab.png" alt="Audio to tab" width="100%">
       <p><b>🟣 AI · Beta</b></p>
       <p>Drop an audio file and let AI turn it into MIDI and tab, on your computer. It needs a one-time download of the optional MuScriptor model (non-commercial use only, see <a href="#optional-add-ons-you-download-yourself">below</a>).</p>
     </td>
-    <td valign="top" width="33%">
+  </tr>
+  <tr>
+    <td valign="top" width="25%">
       <img src="src/assets/features/record-to-tab.png" alt="Record to tab" width="100%">
       <p><b>🟣 Beta</b></p>
       <p>Record yourself playing guitar, bass, piano or drums, or use a recording, and get tab or staves you can edit.</p>
-      <ul>
-        <li>Guitar, bass, piano and drums. A piano take becomes a right-hand and a left-hand track, a drum take a drum track.</li>
-        <li>No cloud AI: a small note-finding model runs on your computer (plus an optional AI mode with the MuScriptor download). For strings, Smart Beat's own rules pick the string and fret.</li>
-        <li>Record inside the app, or use an existing recording.</li>
-        <li>Review the result afterwards. You will probably need to correct it by hand.</li>
-      </ul>
       <p><sub>* Limitations: see <a href="#record-to-tab-beta">Record to tab (beta)</a> under More about the features, below.</sub></p>
+    </td>
+    <td valign="top" width="25%">
+      <img src="src/assets/features/cloud-sync.png" alt="Cloud sync" width="100%">
+      <p><b>🟣 Coming soon</b></p>
+      <p>Connect Google Drive, Dropbox or iCloud and keep your tabs, scores and practice sessions in sync across all your devices.</p>
+    </td>
+    <td valign="top" width="25%">
+      <img src="src/assets/features/stem-separation.png" alt="Stem separation" width="100%">
+      <p><b>🟣 Coming soon</b></p>
+      <p>Detect the instruments in any song and mute or solo each track. Perfect for covers, remixes and practice.</p>
+    </td>
+    <td valign="top" width="25%">
+      <img src="src/assets/features/practice-together.png" alt="Practice together" width="100%">
+      <p><b>🟣 Coming soon</b></p>
+      <p>Practice with other musicians online. Share your metronome, loops and practice mode, and jam together in real time — no matter where you are.</p>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top" width="33%">
+      <img src="src/assets/features/audio-tracks-editing.png" alt="Audio tracks &amp; editing" width="100%">
+      <p><b>🟣 Coming soon</b></p>
+      <p>Import, manage and edit audio tracks. Trim, loop, adjust volume, and align them with your score. Create the perfect backing track for practice or performance.</p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/speech-to-tab.png" alt="Speech to tab" width="100%">
       <p><b>🟣 AI · Coming soon</b></p>
       <p>Tell the app what you want and let AI generate a few matching tab ideas.</p>
     </td>
-  <tr>
     <td valign="top" width="33%">
       <img src="src/assets/features/hum-to-accompaniment.png" alt="Hum to accompaniment" width="100%">
       <p><b>🟣 AI · Coming soon</b></p>
