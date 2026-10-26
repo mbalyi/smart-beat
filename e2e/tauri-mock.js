@@ -190,6 +190,8 @@
   window.__menuState = null;
   /** Recently opened songs (see `src-tauri/src/recent.rs`). */
   window.__recent = [];
+  /** Songs the system asked to open that the page has not collected (`src-tauri/src/open_file.rs`). */
+  window.__pendingOpen = [];
   window.__usage = { enabled: true, available: false, noticeSeen: true };
   /** Path the native Save dialog "picks" (`null` = Cancel). Set by tests. */
   window.__saveResult = null;
@@ -250,6 +252,8 @@
       case "save_mixer_settings":
         mixes.set(args.fileKey, args.settings);
         return null;
+      case "take_pending_open_files":
+        return window.__pendingOpen.splice(0);
       case "load_recent_files":
         return window.__recent;
       case "add_recent_file":

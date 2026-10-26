@@ -1606,3 +1606,34 @@ fn monitor_plugins_have_their_own_ipc_destination() {
     .unwrap();
     assert_eq!(info, json!([]));
 }
+
+#[test]
+fn songs_the_system_wants_opened_are_handed_over_once() {
+    let app = app();
+    let window = main_window(&app);
+    let (tx, rx) = mpsc::channel();
+    window.listen(
+        smart_beat_lib::open_file::OPEN_EXTERNAL_FILE_EVENT,
+        move |_| {
+            tx.send(()).unwrap();
+        },
+    );
+
+    smart_beat_lib::open_file::deliver(
+        app.handle(),
+        vec!["/songs/a.gp".into(), "/songs/notes.pdf".into()],
+    );
+
+    rx.recv_timeout(Duration::from_secs(2))
+        .expect("page was told");
+    let first = invoke(&window, "take_pending_open_files").unwrap();
+    assert_eq!(first, json!(["/songs/a.gp"]));
+    assert_eq!(
+        invoke(&window, "take_pending_open_files").unwrap(),
+        json!([])
+    );
+
+    // Nothing supported, nothing to tell the page.
+    smart_beat_lib::open_file::deliver(app.handle(), vec!["/songs/notes.pdf".into()]);
+    assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+}
