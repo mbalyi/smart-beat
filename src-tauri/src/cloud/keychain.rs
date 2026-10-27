@@ -60,6 +60,48 @@ impl TokenStore for Keychain {
     }
 }
 
+/// Remembers what the inner store answered, so the keychain is read at most once per provider
+/// and run: every read of a keychain item can raise a macOS access prompt. Saves and deletes
+/// go through and update the remembered answer.
+pub struct CachedStore<S: TokenStore> {
+    inner: S,
+    seen: Mutex<HashMap<&'static str, Option<Tokens>>>,
+}
+
+impl<S: TokenStore> CachedStore<S> {
+    pub fn new(inner: S) -> Self {
+        Self {
+            inner,
+            seen: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn seen(&self) -> std::sync::MutexGuard<'_, HashMap<&'static str, Option<Tokens>>> {
+        self.seen.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl<S: TokenStore> TokenStore for CachedStore<S> {
+    fn load(&self, kind: ProviderKind) -> Result<Option<Tokens>, CommandError> {
+        if let Some(known) = self.seen().get(kind.prefix()) {
+            return Ok(known.clone());
+        }
+        let loaded = self.inner.load(kind)?;
+        self.seen().insert(kind.prefix(), loaded.clone());
+        Ok(loaded)
+    }
+    fn save(&self, kind: ProviderKind, tokens: &Tokens) -> Result<(), CommandError> {
+        self.inner.save(kind, tokens)?;
+        self.seen().insert(kind.prefix(), Some(tokens.clone()));
+        Ok(())
+    }
+    fn delete(&self, kind: ProviderKind) -> Result<(), CommandError> {
+        self.inner.delete(kind)?;
+        self.seen().insert(kind.prefix(), None);
+        Ok(())
+    }
+}
+
 /// In-memory store for tests.
 #[derive(Debug, Default)]
 pub struct MemoryStore(Mutex<HashMap<&'static str, Tokens>>);
@@ -89,6 +131,38 @@ mod tests {
             expires_at: 5,
             account: "me@example.com".into(),
         }
+    }
+
+    /// Counts how often the inner store is read.
+    #[derive(Default)]
+    struct Counting(MemoryStore, std::sync::atomic::AtomicUsize);
+    impl TokenStore for Counting {
+        fn load(&self, kind: ProviderKind) -> Result<Option<Tokens>, CommandError> {
+            self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.0.load(kind)
+        }
+        fn save(&self, kind: ProviderKind, tokens: &Tokens) -> Result<(), CommandError> {
+            self.0.save(kind, tokens)
+        }
+        fn delete(&self, kind: ProviderKind) -> Result<(), CommandError> {
+            self.0.delete(kind)
+        }
+    }
+
+    #[test]
+    fn the_cache_reads_the_inner_store_once_per_provider() {
+        let cached = CachedStore::new(Counting::default());
+        cached.save(ProviderKind::Drive, &tokens()).unwrap();
+        cached.inner.1.store(0, std::sync::atomic::Ordering::SeqCst);
+        // Known from the save: no read at all.
+        assert_eq!(cached.load(ProviderKind::Drive).unwrap(), Some(tokens()));
+        // Unknown provider: one read, then remembered (also an empty answer).
+        assert_eq!(cached.load(ProviderKind::Dropbox).unwrap(), None);
+        assert_eq!(cached.load(ProviderKind::Dropbox).unwrap(), None);
+        assert_eq!(cached.inner.1.load(std::sync::atomic::Ordering::SeqCst), 1);
+        cached.delete(ProviderKind::Drive).unwrap();
+        assert_eq!(cached.load(ProviderKind::Drive).unwrap(), None);
+        assert_eq!(cached.inner.1.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

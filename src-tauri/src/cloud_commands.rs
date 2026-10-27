@@ -15,7 +15,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::cloud::keychain::{Keychain, TokenStore};
+use crate::cloud::keychain::{CachedStore, Keychain, TokenStore};
 use crate::cloud::oauth::{self, OAuthConfig, Session};
 use crate::cloud::pending::{PendingStore, PendingUpload};
 use crate::cloud::{self, Provider, ProviderKind, RemoteFile, dropbox, google_drive, onedrive};
@@ -74,6 +74,9 @@ struct Open {
 /// Managed state of the cloud commands.
 pub struct CloudState {
     store: Arc<dyn TokenStore>,
+    /// Which accounts are connected, by display name. No secrets: it lets the app list accounts
+    /// and skip uploads without reading the keychain, which can raise a macOS access prompt.
+    linked: Linked,
     /// Bumped by every new sign-in and by Cancel: a sign-in whose number is no longer current
     /// stops waiting and may not store tokens.
     connect_epoch: Arc<AtomicU64>,
@@ -85,7 +88,11 @@ pub struct CloudState {
 impl CloudState {
     /// The real thing: OS keychain and real providers.
     pub fn new(pending_dir: impl Into<std::path::PathBuf>) -> Self {
-        Self::with_parts(Box::new(Keychain), pending_dir, provider_for)
+        Self::with_parts(
+            Box::new(CachedStore::new(Keychain)),
+            pending_dir,
+            provider_for,
+        )
     }
 
     /// Custom token store and providers (tests).
@@ -94,8 +101,10 @@ impl CloudState {
         pending_dir: impl Into<std::path::PathBuf>,
         make: fn(ProviderKind) -> Box<dyn Provider>,
     ) -> Self {
+        let pending_dir = pending_dir.into();
         Self {
             store: Arc::from(store),
+            linked: Linked::new(pending_dir.join("linked.json")),
             connect_epoch: Arc::new(AtomicU64::new(0)),
             pending: PendingStore::new(pending_dir),
             open: Mutex::new(HashMap::new()),
@@ -180,21 +189,75 @@ fn check_writable(name: &str, len: usize) -> Result<(), CommandError> {
 // ---- Logic (no Tauri types, so tests can drive it) ----
 
 pub fn accounts(state: &CloudState) -> Vec<CloudAccount> {
+    state.linked.ensure_known(state.store.as_ref());
     ProviderKind::ALL
         .into_iter()
         .map(|kind| CloudAccount {
             provider: kind,
             label: kind.label().to_owned(),
             configured: client_id(kind).is_some(),
-            account: state
-                .store
-                .load(kind)
-                .ok()
-                .flatten()
-                .map(|t| t.account)
-                .filter(|a| !a.is_empty()),
+            account: state.linked.get(kind),
         })
         .collect()
+}
+
+/// The connected accounts by display name, as a small file next to the pending uploads (names
+/// only, never tokens).
+struct Linked {
+    path: std::path::PathBuf,
+}
+
+impl Linked {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self { path }
+    }
+
+    fn read(&self) -> Option<HashMap<String, String>> {
+        serde_json::from_str(&std::fs::read_to_string(&self.path).ok()?).ok()
+    }
+
+    fn write(&self, map: &HashMap<String, String>) {
+        if let Some(dir) = self.path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(json) = serde_json::to_string(map) {
+            let _ = std::fs::write(&self.path, json);
+        }
+    }
+
+    fn get(&self, kind: ProviderKind) -> Option<String> {
+        self.read()?
+            .get(kind.prefix())
+            .cloned()
+            .filter(|a| !a.is_empty())
+    }
+
+    fn set(&self, kind: ProviderKind, account: &str) {
+        let mut map = self.read().unwrap_or_default();
+        map.insert(kind.prefix().to_owned(), account.to_owned());
+        self.write(&map);
+    }
+
+    fn remove(&self, kind: ProviderKind) {
+        let mut map = self.read().unwrap_or_default();
+        map.remove(kind.prefix());
+        self.write(&map);
+    }
+
+    /// First run with this file (also after updating from a build that kept no list): read the
+    /// keychain once to learn who is connected, then never again just to list accounts.
+    fn ensure_known(&self, store: &dyn TokenStore) {
+        if self.read().is_some() {
+            return;
+        }
+        let mut map = HashMap::new();
+        for kind in ProviderKind::ALL {
+            if let Ok(Some(tokens)) = store.load(kind) {
+                map.insert(kind.prefix().to_owned(), tokens.account);
+            }
+        }
+        self.write(&map);
+    }
 }
 
 pub fn disconnect(state: &CloudState, kind: ProviderKind) -> Result<(), CommandError> {
@@ -202,6 +265,7 @@ pub fn disconnect(state: &CloudState, kind: ProviderKind) -> Result<(), CommandE
         let _ = (state.make)(kind).revoke(&tokens.access_token);
     }
     state.store.delete(kind)?;
+    state.linked.remove(kind);
     let prefix = format!("{}:", kind.prefix());
     state
         .open_map()
@@ -273,8 +337,14 @@ pub fn create(
 
 pub fn flush(state: &CloudState) -> Result<Vec<FlushResult>, CommandError> {
     let mut results = Vec::new();
+    // Nothing waits for upload: do not touch the keychain just for this.
+    if state.pending.list().is_empty() {
+        return Ok(results);
+    }
     for kind in ProviderKind::ALL {
-        if !matches!(state.store.load(kind), Ok(Some(_))) {
+        if !state.pending.list().iter().any(|p| p.provider == kind)
+            || !matches!(state.store.load(kind), Ok(Some(_)))
+        {
             continue;
         }
         let token = state.token(kind)?;
@@ -502,6 +572,9 @@ fn connect_with(
         }
     };
     trace_outcome(kind, stage.load(AtomicOrdering::SeqCst), &result);
+    if let Ok(account) = &result {
+        state.linked.set(kind, account);
+    }
     result
 }
 
@@ -846,6 +919,81 @@ mod tests {
         disconnect(&s, ProviderKind::Drive).unwrap();
         assert!(s.store.load(ProviderKind::Drive).unwrap().is_none());
         assert!(s.open_map().is_empty());
+    }
+
+    /// Counts reads of the token store: each one can raise a macOS keychain prompt.
+    struct Reads(MemoryStore, Arc<std::sync::atomic::AtomicUsize>);
+    impl TokenStore for Reads {
+        fn load(&self, kind: ProviderKind) -> Result<Option<cloud::Tokens>, CommandError> {
+            self.1.fetch_add(1, AtomicOrdering::SeqCst);
+            self.0.load(kind)
+        }
+        fn save(&self, kind: ProviderKind, t: &cloud::Tokens) -> Result<(), CommandError> {
+            self.0.save(kind, t)
+        }
+        fn delete(&self, kind: ProviderKind) -> Result<(), CommandError> {
+            self.0.delete(kind)
+        }
+    }
+
+    fn counted_state(dir: &Path) -> (CloudState, Arc<std::sync::atomic::AtomicUsize>) {
+        let inner = MemoryStore::default();
+        inner
+            .save(
+                ProviderKind::Drive,
+                &cloud::Tokens {
+                    access_token: "a".into(),
+                    refresh_token: None,
+                    expires_at: 0,
+                    account: "me@example.com".into(),
+                },
+            )
+            .unwrap();
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let store = Reads(inner, Arc::clone(&reads));
+        (
+            CloudState::with_parts(Box::new(store), dir.join("pending"), fake),
+            reads,
+        )
+    }
+
+    #[test]
+    fn listing_accounts_reads_the_keychain_at_most_once_ever() {
+        let dir = tempfile::tempdir().unwrap();
+        let (s, reads) = counted_state(dir.path());
+        assert_eq!(accounts(&s)[0].account.as_deref(), Some("me@example.com"));
+        let after_first = reads.load(AtomicOrdering::SeqCst);
+        assert!(after_first > 0, "the first run learns who is connected");
+        for _ in 0..5 {
+            accounts(&s);
+        }
+        assert_eq!(reads.load(AtomicOrdering::SeqCst), after_first);
+        // A later run (a new state over the same folder) does not read it at all.
+        let (again, reads_again) = counted_state(dir.path());
+        assert_eq!(
+            accounts(&again)[0].account.as_deref(),
+            Some("me@example.com")
+        );
+        assert_eq!(reads_again.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[test]
+    fn nothing_to_upload_means_no_keychain_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (s, reads) = counted_state(dir.path());
+        assert!(flush(&s).unwrap().is_empty());
+        assert_eq!(reads.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[test]
+    fn disconnecting_forgets_the_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let (s, _) = counted_state(dir.path());
+        assert!(accounts(&s)[0].account.is_some());
+        disconnect(&s, ProviderKind::Drive).unwrap();
+        assert_eq!(accounts(&s)[0].account, None);
+        let (again, _) = counted_state(dir.path());
+        assert_eq!(accounts(&again)[0].account, None);
     }
 
     #[test]
