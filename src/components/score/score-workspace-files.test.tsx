@@ -1166,6 +1166,31 @@ describe("ScoreWorkspace: online drives (#187)", () => {
     expect(onSaved.mock.calls[0]![0]).toMatchObject({ path: "drive:new" });
   });
 
+  it("Save As still asks where, with every drive disabled, when nothing is connected", async () => {
+    const { user, calls } = await setup({
+      overrides: {
+        cloud_accounts: () => [
+          { provider: "drive", label: "Google Drive", configured: true, account: null },
+          { provider: "onedrive", label: "OneDrive", configured: true, account: null },
+          { provider: "dropbox", label: "Dropbox", configured: false, account: null },
+        ],
+      },
+    });
+    await edit(user);
+    backend.saveResult = null;
+
+    await menu("save-as");
+
+    // The chooser is shown even though no drive is usable: all three are disabled.
+    expect(await screen.findByTestId("save-target-computer")).toBeEnabled();
+    for (const provider of ["drive", "onedrive", "dropbox"]) {
+      expect(screen.getByTestId(`save-target-${provider}`)).toBeDisabled();
+    }
+    expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(false);
+    await user.click(screen.getByTestId("save-target-computer"));
+    await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
+  });
+
   it("Save As still reaches the native dialog from This computer", async () => {
     const { user, calls } = await setup({ overrides: drive });
     await edit(user);

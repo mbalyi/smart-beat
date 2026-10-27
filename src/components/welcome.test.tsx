@@ -105,7 +105,7 @@ describe("Welcome", () => {
       "Learning mode (Available)",
       "Audio to tab (AI · Beta)",
       "Record to tab (Beta)",
-      "Cloud sync (Coming soon)",
+      "Cloud sync (Available)",
       "Stem separation (Coming soon)",
       "Practice together (Coming soon)",
       "Audio tracks & editing (Coming soon)",

@@ -12,6 +12,8 @@ import {
   providerOf,
   rememberCloudName,
   saveCloudItem,
+  toCloudDrives,
+  type CloudDrive,
   type CloudProvider,
 } from "@/lib/cloud-items";
 import { errorText } from "@/lib/errors";
@@ -145,9 +147,9 @@ export function useFileActions({
   const busy = useRef(false);
   /** The file that changed on disk under a Save, while the user decides what to do. */
   const [conflict, setConflict] = useState<{ name: string } | null>(null);
-  /** Save As is asking where to save: this computer or a connected online drive. */
+  /** Save As is asking where to save: this computer or an online drive (unusable ones disabled). */
   const [chooser, setChooser] = useState<{
-    providers: { provider: CloudProvider; label: string }[];
+    providers: CloudDrive[];
     copy: boolean;
   } | null>(null);
   /** The online drive the running save talks to, to explain a failure. */
@@ -284,16 +286,16 @@ export function useFileActions({
       await saveTo(format, path, "save_as");
     });
 
-  /** Save As: asks where first when an online drive is connected. */
+  /**
+   * Save As: always asks where first in the desktop app, with every drive that is not set up
+   * disabled; the normal dialog straight away only where the drives can't be listed.
+   */
   const saveAs = async (options: { copy?: boolean } = {}) => {
     if (isTauri()) {
       try {
-        const connected = (await listCloudAccounts()).filter((a) => a.account);
-        if (connected.length > 0) {
-          setChooser({
-            providers: connected.map(({ provider, label }) => ({ provider, label })),
-            copy: !!options.copy,
-          });
+        const drives = toCloudDrives(await listCloudAccounts());
+        if (drives.length > 0) {
+          setChooser({ providers: drives, copy: !!options.copy });
           return;
         }
       } catch {

@@ -60,8 +60,8 @@ The macOS and Windows buttons start the download of the newest release's install
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/cloud-sync.png" alt="Cloud sync" width="100%">
-      <p><b>🟣 Coming soon</b></p>
-      <p>Connect Google Drive, Dropbox or iCloud and keep your tabs, scores and practice sessions in sync across all your devices.</p>
+      <p><b>🟢 Available</b></p>
+      <p>Link a synced folder or connect Google Drive, OneDrive or Dropbox, then open and save your tabs and scores there.</p>
     </td>
   </tr>
   <tr>

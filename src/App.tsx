@@ -9,11 +9,11 @@ import { onInstallerReturn, openInstaller } from "@/lib/ai/ai-store";
 import { CloudOpenDialog } from "@/components/cloud-open-dialog";
 import { SaveTargetDialog } from "@/components/save-target-dialog";
 import { listCloudAccounts, type CloudProvider } from "@/lib/cloud";
+import { toCloudDrives, type CloudDrive } from "@/lib/cloud-items";
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { DocumentTabs } from "@/components/shell/document-tabs";
 import { DiscardDialog } from "@/components/discard-dialog";
-import { LeaveDialog } from "@/components/leave-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
 import { useCloudFlush } from "@/hooks/use-cloud-flush";
@@ -53,8 +53,6 @@ import { muscriptorProvider } from "@/lib/muscriptor";
 import { isEnabled } from "@/lib/features";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
 
-type CloudDrive = { provider: CloudProvider; label: string; disabled?: boolean; hint?: string };
-
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
 // alphaTab (renderer and synthesizer) is large: load it with the first song.
@@ -83,7 +81,6 @@ export function App() {
     song,
     activate,
     close,
-    closeAll,
     openPath,
     openFile,
     newSong,
@@ -125,25 +122,13 @@ export function App() {
     close(id);
   };
 
-  /** The logo: back to the start screen. Unsaved changes are asked about first. */
-  const [leaving, setLeaving] = useState(false);
+  /**
+   * The logo: the start screen. Open songs stay open (their tabs, edits and undo history are
+   * kept, playing stops); opening something there adds a tab next to them.
+   */
   const goHome = () => {
-    if (songs.length === 0) return;
-    if (edited.current.size > 0) {
-      setLeaving(true);
-      return;
-    }
-    closeAll();
+    if (song) activate(null);
   };
-  const leaveAndGoHome = () => {
-    setLeaving(false);
-    edited.current.clear();
-    setEditedIds(new Set());
-    closeAll();
-  };
-  const unsavedNames = songs
-    .filter((s) => editedIds.has(s.id))
-    .map((s) => s.summary.title || s.name);
 
   const startNewSong = () => void newSong();
 
@@ -195,12 +180,7 @@ export function App() {
   const cloudDrives = async (): Promise<{ drives: CloudDrive[]; connected: CloudDrive[] }> => {
     if (!isTauri()) return { drives: [], connected: [] };
     try {
-      const drives = (await listCloudAccounts()).map<CloudDrive>((a) => {
-        const base = { provider: a.provider, label: a.label };
-        if (!a.configured) return { ...base, disabled: true, hint: "Not available in this build" };
-        if (!a.account) return { ...base, disabled: true, hint: "Not connected" };
-        return base;
-      });
+      const drives = toCloudDrives(await listCloudAccounts());
       return { drives, connected: drives.filter((d) => !d.disabled) };
     } catch {
       return { drives: [], connected: [] };
@@ -218,10 +198,13 @@ export function App() {
   const [openChooser, setOpenChooser] = useState<CloudDrive[] | null>(null);
   const [cloudOpen, setCloudOpen] = useState<CloudDrive | null>(null);
 
-  /** Open: asks where first when an online drive is connected, else the native dialog. */
+  /**
+   * Open: always asks where first in the desktop app, with every drive that is not set up
+   * disabled; the native dialog straight away only where the drives can't be listed (browser).
+   */
   const showOpenDialog = async () => {
-    const { drives, connected } = await cloudDrives();
-    if (connected.length > 0) setOpenChooser(drives);
+    const { drives } = await cloudDrives();
+    if (drives.length > 0) setOpenChooser(drives);
     else await showNativeOpenDialog();
   };
 
@@ -421,52 +404,66 @@ export function App() {
           tabIndex={-1}
           className={cn("flex-1 outline-none", song && "flex min-h-0 flex-col")}
         >
-          {song ? (
+          {songs.length > 0 && (
             <Suspense
               fallback={
-                <p role="status" className="p-6 text-muted-foreground">
-                  Loading the score viewer…
-                </p>
+                song ? (
+                  <p role="status" className="p-6 text-muted-foreground">
+                    Loading the score viewer…
+                  </p>
+                ) : null
               }
             >
-              <div className="relative min-h-0 flex-1">
+              {/* On the start screen the songs stay mounted (hidden, paused), so coming back
+                  to a tab finds it exactly as it was left. */}
+              <div
+                className={cn(
+                  "relative min-h-0 flex-1",
+                  !song && "pointer-events-none invisible fixed inset-0",
+                )}
+              >
                 {songs.map((s) => (
                   <ScoreWorkspace
                     key={s.id}
                     song={s}
-                    active={s.id === song.id}
+                    active={s.id === song?.id}
                     tabs={tabs}
                     headerSlot={headerSlot}
                     onOpen={open}
+                    onSetUpCloud={setUpCloud}
                     onOpenScore={(score, name) => void openScore(score, name)}
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}
                     onReopenWithEncoding={(choice) => reopenWithEncoding(s.id, choice)}
                     onReloadFromDisk={() => reloadFromDisk(s.id)}
                     startEditing={s.isNew}
-                    droppedAudio={s.id === song.id ? droppedAudio : null}
+                    droppedAudio={s.id === song?.id ? droppedAudio : null}
                     onOpenSettings={(from) => showDialog("settings", from)}
                   />
                 ))}
               </div>
             </Suspense>
-          ) : (
-            <Welcome
-              onOpenFile={open}
-              onImportAudio={importAudio}
-              onNewSong={startNewSong}
-              onShowShortcuts={() => showDialog("shortcuts")}
-              onShowLicenses={() => showDialog("licenses")}
-              recent={recent}
-              onOpenRecent={(path) => void openPath(path)}
-              onOpenCloud={(path) => void openPath(path)}
-              onTakeTour={() => startTour("main")}
-              tour={
-                tour.offerMainTour
-                  ? { onStart: () => startTour("main"), onSkip: tour.dismissMainTour }
-                  : undefined
-              }
-            />
+          )}
+          {!song && (
+            <>
+              {songs.length > 0 && tabs}
+              <Welcome
+                onOpenFile={open}
+                onImportAudio={importAudio}
+                onNewSong={startNewSong}
+                onShowShortcuts={() => showDialog("shortcuts")}
+                onShowLicenses={() => showDialog("licenses")}
+                recent={recent}
+                onOpenRecent={(path) => void openPath(path)}
+                onOpenCloud={(path) => void openPath(path)}
+                onTakeTour={() => startTour("main")}
+                tour={
+                  tour.offerMainTour
+                    ? { onStart: () => startTour("main"), onSkip: tour.dismissMainTour }
+                    : undefined
+                }
+              />
+            </>
           )}
         </main>
         {!song && <AppFooter />}
@@ -489,12 +486,6 @@ export function App() {
         open={closing !== null}
         onCancel={() => setPendingClose(null)}
         onDiscard={() => closing && discardAndClose(closing.id)}
-      />
-      <LeaveDialog
-        songNames={unsavedNames}
-        open={leaving}
-        onCancel={() => setLeaving(false)}
-        onLeave={leaveAndGoHome}
       />
       <AppDialogs
         open={dialog}

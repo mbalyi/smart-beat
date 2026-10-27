@@ -155,9 +155,9 @@ export function SaveTargetDialog({
           <DialogFooter className="mt-0 flex-row flex-wrap items-center justify-end gap-2 border-t-0 bg-transparent px-6 pt-4 pb-5 md:px-9">
             {onSetupCloud && (
               <Button
-                variant="link"
+                variant="outline"
                 size="sm"
-                className="mr-auto px-0 text-muted-foreground"
+                className="relative z-10 mr-auto rounded-full border-border bg-card px-3 text-foreground shadow-sm"
                 onClick={onSetupCloud}
                 data-testid="save-target-setup"
               >

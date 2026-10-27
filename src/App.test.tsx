@@ -196,13 +196,30 @@ describe("App", () => {
     const DRIVE = { provider: "drive", label: "Google Drive", account: "me@example.com" };
     const OTHER = { provider: "onedrive", label: "OneDrive", account: "me@example.com" };
 
-    it("opens the native dialog straight away when no account is connected", async () => {
+    it("opens the native dialog straight away when the drives cannot be listed", async () => {
       await renderApp();
       backend.files.set(SONG, fixtureBytes("practice-song.gp"));
       backend.dialogResult = SONG;
       await menu("open");
       await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
       expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument();
+    });
+
+    it("asks where first even when no drive is set up, with all of them disabled", async () => {
+      const { user } = await renderApp();
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.cloudAccounts = [
+        { ...DRIVE, account: null },
+        { ...OTHER, account: null },
+      ];
+      backend.dialogResult = SONG;
+      await menu("open");
+      const chooser = await screen.findByRole("dialog", { name: "Where is the song?" });
+      expect(within(chooser).getByRole("button", { name: /Google Drive/ })).toBeDisabled();
+      expect(within(chooser).getByRole("button", { name: /OneDrive/ })).toBeDisabled();
+      // This computer and the set-up link stay available.
+      await user.click(within(chooser).getByRole("button", { name: /Open from this computer/ }));
+      await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
     });
 
     it("asks where first and 'This computer' shows the native dialog", async () => {
@@ -503,6 +520,83 @@ describe("App", () => {
       await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("region", { name: /^Score:/ })).toHaveLength(1);
+  });
+
+  it("the logo goes home without closing the song; the next song opens beside it", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.files.set(OTHER_SONG, fixtureBytes("structure-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+    const first = FakeScorePlayer.last;
+
+    await user.click(screen.getByRole("button", { name: "Smart Beat" }));
+
+    // The start screen, with the song still open: paused, not destroyed, its tab kept.
+    expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+    expect(first.destroy).not.toHaveBeenCalled();
+    expect(first.pause).toHaveBeenCalled();
+    expect(openTabs()).toHaveLength(1);
+
+    // Opening another song adds a tab next to the first and shows it.
+    backend.dialogResult = OTHER_SONG;
+    await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    await screen.findByRole("heading", { level: 1, name: "Structure Song" });
+    const tabs = within(screen.getByRole("navigation", { name: "Open songs" }));
+    expect(tabs.getAllByRole("listitem")).toHaveLength(2);
+    expect(tabs.getByRole("button", { name: "Structure Song" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+
+    // Home again keeps both; the first tab is the same song, never reloaded.
+    await user.click(screen.getByRole("button", { name: "Smart Beat" }));
+    expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+    expect(openTabs()).toHaveLength(2);
+    await user.click(
+      within(screen.getByRole("navigation", { name: "Open songs" })).getByRole("button", {
+        name: "Practice Song",
+      }),
+    );
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+    ).toBeInTheDocument();
+    expect(first.destroy).not.toHaveBeenCalled();
+    expect(openTabs()).toHaveLength(2);
+  });
+
+  it("keeps an unsaved song and its edit marker when going home and opening another", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    await menu("new-song");
+    await screen.findByRole("heading", { level: 1, name: "Untitled" });
+    await user.click(screen.getByRole("button", { name: "Smart Beat" }));
+    // No "leave" question: nothing is closed.
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+    const tabs = within(screen.getByRole("navigation", { name: "Open songs" }));
+    expect(tabs.getAllByRole("listitem")).toHaveLength(2);
+    expect(tabs.getByRole("button", { name: "Untitled" })).toBeInTheDocument();
+  });
+
+  it("opening a file that is already open shows its tab, also from the start screen", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+    await user.click(screen.getByRole("button", { name: "Smart Beat" }));
+    await screen.findByRole("button", { name: "Open a file…" });
+
+    await menu("open");
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+    ).toBeInTheDocument();
+    expect(openTabs()).toHaveLength(1);
   });
 
   it("reports a failing Open dialog", async () => {

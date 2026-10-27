@@ -421,6 +421,7 @@ export function ScoreWorkspace({
   startEditing = false,
   droppedAudio = null,
   onOpenSettings,
+  onSetUpCloud,
 }: {
   song: ScoreDocument;
   /** The song's tab is shown. Other songs stay loaded (edits, undo, playback position) but hidden. */
@@ -446,6 +447,8 @@ export function ScoreWorkspace({
   droppedAudio?: { path: string; nonce: number } | null;
   /** Opens the app's Settings (the tuner's audio input); focus comes back to `from`. */
   onOpenSettings?: (from: HTMLElement) => void;
+  /** "Set up cloud storage" in the Save As chooser: opens Settings on the cloud section. */
+  onSetUpCloud?: () => void;
 }) {
   const score = song.score;
   // The track the song was left on, when several were stacked (#157): the saved stack only makes
@@ -3123,6 +3126,14 @@ export function ScoreWorkspace({
         open={fileActions.chooser !== null}
         onChoose={fileActions.chooseTarget}
         onCancel={() => fileActions.chooseTarget("cancel")}
+        onSetupCloud={
+          onSetUpCloud
+            ? () => {
+                fileActions.chooseTarget("cancel");
+                onSetUpCloud();
+              }
+            : undefined
+        }
       />
       <ExportDialog
         open={exportOpen}

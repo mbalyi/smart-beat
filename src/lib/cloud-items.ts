@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { CloudProvider } from "@/lib/cloud";
+import type { CloudAccount, CloudProvider } from "@/lib/cloud";
 import { isCommandError, isTauri } from "@/lib/tauri";
 
 export type { CloudProvider };
@@ -123,4 +123,23 @@ export function cloudItemName(id: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** One online drive in the Open and Save As choosers. */
+export type CloudDrive = {
+  provider: CloudProvider;
+  label: string;
+  /** Can't be used yet: the chooser shows it greyed out with `hint`. */
+  disabled?: boolean;
+  hint?: string;
+};
+
+/** Every provider for the choosers: unusable ones are disabled with the reason why. */
+export function toCloudDrives(accounts: CloudAccount[]): CloudDrive[] {
+  return accounts.map<CloudDrive>((a) => {
+    const base = { provider: a.provider, label: a.label };
+    if (!a.configured) return { ...base, disabled: true, hint: "Not available in this build" };
+    if (!a.account) return { ...base, disabled: true, hint: "Not connected" };
+    return base;
+  });
 }
