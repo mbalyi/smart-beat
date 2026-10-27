@@ -81,6 +81,7 @@ export type MenuAction =
   | "toggle-count-in"
   | "shortcuts"
   | "settings"
+  | "cloud-settings"
   | "licenses"
   | "check-for-updates"
   | "tour"

@@ -115,6 +115,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::list_cloud_scores,
             cloud_commands::cloud_accounts,
             cloud_commands::cloud_connect,
+            cloud_commands::cloud_cancel_connect,
             cloud_commands::cloud_disconnect,
             cloud_commands::cloud_list,
             cloud_commands::cloud_read,

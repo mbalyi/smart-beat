@@ -1,13 +1,16 @@
-import { useId, useState, type ReactNode } from "react";
+import { CloudIcon, MicIcon, ShieldCheckIcon, type LucideIcon } from "lucide-react";
+import { useId, useRef, useState, type ReactNode } from "react";
 
 import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
+import { DIALOG_NEON, DialogArt } from "@/components/ai/dialog-art";
 import { CloudAccounts } from "@/components/cloud-accounts";
 import { AudioInputSetting } from "@/components/audio-input-setting";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogBody,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -35,7 +38,7 @@ function UsageSetting({ initial }: { initial: UsageSettings | null }) {
 
   if (!initial?.available) {
     return (
-      <p className="text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         This version of Smart Beat does not collect any usage statistics.
       </p>
     );
@@ -81,48 +84,128 @@ function UsageSetting({ initial }: { initial: UsageSettings | null }) {
   );
 }
 
-export function SettingsDialog({ open, onOpenChange, onCloseAutoFocus }: AppDialogProps) {
+export type SettingsSection = "audio" | "cloud" | "privacy";
+
+/** The frame of the dialog: the neon ring and a height that never jumps between sections. */
+const SETTINGS_FRAME = `${DIALOG_NEON} h-[min(46rem,calc(100dvh-2rem))] sm:max-w-3xl`;
+
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  onCloseAutoFocus,
+  section = null,
+}: AppDialogProps & {
+  /** The section to scroll to and focus when the dialog opens (Help › Cloud Storage Settings…). */
+  section?: SettingsSection | null;
+}) {
+  const sections = useRef<Partial<Record<SettingsSection, HTMLElement | null>>>({});
+  const desktop = isTauri();
+  const register = (id: SettingsSection, node: HTMLElement | null) => {
+    sections.current[id] = node;
+  };
+
+  const focusSection = (event: Event) => {
+    const target = section ? sections.current[section] : null;
+    if (!target) return;
+    event.preventDefault();
+    target.scrollIntoView?.({ block: "start" });
+    target.focus({ preventScroll: true });
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Audio input, privacy and usage statistics.</DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          {open && (
-            <div className="flex flex-col gap-6">
-              <SettingsSection title="Audio">
-                <AudioInputSetting />
-              </SettingsSection>
-              {isTauri() && (
-                <SettingsSection title="Cloud folder">
-                  <LoadedCloudFolder />
-                  <div className="mt-4">
-                    <CloudAccounts />
-                  </div>
-                </SettingsSection>
-              )}
-              <SettingsSection title="Privacy">
-                <LoadedSettings />
-              </SettingsSection>
-            </div>
-          )}
-        </DialogBody>
-        <DialogFooter showCloseButton />
+      <DialogContent
+        onCloseAutoFocus={onCloseAutoFocus}
+        onOpenAutoFocus={focusSection}
+        size="xl"
+        className={SETTINGS_FRAME}
+      >
+        <div className="relative isolate flex min-h-0 flex-1 flex-col">
+          <DialogArt name="settings" />
+          <DialogHeader className="px-6 pt-5 pb-2 md:px-9">
+            <DialogTitle className="text-2xl font-bold">Settings</DialogTitle>
+            <DialogDescription className="text-base">
+              Choose your audio input, connect your cloud storage and decide what you share.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="gap-3 px-6 pb-4 md:px-9">
+            {open && (
+              <>
+                <SettingsCard
+                  id="audio"
+                  title="Audio input"
+                  icon={MicIcon}
+                  register={register}
+                  testId="settings-audio"
+                >
+                  <AudioInputSetting />
+                </SettingsCard>
+                {desktop && (
+                  <SettingsCard
+                    id="cloud"
+                    title="Cloud storage"
+                    icon={CloudIcon}
+                    register={register}
+                    testId="settings-cloud"
+                  >
+                    <LoadedCloudFolder />
+                    <div className="border-t pt-4">
+                      <CloudAccounts />
+                    </div>
+                  </SettingsCard>
+                )}
+                <SettingsCard
+                  id="privacy"
+                  title="Privacy and usage statistics"
+                  icon={ShieldCheckIcon}
+                  register={register}
+                  testId="settings-privacy"
+                >
+                  <LoadedSettings />
+                </SettingsCard>
+              </>
+            )}
+          </DialogBody>
+          <DialogFooter className="mt-0 flex-row justify-end border-t-0 bg-transparent px-6 pt-2 pb-5 md:px-9">
+            <DialogClose asChild>
+              <Button type="button" variant="outline" size="lg" className="min-w-28 bg-card">
+                Close
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
-  const id = useId();
+/** One group of settings as a card. The card can take focus so a menu item can point at it. */
+function SettingsCard({
+  id,
+  title,
+  icon: Icon,
+  register,
+  testId,
+  children,
+}: {
+  id: SettingsSection;
+  title: string;
+  icon: LucideIcon;
+  register: (id: SettingsSection, node: HTMLElement | null) => void;
+  testId: string;
+  children: ReactNode;
+}) {
+  const headingId = useId();
   return (
-    <section aria-labelledby={id}>
-      <h3
-        id={id}
-        className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase"
-      >
+    <section
+      ref={(node) => register(id, node)}
+      tabIndex={-1}
+      aria-labelledby={headingId}
+      data-testid={testId}
+      className="flex shrink-0 flex-col gap-4 rounded-xl border bg-card/90 p-4 outline-none focus-visible:ring-2 focus-visible:ring-primary/70 dark:bg-card/85"
+    >
+      <h3 id={headingId} className="flex items-center gap-2 text-base font-semibold">
+        <Icon aria-hidden="true" className="size-5 shrink-0 text-primary" />
         {title}
       </h3>
       {children}

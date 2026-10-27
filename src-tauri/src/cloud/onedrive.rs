@@ -36,7 +36,8 @@ pub fn oauth_config(client_id: &str) -> OAuthConfig {
         auth_url: AUTH_URL.to_string(),
         token_url: TOKEN_URL.to_string(),
         scopes: SCOPES.split(' ').map(str::to_string).collect(),
-        extra_auth_params: Vec::new(),
+        // Always show the account chooser instead of silently reusing the browser session.
+        extra_auth_params: vec![("prompt".into(), "select_account".into())],
     }
 }
 
@@ -682,6 +683,11 @@ mod tests {
                 .any(|s| s == "Files.ReadWrite" || s == "Files.ReadWrite.All")
         );
         assert!(config.auth_url.contains("login.microsoftonline.com/common"));
+        assert!(
+            config
+                .extra_auth_params
+                .contains(&("prompt".into(), "select_account".into()))
+        );
     }
 
     #[test]

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
+  cancelCloudConnect,
   connectCloudAccount,
   disconnectCloudAccount,
   listCloudAccounts,
@@ -12,6 +13,12 @@ import {
 } from "@/lib/cloud";
 import { errorText } from "@/lib/errors";
 import { isCommandError, isTauri } from "@/lib/tauri";
+
+/** The app gives up waiting for the browser sign-in after this long, a little after the backend. */
+export const CONNECT_GIVE_UP_MS = 6 * 60 * 1000;
+
+/** The person pressed Cancel: not an error to show. */
+class ConnectCancelled extends Error {}
 
 interface ProviderProblem {
   message: string;
@@ -30,6 +37,8 @@ export function CloudAccounts() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<CloudProvider | null>(null);
   const [problems, setProblems] = useState<Partial<Record<CloudProvider, ProviderProblem>>>({});
+
+  const cancelWaiting = useRef<(() => void) | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -57,6 +66,7 @@ export function CloudAccounts() {
     try {
       await action();
     } catch (e) {
+      if (e instanceof ConnectCancelled) return;
       const expired = isCommandError(e) && e.kind === "auth-expired";
       setProblems((p) => ({
         ...p,
@@ -73,8 +83,30 @@ export function CloudAccounts() {
     }
   };
 
-  const connect = (provider: CloudProvider) =>
-    run(provider, () => connectCloudAccount(provider), "The account could not be connected.");
+  // The wait ends when the backend answers, when Cancel is pressed or after CONNECT_GIVE_UP_MS,
+  // so the button can never stay on "Waiting for the browser…".
+  const connect = (provider: CloudProvider) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const guard = new Promise<never>((_, reject) => {
+      cancelWaiting.current = () => reject(new ConnectCancelled());
+      timer = setTimeout(
+        () => reject(new Error("The browser sign-in took too long. Try again.")),
+        CONNECT_GIVE_UP_MS,
+      );
+    });
+    return run(
+      provider,
+      () => Promise.race([connectCloudAccount(provider), guard]),
+      "The account could not be connected.",
+    ).finally(() => {
+      clearTimeout(timer);
+      cancelWaiting.current = null;
+    });
+  };
+  const cancelConnect = () => {
+    cancelWaiting.current?.();
+    void cancelCloudConnect().catch(() => undefined);
+  };
   const disconnect = (provider: CloudProvider) =>
     run(provider, () => disconnectCloudAccount(provider), "The account could not be disconnected.");
 
@@ -100,7 +132,7 @@ export function CloudAccounts() {
           return (
             <li
               key={item.provider}
-              className="flex flex-col gap-1 rounded-xl border bg-card px-3 py-2"
+              className="flex flex-col gap-1 rounded-xl border bg-background/60 px-3 py-2"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -125,24 +157,37 @@ export function CloudAccounts() {
                     Disconnect
                   </Button>
                 ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={connecting || otherBusy}
-                    aria-label={
-                      connecting
-                        ? undefined
-                        : `${problem?.expired ? "Reconnect" : "Connect"} ${item.label}`
-                    }
-                    onClick={() => void connect(item.provider)}
-                  >
-                    {connecting
-                      ? "Waiting for the browser…"
-                      : problem?.expired
-                        ? "Reconnect"
-                        : "Connect"}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {connecting && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Cancel connecting ${item.label}`}
+                        onClick={cancelConnect}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={connecting || otherBusy}
+                      aria-label={
+                        connecting
+                          ? undefined
+                          : `${problem?.expired ? "Reconnect" : "Connect"} ${item.label}`
+                      }
+                      onClick={() => void connect(item.provider)}
+                    >
+                      {connecting
+                        ? "Waiting for the browser…"
+                        : problem?.expired
+                          ? "Reconnect"
+                          : "Connect"}
+                    </Button>
+                  </div>
                 )}
               </div>
               {problem && (

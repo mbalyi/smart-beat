@@ -10,6 +10,7 @@ pub mod keychain;
 pub mod lease;
 pub mod oauth;
 pub mod onedrive;
+pub mod pages;
 pub mod pending;
 
 use serde::{Deserialize, Serialize};

@@ -12,6 +12,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use super::keychain::TokenStore;
+use super::pages;
 use super::{Provider, ProviderKind, Tokens, agent, encode};
 use crate::cloud_folder::now_secs;
 use crate::error::{CommandError, ErrorKind};
@@ -100,8 +101,14 @@ impl Loopback {
         format!("http://127.0.0.1:{}/", self.port())
     }
 
-    /// Waits for the browser redirect and returns the authorization code. Checks `state`.
-    pub fn wait_for_code(&self, state: &str, timeout: Duration) -> Result<String, CommandError> {
+    /// Waits for the browser redirect and returns the authorization code together with the open
+    /// browser connection, which the caller answers once the code exchange is done. Checks
+    /// `state`. A cancelled or mismatched redirect is answered with an error page right away.
+    pub fn wait_for_code(
+        &self,
+        state: &str,
+        timeout: Duration,
+    ) -> Result<(String, PendingReply), CommandError> {
         let start = Instant::now();
         while start.elapsed() < timeout {
             match self.listener.accept() {
@@ -128,47 +135,99 @@ impl Loopback {
     }
 }
 
-/// Answers one request; `None` for requests that are not the redirect (favicon, probes).
-fn handle_redirect(mut stream: TcpStream, state: &str) -> Option<Result<String, CommandError>> {
+/// The browser connection of a valid redirect, still waiting for its page.
+#[derive(Debug)]
+pub struct PendingReply {
+    stream: TcpStream,
+}
+
+impl PendingReply {
+    /// Shows the success page.
+    pub fn succeed(self, provider: &str) {
+        self.send("200 OK", &pages::success_page(provider));
+    }
+
+    /// Shows the error page with a short reason derived from `error` (never its raw text).
+    pub fn fail(self, error: &CommandError) {
+        self.send("200 OK", &pages::error_page(failure_reason(error)));
+    }
+
+    fn send(mut self, status: &str, body: &str) {
+        let _ = self
+            .stream
+            .write_all(pages::http_response(status, body).as_bytes());
+        let _ = self.stream.flush();
+    }
+}
+
+/// A short, safe sentence for the browser; the details stay in the app.
+fn failure_reason(error: &CommandError) -> &'static str {
+    match error.kind {
+        ErrorKind::AuthExpired => "The provider did not accept the sign-in.",
+        ErrorKind::Network => "Smart Beat could not reach the provider.",
+        _ => "Smart Beat could not finish the sign-in.",
+    }
+}
+
+fn reply_now(mut stream: TcpStream, status: &str, body: &str) {
+    let _ = stream.write_all(pages::http_response(status, body).as_bytes());
+    let _ = stream.flush();
+}
+
+/// Handles one request. `None` for requests that are not the redirect (favicon, probes), which
+/// get a 404 so the browser does not wait.
+fn handle_redirect(
+    stream: TcpStream,
+    state: &str,
+) -> Option<Result<(String, PendingReply), CommandError>> {
     stream.set_nonblocking(false).ok();
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
     let mut line = String::new();
-    BufReader::new(&stream).read_line(&mut line).ok()?;
-    let target = line.split_whitespace().nth(1)?;
-    let query = target.split_once('?')?.1;
+    if BufReader::new(&stream).read_line(&mut line).is_err() {
+        return None;
+    }
+    let query = line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|target| target.split_once('?'))
+        .map(|(_, q)| q);
+    let Some(query) = query else {
+        reply_now(stream, "404 Not Found", &pages::error_page("Nothing here."));
+        return None;
+    };
     let param = |name: &str| {
         query.split('&').find_map(|pair| {
             let (k, v) = pair.split_once('=')?;
             (k == name).then(|| percent_decode(v))
         })
     };
-    let result = if param("state").as_deref() != Some(state) {
-        Err(CommandError::new(
+    if param("state").as_deref() != Some(state) {
+        reply_now(
+            stream,
+            "200 OK",
+            &pages::error_page("The sign-in answer did not match the request."),
+        );
+        return Some(Err(CommandError::new(
             ErrorKind::Io,
             "The sign-in answer did not match the request.",
-        ))
-    } else if let Some(code) = param("code") {
-        Ok(code)
+        )));
+    }
+    if let Some(code) = param("code") {
+        return Some(Ok((code, PendingReply { stream })));
+    }
+    let reason = if param("error").as_deref() == Some("access_denied") {
+        "Access was declined."
     } else {
-        Err(CommandError::new(
-            ErrorKind::Io,
-            format!(
-                "Sign-in was cancelled ({}).",
-                param("error").unwrap_or_default()
-            ),
-        ))
+        "The provider reported a problem."
     };
-    let body = if result.is_ok() {
-        "You are signed in. You can close this tab and return to Smart Beat."
-    } else {
-        "Sign-in did not complete. You can close this tab and try again in Smart Beat."
-    };
-    let _ = write!(
-        stream,
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    Some(result)
+    reply_now(stream, "200 OK", &pages::error_page(reason));
+    Some(Err(CommandError::new(
+        ErrorKind::Io,
+        format!(
+            "Sign-in was cancelled ({}).",
+            param("error").unwrap_or_default()
+        ),
+    )))
 }
 
 fn percent_decode(value: &str) -> String {
@@ -285,11 +344,24 @@ pub fn sign_in(
     let loopback = Loopback::bind()?;
     let redirect = loopback.redirect_uri();
     open_browser(&authorize_url(config, &redirect, &state, &challenge))?;
-    let code = loopback.wait_for_code(&state, timeout)?;
-    let mut tokens = exchange_code(config, &code, &verifier, &redirect)?;
-    tokens.account = provider.account_name(&tokens.access_token)?;
-    store.save(provider.kind(), &tokens)?;
-    Ok(tokens)
+    let (code, reply) = loopback.wait_for_code(&state, timeout)?;
+    // The browser page is answered only now, so it reflects the real outcome.
+    let finish = || -> Result<Tokens, CommandError> {
+        let mut tokens = exchange_code(config, &code, &verifier, &redirect)?;
+        tokens.account = provider.account_name(&tokens.access_token)?;
+        store.save(provider.kind(), &tokens)?;
+        Ok(tokens)
+    };
+    match finish() {
+        Ok(tokens) => {
+            reply.succeed(provider.kind().label());
+            Ok(tokens)
+        }
+        Err(error) => {
+            reply.fail(&error);
+            Err(error)
+        }
+    }
 }
 
 /// Gives providers a valid access token, refreshing and re-storing it when it is about to expire.
@@ -365,12 +437,17 @@ mod tests {
         assert!(url.ends_with("&access_type=offline"));
     }
 
-    fn browser_hit(port: u16, query: &str) {
+    /// Sends a request like the browser; returns the answer once the server closes.
+    fn browser_get(port: u16, target: &str) -> String {
         let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
-        write!(stream, "GET /?{query} HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        write!(stream, "GET {target} HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
         let mut answer = String::new();
         stream.read_to_string(&mut answer).unwrap();
-        assert!(answer.starts_with("HTTP/1.1 200"));
+        answer
+    }
+
+    fn browser_hit(port: u16, query: &str) -> String {
+        browser_get(port, &format!("/?{query}"))
     }
 
     /// A token endpoint on 127.0.0.1 that records the request body and answers with tokens.
@@ -407,6 +484,27 @@ mod tests {
             String::from_utf8(body).unwrap()
         });
         (url, handle)
+    }
+
+    /// A token endpoint that answers every request with `status` and a provider error body.
+    fn mock_failing_token_endpoint(status: u16) -> String {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let url = format!(
+            "http://127.0.0.1:{}/token",
+            listener.local_addr().unwrap().port()
+        );
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let body = r#"{"error":"invalid_grant"}"#;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status} Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        });
+        url
     }
 
     fn config_with(token_url: String, secret: Option<&str>) -> OAuthConfig {
@@ -461,15 +559,37 @@ mod tests {
     }
 
     #[test]
-    fn loopback_returns_the_code_for_the_right_state() {
+    fn loopback_returns_the_code_and_answers_after_the_caller_does() {
         let loopback = Loopback::bind().unwrap();
         let port = loopback.port();
         let t = std::thread::spawn(move || browser_hit(port, "code=a%2Fb&state=s1"));
-        let code = loopback
+        let (code, reply) = loopback
             .wait_for_code("s1", Duration::from_secs(5))
             .unwrap();
-        t.join().unwrap();
         assert_eq!(code, "a/b");
+        assert!(!t.is_finished(), "the page must wait for the exchange");
+        reply.succeed("Google Drive");
+        let answer = t.join().unwrap();
+        assert!(answer.starts_with("HTTP/1.1 200"));
+        assert!(answer.contains("Google Drive is connected"));
+        assert!(answer.contains("Content-Security-Policy"));
+    }
+
+    #[test]
+    fn loopback_ignores_the_favicon_and_keeps_waiting() {
+        let loopback = Loopback::bind().unwrap();
+        let port = loopback.port();
+        let t = std::thread::spawn(move || {
+            let favicon = browser_get(port, "/favicon.ico");
+            assert!(favicon.starts_with("HTTP/1.1 404"));
+            browser_hit(port, "code=c&state=s1")
+        });
+        let (code, reply) = loopback
+            .wait_for_code("s1", Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(code, "c");
+        reply.succeed("OneDrive");
+        t.join().unwrap();
     }
 
     #[test]
@@ -482,7 +602,9 @@ mod tests {
                 .wait_for_code("s1", Duration::from_secs(5))
                 .is_err()
         );
-        t.join().unwrap();
+        let answer = t.join().unwrap();
+        assert!(answer.contains("Sign-in did not complete"));
+        assert!(!answer.contains("evil"));
     }
 
     #[test]
@@ -492,9 +614,121 @@ mod tests {
         let t = std::thread::spawn(move || browser_hit(port, "error=access_denied&state=s1"));
         let error = loopback
             .wait_for_code("s1", Duration::from_secs(5))
-            .unwrap_err();
-        t.join().unwrap();
+            .err()
+            .unwrap();
         assert!(error.message.contains("access_denied"));
+        let answer = t.join().unwrap();
+        assert!(answer.contains("Sign-in did not complete"));
+        assert!(answer.contains("Access was declined."));
+    }
+
+    /// A provider whose account lookup works, for the full sign-in tests.
+    struct FakeProvider;
+    impl Provider for FakeProvider {
+        fn kind(&self) -> ProviderKind {
+            ProviderKind::Drive
+        }
+        fn account_name(&self, _token: &str) -> Result<String, CommandError> {
+            Ok("ada@x.com".into())
+        }
+        fn list(&self, _t: &str) -> Result<Vec<super::super::RemoteFile>, CommandError> {
+            unreachable!()
+        }
+        fn metadata(&self, _t: &str, _id: &str) -> Result<super::super::RemoteFile, CommandError> {
+            unreachable!()
+        }
+        fn read(
+            &self,
+            _t: &str,
+            _id: &str,
+        ) -> Result<(Vec<u8>, super::super::RemoteFile), CommandError> {
+            unreachable!()
+        }
+        fn write_if_revision(
+            &self,
+            _t: &str,
+            _id: &str,
+            _r: &str,
+            _b: &[u8],
+        ) -> Result<super::super::RemoteFile, CommandError> {
+            unreachable!()
+        }
+        fn create(
+            &self,
+            _t: &str,
+            _n: &str,
+            _b: &[u8],
+        ) -> Result<super::super::RemoteFile, CommandError> {
+            unreachable!()
+        }
+        fn revoke(&self, _token: &str) -> Result<(), CommandError> {
+            Ok(())
+        }
+    }
+
+    /// Opens the "browser" on a thread that follows the redirect and returns the page.
+    fn run_sign_in(
+        token_url: String,
+    ) -> (
+        Result<Tokens, CommandError>,
+        String,
+        super::super::keychain::MemoryStore,
+    ) {
+        let store = super::super::keychain::MemoryStore::default();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let config = config_with(token_url, None);
+        let result = sign_in(
+            &FakeProvider,
+            &config,
+            &store,
+            |url| {
+                let state = url
+                    .split('&')
+                    .find_map(|p| p.strip_prefix("state="))
+                    .unwrap()
+                    .to_owned();
+                let port: u16 = percent_decode(
+                    url.split('&')
+                        .find_map(|p| p.strip_prefix("redirect_uri="))
+                        .unwrap(),
+                )
+                .rsplit(':')
+                .next()
+                .unwrap()
+                .trim_end_matches('/')
+                .parse()
+                .unwrap();
+                std::thread::spawn(move || {
+                    tx.send(browser_hit(port, &format!("code=c&state={state}")))
+                        .unwrap();
+                });
+                Ok(())
+            },
+            Duration::from_secs(10),
+        );
+        (result, rx.recv().unwrap(), store)
+    }
+
+    #[test]
+    fn sign_in_shows_the_success_page_after_the_exchange() {
+        let (url, handle) = mock_token_endpoint();
+        let (result, page, store) = run_sign_in(url);
+        handle.join().unwrap();
+        assert_eq!(result.unwrap().account, "ada@x.com");
+        assert!(page.contains("is connected"));
+        assert!(store.load(ProviderKind::Drive).unwrap().is_some());
+    }
+
+    #[test]
+    fn sign_in_shows_the_failure_page_when_the_exchange_fails() {
+        let url = mock_failing_token_endpoint(400);
+        let (result, page, store) = run_sign_in(url);
+        assert!(result.is_err());
+        assert!(page.contains("Sign-in did not complete"));
+        assert!(page.contains("The provider did not accept the sign-in."));
+        assert!(!page.contains("is connected"));
+        assert!(!page.contains("invalid_grant"));
+        assert!(store.load(ProviderKind::Drive).unwrap().is_none());
     }
 
     #[test]

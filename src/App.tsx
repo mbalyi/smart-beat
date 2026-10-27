@@ -3,6 +3,7 @@ import { track } from "@/lib/telemetry";
 import { toast } from "sonner";
 
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
+import type { SettingsSection } from "@/components/settings-dialog";
 import { AiInstallerDialog } from "@/components/ai/ai-installer-dialog";
 import { onInstallerReturn, openInstaller } from "@/lib/ai/ai-store";
 import { AppFooter } from "@/components/app-footer";
@@ -64,9 +65,13 @@ export function App() {
   const [transcriptionDrop, setTranscriptionDrop] = useState<DroppedRecording | null>(null);
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const { toggleTheme } = useTheme();
   const updater = useUpdater();
-  useUsageNotice(() => setDialog("settings"));
+  useUsageNotice(() => {
+    setSettingsSection(null);
+    setDialog("settings");
+  });
   useCloudFlush();
   const {
     songs,
@@ -152,8 +157,13 @@ export function App() {
   );
   const closing = songs.find((s) => s.id === pendingClose) ?? null;
 
-  const showDialog = (next: AppDialog, returnFocusTo: HTMLElement | null = null) => {
+  const showDialog = (
+    next: AppDialog,
+    returnFocusTo: HTMLElement | null = null,
+    section: SettingsSection | null = null,
+  ) => {
     if (next === "settings") track("settings_open");
+    setSettingsSection(next === "settings" ? section : null);
     setReturnFocusTo(returnFocusTo);
     setDialog(next);
   };
@@ -292,6 +302,10 @@ export function App() {
       case "licenses":
         showDialog(action);
         break;
+      case "cloud-settings":
+        // The same dialog as Settings, scrolled to the cloud storage section.
+        showDialog("settings", null, "cloud");
+        break;
       case "check-for-updates":
         updater.checkNow();
         break;
@@ -423,8 +437,10 @@ export function App() {
         open={dialog}
         onOpenChange={(next) => {
           if (dialog === "whats-new" && next !== "whats-new") tour.markVersionSeen();
+          if (next !== "settings") setSettingsSection(null);
           setDialog(next);
         }}
+        settingsSection={settingsSection}
         returnFocusTo={returnFocusTo}
         audioProvider={muscriptorProvider}
         whatsNew={whatsNew}

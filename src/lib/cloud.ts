@@ -47,6 +47,9 @@ export async function listCloudAccounts(): Promise<CloudAccount[]> {
 export const connectCloudAccount = (provider: CloudProvider) =>
   call<string>("cloud_connect", { provider });
 
+/** Stops a sign-in that is waiting for the browser. */
+export const cancelCloudConnect = () => call<void>("cloud_cancel_connect");
+
 export const disconnectCloudAccount = (provider: CloudProvider) =>
   call<void>("cloud_disconnect", { provider });
 

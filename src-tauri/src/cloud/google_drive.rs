@@ -33,7 +33,7 @@ pub fn oauth_config(client_id: &str) -> OAuthConfig {
         scopes: vec![SCOPE.into()],
         extra_auth_params: vec![
             ("access_type".into(), "offline".into()),
-            ("prompt".into(), "consent".into()),
+            ("prompt".into(), "select_account consent".into()),
         ],
     }
 }
@@ -606,7 +606,7 @@ mod tests {
         assert!(
             config
                 .extra_auth_params
-                .contains(&("prompt".into(), "consent".into()))
+                .contains(&("prompt".into(), "select_account consent".into()))
         );
     }
 }

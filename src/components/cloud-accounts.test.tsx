@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 
-import { CloudAccounts } from "@/components/cloud-accounts";
+import { CloudAccounts, CONNECT_GIVE_UP_MS } from "@/components/cloud-accounts";
 import type { CloudAccount, PendingUpload } from "@/lib/cloud";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -51,6 +51,61 @@ describe("CloudAccounts", () => {
     expect(calls.find((c) => c.cmd === "cloud_connect")?.args).toEqual({ provider: "onedrive" });
     // Account names are never reported to usage statistics.
     expect(calls.some((c) => c.cmd === "track_event")).toBe(false);
+  });
+
+  it("shows the backend's error text when the sign-in fails after the browser step", async () => {
+    mockTauri({
+      cloud_accounts: () => ACCOUNTS,
+      cloud_connect: () =>
+        Promise.reject({ kind: "io", message: "The system keychain did not answer." }),
+    });
+    const { user } = renderWithProviders(<CloudAccounts />);
+
+    await user.click(await screen.findByRole("button", { name: "Connect OneDrive" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/keychain did not answer/);
+    expect(screen.getByRole("button", { name: "Connect OneDrive" })).toBeEnabled();
+  });
+
+  it("Cancel stops the backend wait and returns the button to Connect without an error", async () => {
+    const calls = mockTauri({
+      cloud_accounts: () => ACCOUNTS,
+      cloud_connect: () => new Promise<string>(() => {}),
+      cloud_cancel_connect: () => null,
+    });
+    const { user } = renderWithProviders(<CloudAccounts />);
+
+    await user.click(await screen.findByRole("button", { name: "Connect OneDrive" }));
+    expect(await screen.findByRole("button", { name: "Waiting for the browser…" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Cancel connecting OneDrive" }));
+
+    expect(await screen.findByRole("button", { name: "Connect OneDrive" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(calls.some((c) => c.cmd === "cloud_cancel_connect")).toBe(true);
+  });
+
+  it("gives up waiting after a few minutes with a visible message", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockTauri({
+        cloud_accounts: () => ACCOUNTS,
+        cloud_connect: () => new Promise<string>(() => {}),
+        cloud_cancel_connect: () => null,
+      });
+      const { user } = renderWithProviders(<CloudAccounts />);
+
+      await user.click(await screen.findByRole("button", { name: "Connect OneDrive" }));
+      expect(
+        await screen.findByRole("button", { name: "Waiting for the browser…" }),
+      ).toBeDisabled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CONNECT_GIVE_UP_MS + 1000);
+      });
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/took too long/);
+      expect(screen.getByRole("button", { name: "Connect OneDrive" })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("disconnects an account", async () => {

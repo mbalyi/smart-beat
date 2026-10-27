@@ -97,6 +97,7 @@ pub enum MenuAction {
     ToggleCountIn,
     Shortcuts,
     Settings,
+    CloudSettings,
     Licenses,
     CheckForUpdates,
     Tour,
@@ -111,7 +112,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 77] = [
+    pub const ALL: [Self; 78] = [
         Self::NewSong,
         Self::Open,
         Self::AiModels,
@@ -178,6 +179,7 @@ impl MenuAction {
         Self::ToggleCountIn,
         Self::Shortcuts,
         Self::Settings,
+        Self::CloudSettings,
         Self::Licenses,
         Self::CheckForUpdates,
         Self::Tour,
@@ -260,6 +262,7 @@ impl MenuAction {
             Self::ToggleCountIn => "playback.toggle-count-in",
             Self::Shortcuts => "help.shortcuts",
             Self::Settings => "help.settings",
+            Self::CloudSettings => "help.cloud-settings",
             Self::Licenses => "help.licenses",
             Self::CheckForUpdates => "help.check-for-updates",
             Self::Tour => "help.tour",
@@ -342,6 +345,7 @@ impl MenuAction {
             }
             Self::Shortcuts
             | Self::Settings
+            | Self::CloudSettings
             | Self::Licenses
             | Self::CheckForUpdates
             | Self::Tour
@@ -424,6 +428,7 @@ impl MenuAction {
             Self::ToggleCountIn => "Count-In",
             Self::Shortcuts => "Keyboard Shortcuts",
             Self::Settings => "Settings…",
+            Self::CloudSettings => "Cloud Storage Settings…",
             Self::Licenses => "Open-Source Licenses",
             Self::CheckForUpdates => "Check for Updates…",
             Self::Tour => "Take the Tour",
@@ -521,6 +526,7 @@ impl MenuAction {
             | Self::DemoSong
             | Self::WhatsNew
             | Self::ResetTips
+            | Self::CloudSettings
             | Self::About => None,
         }
     }
@@ -829,6 +835,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let fullscreen = item(app, ToggleFullscreen)?;
     let shortcuts = item(app, Shortcuts)?;
     let settings = item(app, Settings)?;
+    let cloud_settings = item(app, CloudSettings)?;
     let licenses = item(app, Licenses)?;
     let updates = item(app, CheckForUpdates)?;
     let tour = item(app, Tour)?;
@@ -1002,6 +1009,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .item(&reset_tips)
             .separator()
             .item(&shortcuts)
+            .item(&cloud_settings)
             .item(&licenses)
             .item(&updates)
     } else {
@@ -1014,6 +1022,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .separator()
             .item(&shortcuts)
             .item(&settings)
+            .item(&cloud_settings)
             .item(&licenses)
             .item(&updates)
             .separator()
@@ -1525,6 +1534,26 @@ mod tests {
             format_accelerator("CmdOrCtrl+,", "windows").1,
             "Control+Comma"
         );
+    }
+
+    #[test]
+    fn cloud_settings_is_a_help_item_next_to_settings() {
+        let action = MenuAction::CloudSettings;
+        assert_eq!(action.id(), "help.cloud-settings");
+        assert_eq!(action.label(), "Cloud Storage Settings…");
+        assert_eq!(action.menu(), "Help");
+        assert_eq!(
+            serde_json::to_string(&action).unwrap(),
+            "\"cloud-settings\""
+        );
+        assert_eq!(MenuAction::from_id("help.cloud-settings"), Some(action));
+        assert!(!action.is_native());
+        assert!(!action.needs_song());
+        assert!(!action.is_toggle());
+        // It sits right after Settings in the ordered list of actions.
+        let all = MenuAction::ALL;
+        let settings = all.iter().position(|a| *a == MenuAction::Settings).unwrap();
+        assert_eq!(all[settings + 1], action);
     }
 
     #[test]

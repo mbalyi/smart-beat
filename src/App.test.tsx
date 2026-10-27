@@ -164,6 +164,16 @@ describe("App", () => {
     expect(await screen.findByRole("dialog", { name: "Settings" })).toBeInTheDocument();
   });
 
+  it("Help → Cloud Storage Settings… opens the settings on the cloud storage section", async () => {
+    await renderApp();
+
+    await menu("cloud-settings");
+
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    const cloud = await within(dialog).findByRole("region", { name: "Cloud storage" });
+    await waitFor(() => expect(cloud).toHaveFocus());
+  });
+
   it("Help → Open-Source Licenses shows the notices", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("tauri — MIT OR Apache-2.0")));
     await renderApp();

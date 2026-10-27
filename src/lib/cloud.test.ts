@@ -1,4 +1,5 @@
 import {
+  cancelCloudConnect,
   connectCloudAccount,
   disconnectCloudAccount,
   flushCloudUploads,
@@ -26,12 +27,18 @@ describe("cloud commands", () => {
   });
 
   it("sends the provider to connect and disconnect", async () => {
-    const calls = mockTauri({ cloud_connect: () => "me@x.y", cloud_disconnect: () => null });
+    const calls = mockTauri({
+      cloud_connect: () => "me@x.y",
+      cloud_disconnect: () => null,
+      cloud_cancel_connect: () => null,
+    });
     expect(await connectCloudAccount("dropbox")).toBe("me@x.y");
     await disconnectCloudAccount("onedrive");
+    await cancelCloudConnect();
     expect(calls.filter((c) => c.cmd.startsWith("cloud_")).map((c) => [c.cmd, c.args])).toEqual([
       ["cloud_connect", { provider: "dropbox" }],
       ["cloud_disconnect", { provider: "onedrive" }],
+      ["cloud_cancel_connect", {}],
     ]);
   });
 
