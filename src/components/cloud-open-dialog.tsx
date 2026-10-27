@@ -72,11 +72,13 @@ function OpenContent({
   label,
   onClose,
   onPick,
+  onSetupCloud,
 }: {
   provider: CloudProvider;
   label: string;
   onClose: () => void;
   onPick: (item: string) => void;
+  onSetupCloud?: () => void;
 }) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -196,6 +198,17 @@ function OpenContent({
         <Button variant="outline" size="lg" className="min-w-28 bg-card" onClick={onClose}>
           Close
         </Button>
+        {onSetupCloud && (
+          <Button
+            variant="link"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={onSetupCloud}
+            data-testid="cloud-open-setup"
+          >
+            Set up cloud storage
+          </Button>
+        )}
         <Button
           variant="outline"
           size="lg"
@@ -221,12 +234,15 @@ export function CloudOpenDialog({
   open,
   onOpenChange,
   onPick,
+  onSetupCloud,
 }: {
   provider: CloudProvider;
   label: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPick: (item: string) => void;
+  /** Shows a small "Set up cloud storage" link in the footer. */
+  onSetupCloud?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -241,6 +257,7 @@ export function CloudOpenDialog({
             label={label}
             onClose={() => onOpenChange(false)}
             onPick={onPick}
+            onSetupCloud={onSetupCloud}
           />
         )}
       </DialogContent>

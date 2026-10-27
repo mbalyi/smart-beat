@@ -20,10 +20,25 @@ pub const CLIENT_ID: Option<&str> = option_env!("SMARTBEAT_DROPBOX_CLIENT_ID");
 const API_BASE: &str = "https://api.dropboxapi.com/2";
 const CONTENT_BASE: &str = "https://content.dropboxapi.com/2";
 
+/// Dropbox compares the redirect address exactly, port and path included, so sign-in listens on
+/// one of these ports. Each must be registered in the Dropbox app console as
+/// `http://127.0.0.1:<port>/` (see [`REDIRECT_URIS`]).
+pub const REDIRECT_PORTS: [u16; 5] = [53682, 53683, 53684, 53685, 53686];
+
+/// The redirect URIs to register in the Dropbox app console.
+pub fn redirect_uris() -> Vec<String> {
+    REDIRECT_PORTS
+        .iter()
+        .map(|port| format!("http://127.0.0.1:{port}/"))
+        .collect()
+}
+
 pub fn oauth_config(client_id: &str) -> OAuthConfig {
     OAuthConfig {
         client_id: client_id.to_owned(),
         client_secret: None,
+        redirect_ports: REDIRECT_PORTS.to_vec(),
+        redirect_host: "127.0.0.1".into(),
         auth_url: "https://www.dropbox.com/oauth2/authorize".into(),
         token_url: "https://api.dropboxapi.com/oauth2/token".into(),
         scopes: [
@@ -629,6 +644,28 @@ mod tests {
         assert_eq!(dropbox.account_name("t").unwrap(), "Ada L");
         dropbox.revoke("t").unwrap();
         assert_eq!(seen.lock().unwrap()[1].path, "/auth/token/revoke");
+    }
+
+    #[test]
+    fn sign_in_listens_only_on_the_registered_loopback_addresses() {
+        let config = oauth_config("id");
+        assert_eq!(config.redirect_ports, REDIRECT_PORTS);
+        // These exact strings are what is registered in the Dropbox app console: Dropbox
+        // compares the redirect address exactly, port and trailing slash included.
+        assert_eq!(
+            redirect_uris(),
+            [
+                "http://127.0.0.1:53682/",
+                "http://127.0.0.1:53683/",
+                "http://127.0.0.1:53684/",
+                "http://127.0.0.1:53685/",
+                "http://127.0.0.1:53686/",
+            ]
+        );
+        for port in REDIRECT_PORTS {
+            let uri = crate::cloud::oauth::Loopback::redirect_uri_for("127.0.0.1", port);
+            assert!(redirect_uris().contains(&uri), "{uri}");
+        }
     }
 
     #[test]

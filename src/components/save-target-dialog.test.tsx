@@ -71,4 +71,67 @@ describe("SaveTargetDialog", () => {
     await user.click(screen.getByTestId("save-target-cancel"));
     expect(onCancel).toHaveBeenCalled();
   });
+
+  it("shows every provider; disabled ones are muted, named with their hint and not clickable", async () => {
+    const onChoose = vi.fn();
+    const { user } = renderWithProviders(
+      <SaveTargetDialog
+        mode="open"
+        open
+        providers={[
+          { provider: "drive", label: "Google Drive" },
+          { provider: "dropbox", label: "Dropbox", disabled: true, hint: "Not connected" },
+          {
+            provider: "onedrive",
+            label: "OneDrive",
+            disabled: true,
+            hint: "Not available in this build",
+          },
+        ]}
+        onChoose={onChoose}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("save-target-drive")).toBeEnabled();
+    expect(screen.getByTestId("save-target-dropbox")).toBeDisabled();
+    expect(screen.getByTestId("save-target-onedrive")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open from Dropbox, not connected" })).toBeDisabled();
+    expect(screen.getByText("Not available in this build")).toBeInTheDocument();
+    await user.click(screen.getByTestId("save-target-dropbox"));
+    expect(onChoose).not.toHaveBeenCalled();
+    await expectNoA11yViolations();
+  });
+
+  it("disables providers in save mode too", () => {
+    renderWithProviders(
+      <SaveTargetDialog
+        open
+        providers={[
+          { provider: "dropbox", label: "Dropbox", disabled: true, hint: "Not connected" },
+        ]}
+        onChoose={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Save to Dropbox, not connected" })).toBeDisabled();
+  });
+
+  it("links to the cloud setup only when asked to", async () => {
+    const onSetupCloud = vi.fn();
+    const { user, rerender } = renderWithProviders(
+      <SaveTargetDialog
+        open
+        providers={[]}
+        onChoose={vi.fn()}
+        onCancel={vi.fn()}
+        onSetupCloud={onSetupCloud}
+      />,
+    );
+    await user.click(screen.getByTestId("save-target-setup"));
+    expect(onSetupCloud).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Set up cloud storage")).toBeInTheDocument();
+    rerender(<SaveTargetDialog open providers={[]} onChoose={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.queryByTestId("save-target-setup")).not.toBeInTheDocument();
+  });
 });

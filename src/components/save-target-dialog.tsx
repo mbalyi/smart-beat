@@ -1,4 +1,4 @@
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, CloudIcon, LockIcon } from "lucide-react";
 
 import laptop from "@/assets/cloud/laptop.webp";
 import splashLeft from "@/assets/record-to-tab/splash-bottom-left.webp";
@@ -45,12 +45,14 @@ export function SaveTargetDialog({
   open,
   onChoose,
   onCancel,
+  onSetupCloud,
 }: {
   mode?: "open" | "save";
-  providers: { provider: CloudProvider; label: string }[];
+  providers: { provider: CloudProvider; label: string; disabled?: boolean; hint?: string }[];
   open: boolean;
   onChoose: (target: "computer" | CloudProvider) => void;
   onCancel: () => void;
+  onSetupCloud?: () => void;
 }) {
   const opening = mode === "open";
   const verb = opening ? "Open from" : "Save to";
@@ -101,13 +103,20 @@ export function SaveTargetDialog({
                       : "sm:grid-cols-3"
                 }`}
               >
-                {providers.map(({ provider, label }) => (
+                {providers.map(({ provider, label, disabled = false, hint }) => (
                   <button
                     key={provider}
                     type="button"
-                    className={`${CARD} flex-row items-end border-border bg-card/85 p-3 hover:border-primary/70 sm:min-h-40 sm:flex-col sm:items-stretch sm:gap-1`}
+                    disabled={disabled}
+                    className={`${CARD} flex-row items-end border-border bg-card/85 p-3 sm:min-h-40 sm:flex-col sm:items-stretch sm:gap-1 ${
+                      disabled
+                        ? "cursor-not-allowed opacity-55 grayscale"
+                        : "hover:border-primary/70"
+                    }`}
                     onClick={() => onChoose(provider)}
-                    aria-label={`${verb} ${label}`}
+                    aria-label={
+                      hint ? `${verb} ${label}, ${hint.toLowerCase()}` : `${verb} ${label}`
+                    }
                     data-testid={`save-target-${provider}`}
                   >
                     <span className="relative flex h-16 w-20 shrink-0 items-center justify-center self-start sm:h-20 sm:w-full sm:justify-start">
@@ -126,15 +135,36 @@ export function SaveTargetDialog({
                       <span className="flex min-w-0 flex-col leading-tight">
                         <span className="text-sm text-muted-foreground">{verb}</span>
                         <span className="text-xl font-bold sm:text-2xl">{label}</span>
+                        {hint && (
+                          <span className="text-xs text-muted-foreground" aria-hidden="true">
+                            {hint}
+                          </span>
+                        )}
                       </span>
-                      <ChevronRightIcon className="mb-1 size-6 shrink-0" aria-hidden="true" />
+                      {disabled ? (
+                        <LockIcon className="mb-1 size-5 shrink-0" aria-hidden="true" />
+                      ) : (
+                        <ChevronRightIcon className="mb-1 size-6 shrink-0" aria-hidden="true" />
+                      )}
                     </span>
                   </button>
                 ))}
               </div>
             )}
           </DialogBody>
-          <DialogFooter className="mt-0 flex-row justify-end border-t-0 bg-transparent px-6 pt-4 pb-5 md:px-9">
+          <DialogFooter className="mt-0 flex-row flex-wrap items-center justify-end gap-2 border-t-0 bg-transparent px-6 pt-4 pb-5 md:px-9">
+            {onSetupCloud && (
+              <Button
+                variant="link"
+                size="sm"
+                className="mr-auto px-0 text-muted-foreground"
+                onClick={onSetupCloud}
+                data-testid="save-target-setup"
+              >
+                <CloudIcon aria-hidden="true" />
+                Set up cloud storage
+              </Button>
+            )}
             <Button
               variant="outline"
               size="lg"

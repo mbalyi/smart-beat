@@ -25,6 +25,8 @@ const FIELDS: &str = "id,name,size,modifiedTime,headRevisionId";
 pub fn oauth_config(client_id: &str) -> OAuthConfig {
     OAuthConfig {
         client_id: client_id.to_owned(),
+        redirect_ports: Vec::new(),
+        redirect_host: "127.0.0.1".into(),
         client_secret: CLIENT_SECRET
             .filter(|secret| !secret.trim().is_empty())
             .map(str::to_owned),

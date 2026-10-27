@@ -33,6 +33,9 @@ pub fn oauth_config(client_id: &str) -> OAuthConfig {
     OAuthConfig {
         client_id: client_id.to_string(),
         client_secret: None,
+        redirect_ports: Vec::new(),
+        // Registered in the Entra app as `http://localhost` (the port is ignored for loopback).
+        redirect_host: "localhost".into(),
         auth_url: AUTH_URL.to_string(),
         token_url: TOKEN_URL.to_string(),
         scopes: SCOPES.split(' ').map(str::to_string).collect(),
@@ -667,6 +670,13 @@ mod tests {
             )
         });
         assert_eq!(OneDrive::with_base(base).account_name("t").unwrap(), "Ada");
+    }
+
+    #[test]
+    fn the_redirect_host_matches_the_entra_registration() {
+        // The Entra app is registered for `http://localhost` (the loopback port is ignored).
+        assert_eq!(oauth_config("id").redirect_host, "localhost");
+        assert!(oauth_config("id").redirect_ports.is_empty());
     }
 
     #[test]

@@ -69,7 +69,13 @@ export const backend = {
   /** Path the Open dialog picks, or `null` for Cancel. */
   dialogResult: null as string | null,
   /** What `cloud_accounts` returns (none connected by default). */
-  cloudAccounts: [] as { provider: string; label: string; account: string | null }[],
+  cloudAccounts: [] as {
+    provider: string;
+    label: string;
+    /** Defaults to true (a build with credentials). */
+    configured?: boolean;
+    account: string | null;
+  }[],
   /** The last menu state the UI sent. */
   menuState: null as MenuState | null,
   /** Recently opened songs, most recent first (see `src-tauri/src/recent.rs`). */
@@ -189,7 +195,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         case "get_cloud_folder":
           return null;
         case "cloud_accounts":
-          return backend.cloudAccounts;
+          return backend.cloudAccounts.map((a) => ({ configured: true, ...a }));
         case "detect_cloud_folders":
         case "cloud_pending":
         case "cloud_flush":

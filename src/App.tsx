@@ -53,7 +53,7 @@ import { muscriptorProvider } from "@/lib/muscriptor";
 import { isEnabled } from "@/lib/features";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
 
-type CloudDrive = { provider: CloudProvider; label: string };
+type CloudDrive = { provider: CloudProvider; label: string; disabled?: boolean; hint?: string };
 
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
@@ -188,16 +188,30 @@ export function App() {
     }
   };
 
-  /** The connected online drives; none when there are none or they can't be listed. */
-  const connectedDrives = async () => {
-    if (!isTauri()) return [];
+  /**
+   * Every online drive for the chooser, with the ones that can't be used yet disabled and a
+   * hint why. `connected` is how many are signed in; none when they can't be listed.
+   */
+  const cloudDrives = async (): Promise<{ drives: CloudDrive[]; connected: CloudDrive[] }> => {
+    if (!isTauri()) return { drives: [], connected: [] };
     try {
-      return (await listCloudAccounts())
-        .filter((a) => a.account)
-        .map(({ provider, label }) => ({ provider, label }));
+      const drives = (await listCloudAccounts()).map<CloudDrive>((a) => {
+        const base = { provider: a.provider, label: a.label };
+        if (!a.configured) return { ...base, disabled: true, hint: "Not available in this build" };
+        if (!a.account) return { ...base, disabled: true, hint: "Not connected" };
+        return base;
+      });
+      return { drives, connected: drives.filter((d) => !d.disabled) };
     } catch {
-      return [];
+      return { drives: [], connected: [] };
     }
+  };
+
+  /** "Set up cloud storage": closes the chooser or picker and opens Settings on that section. */
+  const setUpCloud = () => {
+    setOpenChooser(null);
+    setCloudOpen(null);
+    showDialog("settings", null, "cloud");
   };
 
   /** Where Open asks first (connected drives), and the drive whose songs are listed. */
@@ -206,8 +220,8 @@ export function App() {
 
   /** Open: asks where first when an online drive is connected, else the native dialog. */
   const showOpenDialog = async () => {
-    const drives = await connectedDrives();
-    if (drives.length > 0) setOpenChooser(drives);
+    const { drives, connected } = await cloudDrives();
+    if (connected.length > 0) setOpenChooser(drives);
     else await showNativeOpenDialog();
   };
 
@@ -220,11 +234,11 @@ export function App() {
 
   /** File › Open from Cloud…: straight to the drive's songs. */
   const showCloudOpen = async () => {
-    const drives = await connectedDrives();
-    if (drives.length === 0) {
+    const { drives, connected } = await cloudDrives();
+    if (connected.length === 0) {
       toast("Connect a cloud account in Settings first");
       showDialog("settings", null, "cloud");
-    } else if (drives.length === 1) setCloudOpen(drives[0] ?? null);
+    } else if (connected.length === 1) setCloudOpen(connected[0] ?? null);
     else setOpenChooser(drives);
   };
 
@@ -522,11 +536,13 @@ export function App() {
         open={openChooser !== null}
         onChoose={chooseOpenTarget}
         onCancel={() => setOpenChooser(null)}
+        onSetupCloud={setUpCloud}
       />
       {cloudOpen && (
         <CloudOpenDialog
           provider={cloudOpen.provider}
           label={cloudOpen.label}
+          onSetupCloud={setUpCloud}
           open
           onOpenChange={(isOpen) => !isOpen && setCloudOpen(null)}
           onPick={(item) => {

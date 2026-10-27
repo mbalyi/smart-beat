@@ -25,6 +25,14 @@ pub struct OAuthConfig {
     /// still ask for it with PKCE; it is not confidential for an installed app, but it stays out
     /// of the logs (see the manual `Debug`).
     pub client_secret: Option<String>,
+    /// Local ports the sign-in may listen on for the redirect, tried in order. Empty means any
+    /// free port. Dropbox compares the redirect address exactly, port included, so it needs a
+    /// fixed list that is registered in its console.
+    pub redirect_ports: Vec<u16>,
+    /// Host name in the redirect address: `127.0.0.1`, or `localhost` where the provider is
+    /// registered that way (Microsoft documents `http://localhost` for desktop apps). The
+    /// listener is always on the IPv4 loopback address.
+    pub redirect_host: String,
     pub auth_url: String,
     pub token_url: String,
     pub scopes: Vec<String>,
@@ -86,11 +94,34 @@ pub struct Loopback {
 impl Loopback {
     /// Binds a random free port on `127.0.0.1`.
     pub fn bind() -> Result<Self, CommandError> {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| {
-            CommandError::new(ErrorKind::Io, format!("The sign-in could not start: {e}"))
-        })?;
-        listener.set_nonblocking(true).ok();
-        Ok(Self { listener })
+        Self::bind_to(&[])
+    }
+
+    /// Binds the first free port of `ports` on `127.0.0.1`; any free port when the list is empty.
+    pub fn bind_to(ports: &[u16]) -> Result<Self, CommandError> {
+        let candidates: &[u16] = if ports.is_empty() { &[0] } else { ports };
+        let mut last_error = None;
+        for &port in candidates {
+            match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
+                Ok(listener) => {
+                    listener.set_nonblocking(true).ok();
+                    return Ok(Self { listener });
+                }
+                Err(e) => last_error = Some(e),
+            }
+        }
+        let reason = last_error.map_or_else(String::new, |e| e.to_string());
+        Err(CommandError::new(
+            ErrorKind::Io,
+            if ports.is_empty() {
+                format!("The sign-in could not start: {reason}")
+            } else {
+                format!(
+                    "The sign-in could not start: none of the local ports {ports:?} is free ({reason}). \
+                     Close the program using them and try again."
+                )
+            },
+        ))
     }
 
     pub fn port(&self) -> u16 {
@@ -98,7 +129,17 @@ impl Loopback {
     }
 
     pub fn redirect_uri(&self) -> String {
-        format!("http://127.0.0.1:{}/", self.port())
+        self.redirect_uri_with("127.0.0.1")
+    }
+
+    /// The redirect address with `host` as the host name.
+    pub fn redirect_uri_with(&self, host: &str) -> String {
+        Self::redirect_uri_for(host, self.port())
+    }
+
+    /// The redirect address for `host` and `port`.
+    pub fn redirect_uri_for(host: &str, port: u16) -> String {
+        format!("http://{host}:{port}/")
     }
 
     /// Waits for the browser redirect and returns the authorization code together with the open
@@ -341,8 +382,8 @@ pub fn sign_in(
 ) -> Result<Tokens, CommandError> {
     let (verifier, challenge) = pkce()?;
     let state = random_token(16)?;
-    let loopback = Loopback::bind()?;
-    let redirect = loopback.redirect_uri();
+    let loopback = Loopback::bind_to(&config.redirect_ports)?;
+    let redirect = loopback.redirect_uri_with(&config.redirect_host);
     open_browser(&authorize_url(config, &redirect, &state, &challenge))?;
     let (code, reply) = loopback.wait_for_code(&state, timeout)?;
     // The browser page is answered only now, so it reflects the real outcome.
@@ -425,6 +466,8 @@ mod tests {
         let config = OAuthConfig {
             client_id: "id".into(),
             client_secret: None,
+            redirect_ports: Vec::new(),
+            redirect_host: "127.0.0.1".into(),
             auth_url: "https://a.example/auth".into(),
             token_url: String::new(),
             scopes: vec!["one".into(), "two".into()],
@@ -511,6 +554,8 @@ mod tests {
         OAuthConfig {
             client_id: "the-id".into(),
             client_secret: secret.map(str::to_owned),
+            redirect_ports: Vec::new(),
+            redirect_host: "127.0.0.1".into(),
             auth_url: String::new(),
             token_url,
             scopes: Vec::new(),

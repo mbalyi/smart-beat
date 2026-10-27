@@ -1094,6 +1094,8 @@ mod tests {
         OAuthConfig {
             client_id: "cid".into(),
             client_secret: None,
+            redirect_ports: Vec::new(),
+            redirect_host: "127.0.0.1".into(),
             auth_url: "http://127.0.0.1:1/auth".into(),
             token_url: token_url.into(),
             scopes: vec!["scope".into()],

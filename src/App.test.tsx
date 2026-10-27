@@ -31,9 +31,18 @@ vi.mock("@/lib/score/player", async () => ({
 
 // The drive's song list has its own tests: here it only reports what is picked.
 vi.mock("@/components/cloud-open-dialog", () => ({
-  CloudOpenDialog: ({ label, onPick }: { label: string; onPick: (item: string) => void }) => (
+  CloudOpenDialog: ({
+    label,
+    onPick,
+    onSetupCloud,
+  }: {
+    label: string;
+    onPick: (item: string) => void;
+    onSetupCloud?: () => void;
+  }) => (
     <div role="dialog" aria-label={`Tabs in ${label}`}>
       <button onClick={() => onPick("drive:abc")}>Pick drive tab</button>
+      <button onClick={onSetupCloud}>Picker setup link</button>
     </div>
   ),
 }));
@@ -203,7 +212,7 @@ describe("App", () => {
       backend.dialogResult = SONG;
       await menu("open");
       const chooser = await screen.findByRole("dialog", { name: "Where is the song?" });
-      expect(within(chooser).queryByRole("button", { name: /OneDrive/ })).not.toBeInTheDocument();
+      expect(within(chooser).getByRole("button", { name: /OneDrive/ })).toBeDisabled();
       await user.click(within(chooser).getByRole("button", { name: /Open from this computer/ }));
       await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
     });
@@ -217,6 +226,50 @@ describe("App", () => {
       await waitFor(() =>
         expect(calls.some((c) => JSON.stringify(c.args ?? {}).includes("drive:abc"))).toBe(true),
       );
+    });
+
+    it("lists every provider, disabling the unavailable ones with a hint", async () => {
+      await renderApp();
+      backend.cloudAccounts = [
+        DRIVE,
+        { ...OTHER, account: null },
+        { provider: "dropbox", label: "Dropbox", configured: false, account: null },
+      ];
+      await menu("open");
+      const chooser = await screen.findByRole("dialog", { name: "Where is the song?" });
+      expect(within(chooser).getByRole("button", { name: /Google Drive/ })).toBeEnabled();
+      const oneDrive = within(chooser).getByRole("button", { name: /OneDrive/ });
+      expect(oneDrive).toBeDisabled();
+      expect(oneDrive).toHaveTextContent("Not connected");
+      const dropbox = within(chooser).getByRole("button", { name: /Dropbox/ });
+      expect(dropbox).toBeDisabled();
+      expect(dropbox).toHaveTextContent("Not available in this build");
+    });
+
+    it("'Set up cloud storage' closes the chooser and opens the settings on the cloud section", async () => {
+      const { user } = await renderApp();
+      backend.cloudAccounts = [DRIVE, { ...OTHER, account: null }];
+      await menu("open");
+      await screen.findByRole("dialog", { name: "Where is the song?" });
+      await user.click(screen.getByTestId("save-target-setup"));
+      const dialog = await screen.findByRole("dialog", { name: "Settings" });
+      const cloud = await within(dialog).findByRole("region", { name: "Cloud storage" });
+      await waitFor(() => expect(cloud).toHaveFocus());
+      expect(screen.queryByRole("dialog", { name: "Where is the song?" })).not.toBeInTheDocument();
+    });
+
+    it("the picker's 'Set up cloud storage' closes it and opens the settings", async () => {
+      const { user } = await renderApp();
+      backend.cloudAccounts = [DRIVE];
+      await menu("open-cloud");
+      await user.click(await screen.findByRole("button", { name: "Picker setup link" }));
+      const dialog = await screen.findByRole("dialog", { name: "Settings" });
+      expect(
+        await within(dialog).findByRole("region", { name: "Cloud storage" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("dialog", { name: "Tabs in Google Drive" }),
+      ).not.toBeInTheDocument();
     });
 
     it("Open from Cloud… goes straight to the only drive", async () => {

@@ -14,7 +14,7 @@ const item = (name: string, modified_ms: number, size = 2048) => ({
   modified_ms,
 });
 
-function setup() {
+function setup(onSetupCloud?: () => void) {
   const onOpenChange = vi.fn();
   const onPick = vi.fn();
   const view = renderWithProviders(
@@ -24,6 +24,7 @@ function setup() {
       open
       onOpenChange={onOpenChange}
       onPick={onPick}
+      onSetupCloud={onSetupCloud}
     />,
   );
   return { ...view, onOpenChange, onPick };
@@ -31,6 +32,19 @@ function setup() {
 
 describe("CloudOpenDialog", () => {
   beforeEach(() => localStorage.clear());
+
+  it("shows 'Set up cloud storage' only with the prop, and calls it", async () => {
+    mockTauri({ cloud_list: () => [] });
+    const first = setup();
+    await screen.findByText(/No tabs saved/);
+    expect(screen.queryByTestId("cloud-open-setup")).not.toBeInTheDocument();
+    first.unmount();
+
+    const onSetupCloud = vi.fn();
+    const { user } = setup(onSetupCloud);
+    await user.click(await screen.findByTestId("cloud-open-setup"));
+    expect(onSetupCloud).toHaveBeenCalledTimes(1);
+  });
 
   it("lists the newest tab first and shows size", async () => {
     mockTauri({
