@@ -5,6 +5,8 @@ pub mod cloud;
 pub mod cloud_commands;
 pub mod cloud_folder;
 mod commands;
+#[cfg(test)]
+mod dotenv;
 pub mod error;
 pub mod features;
 pub mod m4a;

@@ -1,6 +1,10 @@
 use std::env;
 use std::path::Path;
 
+#[allow(dead_code)]
+#[path = "src/dotenv.rs"]
+mod dotenv;
+
 /// Windows application manifest selecting Common Controls v6. Shared by the
 /// app binary (via tauri-build) and the test executables (below).
 const WINDOWS_MANIFEST: &str = "windows-app-manifest.xml";
@@ -9,6 +13,7 @@ fn main() {
     // Set by the release pipeline (docs/analytics.md); without them the usage counters are off.
     println!("cargo:rerun-if-env-changed=SMART_BEAT_ANALYTICS_URL");
     println!("cargo:rerun-if-env-changed=SMART_BEAT_INSTALLER");
+    cloud_client_ids();
     embed_windows_manifest_in_tests();
     native_muscriptor();
     ensure_helper_placeholder();
@@ -17,6 +22,26 @@ fn main() {
         .app_manifest(include_str!("windows-app-manifest.xml"));
     tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
         .expect("failed to run tauri-build");
+}
+
+/// Cloud client IDs and the Google client secret (#187) for `option_env!`, from the git-ignored
+/// `.env` at the repository root. Real environment variables win, so the release pipeline keeps
+/// working without the file.
+fn cloud_client_ids() {
+    for key in dotenv::KEYS {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo");
+    let file = Path::new(&manifest_dir).join("..").join(".env");
+    let Ok(text) = std::fs::read_to_string(&file) else {
+        return;
+    };
+    println!("cargo:rerun-if-changed=../.env");
+    for (key, value) in dotenv::parse(&text) {
+        if env::var_os(&key).is_none() {
+            println!("cargo:rustc-env={key}={value}");
+        }
+    }
 }
 
 /// The native menu code (muda) imports Common Controls v6 functions such as
