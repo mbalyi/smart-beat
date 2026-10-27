@@ -27,11 +27,13 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// The registered client id of a provider, `None` in builds without one.
 fn client_id(kind: ProviderKind) -> Option<&'static str> {
-    match kind {
+    let id = match kind {
         ProviderKind::Drive => google_drive::CLIENT_ID,
         ProviderKind::Onedrive => onedrive::CLIENT_ID,
         ProviderKind::Dropbox => dropbox::CLIENT_ID,
-    }
+    };
+    // A secret that is not set in the release pipeline arrives as an empty string.
+    id.filter(|id| !id.trim().is_empty())
 }
 
 /// OAuth endpoints of a provider. Without a client id the config is only a placeholder: no

@@ -187,6 +187,13 @@ jobs:
           # Anonymous usage counters (docs/analytics.md). The installer type is baked into the
           # build; pull-request builds get no address, which turns the counters off in them.
           SMART_BEAT_INSTALLER: ${{ matrix.installer }}
+          # Direct cloud access (#187, docs/release.md): client IDs of the apps registered with each
+          # provider, and the Google desktop client's secret. A provider without an ID shows
+          # "Not available in this build". Pull requests from forks get none of them.
+          SMARTBEAT_GOOGLE_CLIENT_ID: ${{ secrets.SMARTBEAT_GOOGLE_CLIENT_ID }}
+          SMARTBEAT_GOOGLE_CLIENT_SECRET: ${{ secrets.SMARTBEAT_GOOGLE_CLIENT_SECRET }}
+          SMARTBEAT_MICROSOFT_CLIENT_ID: ${{ secrets.SMARTBEAT_MICROSOFT_CLIENT_ID }}
+          SMARTBEAT_DROPBOX_CLIENT_ID: ${{ secrets.SMARTBEAT_DROPBOX_CLIENT_ID }}
           SMART_BEAT_ANALYTICS_URL: ${{ github.event_name != 'pull_request' && vars.ANALYTICS_URL || '' }}
         with:
           args: ${{ matrix.tauri-args }} ${{ steps.updater.outputs.args }}

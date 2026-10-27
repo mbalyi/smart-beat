@@ -61,6 +61,17 @@ The updater only installs updates signed with our key. This is separate from App
 - **Keep an encrypted offline backup** of the key file and the password (a password manager and an encrypted USB stick, for example). **If the key is lost, installed apps can never be updated again**: users would have to download a new installer by hand. Never commit the key.
 - Pull requests, forks and local builds do not have the key. They build without updater bundles (`createUpdaterArtifacts` is only turned on by [`tauri.updater.conf.json`](../src-tauri/tauri.updater.conf.json), which the release workflow adds when the secret exists).
 
+## Cloud sign-in keys
+
+Direct Google Drive, OneDrive and Dropbox access (#187) needs the client IDs of the apps registered with each provider. They are compiled into the build, so a release without them has those providers switched off ("Not available in this build"). Locally they come from the git-ignored `.env` ([`.env.example`](../.env.example)); the release workflow reads them from these secrets:
+
+| Secret                           | Value                                                                         |
+| -------------------------------- | ----------------------------------------------------------------------------- |
+| `SMARTBEAT_GOOGLE_CLIENT_ID`     | Client ID of the Google "Desktop app" OAuth client                            |
+| `SMARTBEAT_GOOGLE_CLIENT_SECRET` | Its client secret (not confidential for a desktop app, still kept out of git) |
+| `SMARTBEAT_MICROSOFT_CLIENT_ID`  | Application (client) ID of the Entra app registration (public client)         |
+| `SMARTBEAT_DROPBOX_CLIENT_ID`    | App key of the Dropbox app (App folder access)                                |
+
 To test updater bundles locally, with a throwaway key (never the real one):
 
 ```bash

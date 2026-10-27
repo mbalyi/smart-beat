@@ -25,7 +25,9 @@ const FIELDS: &str = "id,name,size,modifiedTime,headRevisionId";
 pub fn oauth_config(client_id: &str) -> OAuthConfig {
     OAuthConfig {
         client_id: client_id.to_owned(),
-        client_secret: CLIENT_SECRET.map(str::to_owned),
+        client_secret: CLIENT_SECRET
+            .filter(|secret| !secret.trim().is_empty())
+            .map(str::to_owned),
         auth_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
         token_url: "https://oauth2.googleapis.com/token".into(),
         scopes: vec![SCOPE.into()],
