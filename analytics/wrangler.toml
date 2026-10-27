@@ -6,8 +6,7 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "smart-beat-analytics"
-# Filled in by the deploy workflow (.github/workflows/analytics-deploy.yml) after it creates the database.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "9d475844-2dcb-4085-b0ca-0f09b69f29cb"
 migrations_dir = "migrations"
 
 [triggers]
