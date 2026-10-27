@@ -33,6 +33,15 @@ describe("SettingsDialog", () => {
     expect(toggle).toBeChecked();
     expect(toggle).toHaveAccessibleDescription(/no identifier/);
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    // One accessible name: the wordmark is decorative, the title text is sr-only.
+    expect(screen.getAllByRole("heading", { name: "Settings" })).toHaveLength(1);
+    expect(screen.queryByRole("img", { name: /settings/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("settings-title-art")).toHaveAttribute("alt", "");
+    expect(
+      screen.getByText(
+        "Choose your audio input, connect your cloud storage and decide what you share.",
+      ),
+    ).toBeInTheDocument();
     await expectNoA11yViolations();
   });
 

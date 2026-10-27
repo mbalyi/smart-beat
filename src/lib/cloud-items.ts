@@ -43,10 +43,24 @@ function needDesktop() {
   if (!isTauri()) throw { kind: "io", message: "Cloud drives need the desktop app." };
 }
 
-/** The tabs of a connected provider. Rejects with a CommandError. */
+/** The tabs of a connected provider; each `id` is an item id (`drive:<id>`). */
 export async function listCloudItems(provider: CloudProvider): Promise<CloudItem[]> {
   needDesktop();
-  return invoke<CloudItem[]>("cloud_list", { provider });
+  const items = await invoke<CloudItem[]>("cloud_list", { provider });
+  // A bare provider id has no provider and no extension; never hand one to the open path.
+  return items.map((item) => ({
+    ...item,
+    id: item.id.startsWith(`${provider}:`) ? item.id : `${provider}:${item.id}`,
+  }));
+}
+
+/**
+ * The file name the backend recorded when it read or created `item` (call after
+ * `readCloudItem`). The name decides the format, so it never comes from local storage.
+ */
+export async function fetchCloudItemName(item: string): Promise<string> {
+  needDesktop();
+  return invoke<string>("cloud_item_name", { item });
 }
 
 /** Downloads a tab. */
@@ -91,7 +105,7 @@ export function cloudErrorText(error: unknown, provider: CloudProvider | null): 
 
 const NAMES_KEY = "smart-beat:cloud-names";
 
-/** File names of cloud items opened here, so the recent list can show a name, not an id. */
+/** Only a label for the recent list (the backend's `cloud_item_name` is the source of truth). */
 export function rememberCloudName(id: string, name: string) {
   try {
     const all = JSON.parse(localStorage.getItem(NAMES_KEY) ?? "{}") as Record<string, string>;

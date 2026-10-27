@@ -1,6 +1,7 @@
 import { CloudIcon, MicIcon, ShieldCheckIcon, type LucideIcon } from "lucide-react";
 import { useId, useRef, useState, type ReactNode } from "react";
 
+import settingsTitle from "@/assets/settings/settings-title.webp";
 import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
 import { DIALOG_NEON, DialogArt } from "@/components/ai/dialog-art";
@@ -123,7 +124,16 @@ export function SettingsDialog({
         <div className="relative isolate flex min-h-0 flex-1 flex-col">
           <DialogArt name="settings" />
           <DialogHeader className="px-6 pt-5 pb-2 md:px-9">
-            <DialogTitle className="text-2xl font-bold">Settings</DialogTitle>
+            <DialogTitle className="-mt-1 -mb-2 flex items-center">
+              <img
+                src={settingsTitle}
+                alt=""
+                aria-hidden="true"
+                data-testid="settings-title-art"
+                className="h-20 w-auto max-w-full object-contain object-left sm:h-24"
+              />
+              <span className="sr-only">Settings</span>
+            </DialogTitle>
             <DialogDescription className="text-base">
               Choose your audio input, connect your cloud storage and decide what you share.
             </DialogDescription>

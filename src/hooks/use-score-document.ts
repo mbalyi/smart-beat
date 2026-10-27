@@ -5,6 +5,7 @@ import {
   cloudErrorText,
   isCloudItem,
   cloudItemName,
+  fetchCloudItemName,
   providerOf,
   readCloudItem,
   rememberCloudName,
@@ -92,6 +93,12 @@ interface Source {
   /** The bytes exist only in memory (an audio transcription). */
   unsaved?: boolean;
   read: () => Promise<Uint8Array>;
+  /**
+   * The real file name, known only after `read` (a cloud item id carries none). It decides the
+   * format, so it comes from the backend that downloaded the file, never from this machine's
+   * stored names.
+   */
+  nameAfterRead?: () => Promise<string>;
 }
 
 /**
@@ -117,6 +124,13 @@ async function savedMix(key: string, path?: string): Promise<MixerSettings | nul
 }
 
 /** Adds (or removes) a song in the recent files list; never fails the open. */
+/** How to read a path: a local file, or a cloud item whose name the backend reports. */
+function cloudReaders(path: string): Pick<Source, "read" | "nameAfterRead"> {
+  return isCloudItem(path)
+    ? { read: () => readCloudItem(path), nameAfterRead: () => fetchCloudItemName(path) }
+    : { read: () => readScoreFile(path) };
+}
+
 async function rememberRecent(path: string, add: boolean, changed: () => void) {
   try {
     await (add ? addRecentFile(path) : removeRecentFile(path));
@@ -156,7 +170,8 @@ export function useScoreDocuments() {
 
   const open = useCallback(
     async (source: Source, replace?: { id: number; encoding: EncodingChoice }) => {
-      const { name, read, path, title, unsaved } = source;
+      const { read, path, title, unsaved } = source;
+      let name = source.name;
       // Opening a song that is already open shows its tab.
       const already = path && !replace ? songsRef.current.find((s) => s.path === path) : undefined;
       if (already) {
@@ -167,6 +182,7 @@ export function useScoreDocuments() {
       const toastId = toast.loading(`Opening “${name}”…`);
       try {
         const bytes = await read();
+        if (source.nameAfterRead) name = await source.nameAfterRead();
         const key = await fileKey(bytes);
         const choice = replace?.encoding ?? storedEncoding(key);
         // alphaTab is large: load it with the first song, not with the app.
@@ -240,7 +256,7 @@ export function useScoreDocuments() {
       open({
         name: isCloudItem(path) ? (cloudItemName(path) ?? "Cloud tab") : baseName(path),
         path,
-        read: () => (isCloudItem(path) ? readCloudItem(path) : readScoreFile(path)),
+        ...cloudReaders(path),
       }),
     [open],
   );
@@ -325,8 +341,7 @@ export function useScoreDocuments() {
     // Read again from where it was saved.
     const { path } = saved;
     if (path) {
-      const read = () => (isCloudItem(path) ? readCloudItem(path) : readScoreFile(path));
-      sources.current.set(id, { name: saved.name, path, read });
+      sources.current.set(id, { name: saved.name, path, ...cloudReaders(path) });
     }
     setSongs((list) =>
       list.map((song) =>

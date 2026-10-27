@@ -15,6 +15,13 @@ for (const colorScheme of ["light", "dark"] as const) {
 
       const settings = app.getByRole("dialog", { name: "Settings" });
       await expect(settings).toHaveAccessibleDescription(/audio input.*cloud storage/i);
+      // The graffiti wordmark is the visible title; the name comes from the sr-only text only.
+      const art = settings.getByTestId("settings-title-art");
+      await expect(art).toBeVisible();
+      await expect(art).toHaveJSProperty("complete", true);
+      await expect(art).toHaveAttribute("alt", "");
+      expect(await art.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+      await expect(settings.getByRole("heading", { name: "Settings" })).toHaveCount(1);
       await expect(settings.getByRole("region", { name: "Audio input" })).toBeVisible();
       await expect(
         settings.getByRole("region", { name: "Privacy and usage statistics" }),

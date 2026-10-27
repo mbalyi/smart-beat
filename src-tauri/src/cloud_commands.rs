@@ -275,7 +275,28 @@ pub fn disconnect(state: &CloudState, kind: ProviderKind) -> Result<(), CommandE
 
 pub fn list(state: &CloudState, kind: ProviderKind) -> Result<Vec<RemoteFile>, CommandError> {
     let token = state.token(kind)?;
-    (state.make)(kind).list(&token)
+    let mut files = (state.make)(kind).list(&token)?;
+    // The app addresses a tab by its item id (`drive:<id>`), never by the provider's bare id:
+    // a bare id has no provider and no file extension, so it would be opened as a local path.
+    for file in &mut files {
+        file.id = cloud::item_id(kind, &file.id);
+    }
+    Ok(files)
+}
+
+/// The file name recorded by the last read, save or create of `item` in this session.
+pub fn item_name(state: &CloudState, item: &str) -> Result<String, CommandError> {
+    parse_item(item)?;
+    state
+        .open_map()
+        .get(item)
+        .map(|open| open.name.clone())
+        .ok_or_else(|| {
+            CommandError::new(
+                ErrorKind::NotFound,
+                "This file was not opened from the cloud in this session.",
+            )
+        })
 }
 
 pub fn read(state: &CloudState, item: &str) -> Result<Vec<u8>, CommandError> {
@@ -679,6 +700,16 @@ pub fn cloud_read(
     read(&state, &item).map(tauri::ipc::Response::new)
 }
 
+/// The file name of an item read or created in this session (the name comes from the provider,
+/// never from the item id).
+#[tauri::command]
+pub fn cloud_item_name(
+    state: tauri::State<'_, CloudState>,
+    item: String,
+) -> Result<String, CommandError> {
+    item_name(&state, &item)
+}
+
 /// Body: the file bytes. Header `item`: the (URL-encoded) item id.
 #[tauri::command(async)]
 pub fn cloud_save(
@@ -811,6 +842,34 @@ mod tests {
         assert_eq!(read(&s, "drive:f1").unwrap(), b"abc");
         assert_eq!(revision_of(&s, "drive:f1"), "r1");
         assert_eq!(list(&s, ProviderKind::Drive).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn list_returns_item_ids_not_bare_provider_ids() {
+        let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        MODE.store(0, Ordering::SeqCst);
+        let dir = tempfile::tempdir().unwrap();
+        let s = state(dir.path());
+        let files = list(&s, ProviderKind::Drive).unwrap();
+        assert_eq!(files[0].id, "drive:f1");
+        assert_eq!(files[0].name, "a.gp");
+    }
+
+    #[test]
+    fn the_name_recorded_by_read_and_create_is_returned_for_the_item_id() {
+        let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        MODE.store(0, Ordering::SeqCst);
+        let dir = tempfile::tempdir().unwrap();
+        let s = state(dir.path());
+        assert_eq!(
+            item_name(&s, "drive:f1").unwrap_err().kind,
+            ErrorKind::NotFound
+        );
+        read(&s, "drive:f1").unwrap();
+        assert_eq!(item_name(&s, "drive:f1").unwrap(), "a.gp");
+        let item = create(&s, ProviderKind::Drive, "new.gp", b"x").unwrap();
+        assert_eq!(item_name(&s, &item).unwrap(), "new.gp");
+        assert!(item_name(&s, "not-an-item").is_err());
     }
 
     #[test]

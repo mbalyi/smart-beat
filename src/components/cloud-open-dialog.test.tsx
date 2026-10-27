@@ -57,6 +57,16 @@ describe("CloudOpenDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("hands over an item id even when the backend lists a bare Drive id (regression)", async () => {
+    mockTauri({
+      cloud_list: () => [{ ...item("riff.gp", 5), id: "1aVLa7Sl-Qy5CKCMKJi5DyKlUjdH_G4pK" }],
+    });
+    const { user, onPick } = setup();
+
+    await user.click(await screen.findByRole("button", { name: /riff\.gp/ }));
+    expect(onPick).toHaveBeenCalledWith("drive:1aVLa7Sl-Qy5CKCMKJi5DyKlUjdH_G4pK");
+  });
+
   it("explains an empty drive", async () => {
     mockTauri({ cloud_list: () => [] });
     setup();

@@ -124,6 +124,19 @@ describe("CloudScores: online drives (#187)", () => {
     expect(onOpen).toHaveBeenCalledWith("drive:1");
   });
 
+  it("opens a tab the backend listed with a bare id by its item id (regression)", async () => {
+    mockTauri({
+      get_cloud_folder: () => null,
+      cloud_accounts: () => [account("drive", "Google Drive")],
+      cloud_list: () => [item("1aVLa7Sl-Qy5", "riff.gp")],
+    });
+    const onOpen = vi.fn();
+    const { user } = renderWithProviders(<CloudScores onOpen={onOpen} />);
+
+    await user.click(await screen.findByRole("button", { name: /riff\.gp/ }));
+    expect(onOpen).toHaveBeenCalledWith("drive:1aVLa7Sl-Qy5");
+  });
+
   it("says to reconnect when a provider's sign-in expired", async () => {
     mockTauri({
       get_cloud_folder: () => null,

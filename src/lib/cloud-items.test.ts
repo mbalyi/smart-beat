@@ -2,6 +2,7 @@ import {
   cloudErrorText,
   cloudItemName,
   createCloudItem,
+  fetchCloudItemName,
   isCloudAvailabilityError,
   isCloudItem,
   listCloudItems,
@@ -48,6 +49,21 @@ describe("cloud item commands", () => {
     const calls = mockTauri({ cloud_list: () => [item] });
     expect(await listCloudItems("drive")).toEqual([item]);
     expect(calls.find((c) => c.cmd === "cloud_list")!.args).toEqual({ provider: "drive" });
+  });
+
+  it("turns a bare provider id into an item id (regression: raw Drive id was opened as a name)", async () => {
+    const bare = { id: "1aVLa7Sl-Qy5", name: "a.gp", revision: "r", size: 3, modified_ms: 1 };
+    mockTauri({ cloud_list: () => [bare] });
+    const [first] = await listCloudItems("drive");
+    expect(first!.id).toBe("drive:1aVLa7Sl-Qy5");
+    expect(isCloudItem(first!.id)).toBe(true);
+  });
+
+  it("asks the backend for an item's file name", async () => {
+    const calls = mockTauri({ cloud_item_name: () => "riff.gp" });
+    localStorage.clear();
+    expect(await fetchCloudItemName("drive:abc")).toBe("riff.gp");
+    expect(calls.find((c) => c.cmd === "cloud_item_name")!.args).toEqual({ item: "drive:abc" });
   });
 
   it("reads the raw bytes", async () => {
