@@ -17,14 +17,33 @@ use crate::cloud_folder::now_secs;
 use crate::error::{CommandError, ErrorKind};
 
 /// A provider's OAuth endpoints and the app's registration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OAuthConfig {
     pub client_id: String,
+    /// Sent with the token requests when set. Google's Desktop app clients come with one and
+    /// still ask for it with PKCE; it is not confidential for an installed app, but it stays out
+    /// of the logs (see the manual `Debug`).
+    pub client_secret: Option<String>,
     pub auth_url: String,
     pub token_url: String,
     pub scopes: Vec<String>,
     /// Extra authorization parameters (`access_type=offline`, `token_access_type=offline`, ...).
     pub extra_auth_params: Vec<(String, String)>,
+}
+
+impl std::fmt::Debug for OAuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthConfig")
+            .field("client_id", &self.client_id)
+            .field(
+                "client_secret",
+                &self.client_secret.as_ref().map(|_| "<hidden>"),
+            )
+            .field("auth_url", &self.auth_url)
+            .field("token_url", &self.token_url)
+            .field("scopes", &self.scopes)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A PKCE verifier and its S256 challenge.
@@ -182,8 +201,13 @@ struct TokenResponse {
 }
 
 fn token_request(config: &OAuthConfig, form: &[(&str, &str)]) -> Result<Tokens, CommandError> {
+    let secret = config
+        .client_secret
+        .as_deref()
+        .map(|secret| ("client_secret", secret));
     let body = form
         .iter()
+        .chain(secret.as_ref())
         .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
         .collect::<Vec<_>>()
         .join("&");
@@ -328,6 +352,7 @@ mod tests {
     fn authorize_url_carries_pkce_and_scope() {
         let config = OAuthConfig {
             client_id: "id".into(),
+            client_secret: None,
             auth_url: "https://a.example/auth".into(),
             token_url: String::new(),
             scopes: vec!["one".into(), "two".into()],
@@ -346,6 +371,93 @@ mod tests {
         let mut answer = String::new();
         stream.read_to_string(&mut answer).unwrap();
         assert!(answer.starts_with("HTTP/1.1 200"));
+    }
+
+    /// A token endpoint on 127.0.0.1 that records the request body and answers with tokens.
+    fn mock_token_endpoint() -> (String, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let url = format!(
+            "http://127.0.0.1:{}/token",
+            listener.local_addr().unwrap().port()
+        );
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut length = 0usize;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = v.trim().parse().unwrap();
+                }
+            }
+            let mut body = vec![0u8; length];
+            reader.read_exact(&mut body).unwrap();
+            let answer = r#"{"access_token":"a","refresh_token":"r","expires_in":3600}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                answer.len()
+            )
+            .unwrap();
+            String::from_utf8(body).unwrap()
+        });
+        (url, handle)
+    }
+
+    fn config_with(token_url: String, secret: Option<&str>) -> OAuthConfig {
+        OAuthConfig {
+            client_id: "the-id".into(),
+            client_secret: secret.map(str::to_owned),
+            auth_url: String::new(),
+            token_url,
+            scopes: Vec::new(),
+            extra_auth_params: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn token_requests_carry_the_client_secret_when_there_is_one() {
+        let (url, handle) = mock_token_endpoint();
+        exchange_code(
+            &config_with(url, Some("s3cret")),
+            "code",
+            "ver",
+            "http://127.0.0.1:1/",
+        )
+        .unwrap();
+        let body = handle.join().unwrap();
+        assert!(body.contains("client_secret=s3cret"), "{body}");
+        assert!(body.contains("client_id=the-id"));
+        assert!(body.contains("code_verifier=ver"));
+
+        let (url, handle) = mock_token_endpoint();
+        refresh(&config_with(url, Some("s3cret")), "old-refresh").unwrap();
+        assert!(handle.join().unwrap().contains("client_secret=s3cret"));
+    }
+
+    #[test]
+    fn token_requests_send_no_secret_without_one() {
+        let (url, handle) = mock_token_endpoint();
+        exchange_code(
+            &config_with(url, None),
+            "code",
+            "ver",
+            "http://127.0.0.1:1/",
+        )
+        .unwrap();
+        assert!(!handle.join().unwrap().contains("client_secret"));
+    }
+
+    #[test]
+    fn the_secret_is_not_printed() {
+        let shown = format!("{:?}", config_with(String::new(), Some("s3cret")));
+        assert!(!shown.contains("s3cret"));
+        assert!(shown.contains("client_id"));
     }
 
     #[test]

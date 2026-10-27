@@ -32,6 +32,7 @@ const ITEM_FIELDS: &str = "id,name,eTag,size,lastModifiedDateTime,file";
 pub fn oauth_config(client_id: &str) -> OAuthConfig {
     OAuthConfig {
         client_id: client_id.to_string(),
+        client_secret: None,
         auth_url: AUTH_URL.to_string(),
         token_url: TOKEN_URL.to_string(),
         scopes: SCOPES.split(' ').map(str::to_string).collect(),

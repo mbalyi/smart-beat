@@ -23,6 +23,7 @@ const CONTENT_BASE: &str = "https://content.dropboxapi.com/2";
 pub fn oauth_config(client_id: &str) -> OAuthConfig {
     OAuthConfig {
         client_id: client_id.to_owned(),
+        client_secret: None,
         auth_url: "https://www.dropbox.com/oauth2/authorize".into(),
         token_url: "https://api.dropboxapi.com/oauth2/token".into(),
         scopes: [

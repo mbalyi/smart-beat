@@ -12,6 +12,10 @@ use crate::score_file::{MAX_SIZE, ScoreFormat, has_supported_extension};
 
 /// OAuth client id baked in at build time; `None` hides the Google Drive option.
 pub const CLIENT_ID: Option<&str> = option_env!("SMARTBEAT_GOOGLE_CLIENT_ID");
+/// Google's Desktop app clients have a secret that the token endpoint asks for even with PKCE.
+/// It is not confidential for an installed app (Google says so), but it is still read at build
+/// time and never committed.
+pub const CLIENT_SECRET: Option<&str> = option_env!("SMARTBEAT_GOOGLE_CLIENT_SECRET");
 
 /// The only scope requested: files created or opened by this app.
 pub const SCOPE: &str = "https://www.googleapis.com/auth/drive.file";
@@ -21,6 +25,7 @@ const FIELDS: &str = "id,name,size,modifiedTime,headRevisionId";
 pub fn oauth_config(client_id: &str) -> OAuthConfig {
     OAuthConfig {
         client_id: client_id.to_owned(),
+        client_secret: CLIENT_SECRET.map(str::to_owned),
         auth_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
         token_url: "https://oauth2.googleapis.com/token".into(),
         scopes: vec![SCOPE.into()],
