@@ -901,8 +901,7 @@ mod tests {
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let mut stream = stream;
-                let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf);
+                read_whole_request(&mut stream);
                 let _ = write!(
                     stream,
                     "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -911,6 +910,34 @@ mod tests {
             }
         });
         url
+    }
+
+    /// Reads the request headers and its body. Replying and closing with request bytes still
+    /// unread makes Windows reset the connection (os error 10054) and drop the reply.
+    fn read_whole_request(stream: &mut TcpStream) {
+        let mut data = Vec::new();
+        let mut chunk = [0u8; 1024];
+        let header_end = loop {
+            if let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => return,
+                Ok(n) => data.extend_from_slice(&chunk[..n]),
+            }
+        };
+        let head = String::from_utf8_lossy(&data[..header_end]).to_ascii_lowercase();
+        let length = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        while data.len() < header_end + length {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => return,
+                Ok(n) => data.extend_from_slice(&chunk[..n]),
+            }
+        }
     }
 
     /// Plays the browser: follows the authorization URL straight to the redirect.
