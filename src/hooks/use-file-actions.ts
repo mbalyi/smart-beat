@@ -151,6 +151,11 @@ export function useFileActions({
   const [chooser, setChooser] = useState<{
     providers: CloudDrive[];
     copy: boolean;
+    /** `saving`: the upload runs in the same dialog; `error`: it failed and can be retried. */
+    phase: "choose" | "saving" | "error";
+    target?: CloudProvider;
+    fileName?: string;
+    error?: string;
   } | null>(null);
   /** The online drive the running save talks to, to explain a failure. */
   const cloudProvider = useRef<CloudProvider | null>(null);
@@ -246,21 +251,35 @@ export function useFileActions({
     reportWarnings(`“${name}” was saved with limits`, result);
   }
 
-  /** Creates the song as a new tab in an online drive and makes it the song's file. */
-  const saveToProvider = (provider: CloudProvider) =>
-    exclusive(async () => {
-      cloudProvider.current = provider;
-      const name = `${stem(song)}.gp`;
-      const result = build("gp");
-      const item = await createCloudItem(provider, name, result.bytes);
-      rememberCloudName(item, name);
-      editor.markSaved();
-      onEditedChange?.(false);
-      onSaved({ name, path: item, fileKey: await fileKey(result.bytes) });
-      track("save_as", "gp");
-      toast.success(`Saved “${name}” to ${providerLabel(provider)}`);
-      reportWarnings(`“${name}” was saved with limits`, result);
-    });
+  /** Creates the song as a new tab in an online drive and makes it the song's file. Throws on failure. */
+  const uploadToProvider = async (provider: CloudProvider, name: string) => {
+    const result = build("gp");
+    const item = await createCloudItem(provider, name, result.bytes);
+    rememberCloudName(item, name);
+    editor.markSaved();
+    onEditedChange?.(false);
+    onSaved({ name, path: item, fileKey: await fileKey(result.bytes) });
+    track("save_as", "gp");
+    toast.success(`Saved “${name}” to ${providerLabel(provider)}`);
+    reportWarnings(`“${name}” was saved with limits`, result);
+  };
+
+  /** Saves into a drive while the chooser stays open showing the progress, or the error to retry. */
+  const saveToProvider = async (provider: CloudProvider) => {
+    if (busy.current) return;
+    busy.current = true;
+    const name = `${stem(song)}.gp`;
+    setChooser((c) => c && { ...c, phase: "saving", target: provider, fileName: name });
+    try {
+      await uploadToProvider(provider, name);
+      setChooser(null);
+    } catch (error) {
+      const error_ = cloudErrorText(error, provider) ?? errorText(error);
+      setChooser((c) => c && { ...c, phase: "error", error: error_ });
+    } finally {
+      busy.current = false;
+    }
+  };
 
   const saveAsLocal = (options: { copy?: boolean } = {}) =>
     exclusive(async () => {
@@ -295,7 +314,7 @@ export function useFileActions({
       try {
         const drives = toCloudDrives(await listCloudAccounts());
         if (drives.length > 0) {
-          setChooser({ providers: drives, copy: !!options.copy });
+          setChooser({ providers: drives, copy: !!options.copy, phase: "choose" });
           return;
         }
       } catch {
@@ -308,9 +327,13 @@ export function useFileActions({
   /** Settles the "where to save" question. */
   const chooseTarget = (target: "computer" | CloudProvider | "cancel") => {
     const copy = chooser?.copy;
+    if (busy.current) return;
+    if (target !== "cancel" && target !== "computer") {
+      void saveToProvider(target);
+      return;
+    }
     setChooser(null);
     if (target === "computer") void saveAsLocal({ copy });
-    else if (target !== "cancel") void saveToProvider(target);
   };
 
   const save = () => {

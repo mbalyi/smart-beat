@@ -119,7 +119,16 @@ describe("CloudScores: online drives (#187)", () => {
 
     const riff = await screen.findByRole("button", { name: /riff\.gp/ });
     expect(riff).toHaveTextContent("Google Drive");
-    expect(screen.getByRole("button", { name: /solo\.gp/ })).toHaveTextContent("Dropbox");
+    const solo = screen.getByRole("button", { name: /solo\.gp/ });
+    expect(solo).toHaveTextContent("Dropbox");
+    for (const card of [riff, solo]) {
+      const logo = card.querySelector("img");
+      expect(logo).toHaveAttribute("aria-hidden", "true");
+      expect(logo).toHaveAttribute("alt", "");
+    }
+    expect(riff.querySelector("img")!.getAttribute("src")).not.toBe(
+      solo.querySelector("img")!.getAttribute("src"),
+    );
     await user.click(riff);
     expect(onOpen).toHaveBeenCalledWith("drive:1");
   });

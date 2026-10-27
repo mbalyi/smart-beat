@@ -1,3 +1,5 @@
+import { CloudProviderLogo } from "@/components/cloud-provider-logos";
+import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -135,11 +137,17 @@ export function CloudAccounts() {
               className="flex flex-col gap-1 rounded-xl border bg-background/60 px-3 py-2"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{item.label}</p>
-                  <p className="text-xs break-all text-muted-foreground">
-                    {item.account ?? (item.configured ? "Not connected" : "")}
-                  </p>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <CloudProviderLogo
+                    provider={item.provider}
+                    className={cn("h-5 w-auto max-w-7 shrink-0", !item.configured && "opacity-50")}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{item.label}</p>
+                    <p className="text-xs break-all text-muted-foreground">
+                      {item.account ?? (item.configured ? "Not connected" : "")}
+                    </p>
+                  </div>
                 </div>
                 {!item.configured ? (
                   <Button type="button" variant="outline" size="sm" disabled>

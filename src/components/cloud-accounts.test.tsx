@@ -12,6 +12,29 @@ const ACCOUNTS: CloudAccount[] = [
   { provider: "dropbox", label: "Dropbox", configured: false, account: null },
 ];
 
+/** The decorative brand logo inside an element (empty alt, hidden from the accessibility tree). */
+function logoIn(el: HTMLElement) {
+  const img = el.querySelector("img");
+  expect(img).not.toBeNull();
+  expect(img).toHaveAttribute("aria-hidden", "true");
+  expect(img).toHaveAttribute("alt", "");
+  expect(img!.getAttribute("src")).toMatch(/svg/);
+  return img!.getAttribute("src");
+}
+
+describe("CloudAccounts: brand logos", () => {
+  it("shows a distinct aria-hidden logo before each provider, also when not available", async () => {
+    mockTauri({ cloud_accounts: () => ACCOUNTS });
+    renderWithProviders(<CloudAccounts />);
+    await screen.findByText("me@example.com");
+
+    const srcs = ["Google Drive", "OneDrive", "Dropbox"].map((label) =>
+      logoIn(screen.getByText(label).closest("li")!),
+    );
+    expect(new Set(srcs).size).toBe(3);
+  });
+});
+
 describe("CloudAccounts", () => {
   it("is hidden outside the desktop app", () => {
     const { container } = renderWithProviders(<CloudAccounts />);

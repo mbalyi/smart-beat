@@ -1,3 +1,4 @@
+import { CloudProviderLogo } from "@/components/cloud-provider-logos";
 import {
   AudioLinesIcon,
   FileMusicIcon,
@@ -166,7 +167,15 @@ export function Welcome({
                   />
                   <span className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate text-[17px] font-bold">{recentName(path)}</span>
-                    <span className="truncate text-sm text-muted-foreground">{folderOf(path)}</span>
+                    <span className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
+                      {providerOf(path) && (
+                        <CloudProviderLogo
+                          provider={providerOf(path)!}
+                          className="h-3.5 w-auto max-w-5 shrink-0"
+                        />
+                      )}
+                      <span className="truncate">{folderOf(path)}</span>
+                    </span>
                   </span>
                 </button>
               </li>

@@ -537,7 +537,8 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
     expect(first.destroy).not.toHaveBeenCalled();
     expect(first.pause).toHaveBeenCalled();
-    expect(openTabs()).toHaveLength(1);
+    // The tabs are not shown on the start screen.
+    expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
 
     // Opening another song adds a tab next to the first and shows it.
     backend.dialogResult = OTHER_SONG;
@@ -550,15 +551,13 @@ describe("App", () => {
       "true",
     );
 
-    // Home again keeps both; the first tab is the same song, never reloaded.
+    // Home again keeps both open but hides the tabs; opening the first song again goes back to
+    // its tab: the same song, never reloaded.
     await user.click(screen.getByRole("button", { name: "Smart Beat" }));
     expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
-    expect(openTabs()).toHaveLength(2);
-    await user.click(
-      within(screen.getByRole("navigation", { name: "Open songs" })).getByRole("button", {
-        name: "Practice Song",
-      }),
-    );
+    expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
+    backend.dialogResult = SONG;
+    await user.click(screen.getByRole("button", { name: "Open a file…" }));
     expect(
       await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
     ).toBeInTheDocument();
@@ -627,11 +626,13 @@ describe("App", () => {
       const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
       await user.click(within(ask).getByRole("button", { name: "Not now" }));
       expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
-      expect(
-        screen.getByRole("button", { name: /^Practice Song \(edited\)$/ }),
-      ).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: /^Practice Song \(edited\)$/ }));
+      // The tabs are hidden on the start screen, but the edited song is still open: opening it
+      // again returns to its tab with the edits.
+      expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
+      backend.dialogResult = SONG;
+      await user.click(screen.getByRole("button", { name: "Open a file…" }));
       expect(await screen.findByText("Edited")).toBeInTheDocument();
+      expect(openTabs()).toHaveLength(1);
     });
 
     it("Save writes the song, then shows the start screen", async () => {
@@ -643,7 +644,7 @@ describe("App", () => {
       expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
       expect(calls.some((c) => c.cmd === "write_score_file")).toBe(true);
       expect(backend.written.has(SONG)).toBe(true);
-      expect(screen.getByRole("button", { name: "Practice Song" })).toBeInTheDocument();
+      expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
     });
 
     it("Save on a new song opens Save As; cancelling it keeps you on that tab", async () => {

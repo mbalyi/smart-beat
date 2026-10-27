@@ -389,6 +389,13 @@ impl Provider for OneDrive {
     }
 
     fn create(&self, token: &str, name: &str, bytes: &[u8]) -> Result<RemoteFile, CommandError> {
+        // OneDrive creates the app folder (`Apps/<app name>`) the first time something asks for
+        // it. Writing a file into it before that answers "not found", so ask first.
+        let _: serde_json::Value = self.get_json(
+            token,
+            &self.url("/me/drive/special/approot?$select=id"),
+            "The Smart Beat folder",
+        )?;
         let base = format!("/me/drive/special/approot:/{}:", encode(name));
         if bytes.len() <= SIMPLE_UPLOAD_MAX {
             self.put_content(
@@ -585,12 +592,44 @@ mod tests {
             .unwrap();
         assert_eq!(file.id, "7");
         let log = log.lock().unwrap();
-        assert_eq!(log[0].method, "PUT");
+        assert_eq!(log[1].method, "PUT");
         assert_eq!(
-            log[0].path,
+            log[1].path,
             "/v1.0/me/drive/special/approot:/new%20tab.gp5:/content?@microsoft.graph.conflictBehavior=fail"
         );
-        assert_eq!(log[0].body, b"abc");
+        assert_eq!(log[1].body, b"abc");
+    }
+
+    /// Regression: the first save into a brand-new app folder answered "not found" because the
+    /// folder only exists once it has been asked for.
+    #[test]
+    fn the_app_folder_is_asked_for_before_the_first_file_is_written() {
+        let (base, log) = serve(|req, _| {
+            if req.method == "GET" && req.path.starts_with("/v1.0/me/drive/special/approot") {
+                (200, r#"{"id":"folder"}"#.into())
+            } else {
+                (201, item_json("7", "first.gp5", "e7", 3))
+            }
+        });
+        OneDrive::with_base(base)
+            .create("tok", "first.gp5", b"abc")
+            .unwrap();
+        let log = log.lock().unwrap();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].method, "GET");
+        assert_eq!(log[0].path, "/v1.0/me/drive/special/approot?$select=id");
+        assert_eq!(log[1].method, "PUT");
+    }
+
+    #[test]
+    fn an_app_folder_that_cannot_be_reached_is_reported_before_any_upload() {
+        let (base, log) = serve(|_, _| (404, "{}".into()));
+        let err = OneDrive::with_base(base)
+            .create("tok", "a.gp5", b"abc")
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::NotFound);
+        assert!(err.message.contains("Smart Beat folder"), "{}", err.message);
+        assert_eq!(log.lock().unwrap().len(), 1);
     }
 
     #[test]

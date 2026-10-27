@@ -1166,6 +1166,56 @@ describe("ScoreWorkspace: online drives (#187)", () => {
     expect(onSaved.mock.calls[0]![0]).toMatchObject({ path: "drive:new" });
   });
 
+  it("Save As keeps the dialog open with a saving state until the upload finishes", async () => {
+    let finish: (id: string) => void = () => {};
+    const pending = new Promise<string>((resolve) => (finish = resolve));
+    const { user, onSaved } = await setup({
+      overrides: { ...drive, cloud_create: () => pending },
+    });
+    await edit(user);
+
+    await menu("save-as");
+    await user.click(await screen.findByTestId("save-target-drive"));
+
+    expect(await screen.findByText("Saving to Google Drive…", { selector: "span" })).toBeVisible();
+    expect(screen.getByTestId("save-target-progress")).toHaveAttribute("role", "status");
+    await user.keyboard("{Escape}");
+    expect(screen.getByTestId("save-target-dialog")).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+
+    finish("drive:new");
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument());
+  });
+
+  it("Save As shows the error in the dialog and Try again re-runs the save", async () => {
+    let attempts = 0;
+    const { user, onSaved } = await setup({
+      overrides: {
+        ...drive,
+        cloud_create: () => {
+          attempts += 1;
+          if (attempts === 1) throw { kind: "auth-expired", message: "expired" };
+          return "drive:new";
+        },
+      },
+    });
+    await edit(user);
+
+    await menu("save-as");
+    await user.click(await screen.findByTestId("save-target-drive"));
+
+    expect(await screen.findByTestId("save-target-error")).toHaveTextContent(
+      "Reconnect Google Drive in Settings",
+    );
+    expect(screen.getByTestId("save-target-computer-fallback")).toBeInTheDocument();
+    await user.click(screen.getByTestId("save-target-retry"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(attempts).toBe(2);
+    await waitFor(() => expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument());
+  });
+
   it("Save As still asks where, with every drive disabled, when nothing is connected", async () => {
     const { user, calls } = await setup({
       overrides: {

@@ -376,6 +376,9 @@ describe("Welcome: recent cloud songs (#187)", () => {
 
     const card = screen.getByRole("button", { name: /riff\.gp/ });
     expect(card).toHaveTextContent("Google Drive");
+    const logo = card.querySelector("img");
+    expect(logo).toHaveAttribute("aria-hidden", "true");
+    expect(logo).toHaveAttribute("alt", "");
     await user.click(card);
     expect(onOpenRecent).toHaveBeenCalledWith("drive:abc");
   });

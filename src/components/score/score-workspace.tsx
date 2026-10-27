@@ -3126,6 +3126,14 @@ export function ScoreWorkspace({
         open={fileActions.chooser !== null}
         onChoose={fileActions.chooseTarget}
         onCancel={() => fileActions.chooseTarget("cancel")}
+        phase={fileActions.chooser?.phase}
+        target={fileActions.chooser?.target}
+        fileName={fileActions.chooser?.fileName}
+        error={fileActions.chooser?.error}
+        onRetry={() => {
+          const target = fileActions.chooser?.target;
+          if (target) fileActions.chooseTarget(target);
+        }}
         onSetupCloud={
           onSetUpCloud
             ? () => {

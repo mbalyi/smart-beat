@@ -30,6 +30,17 @@ function setup(onSetupCloud?: () => void) {
   return { ...view, onOpenChange, onPick };
 }
 
+describe("CloudOpenDialog: brand logo", () => {
+  it("shows an aria-hidden logo next to the title without changing its name", async () => {
+    mockTauri({ cloud_list: () => [] });
+    setup();
+    const title = await screen.findByRole("heading", { name: "Open from Google Drive" });
+    const img = title.querySelector("img");
+    expect(img).toHaveAttribute("aria-hidden", "true");
+    expect(img).toHaveAttribute("alt", "");
+  });
+});
+
 describe("CloudOpenDialog", () => {
   beforeEach(() => localStorage.clear());
 

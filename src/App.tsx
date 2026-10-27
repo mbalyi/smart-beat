@@ -509,7 +509,6 @@ export function App() {
           )}
           {!song && (
             <>
-              {songs.length > 0 && tabs}
               <Welcome
                 onOpenFile={open}
                 onImportAudio={importAudio}

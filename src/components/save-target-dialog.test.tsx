@@ -134,4 +134,52 @@ describe("SaveTargetDialog", () => {
     rerender(<SaveTargetDialog open providers={[]} onChoose={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.queryByTestId("save-target-setup")).not.toBeInTheDocument();
   });
+
+  it("shows progress while saving and ignores Escape", async () => {
+    const onCancel = vi.fn();
+    const { user } = renderWithProviders(
+      <SaveTargetDialog
+        open
+        phase="saving"
+        target="drive"
+        fileName="Song.gp"
+        providers={[{ provider: "drive", label: "Google Drive" }]}
+        onChoose={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Saving to Google Drive…");
+    expect(screen.getByText("Song.gp")).toBeInTheDocument();
+    expect(screen.getByTestId("save-target-cancel")).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("shows the error with Try again, Close and Save to this computer", async () => {
+    const onRetry = vi.fn();
+    const onChoose = vi.fn();
+    const onCancel = vi.fn();
+    const { user } = renderWithProviders(
+      <SaveTargetDialog
+        open
+        phase="error"
+        target="drive"
+        fileName="Song.gp"
+        error="Reconnect Google Drive in Settings"
+        providers={[{ provider: "drive", label: "Google Drive" }]}
+        onChoose={onChoose}
+        onCancel={onCancel}
+        onRetry={onRetry}
+      />,
+    );
+
+    expect(screen.getByText("Reconnect Google Drive in Settings")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Save to this computer…" }));
+    expect(onChoose).toHaveBeenCalledWith("computer");
+    await user.click(screen.getByTestId("save-target-cancel"));
+    expect(onCancel).toHaveBeenCalled();
+  });
 });

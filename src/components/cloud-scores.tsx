@@ -1,3 +1,4 @@
+import { CloudProviderLogo } from "@/components/cloud-provider-logos";
 import { listen } from "@tauri-apps/api/event";
 import { CloudDownloadIcon, CloudIcon, CloudOffIcon, FileMusicIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -143,6 +144,10 @@ export function CloudScores({ onOpen }: { onOpen: (path: string) => void }) {
             className="flex items-start gap-2 rounded-2xl border border-destructive/40 bg-card p-4 text-sm"
           >
             <CloudOffIcon className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+            <CloudProviderLogo
+              provider={p.provider}
+              className="mt-0.5 h-4 w-auto max-w-5 shrink-0"
+            />
             <span>
               {providerLabel(p.provider)}: {p.message}
             </span>
@@ -189,7 +194,10 @@ export function CloudScores({ onOpen }: { onOpen: (path: string) => void }) {
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="truncate text-[17px] font-bold">{item.name}</span>
                   <span className="flex items-center gap-1 truncate text-sm text-muted-foreground">
-                    <CloudIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                    <CloudProviderLogo
+                      provider={provider}
+                      className="h-3.5 w-auto max-w-5 shrink-0"
+                    />
                     {providerLabel(provider)}
                   </span>
                 </span>

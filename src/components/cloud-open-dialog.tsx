@@ -1,3 +1,4 @@
+import { CloudProviderLogo } from "@/components/cloud-provider-logos";
 import { CloudOffIcon, FileMusicIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -117,7 +118,10 @@ function OpenContent({
     <div className="relative isolate flex min-h-0 flex-1 flex-col">
       <OpenArt />
       <DialogHeader className="px-6 md:px-9">
-        <DialogTitle className="text-2xl font-bold">Open from {label}</DialogTitle>
+        <DialogTitle className="flex items-center gap-2.5 text-2xl font-bold">
+          <CloudProviderLogo provider={provider} className="h-6 w-auto max-w-8 shrink-0" />
+          Open from {label}
+        </DialogTitle>
         <DialogDescription>
           These are the tabs Smart Beat saved to {label}. Pick one to open it.
         </DialogDescription>
