@@ -499,8 +499,23 @@ export async function pickSavePath(
   title = "Save",
 ): Promise<string | null> {
   if (!isTauri()) throw new NotInDesktopAppError();
-  return saveDialog({ title, defaultPath, filters });
+  savePicks.pending += 1;
+  try {
+    const path = await saveDialog({ title, defaultPath, filters });
+    savePicks.cancelled = path === null;
+    return path;
+  } finally {
+    savePicks.pending -= 1;
+    savePicks.settled += 1;
+  }
 }
+
+/**
+ * What the native Save dialog is doing, for code that waits for a save it started: `pending`
+ * is how many are open, `settled` counts the closed ones, `cancelled` is whether the last one
+ * was cancelled.
+ */
+export const savePicks = { pending: 0, settled: 0, cancelled: false };
 
 /**
  * Writes a song or export to `path` (atomically). Rejects with a {@link CommandError}.

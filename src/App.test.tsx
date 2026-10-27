@@ -582,6 +582,90 @@ describe("App", () => {
     expect(tabs.getByRole("button", { name: "Untitled" })).toBeInTheDocument();
   });
 
+  describe("the logo with unsaved changes", () => {
+    /** A song with a file, edited. */
+    async function editOpenSong(user: ReturnType<typeof renderWithProviders>["user"]) {
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.dialogResult = SONG;
+      await menu("open");
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+      await menu("toggle-edit-mode");
+      await screen.findByRole("toolbar", { name: "Edit" });
+      const score = screen.getByRole("region", { name: /^Score:/ });
+      await waitFor(() => expect(score).toHaveFocus());
+      await user.keyboard("5");
+      await screen.findByText("Edited");
+    }
+    const logo = () => screen.getByRole("button", { name: "Smart Beat" });
+
+    it("goes straight home when nothing was edited", async () => {
+      const { user } = await renderApp();
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.dialogResult = SONG;
+      await menu("open");
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+      await user.click(logo());
+      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+
+    it("asks first; Cancel stays on the song", async () => {
+      const { user } = await renderApp();
+      await editOpenSong(user);
+      await user.click(logo());
+      const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
+      await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open a file…" })).not.toBeInTheDocument();
+      expect(screen.getByText("Edited")).toBeInTheDocument();
+    });
+
+    it("Not now goes home; the tab keeps its edits and marker", async () => {
+      const { user } = await renderApp();
+      await editOpenSong(user);
+      await user.click(logo());
+      const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
+      await user.click(within(ask).getByRole("button", { name: "Not now" }));
+      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /^Practice Song \(edited\)$/ }),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /^Practice Song \(edited\)$/ }));
+      expect(await screen.findByText("Edited")).toBeInTheDocument();
+    });
+
+    it("Save writes the song, then shows the start screen", async () => {
+      const { user, calls } = await renderApp();
+      await editOpenSong(user);
+      await user.click(logo());
+      const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
+      await user.click(within(ask).getByRole("button", { name: "Save" }));
+      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      expect(calls.some((c) => c.cmd === "write_score_file")).toBe(true);
+      expect(backend.written.has(SONG)).toBe(true);
+      expect(screen.getByRole("button", { name: "Practice Song" })).toBeInTheDocument();
+    });
+
+    it("Save on a new song opens Save As; cancelling it keeps you on that tab", async () => {
+      const { user, calls } = await renderApp();
+      await menu("new-song");
+      await screen.findByRole("toolbar", { name: "Edit" });
+      const score = screen.getByRole("region", { name: /^Score:/ });
+      await waitFor(() => expect(score).toHaveFocus());
+      await user.keyboard("5");
+      await screen.findByText("Edited");
+      backend.saveResult = null; // the user cancels Save As
+      await user.click(logo());
+      const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
+      await user.click(within(ask).getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(screen.queryByRole("button", { name: "Open a file…" })).not.toBeInTheDocument();
+      expect(screen.getByText("Edited")).toBeInTheDocument();
+      expect(calls.some((c) => c.cmd === "write_score_file")).toBe(false);
+    });
+  });
+
   it("opening a file that is already open shows its tab, also from the start screen", async () => {
     const { user } = await renderApp();
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));

@@ -14,6 +14,7 @@ import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { DocumentTabs } from "@/components/shell/document-tabs";
 import { DiscardDialog } from "@/components/discard-dialog";
+import { LeaveDialog } from "@/components/leave-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
 import { useCloudFlush } from "@/hooks/use-cloud-flush";
@@ -22,7 +23,7 @@ import { UpdateDialog } from "@/components/update-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
 import { useFileDrop } from "@/hooks/use-file-drop";
-import { useMenuActions } from "@/hooks/use-menu-actions";
+import { dispatchMenuAction, useMenuActions } from "@/hooks/use-menu-actions";
 import { useExternalOpen } from "@/hooks/use-external-open";
 import { useRecentFiles } from "@/hooks/use-recent-files";
 import { initLayoutPrefs, readLayoutPrefs } from "@/lib/score/layout";
@@ -44,6 +45,7 @@ import {
   isTauri,
   pickSavePath,
   pickScoreFile,
+  savePicks,
   SCORE_EXTENSIONS,
   setWindowTitle,
   writeScoreFile,
@@ -52,6 +54,9 @@ import { cn } from "@/lib/utils";
 import { muscriptorProvider } from "@/lib/muscriptor";
 import { isEnabled } from "@/lib/features";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
+
+/** How long a started save may show no sign of life (no dialog, no change) before it is given up. */
+const SAVE_IDLE_MS = 15_000;
 
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
@@ -122,12 +127,70 @@ export function App() {
     close(id);
   };
 
+  /** The logo asked to leave songs with unsaved changes: the dialog is open. */
+  const [leaving, setLeaving] = useState(false);
+  /** Save all is running (a second click does nothing). */
+  const savingAll = useRef(false);
+  const latest = useRef({ songId: song?.id ?? null });
+  useEffect(() => {
+    latest.current = { songId: song?.id ?? null };
+  });
+
   /**
    * The logo: the start screen. Open songs stay open (their tabs, edits and undo history are
-   * kept, playing stops); opening something there adds a tab next to them.
+   * kept, playing stops); opening something there adds a tab next to them. Songs with unsaved
+   * changes are asked about first.
    */
   const goHome = () => {
-    if (song) activate(null);
+    if (!song) return;
+    if (edited.current.size > 0) setLeaving(true);
+    else activate(null);
+  };
+
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  /**
+   * Saves one edited song the way File › Save does: its tab is shown and the menu's Save goes
+   * to its workspace. Resolves to whether the changes are saved. Gives up when it is cancelled
+   * (Save As closed without a file), or when nothing happens for a while and no dialog is open.
+   */
+  const saveSong = async (id: number): Promise<boolean> => {
+    activate(id);
+    while (latest.current.songId !== id) await wait(20);
+    await wait(30); // the workspace has the shown song's menu handler now
+    const picks = savePicks.settled;
+    const errorToasts = () =>
+      document.querySelectorAll('[data-sonner-toast][data-type="error"]').length;
+    const errorsBefore = errorToasts();
+    dispatchMenuAction("save");
+    let quietSince = Date.now();
+    while (edited.current.has(id)) {
+      await wait(50);
+      const busy =
+        savePicks.pending > 0 || document.querySelector('[role="dialog"],[role="alertdialog"]');
+      if (busy) quietSince = Date.now();
+      else if (savePicks.settled > picks && savePicks.cancelled) return false;
+      else if (errorToasts() > errorsBefore) return false;
+      else if (Date.now() - quietSince > SAVE_IDLE_MS) return false;
+    }
+    return true;
+  };
+
+  /** Leave dialog › Save: every edited song, one at a time, then the start screen. */
+  const saveAllAndGoHome = async () => {
+    if (savingAll.current) return;
+    savingAll.current = true;
+    setLeaving(false);
+    try {
+      for (const s of songs) {
+        if (!edited.current.has(s.id)) continue;
+        // A failed or cancelled save stops here, on that song, and leaves the rest as they are.
+        if (!(await saveSong(s.id))) return;
+      }
+      activate(null);
+    } finally {
+      savingAll.current = false;
+    }
   };
 
   const startNewSong = () => void newSong();
@@ -486,6 +549,16 @@ export function App() {
         open={closing !== null}
         onCancel={() => setPendingClose(null)}
         onDiscard={() => closing && discardAndClose(closing.id)}
+      />
+      <LeaveDialog
+        songNames={songs.filter((s) => editedIds.has(s.id)).map((s) => s.summary.title || s.name)}
+        open={leaving}
+        onCancel={() => setLeaving(false)}
+        onKeep={() => {
+          setLeaving(false);
+          activate(null);
+        }}
+        onSave={() => void saveAllAndGoHome()}
       />
       <AppDialogs
         open={dialog}
