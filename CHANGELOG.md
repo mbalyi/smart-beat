@@ -4,6 +4,7 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+- Open from the cloud: File › Open now offers Google Drive, OneDrive and Dropbox next to this computer when you are connected, and File › Open from Cloud… takes you straight there.
 - Cloud folder: link a folder that Google Drive, OneDrive, Dropbox, iCloud Drive or Nextcloud keeps in sync (Help › Settings… › Cloud folder). The welcome screen gets a Cloud tab with the tabs in it, online-only files are downloaded when you open them, and saving over a file that changed since you opened it asks what to do first.
 
 ## [1.1.0]

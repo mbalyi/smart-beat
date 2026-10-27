@@ -82,6 +82,7 @@ export type MenuAction =
   | "shortcuts"
   | "settings"
   | "cloud-settings"
+  | "open-cloud"
   | "licenses"
   | "check-for-updates"
   | "tour"

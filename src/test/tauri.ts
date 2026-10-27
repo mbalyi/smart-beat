@@ -68,6 +68,8 @@ export const backend = {
   mixes: new Map<string, MixerSettings>(),
   /** Path the Open dialog picks, or `null` for Cancel. */
   dialogResult: null as string | null,
+  /** What `cloud_accounts` returns (none connected by default). */
+  cloudAccounts: [] as { provider: string; label: string; account: string | null }[],
   /** The last menu state the UI sent. */
   menuState: null as MenuState | null,
   /** Recently opened songs, most recent first (see `src-tauri/src/recent.rs`). */
@@ -122,6 +124,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.files.clear();
   backend.mixes.clear();
   backend.dialogResult = null;
+  backend.cloudAccounts = [];
   backend.menuState = null;
   backend.recent = [];
   backend.pendingOpen = [];
@@ -185,8 +188,9 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         // No folder linked and none detected; no cloud accounts or pending uploads (#187).
         case "get_cloud_folder":
           return null;
-        case "detect_cloud_folders":
         case "cloud_accounts":
+          return backend.cloudAccounts;
+        case "detect_cloud_folders":
         case "cloud_pending":
         case "cloud_flush":
           return [];

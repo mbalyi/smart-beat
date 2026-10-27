@@ -22,7 +22,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: "cloud-folder",
     title: "Cloud folder",
     summary:
-      "Link a folder that your cloud drive keeps in sync (Google Drive, OneDrive, Dropbox, iCloud Drive) in Help › Settings…, then open and save your tabs from the Cloud tab on the welcome screen. If a file changed in the cloud since you opened it, Smart Beat asks before saving over it.",
+      "Link a folder that your cloud drive keeps in sync (Google Drive, OneDrive, Dropbox, iCloud Drive) in Help › Settings…, then open and save your tabs from the Cloud tab on the welcome screen or from File › Open and Save As. If a file changed in the cloud since you opened it, Smart Beat asks before saving over it.",
     since: "1.2.0",
   },
   {

@@ -29,6 +29,15 @@ vi.mock("@/lib/score/player", async () => ({
   ScorePlayer: (await import("@/test/fake-score-player")).FakeScorePlayer,
 }));
 
+// The drive's song list has its own tests: here it only reports what is picked.
+vi.mock("@/components/cloud-open-dialog", () => ({
+  CloudOpenDialog: ({ label, onPick }: { label: string; onPick: (item: string) => void }) => (
+    <div role="dialog" aria-label={`Tabs in ${label}`}>
+      <button onClick={() => onPick("drive:abc")}>Pick drive tab</button>
+    </div>
+  ),
+}));
+
 // Import from Audio is behind the audio-2-tab flag, which is off in src/lib/features.json.
 const flags = vi.hoisted(() => ({ audio: true }));
 vi.mock("@/lib/features", () => ({
@@ -172,6 +181,72 @@ describe("App", () => {
     const dialog = await screen.findByRole("dialog", { name: "Settings" });
     const cloud = await within(dialog).findByRole("region", { name: "Cloud storage" });
     await waitFor(() => expect(cloud).toHaveFocus());
+  });
+
+  describe("Open with an online drive", () => {
+    const DRIVE = { provider: "drive", label: "Google Drive", account: "me@example.com" };
+    const OTHER = { provider: "onedrive", label: "OneDrive", account: "me@example.com" };
+
+    it("opens the native dialog straight away when no account is connected", async () => {
+      await renderApp();
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.dialogResult = SONG;
+      await menu("open");
+      await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
+      expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument();
+    });
+
+    it("asks where first and 'This computer' shows the native dialog", async () => {
+      const { user } = await renderApp();
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.cloudAccounts = [DRIVE, { ...OTHER, account: null }];
+      backend.dialogResult = SONG;
+      await menu("open");
+      const chooser = await screen.findByRole("dialog", { name: "Where is the song?" });
+      expect(within(chooser).queryByRole("button", { name: /OneDrive/ })).not.toBeInTheDocument();
+      await user.click(within(chooser).getByRole("button", { name: /Open from this computer/ }));
+      await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
+    });
+
+    it("choosing the drive lists its tabs, and picking one opens it", async () => {
+      const { user, calls } = await renderApp();
+      backend.cloudAccounts = [DRIVE];
+      await menu("open");
+      await user.click(await screen.findByRole("button", { name: "Open from Google Drive" }));
+      await user.click(await screen.findByRole("button", { name: "Pick drive tab" }));
+      await waitFor(() =>
+        expect(calls.some((c) => JSON.stringify(c.args ?? {}).includes("drive:abc"))).toBe(true),
+      );
+    });
+
+    it("Open from Cloud… goes straight to the only drive", async () => {
+      await renderApp();
+      backend.cloudAccounts = [DRIVE];
+      await menu("open-cloud");
+      expect(
+        await screen.findByRole("dialog", { name: "Tabs in Google Drive" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument();
+    });
+
+    it("Open from Cloud… asks which drive when several are connected", async () => {
+      await renderApp();
+      backend.cloudAccounts = [DRIVE, OTHER];
+      await menu("open-cloud");
+      expect(await screen.findByRole("button", { name: "Open from OneDrive" })).toBeInTheDocument();
+    });
+
+    it("Open from Cloud… without an account points to the settings", async () => {
+      await renderApp();
+      await menu("open-cloud");
+      expect(
+        await screen.findByText("Connect a cloud account in Settings first"),
+      ).toBeInTheDocument();
+      const dialog = await screen.findByRole("dialog", { name: "Settings" });
+      expect(
+        await within(dialog).findByRole("region", { name: "Cloud storage" }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("Help → Open-Source Licenses shows the notices", async () => {

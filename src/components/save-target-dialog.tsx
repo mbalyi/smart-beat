@@ -33,18 +33,22 @@ function TargetArt() {
   );
 }
 
-/** Save As, when an online drive is connected: this computer, or one of the drives. */
+/** Save As or Open, when an online drive is connected: this computer, or one of the drives. */
 export function SaveTargetDialog({
+  mode = "save",
   providers,
   open,
   onChoose,
   onCancel,
 }: {
+  mode?: "open" | "save";
   providers: { provider: CloudProvider; label: string }[];
   open: boolean;
   onChoose: (target: "computer" | CloudProvider) => void;
   onCancel: () => void;
 }) {
+  const opening = mode === "open";
+  const verb = opening ? "Open from" : "Save to";
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
       <DialogContent
@@ -55,10 +59,13 @@ export function SaveTargetDialog({
         <div className="relative isolate flex min-h-0 flex-1 flex-col">
           <TargetArt />
           <DialogHeader className="px-6 md:px-9">
-            <DialogTitle className="text-2xl font-bold">Where do you want to save?</DialogTitle>
+            <DialogTitle className="text-2xl font-bold">
+              {opening ? "Where is the song?" : "Where do you want to save?"}
+            </DialogTitle>
             <DialogDescription>
-              Keep the song on this computer, or put it in your online drive to open it on every
-              device.
+              {opening
+                ? "Pick a file on this computer, or one of the songs in your online drive."
+                : "Keep the song on this computer, or put it in your online drive to open it on every device."}
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="gap-3 px-6 md:px-9">
@@ -70,7 +77,7 @@ export function SaveTargetDialog({
               data-testid="save-target-computer"
             >
               <HardDriveIcon data-icon="inline-start" />
-              Save to this computer…
+              {verb} this computer…
             </Button>
             {providers.map(({ provider, label }) => (
               <Button
@@ -82,7 +89,7 @@ export function SaveTargetDialog({
                 data-testid={`save-target-${provider}`}
               >
                 <CloudIcon data-icon="inline-start" />
-                Save to {label}
+                {verb} {label}
               </Button>
             ))}
           </DialogBody>

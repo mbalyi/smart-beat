@@ -30,6 +30,7 @@ pub const MAIN_WINDOW: &str = "main";
 pub enum MenuAction {
     NewSong,
     Open,
+    OpenCloud,
     AiModels,
     ImportAudio,
     RecordToTab,
@@ -112,9 +113,10 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 78] = [
+    pub const ALL: [Self; 79] = [
         Self::NewSong,
         Self::Open,
+        Self::OpenCloud,
         Self::AiModels,
         Self::ImportAudio,
         Self::RecordToTab,
@@ -198,6 +200,7 @@ impl MenuAction {
         match self {
             Self::NewSong => "file.new",
             Self::Open => "file.open",
+            Self::OpenCloud => "file.open-cloud",
             Self::AiModels => "ai.models",
             Self::ImportAudio => "ai.import-audio",
             Self::RecordToTab => "ai.record-to-tab",
@@ -286,6 +289,7 @@ impl MenuAction {
         match self {
             Self::NewSong
             | Self::Open
+            | Self::OpenCloud
             | Self::ClearRecent
             | Self::Save
             | Self::SaveAs
@@ -364,6 +368,7 @@ impl MenuAction {
         match self {
             Self::NewSong => "New",
             Self::Open => "Open…",
+            Self::OpenCloud => "Open from Cloud…",
             Self::AiModels => "AI Models…",
             Self::ImportAudio => "Import from Audio…",
             Self::RecordToTab => "Record to Tab…",
@@ -527,6 +532,7 @@ impl MenuAction {
             | Self::WhatsNew
             | Self::ResetTips
             | Self::CloudSettings
+            | Self::OpenCloud
             | Self::About => None,
         }
     }
@@ -777,11 +783,13 @@ fn file_menu<'a, R: Runtime>(
     app: &'a AppHandle<R>,
     new_song: &MenuItem<R>,
     open: &MenuItem<R>,
+    open_cloud: &MenuItem<R>,
     recent: &Submenu<R>,
 ) -> SubmenuBuilder<'a, R, AppHandle<R>> {
     SubmenuBuilder::new(app, "File")
         .item(new_song)
         .item(open)
+        .item(open_cloud)
         .item(recent)
 }
 
@@ -828,6 +836,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let about = item(app, About)?;
     let new_song = item(app, NewSong)?;
     let open = item(app, Open)?;
+    let open_cloud = item(app, OpenCloud)?;
     let toggle_theme = item(app, ToggleTheme)?;
     let zoom_in = item(app, ZoomIn)?;
     let zoom_out = item(app, ZoomOut)?;
@@ -898,7 +907,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .build()?;
         menu = menu.item(&app_menu);
 
-        file_menu(app, &new_song, &open, &recent)
+        file_menu(app, &new_song, &open, &open_cloud, &recent)
             .separator()
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
@@ -908,7 +917,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .close_window()
             .build()?
     } else {
-        file_menu(app, &new_song, &open, &recent)
+        file_menu(app, &new_song, &open, &open_cloud, &recent)
             .separator()
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
@@ -1534,6 +1543,25 @@ mod tests {
             format_accelerator("CmdOrCtrl+,", "windows").1,
             "Control+Comma"
         );
+    }
+
+    #[test]
+    fn open_cloud_is_a_file_item_right_after_open() {
+        let action = MenuAction::OpenCloud;
+        assert_eq!(action.id(), "file.open-cloud");
+        assert_eq!(action.label(), "Open from Cloud…");
+        assert_eq!(action.menu(), "File");
+        assert_eq!(serde_json::to_string(&action).unwrap(), "\"open-cloud\"");
+        assert_eq!(MenuAction::from_id("file.open-cloud"), Some(action));
+        assert!(!action.is_native());
+        assert!(!action.needs_song());
+        assert!(!action.is_toggle());
+        for os in ["macos", "windows", "linux"] {
+            assert_eq!(action.accelerator_for(os), None);
+        }
+        let all = MenuAction::ALL;
+        let open = all.iter().position(|a| *a == MenuAction::Open).unwrap();
+        assert_eq!(all[open + 1], action);
     }
 
     #[test]

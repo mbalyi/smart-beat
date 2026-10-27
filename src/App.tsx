@@ -6,6 +6,9 @@ import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
 import type { SettingsSection } from "@/components/settings-dialog";
 import { AiInstallerDialog } from "@/components/ai/ai-installer-dialog";
 import { onInstallerReturn, openInstaller } from "@/lib/ai/ai-store";
+import { CloudOpenDialog } from "@/components/cloud-open-dialog";
+import { SaveTargetDialog } from "@/components/save-target-dialog";
+import { listCloudAccounts, type CloudProvider } from "@/lib/cloud";
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { DocumentTabs } from "@/components/shell/document-tabs";
@@ -49,6 +52,8 @@ import { cn } from "@/lib/utils";
 import { muscriptorProvider } from "@/lib/muscriptor";
 import { isEnabled } from "@/lib/features";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
+
+type CloudDrive = { provider: CloudProvider; label: string };
 
 const ACCEPT = SCORE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
@@ -168,7 +173,8 @@ export function App() {
     setDialog(next);
   };
 
-  const showOpenDialog = async () => {
+  /** The computer's own Open dialog (a file input in a browser). */
+  const showNativeOpenDialog = async () => {
     // A browser (`pnpm dev`) can't show the native dialog: use a file input.
     if (!isTauri()) {
       fileInputRef.current?.click();
@@ -180,6 +186,46 @@ export function App() {
     } catch (error) {
       toast.error("Couldn't show the Open dialog", { description: errorText(error) });
     }
+  };
+
+  /** The connected online drives; none when there are none or they can't be listed. */
+  const connectedDrives = async () => {
+    if (!isTauri()) return [];
+    try {
+      return (await listCloudAccounts())
+        .filter((a) => a.account)
+        .map(({ provider, label }) => ({ provider, label }));
+    } catch {
+      return [];
+    }
+  };
+
+  /** Where Open asks first (connected drives), and the drive whose songs are listed. */
+  const [openChooser, setOpenChooser] = useState<CloudDrive[] | null>(null);
+  const [cloudOpen, setCloudOpen] = useState<CloudDrive | null>(null);
+
+  /** Open: asks where first when an online drive is connected, else the native dialog. */
+  const showOpenDialog = async () => {
+    const drives = await connectedDrives();
+    if (drives.length > 0) setOpenChooser(drives);
+    else await showNativeOpenDialog();
+  };
+
+  const chooseOpenTarget = (target: "computer" | CloudProvider) => {
+    const drives = openChooser ?? [];
+    setOpenChooser(null);
+    if (target === "computer") void showNativeOpenDialog();
+    else setCloudOpen(drives.find((d) => d.provider === target) ?? null);
+  };
+
+  /** File › Open from Cloud…: straight to the drive's songs. */
+  const showCloudOpen = async () => {
+    const drives = await connectedDrives();
+    if (drives.length === 0) {
+      toast("Connect a cloud account in Settings first");
+      showDialog("settings", null, "cloud");
+    } else if (drives.length === 1) setCloudOpen(drives[0] ?? null);
+    else setOpenChooser(drives);
   };
 
   // The installer hands the user back to Import from Audio when it closes.
@@ -285,6 +331,9 @@ export function App() {
         break;
       case "open":
         open();
+        break;
+      case "open-cloud":
+        void showCloudOpen();
         break;
       case "ai-models":
         // From the AI menu there is no dialog to go back to.
@@ -467,6 +516,25 @@ export function App() {
           if (path) await writeScoreFile(path, midi);
         }}
       />
+      <SaveTargetDialog
+        mode="open"
+        providers={openChooser ?? []}
+        open={openChooser !== null}
+        onChoose={chooseOpenTarget}
+        onCancel={() => setOpenChooser(null)}
+      />
+      {cloudOpen && (
+        <CloudOpenDialog
+          provider={cloudOpen.provider}
+          label={cloudOpen.label}
+          open
+          onOpenChange={(isOpen) => !isOpen && setCloudOpen(null)}
+          onPick={(item) => {
+            setCloudOpen(null);
+            void openPath(item);
+          }}
+        />
+      )}
       <AiInstallerDialog />
       <UpdateDialog updater={updater} />
       <Toaster position="bottom-right" />
