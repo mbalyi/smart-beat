@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  cloudErrorText,
+  isCloudItem,
+  cloudItemName,
+  providerOf,
+  readCloudItem,
+  rememberCloudName,
+} from "@/lib/cloud-items";
 import { ENCODING_LABELS, type EncodingChoice, type TextEncodingId } from "@/lib/score/encoding";
 import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
 import { baseName, fileKey } from "@/lib/score/format";
@@ -207,6 +215,7 @@ export function useScoreDocuments() {
           });
         }
         track("open_file", name.split(".").pop());
+        if (path && isCloudItem(path)) rememberCloudName(path, name);
         if (path) await rememberRecent(path, true, () => setRecentsVersion((v) => v + 1));
         return true;
       } catch (error) {
@@ -214,9 +223,11 @@ export function useScoreDocuments() {
         if (path && isCommandError(error) && error.kind === "not-found") {
           await rememberRecent(path, false, () => setRecentsVersion((v) => v + 1));
         }
+        // A cloud tab that can't be reached right now stays in the recent list.
         toast.error(`Couldn't open “${name}”`, {
           id: toastId,
-          description: describeOpenError(error),
+          description:
+            (path && cloudErrorText(error, providerOf(path))) || describeOpenError(error),
         });
         return false;
       }
@@ -225,7 +236,12 @@ export function useScoreDocuments() {
   );
 
   const openPath = useCallback(
-    (path: string) => open({ name: baseName(path), path, read: () => readScoreFile(path) }),
+    (path: string) =>
+      open({
+        name: isCloudItem(path) ? (cloudItemName(path) ?? "Cloud tab") : baseName(path),
+        path,
+        read: () => (isCloudItem(path) ? readCloudItem(path) : readScoreFile(path)),
+      }),
     [open],
   );
 
@@ -308,7 +324,10 @@ export function useScoreDocuments() {
   const markSaved = useCallback((id: number, saved: SavedAs) => {
     // Read again from where it was saved.
     const { path } = saved;
-    if (path) sources.current.set(id, { name: saved.name, path, read: () => readScoreFile(path) });
+    if (path) {
+      const read = () => (isCloudItem(path) ? readCloudItem(path) : readScoreFile(path));
+      sources.current.set(id, { name: saved.name, path, read });
+    }
     setSongs((list) =>
       list.map((song) =>
         song.id === id ? { ...song, ...saved, isNew: false, unsaved: false } : song,
@@ -321,6 +340,16 @@ export function useScoreDocuments() {
     (id: number, encoding: EncodingChoice) => {
       const source = sources.current.get(id);
       if (source) void open(source, { id, encoding });
+    },
+    [open],
+  );
+
+  /** Reads an open song again from its file, dropping its unsaved edits ("Reload from disk"). */
+  const reloadFromDisk = useCallback(
+    (id: number) => {
+      const source = sources.current.get(id);
+      const song = songsRef.current.find((s) => s.id === id);
+      if (source) void open(source, { id, encoding: song?.encodingChoice ?? "auto" });
     },
     [open],
   );
@@ -359,6 +388,7 @@ export function useScoreDocuments() {
     openScore,
     markSaved,
     reopenWithEncoding,
+    reloadFromDisk,
     recentsVersion,
   };
 }

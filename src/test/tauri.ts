@@ -78,6 +78,8 @@ export const backend = {
   saveResult: null as string | null,
   /** Files written by `write_score_file`, by path. */
   written: new Map<string, Uint8Array>(),
+  /** Headers of the last `write_score_file` (the destination, and the expected hash). */
+  lastWriteHeaders: undefined as Record<string, string> | undefined,
   /** Settings stored inside saved `.gp` files, by path. */
   projectSettings: new Map<string, MixerSettings>(),
   /** Usage counter settings (see `src-tauri/src/telemetry.rs`); builds without an endpoint have none. */
@@ -172,12 +174,23 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         case "write_score_file": {
           // Raw body (bytes) plus the URI-encoded destination in a header.
           const path = decodeURIComponent(lastOptions?.headers?.path ?? "");
+          backend.lastWriteHeaders = lastOptions?.headers;
           backend.written.set(path, new Uint8Array(args as ArrayBuffer | Uint8Array));
           return null;
         }
         case "export_pdf":
           return null;
         case "track_event":
+          return null;
+        // No folder linked and none detected; no cloud accounts or pending uploads (#187).
+        case "get_cloud_folder":
+          return null;
+        case "detect_cloud_folders":
+        case "cloud_accounts":
+        case "cloud_pending":
+        case "cloud_flush":
+          return [];
+        case "cloud_disconnect":
           return null;
         case "get_usage_settings":
           return backend.usage;

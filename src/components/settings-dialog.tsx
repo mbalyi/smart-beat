@@ -2,7 +2,9 @@ import { useId, useState, type ReactNode } from "react";
 
 import type { AppDialogProps } from "@/components/app-dialogs";
 import { AsyncContent } from "@/components/async-content";
+import { CloudAccounts } from "@/components/cloud-accounts";
 import { AudioInputSetting } from "@/components/audio-input-setting";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogBody,
@@ -15,6 +17,14 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { usePromise } from "@/hooks/use-promise";
 import { errorText } from "@/lib/errors";
+import {
+  detectCloudFolders,
+  getCloudFolder,
+  isTauri,
+  pickCloudFolder,
+  setCloudFolder,
+  type CloudFolderCandidate,
+} from "@/lib/tauri";
 import { getUsageSettings, setUsageSettings, type UsageSettings } from "@/lib/telemetry";
 
 function UsageSetting({ initial }: { initial: UsageSettings | null }) {
@@ -85,6 +95,14 @@ export function SettingsDialog({ open, onOpenChange, onCloseAutoFocus }: AppDial
               <SettingsSection title="Audio">
                 <AudioInputSetting />
               </SettingsSection>
+              {isTauri() && (
+                <SettingsSection title="Cloud folder">
+                  <LoadedCloudFolder />
+                  <div className="mt-4">
+                    <CloudAccounts />
+                  </div>
+                </SettingsSection>
+              )}
               <SettingsSection title="Privacy">
                 <LoadedSettings />
               </SettingsSection>
@@ -122,5 +140,104 @@ function LoadedSettings() {
     >
       {(settings) => <UsageSetting initial={settings} />}
     </AsyncContent>
+  );
+}
+
+async function loadCloudFolder() {
+  const [folder, candidates] = await Promise.all([getCloudFolder(), detectCloudFolders()]);
+  return { folder, candidates };
+}
+
+function LoadedCloudFolder() {
+  const state = usePromise(loadCloudFolder);
+  return (
+    <AsyncContent
+      state={state}
+      loadingLabel="Loading cloud folder…"
+      errorMessage={(error) => `The cloud folder is unavailable. ${errorText(error)}`}
+    >
+      {({ folder, candidates }) => <CloudFolderSetting initial={folder} candidates={candidates} />}
+    </AsyncContent>
+  );
+}
+
+function CloudFolderSetting({
+  initial,
+  candidates,
+}: {
+  initial: string | null;
+  candidates: CloudFolderCandidate[];
+}) {
+  const [folder, setFolder] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+
+  // Folder paths stay on this computer: nothing here is reported to usage statistics.
+  const link = async (next: string | null) => {
+    setError(null);
+    try {
+      setFolder(await setCloudFolder(next));
+    } catch (e) {
+      setError(`The cloud folder could not be saved. ${errorText(e)}`);
+    }
+  };
+
+  const choose = async () => {
+    setError(null);
+    try {
+      const picked = await pickCloudFolder();
+      if (picked) await link(picked);
+    } catch (e) {
+      setError(`The folder could not be chosen. ${errorText(e)}`);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        Link a folder that your cloud service already syncs (iCloud Drive, Dropbox, OneDrive, Google
+        Drive) to keep your songs on all your computers.
+      </p>
+      <p className="text-sm" data-testid="cloud-folder-current">
+        {folder ? (
+          <>
+            <span className="font-medium">Linked folder: </span>
+            <span className="break-all">{folder}</span>
+          </>
+        ) : (
+          "No folder linked."
+        )}
+      </p>
+      {candidates.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {candidates.map((candidate) => (
+            <Button
+              key={candidate.path}
+              type="button"
+              variant="outline"
+              size="sm"
+              title={candidate.path}
+              onClick={() => void link(candidate.path)}
+            >
+              Use {candidate.provider}
+            </Button>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => void choose()}>
+          Choose folder…
+        </Button>
+        {folder && (
+          <Button type="button" variant="outline" size="sm" onClick={() => void link(null)}>
+            Unlink
+          </Button>
+        )}
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

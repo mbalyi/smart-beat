@@ -1,7 +1,19 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
+import type { ConflictChoice } from "@/components/save-conflict-dialog";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
+import { listCloudAccounts } from "@/lib/cloud";
+import {
+  cloudErrorText,
+  createCloudItem,
+  isCloudItem,
+  providerLabel,
+  providerOf,
+  rememberCloudName,
+  saveCloudItem,
+  type CloudProvider,
+} from "@/lib/cloud-items";
 import { errorText } from "@/lib/errors";
 import { track } from "@/lib/telemetry";
 import {
@@ -16,6 +28,7 @@ import { collectDrumLines } from "@/lib/score/drum-lines";
 import { baseName, fileKey } from "@/lib/score/format";
 import type { ScoreEditor } from "@/lib/score/editor";
 import {
+  getCloudFolder,
   isCommandError,
   isTauri,
   pickSavePath,
@@ -73,6 +86,22 @@ export function stem(song: ScoreDocument): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "Untitled";
 }
 
+/** The folder of the song's file, with its closing separator, or "". */
+function songFolder(song: ScoreDocument): string {
+  return song.path?.match(/^(.*[\\/])/)?.[1] ?? "";
+}
+
+/** Where Save As starts: the linked cloud folder when there is one, else the song's folder. */
+async function startFolder(song: ScoreDocument): Promise<string> {
+  try {
+    const cloud = await getCloudFolder();
+    if (cloud) return /[\\/]$/.test(cloud) ? cloud : `${cloud}${cloud.includes("\\") ? "\\" : "/"}`;
+  } catch {
+    // No cloud folder to offer: the song's own folder will do.
+  }
+  return songFolder(song);
+}
+
 /** Gives the browser a file to save (used when there is no desktop app). */
 function download(bytes: Uint8Array, name: string, mime: string) {
   const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mime }));
@@ -101,6 +130,7 @@ export function useFileActions({
   renderAudio,
   onSaved,
   onEditedChange,
+  onReload,
 }: {
   song: ScoreDocument;
   editor: ScoreEditor;
@@ -109,8 +139,19 @@ export function useFileActions({
   renderAudio?: (onProgress: (fraction: number) => void) => Promise<RenderedAudio>;
   onSaved: (saved: SavedAs) => void;
   onEditedChange?: (edited: boolean) => void;
+  /** Reads the song again from its file, dropping the edits ("Reload from disk"). */
+  onReload?: () => void;
 }) {
   const busy = useRef(false);
+  /** The file that changed on disk under a Save, while the user decides what to do. */
+  const [conflict, setConflict] = useState<{ name: string } | null>(null);
+  /** Save As is asking where to save: this computer or a connected online drive. */
+  const [chooser, setChooser] = useState<{
+    providers: { provider: CloudProvider; label: string }[];
+    copy: boolean;
+  } | null>(null);
+  /** The online drive the running save talks to, to explain a failure. */
+  const cloudProvider = useRef<CloudProvider | null>(null);
 
   /** Runs `task` unless another save or export is running. */
   const exclusive = async (task: () => Promise<void>) => {
@@ -119,18 +160,37 @@ export function useFileActions({
     try {
       await task();
     } catch (error) {
-      toast.error("Couldn't save the file", { description: errorText(error) });
+      toast.error("Couldn't save the file", {
+        description: cloudErrorText(error, cloudProvider.current) ?? errorText(error),
+      });
     } finally {
+      cloudProvider.current = null;
       busy.current = false;
     }
   };
 
+  /** The last cloud save was kept for later (no connection). */
+  const queued = useRef(false);
+
   const build = (format: ExportFormat): ExportResult => exportScore(editor.score, format, getMix());
 
   /** Builds the file and writes it to `path` (desktop) or downloads it (browser). */
-  async function deliver(format: ExportFormat, path: string | null, result: ExportResult) {
-    const name = path ? baseName(path) : `${stem(song)}.${FORMATS[format].extension}`;
-    if (path) await writeScoreFile(path, result.bytes);
+  async function deliver(
+    format: ExportFormat,
+    path: string | null,
+    result: ExportResult,
+    expectedHash?: string,
+  ) {
+    const name =
+      path && isCloudItem(path)
+        ? song.name
+        : path
+          ? baseName(path)
+          : `${stem(song)}.${FORMATS[format].extension}`;
+    if (path && isCloudItem(path)) {
+      cloudProvider.current = providerOf(path);
+      queued.current = (await saveCloudItem(path, result.bytes)) === "queued";
+    } else if (path) await writeScoreFile(path, result.bytes, expectedHash);
     else download(result.bytes, name, FORMATS[format].mime);
     return name;
   }
@@ -163,29 +223,51 @@ export function useFileActions({
     format: ExportFormat,
     path: string | null,
     saveEvent: "save" | "save_as" = "save",
+    expectedHash?: string,
   ) {
     const result = build(format);
-    const name = await deliver(format, path, result);
+    const name = await deliver(format, path, result, expectedHash);
     const key =
-      path && format === "gp" && isTauri()
+      path && format === "gp" && isTauri() && !isCloudItem(path)
         ? await storeSettings(path, result.bytes)
         : await fileKey(result.bytes);
     editor.markSaved();
     onEditedChange?.(false);
     onSaved({ name, path, fileKey: key });
     track(saveEvent, FORMATS[format].extension);
-    toast.success(path ? `Saved “${name}”` : `Downloaded “${name}”`);
+    if (path && queued.current) {
+      queued.current = false;
+      toast.info("Saved offline — it will upload when you are back online", {
+        description: `“${name}” is kept on this computer.`,
+      });
+    } else toast.success(path ? `Saved “${name}”` : `Downloaded “${name}”`);
     reportWarnings(`“${name}” was saved with limits`, result);
   }
 
-  const saveAs = () =>
+  /** Creates the song as a new tab in an online drive and makes it the song's file. */
+  const saveToProvider = (provider: CloudProvider) =>
+    exclusive(async () => {
+      cloudProvider.current = provider;
+      const name = `${stem(song)}.gp`;
+      const result = build("gp");
+      const item = await createCloudItem(provider, name, result.bytes);
+      rememberCloudName(item, name);
+      editor.markSaved();
+      onEditedChange?.(false);
+      onSaved({ name, path: item, fileKey: await fileKey(result.bytes) });
+      track("save_as", "gp");
+      toast.success(`Saved “${name}” to ${providerLabel(provider)}`);
+      reportWarnings(`“${name}” was saved with limits`, result);
+    });
+
+  const saveAsLocal = (options: { copy?: boolean } = {}) =>
     exclusive(async () => {
       let format: ExportFormat = "gp";
       let path: string | null = null;
       if (isTauri()) {
-        const dir = song.path?.match(/^(.*[\\/])/)?.[1] ?? "";
+        const dir = options.copy ? songFolder(song) : await startFolder(song);
         const picked = await pickSavePath(
-          `${dir}${stem(song)}.gp`,
+          `${dir}${stem(song)}${options.copy ? " (copy)" : ""}.gp`,
           SONG_FORMATS.map(filterOf),
           "Save As",
         );
@@ -202,13 +284,58 @@ export function useFileActions({
       await saveTo(format, path, "save_as");
     });
 
+  /** Save As: asks where first when an online drive is connected. */
+  const saveAs = async (options: { copy?: boolean } = {}) => {
+    if (isTauri()) {
+      try {
+        const connected = (await listCloudAccounts()).filter((a) => a.account);
+        if (connected.length > 0) {
+          setChooser({
+            providers: connected.map(({ provider, label }) => ({ provider, label })),
+            copy: !!options.copy,
+          });
+          return;
+        }
+      } catch {
+        // No drives to offer: the normal dialog.
+      }
+    }
+    return saveAsLocal(options);
+  };
+
+  /** Settles the "where to save" question. */
+  const chooseTarget = (target: "computer" | CloudProvider | "cancel") => {
+    const copy = chooser?.copy;
+    setChooser(null);
+    if (target === "computer") void saveAsLocal({ copy });
+    else if (target !== "cancel") void saveToProvider(target);
+  };
+
   const save = () => {
     // Replace the file the song came from, if Smart Beat can write that format.
-    const known = song.path ? formatFromName(song.path) : null;
+    const known = song.path ? formatFromName(isCloudItem(song.path) ? song.name : song.path) : null;
     if (song.path && known && SAVE_IN_PLACE.includes(known)) {
-      return exclusive(() => saveTo(known, song.path));
+      const path = song.path;
+      // The hash of the file as it was opened or last saved: a different file on disk is a
+      // conflict (#187) and nothing is written.
+      const expectedHash = song.fileKey ?? undefined;
+      return exclusive(async () => {
+        try {
+          await saveTo(known, path, "save", expectedHash);
+        } catch (error) {
+          if (!(isCommandError(error) && error.kind === "conflict")) throw error;
+          setConflict({ name: isCloudItem(path) ? song.name : baseName(path) });
+        }
+      });
     }
     return saveAs();
+  };
+
+  /** Settles a save that found the file changed on disk. */
+  const resolveConflict = (choice: ConflictChoice | "cancel") => {
+    setConflict(null);
+    if (choice === "copy") void saveAs({ copy: true });
+    else if (choice === "reload") onReload?.();
   };
 
   const exportAs = (requested: ExportFormat) =>
@@ -276,5 +403,5 @@ export function useFileActions({
       }
     });
 
-  return { save, saveAs, exportAs, exportAudio };
+  return { save, saveAs, exportAs, exportAudio, conflict, resolveConflict, chooser, chooseTarget };
 }

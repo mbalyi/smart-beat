@@ -55,6 +55,10 @@ tract-onnx = "0.23"
 # Checks the piano model files after the download (src/recording/piano_model.rs).
 sha2 = "0.11"
 sevenz-rust2 = { version = "0.24", default-features = false }
+# Cloud sign-in (#187): random PKCE verifiers and OAuth tokens in the OS keychain
+# (macOS Keychain, Windows Credential Manager, Linux Secret Service).
+getrandom = "0.3"
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 # macOS: the system's AAC encoder (AVFoundation) writes `.m4a` exports (src/m4a.rs).
 [target.'cfg(target_os = "macos")'.dependencies]

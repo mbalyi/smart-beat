@@ -24,6 +24,12 @@ import {
   writeM4aFile,
   writeScoreFile,
   canExportM4a,
+  detectCloudFolders,
+  getCloudFolder,
+  listCloudScores,
+  pickCloudFolder,
+  scoreFileStamp,
+  setCloudFolder,
   type FileDragEvent,
   type MenuAction,
   type MixerSettings,
@@ -371,5 +377,65 @@ describe("recent files", () => {
 
     expect(opened).toEqual(["/a.gp5"]);
     expect(lists).toEqual([[]]);
+  });
+});
+
+describe("cloud folder", () => {
+  it("has no cloud folder in a browser", async () => {
+    await expect(getCloudFolder()).resolves.toBeNull();
+    await expect(detectCloudFolders()).resolves.toEqual([]);
+    await expect(listCloudScores()).resolves.toEqual([]);
+    await expect(scoreFileStamp("/a.gp")).resolves.toBeNull();
+    await expect(setCloudFolder("/c")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(pickCloudFolder()).rejects.toBeInstanceOf(NotInDesktopAppError);
+  });
+
+  it("calls the cloud folder commands", async () => {
+    const calls = mockTauri({
+      get_cloud_folder: () => "/c",
+      set_cloud_folder: (args) => (args as { folder: string | null }).folder,
+      detect_cloud_folders: () => [{ provider: "Dropbox", path: "/d" }],
+      list_cloud_scores: () => [
+        { name: "a.gp", path: "/c/a.gp", size: 1, modified_ms: 2, placeholder: false },
+      ],
+      score_file_stamp: () => ({ modified_ms: 5, hash: "h" }),
+    });
+    await expect(getCloudFolder()).resolves.toBe("/c");
+    await expect(setCloudFolder(null)).resolves.toBeNull();
+    await expect(detectCloudFolders()).resolves.toEqual([{ provider: "Dropbox", path: "/d" }]);
+    await expect(listCloudScores()).resolves.toHaveLength(1);
+    await expect(scoreFileStamp("/c/a.gp")).resolves.toEqual({ modified_ms: 5, hash: "h" });
+    expect(calls).toContainEqual({ cmd: "set_cloud_folder", args: { folder: null } });
+    expect(calls).toContainEqual({ cmd: "score_file_stamp", args: { path: "/c/a.gp" } });
+  });
+
+  it("opens the native dialog for a folder", async () => {
+    const calls = mockTauri();
+    backend.dialogResult = "/c";
+    await expect(pickCloudFolder()).resolves.toBe("/c");
+    expect(calls).toContainEqual({
+      cmd: "plugin:dialog|open",
+      args: { options: expect.objectContaining({ directory: true, multiple: false }) },
+    });
+  });
+
+  it("sends the expected hash with a save, only when given", async () => {
+    const headers: Array<Record<string, string> | undefined> = [];
+    mockTauri({ write_score_file: () => null });
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: unknown } })
+      .__TAURI_INTERNALS__;
+    const original = internals.invoke as (...a: unknown[]) => Promise<unknown>;
+    internals.invoke = (
+      cmd: string,
+      args: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => {
+      if (cmd === "write_score_file") headers.push(options?.headers);
+      return original(cmd, args, options);
+    };
+    await writeScoreFile("/c/a.gp", new Uint8Array([1]), "abc");
+    await writeScoreFile("/c/a.gp", new Uint8Array([1]));
+    expect(headers[0]).toEqual({ path: encodeURIComponent("/c/a.gp"), "expected-hash": "abc" });
+    expect(headers[1]).toEqual({ path: encodeURIComponent("/c/a.gp") });
   });
 });

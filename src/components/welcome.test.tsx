@@ -359,3 +359,24 @@ describe("Welcome: optional add-ons (#150)", () => {
     expect(section).toHaveTextContent("not affiliated with or endorsed by Kyutai or Mirelo");
   });
 });
+
+describe("Welcome: recent cloud songs (#187)", () => {
+  it("shows the remembered file name with the provider label", async () => {
+    localStorage.setItem("smart-beat:cloud-names", JSON.stringify({ "drive:abc": "riff.gp" }));
+    const onOpenRecent = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        recent={["drive:abc"]}
+        onOpenRecent={onOpenRecent}
+      />,
+    );
+
+    const card = screen.getByRole("button", { name: /riff\.gp/ });
+    expect(card).toHaveTextContent("Google Drive");
+    await user.click(card);
+    expect(onOpenRecent).toHaveBeenCalledWith("drive:abc");
+  });
+});

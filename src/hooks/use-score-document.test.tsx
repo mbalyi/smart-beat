@@ -382,3 +382,35 @@ describe("useScoreDocuments: settings inside .gp files", () => {
     expect(result.current.song?.mix).toEqual(saved);
   });
 });
+
+describe("useScoreDocuments: cloud items (#187)", () => {
+  const ITEM = "drive:abc";
+
+  it("opens a cloud item through openPath and remembers its id", async () => {
+    mockTauri({ cloud_read: () => fixtureBytes("practice-song.gp").slice().buffer });
+    const { result } = setup();
+
+    await act(() => result.current.openPath(ITEM));
+
+    expect(result.current.song?.path).toBe(ITEM);
+    expect(backend.recent).toEqual([ITEM]);
+  });
+
+  it.each([
+    ["network", /can't be reached/],
+    ["auth-expired", /Reconnect Google Drive in Settings/],
+  ])("keeps a recent cloud item that fails with %s", async (kind, message) => {
+    mockTauri({
+      cloud_read: () => {
+        throw { kind, message: "x" };
+      },
+    });
+    backend.recent = [ITEM];
+    const { result } = setup();
+
+    await act(() => result.current.openPath(ITEM));
+
+    expect(backend.recent).toEqual([ITEM]);
+    expect((await screen.findAllByText(message)).length).toBeGreaterThan(0);
+  });
+});

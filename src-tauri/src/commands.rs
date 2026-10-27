@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tauri::ipc::Response;
-use tauri::{AppHandle, PackageInfo, Runtime, State};
+use tauri::{AppHandle, Emitter, PackageInfo, Runtime, State};
 
 use crate::audio::AudioState;
+use crate::cloud_folder::{self, CloudFolderCandidate, CloudFolderStore, CloudScore, FileStamp};
 use crate::error::{CommandError, ErrorKind};
 use crate::m4a;
 use crate::menu::{self, Shortcut};
@@ -59,8 +60,37 @@ pub fn menu_shortcuts() -> Vec<Shortcut> {
 /// Reads a Guitar Pro file picked or dropped by the user. The bytes are sent
 /// as a raw `ArrayBuffer` rather than a JSON array of numbers.
 #[tauri::command(async)]
-pub fn read_score_file(path: PathBuf) -> Result<Response, CommandError> {
+pub fn read_score_file<R: Runtime>(
+    app: AppHandle<R>,
+    path: PathBuf,
+) -> Result<Response, CommandError> {
+    // An online-only cloud file (iCloud evicted, #187) is downloaded first.
+    cloud_folder::wait_for_download(
+        &path,
+        cloud_folder::DOWNLOAD_TIMEOUT,
+        cloud_folder::request_icloud_download,
+        || {
+            let _ = app.emit(
+                "cloud-download-waiting",
+                path.to_string_lossy().into_owned(),
+            );
+        },
+    )
+    .or_else(|error| {
+        // A plain missing file keeps the reader's own message.
+        if error.kind == ErrorKind::NotFound {
+            Ok(())
+        } else {
+            Err(error)
+        }
+    })?;
     score_file::read(&path).map(Response::new)
+}
+
+/// What the file at `path` looks like now, to detect later changes. `null` if it is missing.
+#[tauri::command(async)]
+pub fn score_file_stamp(path: PathBuf) -> Result<Option<FileStamp>, CommandError> {
+    cloud_folder::stamp(&path)
 }
 
 /// Writes a song or export. The content is the raw request body and the
@@ -69,7 +99,61 @@ pub fn read_score_file(path: PathBuf) -> Result<Response, CommandError> {
 #[tauri::command(async)]
 pub fn write_score_file(request: tauri::ipc::Request<'_>) -> Result<(), CommandError> {
     let (path, bytes) = destination_and_body(&request)?;
+    // Saving over a file that changed since it was opened asks first (#187): the UI sends the
+    // hash it saw and gets a `conflict` error back.
+    if let Some(expected) = request
+        .headers()
+        .get("expected-hash")
+        .and_then(|v| v.to_str().ok())
+    {
+        let expected = FileStamp {
+            modified_ms: 0,
+            hash: expected.to_owned(),
+        };
+        if cloud_folder::changed_since(Path::new(&path), &expected)? {
+            return Err(CommandError::new(
+                ErrorKind::Conflict,
+                "This file changed since you opened it.",
+            ));
+        }
+    }
     score_write::write(Path::new(&path), bytes)
+}
+
+/// The linked cloud folder, if any.
+#[tauri::command(async)]
+pub fn get_cloud_folder(store: State<'_, CloudFolderStore>) -> Option<String> {
+    store.load()
+}
+
+/// Links a folder (or unlinks with `null`) and returns the new setting.
+#[tauri::command(async)]
+pub fn set_cloud_folder(
+    store: State<'_, CloudFolderStore>,
+    folder: Option<String>,
+) -> Result<Option<String>, CommandError> {
+    store.set(folder.as_deref())
+}
+
+/// Usual cloud drive folders on this machine, for the shortcuts in Settings.
+#[tauri::command(async)]
+pub fn detect_cloud_folders<R: Runtime>(app: AppHandle<R>) -> Vec<CloudFolderCandidate> {
+    use tauri::Manager;
+    app.path()
+        .home_dir()
+        .map(|home| cloud_folder::detect_folders(&home))
+        .unwrap_or_default()
+}
+
+/// The tabs in the linked cloud folder.
+#[tauri::command(async)]
+pub fn list_cloud_scores(
+    store: State<'_, CloudFolderStore>,
+) -> Result<Vec<CloudScore>, CommandError> {
+    let Some(folder) = store.load() else {
+        return Ok(Vec::new());
+    };
+    cloud_folder::list_scores(Path::new(&folder))
 }
 
 /// Exports audio as AAC: the request body is the rendered 16-bit WAV file and
@@ -110,7 +194,7 @@ fn destination_and_body<'a>(
 }
 
 /// Decodes `encodeURIComponent` output.
-fn percent_decode(text: &str) -> Option<String> {
+pub(crate) fn percent_decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;

@@ -24,6 +24,14 @@ pub enum ErrorKind {
     /// The audio engine or the sound library refused a request (no output
     /// device, a bad SoundFont, an unusable amp model or impulse response).
     Audio,
+    /// The file changed on disk (or in the cloud) since it was opened (#187).
+    Conflict,
+    /// An online-only cloud file did not finish downloading in time (#187).
+    DownloadTimeout,
+    /// A cloud provider could not be reached (#187).
+    Network,
+    /// The cloud sign-in expired or was revoked: connect the account again (#187).
+    AuthExpired,
     /// Any other I/O failure.
     Io,
 }

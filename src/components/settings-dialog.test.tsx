@@ -239,3 +239,62 @@ describe("SettingsDialog: input channel (the monitor track's)", () => {
     expect(screen.queryByRole("combobox", { name: "Channel" })).not.toBeInTheDocument();
   });
 });
+
+describe("SettingsDialog: cloud folder", () => {
+  it("is not offered in the browser", async () => {
+    installMediaDevices({ inputs: [BUILT_IN] });
+    renderSettings();
+    await screen.findByRole("combobox", { name: "Input" });
+    expect(screen.queryByText("Cloud folder")).not.toBeInTheDocument();
+  });
+
+  it("links a detected provider, a chosen folder, and unlinks again", async () => {
+    let folder: string | null = null;
+    const calls = mockTauri({
+      get_cloud_folder: () => folder,
+      set_cloud_folder: (args) => (folder = (args as { folder: string | null }).folder),
+      detect_cloud_folders: () => [
+        { provider: "Dropbox", path: "/Users/me/Dropbox" },
+        { provider: "iCloud Drive", path: "/Users/me/iCloud" },
+      ],
+    });
+    backend.dialogResult = "/Users/me/Songs";
+    const { user } = renderSettings();
+
+    expect(await screen.findByText("No folder linked.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unlink" })).not.toBeInTheDocument();
+    await expectNoA11yViolations();
+
+    await user.click(screen.getByRole("button", { name: "Use Dropbox" }));
+    expect(await screen.findByText("/Users/me/Dropbox")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Choose folder…" }));
+    expect(await screen.findByText("/Users/me/Songs")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Unlink" }));
+    expect(await screen.findByText("No folder linked.")).toBeInTheDocument();
+    expect(calls.filter((c) => c.cmd === "set_cloud_folder").map((c) => c.args)).toEqual([
+      { folder: "/Users/me/Dropbox" },
+      { folder: "/Users/me/Songs" },
+      { folder: null },
+    ]);
+  });
+
+  it("keeps the folder and says so when linking fails, and sends no path to usage stats", async () => {
+    const calls = mockTauri({
+      get_cloud_folder: () => "/Users/me/Dropbox",
+      detect_cloud_folders: () => [],
+      set_cloud_folder: () => {
+        throw { kind: "io", message: "disk on fire" };
+      },
+    });
+    const { user } = renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Unlink" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not be saved/);
+    expect(screen.getByText("/Users/me/Dropbox")).toBeInTheDocument();
+    expect(
+      calls.some((c) => /usage|telemetry/i.test(c.cmd) && c.cmd !== "get_usage_settings"),
+    ).toBe(false);
+  });
+});

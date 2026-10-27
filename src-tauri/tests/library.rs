@@ -250,7 +250,10 @@ fn imported_sounds_stay_on_this_computer() {
     // One network client, used from Rust, never from the page: `ureq` for the usage counters
     // (src/telemetry.rs), the piano model download (src/recording/piano_model.rs), the MuScriptor
     // model download (src/recording/muscriptor_model.rs) and the SoundFont downloads
-    // (src/audio/soundfonts.rs). Transcription runs on this computer and sends nothing.
+    // (src/audio/soundfonts.rs), and the cloud drive connectors the user links themselves in
+    // Settings (src/cloud/: sign-in, and open/save of tabs in their own Google Drive, OneDrive or
+    // Dropbox; nothing is sent until an account is connected). Transcription runs on this
+    // computer and sends nothing.
     // No other client, no fs/http/shell permission, no remote host in the CSP. The updater
     // plugin makes its own request from Rust.
     let manifest = env!("CARGO_MANIFEST_DIR");
@@ -270,6 +273,11 @@ fn imported_sounds_stay_on_this_computer() {
             "recording/piano_model.rs",
             "recording/muscriptor_model.rs",
             "audio/soundfonts.rs",
+            "cloud/mod.rs",
+            "cloud/oauth.rs",
+            "cloud/google_drive.rs",
+            "cloud/onedrive.rs",
+            "cloud/dropbox.rs",
         ];
         assert!(
             owners.iter().any(|owner| file == src.join(owner)) || !source.contains(client),

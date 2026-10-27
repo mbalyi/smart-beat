@@ -1,6 +1,9 @@
 //! Smart Beat desktop core: native window, menu bar, file access and IPC commands.
 
 pub mod audio;
+pub mod cloud;
+pub mod cloud_commands;
+pub mod cloud_folder;
 mod commands;
 pub mod error;
 pub mod features;
@@ -55,6 +58,16 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 app.manage(transcription::Running::default());
             }
             recent::ensure_store(app.handle())?;
+            if app.try_state::<cloud_commands::CloudState>().is_none() {
+                app.manage(cloud_commands::CloudState::new(
+                    app.path().app_data_dir()?.join("pending"),
+                ));
+            }
+            if app.try_state::<cloud_folder::CloudFolderStore>().is_none() {
+                app.manage(cloud_folder::CloudFolderStore::new(
+                    app.path().app_data_dir()?,
+                ));
+            }
             if app
                 .try_state::<std::sync::Arc<telemetry::Telemetry>>()
                 .is_none()
@@ -92,7 +105,22 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::menu_shortcuts,
             commands::read_score_file,
             open_file::take_pending_open_files,
+            commands::score_file_stamp,
             commands::write_score_file,
+            commands::get_cloud_folder,
+            commands::set_cloud_folder,
+            commands::detect_cloud_folders,
+            commands::list_cloud_scores,
+            cloud_commands::cloud_accounts,
+            cloud_commands::cloud_connect,
+            cloud_commands::cloud_disconnect,
+            cloud_commands::cloud_list,
+            cloud_commands::cloud_read,
+            cloud_commands::cloud_save,
+            cloud_commands::cloud_create,
+            cloud_commands::cloud_pending,
+            cloud_commands::cloud_flush,
+            cloud_commands::cloud_discard_pending,
             commands::export_m4a,
             commands::export_pdf,
             commands::load_mixer_settings,

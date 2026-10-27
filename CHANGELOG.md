@@ -4,6 +4,8 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+- Cloud folder: link a folder that Google Drive, OneDrive, Dropbox, iCloud Drive or Nextcloud keeps in sync (Help › Settings… › Cloud folder). The welcome screen gets a Cloud tab with the tabs in it, online-only files are downloaded when you open them, and saving over a file that changed since you opened it asks what to do first.
+
 ## [1.1.0]
 
 New features and fixes since 1.0.1:

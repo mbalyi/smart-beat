@@ -12,6 +12,7 @@ import { DiscardDialog } from "@/components/discard-dialog";
 import { LeaveDialog } from "@/components/leave-dialog";
 import { DropOverlay } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
+import { useCloudFlush } from "@/hooks/use-cloud-flush";
 import { useUsageNotice } from "@/hooks/use-usage-notice";
 import { UpdateDialog } from "@/components/update-dialog";
 import { Toaster } from "@/components/ui/sonner";
@@ -66,6 +67,7 @@ export function App() {
   const { toggleTheme } = useTheme();
   const updater = useUpdater();
   useUsageNotice(() => setDialog("settings"));
+  useCloudFlush();
   const {
     songs,
     song,
@@ -78,6 +80,7 @@ export function App() {
     openScore,
     markSaved,
     reopenWithEncoding,
+    reloadFromDisk,
     recentsVersion,
   } = useScoreDocuments();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -362,6 +365,7 @@ export function App() {
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}
                     onReopenWithEncoding={(choice) => reopenWithEncoding(s.id, choice)}
+                    onReloadFromDisk={() => reloadFromDisk(s.id)}
                     startEditing={s.isNew}
                     droppedAudio={s.id === song.id ? droppedAudio : null}
                     onOpenSettings={(from) => showDialog("settings", from)}
@@ -378,6 +382,7 @@ export function App() {
               onShowLicenses={() => showDialog("licenses")}
               recent={recent}
               onOpenRecent={(path) => void openPath(path)}
+              onOpenCloud={(path) => void openPath(path)}
               onTakeTour={() => startTour("main")}
               tour={
                 tour.offerMainTour

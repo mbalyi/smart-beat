@@ -10,6 +10,7 @@ import {
 import { useId, useState } from "react";
 
 import { BuiltWith } from "@/components/built-with";
+import { CloudScores } from "@/components/cloud-scores";
 import { OptionalAddons } from "@/components/optional-addons";
 import { isEnabled } from "@/lib/features";
 import { SectionKicker } from "@/components/section-kicker";
@@ -17,11 +18,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { FEATURES, type Feature } from "@/components/welcome-features";
+import { cloudItemName, providerLabel, providerOf } from "@/lib/cloud-items";
 import { baseName } from "@/lib/score/format";
 import { cn } from "@/lib/utils";
 
+/** The file name of a recent entry: a cloud item shows the name remembered when it was opened. */
+function recentName(path: string): string {
+  return providerOf(path) ? (cloudItemName(path) ?? "Cloud tab") : baseName(path);
+}
+
 /** The folder a path is in ("Songs" for `/Users/me/Songs/riff.gp5`), to tell equal names apart. */
 function folderOf(path: string): string {
+  const provider = providerOf(path);
+  if (provider) return providerLabel(provider);
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts.length > 1 ? parts[parts.length - 2]! : "";
 }
@@ -37,6 +46,7 @@ export function Welcome({
   onShowShortcuts,
   recent = [],
   onOpenRecent,
+  onOpenCloud,
   onShowLicenses,
   onTakeTour,
   tour,
@@ -49,6 +59,8 @@ export function Welcome({
   /** Recently opened songs (paths), most recent first. */
   recent?: string[];
   onOpenRecent?: (path: string) => void;
+  /** Opens a tab from the linked cloud folder; the Cloud section is left out without it. */
+  onOpenCloud?: (path: string) => void;
   /** "View open-source notices": opens Help › Open-Source Licenses. */
   onShowLicenses?: () => void;
   /** Starts the guided tour (also Help › Take the Tour). */
@@ -143,7 +155,7 @@ export function Welcome({
                       : "hover:border-brand/60 focus-visible:border-brand/60",
                   )}
                   onClick={() => onOpenRecent(path)}
-                  title={path}
+                  title={providerOf(path) ? recentName(path) : path}
                 >
                   <FileMusicIcon
                     className={cn(
@@ -153,7 +165,7 @@ export function Welcome({
                     aria-hidden="true"
                   />
                   <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate text-[17px] font-bold">{baseName(path)}</span>
+                    <span className="truncate text-[17px] font-bold">{recentName(path)}</span>
                     <span className="truncate text-sm text-muted-foreground">{folderOf(path)}</span>
                   </span>
                 </button>
@@ -162,6 +174,8 @@ export function Welcome({
           </ul>
         </section>
       )}
+
+      {onOpenCloud && <CloudScores onOpen={onOpenCloud} />}
 
       <section aria-labelledby="roadmap-title" className="flex flex-col gap-5">
         <div className="flex items-end justify-between gap-4">

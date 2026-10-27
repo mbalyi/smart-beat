@@ -35,6 +35,8 @@ import {
   type EffectActions,
   type PaletteState,
 } from "@/components/score/effects-toolbar";
+import { SaveConflictDialog } from "@/components/save-conflict-dialog";
+import { SaveTargetDialog } from "@/components/save-target-dialog";
 import { ExportDialog } from "@/components/score/export-dialog";
 import { InstrumentPanel } from "@/components/score/instrument-panel";
 import { LyricsDialog } from "@/components/score/lyrics-dialog";
@@ -415,6 +417,7 @@ export function ScoreWorkspace({
   onEditedChange,
   onSaved,
   onReopenWithEncoding,
+  onReloadFromDisk,
   startEditing = false,
   droppedAudio = null,
   onOpenSettings,
@@ -433,6 +436,8 @@ export function ScoreWorkspace({
   onSaved?: (saved: SavedAs) => void;
   /** Guitar Pro 3–5 songs: read the file again with another text encoding (#53). */
   onReopenWithEncoding?: (choice: EncodingChoice) => void;
+  /** Reads the song again from its file (after a save found the file changed on disk). */
+  onReloadFromDisk?: () => void;
   /** Called when the song gets (or loses, by undoing everything) unsaved changes. */
   onEditedChange?: (edited: boolean) => void;
   /** Open in edit mode (new songs). */
@@ -683,6 +688,7 @@ export function ScoreWorkspace({
     },
     onSaved: (saved) => onSaved?.(saved),
     onEditedChange,
+    onReload: onReloadFromDisk,
   });
 
   const changeSoundFont = (id: SoundFontId) => {
@@ -3105,6 +3111,18 @@ export function ScoreWorkspace({
         barCount={score.masterBars.length}
         onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
         onCloseAutoFocus={returnFocusToScore}
+      />
+      <SaveConflictDialog
+        open={fileActions.conflict !== null}
+        fileName={fileActions.conflict?.name ?? song.name}
+        onChoose={fileActions.resolveConflict}
+        onCancel={() => fileActions.resolveConflict("cancel")}
+      />
+      <SaveTargetDialog
+        providers={fileActions.chooser?.providers ?? []}
+        open={fileActions.chooser !== null}
+        onChoose={fileActions.chooseTarget}
+        onCancel={() => fileActions.chooseTarget("cancel")}
       />
       <ExportDialog
         open={exportOpen}
