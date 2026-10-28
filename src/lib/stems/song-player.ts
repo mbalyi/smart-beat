@@ -12,6 +12,7 @@ export function createSongPlayer(song: StemSong): StemPlayer | null {
   return createStemPlayer({
     kinds: songKinds(song),
     backend,
+    durationSeconds: song.durationSeconds,
     source: {
       readStem: (kind) => readStem(song.id, kind),
       renderMix: (gains, speed) => renderStemMix(song.id, gains, speed),

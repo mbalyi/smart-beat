@@ -6,6 +6,7 @@ import {
   MIN_LOOP_SECONDS,
   peaksOf,
   RENDER_DEBOUNCE_MS,
+  songLength,
   type StemPlayer,
 } from "@/lib/stems/player";
 import type { StemKindId } from "@/lib/tauri";
@@ -358,5 +359,19 @@ describe("peaksOf", () => {
   it("is flat for silence, and empty input gives zeros", () => {
     expect(peaksOf([new Float32Array(100)], 5)).toEqual([0, 0, 0, 0, 0]);
     expect(peaksOf([], 3)).toEqual([0, 0, 0]);
+  });
+});
+
+describe("songLength", () => {
+  it("takes the saved length when the decoded audio is a few milliseconds short", () => {
+    expect(songLength(5.99, 6)).toBe(6);
+    expect(songLength(6.004, 6)).toBe(6);
+  });
+
+  it("keeps the decoded length without a saved one or when they are far apart", () => {
+    expect(songLength(5.99)).toBe(5.99);
+    expect(songLength(5.99, 0)).toBe(5.99);
+    expect(songLength(5.99, Number.NaN)).toBe(5.99);
+    expect(songLength(3, 6)).toBe(3);
   });
 });

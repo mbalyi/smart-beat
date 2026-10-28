@@ -204,6 +204,21 @@ interface Mix {
 const speedKey = (kinds: readonly StemKindId[], gains: StemGains, speed: number) =>
   `${speed}|${kinds.map((kind) => (gains[kind] ?? 1).toFixed(3)).join(",")}`;
 
+/** How far the decoded audio may differ from the saved length before the saved one is doubted. */
+const LENGTH_TOLERANCE_SECONDS = 0.5;
+
+/**
+ * The length of the song. A browser resamples the audio it decodes to its own rate, which can
+ * leave it a few milliseconds short of the saved length (5.99 s shows as "0:05" for a 6 s
+ * song), so the saved length wins when it is close to what was decoded.
+ */
+export function songLength(decoded: number, saved?: number): number {
+  if (saved && Number.isFinite(saved) && Math.abs(saved - decoded) <= LENGTH_TOLERANCE_SECONDS) {
+    return saved;
+  }
+  return decoded;
+}
+
 /**
  * The player: every stem through its own gain at 100 % (mute, solo and volume are instant), a
  * rendered mix at a slower speed, one song clock for both, and the A-B loop and the count-in.
@@ -214,11 +229,14 @@ export function createStemPlayer({
   source,
   backend,
   debounceMs = RENDER_DEBOUNCE_MS,
+  durationSeconds,
 }: {
   kinds: readonly StemKindId[];
   source: StemSource;
   backend: AudioBackend;
   debounceMs?: number;
+  /** The length the song was saved with. */
+  durationSeconds?: number;
 }): StemPlayer {
   const listeners = new Set<() => void>();
   const clips = new Map<StemKindId, AudioClip>();
@@ -394,8 +412,12 @@ export function createStemPlayer({
         );
         if (disposed) return;
         for (const [kind, clip] of decoded) clips.set(kind, clip);
-        const duration = Math.max(0, ...decoded.map(([, clip]) => clip.duration));
-        emit({ loaded: true, duration, error: null });
+        const decodedLength = Math.max(0, ...decoded.map(([, clip]) => clip.duration));
+        emit({
+          loaded: true,
+          duration: songLength(decodedLength, durationSeconds),
+          error: null,
+        });
       } catch (cause) {
         emit({
           error:
