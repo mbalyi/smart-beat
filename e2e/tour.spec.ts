@@ -282,7 +282,11 @@ test.describe("responsive and accessible", () => {
 test.describe("the Limits popup of Record to tab", () => {
   test("opens below its link and is wide enough for its list", async ({ app }) => {
     await app.setViewportSize({ width: 1280, height: 900 });
-    const limits = app.getByRole("button", { name: "Limits" });
+    // Other cards (Stem separation) have a Limits link too: take Record to tab's.
+    const card = app.getByRole("article").filter({
+      has: app.getByRole("heading", { name: "Record to tab", level: 3 }),
+    });
+    const limits = card.getByRole("button", { name: "Limits" });
     await limits.scrollIntoViewIfNeeded();
     await limits.hover();
     const popup = app.locator("[data-slot=hover-card-content]");

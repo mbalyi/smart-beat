@@ -7,9 +7,17 @@ import type { FeatureEntry, TourId } from "@/lib/tour/feature-registry";
 import { AudioTranscriptionDialog } from "@/components/audio/audio-transcription-dialog";
 import type { AudioTranscriptionProvider } from "@/lib/audio-transcription/provider";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
+import { StemDialog, type DroppedSong } from "@/components/stems/stem-dialog";
+import type { StemSong } from "@/lib/tauri";
 
 export type AppDialog =
-  "about" | "shortcuts" | "licenses" | "settings" | "audio-transcription" | "whats-new";
+  | "about"
+  | "shortcuts"
+  | "licenses"
+  | "settings"
+  | "audio-transcription"
+  | "whats-new"
+  | "stem-separation";
 
 export interface AppDialogProps {
   open: boolean;
@@ -26,6 +34,8 @@ export function AppDialogs({
   droppedRecording,
   onAudioImport,
   onAudioSave,
+  droppedStem,
+  onStemSeparated,
   whatsNew,
   onShowTour,
   settingsSection = null,
@@ -42,6 +52,10 @@ export function AppDialogs({
   droppedRecording?: DroppedRecording | null;
   onAudioImport: (midi: Uint8Array<ArrayBuffer>, name: string) => Promise<void>;
   onAudioSave: (midi: Uint8Array<ArrayBuffer>, name: string) => Promise<void>;
+  /** A song dropped on the window while Stem separation is open. */
+  droppedStem?: DroppedSong | null;
+  /** A song was separated: the app opens its page. */
+  onStemSeparated: (song: StemSong) => void;
   /** The features the What's New dialog lists. */
   whatsNew: { version: string; features: readonly FeatureEntry[] };
   onShowTour: (tour: TourId) => void;
@@ -81,6 +95,11 @@ export function AppDialogs({
         droppedRecording={droppedRecording}
         onImport={onAudioImport}
         onSave={onAudioSave}
+      />
+      <StemDialog
+        {...props("stem-separation")}
+        droppedSong={droppedStem}
+        onSeparated={onStemSeparated}
       />
     </>
   );

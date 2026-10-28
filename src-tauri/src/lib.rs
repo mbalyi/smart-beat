@@ -20,7 +20,9 @@ pub mod recent;
 pub mod recording;
 pub mod score_file;
 pub mod score_write;
+pub mod separation;
 pub mod startup;
+pub mod stems;
 pub mod telemetry;
 pub mod transcription;
 pub mod zoom;
@@ -47,10 +49,17 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(open_file::PendingOpen::default())
         .manage(recording::muscriptor_model::DownloadRun::default())
         .manage(recording::RecordingRun::default())
+        .manage(stems::StemsRun::default())
+        .manage(stems::umx_model::DownloadRun::default())
         .setup(|app| {
             if app.try_state::<mixer::MixerStore>().is_none() {
                 let dir = app.path().app_data_dir()?.join(MIXER_DIR);
                 app.manage(mixer::MixerStore::new(dir));
+            }
+            if app.try_state::<stems::StemStore>().is_none() {
+                app.manage(stems::StemStore::new(
+                    app.path().app_data_dir()?.join("stems"),
+                ));
             }
             if app.try_state::<audio::AudioState>().is_none() {
                 let dir = app.path().app_data_dir()?.join(LIBRARY_DIR);
@@ -147,6 +156,19 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             recording::muscriptor_model::cancel_muscriptor_download,
             recording::muscriptor_model::delete_muscriptor_model,
             recording::cancel_recording_transcription,
+            stems::stems_separate,
+            stems::stems_cancel,
+            stems::stems_list,
+            stems::stems_cache_info,
+            stems::stems_delete,
+            stems::stems_clear,
+            stems::stems_read,
+            stems::stems_render_mix,
+            stems::umx_model::umx_model_status,
+            stems::umx_model::umx_model_accept_terms,
+            stems::umx_model::umx_model_download,
+            stems::umx_model::umx_model_cancel,
+            stems::umx_model::umx_model_remove,
             recording::piano_model::piano_model_status,
             recording::piano_model::download_piano_model,
             commands::update_menu_state,
@@ -234,6 +256,8 @@ pub fn run() {
                 running.cancel_all();
             }
             app.state::<recording::RecordingRun>().cancel();
+            app.state::<stems::StemsRun>().cancel();
+            app.state::<stems::umx_model::DownloadRun>().stop();
             app.state::<recording::muscriptor_model::DownloadRun>()
                 .stop();
             // ggml's Metal backend asserts at process exit while a model is still loaded.

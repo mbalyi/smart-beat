@@ -3,5 +3,7 @@
   "muscriptor-record": true,
   "record-2-tab": true,
   "speech-2-tab": false,
-  "hum-2-accompaniment": false
+  "hum-2-accompaniment": false,
+  "stem-separation": true,
+  "stem-separation-neural": false
 }

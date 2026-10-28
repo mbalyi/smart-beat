@@ -10,6 +10,7 @@ import speechToTab from "@/assets/features/speech-to-tab.png";
 import stemSeparation from "@/assets/features/stem-separation.png";
 import writeTabsAndScores from "@/assets/features/write-tabs-and-scores.png";
 import { RECORD_TO_TAB_LIMITS } from "@/components/record-to-tab-notes";
+import { STEM_SEPARATION_LIMITS } from "@/components/stems/stem-labels";
 
 /** Feature highlights (available and upcoming) shown on the welcome screen, in this order. */
 export interface Feature {
@@ -78,10 +79,11 @@ export const FEATURES: readonly Feature[] = [
   {
     title: "Stem separation",
     image: stemSeparation,
-    badge: "Coming soon",
-    status: "soon",
+    badge: "Beta",
+    status: "beta",
     description:
-      "Detect the instruments in any song and mute or solo each track. Perfect for covers, remixes and practice.",
+      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Perfect for covers and practice.",
+    limits: STEM_SEPARATION_LIMITS,
   },
   {
     title: "Practice together",

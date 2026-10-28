@@ -110,6 +110,55 @@
       partialBytes: 0,
     })),
   });
+  /**
+   * Stem separation (#186, src-tauri/src/stems/). `songs` is the library, newest first. `hold`
+   * keeps a separation running until `release()` or a cancel; `fail` makes it reject; `mono`
+   * makes the song a mono file (vocals and panned cannot be separated); `holdRender` keeps a
+   * slowed mix from being rendered until `releaseRender()`.
+   */
+  window.__stems = {
+    songs: [],
+    requests: [],
+    reads: [],
+    renders: [],
+    cancelled: 0,
+    hold: false,
+    holdRender: false,
+    fail: null,
+    mono: false,
+    release: null,
+    abort: null,
+    releaseRender: null,
+  };
+  /** A 16-bit stereo WAV of a quiet sine, as `stems_read` returns it. */
+  const stemWav = (seconds, frequency) => {
+    const rate = 8000;
+    const frames = Math.round(rate * seconds);
+    const bytes = new ArrayBuffer(44 + frames * 4);
+    const view = new DataView(bytes);
+    const text = (offset, value) =>
+      [...value].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+    text(0, "RIFF");
+    view.setUint32(4, 36 + frames * 4, true);
+    text(8, "WAVEfmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 2, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 4, true);
+    view.setUint16(32, 4, true);
+    view.setUint16(34, 16, true);
+    text(36, "data");
+    view.setUint32(40, frames * 4, true);
+    for (let i = 0; i < frames; i++) {
+      const sample = Math.round(Math.sin((2 * Math.PI * frequency * i) / rate) * 8000);
+      view.setInt16(44 + i * 4, sample, true);
+      view.setInt16(46 + i * 4, sample, true);
+    }
+    return bytes;
+  };
+  const STEM_SECONDS = 6;
+  const STEM_FREQUENCY = { drums: 220, bass: 110, vocals: 440, panned: 330, other: 165 };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -842,6 +891,64 @@
         if (window.__pianoModel.fail) throw { kind: "audio", message: window.__pianoModel.fail };
         window.__pianoModel.installed = true;
         return null;
+      case "stems_list":
+        return window.__stems.songs;
+      case "stems_delete":
+        window.__stems.songs = window.__stems.songs.filter((song) => song.id !== args.id);
+        return null;
+      case "stems_cache_info":
+        return { bytes: 0, count: window.__stems.songs.length, limitBytes: 2 * 1024 ** 3 };
+      case "stems_cancel":
+        window.__stems.cancelled += 1;
+        window.__stems.abort?.();
+        return null;
+      case "stems_separate": {
+        const stems = window.__stems;
+        stems.requests.push(args.request);
+        window.__emitTauriEvent("stems-progress", { stage: "reading", fraction: 0.5 });
+        window.__emitTauriEvent("stems-progress", { stage: "separating", fraction: 0.5 });
+        if (stems.hold) {
+          await new Promise((resolve, reject) => {
+            stems.release = resolve;
+            stems.abort = () => reject({ kind: "audio", message: "Stem separation stopped." });
+          });
+        }
+        if (stems.fail) throw { kind: "audio", message: stems.fail };
+        const name = args.request.path
+          .split(/[\\/]/)
+          .pop()
+          .replace(/\.[^.]+$/, "");
+        const skipped = stems.mono
+          ? args.request.kinds.filter((kind) => kind === "vocals" || kind === "panned")
+          : [];
+        const kinds = [...args.request.kinds.filter((kind) => !skipped.includes(kind)), "other"];
+        const song = {
+          id: `${name.replace(/\W/g, "").padEnd(16, "0").slice(0, 16)}`,
+          name,
+          durationSeconds: STEM_SECONDS,
+          sampleRate: 44100,
+          engine: args.request.engine,
+          strongDrums: args.request.strongDrums,
+          stems: kinds.map((kind) => ({ kind, bytes: 192044 })),
+          mono: stems.mono,
+          skipped,
+          pannedShare: 0.3,
+          bytes: kinds.length * 192044,
+          createdAtMs: 1790000000000,
+        };
+        stems.songs = [song, ...stems.songs.filter((item) => item.id !== song.id)];
+        return song;
+      }
+      case "stems_read":
+        window.__stems.reads.push(args);
+        return stemWav(STEM_SECONDS, STEM_FREQUENCY[args.kind] ?? 200);
+      case "stems_render_mix": {
+        window.__stems.renders.push(args.request);
+        if (window.__stems.holdRender) {
+          await new Promise((resolve) => (window.__stems.releaseRender = resolve));
+        }
+        return stemWav(STEM_SECONDS / args.request.speed, 200);
+      }
       case "cancel_recording_transcription":
         window.__recordTranscription.cancelled += 1;
         window.__recordTranscription.abort?.();

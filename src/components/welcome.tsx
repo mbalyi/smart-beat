@@ -6,6 +6,7 @@ import {
   FolderOpenIcon,
   InfoIcon,
   KeyboardIcon,
+  LayersIcon,
   CompassIcon,
 } from "lucide-react";
 import { useId, useState } from "react";
@@ -18,8 +19,10 @@ import { SectionKicker } from "@/components/section-kicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { StemSongs } from "@/components/stems/stem-songs";
 import { FEATURES, type Feature } from "@/components/welcome-features";
 import { cloudItemName, providerLabel, providerOf } from "@/lib/cloud-items";
+import type { StemSong } from "@/lib/tauri";
 import { baseName } from "@/lib/score/format";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +46,8 @@ const HERO_BUTTON =
 export function Welcome({
   onOpenFile,
   onImportAudio,
+  onSeparateStems,
+  onOpenStemSong,
   onNewSong,
   onShowShortcuts,
   recent = [],
@@ -55,6 +60,10 @@ export function Welcome({
   onOpenFile: () => void;
   /** Import from Audio; left out while the `audio-2-tab` feature is off. */
   onImportAudio?: () => void;
+  /** Stem separation; left out while the `stem-separation` feature is off. */
+  onSeparateStems?: (button: HTMLElement) => void;
+  /** Opens a song that was separated before; the list is left out without it. */
+  onOpenStemSong?: (song: StemSong) => void;
   onNewSong: () => void;
   onShowShortcuts: () => void;
   /** Recently opened songs (paths), most recent first. */
@@ -93,6 +102,17 @@ export function Welcome({
             <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onImportAudio}>
               <AudioLinesIcon data-icon="inline-start" />
               Import from Audio…
+            </Button>
+          )}
+          {onSeparateStems && (
+            <Button
+              size="lg"
+              variant="outline"
+              className={HERO_BUTTON}
+              onClick={(event) => onSeparateStems(event.currentTarget)}
+            >
+              <LayersIcon data-icon="inline-start" />
+              Stem separation…
             </Button>
           )}
           <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onNewSong}>
@@ -183,6 +203,8 @@ export function Welcome({
           </ul>
         </section>
       )}
+
+      {onOpenStemSong && <StemSongs onOpen={onOpenStemSong} />}
 
       {onOpenCloud && <CloudScores onOpen={onOpenCloud} />}
 

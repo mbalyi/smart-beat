@@ -22,6 +22,8 @@ import { useUsageNotice } from "@/hooks/use-usage-notice";
 import { UpdateDialog } from "@/components/update-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
+import { StemPage } from "@/components/stems/stem-page";
+import type { DroppedSong } from "@/components/stems/stem-dialog";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { dispatchMenuAction, useMenuActions } from "@/hooks/use-menu-actions";
 import { useExternalOpen } from "@/hooks/use-external-open";
@@ -49,6 +51,7 @@ import {
   SCORE_EXTENSIONS,
   setWindowTitle,
   writeScoreFile,
+  type StemSong,
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { muscriptorProvider } from "@/lib/muscriptor";
@@ -71,6 +74,9 @@ const ScoreWorkspace = lazy(() =>
 
 export function App() {
   const [transcriptionDrop, setTranscriptionDrop] = useState<DroppedRecording | null>(null);
+  const [stemDrop, setStemDrop] = useState<DroppedSong | null>(null);
+  /** The separated song whose page is shown instead of the start screen. */
+  const [stemSong, setStemSong] = useState<StemSong | null>(null);
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
@@ -142,7 +148,10 @@ export function App() {
    * changes are asked about first.
    */
   const goHome = () => {
-    if (!song) return;
+    if (!song) {
+      setStemSong(null);
+      return;
+    }
     if (edited.current.size > 0) setLeaving(true);
     else activate(null);
   };
@@ -292,6 +301,16 @@ export function App() {
   useEffect(() => onInstallerReturn("audio", () => setDialog("audio-transcription")), []);
 
   const open = () => void showOpenDialog();
+  // Stem separation stays out of reach until the feature is switched on.
+  const separateStems = isEnabled("stem-separation")
+    ? (button: HTMLElement) => showDialog("stem-separation", button)
+    : undefined;
+  // Opening a song replaces the stem page: it would otherwise come back under the start screen.
+  const [lastSong, setLastSong] = useState(song);
+  if (song !== lastSong) {
+    setLastSong(song);
+    if (song) setStemSong(null);
+  }
   // Import from Audio stays out of reach until the feature is switched on.
   const importAudio = isEnabled("audio-2-tab")
     ? () => showDialog("audio-transcription")
@@ -346,6 +365,12 @@ export function App() {
   const [droppedAudio, setDroppedAudio] = useState<{ path: string; nonce: number } | null>(null);
   const dragging = useFileDrop({
     onDropPaths: (paths) => {
+      if (dialog === "stem-separation") {
+        const dropped = paths[0];
+        if (dropped)
+          setStemDrop((current) => ({ path: dropped, nonce: (current?.nonce ?? 0) + 1 }));
+        return;
+      }
       if (dialog === "audio-transcription") {
         if (paths[0])
           setTranscriptionDrop((current) => ({ path: paths[0], nonce: (current?.nonce ?? 0) + 1 }));
@@ -367,6 +392,8 @@ export function App() {
       if (paths[0]) void openPath(paths[0]);
     },
     onDropFiles: (files) => {
+      // A browser gives no path to separate from.
+      if (dialog === "stem-separation") return;
       if (dialog === "audio-transcription") {
         if (files[0])
           setTranscriptionDrop((current) => ({ file: files[0], nonce: (current?.nonce ?? 0) + 1 }));
@@ -378,11 +405,15 @@ export function App() {
   });
 
   useEffect(() => {
-    const title = song ? `${song.summary.title || song.name} — Smart Beat` : "Smart Beat";
+    const title = song
+      ? `${song.summary.title || song.name} — Smart Beat`
+      : stemSong
+        ? `${stemSong.name} — Stem separation — Smart Beat`
+        : "Smart Beat";
     setWindowTitle(title).catch((error: unknown) => {
       console.warn("Could not set the window title", error);
     });
-  }, [song]);
+  }, [song, stemSong]);
 
   useMenuActions((action) => {
     switch (action) {
@@ -507,11 +538,14 @@ export function App() {
               </div>
             </Suspense>
           )}
-          {!song && (
+          {!song && stemSong && <StemPage song={stemSong} onBack={() => setStemSong(null)} />}
+          {!song && !stemSong && (
             <>
               <Welcome
                 onOpenFile={open}
                 onImportAudio={importAudio}
+                onSeparateStems={separateStems}
+                onOpenStemSong={separateStems ? setStemSong : undefined}
                 onNewSong={startNewSong}
                 onShowShortcuts={() => showDialog("shortcuts")}
                 onShowLicenses={() => showDialog("licenses")}
@@ -542,7 +576,9 @@ export function App() {
           if (file) void openFile(file);
         }}
       />
-      <DropOverlay visible={dragging && dialog !== "audio-transcription"} />
+      <DropOverlay
+        visible={dragging && dialog !== "audio-transcription" && dialog !== "stem-separation"}
+      />
       <DiscardDialog
         songName={closing ? closing.summary.title || closing.name : ""}
         open={closing !== null}
@@ -572,6 +608,11 @@ export function App() {
         whatsNew={whatsNew}
         onShowTour={startTour}
         droppedRecording={transcriptionDrop}
+        droppedStem={stemDrop}
+        onStemSeparated={(separated) => {
+          setDialog(null);
+          setStemSong(separated);
+        }}
         onAudioImport={async (midi, name) => {
           // Only in memory until saved: closing the song asks first.
           const opened = await openFile(
