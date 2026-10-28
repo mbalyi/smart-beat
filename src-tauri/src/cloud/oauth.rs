@@ -616,7 +616,7 @@ mod tests {
         reply.succeed("Google Drive");
         let answer = t.join().unwrap();
         assert!(answer.starts_with("HTTP/1.1 200"));
-        assert!(answer.contains("Google Drive is connected"));
+        assert!(answer.contains("Cloud storage is <em>connected</em>"));
         assert!(answer.contains("Content-Security-Policy"));
     }
 
@@ -648,7 +648,7 @@ mod tests {
                 .is_err()
         );
         let answer = t.join().unwrap();
-        assert!(answer.contains("Sign-in did not complete"));
+        assert!(answer.contains("Sign-in did not <em>complete</em>"));
         assert!(!answer.contains("evil"));
     }
 
@@ -663,7 +663,7 @@ mod tests {
             .unwrap();
         assert!(error.message.contains("access_denied"));
         let answer = t.join().unwrap();
-        assert!(answer.contains("Sign-in did not complete"));
+        assert!(answer.contains("Sign-in did not <em>complete</em>"));
         assert!(answer.contains("Access was declined."));
     }
 
@@ -760,7 +760,7 @@ mod tests {
         let (result, page, store) = run_sign_in(url);
         handle.join().unwrap();
         assert_eq!(result.unwrap().account, "ada@x.com");
-        assert!(page.contains("is connected"));
+        assert!(page.contains("<em>connected</em>"));
         assert!(store.load(ProviderKind::Drive).unwrap().is_some());
     }
 
@@ -769,9 +769,9 @@ mod tests {
         let url = mock_failing_token_endpoint(400);
         let (result, page, store) = run_sign_in(url);
         assert!(result.is_err());
-        assert!(page.contains("Sign-in did not complete"));
+        assert!(page.contains("Sign-in did not <em>complete</em>"));
         assert!(page.contains("The provider did not accept the sign-in."));
-        assert!(!page.contains("is connected"));
+        assert!(!page.contains("<em>connected</em>"));
         assert!(!page.contains("invalid_grant"));
         assert!(store.load(ProviderKind::Drive).unwrap().is_none());
     }
