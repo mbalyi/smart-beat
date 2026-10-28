@@ -81,7 +81,7 @@ export function SaveTargetDialog({
         <div className="relative isolate flex min-h-0 flex-1 flex-col overflow-y-auto">
           <TargetArt />
           <DialogHeader className="px-6 pt-2 pr-14 md:px-9">
-            <DialogTitle className="text-3xl leading-tight font-extrabold sm:text-4xl">
+            <DialogTitle className="text-2xl font-bold">
               {saving
                 ? `Saving to ${label}…`
                 : failed
