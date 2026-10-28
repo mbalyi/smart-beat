@@ -616,7 +616,7 @@ mod tests {
         reply.succeed("Google Drive");
         let answer = t.join().unwrap();
         assert!(answer.starts_with("HTTP/1.1 200"));
-        assert!(answer.contains("Cloud storage is <em>connected</em>"));
+        assert!(answer.contains("Google Drive is <em>connected</em>"));
         assert!(answer.contains("Content-Security-Policy"));
     }
 

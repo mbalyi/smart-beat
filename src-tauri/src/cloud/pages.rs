@@ -37,10 +37,8 @@ pub fn success_page(provider: &str) -> String {
     let provider = escape_html(provider);
     page(
         "ok",
-        "Cloud storage is <em>connected</em>",
-        &format!(
-            "You are signed in to {provider}. You can close this tab and return to Smart Beat."
-        ),
+        &format!("{provider} is <em>connected</em>"),
+        "You are signed in. You can close this tab and return to Smart Beat.",
     )
 }
 
@@ -140,8 +138,7 @@ mod tests {
     fn pages_carry_the_app_name_and_status() {
         let ok = success_page("Google Drive");
         assert!(ok.contains("Smart Beat"));
-        assert!(ok.contains("Cloud storage is <em>connected</em>"));
-        assert!(ok.contains("signed in to Google Drive"));
+        assert!(ok.contains("Google Drive is <em>connected</em>"));
         assert!(ok.contains("You can close this tab"));
         let bad = error_page("The provider refused the request.");
         assert!(bad.contains("Smart Beat"));
