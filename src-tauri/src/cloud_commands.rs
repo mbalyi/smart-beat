@@ -15,11 +15,13 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::audio::AudioState;
 use crate::cloud::keychain::{CachedStore, Keychain, TokenStore};
 use crate::cloud::oauth::{self, OAuthConfig, Session};
 use crate::cloud::pending::{PendingStore, PendingUpload};
 use crate::cloud::{self, Provider, ProviderKind, RemoteFile, dropbox, google_drive, onedrive};
 use crate::error::{CommandError, ErrorKind};
+use crate::mixer::MixerSettings;
 use crate::score_file::MAX_SIZE;
 use crate::score_write;
 
@@ -301,6 +303,18 @@ pub fn item_name(state: &CloudState, item: &str) -> Result<String, CommandError>
 
 pub fn read(state: &CloudState, item: &str) -> Result<Vec<u8>, CommandError> {
     let (kind, id) = parse_item(item)?;
+    // An edit saved offline is the newest version: open it (from its original revision, so
+    // the next save still detects a remote that moved on) instead of the older remote copy.
+    if let Some((entry, bytes)) = state.pending.find(kind, id) {
+        state.open_map().insert(
+            item.to_owned(),
+            Open {
+                revision: entry.revision,
+                name: entry.name,
+            },
+        );
+        return Ok(bytes);
+    }
     let token = state.token(kind)?;
     let (bytes, file) = (state.make)(kind).read(&token, id)?;
     state.remember(kind, &file);
@@ -324,6 +338,8 @@ pub fn save(state: &CloudState, item: &str, bytes: &[u8]) -> Result<&'static str
     match result {
         Ok(file) => {
             state.remember(kind, &file);
+            // The remote now holds this version; an older queued edit must not replace it.
+            state.pending.discard(kind, id)?;
             Ok("saved")
         }
         Err(e) if e.kind == ErrorKind::Network => {
@@ -334,6 +350,7 @@ pub fn save(state: &CloudState, item: &str, bytes: &[u8]) -> Result<&'static str
                     name: open.name,
                     revision: open.revision,
                     conflict: false,
+                    generation: 0,
                 },
                 bytes,
             )?;
@@ -370,13 +387,12 @@ pub fn flush(state: &CloudState) -> Result<Vec<FlushResult>, CommandError> {
         }
         let token = state.token(kind)?;
         let provider = (state.make)(kind);
-        for (entry, outcome) in state.pending.flush(provider.as_ref(), &token)? {
+        for (entry, outcome, file) in state.pending.flush(provider.as_ref(), &token)? {
             let item = cloud::item_id(kind, &entry.id);
-            if outcome == cloud::pending::Outcome::Uploaded
-                && let Ok(file) = provider.metadata(&token, &entry.id)
+            if let Some(file) = file
                 && state.open_map().contains_key(&item)
             {
-                // The open tab continues from the revision the upload produced.
+                // The open tab continues from the exact revision the upload produced.
                 state.remember(kind, &file);
             }
             results.push(FlushResult {
@@ -710,6 +726,77 @@ pub fn cloud_item_name(
     item_name(&state, &item)
 }
 
+/// Splits `[u32 length][settings json][song bytes]`.
+fn split_project_body(body: &[u8]) -> Result<(MixerSettings, &[u8]), CommandError> {
+    let bad = || CommandError::new(ErrorKind::InvalidSettings, "The project data is malformed.");
+    let (len, rest) = body.split_first_chunk::<4>().ok_or_else(bad)?;
+    let len = u32::from_be_bytes(*len) as usize;
+    if rest.len() < len {
+        return Err(bad());
+    }
+    let (json, song) = rest.split_at(len);
+    let settings: MixerSettings = serde_json::from_slice(json).map_err(|_| bad())?;
+    Ok((settings, song))
+}
+
+/// Puts the mix and, when asked, the loaded recording inside a `.gp` archive in memory, so a
+/// cloud copy carries the same project data as a file on disk.
+pub fn embed_project(
+    audio: &AudioState,
+    settings: &MixerSettings,
+    embed_audio: bool,
+    song: &[u8],
+) -> Result<Vec<u8>, CommandError> {
+    let dir = tempfile::tempdir().map_err(|e| CommandError::new(ErrorKind::Io, e.to_string()))?;
+    let path = dir.path().join("song.gp");
+    std::fs::write(&path, song).map_err(|e| CommandError::new(ErrorKind::Io, e.to_string()))?;
+    let recording = if embed_audio {
+        let wanted = settings.audio_track.as_ref().map(|t| t.name.clone());
+        match (audio.backing_bytes(), wanted) {
+            (Some((name, bytes)), Some(wanted)) if name == wanted => Some((name, bytes)),
+            _ => {
+                return Err(CommandError::new(
+                    ErrorKind::Audio,
+                    "The audio track is not loaded, so it cannot be embedded.",
+                ));
+            }
+        }
+    } else {
+        None
+    };
+    crate::project::write_settings(
+        &path,
+        settings,
+        recording.as_ref().map(|(n, b)| (n.as_str(), b.as_slice())),
+    )?;
+    std::fs::read(&path).map_err(|e| CommandError::new(ErrorKind::Io, e.to_string()))
+}
+
+/// Body: `[u32 BE length][MixerSettings json][song bytes]`; header `embed` is `1` to embed the
+/// loaded recording. Returns the song bytes with the project data inside.
+#[tauri::command(async)]
+pub fn cloud_embed_project(
+    audio: tauri::State<'_, AudioState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<tauri::ipc::Response, CommandError> {
+    let embed = header(&request, "embed")? == "1";
+    let (settings, song) = split_project_body(body(&request)?)?;
+    embed_project(&audio, &settings, embed, song).map(tauri::ipc::Response::new)
+}
+
+/// The project data inside a `.gp` item of the cloud (`null` when it has none).
+#[tauri::command(async)]
+pub fn cloud_project_settings(
+    state: tauri::State<'_, CloudState>,
+    item: String,
+) -> Result<Option<MixerSettings>, CommandError> {
+    let bytes = read(&state, &item)?;
+    let dir = tempfile::tempdir().map_err(|e| CommandError::new(ErrorKind::Io, e.to_string()))?;
+    let path = dir.path().join("song.gp");
+    std::fs::write(&path, bytes).map_err(|e| CommandError::new(ErrorKind::Io, e.to_string()))?;
+    crate::project::read_settings(&path)
+}
+
 /// Body: the file bytes. Header `item`: the (URL-encoded) item id.
 #[tauri::command(async)]
 pub fn cloud_save(
@@ -834,6 +921,38 @@ mod tests {
     }
 
     #[test]
+    fn a_project_body_is_split_into_settings_and_song() {
+        assert!(split_project_body(&[0, 0, 0, 9, b'{']).is_err());
+        assert!(split_project_body(b"ab").is_err());
+        let mut body = vec![0, 0, 0, 2];
+        body.extend_from_slice(b"{}x");
+        // `{}` is not valid mix settings, but the framing itself is read before parsing.
+        assert!(split_project_body(&body).is_err());
+    }
+
+    #[test]
+    fn an_offline_edit_is_what_reopening_gives() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = state(dir.path());
+        s.remember(ProviderKind::Drive, &file("a.gp", "r1"));
+        s.pending
+            .enqueue(
+                PendingUpload {
+                    provider: ProviderKind::Drive,
+                    id: "f1".into(),
+                    name: "a.gp".into(),
+                    revision: "r1".into(),
+                    conflict: false,
+                    generation: 0,
+                },
+                b"offline edit",
+            )
+            .unwrap();
+        assert_eq!(read(&s, "drive:f1").unwrap(), b"offline edit");
+        assert_eq!(revision_of(&s, "drive:f1"), "r1");
+    }
+
+    #[test]
     fn read_records_the_revision() {
         let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         MODE.store(0, Ordering::SeqCst);
@@ -934,8 +1053,8 @@ mod tests {
             }]
         );
         assert!(s.pending.list().is_empty());
-        // The open tab continues from the revision the metadata reports.
-        assert_eq!(revision_of(&s, "drive:f1"), "r2");
+        // The open tab continues from the revision the upload itself returned.
+        assert_eq!(revision_of(&s, "drive:f1"), "after-r1");
     }
 
     #[test]

@@ -300,6 +300,11 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           backend.projectSettings.set(path, settings);
           return null;
         }
+        case "cloud_embed_project":
+          // The song itself, unchanged: the real command stores the mix inside it.
+          return new Uint8Array(args as Uint8Array).buffer;
+        case "cloud_project_settings":
+          return null;
         case "audio_set_automation":
         case "audio_set_track_eq":
         case "audio_set_drum_mix":

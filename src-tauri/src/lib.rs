@@ -122,6 +122,8 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             cloud_commands::cloud_item_name,
             cloud_commands::cloud_save,
             cloud_commands::cloud_create,
+            cloud_commands::cloud_embed_project,
+            cloud_commands::cloud_project_settings,
             cloud_commands::cloud_pending,
             cloud_commands::cloud_flush,
             cloud_commands::cloud_discard_pending,

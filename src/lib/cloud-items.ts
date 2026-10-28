@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { CloudAccount, CloudProvider } from "@/lib/cloud";
-import { isCommandError, isTauri } from "@/lib/tauri";
+import { isCommandError, isTauri, type MixerSettings } from "@/lib/tauri";
 
 export type { CloudProvider };
 
@@ -87,6 +87,30 @@ export async function createCloudItem(
   return invoke<string>("cloud_create", bytes, {
     headers: { provider, name: encodeURIComponent(name) },
   });
+}
+
+/** The song with the mix (and, when asked, the loaded recording) stored inside it. */
+export async function embedProject(
+  bytes: Uint8Array,
+  settings: MixerSettings,
+  embedAudio: boolean,
+): Promise<Uint8Array> {
+  needDesktop();
+  const json = new TextEncoder().encode(JSON.stringify(settings));
+  const body = new Uint8Array(4 + json.length + bytes.length);
+  new DataView(body.buffer).setUint32(0, json.length);
+  body.set(json, 4);
+  body.set(bytes, 4 + json.length);
+  const embedded = await invoke<ArrayBuffer>("cloud_embed_project", body, {
+    headers: { embed: embedAudio ? "1" : "0" },
+  });
+  return new Uint8Array(embedded);
+}
+
+/** The mix stored inside a cloud tab, if it has one. */
+export async function readCloudProjectSettings(item: string): Promise<MixerSettings | null> {
+  needDesktop();
+  return invoke<MixerSettings | null>("cloud_project_settings", { item });
 }
 
 /** The user can fix this by waiting or reconnecting; the item stays in the recent list. */

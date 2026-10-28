@@ -15,6 +15,7 @@ import {
   toCloudDrives,
   type CloudDrive,
   type CloudProvider,
+  embedProject,
 } from "@/lib/cloud-items";
 import { errorText } from "@/lib/errors";
 import { track } from "@/lib/telemetry";
@@ -181,6 +182,19 @@ export function useFileActions({
 
   const build = (format: ExportFormat): ExportResult => exportScore(editor.score, format, getMix());
 
+  /** The mix and recording stored inside the `.gp` bytes of a cloud copy (as a file on disk). */
+  async function withProject(bytes: Uint8Array): Promise<Uint8Array> {
+    const drumLines = collectDrumLines(editor.score);
+    const mix = { ...getMix(), ...(drumLines.length > 0 && { drumLines }) };
+    try {
+      return await embedProject(bytes, mix, !!mix.audioTrack?.embedded);
+    } catch (error) {
+      if (!(isCommandError(error) && error.kind === "audio")) throw error;
+      toast.warning("The recording was not embedded", { description: errorText(error) });
+      return embedProject(bytes, mix, false);
+    }
+  }
+
   /** Builds the file and writes it to `path` (desktop) or downloads it (browser). */
   async function deliver(
     format: ExportFormat,
@@ -196,7 +210,8 @@ export function useFileActions({
           : `${stem(song)}.${FORMATS[format].extension}`;
     if (path && isCloudItem(path)) {
       cloudProvider.current = providerOf(path);
-      queued.current = (await saveCloudItem(path, result.bytes)) === "queued";
+      const bytes = format === "gp" ? await withProject(result.bytes) : result.bytes;
+      queued.current = (await saveCloudItem(path, bytes)) === "queued";
     } else if (path) await writeScoreFile(path, result.bytes, expectedHash);
     else download(result.bytes, name, FORMATS[format].mime);
     return name;
@@ -254,7 +269,7 @@ export function useFileActions({
   /** Creates the song as a new tab in an online drive and makes it the song's file. Throws on failure. */
   const uploadToProvider = async (provider: CloudProvider, name: string) => {
     const result = build("gp");
-    const item = await createCloudItem(provider, name, result.bytes);
+    const item = await createCloudItem(provider, name, await withProject(result.bytes));
     rememberCloudName(item, name);
     editor.markSaved();
     onEditedChange?.(false);

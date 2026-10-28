@@ -8,6 +8,7 @@ import {
   fetchCloudItemName,
   providerOf,
   readCloudItem,
+  readCloudProjectSettings,
   rememberCloudName,
 } from "@/lib/cloud-items";
 import { ENCODING_LABELS, type EncodingChoice, type TextEncodingId } from "@/lib/score/encoding";
@@ -107,9 +108,11 @@ interface Source {
  */
 async function savedMix(key: string, path?: string): Promise<MixerSettings | null> {
   if (!isTauri()) return null; // settings are only saved in the desktop app
-  if (path?.toLowerCase().endsWith(".gp")) {
+  if (path && (isCloudItem(path) || path.toLowerCase().endsWith(".gp"))) {
     try {
-      const inFile = await readProjectSettings(path);
+      const inFile = isCloudItem(path)
+        ? await readCloudProjectSettings(path)
+        : await readProjectSettings(path);
       if (inFile) return inFile;
     } catch (error) {
       console.warn("Could not read the settings in the song file", error);

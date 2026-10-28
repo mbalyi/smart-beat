@@ -213,6 +213,27 @@ impl GoogleDrive {
         response.body_mut().read_json().map_err(parse_error)
     }
 
+    /// The file's metadata and the ETag of that exact version (for `If-Match`).
+    fn metadata_with_etag(
+        &self,
+        token: &str,
+        id: &str,
+    ) -> Result<(RemoteFile, Option<String>), CommandError> {
+        let url = format!("{}?fields={}", self.file_url(id), encode(FIELDS));
+        let mut response = agent()
+            .get(&url)
+            .header("Authorization", bearer(token))
+            .call()
+            .map_err(|e| http_error(e, "The file"))?;
+        let etag = response
+            .headers()
+            .get("etag")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        let file: DriveFile = response.body_mut().read_json().map_err(parse_error)?;
+        Ok((file.into(), etag))
+    }
+
     fn file_url(&self, id: &str) -> String {
         format!("{}/files/{}", self.api_base, encode(id))
     }
@@ -312,7 +333,7 @@ impl Provider for GoogleDrive {
         revision: &str,
         bytes: &[u8],
     ) -> Result<RemoteFile, CommandError> {
-        let current = self.metadata(token, id)?;
+        let (current, etag) = self.metadata_with_etag(token, id)?;
         if current.revision != revision {
             return Err(CommandError::new(
                 ErrorKind::Conflict,
@@ -328,12 +349,16 @@ impl Provider for GoogleDrive {
             encode(id),
             encode(FIELDS)
         );
-        let mut response = agent()
+        // The mutation itself is bound to the version checked above: if the file changed
+        // between the check and this request, Drive answers 412, which is a Conflict.
+        let mut request = agent()
             .patch(&url)
             .header("Authorization", bearer(token))
-            .header("Content-Type", "application/octet-stream")
-            .send(bytes)
-            .map_err(|e| http_error(e, "The file"))?;
+            .header("Content-Type", "application/octet-stream");
+        if let Some(etag) = &etag {
+            request = request.header("If-Match", etag);
+        }
+        let mut response = request.send(bytes).map_err(|e| http_error(e, "The file"))?;
         let file: DriveFile = response.body_mut().read_json().map_err(parse_error)?;
         Ok(file.into())
     }
