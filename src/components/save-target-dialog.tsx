@@ -171,16 +171,10 @@ export function SaveTargetDialog({
                         }
                         data-testid={`save-target-${provider}`}
                       >
-                        <span className="relative flex h-16 w-20 shrink-0 items-center justify-center self-start sm:h-20 sm:w-full sm:justify-start">
-                          <img
-                            src={splashRight}
-                            alt=""
-                            aria-hidden="true"
-                            className="absolute top-1/2 left-0 h-full w-20 -translate-y-1/2 object-cover opacity-70 sm:w-28"
-                          />
+                        <span className="flex h-16 w-20 shrink-0 items-center justify-center self-start sm:h-20 sm:w-full">
                           <CloudProviderLogo
                             provider={provider}
-                            className="relative ml-3 h-10 w-auto drop-shadow-md sm:h-12"
+                            className="h-10 w-auto drop-shadow-md sm:h-12"
                           />
                         </span>
                         <span className="flex min-w-0 flex-1 items-end justify-between gap-2">
