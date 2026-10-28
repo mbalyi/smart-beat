@@ -193,11 +193,8 @@ impl PendingReply {
         self.send("200 OK", &pages::error_page(failure_reason(error)));
     }
 
-    fn send(mut self, status: &str, body: &str) {
-        let _ = self
-            .stream
-            .write_all(pages::http_response(status, body).as_bytes());
-        let _ = self.stream.flush();
+    fn send(self, status: &str, body: &str) {
+        reply_now(self.stream, status, body);
     }
 }
 
@@ -210,9 +207,16 @@ fn failure_reason(error: &CommandError) -> &'static str {
     }
 }
 
+/// Sends the page and ends the exchange cleanly: half-close, then read what the browser still
+/// sends. Closing with unread request bytes makes Windows reset the connection, which can cut
+/// off a page the browser has not finished receiving.
 fn reply_now(mut stream: TcpStream, status: &str, body: &str) {
     let _ = stream.write_all(pages::http_response(status, body).as_bytes());
     let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let mut sink = [0u8; 1024];
+    while matches!(std::io::Read::read(&mut stream, &mut sink), Ok(n) if n > 0) {}
 }
 
 /// Handles one request. `None` for requests that are not the redirect (favicon, probes), which
