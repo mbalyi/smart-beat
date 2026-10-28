@@ -54,12 +54,21 @@ export function DialogArt({
 }
 
 /** The logo in the dialog header, decorative for screen readers. */
-export function DialogLogo({ src, className }: { src: string; className?: string }) {
+export function DialogLogo({
+  src,
+  className,
+  testId,
+}: {
+  src: string;
+  className?: string;
+  testId?: string;
+}) {
   return (
     <img
       src={src}
       alt=""
       aria-hidden="true"
+      data-testid={testId}
       className={cn("-mt-[14px] -ml-[28px] h-[94px] w-auto self-start object-contain", className)}
     />
   );
