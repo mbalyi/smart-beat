@@ -19,7 +19,7 @@ export function AppHeader({
   /** Help › the tours, the demo song and the tips. */
   onHelpAction?: (action: HelpAction) => void;
   resumeStep?: number | null;
-  /** The logo: back to the start screen (the app closes the open songs, after asking). */
+  /** The logo: back to the start screen (open songs stay open as tabs). */
   onHome: () => void;
   /** Span the whole window (a song is open) instead of the centred column. */
   wide?: boolean;

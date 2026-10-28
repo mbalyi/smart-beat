@@ -2,6 +2,7 @@ import { act, renderHook, screen, waitFor } from "@testing-library/react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
+import { cloudItemName } from "@/lib/cloud-items";
 import { fileKey } from "@/lib/score/format";
 import { mixFromScore } from "@/lib/score/mixer";
 import { renderWithProviders } from "@/test/render";
@@ -380,5 +381,58 @@ describe("useScoreDocuments: settings inside .gp files", () => {
     const { result } = setup();
     await act(() => result.current.openPath(SONG));
     expect(result.current.song?.mix).toEqual(saved);
+  });
+});
+
+describe("useScoreDocuments: cloud items (#187)", () => {
+  const ITEM = "drive:abc";
+
+  it("opens a cloud item through openPath and remembers its id", async () => {
+    mockTauri({
+      cloud_read: () => fixtureBytes("practice-song.gp").slice().buffer,
+      cloud_item_name: () => "practice-song.gp",
+    });
+    const { result } = setup();
+
+    await act(() => result.current.openPath(ITEM));
+
+    expect(result.current.song?.path).toBe(ITEM);
+    expect(backend.recent).toEqual([ITEM]);
+  });
+
+  it("uses the name from the backend, not this machine's stored names (regression)", async () => {
+    // Nothing was ever remembered here: the file was saved on another run or computer.
+    localStorage.clear();
+    const calls = mockTauri({
+      cloud_read: () => fixtureBytes("practice-song.gp").slice().buffer,
+      cloud_item_name: () => "practice-song.gp",
+    });
+    const { result } = setup();
+
+    await act(() => result.current.openPath(ITEM));
+
+    expect(calls.map((c) => c.cmd)).toEqual(
+      expect.arrayContaining(["cloud_read", "cloud_item_name"]),
+    );
+    expect(result.current.song?.name).toBe("practice-song.gp");
+    expect(cloudItemName(ITEM)).toBe("practice-song.gp");
+  });
+
+  it.each([
+    ["network", /can't be reached/],
+    ["auth-expired", /Reconnect Google Drive in Settings/],
+  ])("keeps a recent cloud item that fails with %s", async (kind, message) => {
+    mockTauri({
+      cloud_read: () => {
+        throw { kind, message: "x" };
+      },
+    });
+    backend.recent = [ITEM];
+    const { result } = setup();
+
+    await act(() => result.current.openPath(ITEM));
+
+    expect(backend.recent).toEqual([ITEM]);
+    expect((await screen.findAllByText(message)).length).toBeGreaterThan(0);
   });
 });

@@ -70,10 +70,10 @@ export const FEATURES: readonly Feature[] = [
   {
     title: "Cloud sync",
     image: cloudSync,
-    badge: "Coming soon",
-    status: "soon",
+    badge: "Available",
+    status: "available",
     description:
-      "Connect Google Drive, Dropbox or iCloud and keep your tabs, scores and practice sessions in sync across all your devices.",
+      "Link a synced folder or connect Google Drive, OneDrive or Dropbox, then open and save your tabs and scores there.",
   },
   {
     title: "Stem separation",

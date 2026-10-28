@@ -29,6 +29,24 @@ vi.mock("@/lib/score/player", async () => ({
   ScorePlayer: (await import("@/test/fake-score-player")).FakeScorePlayer,
 }));
 
+// The drive's song list has its own tests: here it only reports what is picked.
+vi.mock("@/components/cloud-open-dialog", () => ({
+  CloudOpenDialog: ({
+    label,
+    onPick,
+    onSetupCloud,
+  }: {
+    label: string;
+    onPick: (item: string) => void;
+    onSetupCloud?: () => void;
+  }) => (
+    <div role="dialog" aria-label={`Tabs in ${label}`}>
+      <button onClick={() => onPick("drive:abc")}>Pick drive tab</button>
+      <button onClick={onSetupCloud}>Picker setup link</button>
+    </div>
+  ),
+}));
+
 // Import from Audio is behind the audio-2-tab flag, which is off in src/lib/features.json.
 const flags = vi.hoisted(() => ({ audio: true }));
 vi.mock("@/lib/features", () => ({
@@ -162,6 +180,143 @@ describe("App", () => {
     await menu("settings");
 
     expect(await screen.findByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("Help → Cloud Storage Settings… opens the settings on the cloud storage section", async () => {
+    await renderApp();
+
+    await menu("cloud-settings");
+
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    const cloud = await within(dialog).findByRole("region", { name: "Cloud storage" });
+    await waitFor(() => expect(cloud).toHaveFocus());
+  });
+
+  describe("Open with an online drive", () => {
+    const DRIVE = { provider: "drive", label: "Google Drive", account: "me@example.com" };
+    const OTHER = { provider: "onedrive", label: "OneDrive", account: "me@example.com" };
+
+    it("opens the native dialog straight away when the drives cannot be listed", async () => {
+      await renderApp();
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.dialogResult = SONG;
+      await menu("open");
+      await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
+      expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument();
+    });
+
+    it("asks where first even when no drive is set up, with all of them disabled", async () => {
+      const { user } = await renderApp();
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.cloudAccounts = [
+        { ...DRIVE, account: null },
+        { ...OTHER, account: null },
+      ];
+      backend.dialogResult = SONG;
+      await menu("open");
+      const chooser = await screen.findByRole("dialog", { name: "Where is the song?" });
+      expect(within(chooser).getByRole("button", { name: /Google Drive/ })).toBeDisabled();
+      expect(within(chooser).getByRole("button", { name: /OneDrive/ })).toBeDisabled();
+      // This computer and the set-up link stay available.
+      await user.click(within(chooser).getByRole("button", { name: /Open from this computer/ }));
+      await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
+    });
+
+    it("asks where first and 'This computer' shows the native dialog", async () => {
+      const { user } = await renderApp();
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.cloudAccounts = [DRIVE, { ...OTHER, account: null }];
+      backend.dialogResult = SONG;
+      await menu("open");
+      const chooser = await screen.findByRole("dialog", { name: "Where is the song?" });
+      expect(within(chooser).getByRole("button", { name: /OneDrive/ })).toBeDisabled();
+      await user.click(within(chooser).getByRole("button", { name: /Open from this computer/ }));
+      await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
+    });
+
+    it("choosing the drive lists its tabs, and picking one opens it", async () => {
+      const { user, calls } = await renderApp();
+      backend.cloudAccounts = [DRIVE];
+      await menu("open");
+      await user.click(await screen.findByRole("button", { name: "Open from Google Drive" }));
+      await user.click(await screen.findByRole("button", { name: "Pick drive tab" }));
+      await waitFor(() =>
+        expect(calls.some((c) => JSON.stringify(c.args ?? {}).includes("drive:abc"))).toBe(true),
+      );
+    });
+
+    it("lists every provider, disabling the unavailable ones with a hint", async () => {
+      await renderApp();
+      backend.cloudAccounts = [
+        DRIVE,
+        { ...OTHER, account: null },
+        { provider: "dropbox", label: "Dropbox", configured: false, account: null },
+      ];
+      await menu("open");
+      const chooser = await screen.findByRole("dialog", { name: "Where is the song?" });
+      expect(within(chooser).getByRole("button", { name: /Google Drive/ })).toBeEnabled();
+      const oneDrive = within(chooser).getByRole("button", { name: /OneDrive/ });
+      expect(oneDrive).toBeDisabled();
+      expect(oneDrive).toHaveTextContent("Not connected");
+      const dropbox = within(chooser).getByRole("button", { name: /Dropbox/ });
+      expect(dropbox).toBeDisabled();
+      expect(dropbox).toHaveTextContent("Not available in this build");
+    });
+
+    it("'Set up cloud storage' closes the chooser and opens the settings on the cloud section", async () => {
+      const { user } = await renderApp();
+      backend.cloudAccounts = [DRIVE, { ...OTHER, account: null }];
+      await menu("open");
+      await screen.findByRole("dialog", { name: "Where is the song?" });
+      await user.click(screen.getByTestId("save-target-setup"));
+      const dialog = await screen.findByRole("dialog", { name: "Settings" });
+      const cloud = await within(dialog).findByRole("region", { name: "Cloud storage" });
+      await waitFor(() => expect(cloud).toHaveFocus());
+      expect(screen.queryByRole("dialog", { name: "Where is the song?" })).not.toBeInTheDocument();
+    });
+
+    it("the picker's 'Set up cloud storage' closes it and opens the settings", async () => {
+      const { user } = await renderApp();
+      backend.cloudAccounts = [DRIVE];
+      await menu("open-cloud");
+      await user.click(await screen.findByRole("button", { name: "Picker setup link" }));
+      const dialog = await screen.findByRole("dialog", { name: "Settings" });
+      expect(
+        await within(dialog).findByRole("region", { name: "Cloud storage" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("dialog", { name: "Tabs in Google Drive" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("Open from Cloud… goes straight to the only drive", async () => {
+      await renderApp();
+      backend.cloudAccounts = [DRIVE];
+      await menu("open-cloud");
+      expect(
+        await screen.findByRole("dialog", { name: "Tabs in Google Drive" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument();
+    });
+
+    it("Open from Cloud… asks which drive when several are connected", async () => {
+      await renderApp();
+      backend.cloudAccounts = [DRIVE, OTHER];
+      await menu("open-cloud");
+      expect(await screen.findByRole("button", { name: "Open from OneDrive" })).toBeInTheDocument();
+    });
+
+    it("Open from Cloud… without an account points to the settings", async () => {
+      await renderApp();
+      await menu("open-cloud");
+      expect(
+        await screen.findByText("Connect a cloud account in Settings first"),
+      ).toBeInTheDocument();
+      const dialog = await screen.findByRole("dialog", { name: "Settings" });
+      expect(
+        await within(dialog).findByRole("region", { name: "Cloud storage" }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("Help → Open-Source Licenses shows the notices", async () => {
@@ -365,6 +520,168 @@ describe("App", () => {
       await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("region", { name: /^Score:/ })).toHaveLength(1);
+  });
+
+  it("the logo goes home without closing the song; the next song opens beside it", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.files.set(OTHER_SONG, fixtureBytes("structure-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+    const first = FakeScorePlayer.last;
+
+    await user.click(screen.getByRole("button", { name: "Smart Beat" }));
+
+    // The start screen, with the song still open: paused, not destroyed, its tab kept.
+    expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+    expect(first.destroy).not.toHaveBeenCalled();
+    expect(first.pause).toHaveBeenCalled();
+    // The tabs are not shown on the start screen.
+    expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
+
+    // Opening another song adds a tab next to the first and shows it.
+    backend.dialogResult = OTHER_SONG;
+    await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    await screen.findByRole("heading", { level: 1, name: "Structure Song" });
+    const tabs = within(screen.getByRole("navigation", { name: "Open songs" }));
+    expect(tabs.getAllByRole("listitem")).toHaveLength(2);
+    expect(tabs.getByRole("button", { name: "Structure Song" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+
+    // Home again keeps both open but hides the tabs; opening the first song again goes back to
+    // its tab: the same song, never reloaded.
+    await user.click(screen.getByRole("button", { name: "Smart Beat" }));
+    expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
+    backend.dialogResult = SONG;
+    await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+    ).toBeInTheDocument();
+    expect(first.destroy).not.toHaveBeenCalled();
+    expect(openTabs()).toHaveLength(2);
+  });
+
+  it("keeps an unsaved song and its edit marker when going home and opening another", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    await menu("new-song");
+    await screen.findByRole("heading", { level: 1, name: "Untitled" });
+    await user.click(screen.getByRole("button", { name: "Smart Beat" }));
+    // No "leave" question: nothing is closed.
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+    const tabs = within(screen.getByRole("navigation", { name: "Open songs" }));
+    expect(tabs.getAllByRole("listitem")).toHaveLength(2);
+    expect(tabs.getByRole("button", { name: "Untitled" })).toBeInTheDocument();
+  });
+
+  describe("the logo with unsaved changes", () => {
+    /** A song with a file, edited. */
+    async function editOpenSong(user: ReturnType<typeof renderWithProviders>["user"]) {
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.dialogResult = SONG;
+      await menu("open");
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+      await menu("toggle-edit-mode");
+      await screen.findByRole("toolbar", { name: "Edit" });
+      const score = screen.getByRole("region", { name: /^Score:/ });
+      await waitFor(() => expect(score).toHaveFocus());
+      await user.keyboard("5");
+      await screen.findByText("Edited");
+    }
+    const logo = () => screen.getByRole("button", { name: "Smart Beat" });
+
+    it("goes straight home when nothing was edited", async () => {
+      const { user } = await renderApp();
+      backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+      backend.dialogResult = SONG;
+      await menu("open");
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+      await user.click(logo());
+      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+
+    it("asks first; Cancel stays on the song", async () => {
+      const { user } = await renderApp();
+      await editOpenSong(user);
+      await user.click(logo());
+      const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
+      await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open a file…" })).not.toBeInTheDocument();
+      expect(screen.getByText("Edited")).toBeInTheDocument();
+    });
+
+    it("Not now goes home; the tab keeps its edits and marker", async () => {
+      const { user } = await renderApp();
+      await editOpenSong(user);
+      await user.click(logo());
+      const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
+      await user.click(within(ask).getByRole("button", { name: "Not now" }));
+      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      // The tabs are hidden on the start screen, but the edited song is still open: opening it
+      // again returns to its tab with the edits.
+      expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
+      backend.dialogResult = SONG;
+      await user.click(screen.getByRole("button", { name: "Open a file…" }));
+      expect(await screen.findByText("Edited")).toBeInTheDocument();
+      expect(openTabs()).toHaveLength(1);
+    });
+
+    it("Save writes the song, then shows the start screen", async () => {
+      const { user, calls } = await renderApp();
+      await editOpenSong(user);
+      await user.click(logo());
+      const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
+      await user.click(within(ask).getByRole("button", { name: "Save" }));
+      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      expect(calls.some((c) => c.cmd === "write_score_file")).toBe(true);
+      expect(backend.written.has(SONG)).toBe(true);
+      expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
+    });
+
+    it("Save on a new song opens Save As; cancelling it keeps you on that tab", async () => {
+      const { user, calls } = await renderApp();
+      await menu("new-song");
+      await screen.findByRole("toolbar", { name: "Edit" });
+      const score = screen.getByRole("region", { name: /^Score:/ });
+      await waitFor(() => expect(score).toHaveFocus());
+      await user.keyboard("5");
+      await screen.findByText("Edited");
+      backend.saveResult = null; // the user cancels Save As
+      await user.click(logo());
+      const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
+      await user.click(within(ask).getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(screen.queryByRole("button", { name: "Open a file…" })).not.toBeInTheDocument();
+      expect(screen.getByText("Edited")).toBeInTheDocument();
+      expect(calls.some((c) => c.cmd === "write_score_file")).toBe(false);
+    });
+  });
+
+  it("opening a file that is already open shows its tab, also from the start screen", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+    await user.click(screen.getByRole("button", { name: "Smart Beat" }));
+    await screen.findByRole("button", { name: "Open a file…" });
+
+    await menu("open");
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
+    ).toBeInTheDocument();
+    expect(openTabs()).toHaveLength(1);
   });
 
   it("reports a failing Open dialog", async () => {

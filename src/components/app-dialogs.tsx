@@ -1,6 +1,6 @@
 import { AboutDialog } from "@/components/about-dialog";
 import { LicensesDialog } from "@/components/licenses-dialog";
-import { SettingsDialog } from "@/components/settings-dialog";
+import { SettingsDialog, type SettingsSection } from "@/components/settings-dialog";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { WhatsNewDialog } from "@/components/whats-new-dialog";
 import type { FeatureEntry, TourId } from "@/lib/tour/feature-registry";
@@ -28,6 +28,7 @@ export function AppDialogs({
   onAudioSave,
   whatsNew,
   onShowTour,
+  settingsSection = null,
 }: {
   open: AppDialog | null;
   onOpenChange: (dialog: AppDialog | null) => void;
@@ -44,6 +45,8 @@ export function AppDialogs({
   /** The features the What's New dialog lists. */
   whatsNew: { version: string; features: readonly FeatureEntry[] };
   onShowTour: (tour: TourId) => void;
+  /** The Settings section to open on (Help › Cloud Storage Settings…). */
+  settingsSection?: SettingsSection | null;
 }) {
   const restoreFocus = (event: Event) => {
     if (returnFocusTo?.isConnected) {
@@ -63,7 +66,7 @@ export function AppDialogs({
       <AboutDialog {...props("about")} />
       <ShortcutsDialog {...props("shortcuts")} />
       <LicensesDialog {...props("licenses")} />
-      <SettingsDialog {...props("settings")} />
+      <SettingsDialog {...props("settings")} section={settingsSection} />
       <WhatsNewDialog
         {...props("whats-new")}
         version={whatsNew.version}

@@ -105,7 +105,7 @@ describe("Welcome", () => {
       "Learning mode (Available)",
       "Audio to tab (AI · Beta)",
       "Record to tab (Beta)",
-      "Cloud sync (Coming soon)",
+      "Cloud sync (Available)",
       "Stem separation (Coming soon)",
       "Practice together (Coming soon)",
       "Audio tracks & editing (Coming soon)",
@@ -357,5 +357,29 @@ describe("Welcome: optional add-ons (#150)", () => {
       "https://muscriptor.kyutai.org/",
     );
     expect(section).toHaveTextContent("not affiliated with or endorsed by Kyutai or Mirelo");
+  });
+});
+
+describe("Welcome: recent cloud songs (#187)", () => {
+  it("shows the remembered file name with the provider label", async () => {
+    localStorage.setItem("smart-beat:cloud-names", JSON.stringify({ "drive:abc": "riff.gp" }));
+    const onOpenRecent = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        recent={["drive:abc"]}
+        onOpenRecent={onOpenRecent}
+      />,
+    );
+
+    const card = screen.getByRole("button", { name: /riff\.gp/ });
+    expect(card).toHaveTextContent("Google Drive");
+    const logo = card.querySelector("img");
+    expect(logo).toHaveAttribute("aria-hidden", "true");
+    expect(logo).toHaveAttribute("alt", "");
+    await user.click(card);
+    expect(onOpenRecent).toHaveBeenCalledWith("drive:abc");
   });
 });

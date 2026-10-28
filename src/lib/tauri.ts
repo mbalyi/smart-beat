@@ -81,6 +81,8 @@ export type MenuAction =
   | "toggle-count-in"
   | "shortcuts"
   | "settings"
+  | "cloud-settings"
+  | "open-cloud"
   | "licenses"
   | "check-for-updates"
   | "tour"
@@ -172,6 +174,10 @@ export type CommandErrorKind =
   | "invalid-settings"
   | "invalid-menu-state"
   | "audio"
+  | "conflict"
+  | "download-timeout"
+  | "network"
+  | "auth-expired"
   | "io";
 
 /** Mirrors `CommandError` in `src-tauri/src/error.rs`: how commands fail. */
@@ -493,16 +499,90 @@ export async function pickSavePath(
   title = "Save",
 ): Promise<string | null> {
   if (!isTauri()) throw new NotInDesktopAppError();
-  return saveDialog({ title, defaultPath, filters });
+  savePicks.pending += 1;
+  try {
+    const path = await saveDialog({ title, defaultPath, filters });
+    savePicks.cancelled = path === null;
+    return path;
+  } finally {
+    savePicks.pending -= 1;
+    savePicks.settled += 1;
+  }
 }
 
-/** Writes a song or export to `path` (atomically). Rejects with a {@link CommandError}. */
-export async function writeScoreFile(path: string, bytes: Uint8Array): Promise<void> {
+/**
+ * What the native Save dialog is doing, for code that waits for a save it started: `pending`
+ * is how many are open, `settled` counts the closed ones, `cancelled` is whether the last one
+ * was cancelled.
+ */
+export const savePicks = { pending: 0, settled: 0, cancelled: false };
+
+/**
+ * Writes a song or export to `path` (atomically). Rejects with a {@link CommandError}.
+ * With `expectedHash` (from {@link scoreFileStamp}) the write is refused when the file on disk
+ * changed since, so a synced cloud copy edited elsewhere is never overwritten unseen.
+ */
+export async function writeScoreFile(
+  path: string,
+  bytes: Uint8Array,
+  expectedHash?: string,
+): Promise<void> {
   if (!isTauri()) throw new NotInDesktopAppError();
   // The bytes are the raw request body; the path travels in a header.
-  await invoke<void>("write_score_file", bytes, {
-    headers: { path: encodeURIComponent(path) },
-  });
+  const headers: Record<string, string> = { path: encodeURIComponent(path) };
+  if (expectedHash !== undefined) headers["expected-hash"] = expectedHash;
+  await invoke<void>("write_score_file", bytes, { headers });
+}
+
+/** A song in the linked cloud folder (field names as the Rust side serializes them). */
+export type CloudScore = {
+  name: string;
+  path: string;
+  size: number;
+  modified_ms: number;
+  /** Not downloaded to this computer yet (a cloud-only placeholder). */
+  placeholder: boolean;
+};
+
+/** A synced cloud folder found on this computer. */
+export type CloudFolderCandidate = { provider: string; path: string };
+
+/** The linked cloud folder, or `null` when none is linked (always `null` in a browser). */
+export async function getCloudFolder(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("get_cloud_folder");
+}
+
+/** Links `folder` as the cloud folder, or unlinks with `null`. Resolves to the stored folder. */
+export async function setCloudFolder(folder: string | null): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<string | null>("set_cloud_folder", { folder });
+}
+
+/** Synced folders (iCloud Drive, Dropbox, ...) found on this computer. Empty in a browser. */
+export async function detectCloudFolders(): Promise<CloudFolderCandidate[]> {
+  if (!isTauri()) return [];
+  return invoke<CloudFolderCandidate[]>("detect_cloud_folders");
+}
+
+/** The songs in the linked cloud folder. Empty in a browser. */
+export async function listCloudScores(): Promise<CloudScore[]> {
+  if (!isTauri()) return [];
+  return invoke<CloudScore[]>("list_cloud_scores");
+}
+
+/** Native folder dialog for the cloud folder. Resolves to the path, or `null` if cancelled. */
+export async function pickCloudFolder(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({ title: "Choose your cloud folder", multiple: false, directory: true });
+}
+
+/** When the file at `path` last changed and its content hash; `null` if it does not exist. */
+export async function scoreFileStamp(
+  path: string,
+): Promise<{ modified_ms: number; hash: string } | null> {
+  if (!isTauri()) return null;
+  return invoke<{ modified_ms: number; hash: string } | null>("score_file_stamp", { path });
 }
 
 /**

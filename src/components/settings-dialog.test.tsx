@@ -33,6 +33,15 @@ describe("SettingsDialog", () => {
     expect(toggle).toBeChecked();
     expect(toggle).toHaveAccessibleDescription(/no identifier/);
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    // One accessible name: the wordmark is decorative, the title text is sr-only.
+    expect(screen.getAllByRole("heading", { name: "Settings" })).toHaveLength(1);
+    expect(screen.queryByRole("img", { name: /settings/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("settings-title-art")).toHaveAttribute("alt", "");
+    expect(
+      screen.getByText(
+        "Choose your audio input, connect your cloud storage and decide what you share.",
+      ),
+    ).toBeInTheDocument();
     await expectNoA11yViolations();
   });
 
@@ -118,7 +127,7 @@ describe("SettingsDialog: audio input", () => {
     expect(await input()).toHaveAccessibleDescription(
       /What the tuner and the monitor track listen to/,
     );
-    expect(screen.getByRole("region", { name: "Audio" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Audio input" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show all inputs" })).not.toBeInTheDocument();
     // The channel is for the monitor track, which needs the desktop app.
     expect(screen.queryByRole("combobox", { name: "Channel" })).not.toBeInTheDocument();
@@ -237,5 +246,94 @@ describe("SettingsDialog: input channel (the monitor track's)", () => {
     await screen.findByRole("combobox", { name: "Input" });
     await waitFor(() => expect(calls.some((c) => c.cmd === "audio_input_channels")).toBe(true));
     expect(screen.queryByRole("combobox", { name: "Channel" })).not.toBeInTheDocument();
+  });
+});
+
+describe("SettingsDialog: layout", () => {
+  it("describes all three sections in its subtitle and lists them as cards", async () => {
+    mockTauri({ get_cloud_folder: () => null, detect_cloud_folders: () => [] });
+    renderSettings();
+
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    expect(dialog).toHaveAccessibleDescription(/audio input.*cloud storage.*share/i);
+    for (const name of ["Audio input", "Cloud storage", "Privacy and usage statistics"]) {
+      expect(await screen.findByRole("region", { name })).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(2);
+    await expectNoA11yViolations();
+  });
+
+  it("focuses the cloud storage section when opened on it", async () => {
+    mockTauri({ get_cloud_folder: () => null, detect_cloud_folders: () => [] });
+    renderWithProviders(<SettingsDialog open onOpenChange={vi.fn()} section="cloud" />);
+
+    const cloud = await screen.findByRole("region", { name: "Cloud storage" });
+    await waitFor(() => expect(cloud).toHaveFocus());
+  });
+
+  it("starts on the first control when no section is asked for", async () => {
+    mockTauri({ get_cloud_folder: () => null, detect_cloud_folders: () => [] });
+    renderSettings();
+    const cloud = await screen.findByRole("region", { name: "Cloud storage" });
+    expect(cloud).not.toHaveFocus();
+  });
+});
+
+describe("SettingsDialog: cloud folder", () => {
+  it("is not offered in the browser", async () => {
+    installMediaDevices({ inputs: [BUILT_IN] });
+    renderSettings();
+    await screen.findByRole("combobox", { name: "Input" });
+    expect(screen.queryByText("Cloud folder")).not.toBeInTheDocument();
+  });
+
+  it("links a detected provider, a chosen folder, and unlinks again", async () => {
+    let folder: string | null = null;
+    const calls = mockTauri({
+      get_cloud_folder: () => folder,
+      set_cloud_folder: (args) => (folder = (args as { folder: string | null }).folder),
+      detect_cloud_folders: () => [
+        { provider: "Dropbox", path: "/Users/me/Dropbox" },
+        { provider: "iCloud Drive", path: "/Users/me/iCloud" },
+      ],
+    });
+    backend.dialogResult = "/Users/me/Songs";
+    const { user } = renderSettings();
+
+    expect(await screen.findByText("No folder linked.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unlink" })).not.toBeInTheDocument();
+    await expectNoA11yViolations();
+
+    await user.click(screen.getByRole("button", { name: "Use Dropbox" }));
+    expect(await screen.findByText("/Users/me/Dropbox")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Choose folder…" }));
+    expect(await screen.findByText("/Users/me/Songs")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Unlink" }));
+    expect(await screen.findByText("No folder linked.")).toBeInTheDocument();
+    expect(calls.filter((c) => c.cmd === "set_cloud_folder").map((c) => c.args)).toEqual([
+      { folder: "/Users/me/Dropbox" },
+      { folder: "/Users/me/Songs" },
+      { folder: null },
+    ]);
+  });
+
+  it("keeps the folder and says so when linking fails, and sends no path to usage stats", async () => {
+    const calls = mockTauri({
+      get_cloud_folder: () => "/Users/me/Dropbox",
+      detect_cloud_folders: () => [],
+      set_cloud_folder: () => {
+        throw { kind: "io", message: "disk on fire" };
+      },
+    });
+    const { user } = renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Unlink" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not be saved/);
+    expect(screen.getByText("/Users/me/Dropbox")).toBeInTheDocument();
+    expect(
+      calls.some((c) => /usage|telemetry/i.test(c.cmd) && c.cmd !== "get_usage_settings"),
+    ).toBe(false);
   });
 });

@@ -1,46 +1,63 @@
+import { useRef } from "react";
+
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 
-/** Asks before the start screen replaces open songs that have unsaved changes. */
+/**
+ * Asks what to do with unsaved songs before the start screen opens. The tabs always stay open, so
+ * "Not now" loses nothing. Plain buttons (not AlertDialogAction) so only the chosen handler runs and
+ * the `open` prop stays the single source of truth.
+ */
 export function LeaveDialog({
   songNames,
   open,
+  onSave,
+  onKeep,
   onCancel,
-  onLeave,
 }: {
   /** The songs with unsaved changes. */
   songNames: string[];
   open: boolean;
+  onSave: () => void;
+  onKeep: () => void;
   onCancel: () => void;
-  onLeave: () => void;
 }) {
+  const saveRef = useRef<HTMLButtonElement>(null);
   const many = songNames.length > 1;
   return (
     <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
-      <AlertDialogContent>
+      <AlertDialogContent
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          saveRef.current?.focus();
+        }}
+      >
         <AlertDialogHeader>
-          <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+          <AlertDialogTitle>Save your changes?</AlertDialogTitle>
           <AlertDialogDescription>
             {many
-              ? `These songs have unsaved changes: ${songNames.map((name) => `“${name}”`).join(", ")}. `
-              : `“${songNames[0] ?? ""}” has unsaved changes. `}
-            Going to the start screen closes {many ? "them" : "it"} and the changes are lost. Choose
-            Stay here, then Save (File menu), to keep your changes.
+              ? `These songs have unsaved changes: ${songNames.map((name) => `“${name}”`).join(", ")}.`
+              : `“${songNames[0] ?? ""}” has unsaved changes.`}{" "}
+            Save them now, or go to the start screen and keep them open to save later.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Stay here</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={onLeave}>
-            Leave without saving
-          </AlertDialogAction>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="secondary" onClick={onKeep}>
+            Not now
+          </Button>
+          <Button ref={saveRef} onClick={onSave}>
+            {many ? "Save all" : "Save"}
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

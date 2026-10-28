@@ -1,4 +1,4 @@
-import type { FeatureEntry } from "@/lib/tour/feature-registry";
+import { FEATURE_REGISTRY, type FeatureEntry } from "@/lib/tour/feature-registry";
 import { compareVersions, latestFeatures, pendingFeatures } from "@/lib/tour/whats-new";
 
 const f = (id: string, since: string): FeatureEntry => ({ id, title: id, summary: id, since });
@@ -42,6 +42,11 @@ describe("pendingFeatures", () => {
   it("is empty when up to date", () => {
     expect(pendingFeatures("2.0.0", "2.0.0", registry)).toEqual([]);
     expect(pendingFeatures("1.1.0", "1.1.0", registry)).toEqual([]);
+  });
+  it("shows the cloud folder to users coming from 1.1.0 once 1.2.0 runs", () => {
+    const shown = pendingFeatures("1.1.0", "1.2.0", FEATURE_REGISTRY);
+    expect(shown.map((x) => x.id)).toContain("cloud-folder");
+    expect(pendingFeatures("1.1.0", "1.1.0", FEATURE_REGISTRY)).toEqual([]);
   });
   it("uses the real registry by default", () => {
     expect(Array.isArray(pendingFeatures("0.0.1", "99.0.0"))).toBe(true);

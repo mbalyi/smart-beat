@@ -40,11 +40,16 @@ async function makeSong(path: string | null = null): Promise<ScoreDocument> {
   };
 }
 
-async function setup({ desktop = true, path = null as string | null } = {}) {
-  const calls = desktop ? mockTauri() : [];
+async function setup({
+  desktop = true,
+  path = null as string | null,
+  overrides = {} as Parameters<typeof mockTauri>[0],
+} = {}) {
+  const calls = desktop ? mockTauri(overrides) : [];
   const song = await makeSong(path);
   const onSaved = vi.fn<(saved: SavedAs) => void>();
   const onEditedChange = vi.fn();
+  const onReloadFromDisk = vi.fn();
   const utils = renderWithProviders(
     <>
       <ScoreWorkspace
@@ -52,12 +57,21 @@ async function setup({ desktop = true, path = null as string | null } = {}) {
         onOpen={vi.fn()}
         onSaved={onSaved}
         onEditedChange={onEditedChange}
+        onReloadFromDisk={onReloadFromDisk}
       />
       <Toaster />
     </>,
   );
   FakeScorePlayer.last.becomeReady();
-  return { ...utils, song, calls, onSaved, onEditedChange, player: FakeScorePlayer.last };
+  return {
+    ...utils,
+    song,
+    calls,
+    onSaved,
+    onEditedChange,
+    onReloadFromDisk,
+    player: FakeScorePlayer.last,
+  };
 }
 
 const menu = (action: MenuAction) => act(() => emitMenuAction(action));
@@ -970,5 +984,271 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     await user.click(within(board).getByRole("button", { name: "Add Delay" }));
     expect(within(board).getAllByTestId("effect-block")).toHaveLength(1);
     expect(within(board).getByRole("region", { name: "Sound automation" })).toBeInTheDocument();
+  });
+});
+
+describe("ScoreWorkspace: a file that changed on disk (#187)", () => {
+  const conflict = () => {
+    throw { kind: "conflict", message: "This file changed since you opened it." };
+  };
+
+  it("sends the hash of the opened file with Save", async () => {
+    const { user, song, calls } = await setup({ path: "/cloud/riff.gp" });
+    await edit(user);
+
+    await menu("save");
+
+    await waitFor(() => expect(backend.written.has("/cloud/riff.gp")).toBe(true));
+    expect(song.fileKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(calls.some((c) => c.cmd === "write_score_file")).toBe(true);
+    expect(backend.lastWriteHeaders?.["expected-hash"]).toBe(song.fileKey);
+  });
+
+  it("asks what to do on a conflict and writes nothing", async () => {
+    const { user, onSaved } = await setup({
+      path: "/cloud/riff.gp",
+      overrides: { write_score_file: conflict },
+    });
+    await edit(user);
+
+    await menu("save");
+
+    const dialog = await screen.findByTestId("save-conflict-dialog");
+    expect(within(dialog).getByRole("button", { name: "Save as a copy" })).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(backend.written.has("/cloud/riff.gp")).toBe(false);
+  });
+
+  it("Cancel keeps the edits and closes the dialog", async () => {
+    const { user, onReloadFromDisk } = await setup({
+      path: "/cloud/riff.gp",
+      overrides: { write_score_file: conflict },
+    });
+    await edit(user);
+    await menu("save");
+
+    await user.click(await screen.findByTestId("conflict-cancel"));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("save-conflict-dialog")).not.toBeInTheDocument(),
+    );
+    expect(onReloadFromDisk).not.toHaveBeenCalled();
+    expect(screen.getByText("Edited")).toBeInTheDocument();
+  });
+
+  it("Reload from disk reads the song again", async () => {
+    const { user, onReloadFromDisk } = await setup({
+      path: "/cloud/riff.gp",
+      overrides: { write_score_file: conflict },
+    });
+    await edit(user);
+    await menu("save");
+
+    await user.click(await screen.findByTestId("conflict-reload"));
+
+    expect(onReloadFromDisk).toHaveBeenCalledTimes(1);
+  });
+
+  it("Save as a copy opens Save As next to the file, with a copy name", async () => {
+    const { user, calls } = await setup({
+      path: "/cloud/riff.gp",
+      overrides: { write_score_file: conflict, get_cloud_folder: () => "/elsewhere" },
+    });
+    await edit(user);
+    await menu("save");
+    backend.saveResult = null;
+
+    await user.click(await screen.findByTestId("conflict-copy"));
+
+    await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
+    expect(calls.find((c) => c.cmd === "plugin:dialog|save")!.args).toMatchObject({
+      options: { defaultPath: "/cloud/riff (copy).gp" },
+    });
+  });
+
+  it("starts Save As in the cloud folder when one is linked", async () => {
+    const { user, calls } = await setup({
+      overrides: { get_cloud_folder: () => "/Users/me/iCloud" },
+    });
+    await edit(user);
+    backend.saveResult = null;
+
+    await menu("save-as");
+
+    await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
+    expect(calls.find((c) => c.cmd === "plugin:dialog|save")!.args).toMatchObject({
+      options: { defaultPath: expect.stringMatching(/^\/Users\/me\/iCloud\/.+\.gp$/) },
+    });
+  });
+});
+
+describe("ScoreWorkspace: online drives (#187)", () => {
+  const drive = {
+    cloud_accounts: () => [
+      { provider: "drive", label: "Google Drive", configured: true, account: "me@example.com" },
+    ],
+  };
+
+  it("Save on a cloud item uploads it", async () => {
+    const saved = vi.fn(() => "saved");
+    const { user, calls, onSaved } = await setup({
+      path: "drive:abc",
+      overrides: { cloud_save: saved },
+    });
+    await edit(user);
+
+    await menu("save");
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.some((c) => c.cmd === "cloud_save")).toBe(true);
+    expect(calls.some((c) => c.cmd === "write_score_file")).toBe(false);
+    expect(onSaved.mock.calls[0]![0]).toMatchObject({
+      name: "practice-song.gp",
+      path: "drive:abc",
+    });
+  });
+
+  it("tells that an offline save is queued, without blocking", async () => {
+    const { user } = await setup({ path: "drive:abc", overrides: { cloud_save: () => "queued" } });
+    await edit(user);
+
+    await menu("save");
+
+    expect(
+      await screen.findByText("Saved offline — it will upload when you are back online"),
+    ).toBeInTheDocument();
+  });
+
+  it("asks to reconnect when the sign-in expired", async () => {
+    const { user, onSaved } = await setup({
+      path: "drive:abc",
+      overrides: {
+        cloud_save: () => {
+          throw { kind: "auth-expired", message: "expired" };
+        },
+      },
+    });
+    await edit(user);
+
+    await menu("save");
+
+    expect(await screen.findByText("Reconnect Google Drive in Settings")).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("uses the conflict dialog when the remote changed", async () => {
+    const { user } = await setup({
+      path: "drive:abc",
+      overrides: {
+        cloud_save: () => {
+          throw { kind: "conflict", message: "changed" };
+        },
+      },
+    });
+    await edit(user);
+
+    await menu("save");
+
+    expect(await screen.findByTestId("save-conflict-dialog")).toBeInTheDocument();
+  });
+
+  it("Save As offers Save to Google Drive and creates the tab there", async () => {
+    const { user, calls, onSaved } = await setup({
+      overrides: { ...drive, cloud_create: () => "drive:new" },
+    });
+    await edit(user);
+
+    await menu("save-as");
+    await user.click(await screen.findByTestId("save-target-drive"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.some((c) => c.cmd === "cloud_create")).toBe(true);
+    expect(onSaved.mock.calls[0]![0]).toMatchObject({ path: "drive:new" });
+  });
+
+  it("Save As keeps the dialog open with a saving state until the upload finishes", async () => {
+    let finish: (id: string) => void = () => {};
+    const pending = new Promise<string>((resolve) => (finish = resolve));
+    const { user, onSaved } = await setup({
+      overrides: { ...drive, cloud_create: () => pending },
+    });
+    await edit(user);
+
+    await menu("save-as");
+    await user.click(await screen.findByTestId("save-target-drive"));
+
+    expect(await screen.findByText("Saving to Google Drive…", { selector: "span" })).toBeVisible();
+    expect(screen.getByTestId("save-target-progress")).toHaveAttribute("role", "status");
+    await user.keyboard("{Escape}");
+    expect(screen.getByTestId("save-target-dialog")).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+
+    finish("drive:new");
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument());
+  });
+
+  it("Save As shows the error in the dialog and Try again re-runs the save", async () => {
+    let attempts = 0;
+    const { user, onSaved } = await setup({
+      overrides: {
+        ...drive,
+        cloud_create: () => {
+          attempts += 1;
+          if (attempts === 1) throw { kind: "auth-expired", message: "expired" };
+          return "drive:new";
+        },
+      },
+    });
+    await edit(user);
+
+    await menu("save-as");
+    await user.click(await screen.findByTestId("save-target-drive"));
+
+    expect(await screen.findByTestId("save-target-error")).toHaveTextContent(
+      "Reconnect Google Drive in Settings",
+    );
+    expect(screen.getByTestId("save-target-computer-fallback")).toBeInTheDocument();
+    await user.click(screen.getByTestId("save-target-retry"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(attempts).toBe(2);
+    await waitFor(() => expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument());
+  });
+
+  it("Save As still asks where, with every drive disabled, when nothing is connected", async () => {
+    const { user, calls } = await setup({
+      overrides: {
+        cloud_accounts: () => [
+          { provider: "drive", label: "Google Drive", configured: true, account: null },
+          { provider: "onedrive", label: "OneDrive", configured: true, account: null },
+          { provider: "dropbox", label: "Dropbox", configured: false, account: null },
+        ],
+      },
+    });
+    await edit(user);
+    backend.saveResult = null;
+
+    await menu("save-as");
+
+    // The chooser is shown even though no drive is usable: all three are disabled.
+    expect(await screen.findByTestId("save-target-computer")).toBeEnabled();
+    for (const provider of ["drive", "onedrive", "dropbox"]) {
+      expect(screen.getByTestId(`save-target-${provider}`)).toBeDisabled();
+    }
+    expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(false);
+    await user.click(screen.getByTestId("save-target-computer"));
+    await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
+  });
+
+  it("Save As still reaches the native dialog from This computer", async () => {
+    const { user, calls } = await setup({ overrides: drive });
+    await edit(user);
+    backend.saveResult = null;
+
+    await menu("save-as");
+    await user.click(await screen.findByTestId("save-target-computer"));
+
+    await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
   });
 });

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  cloudErrorText,
+  isCloudItem,
+  cloudItemName,
+  fetchCloudItemName,
+  providerOf,
+  readCloudItem,
+  readCloudProjectSettings,
+  rememberCloudName,
+} from "@/lib/cloud-items";
 import { ENCODING_LABELS, type EncodingChoice, type TextEncodingId } from "@/lib/score/encoding";
 import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
 import { baseName, fileKey } from "@/lib/score/format";
@@ -84,6 +94,12 @@ interface Source {
   /** The bytes exist only in memory (an audio transcription). */
   unsaved?: boolean;
   read: () => Promise<Uint8Array>;
+  /**
+   * The real file name, known only after `read` (a cloud item id carries none). It decides the
+   * format, so it comes from the backend that downloaded the file, never from this machine's
+   * stored names.
+   */
+  nameAfterRead?: () => Promise<string>;
 }
 
 /**
@@ -92,9 +108,11 @@ interface Source {
  */
 async function savedMix(key: string, path?: string): Promise<MixerSettings | null> {
   if (!isTauri()) return null; // settings are only saved in the desktop app
-  if (path?.toLowerCase().endsWith(".gp")) {
+  if (path && (isCloudItem(path) || path.toLowerCase().endsWith(".gp"))) {
     try {
-      const inFile = await readProjectSettings(path);
+      const inFile = isCloudItem(path)
+        ? await readCloudProjectSettings(path)
+        : await readProjectSettings(path);
       if (inFile) return inFile;
     } catch (error) {
       console.warn("Could not read the settings in the song file", error);
@@ -109,6 +127,13 @@ async function savedMix(key: string, path?: string): Promise<MixerSettings | nul
 }
 
 /** Adds (or removes) a song in the recent files list; never fails the open. */
+/** How to read a path: a local file, or a cloud item whose name the backend reports. */
+function cloudReaders(path: string): Pick<Source, "read" | "nameAfterRead"> {
+  return isCloudItem(path)
+    ? { read: () => readCloudItem(path), nameAfterRead: () => fetchCloudItemName(path) }
+    : { read: () => readScoreFile(path) };
+}
+
 async function rememberRecent(path: string, add: boolean, changed: () => void) {
   try {
     await (add ? addRecentFile(path) : removeRecentFile(path));
@@ -148,7 +173,8 @@ export function useScoreDocuments() {
 
   const open = useCallback(
     async (source: Source, replace?: { id: number; encoding: EncodingChoice }) => {
-      const { name, read, path, title, unsaved } = source;
+      const { read, path, title, unsaved } = source;
+      let name = source.name;
       // Opening a song that is already open shows its tab.
       const already = path && !replace ? songsRef.current.find((s) => s.path === path) : undefined;
       if (already) {
@@ -159,6 +185,7 @@ export function useScoreDocuments() {
       const toastId = toast.loading(`Opening “${name}”…`);
       try {
         const bytes = await read();
+        if (source.nameAfterRead) name = await source.nameAfterRead();
         const key = await fileKey(bytes);
         const choice = replace?.encoding ?? storedEncoding(key);
         // alphaTab is large: load it with the first song, not with the app.
@@ -207,6 +234,7 @@ export function useScoreDocuments() {
           });
         }
         track("open_file", name.split(".").pop());
+        if (path && isCloudItem(path)) rememberCloudName(path, name);
         if (path) await rememberRecent(path, true, () => setRecentsVersion((v) => v + 1));
         return true;
       } catch (error) {
@@ -214,9 +242,11 @@ export function useScoreDocuments() {
         if (path && isCommandError(error) && error.kind === "not-found") {
           await rememberRecent(path, false, () => setRecentsVersion((v) => v + 1));
         }
+        // A cloud tab that can't be reached right now stays in the recent list.
         toast.error(`Couldn't open “${name}”`, {
           id: toastId,
-          description: describeOpenError(error),
+          description:
+            (path && cloudErrorText(error, providerOf(path))) || describeOpenError(error),
         });
         return false;
       }
@@ -225,7 +255,12 @@ export function useScoreDocuments() {
   );
 
   const openPath = useCallback(
-    (path: string) => open({ name: baseName(path), path, read: () => readScoreFile(path) }),
+    (path: string) =>
+      open({
+        name: isCloudItem(path) ? (cloudItemName(path) ?? "Cloud tab") : baseName(path),
+        path,
+        ...cloudReaders(path),
+      }),
     [open],
   );
 
@@ -308,7 +343,9 @@ export function useScoreDocuments() {
   const markSaved = useCallback((id: number, saved: SavedAs) => {
     // Read again from where it was saved.
     const { path } = saved;
-    if (path) sources.current.set(id, { name: saved.name, path, read: () => readScoreFile(path) });
+    if (path) {
+      sources.current.set(id, { name: saved.name, path, ...cloudReaders(path) });
+    }
     setSongs((list) =>
       list.map((song) =>
         song.id === id ? { ...song, ...saved, isNew: false, unsaved: false } : song,
@@ -321,6 +358,16 @@ export function useScoreDocuments() {
     (id: number, encoding: EncodingChoice) => {
       const source = sources.current.get(id);
       if (source) void open(source, { id, encoding });
+    },
+    [open],
+  );
+
+  /** Reads an open song again from its file, dropping its unsaved edits ("Reload from disk"). */
+  const reloadFromDisk = useCallback(
+    (id: number) => {
+      const source = sources.current.get(id);
+      const song = songsRef.current.find((s) => s.id === id);
+      if (source) void open(source, { id, encoding: song?.encodingChoice ?? "auto" });
     },
     [open],
   );
@@ -359,6 +406,7 @@ export function useScoreDocuments() {
     openScore,
     markSaved,
     reopenWithEncoding,
+    reloadFromDisk,
     recentsVersion,
   };
 }

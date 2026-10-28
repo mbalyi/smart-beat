@@ -196,3 +196,7 @@ Points a lawyer should check before Smart Beat offers paid licences or a paid AI
 4. **AI terms**: whether offering the MuScriptor download (CC BY-NC 4.0 weights, fetched by the user from Hugging Face, accepted in the app with a rights confirmation) in the free app is acceptable noncommercial use, and a commercial licence from its authors before a paid tier or sponsorship; the licence of each future AI model, and the terms for a paid AI tier. The self-hosted server path was removed, so no audio leaves the device for this feature.
 5. **Content provenance**: the Sonivox SoundFont's history (see the table above) and the permissions for third-party logos in the README ([`docs/brand/README.md`](brand/README.md)).
 6. **Trademark**: whether to register "Smart Beat" before a commercial launch.
+
+## Third-party logos (#187)
+
+The Open and Save chooser shows the official logos of Google Drive, Dropbox and OneDrive next to each service. They are third-party trademarks (Google Drive of Google LLC, Dropbox of Dropbox, Inc., OneDrive of Microsoft Corporation), shown unaltered and only to identify the service the user connects. Smart Beat is not affiliated with or endorsed by these companies. The files, their sources, retrieval date and each owner's guideline link are in [`src/assets/cloud/logos/README.md`](../src/assets/cloud/logos/README.md). These marks are not covered by Smart Beat's licence.

@@ -11,7 +11,7 @@ Users bring their own sounds; Smart Beat never ships or uploads them, because mo
 
 ## Where files go
 
-Imports are copied into the app data folder (`library/`, named by a hash of the content, with `library.json` as the index). Nothing from the library is uploaded: the only thing the app sends over the network is the anonymous usage counters ([`analytics.md`](analytics.md); event names only, never sound or file names) and the update check. It has no file-system, HTTP or shell permission, and its content security policy only allows its own IPC channel. A test (`src-tauri/tests/library.rs`) pins that. Names and tags are the user's (renaming and tagging in the Sound library dialog, search and tag filter there too). Songs refer to captures by id, so a song opened on another computer shows "not in your sound library" for those blocks and plays without them.
+Imports are copied into the app data folder (`library/`, named by a hash of the content, with `library.json` as the index). Nothing from the library is uploaded: the only thing the app sends over the network is the anonymous usage counters ([`analytics.md`](analytics.md); event names only, never sound or file names) the update check, and, only after you connect an account in Settings, your tabs in your own Google Drive, OneDrive or Dropbox (never sound files). It has no file-system, HTTP or shell permission, and its content security policy only allows its own IPC channel. A test (`src-tauri/tests/library.rs`) pins that. Names and tags are the user's (renaming and tagging in the Sound library dialog, search and tag filter there too). Songs refer to captures by id, so a song opened on another computer shows "not in your sound library" for those blocks and plays without them.
 
 ## How a capture runs
 

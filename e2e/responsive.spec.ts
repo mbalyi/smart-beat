@@ -172,7 +172,7 @@ for (const { name, width, height, columns } of VIEWPORTS) {
         .getByRole("list")
         .first()
         .locator("> li");
-      await expect(cards).toHaveCount(7); // every feature of the start page
+      await expect(cards).toHaveCount(11); // every feature of the start page
 
       const tops = await cards.evaluateAll((items) =>
         items.map((item) => Math.round(item.getBoundingClientRect().top)),
