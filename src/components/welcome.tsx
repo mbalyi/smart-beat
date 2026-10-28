@@ -98,6 +98,10 @@ export function Welcome({
             <FolderOpenIcon data-icon="inline-start" />
             Open a file…
           </Button>
+          <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onNewSong}>
+            <FilePlusIcon data-icon="inline-start" />
+            New song
+          </Button>
           {onImportAudio && (
             <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onImportAudio}>
               <AudioLinesIcon data-icon="inline-start" />
@@ -115,10 +119,6 @@ export function Welcome({
               Stem separation…
             </Button>
           )}
-          <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onNewSong}>
-            <FilePlusIcon data-icon="inline-start" />
-            New song
-          </Button>
           <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onShowShortcuts}>
             <KeyboardIcon data-icon="inline-start" />
             Keyboard shortcuts

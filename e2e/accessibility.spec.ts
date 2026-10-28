@@ -260,9 +260,9 @@ test.describe("accessibility", () => {
       "Theme",
       "Help",
       "Open a file…",
+      "New song",
       ...(features["audio-2-tab"] ? ["Import from Audio…"] : []),
       ...(features["stem-separation"] ? ["Stem separation…"] : []),
-      "New song",
       "Keyboard shortcuts",
       "Take a tour",
     ];

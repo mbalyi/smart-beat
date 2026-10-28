@@ -103,9 +103,9 @@ Read from primary pages on 2026-10-28.
 
 **MUSDB18-HQ terms.** UMX-HQ was trained on MUSDB18-HQ ([Zenodo record 3338373](https://zenodo.org/records/3338373), licence field other-nc). Its description says the tracks are "provided for educational purposes only" and "should not be used for any commercial purpose without the express permission of the copyright holders". The Open-Unmix authors do not say whether those terms reach the weights, and the Zenodo field for the weights says MIT. That is the same kind of open question as Transkun and MAESTRO in [`licensing.md`](licensing.md).
 
-**What the app does about it.** The weights are never bundled, hosted or mirrored by Smart Beat. The optional neural engine downloads the four files straight from Zenodo (record 3370489) after the user has read the terms above and confirmed that they only use music they have the rights to (`src-tauri/src/stems/umx_model.rs`). Whether this download is offered at all is the owner's decision; until then the UI keeps it behind the `stem-separation-neural` flag. The fast engine has no model and no weights.
+**What the app does about it.** The weights are never bundled, hosted or mirrored by Smart Beat. The optional neural engine downloads the four files straight from Zenodo (record 3370489) after the user has read the terms above and confirmed that they only use music they have the rights to (`src-tauri/src/stems/umx_model.rs`). The owner decided on 2026-10-28 to offer this download in the free app, accepting the open question above as the same kind of risk as Transkun (see [`licensing.md`](licensing.md)); the UI offers it behind the `stem-separation-neural` flag, which is on. The fast engine has no model and no weights.
 
-Not verified: Spleeter and RoFormer weights licences. Nothing here is cleared to ship; the Transkun precedent in [`licensing.md`](licensing.md) would be an owner decision.
+Not verified: Spleeter and RoFormer weights licences. UMX-HQ ships as an optional download on the owner's decision, not because the question is settled.
 
 ## Not done yet
 
@@ -116,4 +116,4 @@ Not verified: Spleeter and RoFormer weights licences. Nothing here is cleared to
 
 ## Decision
 
-Open. See the issue thread.
+The built-in engine ships as the default. Open-Unmix UMX-HQ is offered as an optional download (owner's decision, 2026-10-28). Tab-aligned separation and stems as lanes in the tab view are follow-ups that depend on multi-lane audio (#185).

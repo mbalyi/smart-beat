@@ -400,6 +400,9 @@ describe("Welcome: stem separation (#186)", () => {
 
     const buttons = screen.getAllByRole("button").map((button) => button.textContent);
     expect(buttons.indexOf("Stem separation…")).toBe(buttons.indexOf("Import from Audio…") + 1);
+    // Open and New song come first, then the rest.
+    expect(buttons.indexOf("New song")).toBe(buttons.indexOf("Open a file…") + 1);
+    expect(buttons.indexOf("Import from Audio…")).toBe(buttons.indexOf("New song") + 1);
     await user.click(screen.getByRole("button", { name: "Stem separation…" }));
     expect(onSeparateStems).toHaveBeenCalledOnce();
   });
