@@ -88,14 +88,17 @@ export interface AudioBackend {
   resume(): Promise<void>;
   decode(bytes: ArrayBuffer): Promise<AudioClip>;
   /**
-   * Plays `clip` from `offset` seconds. With a `loop` (in clip seconds) it repeats between its
-   * ends once it gets there. `onEnded` is called when it plays to its end, never after `stop`.
+   * Plays `clip` from `offset` seconds, beginning at `when` on the audio clock (every stem of
+   * one start gets the same `when`, so they begin together). With a `loop` (in clip seconds) it
+   * repeats between its ends once it gets there. `onEnded` is called when it plays to its end,
+   * never after `stop`.
    */
   start(
     clip: AudioClip,
     offset: number,
     gain: number,
     loop: StemLoop | null,
+    when: number,
     onEnded: () => void,
   ): AudioVoice;
   close(): void;
@@ -159,7 +162,7 @@ export function createWebAudioBackend(): AudioBackend | null {
       };
       return clip;
     },
-    start(clip, offset, gain, loop, onEnded) {
+    start(clip, offset, gain, loop, when, onEnded) {
       const source = context.createBufferSource();
       source.buffer = (clip as WebClip).buffer;
       if (loop) {
@@ -171,7 +174,7 @@ export function createWebAudioBackend(): AudioBackend | null {
       node.gain.value = gain;
       source.connect(node).connect(context.destination);
       source.onended = onEnded;
-      source.start(0, offset);
+      source.start(Math.max(when, context.currentTime), offset);
       return {
         stop() {
           source.onended = null;
@@ -203,6 +206,13 @@ interface Mix {
 
 const speedKey = (kinds: readonly StemKindId[], gains: StemGains, speed: number) =>
   `${speed}|${kinds.map((kind) => (gains[kind] ?? 1).toFixed(3)).join(",")}`;
+
+/**
+ * How far ahead of the audio clock a start is scheduled. Every stem of one start gets the same
+ * moment, so none begins a render quantum before another (that would comb-filter the parts, which
+ * share the same recording); the position counts from that moment.
+ */
+export const START_LEAD_SECONDS = 0.03;
 
 /** How far the decoded audio may differ from the saved length before the saved one is doubted. */
 const LENGTH_TOLERANCE_SECONDS = 0.5;
@@ -248,6 +258,12 @@ export function createStemPlayer({
   let anchor = { song: 0, clock: 0 };
   let renderTimer: ReturnType<typeof setTimeout> | undefined;
   let renderToken = 0;
+  /** A render is running in Rust; at most one runs, and the newest request waits behind it. */
+  let renderRunning = false;
+  let renderAgain = false;
+  /** Counts Play requests; Stop and Pause end the ones that are still waiting for the audio. */
+  let playGeneration = 0;
+  let playPending = false;
   let countTimer: ReturnType<typeof setInterval> | undefined;
   let disposed = false;
   let state: StemPlayerState = {
@@ -273,7 +289,7 @@ export function createStemPlayer({
   const position = (): number => {
     if (!state.playing) return state.position;
     const rate = activeSpeed / 100;
-    let song = anchor.song + (backend.clock() - anchor.clock) * rate;
+    let song = anchor.song + Math.max(0, backend.clock() - anchor.clock) * rate;
     const loop = state.loop;
     // A loop only repeats when playback began before its end.
     if (loop && anchor.song < loop.end && song >= loop.end) {
@@ -293,6 +309,7 @@ export function createStemPlayer({
     const rate = activeSpeed / 100;
     const loop = state.loop && song < state.loop.end ? state.loop : null;
     const inClip = loop && { start: loop.start / rate, end: loop.end / rate };
+    const when = backend.clock() + START_LEAD_SECONDS;
     const ended = () => {
       stopVoices();
       emit({ playing: false, position: 0 });
@@ -311,14 +328,18 @@ export function createStemPlayer({
           song,
           gains[kind] ?? 1,
           inClip,
+          when,
           kind === longest ? ended : () => {},
         );
         voices.push({ voice, kind });
       }
     } else if (mix) {
-      voices.push({ voice: backend.start(mix.clip, song / rate, 1, inClip, ended), kind: null });
+      voices.push({
+        voice: backend.start(mix.clip, song / rate, 1, inClip, when, ended),
+        kind: null,
+      });
     }
-    anchor = { song, clock: backend.clock() };
+    anchor = { song, clock: when };
   };
 
   const stopCount = () => {
@@ -333,27 +354,40 @@ export function createStemPlayer({
     emit({ playing: true, countdown: null, position: from });
   };
 
-  /** Renders the slowed mix for the speed asked for, then plays it from where the song is. */
+  /**
+   * Renders the slowed mix for the speed asked for, then plays it from where the song is. A
+   * render of a whole song takes a lot of memory in Rust and cannot be called back, so only one
+   * runs at a time: a request made meanwhile waits and runs when it is over, if it is still wanted.
+   */
   const renderNow = async () => {
     clearTimeout(renderTimer);
     renderTimer = undefined;
     const wanted = state.speed;
     if (wanted === 100) {
       renderToken++;
+      renderAgain = false;
       emit({ rendering: false });
       return;
     }
     const key = speedKey(kinds, gains, wanted);
     if (mix?.key === key) {
       renderToken++;
+      renderAgain = false;
       emit({ rendering: false });
       if (activeSpeed !== wanted) activate(mix);
       return;
     }
     const token = ++renderToken;
     emit({ rendering: true, error: null });
+    if (renderRunning) {
+      renderAgain = true;
+      return;
+    }
+    renderRunning = true;
     try {
       const bytes = await source.renderMix(gains, wanted / 100);
+      // A newer request made this one stale: do not spend memory decoding it.
+      if (token !== renderToken || disposed) return;
       const clip = await backend.decode(bytes);
       if (token !== renderToken || disposed) return;
       mix = { key, speed: wanted, clip };
@@ -370,6 +404,12 @@ export function createStemPlayer({
             ? cause.message
             : String((cause as { message?: string })?.message ?? cause),
       });
+    } finally {
+      renderRunning = false;
+      if (renderAgain && !disposed) {
+        renderAgain = false;
+        void renderNow();
+      }
     }
   };
 
@@ -431,7 +471,9 @@ export function createStemPlayer({
     peaks: (kind, buckets) =>
       clips.get(kind)?.peaks(buckets) ?? Array.from({ length: buckets }, () => 0),
     async play() {
-      if (!state.loaded || state.playing || state.countdown !== null) return;
+      if (!state.loaded || state.playing || state.countdown !== null || playPending) return;
+      const request = ++playGeneration;
+      playPending = true;
       try {
         // A webview with no audio output may never answer: go on after a moment.
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -442,7 +484,11 @@ export function createStemPlayer({
       } catch {
         // The browser refused to start audio; starting the sources then reports nothing.
       }
-      if (disposed || state.playing || state.countdown !== null) return;
+      // Stop or Pause while the audio was waking up ends this request.
+      if (request === playGeneration) playPending = false;
+      if (request !== playGeneration || disposed || state.playing || state.countdown !== null) {
+        return;
+      }
       if (!state.countIn) {
         begin();
         return;
@@ -462,6 +508,8 @@ export function createStemPlayer({
       }, 100);
     },
     pause() {
+      playGeneration++;
+      playPending = false;
       stopCount();
       if (!state.playing) return;
       const song = position();
@@ -469,6 +517,8 @@ export function createStemPlayer({
       emit({ playing: false, position: song });
     },
     stop() {
+      playGeneration++;
+      playPending = false;
       stopCount();
       stopVoices();
       emit({ playing: false, position: state.loop ? state.loop.start : 0 });
@@ -519,6 +569,7 @@ export function createStemPlayer({
     },
     dispose() {
       if (disposed) return;
+      playGeneration++;
       stopCount();
       stopVoices();
       clearTimeout(renderTimer);

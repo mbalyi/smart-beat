@@ -7,6 +7,7 @@ import {
   peaksOf,
   RENDER_DEBOUNCE_MS,
   songLength,
+  START_LEAD_SECONDS,
   type StemPlayer,
 } from "@/lib/stems/player";
 import type { StemKindId } from "@/lib/tauri";
@@ -57,7 +58,7 @@ describe("playing", () => {
     await player.play();
     expect(backend.resumed).toBe(1);
     expect(backend.live.map((v) => v.gain)).toEqual([1, 0, 0.5]);
-    backend.advance(12.5);
+    backend.advance(START_LEAD_SECONDS + 12.5);
     expect(player.position()).toBeCloseTo(12.5);
     player.pause();
     expect(backend.live).toHaveLength(0);
@@ -122,7 +123,7 @@ describe("the A-B loop", () => {
     player.seek(12);
     await player.play();
     expect(backend.live[0]!.loop).toEqual({ start: 10, end: 20 });
-    backend.advance(9); // 21 s: one second past B
+    backend.advance(START_LEAD_SECONDS + 9); // 21 s: one second past B
     expect(player.position()).toBeCloseTo(11);
     backend.advance(11); // 42 s unwrapped, on a 10 s loop
     expect(player.position()).toBeCloseTo(12);
@@ -133,7 +134,7 @@ describe("the A-B loop", () => {
     player.setLoop({ start: 10, end: 20 });
     player.seek(5);
     await player.play();
-    backend.advance(4);
+    backend.advance(START_LEAD_SECONDS + 4);
     expect(player.position()).toBeCloseTo(9);
     backend.advance(7); // 16 s of the song
     expect(player.position()).toBeCloseTo(16);
@@ -147,14 +148,14 @@ describe("the A-B loop", () => {
     player.seek(30);
     await player.play();
     expect(backend.live[0]!.loop).toBeNull();
-    backend.advance(5);
+    backend.advance(START_LEAD_SECONDS + 5);
     expect(player.position()).toBeCloseTo(35);
   });
 
   it("restarts the sound from where it is when the loop changes", async () => {
     const { player, backend } = await setup();
     await player.play();
-    backend.advance(8);
+    backend.advance(START_LEAD_SECONDS + 8);
     player.setLoop({ start: 5, end: 15 });
     expect(backend.live).toHaveLength(3);
     expect(backend.live[0]!.offset).toBeCloseTo(8);
@@ -214,7 +215,7 @@ describe("a slower speed", () => {
     const { player, backend, source } = await setup(100);
     player.setGains({ drums: 1, bass: 0, other: 1 });
     await player.play();
-    backend.advance(10);
+    backend.advance(START_LEAD_SECONDS + 10);
     player.setSpeed(50);
     expect(player.state.rendering).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
@@ -223,7 +224,7 @@ describe("a slower speed", () => {
     // One voice now, from 10 s of the song = 20 s into a mix twice as long.
     expect(backend.live).toHaveLength(1);
     expect(backend.live[0]!.offset).toBeCloseTo(20);
-    backend.advance(10); // 10 s of the clock = 5 s of the song at half speed
+    backend.advance(START_LEAD_SECONDS + 10); // 10 s of the clock = 5 s of the song at half speed
     expect(player.position()).toBeCloseTo(15);
   });
 
@@ -235,7 +236,7 @@ describe("a slower speed", () => {
     await vi.advanceTimersByTimeAsync(0);
     await player.play();
     expect(backend.live[0]!.loop).toEqual({ start: 20, end: 40 });
-    backend.advance(40); // 20 s of the song after 12 s: wrapped
+    backend.advance(START_LEAD_SECONDS + 40); // 20 s of the song after 12 s: wrapped
     expect(player.position()).toBeCloseTo(12);
   });
 
@@ -252,7 +253,7 @@ describe("a slower speed", () => {
     player.setSpeed(80);
     expect(player.state.rendering).toBe(true);
     expect(backend.live).toHaveLength(3);
-    backend.advance(5);
+    backend.advance(START_LEAD_SECONDS + 5);
     expect(player.position()).toBeCloseTo(5);
     release();
     await vi.advanceTimersByTimeAsync(0);
@@ -373,5 +374,149 @@ describe("songLength", () => {
     expect(songLength(5.99, 0)).toBe(5.99);
     expect(songLength(5.99, Number.NaN)).toBe(5.99);
     expect(songLength(3, 6)).toBe(3);
+  });
+});
+
+describe("one start for every stem", () => {
+  it("gives every stem the same moment on the audio clock, a little ahead of now", async () => {
+    const { player, backend } = await setup();
+    backend.advance(7);
+    await player.play();
+    expect(backend.live).toHaveLength(3);
+    for (const voice of backend.live) expect(voice.when).toBeCloseTo(7 + START_LEAD_SECONDS);
+    // The position counts from that moment: it does not move while the sound has not begun.
+    expect(player.position()).toBe(0);
+    backend.advance(START_LEAD_SECONDS / 2);
+    expect(player.position()).toBe(0);
+  });
+
+  it("gives a seek, a loop change and a switch to a slower mix one moment each", async () => {
+    const { player, backend } = await setup();
+    await player.play();
+    backend.advance(2);
+    player.seek(30);
+    const whens = new Set(backend.live.map((voice) => voice.when));
+    expect(whens.size).toBe(1);
+    expect([...whens][0]).toBeCloseTo(2 + START_LEAD_SECONDS);
+  });
+});
+
+describe("renders that are still running", () => {
+  it("runs one at a time and keeps only the newest request that waits", async () => {
+    const { player, backend, source } = await setup(100);
+    let running = 0;
+    let peak = 0;
+    const releases: (() => void)[] = [];
+    source.renderMix.mockImplementation((_gains, speed) => {
+      running++;
+      peak = Math.max(peak, running);
+      source.renders.push({ gains: _gains, speed });
+      return new Promise((resolve) => {
+        releases.push(() => {
+          running--;
+          resolve(clipBytes(100 / speed));
+        });
+      });
+    });
+    player.setSpeed(90);
+    player.setSpeed(80);
+    player.setSpeed(70);
+    player.setSpeed(60);
+    await vi.advanceTimersByTimeAsync(0);
+    // Only the first went to Rust; the others wait behind it.
+    expect(source.renders.map((r) => r.speed)).toEqual([0.9]);
+
+    releases.shift()!();
+    await vi.advanceTimersByTimeAsync(0);
+    // The superseded render was not even decoded; the newest request runs next.
+    expect(backend.decode).toHaveBeenCalledTimes(KINDS.length); // only the stems, from loading
+    expect(source.renders.map((r) => r.speed)).toEqual([0.9, 0.6]);
+    expect(player.state.rendering).toBe(true);
+
+    releases.shift()!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(player.state.rendering).toBe(false);
+    expect(peak).toBe(1);
+    expect(source.renders).toHaveLength(2);
+    expect(backend.decode).toHaveBeenCalledTimes(KINDS.length + 1);
+  });
+
+  it("does not start another render when the speed went back to 100 % meanwhile", async () => {
+    const { player, source } = await setup(100);
+    const releases: (() => void)[] = [];
+    source.renderMix.mockImplementation((_gains, speed) => {
+      source.renders.push({ gains: _gains, speed });
+      return new Promise((resolve) => releases.push(() => resolve(clipBytes(100 / speed))));
+    });
+    player.setSpeed(80);
+    player.setSpeed(70);
+    player.setSpeed(100);
+    releases.shift()!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(source.renders).toHaveLength(1);
+    expect(player.state.rendering).toBe(false);
+  });
+});
+
+describe("Stop and Pause while the audio wakes up", () => {
+  const withGate = async () => {
+    const setupResult = await setup();
+    let open!: () => void;
+    setupResult.backend.resumeGate = new Promise<void>((resolve) => (open = resolve));
+    return { ...setupResult, open };
+  };
+
+  it("does not play after Stop was pressed", async () => {
+    const { player, backend, open } = await withGate();
+    const playing = player.play();
+    player.stop();
+    open();
+    await playing;
+    expect(player.state.playing).toBe(false);
+    expect(backend.live).toHaveLength(0);
+  });
+
+  it("does not play after Pause was pressed", async () => {
+    const { player, backend, open } = await withGate();
+    const playing = player.play();
+    player.pause();
+    open();
+    await playing;
+    expect(player.state.playing).toBe(false);
+    expect(backend.live).toHaveLength(0);
+  });
+
+  it("does not start the count-in after Stop either", async () => {
+    const { player, backend, open } = await withGate();
+    player.setCountIn(true);
+    const playing = player.play();
+    player.stop();
+    open();
+    await playing;
+    expect(player.state.countdown).toBeNull();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(backend.live).toHaveLength(0);
+  });
+
+  it("ignores a second Play while the first waits, and plays once", async () => {
+    const { player, backend, open } = await withGate();
+    const first = player.play();
+    const second = player.play();
+    open();
+    await Promise.all([first, second]);
+    expect(backend.resumed).toBe(1);
+    expect(backend.live).toHaveLength(3);
+  });
+
+  it("can play again after a Stop that ended a waiting Play", async () => {
+    const { player, backend, open } = await withGate();
+    const first = player.play();
+    player.stop();
+    open();
+    await first;
+    backend.resumeGate = null;
+    await player.play();
+    expect(player.state.playing).toBe(true);
+    expect(backend.live).toHaveLength(3);
   });
 });

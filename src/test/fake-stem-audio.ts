@@ -24,6 +24,8 @@ export interface FakeVoice extends AudioVoice {
   offset: number;
   gain: number;
   loop: StemLoop | null;
+  /** The moment on the audio clock the voice was told to begin. */
+  when: number;
   stopped: boolean;
   /** Plays to the end of the clip. */
   end(): void;
@@ -38,6 +40,8 @@ export class FakeAudioBackend implements AudioBackend {
   voices: FakeVoice[] = [];
   resumed = 0;
   closed = false;
+  /** When set, `resume` waits for it (to test a Play that is still waiting for the audio). */
+  resumeGate: Promise<void> | null = null;
   decode = vi.fn(async (bytes: ArrayBuffer): Promise<AudioClip> => {
     const duration = new DataView(bytes).getFloat32(0);
     return { duration, peaks: (buckets) => Array.from({ length: buckets }, (_, i) => (i % 5) / 5) };
@@ -49,12 +53,14 @@ export class FakeAudioBackend implements AudioBackend {
   }
   async resume() {
     this.resumed++;
+    await this.resumeGate;
   }
   start(
     clip: AudioClip,
     offset: number,
     gain: number,
     loop: StemLoop | null,
+    when: number,
     onEnded: () => void,
   ): AudioVoice {
     const voice: FakeVoice = {
@@ -62,6 +68,7 @@ export class FakeAudioBackend implements AudioBackend {
       offset,
       gain,
       loop,
+      when,
       stopped: false,
       stop: () => {
         voice.stopped = true;

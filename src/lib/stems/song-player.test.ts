@@ -88,9 +88,10 @@ describe("the Web Audio backend", () => {
     expect(clip.peaks(2)).toEqual([0.5, 1]);
 
     const ended = vi.fn();
-    const voice = backend.start(clip, 1.5, 0.25, { start: 1, end: 2 }, ended);
+    const voice = backend.start(clip, 1.5, 0.25, { start: 1, end: 2 }, 0, ended);
     const source = sources[0]!;
-    expect(source.start).toHaveBeenCalledWith(0, 1.5);
+    // A moment that has passed starts now (the context's clock is at 3).
+    expect(source.start).toHaveBeenCalledWith(3, 1.5);
     expect([source.loop, source.loopStart, source.loopEnd]).toEqual([true, 1, 2]);
     expect(gain.value).toBe(0.25);
     voice.setGain(0);
@@ -108,7 +109,8 @@ describe("the Web Audio backend", () => {
     const { sources } = stubContext();
     const backend = createWebAudioBackend()!;
     const clip = await backend.decode(new ArrayBuffer(8));
-    backend.start(clip, 0, 1, null, () => {});
+    backend.start(clip, 0, 1, null, 5, () => {});
+    expect(sources[0]!.start).toHaveBeenCalledWith(5, 0);
     expect(sources[0]!.loop).toBe(false);
     backend.close();
   });
