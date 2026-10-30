@@ -1354,3 +1354,178 @@ export const savePluginState = (track: number | "monitor" | null, sound: number,
 /** Live status of every plugin block of a chain. */
 export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
   call<PluginSlotInfo[]>("audio_plugin_info", { track, sound });
+
+// --- Stem separation (#186) --------------------------------------------------
+
+const STEMS_PROGRESS_EVENT = "stems-progress";
+const UMX_PROGRESS_EVENT = "umx-model-download-progress";
+
+/** The parts a song is split into, in the order the page lists them. Mirrors `StemKind`. */
+export const STEM_KINDS = ["drums", "bass", "vocals", "panned", "other"] as const;
+export type StemKindId = (typeof STEM_KINDS)[number];
+
+/** Fast is signal processing and built in; Neural is the optional downloaded model. */
+export type StemEngine = "fast" | "neural";
+
+/** Mirrors `SeparateRequest` in `src-tauri/src/stems/mod.rs`. */
+export interface SeparateRequest {
+  path: string;
+  /** The parts to pull out; "other" is always made. Neural ignores this and `strongDrums`. */
+  kinds: StemKindId[];
+  engine: StemEngine;
+  strongDrums: boolean;
+}
+
+export interface StemInfo {
+  kind: StemKindId;
+  bytes: number;
+}
+
+/** A separated song in the library (`<app data>/stems/<id>/`). */
+export interface StemSong {
+  id: string;
+  /** The file's name without its extension. */
+  name: string;
+  durationSeconds: number;
+  sampleRate: number;
+  engine: StemEngine;
+  strongDrums: boolean;
+  stems: StemInfo[];
+  /** The file was mono: vocals and panned parts cannot be told apart. */
+  mono: boolean;
+  /** Parts that were asked for but could not be separated. */
+  skipped: StemKindId[];
+  /** How much of the song sits hard to one side (0 to 1). */
+  pannedShare: number;
+  bytes: number;
+  createdAtMs: number;
+}
+
+export type StemStage = "reading" | "separating" | "saving" | "done";
+
+export interface StemProgress {
+  stage: StemStage;
+  /** 0 to 1 within the stage. */
+  fraction: number;
+}
+
+export interface StemCacheInfo {
+  bytes: number;
+  count: number;
+  limitBytes: number;
+}
+
+/** What Rust says when {@link cancelStemSeparation} stopped the running job (`separation::STOPPED`). */
+export const STEMS_STOPPED = "Stem separation stopped.";
+
+/** True for the error of a separation that was stopped on purpose. */
+export const isStemsStopped = (error: unknown): boolean =>
+  (typeof error === "string" ? error : (error as { message?: unknown } | null)?.message) ===
+  STEMS_STOPPED;
+
+/** Native Open dialog for the song to separate. */
+export async function pickStemFile(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: "Choose a song to separate",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Audio files", extensions: [...AUDIO_EXTENSIONS] }],
+  });
+}
+
+/**
+ * Splits a song into stems on this computer. `onProgress` gets each stage and the fraction done
+ * in it. Rejects with {@link STEMS_STOPPED} after {@link cancelStemSeparation}. Separating the
+ * same file with the same options again returns the saved song at once.
+ */
+export async function separateStems(
+  request: SeparateRequest,
+  onProgress?: (progress: StemProgress) => void,
+): Promise<StemSong> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<StemProgress>(STEMS_PROGRESS_EVENT, (event) => onProgress(event.payload))
+    : () => {};
+  try {
+    return await invoke<StemSong>("stems_separate", { request });
+  } finally {
+    stopListening();
+  }
+}
+
+/** Stops the running {@link separateStems}, which then rejects. */
+export async function cancelStemSeparation(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("stems_cancel");
+}
+
+/** The separated songs, newest first. */
+export const listStemSongs = () => call<StemSong[]>("stems_list");
+
+export const stemCacheInfo = () => call<StemCacheInfo>("stems_cache_info");
+
+export const deleteStemSong = (id: string) => call<void>("stems_delete", { id });
+
+/** Deletes every separated song. Resolves to the bytes freed. */
+export const clearStemSongs = () => call<number>("stems_clear");
+
+/** The WAV file of one stem (16-bit stereo). */
+export async function readStem(id: string, kind: StemKindId): Promise<ArrayBuffer> {
+  return call<ArrayBuffer>("stems_read", { id, kind });
+}
+
+/**
+ * The stems added up with `gains` (0 to 1 each, mute and solo already applied), slowed to
+ * `speed` (0.5 to 1) without changing the pitch, as a WAV file.
+ */
+export async function renderStemMix(
+  id: string,
+  gains: Partial<Record<StemKindId, number>>,
+  speed: number,
+): Promise<ArrayBuffer> {
+  return call<ArrayBuffer>("stems_render_mix", { id, request: { gains, speed } });
+}
+
+/** Mirrors `UmxStatus` in `src-tauri/src/stems/umx_model.rs`. */
+export interface UmxStatus {
+  downloaded: boolean;
+  termsAccepted: boolean;
+  termsVersion: number;
+  /** The size of the download. */
+  downloadBytes: number;
+  /** The licence wording the user confirms. */
+  licence: string;
+}
+
+export interface UmxDownloadProgress {
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
+export const umxModelStatus = () => call<UmxStatus>("umx_model_status");
+
+/** Records that the user accepted the terms of the neural model. */
+export const acceptUmxTerms = () => call<void>("umx_model_accept_terms");
+
+/** Downloads the neural model. Rejects with "Download stopped." after {@link cancelUmxDownload}. */
+export async function downloadUmxModel(
+  onProgress?: (progress: UmxDownloadProgress) => void,
+): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<UmxDownloadProgress>(UMX_PROGRESS_EVENT, (event) => onProgress(event.payload))
+    : () => {};
+  try {
+    await invoke<void>("umx_model_download");
+  } finally {
+    stopListening();
+  }
+}
+
+export async function cancelUmxDownload(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("umx_model_cancel");
+}
+
+export const removeUmxModel = () => call<void>("umx_model_remove");

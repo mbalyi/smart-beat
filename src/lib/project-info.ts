@@ -11,7 +11,15 @@ export const PROJECT = info;
 export const CONTACT_MAILTO = `mailto:${PROJECT.email}`;
 
 /** The project links the app opens (About dialog); each is allowed in the app's capability. */
-export const PROJECT_LINKS = [PROJECT.repository, PROJECT.ownerProfile, CONTACT_MAILTO];
+export const PROJECT_LINKS = [
+  PROJECT.repository,
+  PROJECT.ownerProfile,
+  CONTACT_MAILTO,
+  `${PROJECT.repository}/blob/main/docs/stem-separation-spike.md`,
+];
+
+/** The page that says what stem separation can and cannot do (Stem separation page, "Limits"). */
+export const STEM_LIMITS_URL = PROJECT_LINKS[3]!;
 
 /** The app version (package.json, the one canonical version; see docs/release.md). */
 export const APP_VERSION = version;

@@ -12,6 +12,8 @@ import {
   type MixerSettings,
   type MonitorParams,
   type Shortcut,
+  type StemSong,
+  type UmxStatus,
 } from "@/lib/tauri";
 
 /** Same shape the Rust `app_info` command returns (see src-tauri/tests/ipc.rs). */
@@ -48,6 +50,35 @@ export const SHORTCUTS: Shortcut[] = [
     spoken: "Command+Slash",
   },
 ];
+
+/** A separated song, as `stems_list` returns it. */
+export const STEM_SONG: StemSong = {
+  id: "0123456789abcdef",
+  name: "Neon Nights",
+  durationSeconds: 215,
+  sampleRate: 44_100,
+  engine: "fast",
+  strongDrums: false,
+  stems: (["drums", "bass", "vocals", "panned", "other"] as const).map((kind) => ({
+    kind,
+    bytes: 38_000_000,
+  })),
+  mono: false,
+  skipped: [],
+  pannedShare: 0.3,
+  bytes: 190_000_000,
+  createdAtMs: 1_790_000_000_000,
+};
+
+/** The neural model before anything is downloaded. */
+export const UMX_STATUS: UmxStatus = {
+  downloaded: false,
+  termsAccepted: false,
+  termsVersion: 1,
+  downloadBytes: 142_551_184,
+  licence:
+    "The code is MIT. The weights are listed as MIT, and were trained on MUSDB18-HQ, whose terms allow academic and educational use.",
+};
 
 type CommandHandler = (args?: InvokeArgs) => unknown;
 type MockMonitor = { params: MonitorParams; device: string | null; channel: number | null };
@@ -92,6 +123,10 @@ export const backend = {
   projectSettings: new Map<string, MixerSettings>(),
   /** Usage counter settings (see `src-tauri/src/telemetry.rs`); builds without an endpoint have none. */
   usage: { enabled: true, available: false, noticeSeen: true },
+  /** The separated songs `stems_list` returns (newest first). */
+  stemSongs: [] as StemSong[],
+  /** What `umx_model_status` returns. */
+  umx: { ...UMX_STATUS } as UmxStatus,
   /** The update the updater plugin finds, or `null` when this is the latest version. */
   update: null as { version: string; body?: string } | null,
   /** Makes `check` or the download fail with this message. */
@@ -138,6 +173,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.written.clear();
   backend.projectSettings.clear();
   backend.usage = { enabled: true, available: false, noticeSeen: true };
+  backend.stemSongs = [];
+  backend.umx = { ...UMX_STATUS };
   backend.update = null;
   backend.updateError = null;
   backend.updateBytes = 3000;
@@ -202,6 +239,28 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return [];
         case "cloud_disconnect":
           return null;
+        // Stem separation (#186). Tests override `stems_separate`, `stems_read` and
+        // `stems_render_mix` to play a part.
+        case "stems_list":
+          return backend.stemSongs;
+        case "stems_delete":
+          backend.stemSongs = backend.stemSongs.filter(
+            (song) => song.id !== (args as { id: string }).id,
+          );
+          return null;
+        case "stems_cache_info":
+          return {
+            bytes: backend.stemSongs.reduce((sum, song) => sum + song.bytes, 0),
+            count: backend.stemSongs.length,
+            limitBytes: 2 * 1024 ** 3,
+          };
+        case "stems_cancel":
+        case "umx_model_cancel":
+        case "umx_model_accept_terms":
+          if (cmd === "umx_model_accept_terms") backend.umx.termsAccepted = true;
+          return null;
+        case "umx_model_status":
+          return backend.umx;
         case "get_usage_settings":
           return backend.usage;
         case "set_usage_settings": {

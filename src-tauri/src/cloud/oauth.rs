@@ -542,8 +542,25 @@ mod tests {
         );
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf);
+            // Read the whole request, body included. The client may send the headers and the
+            // body in separate segments; answering and closing with the body still unread
+            // makes Windows reset the connection, and the client then sees a network error
+            // instead of the status.
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut length = 0usize;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = v.trim().parse().unwrap();
+                }
+            }
+            let mut request_body = vec![0u8; length];
+            reader.read_exact(&mut request_body).unwrap();
             let body = r#"{"error":"invalid_grant"}"#;
             let _ = write!(
                 stream,

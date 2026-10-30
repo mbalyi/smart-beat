@@ -19,6 +19,13 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "stem-separation",
+    title: "Stem separation",
+    summary:
+      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow down each part to play along. Open it from the Stem separation… button on the start screen.",
+    since: "1.2.0",
+  },
+  {
     id: "cloud-folder",
     title: "Cloud folder",
     summary:

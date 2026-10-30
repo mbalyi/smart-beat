@@ -249,7 +249,8 @@ fn imported_sounds_stay_on_this_computer() {
 
     // One network client, used from Rust, never from the page: `ureq` for the usage counters
     // (src/telemetry.rs), the piano model download (src/recording/piano_model.rs), the MuScriptor
-    // model download (src/recording/muscriptor_model.rs) and the SoundFont downloads
+    // model download (src/recording/muscriptor_model.rs), the Open-Unmix model download of Stem
+    // separation (src/stems/umx_model.rs, #186) and the SoundFont downloads
     // (src/audio/soundfonts.rs), and the cloud drive connectors the user links themselves in
     // Settings (src/cloud/: sign-in, and open/save of tabs in their own Google Drive, OneDrive or
     // Dropbox; nothing is sent until an account is connected). Transcription runs on this
@@ -272,6 +273,7 @@ fn imported_sounds_stay_on_this_computer() {
             "telemetry.rs",
             "recording/piano_model.rs",
             "recording/muscriptor_model.rs",
+            "stems/umx_model.rs",
             "audio/soundfonts.rs",
             "cloud/mod.rs",
             "cloud/oauth.rs",
@@ -312,6 +314,20 @@ fn imported_sounds_stay_on_this_computer() {
     assert!(
         !muscriptor.contains(".post("),
         "muscriptor_model.rs must only download"
+    );
+    // The Open-Unmix model download (#186) has one fixed address: the Zenodo record of the
+    // weights. Nothing the user separates is part of a request.
+    let umx = std::fs::read_to_string(src.join("stems/umx_model.rs")).unwrap();
+    let record = "https://zenodo.org/records/3370489/files/";
+    for (index, _) in umx.match_indices("https://") {
+        assert!(
+            umx[index..].starts_with(record),
+            "unexpected URL in umx_model.rs"
+        );
+    }
+    assert!(
+        !umx.contains(".post(") && !umx.contains(".put("),
+        "umx_model.rs must only download"
     );
     // The SoundFont downloads (#81) only GET, from the fixed catalogue addresses, over https.
     // Nothing the user types or imports is part of a request.
