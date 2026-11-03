@@ -10,8 +10,8 @@ targets = [
 ]
 
 [licenses]
-# Smart Beat's source is under PolyForm Noncommercial and its binaries may be sold under a
-# separate commercial license (ADR 0002), so only permissive licenses and MPL-2.0 (file-level
+# Smart Beat's source is under PolyForm Noncommercial and commercial use is not offered (ADR 0004).
+# The rules stay strict so a different licence remains possible later, so only permissive licenses and MPL-2.0 (file-level
 # copyleft, fine for unmodified crates) are allowed.
 # Rust links statically, so LGPL/GPL/AGPL crates are not allowed at all.
 allow = [

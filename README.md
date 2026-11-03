@@ -316,12 +316,12 @@ Smart Beat counts anonymously how often features are used (Loop, Metronome, Expo
 
 ## Licensing
 
-Smart Beat is **source-available, not open source**. The code is under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use it for personal use, learning and research. Selling it, wrapping it in another product, offering it as a service, or using it inside a company needs permission or a fee: see [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md). The released installers are free to download and use, including for making and selling your own music, under the [`EULA.md`](EULA.md). Questions about licensing: [smart-beat@outlook.com](mailto:smart-beat@outlook.com).
+Smart Beat is **source-available, not open source**. The code is under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use it for personal use, learning and research. Commercial use is not offered: selling it, wrapping it in another product, offering it as a service, or using it inside a company or for a business is not allowed, see [`NONCOMMERCIAL-USE.md`](NONCOMMERCIAL-USE.md). The released installers are free to download and are for the same purposes under the [`EULA.md`](EULA.md); what you create with Smart Beat is yours. Questions about licensing: [smart-beat@outlook.com](mailto:smart-beat@outlook.com).
 
-We only use dependencies whose licenses allow commercial, closed-source distribution, and CI enforces this.
+For code we only use dependencies with permissive licences (or MPL-2.0), and CI enforces this. AI model weights must allow noncommercial use and are accepted one by one, see [ADR 0004](docs/adr/0004-noncommercial-only.md).
 
-- [`docs/licensing.md`](docs/licensing.md): how the source licence, the EULA, third-party licences, model licences and commercial licences fit together, the component review, and the list of projects we must not copy code from.
-- [ADR 0002](docs/adr/0002-source-available-noncommercial-license.md): why we chose this license (it replaces [ADR 0001](docs/adr/0001-project-license.md)).
+- [`docs/licensing.md`](docs/licensing.md): how the source licence, the EULA, third-party licences and model licences fit together, the component review, and the list of projects we must not copy code from.
+- [ADR 0002](docs/adr/0002-source-available-noncommercial-license.md): why we chose this license (it replaces [ADR 0001](docs/adr/0001-project-license.md)); [ADR 0004](docs/adr/0004-noncommercial-only.md): why commercial use is not offered.
 
 ## Contributing
 

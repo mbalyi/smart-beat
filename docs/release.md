@@ -125,7 +125,7 @@ Not done by code, so on the list:
 - [ ] Add the two updater secrets on GitHub (the key exists and its public half is in `tauri.conf.json`); back the key file and its password up offline.
 - [ ] MuScriptor's CC BY-NC 4.0 weights are a documented, time-limited exception ([`audio-to-midi.md`](audio-to-midi.md#licensing)); a reply from Kyutai and Mirelo is still outstanding. Re-check the revocation triggers in `AGENTS.md` before any paid offer.
 - [ ] Apple Developer ID signing and notarization, and Windows code signing ([`code-signing.md`](code-signing.md)). Updates work without them, but installers show warnings.
-- [ ] Before any paid offer: lawyer review of `LICENSE` use, `COMMERCIAL-LICENSE.md` and `EULA.md` ([licensing.md](licensing.md#legal-review)).
+- [ ] Before any paid offer (not planned, see ADR 0004): lawyer review of `LICENSE` use, `NONCOMMERCIAL-USE.md` and `EULA.md` ([licensing.md](licensing.md#legal-review)).
 - [x] Scan the repository **and its git history** for secrets: done for #97 on 2026-10-12 (gitleaks, nothing found); CI repeats it on every PR. Re-run `pnpm licenses:check` right before going public.
 - [ ] Make the project board public too (README and CONTRIBUTING link to it), and check that `smart-beat@outlook.com` receives mail.
 - [ ] Publish a first release (N), then a second one (N+1), and check on each OS: the app finds N+1, shows the notes, verifies, installs and restarts. Only an install from a published release can prove the whole path (signature, URLs, permissions).
