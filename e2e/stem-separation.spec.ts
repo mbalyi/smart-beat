@@ -51,13 +51,18 @@ test.describe("Stem separation (#186)", () => {
     return dialog;
   }
 
-  /** Chooses the song through the (mocked) native dialog and goes to the options. */
-  async function chooseSong(app: Page, path = SONG_PATH) {
+  /**
+   * Chooses the song through the (mocked) native dialog and goes to the options. HTDemucs is
+   * chosen first but is not downloaded here, so the built-in Fast engine is picked, unless the
+   * test is about the engine choice itself (`keepEngine`).
+   */
+  async function chooseSong(app: Page, path = SONG_PATH, keepEngine = false) {
     const dialog = app.getByRole("dialog", { name: "Stem separation" });
     await app.evaluate((p) => (window.__dialogResult = p), path);
     await dialog.getByRole("button", { name: "Choose a song…" }).click();
     await expect(dialog.getByTestId("stem-file-name")).toBeVisible();
     await dialog.getByRole("button", { name: "Next" }).click();
+    if (!keepEngine) await dialog.getByRole("radio", { name: "Fast" }).check();
     return dialog;
   }
 
@@ -75,7 +80,11 @@ test.describe("Stem separation (#186)", () => {
     const dialog = await openDialog(app);
     await expect(dialog.getByText("Runs on this computer. Nothing is uploaded.")).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Next" })).toBeDisabled();
-    await chooseSong(app);
+    await chooseSong(app, SONG_PATH, true);
+
+    // HTDemucs is chosen first; the built-in engine is the one with parts to choose from.
+    await expect(dialog.getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+    await dialog.getByRole("radio", { name: "Fast" }).check();
 
     // The parts: four to choose from, Other always on and marked.
     await expect(dialog.getByRole("checkbox", { name: /^Drums/ })).toBeChecked();
@@ -279,7 +288,7 @@ test.describe("Stem separation (#186)", () => {
   /** The options step with the engine cards (the dialog is open and a song is chosen). */
   async function toEngines(app: Page) {
     const dialog = await openDialog(app);
-    await chooseSong(app);
+    await chooseSong(app, SONG_PATH, true);
     const group = dialog.getByRole("radiogroup", { name: "Engine" });
     await expect(group).toBeVisible();
     return { dialog, group };
@@ -288,7 +297,8 @@ test.describe("Stem separation (#186)", () => {
   test("lists the engines with what each is best at and recommends HTDemucs", async ({ app }) => {
     const { group } = await toEngines(app);
     await expect(group.getByRole("radio")).toHaveCount(5);
-    await expect(group.getByRole("radio", { name: "Fast" })).toBeChecked();
+    await expect(group.getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+    await expect(group.getByRole("radio", { name: "Fast" })).not.toBeChecked();
     const card = (name: string) =>
       group.locator("label").filter({ has: app.getByRole("radio", { name }) });
     await expect(card("HTDemucs")).toContainText("Recommended");

@@ -114,7 +114,8 @@ function StemFlow({
   const [path, setPath] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [kinds, setKinds] = useState<StemKindId[]>([...CHOICES]);
-  const [engine, setEngine] = useState<StemEngine>("fast");
+  // With the models offered, the recommended one is chosen first (Separate waits for its download).
+  const [engine, setEngine] = useState<StemEngine>(neuralOffered ? "htdemucs" : "fast");
   const [strongDrums, setStrongDrums] = useState(false);
   const [progress, setProgress] = useState<StemProgress | null>(null);
   const [stopping, setStopping] = useState(false);

@@ -277,7 +277,7 @@ describe("Stem separation dialog: the engines", () => {
     vi.mocked(isEnabled).mockImplementation((id) => id === "stem-separation-neural"),
   );
 
-  it("lists the engines as cards, with Fast first and chosen", async () => {
+  it("lists the engines as cards, with Fast first and HTDemucs chosen", async () => {
     const { user } = setup();
     await toOptions(user);
     const group = screen.getByRole("radiogroup", { name: "Engine" });
@@ -289,7 +289,8 @@ describe("Stem separation dialog: the engines", () => {
       "scnet",
       "neural",
     ]);
-    expect(within(group).getByRole("radio", { name: "Fast" })).toBeChecked();
+    expect(within(group).getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+    expect(within(group).getByRole("radio", { name: "Fast" })).not.toBeChecked();
     expect(within(group).getByRole("radio", { name: "UMX-HQ" })).not.toBeChecked();
   });
 
