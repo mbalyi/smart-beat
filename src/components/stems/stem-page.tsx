@@ -38,10 +38,13 @@ import type { StemKindId, StemSong } from "@/lib/tauri";
 export function StemPage({
   song,
   onBack,
+  onOpenCloudSettings,
   createPlayer = createSongPlayer,
 }: {
   song: StemSong;
   onBack: () => void;
+  /** Opens Settings on the cloud folder section (from the Save dialog's hint). */
+  onOpenCloudSettings?: () => void;
   /** Where the sound comes from; tests give a fake. */
   createPlayer?: (song: StemSong) => StemPlayer | null;
 }) {
@@ -69,6 +72,7 @@ export function StemPage({
   const [saved, setSaved] = useState<{ id: string; path: string } | null>(null);
   const savedPath = saved?.id === song.id ? saved.path : song.savedPath;
   const [saving, setSaving] = useState(false);
+  const goingToSettings = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
 
   const kinds = useMemo(() => songKinds(song), [song]);
@@ -145,9 +149,18 @@ export function StemPage({
         open={saving}
         onOpenChange={setSaving}
         onSaved={(path) => setSaved({ id: song.id, path })}
+        onOpenCloudSettings={
+          onOpenCloudSettings &&
+          (() => {
+            goingToSettings.current = true;
+            onOpenCloudSettings();
+          })
+        }
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          saveButton.current?.focus();
+          // Settings takes the focus when the dialog closes to open it.
+          if (!goingToSettings.current) saveButton.current?.focus();
+          goingToSettings.current = false;
         }}
       />
 

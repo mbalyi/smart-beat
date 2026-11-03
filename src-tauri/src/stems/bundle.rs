@@ -334,7 +334,39 @@ impl<'a> Throttle<'a> {
     }
 }
 
+/// Whether `e` (or what caused it) is a full disk. A full disk is the one write failure with a
+/// remedy the user knows, so it gets its own message.
+fn is_disk_full<E: std::error::Error + 'static>(e: &E) -> bool {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(e);
+    while let Some(error) = current {
+        if let Some(io) = error.downcast_ref::<std::io::Error>()
+            && io.kind() == std::io::ErrorKind::StorageFull
+        {
+            return true;
+        }
+        if let Some(zip::result::ZipError::Io(io)) = error.downcast_ref::<zip::result::ZipError>()
+            && io.kind() == std::io::ErrorKind::StorageFull
+        {
+            return true;
+        }
+        current = error.source();
+    }
+    false
+}
+
+const DISK_FULL: &str = "There is not enough free space to save the stems file.";
+
+fn write_err<E: std::error::Error + 'static>(e: &E) -> CommandError {
+    if is_disk_full(e) {
+        fail(ErrorKind::Io, DISK_FULL)
+    } else {
+        io_fail("The file could not be written", e)
+    }
+}
+
 /// A file being written next to its destination. Removed unless it is renamed into place.
+/// In a folder a cloud client watches, the name is one such clients skip: hidden (leading dot)
+/// and `.tmp` (`.Song.sbstems.1234-0.tmp`); the rename into place is what they upload.
 struct TempFile {
     path: PathBuf,
     keep: bool,
@@ -473,8 +505,13 @@ pub fn save(
     progress.at(0.0);
 
     let temp = TempFile::beside(&dest);
-    let out = File::create(&temp.path).map_err(|e| io_fail("The file cannot be created", e))?;
-    let write_err = |e: &dyn std::fmt::Display| io_fail("The file could not be written", e);
+    let out = File::create(&temp.path).map_err(|e| {
+        if is_disk_full(&e) {
+            fail(ErrorKind::Io, DISK_FULL)
+        } else {
+            io_fail("The file cannot be created", e)
+        }
+    })?;
     let mut zip = ZipWriter::new(BufWriter::with_capacity(1 << 20, out));
 
     // The stems, one at a time: only one encoded stem is in memory.
@@ -596,7 +633,7 @@ pub fn save(
         .finish()
         .map_err(|e| write_err(&e))?
         .into_inner()
-        .map_err(|e| write_err(&e.error()))?;
+        .map_err(|e| write_err(e.error()))?;
     file.sync_all().map_err(|e| write_err(&e))?;
     drop(file);
     std::fs::rename(&temp.path, &dest).map_err(|e| io_fail("The file cannot be saved", e))?;
@@ -619,6 +656,50 @@ pub fn save(
         bytes,
         original_included: original.embedded,
     })
+}
+
+/// Mirrored by `StemBundleEstimate` in `src/lib/tauri.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Estimate {
+    /// About how many bytes the file will have. An estimate, not a promise.
+    pub bytes: u64,
+}
+
+/// An ESTIMATE of the size of the `.sbstems` file for the song `id`, for "about 80 MB" in the
+/// Save dialog. FLAC takes about half of the cache's 16-bit WAV files, so it is half of their
+/// size, plus the original audio when `include_original` is set and it can still be found (the
+/// source file, or the file the song was opened from). Only file sizes are looked at; the actual
+/// size depends on the music and is usually within a few tens of percent.
+pub fn estimate(
+    store: &StemStore,
+    id: &str,
+    include_original: bool,
+) -> Result<Estimate, CommandError> {
+    let song = store
+        .get(id)
+        .ok_or_else(|| fail(ErrorKind::NotFound, "That song is not saved any more."))?;
+    let wav: u64 = song.stems.iter().map(|s| s.bytes).sum();
+    let mut bytes = wav / 2;
+    if include_original {
+        bytes += original_size(store, &song).unwrap_or(0);
+    }
+    Ok(Estimate { bytes })
+}
+
+/// The size of the audio file [`find_original`] would embed, without reading it.
+fn original_size(store: &StemStore, song: &StemSong) -> Option<u64> {
+    if let Some(source) = store.source(&song.id)
+        && let Ok(metadata) = std::fs::metadata(&source.path)
+        && metadata.is_file()
+        && metadata.len() <= backing::MAX_FILE_BYTES as u64
+    {
+        return Some(metadata.len());
+    }
+    let saved = Path::new(song.saved_path.as_deref()?);
+    let mut archive = ZipArchive::new(BufReader::new(File::open(saved).ok()?)).ok()?;
+    let manifest = read_manifest(&mut archive, "bundle").ok()?;
+    (manifest.id == song.id && manifest.original.embedded).then_some(manifest.original.bytes)
 }
 
 /// Reads an entry that must be there, checks its size and SHA-256 against the manifest.
@@ -874,6 +955,7 @@ pub async fn stems_open_bundle<R: Runtime>(
                     },
                 );
             };
+            wait_if_evicted(&app, Path::new(&path))?;
             open(&store, Path::new(&path), &stop, &mut emit)
         })
     };
@@ -884,8 +966,41 @@ pub async fn stems_open_bundle<R: Runtime>(
 
 /// The mixer state stored in a `.sbstems` file, or `null`.
 #[tauri::command(async)]
-pub fn stems_bundle_state(path: String) -> Result<Option<Value>, CommandError> {
+pub fn stems_bundle_state<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+) -> Result<Option<Value>, CommandError> {
+    wait_if_evicted(&app, Path::new(&path))?;
     read_state(Path::new(&path))
+}
+
+/// An ESTIMATE of the size of the file `stems_save_bundle` would write, `{ bytes }`, for the Save
+/// dialog. See [`estimate`].
+#[tauri::command(async)]
+pub fn stems_estimate_bundle(
+    store: State<'_, StemStore>,
+    id: String,
+    include_original: bool,
+) -> Result<Estimate, CommandError> {
+    estimate(&store, &id, include_original)
+}
+
+/// A file in the linked cloud folder may be online-only (an evicted iCloud file): waits for it to
+/// download, sending `cloud-download-waiting` (the path) once, as opening a tab does. Other
+/// drives download on first read, which the read waits for. A file that is just missing is let
+/// through to the reader's own message.
+fn wait_if_evicted<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), CommandError> {
+    crate::cloud_folder::wait_if_evicted(
+        path,
+        crate::cloud_folder::DOWNLOAD_TIMEOUT,
+        crate::cloud_folder::request_icloud_download,
+        || {
+            let _ = app.emit(
+                crate::cloud_folder::DOWNLOAD_WAITING_EVENT,
+                path.to_string_lossy().into_owned(),
+            );
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1657,5 +1772,143 @@ mod tests {
             started.elapsed()
         );
         assert!(result.bytes < song.bytes);
+    }
+
+    #[test]
+    fn the_estimate_is_half_the_cache_plus_the_original_when_it_is_there() {
+        let (dir, store, song) = setup();
+        let plain = estimate(&store, ID, false).unwrap();
+        assert_eq!(plain.bytes, song.bytes / 2);
+        assert!(plain.bytes > 0);
+        // No source yet: asking for the original adds nothing.
+        assert_eq!(estimate(&store, ID, true).unwrap(), plain);
+
+        let audio = dir.path().join("Band Song.mp3");
+        let body = vec![7u8; 5_000];
+        std::fs::write(&audio, &body).unwrap();
+        Source::of(&audio, &body)
+            .write(&store.song_dir(ID).unwrap())
+            .unwrap();
+        assert_eq!(
+            estimate(&store, ID, true).unwrap().bytes,
+            plain.bytes + 5_000
+        );
+        assert_eq!(estimate(&store, ID, false).unwrap(), plain);
+
+        // The source is gone but the file the song was saved to has the original.
+        let file = dir.path().join("kept.sbstems");
+        assert!(save_ok(&store, &request(ID, &file, true)).original_included);
+        std::fs::remove_file(&audio).unwrap();
+        assert_eq!(
+            estimate(&store, ID, true).unwrap().bytes,
+            plain.bytes + 5_000
+        );
+
+        // Nowhere to find it: the stems alone.
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(estimate(&store, ID, true).unwrap(), plain);
+    }
+
+    #[test]
+    fn the_estimate_serializes_as_bytes_and_a_missing_song_is_not_found() {
+        let (_dir, store, _) = setup();
+        let json = serde_json::to_value(estimate(&store, ID, false).unwrap()).unwrap();
+        assert!(json["bytes"].is_u64());
+        assert_eq!(json.as_object().unwrap().len(), 1);
+        let error = estimate(&store, "ffffffffffffffff", false).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn the_temp_file_is_hidden_and_a_tmp_file_that_a_sync_client_skips() {
+        let dest = Path::new("/drive/Band: Song.sbstems");
+        let temp = TempFile::beside(dest);
+        let name = file_name(&temp.path);
+        assert!(name.starts_with('.'), "{name}");
+        assert!(name.ends_with(".tmp"), "{name}");
+        assert_eq!(temp.path.parent(), dest.parent());
+        assert!(!is_bundle(&temp.path));
+        assert_ne!(temp.path, TempFile::beside(dest).path);
+        let mut temp = temp;
+        temp.keep = true;
+    }
+
+    #[test]
+    fn a_save_leaves_only_the_file_and_the_cloud_lister_sees_it() {
+        let (dir, store, _) = setup();
+        let folder = dir.path().join("Drive");
+        std::fs::create_dir(&folder).unwrap();
+        let file = folder.join("Band Song.sbstems");
+        let result = save_ok(&store, &request(ID, &file, false));
+        let names: Vec<_> = std::fs::read_dir(&folder)
+            .unwrap()
+            .map(|e| file_name(&e.unwrap().path()))
+            .collect();
+        assert_eq!(names, ["Band Song.sbstems"]);
+        let listed = crate::cloud_folder::list_stems(&folder).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].size, result.bytes);
+        assert_eq!(listed[0].path, result.path);
+    }
+
+    #[test]
+    fn a_full_disk_gets_its_own_message_and_other_errors_do_not() {
+        let full = std::io::Error::from(std::io::ErrorKind::StorageFull);
+        assert!(is_disk_full(&full));
+        assert!(is_disk_full(&zip::result::ZipError::Io(
+            std::io::Error::from(std::io::ErrorKind::StorageFull)
+        )));
+        assert_eq!(write_err(&full).message, DISK_FULL);
+        let other = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert!(!is_disk_full(&other));
+        assert!(
+            write_err(&other)
+                .message
+                .starts_with("The file could not be written")
+        );
+    }
+
+    #[test]
+    fn an_online_only_bundle_is_waited_for_then_opened_from_the_stream() {
+        let (dir, store, _) = setup();
+        let made = dir.path().join("made.sbstems");
+        save_ok(&store, &request(ID, &made, false));
+
+        // In the cloud folder the file is an iCloud placeholder until the client downloads it.
+        let folder = dir.path().join("Drive");
+        std::fs::create_dir(&folder).unwrap();
+        let target = folder.join("Away.sbstems");
+        std::fs::write(folder.join(".Away.sbstems.icloud"), b"plist").unwrap();
+        let waited = std::cell::Cell::new(0);
+        crate::cloud_folder::wait_if_evicted(
+            &target,
+            std::time::Duration::from_secs(5),
+            |_| {
+                let (from, to) = (made.clone(), target.clone());
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    std::fs::copy(from, to).unwrap();
+                });
+            },
+            || waited.set(waited.get() + 1),
+        )
+        .unwrap();
+        assert_eq!(waited.get(), 1);
+        let fresh = StemStore::new(dir.path().join("fresh"));
+        let opened = open_ok(&fresh, &target);
+        assert_eq!(opened.id, ID);
+        assert_eq!(opened.saved_path.as_deref(), target.to_str());
+
+        // A bundle that is not there at all goes on to the opener's own message.
+        let gone = folder.join("Gone.sbstems");
+        crate::cloud_folder::wait_if_evicted(
+            &gone,
+            std::time::Duration::ZERO,
+            |_| {},
+            || panic!("nothing to wait for"),
+        )
+        .unwrap();
+        let error = open(&fresh, &gone, &AtomicBool::new(false), &mut |_| {}).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::NotFound);
     }
 }

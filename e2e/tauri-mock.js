@@ -151,6 +151,47 @@
     abort: null,
   };
   /**
+   * The linked cloud folder (#187) and the stems in it (#186). `folder` is the linked folder (`null`
+   * = none, so `get_cloud_folder` answers `null`); `scores` is what `list_cloud_scores` returns.
+   * `list_cloud_stems` lists the saved stem files (`window.__stemBundles.files`) whose path is in
+   * the folder, so a save into it appears there, with the size and time of that save in `meta`
+   * (`size` and `modified_ms`, as the Rust `CloudScore` serializes them). A path in `placeholders`
+   * is a cloud-only file: opening it announces "cloud-download-waiting" and waits until
+   * `download(path)` (the drive app finished) is called. `savePaths` lists the answers of
+   * `stems_cloud_save_path`, `estimates` the `stems_estimate_bundle` requests, `estimateBytes`
+   * overrides the estimate (`null` = the library size plus 3 MiB for the original).
+   */
+  window.__cloud = {
+    folder: null,
+    scores: [],
+    meta: {},
+    placeholders: {},
+    savePaths: [],
+    estimates: [],
+    estimateBytes: null,
+    waiting: {},
+    download(path) {
+      delete window.__cloud.placeholders[path];
+      window.__cloud.waiting[path]?.();
+    },
+  };
+  /** The `.sbstems` files in the linked folder, as `CloudStem` (`list_cloud_stems`). */
+  const cloudStems = () => {
+    const cloud = window.__cloud;
+    if (!cloud.folder) return [];
+    const prefix = `${cloud.folder}/`;
+    return Object.keys(window.__stemBundles.files)
+      .filter((path) => path.startsWith(prefix) && path.endsWith(".sbstems"))
+      .map((path) => ({
+        name: path.slice(prefix.length).replace(/\.sbstems$/, ""),
+        path,
+        size: cloud.meta[path]?.size ?? 40 * 1024 * 1024,
+        modified_ms: cloud.meta[path]?.modified_ms ?? 1790000000000,
+        placeholder: Boolean(cloud.placeholders[path]),
+      }));
+  };
+
+  /**
    * The downloadable stem models (#186, src-tauri/src/stems/umx_model.rs and models.rs), by
    * engine: `neural` is UMX-HQ (its own `umx_model_*` commands), the rest use `stem_model_*`.
    * `available: false` is a model that is not published yet. `hold` keeps a download running
@@ -1038,6 +1079,7 @@
         const bytes = song.bytes + (originalIncluded ? 3 * 1024 * 1024 : 0);
         song.savedPath = dest;
         bundles.files[dest] = { ...song, hasOriginal: originalIncluded };
+        window.__cloud.meta[dest] = { size: bytes, modified_ms: (window.__stems.clock += 1000) };
         window.__emitTauriEvent("stems-bundle-progress", { stage: "writing", fraction: 1 });
         return { path: dest, bytes, originalIncluded };
       }
@@ -1052,6 +1094,13 @@
           });
         }
         if (bundles.fail) throw { kind: "io", message: bundles.fail };
+        const cloud = window.__cloud;
+        if (cloud.placeholders[args.path]) {
+          // An online-only file: wait for the drive app to download it.
+          window.__emitTauriEvent("cloud-download-waiting", args.path);
+          await new Promise((resolve) => (cloud.waiting[args.path] = resolve));
+          delete cloud.waiting[args.path];
+        }
         const file = bundles.files[args.path];
         if (!file) throw { kind: "io", message: "This is not a Smart Beat stems file." };
         const song = { ...file, savedPath: args.path, lastOpened: (window.__stems.clock += 1000) };
@@ -1060,6 +1109,42 @@
           ...window.__stems.songs.filter((item) => item.id !== song.id),
         ];
         return song;
+      }
+      case "get_cloud_folder":
+        return window.__cloud.folder;
+      case "set_cloud_folder":
+        window.__cloud.folder = args.folder;
+        return args.folder;
+      case "detect_cloud_folders":
+        return [];
+      case "list_cloud_scores":
+        return window.__cloud.scores;
+      case "list_cloud_stems":
+        return cloudStems();
+      case "stems_cloud_save_path": {
+        const cloud = window.__cloud;
+        if (!cloud.folder) {
+          throw { kind: "not-found", message: "No cloud folder is linked. Link one in Settings." };
+        }
+        const base =
+          String(args.name)
+            .replace(/[\\/:*?"<>|]/g, "_")
+            .trim() || "stems";
+        const taken = (path) => path in window.__stemBundles.files;
+        let path = `${cloud.folder}/${base}.sbstems`;
+        for (let n = 2; taken(path); n += 1) path = `${cloud.folder}/${base} (${n}).sbstems`;
+        cloud.savePaths.push(path);
+        return path;
+      }
+      case "stems_estimate_bundle": {
+        const cloud = window.__cloud;
+        cloud.estimates.push(args);
+        const song = window.__stems.songs.find((item) => item.id === args.id);
+        if (!song) throw { kind: "audio", message: "These stems are no longer on this computer." };
+        const withOriginal = Boolean(args.includeOriginal && song.hasOriginal);
+        return {
+          bytes: cloud.estimateBytes ?? song.bytes + (withOriginal ? 3 * 1024 * 1024 : 0),
+        };
       }
       case "stems_cache_info":
         return { bytes: 0, count: window.__stems.songs.length, limitBytes: 2 * 1024 ** 3 };

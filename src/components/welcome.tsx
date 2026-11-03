@@ -14,6 +14,7 @@ import { useId, useState } from "react";
 
 import { BuiltWith } from "@/components/built-with";
 import { CloudScores } from "@/components/cloud-scores";
+import { CloudStems } from "@/components/cloud-stems";
 import { OptionalAddons } from "@/components/optional-addons";
 import { isEnabled } from "@/lib/features";
 import { SectionKicker } from "@/components/section-kicker";
@@ -22,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { recentEntries } from "@/components/stems/stem-recent";
 import { StemRecentCard } from "@/components/stems/stem-songs";
+import { useCloudFolder } from "@/components/stems/use-cloud-folder";
 import { useStemSongs } from "@/components/stems/use-stem-songs";
 import { FEATURES, type Feature } from "@/components/welcome-features";
 import { cloudItemName, providerLabel, providerOf } from "@/lib/cloud-items";
@@ -57,6 +59,7 @@ export function Welcome({
   recent = [],
   onOpenRecent,
   onOpenCloud,
+  onOpenCloudStem,
   onShowLicenses,
   onTakeTour,
   tour,
@@ -77,6 +80,8 @@ export function Welcome({
   onOpenRecent?: (path: string) => void;
   /** Opens a tab from the linked cloud folder; the Cloud section is left out without it. */
   onOpenCloud?: (path: string) => void;
+  /** Opens a saved `.sbstems` file of the linked cloud folder; its section is left out without it. */
+  onOpenCloudStem?: (path: string) => void;
   /** "View open-source notices": opens Help › Open-Source Licenses. */
   onShowLicenses?: () => void;
   /** Starts the guided tour (also Help › Take the Tour). */
@@ -85,6 +90,8 @@ export function Welcome({
   tour?: { onStart: () => void; onSkip: () => void };
 }) {
   const stems = useStemSongs(onOpenStemSong !== undefined);
+  // A song saved inside the cloud folder is marked on its card.
+  const cloudFolder = useCloudFolder(onOpenStemSong !== undefined);
   // Separated songs and recent songs share one grid (see `recentEntries` for the order).
   const entries = recentEntries(onOpenRecent ? recent : [], stems.songs);
   return (
@@ -188,6 +195,7 @@ export function Welcome({
                     index={index}
                     onOpen={(song) => onOpenStemSong?.(song)}
                     onDelete={stems.remove}
+                    cloudFolder={cloudFolder}
                   />
                 </li>
               ) : (
@@ -238,6 +246,7 @@ export function Welcome({
       )}
 
       {onOpenCloud && <CloudScores onOpen={onOpenCloud} />}
+      {onOpenCloudStem && <CloudStems onOpen={onOpenCloudStem} />}
 
       <section aria-labelledby="roadmap-title" className="flex flex-col gap-5">
         <div className="flex items-end justify-between gap-4">

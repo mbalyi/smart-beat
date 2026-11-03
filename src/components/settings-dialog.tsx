@@ -280,7 +280,8 @@ function CloudFolderSetting({
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
         Link a folder that your cloud service already syncs (iCloud Drive, Dropbox, OneDrive, Google
-        Drive) to keep your songs on all your computers.
+        Drive) to keep your songs on all your computers. Saved stems can be kept there too: Smart
+        Beat only writes the files, and your drive app uploads them.
       </p>
       <p className="text-sm" data-testid="cloud-folder-current">
         {folder ? (

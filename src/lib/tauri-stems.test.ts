@@ -10,7 +10,9 @@ import {
   deleteStemSong,
   downloadStemModel,
   downloadUmxModel,
+  estimateStemBundle,
   isStemsStopped,
+  listCloudStems,
   listStemSongs,
   NotInDesktopAppError,
   onStemBundleOpened,
@@ -29,6 +31,7 @@ import {
   STEMS_STOPPED,
   stemCacheInfo,
   stemModelStatus,
+  stemsCloudSavePath,
   touchStemSong,
   umxModelStatus,
   type BundleProgress,
@@ -63,6 +66,12 @@ describe("stem separation outside the desktop app", () => {
     await expect(pickStemBundle()).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(pickStemBundleDestination("Song")).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(revealInFolder("/x.sbstems")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(stemsCloudSavePath("Song")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(estimateStemBundle("a", true)).rejects.toBeInstanceOf(NotInDesktopAppError);
+  });
+
+  it("lists no cloud stems", async () => {
+    await expect(listCloudStems()).resolves.toEqual([]);
   });
 
   it("has no file to be told about", async () => {
@@ -272,6 +281,42 @@ describe("saved stems (.sbstems)", () => {
     expect(calls).toContainEqual({
       cmd: "stems_open_bundle",
       args: { path: "/Music/Neon.sbstems" },
+    });
+  });
+
+  it("lists the .sbstems files of the cloud folder", async () => {
+    const calls = mockTauri();
+    backend.cloudStems = [
+      {
+        name: "Neon.sbstems",
+        path: "/Dropbox/Neon.sbstems",
+        size: 9,
+        modified_ms: 1,
+        placeholder: true,
+      },
+    ];
+    await expect(listCloudStems()).resolves.toEqual(backend.cloudStems);
+    expect(calls).toContainEqual({ cmd: "list_cloud_stems", args: {} });
+  });
+
+  it("asks for a save path in the cloud folder by the song name", async () => {
+    const calls = mockTauri();
+    backend.cloudFolder = "/Dropbox";
+    await expect(stemsCloudSavePath("Neon Nights")).resolves.toBe("/Dropbox/Neon Nights.sbstems");
+    expect(calls).toContainEqual({ cmd: "stems_cloud_save_path", args: { name: "Neon Nights" } });
+  });
+
+  it("rejects with not-found when no cloud folder is linked", async () => {
+    mockTauri();
+    await expect(stemsCloudSavePath("Neon Nights")).rejects.toMatchObject({ kind: "not-found" });
+  });
+
+  it("estimates the size of the file with or without the original", async () => {
+    const calls = mockTauri({ stems_estimate_bundle: () => ({ bytes: 123 }) });
+    await expect(estimateStemBundle("abc", false)).resolves.toEqual({ bytes: 123 });
+    expect(calls).toContainEqual({
+      cmd: "stems_estimate_bundle",
+      args: { id: "abc", includeOriginal: false },
     });
   });
 

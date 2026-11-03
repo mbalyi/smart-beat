@@ -12,6 +12,7 @@ import {
   type MixerSettings,
   type MonitorParams,
   type Shortcut,
+  type CloudStem,
   type StemSong,
   type StemModelId,
   type StemModelStatus,
@@ -126,6 +127,10 @@ export const backend = {
   mixes: new Map<string, MixerSettings>(),
   /** Path the Open dialog picks, or `null` for Cancel. */
   dialogResult: null as string | null,
+  /** The linked cloud folder `get_cloud_folder` returns (none by default). */
+  cloudFolder: null as string | null,
+  /** The `.sbstems` files `list_cloud_stems` returns (newest first). */
+  cloudStems: [] as CloudStem[],
   /** What `cloud_accounts` returns (none connected by default). */
   cloudAccounts: [] as {
     provider: string;
@@ -199,6 +204,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.mixes.clear();
   backend.dialogResult = null;
   backend.cloudAccounts = [];
+  backend.cloudFolder = null;
+  backend.cloudStems = [];
   backend.menuState = null;
   backend.recent = [];
   backend.pendingOpen = [];
@@ -266,7 +273,21 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         // No folder linked and none detected; no cloud accounts or pending uploads (#187).
         case "get_cloud_folder":
-          return null;
+          return backend.cloudFolder;
+        case "list_cloud_stems":
+          return backend.cloudStems;
+        // Mirrors the Rust command: a path in the linked folder, "not-found" without one.
+        case "stems_cloud_save_path": {
+          if (!backend.cloudFolder) return fail("not-found", "No cloud folder is linked.");
+          return `${backend.cloudFolder}/${(args as { name: string }).name}.sbstems`;
+        }
+        // An estimate: the original adds 25 MB to the stems.
+        case "stems_estimate_bundle":
+          return {
+            bytes: (args as { includeOriginal: boolean }).includeOriginal
+              ? 80 * 1024 * 1024
+              : 55 * 1024 * 1024,
+          };
         case "cloud_accounts":
           return backend.cloudAccounts.map((a) => ({ configured: true, ...a }));
         case "detect_cloud_folders":

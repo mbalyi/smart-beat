@@ -511,6 +511,42 @@ describe("Welcome: stem separation (#186)", () => {
     expect(saved[0]!.closest("li")).toHaveTextContent("Neon Nights");
   });
 
+  it("marks a song saved in the linked cloud folder with a cloud icon, and no other", async () => {
+    mockTauri();
+    backend.cloudFolder = "/Users/me/Dropbox";
+    backend.stemSongs = [
+      { ...STEM_SONG, savedPath: "/Users/me/Dropbox/Neon Nights.sbstems" },
+      { ...BLUE_HOUR, savedPath: "/Users/me/Dropbox-old/Blue Hour.sbstems" },
+    ];
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+      />,
+    );
+    const marks = await screen.findAllByRole("img", { name: "Saved in your cloud folder" });
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.closest("li")).toHaveTextContent("Neon Nights");
+    expect(await screen.findAllByText("Saved")).toHaveLength(2);
+  });
+
+  it("shows no cloud icon when no folder is linked", async () => {
+    mockTauri();
+    backend.stemSongs = [{ ...STEM_SONG, savedPath: "/Users/me/Dropbox/Neon Nights.sbstems" }];
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+      />,
+    );
+    await screen.findByText("Saved");
+    expect(screen.queryByRole("img", { name: "Saved in your cloud folder" })).toBeNull();
+  });
+
   it("shows no Recent section when nothing was opened or separated", async () => {
     mockTauri();
     renderWithProviders(

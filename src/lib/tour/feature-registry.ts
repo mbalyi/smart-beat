@@ -22,7 +22,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: "stem-separation",
     title: "Stem separation",
     summary:
-      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow down each part to play along. Save a separation to a file, with or without the original song, and open it again later from Open saved stems… without separating again. Open it from the Stem separation… button on the start screen.",
+      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow down each part to play along. Save a separation to a file, with or without the original song, and open it again later from Open saved stems… without separating again, or save it in your linked cloud folder so your drive app keeps it on your other computers. Open it from the Stem separation… button on the start screen.",
     since: "1.2.0",
   },
   {

@@ -1,6 +1,7 @@
-import { CheckIcon, LayersIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, CloudIcon, LayersIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
+import { isInFolder } from "@/components/stems/stem-recent";
 import { engineLabel } from "@/components/stems/stem-engines";
 import { formatTime } from "@/components/stems/stem-labels";
 import { Badge } from "@/components/ui/badge";
@@ -17,9 +18,12 @@ export function StemRecentCard({
   index,
   onOpen,
   onDelete,
+  cloudFolder = null,
 }: {
   song: StemSong;
   index: number;
+  /** The linked cloud folder: a song saved inside it gets a cloud mark. */
+  cloudFolder?: string | null;
   onOpen: (song: StemSong) => void;
   onDelete: (song: StemSong) => Promise<void>;
 }) {
@@ -54,6 +58,13 @@ export function StemRecentCard({
                 <CheckIcon aria-hidden="true" />
                 Saved
               </Badge>
+            )}
+            {song.savedPath && isInFolder(song.savedPath, cloudFolder) && (
+              <CloudIcon
+                role="img"
+                aria-label="Saved in your cloud folder"
+                className="size-4 shrink-0 text-muted-foreground"
+              />
             )}
           </span>
           <span className="truncate text-sm text-muted-foreground">

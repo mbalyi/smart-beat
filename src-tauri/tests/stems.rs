@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::mpsc;
 
 use serde_json::{Value, json};
+use smart_beat_lib::cloud_folder::CloudFolderStore;
 use smart_beat_lib::menu::MAIN_WINDOW;
 use smart_beat_lib::separation::synth;
 use smart_beat_lib::stems::{StemStore, StemsRun};
@@ -21,6 +22,13 @@ const STOPPED: &str = "Stem separation stopped.";
 
 fn app_with(store: StemStore) -> App<MockRuntime> {
     smart_beat_lib::setup(mock_builder().manage(store))
+        .build(mock_context(noop_assets()))
+        .expect("failed to build app")
+}
+
+/// The app with its own cloud folder setting (the real one lives in the app data folder).
+fn app_with_cloud(store: StemStore, cloud: CloudFolderStore) -> App<MockRuntime> {
+    smart_beat_lib::setup(mock_builder().manage(store).manage(cloud))
         .build(mock_context(noop_assets()))
         .expect("failed to build app")
 }
@@ -799,5 +807,206 @@ fn a_stems_file_opened_by_the_system_is_queued_at_launch_and_sent_as_an_event_af
     assert_eq!(
         json_of(&window, "take_pending_stem_bundles", json!({})).unwrap(),
         json!([])
+    );
+}
+
+#[test]
+fn a_separation_saved_into_the_cloud_folder_is_listed_and_opens_from_a_fresh_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let drive = dir.path().join("Drive");
+    std::fs::create_dir(&drive).unwrap();
+    let cloud = CloudFolderStore::new(dir.path().join("data"));
+    let app = app_with_cloud(StemStore::new(dir.path().join("stems")), cloud.clone());
+    let window = main_window(&app);
+
+    // Nothing linked yet: an empty list, and no place to save.
+    assert_eq!(
+        json_of(&window, "list_cloud_stems", json!({})).unwrap(),
+        json!([])
+    );
+    let err = json_of(
+        &window,
+        "stems_cloud_save_path",
+        json!({ "name": "Band Song" }),
+    )
+    .expect_err("no folder");
+    assert_eq!(err["kind"], "not-found");
+    assert_eq!(err["message"], "Link a cloud folder in Settings first.");
+
+    cloud.set(Some(&drive.to_string_lossy())).unwrap();
+    let audio = dir.path().join("Band Song.wav");
+    write_band(&audio, 5.0);
+    let song = json_of(
+        &window,
+        "stems_separate",
+        separate_args(&audio, &["drums", "bass", "vocals"]),
+    )
+    .unwrap();
+    let id = song["id"].clone();
+
+    // The Save dialog: an estimate, then the path in the folder.
+    let estimate = json_of(
+        &window,
+        "stems_estimate_bundle",
+        json!({ "id": id, "includeOriginal": true }),
+    )
+    .unwrap();
+    let without = json_of(
+        &window,
+        "stems_estimate_bundle",
+        json!({ "id": id, "includeOriginal": false }),
+    )
+    .unwrap();
+    assert_eq!(
+        without["bytes"].as_u64().unwrap(),
+        song["bytes"].as_u64().unwrap() / 2
+    );
+    assert!(estimate["bytes"].as_u64().unwrap() > without["bytes"].as_u64().unwrap());
+    assert!(
+        json_of(
+            &window,
+            "stems_estimate_bundle",
+            json!({ "id": "0123456789abcdef", "includeOriginal": false })
+        )
+        .is_err()
+    );
+    let path = json_of(
+        &window,
+        "stems_cloud_save_path",
+        json!({ "name": "Band: Song?" }),
+    )
+    .unwrap();
+    assert_eq!(
+        path,
+        drive.join("Band_ Song_.sbstems").to_string_lossy().as_ref()
+    );
+    let path = Path::new(path.as_str().unwrap());
+    assert!(!path.exists());
+
+    let saved = json_of(&window, "stems_save_bundle", save_args(&id, path, true)).expect("save");
+    assert_eq!(saved["path"], path.to_string_lossy().as_ref());
+    // The estimate is in the neighbourhood of the real size.
+    let real = saved["bytes"].as_f64().unwrap();
+    let guess = estimate["bytes"].as_f64().unwrap();
+    assert!(
+        guess > real / 3.0 && guess < real * 3.0,
+        "{guess} vs {real}"
+    );
+
+    // The folder lists it (and nothing else, no temp file); the name is taken from now on.
+    let listed = json_of(&window, "list_cloud_stems", json!({})).unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["name"], "Band_ Song_.sbstems");
+    assert_eq!(listed[0]["path"], path.to_string_lossy().as_ref());
+    assert_eq!(listed[0]["size"], saved["bytes"]);
+    assert_eq!(listed[0]["placeholder"], false);
+    assert!(listed[0]["modified_ms"].as_u64().unwrap() > 0);
+    assert_eq!(listed[0].as_object().unwrap().len(), 5);
+    assert_eq!(
+        json_of(
+            &window,
+            "stems_cloud_save_path",
+            json!({ "name": "Band: Song?" })
+        )
+        .unwrap(),
+        drive
+            .join("Band_ Song_ (2).sbstems")
+            .to_string_lossy()
+            .as_ref()
+    );
+    // Tabs and stems do not mix in the lists.
+    assert_eq!(
+        json_of(&window, "list_cloud_scores", json!({})).unwrap(),
+        json!([])
+    );
+
+    // Another computer: a fresh cache and the same synced folder.
+    let other_dir = tempfile::tempdir().unwrap();
+    let other_cloud = CloudFolderStore::new(other_dir.path().join("data"));
+    other_cloud.set(Some(&drive.to_string_lossy())).unwrap();
+    let other = app_with_cloud(StemStore::new(other_dir.path().join("stems")), other_cloud);
+    let other_window = main_window(&other);
+    let there = json_of(&other_window, "list_cloud_stems", json!({})).unwrap();
+    let opened = json_of(
+        &other_window,
+        "stems_open_bundle",
+        json!({ "path": there[0]["path"] }),
+    )
+    .expect("open");
+    assert_eq!(opened["id"], id);
+    assert_eq!(opened["savedPath"], path.to_string_lossy().as_ref());
+    for kind in ["drums", "bass", "vocals"] {
+        let args = json!({ "id": id, "kind": kind });
+        assert_eq!(
+            raw_of(&window, "stems_read", args.clone()).unwrap(),
+            raw_of(&other_window, "stems_read", args).unwrap(),
+            "{kind}"
+        );
+    }
+
+    // The drive goes away: the same errors as for tabs.
+    drop(other_window);
+    std::fs::remove_dir_all(&drive).unwrap();
+    for cmd in ["list_cloud_stems", "list_cloud_scores"] {
+        let err = json_of(&window, cmd, json!({})).expect_err("drive gone");
+        assert_eq!(err["kind"], "not-found", "{cmd}");
+        assert_eq!(
+            err["message"],
+            "The cloud folder could not be found. Is the drive offline?"
+        );
+    }
+    let err = json_of(&window, "stems_cloud_save_path", json!({ "name": "x" })).expect_err("gone");
+    assert_eq!(err["kind"], "not-found");
+}
+
+#[test]
+fn an_online_only_stems_file_is_waited_for_before_it_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let drive = dir.path().join("Drive");
+    std::fs::create_dir(&drive).unwrap();
+    let app = app_with(StemStore::new(dir.path().join("stems")));
+    let window = main_window(&app);
+    let audio = dir.path().join("a.wav");
+    write_band(&audio, 2.0);
+    let song = json_of(&window, "stems_separate", separate_args(&audio, &["drums"])).unwrap();
+    let made = dir.path().join("made.sbstems");
+    json_of(
+        &window,
+        "stems_save_bundle",
+        save_args(&song["id"], &made, false),
+    )
+    .unwrap();
+
+    // iCloud shows an evicted file as `.name.icloud`; the sync client brings the file a moment
+    // later (here a thread does, since `brctl` has no iCloud to ask).
+    let target = drive.join("Away.sbstems");
+    std::fs::write(drive.join(".Away.sbstems.icloud"), b"plist").unwrap();
+    let other_dir = tempfile::tempdir().unwrap();
+    let other = app_with(StemStore::new(other_dir.path().join("stems")));
+    let other_window = main_window(&other);
+    let (sender, waiting) = mpsc::channel();
+    other_window.listen("cloud-download-waiting", move |event| {
+        let _ = sender.send(event.payload().to_owned());
+    });
+    let arrive = {
+        let (made, target) = (made.clone(), target.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            std::fs::copy(made, target).unwrap();
+        })
+    };
+    let opened = json_of(
+        &other_window,
+        "stems_open_bundle",
+        json!({ "path": target.to_string_lossy() }),
+    )
+    .expect("open once downloaded");
+    arrive.join().unwrap();
+    assert_eq!(opened["id"], song["id"]);
+    let payloads: Vec<String> = waiting.try_iter().collect();
+    assert_eq!(payloads.len(), 1);
+    assert_eq!(
+        serde_json::from_str::<String>(&payloads[0]).unwrap(),
+        target.to_string_lossy()
     );
 }

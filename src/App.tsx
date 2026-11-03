@@ -573,7 +573,13 @@ export function App() {
               </div>
             </Suspense>
           )}
-          {!song && stemSong && <StemPage song={stemSong} onBack={() => setStemSong(null)} />}
+          {!song && stemSong && (
+            <StemPage
+              song={stemSong}
+              onBack={() => setStemSong(null)}
+              onOpenCloudSettings={() => showDialog("settings", null, "cloud")}
+            />
+          )}
           {!song && !stemSong && (
             <>
               <Welcome
@@ -588,6 +594,7 @@ export function App() {
                 recent={recent}
                 onOpenRecent={(path) => void openPath(path)}
                 onOpenCloud={(path) => void openPath(path)}
+                onOpenCloudStem={openSavedStems ? (path) => void openStemBundleAt(path) : undefined}
                 onTakeTour={() => startTour("main")}
                 tour={
                   tour.offerMainTour

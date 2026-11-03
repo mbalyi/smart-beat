@@ -30,3 +30,16 @@ export function recentEntries(paths: readonly string[], stems: readonly StemSong
     .map((path): RecentEntry => ({ kind: "song", path }));
   return [...shown, ...songs];
 }
+
+/** A path with forward slashes and no trailing slash, lower-cased for Windows paths. */
+function comparable(path: string): string {
+  const slashed = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return /^[a-z]:/i.test(slashed) ? slashed.toLowerCase() : slashed;
+}
+
+/** Whether `path` is inside `folder` (a plain path-prefix match, separators and case aside). */
+export function isInFolder(path: string, folder: string | null | undefined): boolean {
+  if (!folder) return false;
+  const root = comparable(folder);
+  return root !== "" && comparable(path).startsWith(`${root}/`);
+}

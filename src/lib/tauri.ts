@@ -572,6 +572,15 @@ export async function listCloudScores(): Promise<CloudScore[]> {
   return invoke<CloudScore[]>("list_cloud_scores");
 }
 
+/** A saved separation (`.sbstems`) in the linked cloud folder; the same shape as a song. */
+export type CloudStem = CloudScore;
+
+/** The `.sbstems` files in the linked cloud folder, newest first. Empty in a browser. */
+export async function listCloudStems(): Promise<CloudStem[]> {
+  if (!isTauri()) return [];
+  return invoke<CloudStem[]>("list_cloud_stems");
+}
+
 /** Native folder dialog for the cloud folder. Resolves to the path, or `null` if cancelled. */
 export async function pickCloudFolder(): Promise<string | null> {
   if (!isTauri()) throw new NotInDesktopAppError();
@@ -1528,6 +1537,16 @@ export async function pickStemBundleDestination(defaultName: string): Promise<st
     filters: [{ name: STEMS_BUNDLE_TYPE_NAME, extensions: [STEMS_BUNDLE_EXTENSION] }],
   });
 }
+
+/**
+ * Where a song called `name` is saved inside the linked cloud folder (a clean file name, numbered
+ * if it exists). Rejects with kind "not-found" when no folder is linked or it is gone.
+ */
+export const stemsCloudSavePath = (name: string) => call<string>("stems_cloud_save_path", { name });
+
+/** About how big the `.sbstems` file of a song will be (an estimate), in bytes. */
+export const estimateStemBundle = (id: string, includeOriginal: boolean) =>
+  call<{ bytes: number }>("stems_estimate_bundle", { id, includeOriginal });
 
 /** Native Open dialog for a saved separation; resolves to the path, or `null` if cancelled. */
 export async function pickStemBundle(): Promise<string | null> {

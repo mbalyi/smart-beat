@@ -1,4 +1,4 @@
-import { lastUsed, recentEntries, RECENT_CARDS } from "@/components/stems/stem-recent";
+import { isInFolder, lastUsed, recentEntries, RECENT_CARDS } from "@/components/stems/stem-recent";
 import { STEM_SONG } from "@/test/tauri";
 
 const stem = (id: string, createdAtMs: number, lastOpened: number | null = null) => ({
@@ -47,5 +47,21 @@ describe("recentEntries", () => {
   it("shows only the songs when nothing was separated", () => {
     expect(recentEntries(paths(3), []).map(label)).toEqual(paths(3));
     expect(recentEntries([], [])).toEqual([]);
+  });
+});
+
+describe("isInFolder", () => {
+  it("matches a path inside the folder, whatever the separators or a trailing slash", () => {
+    expect(isInFolder("/Users/me/Dropbox/a.sbstems", "/Users/me/Dropbox")).toBe(true);
+    expect(isInFolder("/Users/me/Dropbox/sub/a.sbstems", "/Users/me/Dropbox/")).toBe(true);
+    expect(isInFolder("C:\\Users\\Me\\OneDrive\\a.sbstems", "c:/users/me/onedrive")).toBe(true);
+  });
+
+  it("does not match a sibling folder with the same prefix, another folder, or no folder", () => {
+    expect(isInFolder("/Users/me/Dropbox-old/a.sbstems", "/Users/me/Dropbox")).toBe(false);
+    expect(isInFolder("/Users/me/Music/a.sbstems", "/Users/me/Dropbox")).toBe(false);
+    expect(isInFolder("/Users/me/Dropbox", "/Users/me/Dropbox")).toBe(false);
+    expect(isInFolder("/Users/me/Dropbox/a.sbstems", null)).toBe(false);
+    expect(isInFolder("/a.sbstems", "")).toBe(false);
   });
 });

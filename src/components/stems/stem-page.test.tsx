@@ -350,4 +350,23 @@ describe("Stem page: saving", () => {
     await screen.findByTestId("save-stems-path");
     expect(screen.getByTestId("stems-saved")).toBeInTheDocument();
   });
+
+  it("opens the cloud folder settings from the Save dialog's hint, leaving the focus to them", async () => {
+    mockTauri();
+    const onOpenCloudSettings = vi.fn();
+    const { user } = renderWithProviders(
+      <StemPage
+        song={STEM_SONG}
+        onBack={vi.fn()}
+        onOpenCloudSettings={onOpenCloudSettings}
+        createPlayer={() => new FakeStemPlayer({ duration: 215 })}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Save stems…" }));
+    const dialog = screen.getByRole("dialog", { name: "Save stems" });
+    await user.click(await within(dialog).findByRole("button", { name: "Settings" }));
+    expect(onOpenCloudSettings).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save stems…" })).not.toHaveFocus();
+  });
 });
