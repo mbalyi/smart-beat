@@ -114,10 +114,14 @@
    * Stem separation (#186, src-tauri/src/stems/). `songs` is the library, newest first. `hold`
    * keeps a separation running until `release()` or a cancel; `fail` makes it reject; `mono`
    * makes the song a mono file (vocals and panned cannot be separated); `holdRender` keeps a
-   * slowed mix from being rendered until `releaseRender()`.
+   * slowed mix from being rendered until `releaseRender()`; `originalMissing` makes the next
+   * separated songs ones whose original file is gone (`hasOriginal: false`); `clock` stamps
+   * `createdAtMs` and `lastOpened` so the order of the library is stable.
    */
   window.__stems = {
     songs: [],
+    originalMissing: false,
+    clock: 1790000000000,
     requests: [],
     reads: [],
     renders: [],
@@ -129,6 +133,22 @@
     release: null,
     abort: null,
     releaseRender: null,
+  };
+  /**
+   * Saved stem files, `.sbstems` (#186, src-tauri/src/stems/bundle.rs). `saves` are the
+   * `stems_save_bundle` requests, `files` the bundles on the fake disk by path (a save adds one;
+   * a test can add a `StemSong` under a path to have it opened with `stems_open_bundle`), `opens`
+   * the paths that were opened. `hold` keeps a save or an open running until `release()` or
+   * `abort()`; `fail` makes the next one reject.
+   */
+  window.__stemBundles = {
+    saves: [],
+    opens: [],
+    files: {},
+    hold: false,
+    fail: null,
+    release: null,
+    abort: null,
   };
   /**
    * The downloadable stem models (#186, src-tauri/src/stems/umx_model.rs and models.rs), by
@@ -978,11 +998,69 @@
         window.__stemModels.models[engine].downloaded = false;
         return null;
       }
-      case "stems_list":
-        return window.__stems.songs;
+      case "stems_list": {
+        // Pinned first, then the most recently opened (or made).
+        const seen = (song) => song.lastOpened ?? song.createdAtMs;
+        return [...window.__stems.songs].sort(
+          (a, b) => Number(b.pinned) - Number(a.pinned) || seen(b) - seen(a),
+        );
+      }
       case "stems_delete":
         window.__stems.songs = window.__stems.songs.filter((song) => song.id !== args.id);
         return null;
+      case "take_pending_stem_bundles":
+        return [];
+      case "stems_touch": {
+        const song = window.__stems.songs.find((item) => item.id === args.id);
+        if (song) song.lastOpened = window.__stems.clock += 1000;
+        return null;
+      }
+      case "stems_pin": {
+        const song = window.__stems.songs.find((item) => item.id === args.id);
+        if (song) song.pinned = Boolean(args.pinned);
+        return null;
+      }
+      case "stems_save_bundle": {
+        const bundles = window.__stemBundles;
+        const { id, dest, includeOriginal } = args.request;
+        bundles.saves.push(args.request);
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "writing", fraction: 0.5 });
+        if (bundles.hold) {
+          await new Promise((resolve, reject) => {
+            bundles.release = resolve;
+            bundles.abort = () => reject({ kind: "io", message: "Saving stopped." });
+          });
+        }
+        if (bundles.fail) throw { kind: "io", message: bundles.fail };
+        const song = window.__stems.songs.find((item) => item.id === id);
+        if (!song) throw { kind: "audio", message: "These stems are no longer on this computer." };
+        const originalIncluded = Boolean(includeOriginal && song.hasOriginal);
+        const bytes = song.bytes + (originalIncluded ? 3 * 1024 * 1024 : 0);
+        song.savedPath = dest;
+        bundles.files[dest] = { ...song, hasOriginal: originalIncluded };
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "writing", fraction: 1 });
+        return { path: dest, bytes, originalIncluded };
+      }
+      case "stems_open_bundle": {
+        const bundles = window.__stemBundles;
+        bundles.opens.push(args.path);
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "reading", fraction: 0.5 });
+        if (bundles.hold) {
+          await new Promise((resolve, reject) => {
+            bundles.release = resolve;
+            bundles.abort = () => reject({ kind: "io", message: "Opening stopped." });
+          });
+        }
+        if (bundles.fail) throw { kind: "io", message: bundles.fail };
+        const file = bundles.files[args.path];
+        if (!file) throw { kind: "io", message: "This is not a Smart Beat stems file." };
+        const song = { ...file, savedPath: args.path, lastOpened: (window.__stems.clock += 1000) };
+        window.__stems.songs = [
+          song,
+          ...window.__stems.songs.filter((item) => item.id !== song.id),
+        ];
+        return song;
+      }
       case "stems_cache_info":
         return { bytes: 0, count: window.__stems.songs.length, limitBytes: 2 * 1024 ** 3 };
       case "stems_cancel":
@@ -1021,7 +1099,11 @@
           skipped,
           pannedShare: 0.3,
           bytes: kinds.length * 192044,
-          createdAtMs: 1790000000000,
+          createdAtMs: (stems.clock += 1000),
+          pinned: false,
+          lastOpened: null,
+          savedPath: null,
+          hasOriginal: !stems.originalMissing,
         };
         stems.songs = [song, ...stems.songs.filter((item) => item.id !== song.id)];
         return song;

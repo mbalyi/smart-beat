@@ -8,6 +8,7 @@ import {
   KeyboardIcon,
   LayersIcon,
   CompassIcon,
+  PackageOpenIcon,
 } from "lucide-react";
 import { useId, useState } from "react";
 
@@ -19,7 +20,9 @@ import { SectionKicker } from "@/components/section-kicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { StemSongs } from "@/components/stems/stem-songs";
+import { recentEntries } from "@/components/stems/stem-recent";
+import { StemRecentCard } from "@/components/stems/stem-songs";
+import { useStemSongs } from "@/components/stems/use-stem-songs";
 import { FEATURES, type Feature } from "@/components/welcome-features";
 import { cloudItemName, providerLabel, providerOf } from "@/lib/cloud-items";
 import type { StemSong } from "@/lib/tauri";
@@ -48,6 +51,7 @@ export function Welcome({
   onImportAudio,
   onSeparateStems,
   onOpenStemSong,
+  onOpenStemBundle,
   onNewSong,
   onShowShortcuts,
   recent = [],
@@ -62,8 +66,10 @@ export function Welcome({
   onImportAudio?: () => void;
   /** Stem separation; left out while the `stem-separation` feature is off. */
   onSeparateStems?: (button: HTMLElement) => void;
-  /** Opens a song that was separated before; the list is left out without it. */
+  /** Opens a song that was separated before; separated songs are left out of Recent without it. */
   onOpenStemSong?: (song: StemSong) => void;
+  /** Open saved stems…: asks for a `.sbstems` file and opens it; the button is left out without it. */
+  onOpenStemBundle?: () => void;
   onNewSong: () => void;
   onShowShortcuts: () => void;
   /** Recently opened songs (paths), most recent first. */
@@ -78,6 +84,9 @@ export function Welcome({
   /** A first launch: offered the guided tour, once (#84). */
   tour?: { onStart: () => void; onSkip: () => void };
 }) {
+  const stems = useStemSongs(onOpenStemSong !== undefined);
+  // Separated songs and recent songs share one grid (see `recentEntries` for the order).
+  const entries = recentEntries(onOpenRecent ? recent : [], stems.songs);
   return (
     <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-14 px-4 pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-14 lg:px-8 lg:pt-8">
       {/* The space above the title equals the page's side padding (the container's padding). */}
@@ -117,6 +126,12 @@ export function Welcome({
             >
               <LayersIcon data-icon="inline-start" />
               Stem separation…
+            </Button>
+          )}
+          {onOpenStemBundle && (
+            <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onOpenStemBundle}>
+              <PackageOpenIcon data-icon="inline-start" />
+              Open saved stems…
             </Button>
           )}
           <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onShowShortcuts}>
@@ -159,52 +174,68 @@ export function Welcome({
         </p>
       </section>
 
-      {recent.length > 0 && onOpenRecent && (
+      {entries.length > 0 && (
         <section aria-labelledby="recent-title" className="flex flex-col gap-3">
           <SectionKicker as="h2" id="recent-title">
             Recent songs
           </SectionKicker>
           <ul className="grid gap-3 sm:grid-cols-2">
-            {recent.map((path, index) => (
-              <li key={path} className="min-w-0">
-                <button
-                  type="button"
-                  className={cn(
-                    "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card px-4 py-3 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
-                    index % 2 === 0
-                      ? "hover:border-brand-yellow/60 focus-visible:border-brand-yellow/60"
-                      : "hover:border-brand/60 focus-visible:border-brand/60",
-                  )}
-                  onClick={() => onOpenRecent(path)}
-                  title={providerOf(path) ? recentName(path) : path}
-                >
-                  <FileMusicIcon
-                    className={cn(
-                      "size-[22px] shrink-0",
-                      index % 2 === 0 ? "text-brand-yellow" : "text-brand",
-                    )}
-                    aria-hidden="true"
+            {entries.map((entry, index) =>
+              entry.kind === "stem" ? (
+                <li key={`stem:${entry.song.id}`} className="min-w-0">
+                  <StemRecentCard
+                    song={entry.song}
+                    index={index}
+                    onOpen={(song) => onOpenStemSong?.(song)}
+                    onDelete={stems.remove}
                   />
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate text-[17px] font-bold">{recentName(path)}</span>
-                    <span className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
-                      {providerOf(path) && (
-                        <CloudProviderLogo
-                          provider={providerOf(path)!}
-                          className="h-3.5 w-auto max-w-5 shrink-0"
-                        />
+                </li>
+              ) : (
+                <li key={entry.path} className="min-w-0">
+                  <button
+                    type="button"
+                    className={cn(
+                      "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card px-4 py-3 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
+                      index % 2 === 0
+                        ? "hover:border-brand-yellow/60 focus-visible:border-brand-yellow/60"
+                        : "hover:border-brand/60 focus-visible:border-brand/60",
+                    )}
+                    onClick={() => onOpenRecent?.(entry.path)}
+                    title={providerOf(entry.path) ? recentName(entry.path) : entry.path}
+                  >
+                    <FileMusicIcon
+                      className={cn(
+                        "size-[22px] shrink-0",
+                        index % 2 === 0 ? "text-brand-yellow" : "text-brand",
                       )}
-                      <span className="truncate">{folderOf(path)}</span>
+                      aria-hidden="true"
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate text-[17px] font-bold">
+                        {recentName(entry.path)}
+                      </span>
+                      <span className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
+                        {providerOf(entry.path) && (
+                          <CloudProviderLogo
+                            provider={providerOf(entry.path)!}
+                            className="h-3.5 w-auto max-w-5 shrink-0"
+                          />
+                        )}
+                        <span className="truncate">{folderOf(entry.path)}</span>
+                      </span>
                     </span>
-                  </span>
-                </button>
-              </li>
-            ))}
+                  </button>
+                </li>
+              ),
+            )}
           </ul>
+          {stems.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {stems.error}
+            </p>
+          )}
         </section>
       )}
-
-      {onOpenStemSong && <StemSongs onOpen={onOpenStemSong} />}
 
       {onOpenCloud && <CloudScores onOpen={onOpenCloud} />}
 

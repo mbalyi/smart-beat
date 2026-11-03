@@ -4,6 +4,7 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+- Stem separation: save a separation to a `.sbstems` file (Save stems… on the stem page, with or without the original song) and open it again later (Open saved stems… on the start screen, or double-click the file) without separating again. Separated songs now sit in the Recent grid with a Stems badge, a Saved mark and the most recently opened first.
 - Licensing: Smart Beat is for personal use, learning and research only, and commercial use is not offered. The source licence (PolyForm Noncommercial 1.0.0) is unchanged; the end user license agreement now says the same (version 1.1), and `COMMERCIAL-LICENSE.md` became `NONCOMMERCIAL-USE.md`.
 - Open from the cloud: File › Open now offers Google Drive, OneDrive and Dropbox next to this computer when you are connected, and File › Open from Cloud… takes you straight there.
 - Cloud folder: link a folder that Google Drive, OneDrive, Dropbox, iCloud Drive or Nextcloud keeps in sync (Help › Settings… › Cloud folder). The welcome screen gets a Cloud tab with the tabs in it, online-only files are downloaded when you open them, and saving over a file that changed since you opened it asks what to do first.

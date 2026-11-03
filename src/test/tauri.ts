@@ -70,6 +70,10 @@ export const STEM_SONG: StemSong = {
   pannedShare: 0.3,
   bytes: 190_000_000,
   createdAtMs: 1_790_000_000_000,
+  pinned: false,
+  lastOpened: null,
+  savedPath: null,
+  hasOriginal: true,
 };
 
 /** The neural model before anything is downloaded. */
@@ -148,8 +152,12 @@ export const backend = {
   usage: { enabled: true, available: false, noticeSeen: true },
   /** The separated songs `stems_list` returns (newest first). */
   stemSongs: [] as StemSong[],
+  /** `.sbstems` paths the system opened before the page was listening (the Rust queue). */
+  pendingStemBundles: [] as string[],
   /** What `umx_model_status` returns. */
   umx: { ...UMX_STATUS } as UmxStatus,
+  /** The song `stems_open_bundle` returns. */
+  bundleSong: { ...STEM_SONG, id: "bbbbbbbbbbbbbbbb", name: "Opened Song" } as StemSong,
   /** What `stem_model_status` returns, by model. */
   stemModels: freshStemModels(),
   /** The update the updater plugin finds, or `null` when this is the latest version. */
@@ -199,6 +207,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.projectSettings.clear();
   backend.usage = { enabled: true, available: false, noticeSeen: true };
   backend.stemSongs = [];
+  backend.bundleSong = { ...STEM_SONG, id: "bbbbbbbbbbbbbbbb", name: "Opened Song" };
+  backend.pendingStemBundles = [];
   backend.umx = { ...UMX_STATUS };
   backend.stemModels = freshStemModels();
   backend.update = null;
@@ -274,6 +284,36 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
             (song) => song.id !== (args as { id: string }).id,
           );
           return null;
+        case "take_pending_stem_bundles":
+          return backend.pendingStemBundles.splice(0);
+        case "stems_touch":
+        case "stems_pin": {
+          const { id, pinned } = args as { id: string; pinned?: boolean };
+          backend.stemSongs = backend.stemSongs.map((song) =>
+            song.id !== id
+              ? song
+              : cmd === "stems_pin"
+                ? { ...song, pinned: pinned ?? false }
+                : { ...song, lastOpened: Date.now() },
+          );
+          return null;
+        }
+        // Saving writes the file at `dest` and marks the song as saved there; opening a file
+        // returns the song (tests set `backend.bundleSong`) as saved at that path.
+        case "stems_save_bundle": {
+          const { id, dest, includeOriginal } = (
+            args as { request: { id: string; dest: string; includeOriginal: boolean } }
+          ).request;
+          backend.stemSongs = backend.stemSongs.map((song) =>
+            song.id === id ? { ...song, savedPath: dest } : song,
+          );
+          return { path: dest, bytes: 24_000_000, originalIncluded: includeOriginal };
+        }
+        case "stems_open_bundle": {
+          const opened = { ...backend.bundleSong, savedPath: (args as { path: string }).path };
+          backend.stemSongs = [opened, ...backend.stemSongs.filter((s) => s.id !== opened.id)];
+          return opened;
+        }
         case "stems_cache_info":
           return {
             bytes: backend.stemSongs.reduce((sum, song) => sum + song.bytes, 0),
@@ -347,6 +387,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         }
         case "plugin:opener|open_url":
+        case "plugin:opener|reveal_item_in_dir":
         case "plugin:process|restart":
         case "plugin:resources|close":
           return null;
@@ -451,6 +492,11 @@ export async function emitOpenRecent(path: string) {
 export async function emitOpenExternalFiles(paths: string[]) {
   backend.pendingOpen.push(...paths);
   await emit("open-external-file");
+}
+
+/** Simulates the system opening a `.sbstems` file: the core sends its path. */
+export async function emitStemBundleOpened(path: string) {
+  await emit("stems-bundle-opened", { path });
 }
 
 /** Simulates the OS dragging files onto the window (Tauri webview events). */

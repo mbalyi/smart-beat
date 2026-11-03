@@ -4,10 +4,14 @@
 //! the five known stem names, never from other user input. A song is written into a staging
 //! folder and renamed into place when it is complete, so a half-written song never shows up
 //! in the list.
+//!
+//! The folder is a cache that may be emptied. A song that was saved to a `.sbstems` file or
+//! opened from one is pinned and is never evicted (see [`super::bundle`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::{StemCacheInfo, StemEngine, StemSong};
@@ -17,10 +21,12 @@ use crate::separation::StemKind;
 pub const LIMIT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 const META: &str = "meta.json";
+/// Where the song came from. Not part of [`StemSong`], so the page never sees the path.
+const SOURCE: &str = "source.json";
 const STAGING_PREFIX: &str = ".tmp-";
 
 /// Bump when the separation changes enough that old stems should not be reused.
-const ALGORITHM_VERSION: u8 = 1;
+pub const ALGORITHM_VERSION: u8 = 1;
 
 /// Whether `id` is 16 lower-case hex characters.
 pub fn is_valid_id(id: &str) -> bool {
@@ -66,6 +72,39 @@ fn dir_bytes(path: &Path) -> u64 {
     std::fs::read_dir(path)
         .map(|entries| entries.flatten().map(|e| dir_bytes(&e.path())).sum::<u64>())
         .unwrap_or(0)
+}
+
+/// The audio file a song was separated from, remembered so a later save can embed it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Source {
+    pub path: String,
+    /// SHA-256 of the file at separation time, lower-case hex.
+    pub sha256: String,
+}
+
+impl Source {
+    pub fn of(path: &Path, bytes: &[u8]) -> Self {
+        Self {
+            path: path.to_string_lossy().into_owned(),
+            sha256: hex(&Sha256::digest(bytes)),
+        }
+    }
+
+    /// Writes `source.json` into the song folder `dir`.
+    pub fn write(&self, dir: &Path) -> Result<(), String> {
+        let json = serde_json::to_vec(self).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join(SOURCE), json)
+            .map_err(|e| format!("The stems could not be saved: {e}"))
+    }
+
+    fn read(dir: &Path) -> Option<Self> {
+        serde_json::from_slice(&std::fs::read(dir.join(SOURCE)).ok()?).ok()
+    }
+}
+
+/// Lower-case hex of `bytes`.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// A folder a song is being written into. Removed unless it is committed.
@@ -185,16 +224,18 @@ impl StemStore {
         Ok(self.evict(&song.id))
     }
 
+    /// Evicts the songs used longest ago while the cache is over its limit. The song `keep` and
+    /// pinned songs stay, so pinned songs alone can take the cache over its limit.
     fn evict(&self, keep: &str) -> Vec<String> {
         let mut songs = self.list();
         let mut total: u64 = songs.iter().map(|s| s.bytes).sum();
-        songs.sort_by(|a, b| (a.created_at_ms, &a.id).cmp(&(b.created_at_ms, &b.id)));
+        songs.sort_by(|a, b| (last_used(a), &a.id).cmp(&(last_used(b), &b.id)));
         let mut evicted = Vec::new();
         for song in songs {
             if total <= self.limit {
                 break;
             }
-            if song.id == keep {
+            if song.id == keep || song.pinned {
                 continue;
             }
             if self.delete(&song.id).is_ok() {
@@ -205,8 +246,9 @@ impl StemStore {
         evicted
     }
 
-    /// The song, if it is saved completely (meta present and every stem file the right size).
-    pub fn get(&self, id: &str) -> Option<StemSong> {
+    /// The song as `meta.json` has it, if it is saved completely (meta present and every stem
+    /// file the right size).
+    fn read(&self, id: &str) -> Option<StemSong> {
         let dir = self.song_dir(id).ok()?;
         let song: StemSong = serde_json::from_slice(&std::fs::read(dir.join(META)).ok()?).ok()?;
         if song.id != id || song.stems.is_empty() {
@@ -217,6 +259,63 @@ impl StemStore {
                 .is_ok_and(|m| m.len() == s.bytes)
         });
         whole.then_some(song)
+    }
+
+    /// The song, if it is saved completely. `has_original` is worked out now: `meta.json` only
+    /// says that the `.sbstems` file of the song has the original; the audio file the song was
+    /// separated from counts as long as it can still be read.
+    pub fn get(&self, id: &str) -> Option<StemSong> {
+        self.read(id).map(|s| self.with_original(s))
+    }
+
+    fn with_original(&self, mut song: StemSong) -> StemSong {
+        if !song.has_original {
+            song.has_original = self.source(&song.id).is_some_and(|source| {
+                let path = Path::new(&source.path);
+                path.is_file() && std::fs::File::open(path).is_ok()
+            });
+        }
+        song
+    }
+
+    /// Changes the song's `meta.json` (written whole next to it, then renamed over it).
+    /// Returns the new state, or an error when the song is not in the cache.
+    pub fn update(&self, id: &str, change: impl FnOnce(&mut StemSong)) -> Result<StemSong, String> {
+        let mut song = self
+            .read(id)
+            .ok_or("That song is not saved any more.".to_string())?;
+        change(&mut song);
+        let dir = self.song_dir(id)?;
+        let meta = serde_json::to_vec(&song).map_err(|e| e.to_string())?;
+        let temp = dir.join(format!("{META}.tmp"));
+        std::fs::write(&temp, meta)
+            .and_then(|()| std::fs::rename(&temp, dir.join(META)))
+            .map_err(|e| format!("The song could not be updated: {e}"))?;
+        Ok(self.with_original(song))
+    }
+
+    /// Marks the song as opened now.
+    pub fn touch(&self, id: &str) -> Result<StemSong, String> {
+        self.update(id, |s| s.last_opened = Some(super::now_ms()))
+    }
+
+    /// Pins or unpins the song.
+    pub fn pin(&self, id: &str, pinned: bool) -> Result<StemSong, String> {
+        self.update(id, |s| s.pinned = pinned)
+    }
+
+    /// The audio file the song was separated from, if it was remembered.
+    pub fn source(&self, id: &str) -> Option<Source> {
+        Source::read(&self.song_dir(id).ok()?)
+    }
+
+    /// Remembers where a song that is already in the cache came from, unless it knows already.
+    pub fn remember_source(&self, song: &StemSong, source: &Source) -> Result<StemSong, String> {
+        if self.source(&song.id).is_none() {
+            source.write(&self.song_dir(&song.id)?)?;
+        }
+        self.get(&song.id)
+            .ok_or_else(|| "That song is not saved any more.".to_string())
     }
 
     /// All saved songs, newest first.
@@ -272,6 +371,11 @@ impl StemStore {
     }
 }
 
+/// When the song was last used: opened, or else made.
+fn last_used(song: &StemSong) -> u64 {
+    song.last_opened.unwrap_or(0).max(song.created_at_ms)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,6 +398,10 @@ mod tests {
             panned_share: 0.0,
             bytes,
             created_at_ms: created,
+            pinned: false,
+            last_opened: None,
+            saved_path: None,
+            has_original: false,
         }
     }
 
@@ -442,5 +550,98 @@ mod tests {
         assert!(freed >= 20, "{freed}");
         assert!(store.list().is_empty());
         assert_eq!(store.clear().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_pinned_song_survives_eviction_and_an_unpinned_one_goes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StemStore::new(dir.path().to_path_buf()).with_limit(100);
+        save(&store, "aaaaaaaaaaaaaaaa", 1, 40);
+        save(&store, "bbbbbbbbbbbbbbbb", 2, 40);
+        store.pin("aaaaaaaaaaaaaaaa", true).unwrap();
+        // Over the limit: the oldest is pinned, so the next oldest goes.
+        let evicted = save(&store, "cccccccccccccccc", 3, 40);
+        assert_eq!(evicted, ["bbbbbbbbbbbbbbbb"]);
+        // Pinned songs alone may take the cache over its limit; nothing else is left to evict.
+        store.pin("cccccccccccccccc", true).unwrap();
+        let evicted = save(&store, "dddddddddddddddd", 4, 90);
+        assert!(evicted.is_empty(), "{evicted:?}");
+        let ids: Vec<_> = store.list().into_iter().map(|s| s.id).collect();
+        assert_eq!(
+            ids,
+            ["dddddddddddddddd", "cccccccccccccccc", "aaaaaaaaaaaaaaaa"]
+        );
+        // Unpinning makes it a candidate again.
+        store.pin("aaaaaaaaaaaaaaaa", false).unwrap();
+        // 180 bytes against 100: the oldest unpinned ones go, the pinned one stays.
+        assert_eq!(
+            save(&store, "eeeeeeeeeeeeeeee", 5, 10),
+            ["aaaaaaaaaaaaaaaa", "dddddddddddddddd"]
+        );
+        assert!(store.get("cccccccccccccccc").is_some());
+    }
+
+    #[test]
+    fn eviction_goes_by_last_use_not_by_age() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StemStore::new(dir.path().to_path_buf()).with_limit(100);
+        save(&store, "aaaaaaaaaaaaaaaa", 1, 40);
+        save(&store, "bbbbbbbbbbbbbbbb", 2, 40);
+        // The older song was opened just now.
+        store.touch("aaaaaaaaaaaaaaaa").unwrap();
+        assert!(store.get("aaaaaaaaaaaaaaaa").unwrap().last_opened.is_some());
+        assert_eq!(
+            save(&store, "cccccccccccccccc", 3, 40),
+            ["bbbbbbbbbbbbbbbb"]
+        );
+    }
+
+    #[test]
+    fn a_meta_file_from_before_saving_files_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StemStore::new(dir.path().to_path_buf());
+        save(&store, "aaaaaaaaaaaaaaaa", 7, 10);
+        let meta = dir.path().join("aaaaaaaaaaaaaaaa").join("meta.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&meta).unwrap()).unwrap();
+        for key in ["pinned", "lastOpened", "savedPath", "hasOriginal"] {
+            assert!(
+                value.as_object_mut().unwrap().remove(key).is_some(),
+                "{key}"
+            );
+        }
+        std::fs::write(&meta, serde_json::to_vec(&value).unwrap()).unwrap();
+        let song = store.get("aaaaaaaaaaaaaaaa").unwrap();
+        assert!(!song.pinned && !song.has_original);
+        assert_eq!((song.last_opened, song.saved_path), (None, None));
+        assert_eq!(song.created_at_ms, 7);
+        // Updating it writes the new fields.
+        store.pin("aaaaaaaaaaaaaaaa", true).unwrap();
+        assert!(store.get("aaaaaaaaaaaaaaaa").unwrap().pinned);
+        assert!(store.update("ffffffffffffffff", |_| {}).is_err());
+    }
+
+    #[test]
+    fn has_original_follows_the_source_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StemStore::new(dir.path().join("stems"));
+        let audio = dir.path().join("take.wav");
+        std::fs::write(&audio, b"audio").unwrap();
+        let staging = store.staging("aaaaaaaaaaaaaaaa").unwrap();
+        std::fs::write(staging.path().join("other.wav"), [0u8; 10]).unwrap();
+        Source::of(&audio, b"audio").write(staging.path()).unwrap();
+        store
+            .commit(staging, &song("aaaaaaaaaaaaaaaa", 1, 10))
+            .unwrap();
+        assert!(store.get("aaaaaaaaaaaaaaaa").unwrap().has_original);
+        assert!(store.list()[0].has_original);
+        std::fs::remove_file(&audio).unwrap();
+        assert!(!store.get("aaaaaaaaaaaaaaaa").unwrap().has_original);
+        // The source is never part of what the page is sent.
+        let json = serde_json::to_string(&store.list()[0]).unwrap();
+        assert!(
+            !json.contains("take.wav") && !json.contains("sha256"),
+            "{json}"
+        );
     }
 }

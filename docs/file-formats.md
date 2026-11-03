@@ -2,19 +2,20 @@
 
 What Smart Beat opens, saves and exports, and what each format cannot hold.
 
-| Format              | Extensions                | Open                                     | Save / export                                                  |
-| ------------------- | ------------------------- | ---------------------------------------- | -------------------------------------------------------------- |
-| Guitar Pro 7/8      | `.gp`                     | Yes                                      | **Native format**: File › Save, Save As                        |
-| Guitar Pro 5        | `.gp5`                    | Yes                                      | File › Save, Save As (limits below)                            |
-| Guitar Pro 4        | `.gp4`                    | Yes                                      | File › Save As (limits below)                                  |
-| Guitar Pro 3        | `.gp3`                    | Yes                                      | File › Save As (limits below)                                  |
-| Guitar Pro 6        | `.gpx`                    | Yes                                      | No (see [below](#guitar-pro-6-gpx-open-only))                  |
-| MuseScore 3 / 4     | `.mscz` `.mscx`           | Yes (own importer)                       | File › Save As (limits below)                                  |
-| MusicXML (partwise) | `.musicxml` `.xml` `.mxl` | Yes (via alphaTab)                       | File › Export › MusicXML (type `.mxl` for the compressed form) |
-| Standard MIDI       | `.mid` `.midi`            | Yes (own importer)                       | File › Export › MIDI                                           |
-| alphaTex            | `.atex`                   | Yes (via alphaTab)                       | File › Export › alphaTex                                       |
-| ASCII tab           | `.txt`                    | Yes (own importer)                       | File › Export › ASCII tab                                      |
-| Audio               | `.wav` `.m4a`             | (audio track: mp3, wav, flac, ogg, aiff) | File › Export › Audio (WAV), Audio (M4A, macOS only)           |
+| Format              | Extensions                | Open                                     | Save / export                                                    |
+| ------------------- | ------------------------- | ---------------------------------------- | ---------------------------------------------------------------- |
+| Guitar Pro 7/8      | `.gp`                     | Yes                                      | **Native format**: File › Save, Save As                          |
+| Guitar Pro 5        | `.gp5`                    | Yes                                      | File › Save, Save As (limits below)                              |
+| Guitar Pro 4        | `.gp4`                    | Yes                                      | File › Save As (limits below)                                    |
+| Guitar Pro 3        | `.gp3`                    | Yes                                      | File › Save As (limits below)                                    |
+| Guitar Pro 6        | `.gpx`                    | Yes                                      | No (see [below](#guitar-pro-6-gpx-open-only))                    |
+| MuseScore 3 / 4     | `.mscz` `.mscx`           | Yes (own importer)                       | File › Save As (limits below)                                    |
+| MusicXML (partwise) | `.musicxml` `.xml` `.mxl` | Yes (via alphaTab)                       | File › Export › MusicXML (type `.mxl` for the compressed form)   |
+| Standard MIDI       | `.mid` `.midi`            | Yes (own importer)                       | File › Export › MIDI                                             |
+| alphaTex            | `.atex`                   | Yes (via alphaTab)                       | File › Export › alphaTex                                         |
+| ASCII tab           | `.txt`                    | Yes (own importer)                       | File › Export › ASCII tab                                        |
+| Smart Beat stems    | `.sbstems`                | Yes (Open saved stems…, double-click)    | Save stems… on the stem page (see [below](#saved-stems-sbstems)) |
+| Audio               | `.wav` `.m4a`             | (audio track: mp3, wav, flac, ogg, aiff) | File › Export › Audio (WAV), Audio (M4A, macOS only)             |
 
 **Save** writes back into the file the song came from only for `.gp` and `.gp5`. A `.gp3`, `.gp4`, `.mscz` or `.mscx` file opened from disk is never overwritten by Save: it asks for a new file, and Save As offers every format above. The writers for these are checked by reading the files back with alphaTab and with Smart Beat's own importer, not in Guitar Pro 3/4 or MuseScore themselves (see [manual-checks.md](manual-checks.md)), so they should not replace an original unasked.
 
@@ -93,6 +94,64 @@ Left out, and listed after saving: bends, slides, hammer-ons and pull-offs, palm
 ## alphaTex and compressed MusicXML
 
 alphaTex export uses alphaTab's own exporter (`src/lib/export/alphatex.ts`). Compressed MusicXML (`.mxl`, `src/lib/export/mxl.ts`) is the MusicXML below inside a ZIP archive with `META-INF/container.xml`, as MusicXML readers expect; its ZIP writer (`src/lib/export/zip.ts`) stores the entries uncompressed. Pick it by typing the `.mxl` extension in the MusicXML export dialog. Smart Beat opens both again.
+
+## Saved stems (`.sbstems`)
+
+A stem separation (#186) is kept in the app's cache, which can be cleared. **Save stems…** on the stem page writes one separated song to a file the user keeps, and **Open saved stems…** on the start screen (or a double-click on the file) brings it back without separating again. The type name is "Smart Beat stems". Nothing else opens these files; they are not a standard format.
+
+**Container.** A ZIP archive. Every entry is **STORED** (no compression): the stems are already FLAC (or WAV), so deflating them gains nothing and costs time. Entries:
+
+| Entry                           | Required | What it is                                                                                            |
+| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `manifest.json`                 | Yes      | UTF-8 JSON, described below                                                                           |
+| `stems/<kind>.flac` (or `.wav`) | Yes      | One entry per stem in the manifest; `kind` is `drums`, `bass`, `vocals`, `panned` or `other`          |
+| `original/<file name>`          | No       | The song that was separated, with its own name; only present when the user ticked the box             |
+| `state.json`                    | No       | The mixer state of the stem page (gains, mutes, solo, speed, loop), so a reopened song sounds as left |
+
+**`manifest.json`.**
+
+```json
+{
+  "format": "smart-beat-stems",
+  "version": 1,
+  "id": "…",
+  "name": "neon-nights",
+  "durationSeconds": 6.0,
+  "sampleRate": 44100,
+  "channels": 2,
+  "mono": false,
+  "createdAtMs": 1790000000000,
+  "appVersion": "1.2.0",
+  "engine": { "id": "htdemucs", "modelId": "…", "modelSha256": "…", "algorithmVersion": 1 },
+  "strongDrums": false,
+  "skipped": [],
+  "pannedShare": 0.3,
+  "stems": [
+    {
+      "kind": "drums",
+      "file": "stems/drums.flac",
+      "codec": "flac",
+      "bytes": 0,
+      "sha256": "…",
+      "frames": 0
+    }
+  ],
+  "original": { "embedded": true, "fileName": "neon-nights.mp3", "sha256": "…", "bytes": 0 }
+}
+```
+
+- `id` is the library id of the separation: 16 lowercase hex characters, the start of a SHA-256 over the original song's bytes, the engine, the parts asked for and the drum setting, so the same song separated the same way has the same id. Opening a file whose `id` is already in the library replaces that entry. `engine.id` is the stem engine (`fast`, `neural`, `scnet`, `scnet-xl`, `htdemucs`); `modelId` and `modelSha256` say which model file made the stems (empty for the built-in engine) and `algorithmVersion` is the engine's own version counter.
+- `skipped` lists the parts that could not be separated (for example `vocals` and `panned` in a mono song); `pannedShare` is the share of the sound that was panned off centre.
+- Each stem has its `codec` (`flac`; `wav` is also allowed), its size in `bytes`, the `sha256` of the entry's content and the number of `frames`. A reader checks the hash and the frame count before using a stem.
+- `original.embedded` is false when the original was left out; the `fileName`, `sha256` and `bytes` are still recorded so the original can be found again.
+
+**Versioning.** `version` is a whole number that only goes up when a change would make an older reader misread the file (a renamed or removed field, a different meaning). Adding an optional field or an optional entry does not change it. A reader opens `version` 1 and refuses a higher number with the message that the file was made by a newer Smart Beat.
+
+**Forward compatibility.** A reader ignores manifest fields and ZIP entries it does not know, and treats an unknown `codec` or stem `kind` as a reason to skip that stem (and say so), not to fail the whole file. A missing optional entry (`original/…`, `state.json`) is not an error. A bad or missing `manifest.json`, a hash that does not match, or a `format` other than `smart-beat-stems` is an error and nothing is added to the library.
+
+**Relinking by hash.** The mixer and the Recent grid know the original song by its path. When a reopened file has no embedded original, or the original has moved, the app asks for the song and accepts it only when its `sha256` equals `original.sha256`; a file with another hash is refused, so stems are never played against another recording. A bundle with the original embedded needs no relinking.
+
+**Privacy.** The original song is included **only if the box "Include the original song" is ticked** in the Save stems dialog (it is ticked by default, and disabled when the original is not on this computer any more). Without it the file holds only the separated parts, which are derived from the music and can still be copyrighted: keep and share saved stems under the same conditions as the song (Smart Beat is for personal use, learning and research, see [licensing.md](licensing.md)). Nothing is uploaded; saving and opening happen on this computer.
 
 ## Audio export (WAV, M4A)
 

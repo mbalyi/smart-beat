@@ -21,7 +21,9 @@ import {
   emitFileDrag,
   emitMenuAction,
   emitOpenRecent,
+  emitStemBundleOpened,
   mockTauri,
+  STEM_SONG,
 } from "@/test/tauri";
 
 // alphaTab needs a real browser to render and play: see e2e/score.spec.ts.
@@ -48,9 +50,10 @@ vi.mock("@/components/cloud-open-dialog", () => ({
 }));
 
 // Import from Audio is behind the audio-2-tab flag, which is off in src/lib/features.json.
-const flags = vi.hoisted(() => ({ audio: true }));
+const flags = vi.hoisted(() => ({ audio: true, stems: false }));
 vi.mock("@/lib/features", () => ({
-  isEnabled: (id: string) => id === "audio-2-tab" && flags.audio,
+  isEnabled: (id: string) =>
+    (id === "audio-2-tab" && flags.audio) || (id === "stem-separation" && flags.stems),
 }));
 
 const SONG = "/Users/me/Songs/practice-song.gp";
@@ -944,5 +947,94 @@ describe("App: recent songs and saving", () => {
     await screen.findByText("Edited");
     await menu("save");
     await waitFor(() => expect(backend.written.has(SONG)).toBe(true));
+  });
+});
+
+describe("App: saved stems (#186)", () => {
+  beforeEach(() => {
+    flags.stems = true;
+  });
+  afterEach(() => {
+    flags.stems = false;
+  });
+
+  it("opens a .sbstems file picked with Open saved stems… on the stem page", async () => {
+    const { user, calls } = await renderApp();
+    backend.dialogResult = "/Music/Opened.sbstems";
+    await user.click(screen.getByRole("button", { name: "Open saved stems…" }));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Opened Song" }),
+    ).toBeInTheDocument();
+    expect(calls).toContainEqual({
+      cmd: "stems_open_bundle",
+      args: { path: "/Music/Opened.sbstems" },
+    });
+    // It came from a file, so the page says it is saved.
+    expect(screen.getByTestId("stems-saved")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to start" }));
+    expect(await screen.findByRole("button", { name: /^Opened Song/ })).toBeInTheDocument();
+  });
+
+  it("does nothing when the Open dialog is cancelled", async () => {
+    const { user, calls } = await renderApp();
+    backend.dialogResult = null;
+    await user.click(screen.getByRole("button", { name: "Open saved stems…" }));
+    expect(calls.some((call) => call.cmd === "stems_open_bundle")).toBe(false);
+    expect(screen.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeInTheDocument();
+  });
+
+  it("reports a file that cannot be opened and stays on the start screen", async () => {
+    const { user } = await renderApp();
+    mockTauri({
+      stems_open_bundle: () => {
+        throw { kind: "io", message: "This file is not a Smart Beat stems file." };
+      },
+    });
+    backend.dialogResult = "/Music/Broken.sbstems";
+    await user.click(screen.getByRole("button", { name: "Open saved stems…" }));
+    expect(await screen.findByText("Couldn't open the saved stems")).toBeInTheDocument();
+    expect(screen.getByText(/not a Smart Beat stems file/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Opened Song" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the file the system hands over, also from an open song", async () => {
+    const { calls } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
+
+    await act(() => emitStemBundleOpened("/Downloads/Shared.sbstems"));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Opened Song" }),
+    ).toBeInTheDocument();
+    expect(calls).toContainEqual({
+      cmd: "stems_open_bundle",
+      args: { path: "/Downloads/Shared.sbstems" },
+    });
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Practice Song" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("marks a card as used when it is opened", async () => {
+    const calls = mockTauri();
+    backend.stemSongs = [STEM_SONG];
+    renderWithProviders(<App />);
+    const card = await screen.findByRole("button", { name: /^Neon Nights/ });
+    await act(async () => card.click());
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Neon Nights" }),
+    ).toBeInTheDocument();
+    expect(calls).toContainEqual({ cmd: "stems_touch", args: { id: STEM_SONG.id } });
+  });
+
+  it("leaves the Open saved stems button out while the feature is off", async () => {
+    flags.stems = false;
+    await renderApp();
+    expect(screen.queryByRole("button", { name: "Open saved stems…" })).not.toBeInTheDocument();
   });
 });

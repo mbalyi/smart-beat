@@ -162,6 +162,10 @@ Read from primary pages on 2026-10-28.
 
 Not verified: Spleeter and RoFormer weights licences. UMX-HQ ships as an optional download on the owner's decision, not because the question is settled.
 
+## Saving a separation
+
+A separation lives in the cache under the app's data folder, which is limited (2 GB) and can be cleared, so the stem page has **Save stems…**. It writes one `.sbstems` file (a ZIP of FLAC stems, a manifest and optionally the original song) to a place the user picks, with a progress bar, and **Open saved stems…** on the start screen reads it back into the library without separating again (about the time it takes to copy the files, not the minutes a separation takes). The cached copy is kept, so a song can be saved and also stay in the Recent grid with a "Saved" mark. The format, its versioning and the privacy rule (the original song is included only when the user ticks the box) are in [`file-formats.md`](file-formats.md#saved-stems-sbstems).
+
 ## Not done yet
 
 - The score-informed prototype (tab alignment plus constrained NMF).

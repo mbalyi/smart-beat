@@ -407,17 +407,37 @@ describe("Welcome: stem separation (#186)", () => {
     expect(onSeparateStems).toHaveBeenCalledOnce();
   });
 
-  it("leaves the button out while the feature is off", () => {
+  it("has an Open saved stems button right after Stem separation that asks to open a file", async () => {
+    const onOpenStemBundle = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onSeparateStems={vi.fn()}
+        onOpenStemBundle={onOpenStemBundle}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+      />,
+    );
+    const buttons = screen.getAllByRole("button").map((button) => button.textContent);
+    expect(buttons.indexOf("Open saved stems…")).toBe(buttons.indexOf("Stem separation…") + 1);
+    await user.click(screen.getByRole("button", { name: "Open saved stems…" }));
+    expect(onOpenStemBundle).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the buttons and the separated songs out while the feature is off", () => {
     renderWithProviders(
       <Welcome onOpenFile={vi.fn()} onNewSong={vi.fn()} onShowShortcuts={vi.fn()} />,
     );
     expect(screen.queryByRole("button", { name: "Stem separation…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open saved stems…" })).not.toBeInTheDocument();
     expect(screen.queryByText("Your separated songs")).not.toBeInTheDocument();
   });
 
-  it("lists the separated songs, opens one and deletes one", async () => {
+  const BLUE_HOUR = { ...STEM_SONG, id: "fedcba9876543210", name: "Blue Hour" };
+
+  it("lists the separated songs in Recent, opens one and deletes one", async () => {
     mockTauri();
-    backend.stemSongs = [STEM_SONG, { ...STEM_SONG, id: "fedcba9876543210", name: "Blue Hour" }];
+    backend.stemSongs = [STEM_SONG, BLUE_HOUR];
     const onOpenStemSong = vi.fn();
     const { user } = renderWithProviders(
       <Welcome
@@ -428,10 +448,12 @@ describe("Welcome: stem separation (#186)", () => {
       />,
     );
 
-    const heading = await screen.findByRole("heading", { name: "Your separated songs" });
+    const heading = await screen.findByRole("heading", { level: 2, name: "Recent songs" });
+    expect(screen.queryByRole("heading", { name: "Your separated songs" })).not.toBeInTheDocument();
     const section = heading.closest("section")!;
     expect(within(section).getAllByRole("listitem")).toHaveLength(2);
     expect(within(section).getAllByText(/3:35 · 5 parts · Fast/)).toHaveLength(2);
+    expect(within(section).getAllByText("Stems")).toHaveLength(2);
 
     await user.click(within(section).getByRole("button", { name: /^Blue Hour/ }));
     expect(onOpenStemSong).toHaveBeenCalledWith(expect.objectContaining({ name: "Blue Hour" }));
@@ -448,8 +470,34 @@ describe("Welcome: stem separation (#186)", () => {
     expect(backend.stemSongs.map((song) => song.name)).toEqual(["Blue Hour"]);
   });
 
-  it("shows no list when nothing was separated", async () => {
+  it("puts the separated songs before the recent songs, the one used last first", async () => {
     mockTauri();
+    backend.stemSongs = [
+      { ...STEM_SONG, name: "Old", id: "a1", createdAtMs: 1_000, lastOpened: null },
+      { ...STEM_SONG, name: "Reopened", id: "a2", createdAtMs: 500, lastOpened: 9_000 },
+      { ...STEM_SONG, name: "Newer", id: "a3", createdAtMs: 2_000, lastOpened: null },
+    ];
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+        recent={["/Songs/riff.gp5", "/Songs/solo.gp5"]}
+        onOpenRecent={vi.fn()}
+      />,
+    );
+    await screen.findByText("Reopened");
+    const section = screen.getByRole("heading", { name: "Recent songs" }).closest("section")!;
+    const names = within(section)
+      .getAllByRole("listitem")
+      .map((item) => item.querySelector("span.truncate")?.textContent);
+    expect(names).toEqual(["Reopened", "Newer", "Old", "riff.gp5", "solo.gp5"]);
+  });
+
+  it("marks a saved song with Saved", async () => {
+    mockTauri();
+    backend.stemSongs = [{ ...STEM_SONG, savedPath: "/Music/Neon Nights.sbstems" }, BLUE_HOUR];
     renderWithProviders(
       <Welcome
         onOpenFile={vi.fn()}
@@ -458,8 +506,24 @@ describe("Welcome: stem separation (#186)", () => {
         onOpenStemSong={vi.fn()}
       />,
     );
+    const saved = await screen.findAllByText("Saved");
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.closest("li")).toHaveTextContent("Neon Nights");
+  });
+
+  it("shows no Recent section when nothing was opened or separated", async () => {
+    mockTauri();
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    );
     await waitFor(() => expect(backend.stemSongs).toEqual([]));
-    expect(screen.queryByRole("heading", { name: "Your separated songs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Recent songs" })).not.toBeInTheDocument();
   });
 
   it("describes the feature as a beta with its limits", () => {

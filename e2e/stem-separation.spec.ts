@@ -7,7 +7,16 @@ import { expect, expectNoA11yViolations, tabKey, test } from "./fixtures";
 declare global {
   interface Window {
     __stems: {
-      songs: { id: string; name: string; skipped: string[] }[];
+      songs: {
+        id: string;
+        name: string;
+        skipped: string[];
+        pinned: boolean;
+        lastOpened: number | null;
+        savedPath: string | null;
+        hasOriginal: boolean;
+      }[];
+      originalMissing: boolean;
       requests: {
         path: string;
         kinds: string[];
@@ -24,6 +33,15 @@ declare global {
       release: (() => void) | null;
       abort: (() => void) | null;
       releaseRender: (() => void) | null;
+    };
+    __stemBundles: {
+      saves: { id: string; dest: string; includeOriginal: boolean }[];
+      opens: string[];
+      files: Record<string, unknown>;
+      hold: boolean;
+      fail: string | null;
+      release: (() => void) | null;
+      abort: (() => void) | null;
     };
     __stemModels: {
       models: Record<string, { downloaded: boolean; termsAccepted: boolean; available: boolean }>;
@@ -67,11 +85,15 @@ test.describe("Stem separation (#186)", () => {
   }
 
   /** Welcome button, song, Separate, and the page. */
-  async function separate(app: Page) {
+  async function separate(app: Page, path = SONG_PATH) {
     await openDialog(app);
-    const dialog = await chooseSong(app);
+    const dialog = await chooseSong(app, path);
     await dialog.getByRole("button", { name: "Separate" }).click();
-    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
+    const name = path
+      .split("/")
+      .pop()!
+      .replace(/\.[^.]+$/, "");
+    await expect(app.getByRole("heading", { level: 1, name })).toBeVisible();
     return app.getByRole("list", { name: "Stems" });
   }
 
@@ -267,22 +289,217 @@ test.describe("Stem separation (#186)", () => {
     await expect(app.getByTestId("stem-vocals")).toHaveCount(0);
   });
 
-  test("lists separated songs on the start screen, reopens one and deletes one", async ({
-    app,
-  }) => {
+  /** The Recent grid's card of a separated song (the card is a list item with its own buttons). */
+  const stemCard = (app: Page, name: string) =>
+    app.getByRole("listitem").filter({ has: app.getByRole("button", { name: new RegExp(name) }) });
+
+  test("shows a separated song in the Recent grid, reopens it and deletes it", async ({ app }) => {
     await separate(app);
     await app.getByRole("button", { name: "Back to start" }).click();
     await expect(app.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeVisible();
-    const section = app.getByRole("region", { name: "Your separated songs" });
-    await expect(section.getByRole("button", { name: /^neon-nights/ })).toBeVisible();
+    // The old separate section is gone: the song is a card among the recent songs.
+    await expect(app.getByRole("region", { name: "Your separated songs" })).toHaveCount(0);
+    const card = stemCard(app, "neon-nights");
+    await expect(card.getByText("Stems", { exact: true })).toBeVisible();
+    await expect(card.getByText("Saved", { exact: true })).toHaveCount(0);
 
-    await section.getByRole("button", { name: /^neon-nights/ }).click();
+    await card.getByRole("button", { name: /^neon-nights/ }).click();
     await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
     await app.getByRole("button", { name: "Back to start" }).click();
 
-    await section.getByRole("button", { name: "Delete neon-nights" }).click();
-    await section.getByRole("button", { name: "Delete the stems of neon-nights" }).click();
-    await expect(section).toHaveCount(0);
+    await card.getByRole("button", { name: "Delete neon-nights" }).click();
+    await card.getByRole("button", { name: "Delete the stems of neon-nights" }).click();
+    await expect(stemCard(app, "neon-nights")).toHaveCount(0);
+    expect(await app.evaluate(() => window.__stems.songs.length)).toBe(0);
+  });
+
+  test("lists the newest or last opened stems first, and marks the saved ones", async ({ app }) => {
+    await separate(app);
+    await app.getByRole("button", { name: "Back to start" }).click();
+    await separate(app, "/Users/me/Music/blue-moon.mp3");
+    await app.evaluate(() => (window.__saveResult = "/Users/me/Music/blue-moon.sbstems"));
+    await saveStems(app);
+    await app.getByRole("button", { name: "Back to start" }).click();
+
+    const names = () =>
+      app
+        .getByRole("button", { name: /^(neon-nights|blue-moon)/ })
+        .evaluateAll((buttons) => buttons.map((button) => button.textContent?.slice(0, 9)));
+    await expect.poll(names).toEqual(["blue-moon", "neon-nigh"]);
+    await expect(stemCard(app, "blue-moon").getByText("Saved", { exact: true })).toBeVisible();
+    await expect(stemCard(app, "neon-nights").getByText("Saved", { exact: true })).toHaveCount(0);
+
+    // Opening the older one makes it the first.
+    await stemCard(app, "neon-nights")
+      .getByRole("button", { name: /^neon-nights/ })
+      .click();
+    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
+    await app.getByRole("button", { name: "Back to start" }).click();
+    await expect.poll(names).toEqual(["neon-nigh", "blue-moon"]);
+  });
+
+  /** The page's "Save stems…" button and the dialog it opens. */
+  async function openSaveDialog(app: Page) {
+    await app.getByRole("button", { name: "Save stems…" }).click();
+    const dialog = app.getByRole("dialog", { name: "Save stems" });
+    await expect(dialog).toBeVisible();
+    return dialog;
+  }
+
+  /** Opens the dialog, saves to the (mocked) native dialog's `__saveResult` and closes it. */
+  async function saveStems(app: Page) {
+    const dialog = await openSaveDialog(app);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByTestId("save-stems-path")).toBeVisible();
+    await dialog.getByRole("button", { name: "Close" }).first().click();
+    await expect(dialog).toBeHidden();
+  }
+
+  const BUNDLE_PATH = "/Users/me/Music/neon-nights.sbstems";
+
+  test("saves the stems with the original song, and says where", async ({ app }) => {
+    await separate(app);
+    const dialog = await openSaveDialog(app);
+    const box = dialog.getByRole("checkbox", { name: "Include the original song" });
+    await expect(box).toBeChecked();
+    await expect(box).toBeEnabled();
+    await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+
+    await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
+    await expect(dialog.getByRole("progressbar", { name: "Save progress" })).toHaveCount(0);
+    const saves = await app.evaluate(() => window.__stemBundles.saves);
+    expect(saves).toHaveLength(1);
+    expect(saves[0]).toMatchObject({ dest: BUNDLE_PATH, includeOriginal: true });
+    expect(saves[0].id).toBe("neonnights000000");
+    expect(await app.evaluate(() => window.__stems.songs[0].savedPath)).toBe(BUNDLE_PATH);
+    await dialog.getByRole("button", { name: "Close" }).first().click();
+    await expect(dialog).toBeHidden();
+  });
+
+  test("saves the stems without the original song when the box is cleared", async ({ app }) => {
+    await separate(app);
+    const dialog = await openSaveDialog(app);
+    await dialog.getByRole("checkbox", { name: "Include the original song" }).uncheck();
+    await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
+    const saves = await app.evaluate(() => window.__stemBundles.saves);
+    expect(saves).toHaveLength(1);
+    expect(saves[0].includeOriginal).toBe(false);
+    expect(
+      await app.evaluate(() => window.__stemBundles.files[window.__stemBundles.saves[0].dest]),
+    ).toMatchObject({
+      hasOriginal: false,
+    });
+  });
+
+  test("cannot include the original song when it is not on this computer any more", async ({
+    app,
+  }) => {
+    await app.evaluate(() => (window.__stems.originalMissing = true));
+    await separate(app);
+    const dialog = await openSaveDialog(app);
+    const box = dialog.getByRole("checkbox", { name: "Include the original song" });
+    await expect(box).toBeDisabled();
+    await expect(box).not.toBeChecked();
+    await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
+    const saves = await app.evaluate(() => window.__stemBundles.saves);
+    expect(saves[0].includeOriginal).toBe(false);
+  });
+
+  test("shows the progress of a save, then the file", async ({ app }) => {
+    await separate(app);
+    await app.evaluate((path) => {
+      window.__stemBundles.hold = true;
+      window.__saveResult = path;
+    }, BUNDLE_PATH);
+    const dialog = await openSaveDialog(app);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    const bar = dialog.getByRole("progressbar", { name: "Save progress" });
+    await expect(bar).toBeVisible();
+    await expect(bar).toHaveAttribute("aria-valuenow", "50");
+    await expect(dialog.getByText(BUNDLE_PATH)).toHaveCount(0);
+
+    await app.evaluate(() => window.__stemBundles.release?.());
+    await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
+    await expect(bar).toHaveCount(0);
+  });
+
+  test("does nothing when the native save dialog is cancelled, and closes with Escape", async ({
+    app,
+  }) => {
+    await separate(app);
+    await app.evaluate(() => (window.__saveResult = null));
+    const dialog = await openSaveDialog(app);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+    expect(await app.evaluate(() => window.__stemBundles.saves)).toEqual([]);
+    await app.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(app.getByRole("button", { name: "Save stems…" })).toBeFocused();
+  });
+
+  test("shows why saving failed, and can try again", async ({ app }) => {
+    await separate(app);
+    await app.evaluate((path) => {
+      window.__stemBundles.fail = "There is not enough room on the disk.";
+      window.__saveResult = path;
+    }, BUNDLE_PATH);
+    const dialog = await openSaveDialog(app);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("There is not enough room on the disk.");
+    await app.evaluate(() => (window.__stemBundles.fail = null));
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+  });
+
+  /** Saves the page's stems to the bundle path, deletes them from the library and goes home. */
+  async function saveAndForget(app: Page) {
+    await separate(app);
+    await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
+    await saveStems(app);
+    await app.getByRole("button", { name: "Back to start" }).click();
+    await stemCard(app, "neon-nights").getByRole("button", { name: "Delete neon-nights" }).click();
+    await app.getByRole("button", { name: "Delete the stems of neon-nights" }).click();
+    await expect(stemCard(app, "neon-nights")).toHaveCount(0);
+  }
+
+  test("opens saved stems from the start screen", async ({ app }) => {
+    await saveAndForget(app);
+    await app.evaluate((path) => (window.__dialogResult = path), BUNDLE_PATH);
+    await app.getByRole("button", { name: "Open saved stems…" }).click();
+    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
+    await expect(app.getByRole("list", { name: "Stems" }).getByRole("listitem")).toHaveCount(5);
+    expect(await app.evaluate(() => window.__stemBundles.opens)).toEqual([BUNDLE_PATH]);
+    // It is in the library again, marked as saved.
+    await app.getByRole("button", { name: "Back to start" }).click();
+    await expect(stemCard(app, "neon-nights").getByText("Saved", { exact: true })).toBeVisible();
+  });
+
+  test("shows why a stems file could not be opened", async ({ app }) => {
+    await app.evaluate(() => (window.__dialogResult = "/Users/me/Music/broken.sbstems"));
+    await app.getByRole("button", { name: "Open saved stems…" }).click();
+    // A toast, as for a song that cannot be opened.
+    await expect(app.getByText("Couldn't open the saved stems")).toBeVisible();
+    await expect(app.getByText("This is not a Smart Beat stems file.")).toBeVisible();
+    await expect(app.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeVisible();
+  });
+
+  test("opens a stems file that the system asked for, like a double-click in Finder", async ({
+    app,
+  }) => {
+    await saveAndForget(app);
+    await app.evaluate(
+      (path) => window.__emitTauriEvent("stems-bundle-opened", { path }),
+      BUNDLE_PATH,
+    );
+    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
+    expect(await app.evaluate(() => window.__stemBundles.opens)).toEqual([BUNDLE_PATH]);
   });
 
   /** The options step with the engine cards (the dialog is open and a song is chosen). */
@@ -438,6 +655,83 @@ test.describe("Stem separation (#186)", () => {
         await expect(dialog.getByTestId("stem-neural-setup")).toBeVisible();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
         expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
+      });
+
+      test(`has no WCAG violations in the Save dialog at ${width} px in ${colorScheme} mode`, async ({
+        app,
+      }) => {
+        await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await app.emulateMedia({ colorScheme });
+        await separate(app);
+        const dialog = await openSaveDialog(app);
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+
+        // The original is gone: the box is disabled.
+        await dialog.getByRole("button", { name: "Close" }).first().click();
+        await app.evaluate(() => (window.__stems.songs[0].hasOriginal = false));
+        await app.getByRole("button", { name: "Back to start" }).click();
+        await stemCard(app, "neon-nights")
+          .getByRole("button", { name: /^neon-nights/ })
+          .click();
+        await openSaveDialog(app);
+        await expect(
+          dialog.getByRole("checkbox", { name: "Include the original song" }),
+        ).toBeDisabled();
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        await dialog.getByRole("button", { name: "Close" }).first().click();
+
+        // Saving: the progress bar.
+        await app.evaluate((path) => {
+          window.__stemBundles.hold = true;
+          window.__saveResult = path;
+        }, BUNDLE_PATH);
+        await openSaveDialog(app);
+        await dialog.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(dialog.getByRole("progressbar", { name: "Save progress" })).toBeVisible();
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+
+        // Saved: the path.
+        await app.evaluate(() => window.__stemBundles.release?.());
+        await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
+
+        // A failure.
+        await dialog.getByRole("button", { name: "Close" }).first().click();
+        await app.evaluate(() => {
+          window.__stemBundles.hold = false;
+          window.__stemBundles.fail = "There is not enough room on the disk.";
+        });
+        await openSaveDialog(app);
+        await dialog.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(dialog.getByRole("alert")).toBeVisible();
+        await app.mouse.move(0, 0);
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+      });
+
+      test(`has no WCAG violations in the Recent grid with stems at ${width} px in ${colorScheme} mode`, async ({
+        app,
+      }) => {
+        await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await app.emulateMedia({ colorScheme });
+        await separate(app);
+        await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
+        await saveStems(app);
+        await app.getByRole("button", { name: "Back to start" }).click();
+        await separate(app, "/Users/me/Music/blue-moon.mp3");
+        await app.getByRole("button", { name: "Back to start" }).click();
+        await expect(
+          stemCard(app, "neon-nights").getByText("Saved", { exact: true }),
+        ).toBeVisible();
+        await expect(stemCard(app, "blue-moon").getByText("Stems", { exact: true })).toBeVisible();
+        await expectNoA11yViolations(app);
+        // The delete question is open on one card.
+        await stemCard(app, "blue-moon").getByRole("button", { name: "Delete blue-moon" }).click();
+        await app.mouse.move(0, 0);
+        await expectNoA11yViolations(app);
+        expect(
+          await app.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+        ).toBeLessThanOrEqual(0);
       });
 
       test(`has no WCAG violations on the page at ${width} px in ${colorScheme} mode`, async ({

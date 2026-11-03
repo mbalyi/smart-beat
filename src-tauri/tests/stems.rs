@@ -446,3 +446,358 @@ fn bad_requests_are_refused_without_touching_the_cache() {
         json!([])
     );
 }
+
+fn bundle_listener(window: &WebviewWindow<MockRuntime>) -> mpsc::Receiver<Value> {
+    let (sender, receiver) = mpsc::channel();
+    window.listen("stems-bundle-progress", move |event| {
+        let _ = sender.send(serde_json::from_str(event.payload()).unwrap());
+    });
+    receiver
+}
+
+fn save_args(id: &Value, dest: &Path, original: bool) -> Value {
+    json!({ "request": {
+        "id": id,
+        "dest": dest.to_string_lossy(),
+        "includeOriginal": original,
+        "state": { "speed": 0.75, "muted": ["drums"], "gains": { "bass": 0.5 } },
+    }})
+}
+
+#[test]
+fn a_separation_is_saved_to_a_file_and_opened_into_another_cache_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with(StemStore::new(dir.path().join("stems")));
+    let window = main_window(&app);
+    let file = dir.path().join("Band Song.wav");
+    write_band(&file, 5.0);
+    let song = json_of(
+        &window,
+        "stems_separate",
+        separate_args(&file, &["drums", "bass", "vocals"]),
+    )
+    .unwrap();
+    let id = song["id"].clone();
+    // A fresh song is not pinned, was never opened, and can still offer its source file.
+    assert_eq!(song["pinned"], false);
+    assert_eq!(song["lastOpened"], Value::Null);
+    assert_eq!(song["savedPath"], Value::Null);
+    assert_eq!(song["hasOriginal"], true);
+    // The page never sees where the file came from.
+    assert!(!song.to_string().contains("Band Song.wav"));
+
+    let progress = bundle_listener(&window);
+    let dest = dir.path().join("saved").join("Band Song.sbstems");
+    std::fs::create_dir(dest.parent().unwrap()).unwrap();
+    let saved = json_of(&window, "stems_save_bundle", save_args(&id, &dest, true)).expect("save");
+    assert_eq!(saved["path"], dest.to_string_lossy().as_ref());
+    assert_eq!(saved["originalIncluded"], true);
+    assert_eq!(
+        saved["bytes"].as_u64().unwrap(),
+        std::fs::metadata(&dest).unwrap().len()
+    );
+    let events: Vec<Value> = progress.try_iter().collect();
+    assert!(!events.is_empty());
+    assert!(events.iter().all(|e| e["stage"] == "writing"));
+    assert_eq!(events.last().unwrap()["fraction"], 1.0);
+    assert!(
+        events
+            .iter()
+            .all(|e| (0.0..=1.0).contains(&e["fraction"].as_f64().unwrap()))
+    );
+    // No temp file stays next to it.
+    assert_eq!(
+        std::fs::read_dir(dest.parent().unwrap()).unwrap().count(),
+        1
+    );
+
+    // The cached song is pinned and knows its file.
+    let list = json_of(&window, "stems_list", json!({})).unwrap();
+    assert_eq!(list[0]["pinned"], true);
+    assert_eq!(list[0]["savedPath"], dest.to_string_lossy().as_ref());
+    assert_eq!(list[0]["hasOriginal"], true);
+    // Touch and pin.
+    json_of(&window, "stems_touch", json!({ "id": id })).unwrap();
+    let list = json_of(&window, "stems_list", json!({})).unwrap();
+    assert!(list[0]["lastOpened"].as_u64().unwrap() > 0);
+    json_of(&window, "stems_pin", json!({ "id": id, "pinned": false })).unwrap();
+    assert_eq!(
+        json_of(&window, "stems_list", json!({})).unwrap()[0]["pinned"],
+        false
+    );
+    json_of(&window, "stems_pin", json!({ "id": id, "pinned": true })).unwrap();
+    assert!(json_of(&window, "stems_touch", json!({ "id": "0123456789abcdef" })).is_err());
+    assert!(
+        json_of(
+            &window,
+            "stems_pin",
+            json!({ "id": "../x", "pinned": true })
+        )
+        .is_err()
+    );
+
+    // Another computer: an empty cache and only the file.
+    let other_dir = tempfile::tempdir().unwrap();
+    let other = app_with(StemStore::new(other_dir.path().join("stems")));
+    let other_window = main_window(&other);
+    let progress = bundle_listener(&other_window);
+    let opened = json_of(
+        &other_window,
+        "stems_open_bundle",
+        json!({ "path": dest.to_string_lossy() }),
+    )
+    .expect("open");
+    let events: Vec<Value> = progress.try_iter().collect();
+    assert!(events.iter().all(|e| e["stage"] == "reading"));
+    assert_eq!(events.last().unwrap()["fraction"], 1.0);
+    for key in [
+        "id",
+        "name",
+        "durationSeconds",
+        "sampleRate",
+        "engine",
+        "strongDrums",
+        "stems",
+        "mono",
+        "skipped",
+        "pannedShare",
+        "bytes",
+        "createdAtMs",
+    ] {
+        assert_eq!(opened[key], song[key], "{key}");
+    }
+    assert_eq!(opened["pinned"], true);
+    assert_eq!(opened["savedPath"], dest.to_string_lossy().as_ref());
+    assert_eq!(opened["hasOriginal"], true);
+    assert!(opened["lastOpened"].as_u64().unwrap() > 0);
+    assert_eq!(
+        json_of(&other_window, "stems_list", json!({})).unwrap(),
+        json!([opened.clone()])
+    );
+    // Every stem is byte for byte the one that was saved.
+    for kind in ["drums", "bass", "vocals", "other"] {
+        let args = json!({ "id": id, "kind": kind });
+        assert_eq!(
+            raw_of(&window, "stems_read", args.clone()).unwrap(),
+            raw_of(&other_window, "stems_read", args).unwrap(),
+            "{kind}"
+        );
+    }
+    // The mixer state comes back, and opening it again is just a touch.
+    let bundle_state = json_of(
+        &other_window,
+        "stems_bundle_state",
+        json!({ "path": dest.to_string_lossy() }),
+    )
+    .unwrap();
+    assert_eq!(
+        bundle_state,
+        json!({ "speed": 0.75, "muted": ["drums"], "gains": { "bass": 0.5 } })
+    );
+    let again = json_of(
+        &other_window,
+        "stems_open_bundle",
+        json!({ "path": dest.to_string_lossy() }),
+    )
+    .unwrap();
+    assert_eq!(again["stems"], opened["stems"]);
+    assert_eq!(
+        json_of(&other_window, "stems_cache_info", json!({})).unwrap()["count"],
+        1
+    );
+    // A cached-away song comes back from its file, and mix rendering works on it.
+    json_of(&other_window, "stems_delete", json!({ "id": id })).unwrap();
+    json_of(
+        &other_window,
+        "stems_open_bundle",
+        json!({ "path": dest.to_string_lossy() }),
+    )
+    .unwrap();
+    let wav = raw_of(
+        &other_window,
+        "stems_render_mix",
+        json!({ "id": id, "request": { "gains": all_gains(1.0), "speed": 1.0 } }),
+    )
+    .unwrap();
+    assert_eq!(
+        read_wav(&wav).1,
+        read_wav(&raw_of(&window, "stems_read", json!({ "id": id, "kind": "bass" })).unwrap()).1
+    );
+}
+
+#[test]
+fn a_saved_song_is_not_evicted_but_an_unsaved_one_is() {
+    let dir = tempfile::tempdir().unwrap();
+    // Room for about one song of two stems.
+    let app = app_with(StemStore::new(dir.path().join("stems")).with_limit(1_800_000));
+    let window = main_window(&app);
+    let file = dir.path().join("a.wav");
+    write_band(&file, 3.0);
+    let first = json_of(&window, "stems_separate", separate_args(&file, &["drums"])).unwrap();
+    let dest = dir.path().join("first.sbstems");
+    json_of(
+        &window,
+        "stems_save_bundle",
+        json!({ "request": { "id": first["id"], "dest": dest.to_string_lossy(), "includeOriginal": false } }),
+    )
+    .unwrap();
+    let second = json_of(&window, "stems_separate", separate_args(&file, &["bass"])).unwrap();
+    let third = json_of(&window, "stems_separate", separate_args(&file, &["vocals"])).unwrap();
+    let list = json_of(&window, "stems_list", json!({})).unwrap();
+    let ids: Vec<&Value> = list.as_array().unwrap().iter().map(|s| &s["id"]).collect();
+    assert!(ids.contains(&&first["id"]), "the saved song was evicted");
+    assert!(ids.contains(&&third["id"]));
+    assert!(!ids.contains(&&second["id"]), "the unsaved one should go");
+}
+
+#[test]
+fn saving_and_opening_report_clear_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with(StemStore::new(dir.path().join("stems")));
+    let window = main_window(&app);
+    let file = dir.path().join("a.wav");
+    write_band(&file, 2.0);
+    let song = json_of(&window, "stems_separate", separate_args(&file, &["drums"])).unwrap();
+    let dest = dir.path().join("ok");
+    // No original asked for: none is included; the extension is added.
+    let saved = json_of(
+        &window,
+        "stems_save_bundle",
+        save_args(&song["id"], &dest, false),
+    )
+    .unwrap();
+    assert_eq!(saved["originalIncluded"], false);
+    assert!(saved["path"].as_str().unwrap().ends_with("ok.sbstems"));
+
+    // Save: an unknown song, a bad id, a folder that is not there.
+    for (args, word) in [
+        (
+            save_args(&json!("0123456789abcdef"), &dest, false),
+            "not saved",
+        ),
+        (save_args(&json!("../etc"), &dest, false), "not saved"),
+        (
+            save_args(
+                &song["id"],
+                &dir.path().join("no/such/dir/a.sbstems"),
+                false,
+            ),
+            "does not exist",
+        ),
+    ] {
+        let err = json_of(&window, "stems_save_bundle", args).expect_err("must fail");
+        assert!(err["message"].as_str().unwrap().contains(word), "{err}");
+    }
+
+    // Open: a missing file, a file that is not ours, and one that is damaged or too new.
+    let missing = dir.path().join("missing.sbstems");
+    let err = json_of(
+        &window,
+        "stems_open_bundle",
+        json!({ "path": missing.to_string_lossy() }),
+    )
+    .expect_err("missing");
+    assert_eq!(err["kind"], "not-found");
+    let junk = dir.path().join("junk.sbstems");
+    std::fs::write(&junk, b"definitely not a zip").unwrap();
+    let err = json_of(
+        &window,
+        "stems_open_bundle",
+        json!({ "path": junk.to_string_lossy() }),
+    )
+    .expect_err("junk");
+    assert!(
+        err["message"]
+            .as_str()
+            .unwrap()
+            .contains("not a Smart Beat stems file")
+    );
+    assert!(
+        json_of(
+            &window,
+            "stems_bundle_state",
+            json!({ "path": junk.to_string_lossy() })
+        )
+        .is_err()
+    );
+
+    let fresh = app_with(StemStore::new(dir.path().join("fresh")));
+    let fresh_window = main_window(&fresh);
+    let bytes = std::fs::read(saved["path"].as_str().unwrap()).unwrap();
+    // One flipped byte somewhere in the middle of the file.
+    let mut damaged = bytes.clone();
+    let middle = damaged.len() / 2;
+    damaged[middle] ^= 0xff;
+    let bad = dir.path().join("bad.sbstems");
+    std::fs::write(&bad, damaged).unwrap();
+    let err = json_of(
+        &fresh_window,
+        "stems_open_bundle",
+        json!({ "path": bad.to_string_lossy() }),
+    )
+    .expect_err("damaged");
+    assert!(!err["message"].as_str().unwrap().is_empty());
+    assert_eq!(
+        json_of(&fresh_window, "stems_list", json!({})).unwrap(),
+        json!([])
+    );
+    // The good file still opens in the fresh cache.
+    json_of(
+        &fresh_window,
+        "stems_open_bundle",
+        json!({ "path": saved["path"] }),
+    )
+    .unwrap();
+    // Stopping with nothing running is harmless.
+    json_of(&fresh_window, "stems_cancel", json!({})).unwrap();
+}
+
+#[test]
+fn a_stems_file_opened_by_the_system_is_queued_at_launch_and_sent_as_an_event_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with(StemStore::new(dir.path().join("stems")));
+    let window = main_window(&app);
+    let (sender, events) = mpsc::channel();
+    window.listen("stems-bundle-opened", move |event| {
+        let _ = sender.send(serde_json::from_str::<Value>(event.payload()).unwrap());
+    });
+    let (score_sender, score_events) = mpsc::channel();
+    window.listen("open-external-file", move |_| {
+        let _ = score_sender.send(());
+    });
+    let launch = dir.path().join("Launch.sbstems");
+    let score = dir.path().join("Song.gp5");
+    let handle = app.handle();
+    // At launch the page is not listening: the file waits, no event is sent.
+    smart_beat_lib::open_file::queue_at_launch(handle, vec![launch.clone(), score.clone()]);
+    assert!(events.try_recv().is_err());
+    assert_eq!(
+        json_of(&window, "take_pending_open_files", json!({})).unwrap(),
+        json!([score.to_string_lossy()])
+    );
+    assert_eq!(
+        json_of(&window, "take_pending_stem_bundles", json!({})).unwrap(),
+        json!([launch.to_string_lossy()])
+    );
+    assert_eq!(
+        json_of(&window, "take_pending_stem_bundles", json!({})).unwrap(),
+        json!([])
+    );
+    // Later files arrive as events with the path; scores still use the old event.
+    let later = dir.path().join("Later.sbstems");
+    smart_beat_lib::open_file::deliver(handle, vec![later.clone()]);
+    let event = events
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
+    assert_eq!(event, json!({ "path": later.to_string_lossy() }));
+    assert!(score_events.try_recv().is_err());
+    smart_beat_lib::open_file::deliver(handle, vec![score.clone()]);
+    score_events
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
+    assert!(events.try_recv().is_err());
+    assert_eq!(
+        json_of(&window, "take_pending_stem_bundles", json!({})).unwrap(),
+        json!([])
+    );
+}

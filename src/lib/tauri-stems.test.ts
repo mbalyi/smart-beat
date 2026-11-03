@@ -13,20 +13,29 @@ import {
   isStemsStopped,
   listStemSongs,
   NotInDesktopAppError,
+  onStemBundleOpened,
+  openStemBundle,
+  pickStemBundle,
+  pickStemBundleDestination,
   pickStemFile,
+  pinStemSong,
   readStem,
   removeStemModel,
   removeUmxModel,
   renderStemMix,
+  revealInFolder,
+  saveStemBundle,
   separateStems,
   STEMS_STOPPED,
   stemCacheInfo,
   stemModelStatus,
+  touchStemSong,
   umxModelStatus,
+  type BundleProgress,
   type SeparateRequest,
   type StemProgress,
 } from "@/lib/tauri";
-import { backend, mockTauri, STEM_SONG } from "@/test/tauri";
+import { backend, emitStemBundleOpened, mockTauri, STEM_SONG } from "@/test/tauri";
 
 const REQUEST: SeparateRequest = {
   path: "/Music/song.mp3",
@@ -45,6 +54,21 @@ describe("stem separation outside the desktop app", () => {
     await expect(stemModelStatus("htdemucs")).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(downloadStemModel("scnet")).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(pickStemFile()).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(
+      saveStemBundle({ id: "a", dest: "/x.sbstems", includeOriginal: true }),
+    ).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(openStemBundle("/x.sbstems")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(touchStemSong("a")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(pinStemSong("a", true)).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(pickStemBundle()).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(pickStemBundleDestination("Song")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(revealInFolder("/x.sbstems")).rejects.toBeInstanceOf(NotInDesktopAppError);
+  });
+
+  it("has no file to be told about", async () => {
+    const stop = await onStemBundleOpened(() => {});
+    expect(stop).toBeTypeOf("function");
+    expect(() => stop()).not.toThrow();
   });
 
   it("has nothing to cancel", async () => {
@@ -215,5 +239,103 @@ describe("the SCNet and HTDemucs model commands", () => {
     await removeStemModel("scnet-xl");
     expect(calls.map((call) => call.cmd)).toEqual(["stem_model_cancel", "stem_model_remove"]);
     expect(calls[1]?.args).toEqual({ model: "scnet-xl" });
+  });
+});
+
+describe("saved stems (.sbstems)", () => {
+  it("saves with the request as given, reports the progress and returns the result", async () => {
+    const calls = mockTauri({
+      stems_save_bundle: async () => {
+        await emit("stems-bundle-progress", { stage: "writing", fraction: 0.4 });
+        await emit("stems-bundle-progress", { stage: "writing", fraction: 1 });
+        return { path: "/Music/Neon.sbstems", bytes: 9, originalIncluded: false };
+      },
+    });
+    const seen: BundleProgress[] = [];
+    const request = { id: "abc", dest: "/Music/Neon.sbstems", includeOriginal: true };
+    await expect(saveStemBundle(request, (progress) => seen.push(progress))).resolves.toEqual({
+      path: "/Music/Neon.sbstems",
+      bytes: 9,
+      originalIncluded: false,
+    });
+    expect(calls).toContainEqual({ cmd: "stems_save_bundle", args: { request } });
+    expect(seen).toEqual([
+      { stage: "writing", fraction: 0.4 },
+      { stage: "writing", fraction: 1 },
+    ]);
+  });
+
+  it("opens a file and returns its song", async () => {
+    const calls = mockTauri();
+    const opened = await openStemBundle("/Music/Neon.sbstems");
+    expect(opened).toMatchObject({ name: "Opened Song", savedPath: "/Music/Neon.sbstems" });
+    expect(calls).toContainEqual({
+      cmd: "stems_open_bundle",
+      args: { path: "/Music/Neon.sbstems" },
+    });
+  });
+
+  it("touches and pins a song", async () => {
+    const calls = mockTauri();
+    backend.stemSongs = [STEM_SONG];
+    await touchStemSong(STEM_SONG.id);
+    await pinStemSong(STEM_SONG.id, true);
+    expect(calls).toContainEqual({ cmd: "stems_touch", args: { id: STEM_SONG.id } });
+    expect(calls).toContainEqual({ cmd: "stems_pin", args: { id: STEM_SONG.id, pinned: true } });
+    expect(backend.stemSongs[0]).toMatchObject({ pinned: true });
+    expect(backend.stemSongs[0]!.lastOpened).toBeTypeOf("number");
+  });
+
+  it("tells the handler the path of a file the system opened, until it stops listening", async () => {
+    mockTauri();
+    const paths: string[] = [];
+    const stop = await onStemBundleOpened((path) => paths.push(path));
+    await emitStemBundleOpened("/Downloads/Neon.sbstems");
+    stop();
+    await emitStemBundleOpened("/Downloads/Other.sbstems");
+    expect(paths).toEqual(["/Downloads/Neon.sbstems"]);
+  });
+
+  it("hands over a file that opened the app before it was listening, once", async () => {
+    const calls = mockTauri();
+    backend.pendingStemBundles = ["/Downloads/Launch.sbstems"];
+    const paths: string[] = [];
+    const stop = await onStemBundleOpened((path) => paths.push(path));
+    expect(paths).toEqual(["/Downloads/Launch.sbstems"]);
+    expect(calls.filter((call) => call.cmd === "take_pending_stem_bundles")).toHaveLength(1);
+    const again = await onStemBundleOpened((path) => paths.push(path));
+    expect(paths).toEqual(["/Downloads/Launch.sbstems"]);
+    stop();
+    again();
+  });
+
+  it("asks the native dialogs for .sbstems files named Smart Beat stems", async () => {
+    const calls = mockTauri();
+    backend.saveResult = "/Music/Neon Nights.sbstems";
+    backend.dialogResult = "/Music/Neon Nights.sbstems";
+    await expect(pickStemBundleDestination("Neon Nights")).resolves.toBe(
+      "/Music/Neon Nights.sbstems",
+    );
+    await expect(pickStemBundle()).resolves.toBe("/Music/Neon Nights.sbstems");
+    const filters = [{ name: "Smart Beat stems", extensions: ["sbstems"] }];
+    expect(calls).toContainEqual({
+      cmd: "plugin:dialog|save",
+      args: {
+        options: expect.objectContaining({ defaultPath: "Neon Nights.sbstems", filters }),
+      },
+    });
+    expect(calls).toContainEqual({
+      cmd: "plugin:dialog|open",
+      args: { options: expect.objectContaining({ multiple: false, filters }) },
+    });
+  });
+
+  it("reveals a file in the folder", async () => {
+    const calls = mockTauri();
+    await revealInFolder("/Music/Neon.sbstems");
+    expect(calls).toContainEqual({
+      cmd: "plugin:opener|reveal_item_in_dir",
+      args: { paths: ["/Music/Neon.sbstems"] },
+    });
   });
 });

@@ -6,7 +6,13 @@
 //! saved stems come back at once), decodes, separates segment by segment while a
 //! [`wav::WavSink`] writes 16-bit stereo WAV files, and moves the finished folder into the
 //! store. The page plays the stems itself; [`mix::render`] makes the slowed-down version.
+//!
+//! The store is a cache. A song is kept for good by saving it as one `.sbstems` file
+//! ([`bundle`]); opening such a file puts the song back into the cache, pinned so it is never
+//! evicted.
 
+pub mod bundle;
+pub mod codec;
 pub mod mix;
 pub mod model_files;
 pub mod models;
@@ -97,6 +103,21 @@ pub struct StemSong {
     pub panned_share: f32,
     pub bytes: u64,
     pub created_at_ms: u64,
+    /// Never evicted from the cache: the song was saved to a file or opened from one.
+    /// (`default` on this and the next fields: `meta.json` files of older versions lack them.)
+    #[serde(default)]
+    pub pinned: bool,
+    /// When the song was last opened, in ms since the epoch.
+    #[serde(default)]
+    pub last_opened: Option<u64>,
+    /// The `.sbstems` file the song was last saved to or opened from.
+    #[serde(default)]
+    pub saved_path: Option<String>,
+    /// The original audio can be put into a saved file: the audio file the song was separated
+    /// from can still be read, or it is embedded in the `.sbstems` file of the song. On disk
+    /// this is only the second part; the store works out the first when it reads the song.
+    #[serde(default)]
+    pub has_original: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -135,30 +156,54 @@ fn error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
 }
 
-/// The stop switch of the running job. A new job stops the old one.
+/// The stop switches of the running separation and of the running save or open of a `.sbstems`
+/// file. A new job stops the old one of its own kind; [`StemsRun::cancel`] stops both.
 #[derive(Default)]
-pub struct StemsRun(Mutex<Option<Arc<AtomicBool>>>);
+pub struct StemsRun {
+    job: Mutex<Option<Arc<AtomicBool>>>,
+    bundle: Mutex<Option<Arc<AtomicBool>>>,
+}
+
+type Slot = Mutex<Option<Arc<AtomicBool>>>;
+
+fn start_in(slot: &Slot) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(old) = slot.replace(stop.clone()) {
+        old.store(true, Ordering::Relaxed);
+    }
+    stop
+}
+
+fn finish_in(slot: &Slot, stop: &Arc<AtomicBool>) {
+    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if slot
+        .as_ref()
+        .is_some_and(|current| Arc::ptr_eq(current, stop))
+    {
+        *slot = None;
+    }
+}
+
 impl StemsRun {
     fn start(&self) -> Arc<AtomicBool> {
-        let stop = Arc::new(AtomicBool::new(false));
-        let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(old) = slot.replace(stop.clone()) {
-            old.store(true, Ordering::Relaxed);
-        }
-        stop
+        start_in(&self.job)
     }
     fn finish(&self, stop: &Arc<AtomicBool>) {
-        let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if slot
-            .as_ref()
-            .is_some_and(|current| Arc::ptr_eq(current, stop))
-        {
-            *slot = None;
-        }
+        finish_in(&self.job, stop);
+    }
+    /// A save or open of a `.sbstems` file. It does not stop a separation.
+    pub fn start_bundle(&self) -> Arc<AtomicBool> {
+        start_in(&self.bundle)
+    }
+    pub fn finish_bundle(&self, stop: &Arc<AtomicBool>) {
+        finish_in(&self.bundle, stop);
     }
     pub fn cancel(&self) {
-        if let Some(stop) = self.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            stop.store(true, Ordering::Relaxed);
+        for slot in [&self.job, &self.bundle] {
+            if let Some(stop) = slot.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                stop.store(true, Ordering::Relaxed);
+            }
         }
     }
 }
@@ -244,7 +289,7 @@ fn at_44100(audio: DecodedAudio) -> Result<DecodedAudio, CommandError> {
     })
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
@@ -274,7 +319,10 @@ pub fn run_job(
     emit(Stage::Reading, 0.0);
     let (name, ext, bytes) = read_audio_file(Path::new(&request.path))?;
     let id = store::song_id(&bytes, request.engine, &kinds, strong);
+    let source = store::Source::of(Path::new(&request.path), &bytes);
     if let Some(song) = store.get(&id) {
+        // Saved before the original was remembered, or opened from a file: remember it now.
+        let song = store.remember_source(&song, &source).unwrap_or(song);
         emit(Stage::Done, 1.0);
         return Ok(song);
     }
@@ -345,11 +393,17 @@ pub fn run_job(
         skipped: report.skipped,
         panned_share: report.panned_share,
         created_at_ms: now_ms(),
+        pinned: false,
+        last_opened: None,
+        saved_path: None,
+        has_original: false,
     };
+    source.write(staging.path()).map_err(error)?;
     store.commit(staging, &song).map_err(error)?;
     emit(Stage::Saving, 1.0);
     emit(Stage::Done, 1.0);
-    Ok(song)
+    // As the list shows it (`has_original` worked out from the source file).
+    Ok(store.get(&song.id).unwrap_or(song))
 }
 
 /// Separates a recording into stems (or returns the saved ones). Emits `stems-progress`
@@ -410,6 +464,22 @@ pub fn stems_cancel(run: State<'_, StemsRun>) {
 #[tauri::command(async)]
 pub fn stems_list(store: State<'_, StemStore>) -> Vec<StemSong> {
     store.list()
+}
+
+/// Marks the song as opened now (the page calls it when a card is opened).
+#[tauri::command(async)]
+pub fn stems_touch(store: State<'_, StemStore>, id: String) -> Result<(), CommandError> {
+    store.touch(&id).map(drop).map_err(error)
+}
+
+/// Keeps the song in the cache for good (`pinned`), or lets it be evicted again.
+#[tauri::command(async)]
+pub fn stems_pin(
+    store: State<'_, StemStore>,
+    id: String,
+    pinned: bool,
+) -> Result<(), CommandError> {
+    store.pin(&id, pinned).map(drop).map_err(error)
 }
 
 #[tauri::command(async)]

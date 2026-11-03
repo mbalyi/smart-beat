@@ -82,7 +82,7 @@ export const FEATURES: readonly Feature[] = [
     badge: "Beta",
     status: "beta",
     description:
-      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Perfect for covers and practice.",
+      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Save the stems to a file and open them again later. Perfect for covers and practice.",
     limits: STEM_SEPARATION_LIMITS,
   },
   {

@@ -47,6 +47,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(menu_state::MenuStateStore::default())
         .manage(transcription::Dropped::default())
         .manage(open_file::PendingOpen::default())
+        .manage(open_file::PendingBundles::default())
         .manage(recording::muscriptor_model::DownloadRun::default())
         .manage(recording::RecordingRun::default())
         .manage(stems::StemsRun::default())
@@ -116,6 +117,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::menu_shortcuts,
             commands::read_score_file,
             open_file::take_pending_open_files,
+            open_file::take_pending_stem_bundles,
             commands::score_file_stamp,
             commands::write_score_file,
             commands::get_cloud_folder,
@@ -159,6 +161,11 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             stems::stems_separate,
             stems::stems_cancel,
             stems::stems_list,
+            stems::stems_touch,
+            stems::stems_pin,
+            stems::bundle::stems_save_bundle,
+            stems::bundle::stems_open_bundle,
+            stems::bundle::stems_bundle_state,
             stems::stems_cache_info,
             stems::stems_delete,
             stems::stems_clear,
@@ -245,8 +252,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Smart Beat");
     // Windows and Linux start Smart Beat with the file as an argument.
-    app.state::<open_file::PendingOpen>()
-        .push(open_file::paths_from_args(std::env::args()));
+    open_file::queue_at_launch(app.handle(), open_file::paths_from_args(std::env::args()));
     app.run(|app, event| {
         // macOS: Finder double-click or "Open With", also while the app is already running.
         #[cfg(target_os = "macos")]

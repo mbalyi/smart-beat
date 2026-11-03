@@ -8,6 +8,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 import type { EffectSlot } from "@/lib/audio/effects";
 import type { RecordedNote } from "@/lib/import/recording";
@@ -1360,6 +1361,9 @@ export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
 const STEMS_PROGRESS_EVENT = "stems-progress";
 const UMX_PROGRESS_EVENT = "umx-model-download-progress";
 const STEM_MODEL_PROGRESS_EVENT = "stem-model-download-progress";
+const STEMS_BUNDLE_PROGRESS_EVENT = "stems-bundle-progress";
+/** Mirrors `BUNDLE_OPENED_EVENT` in `src-tauri/src/stems`: the system opened a `.sbstems` file. */
+export const STEMS_BUNDLE_OPENED_EVENT = "stems-bundle-opened";
 
 /** The parts a song is split into, in the order the page lists them. Mirrors `StemKind`. */
 export const STEM_KINDS = ["drums", "bass", "vocals", "panned", "other"] as const;
@@ -1404,6 +1408,14 @@ export interface StemSong {
   pannedShare: number;
   bytes: number;
   createdAtMs: number;
+  /** Kept at the top of the library: the size limit never removes it. */
+  pinned: boolean;
+  /** When the song was last opened, in milliseconds (null: never since it was made). */
+  lastOpened: number | null;
+  /** Where the song was last saved as a `.sbstems` file (null: never saved). */
+  savedPath: string | null;
+  /** The original song is available to add to a saved file. */
+  hasOriginal: boolean;
 }
 
 export type StemStage = "reading" | "separating" | "saving" | "done";
@@ -1474,6 +1486,122 @@ export const deleteStemSong = (id: string) => call<void>("stems_delete", { id })
 
 /** Deletes every separated song. Resolves to the bytes freed. */
 export const clearStemSongs = () => call<number>("stems_clear");
+
+/** Marks the song as just opened, so the start screen lists it first. */
+export const touchStemSong = (id: string) => call<void>("stems_touch", { id });
+
+/** Keeps (or stops keeping) the song out of the library's size limit. */
+export const pinStemSong = (id: string, pinned: boolean) => call<void>("stems_pin", { id, pinned });
+
+/** The extension of a saved separation, and the name the file dialogs give it. */
+export const STEMS_BUNDLE_EXTENSION = "sbstems";
+export const STEMS_BUNDLE_TYPE_NAME = "Smart Beat stems";
+
+/** Mirrors `SaveBundleRequest` in `src-tauri/src/stems`. */
+export interface SaveBundleRequest {
+  id: string;
+  /** The file to write, ending in `.sbstems`. */
+  dest: string;
+  /** Add the song itself, so the file works on its own. */
+  includeOriginal: boolean;
+}
+
+export interface SaveBundleResult {
+  path: string;
+  bytes: number;
+  /** False when the original was asked for but could not be added. */
+  originalIncluded: boolean;
+}
+
+export interface BundleProgress {
+  stage: "writing" | "reading";
+  /** 0 to 1 within the stage. */
+  fraction: number;
+}
+
+/** Native Save dialog for a separated song; resolves to the path, or `null` if cancelled. */
+export async function pickStemBundleDestination(defaultName: string): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return saveDialog({
+    title: "Save stems",
+    defaultPath: `${defaultName}.${STEMS_BUNDLE_EXTENSION}`,
+    filters: [{ name: STEMS_BUNDLE_TYPE_NAME, extensions: [STEMS_BUNDLE_EXTENSION] }],
+  });
+}
+
+/** Native Open dialog for a saved separation; resolves to the path, or `null` if cancelled. */
+export async function pickStemBundle(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: "Open saved stems",
+    multiple: false,
+    directory: false,
+    filters: [{ name: STEMS_BUNDLE_TYPE_NAME, extensions: [STEMS_BUNDLE_EXTENSION] }],
+  });
+}
+
+/** Runs `job` while the bundle progress events go to `onProgress`. */
+async function withBundleProgress<T>(
+  onProgress: ((progress: BundleProgress) => void) | undefined,
+  job: () => Promise<T>,
+): Promise<T> {
+  const stopListening = onProgress
+    ? await listen<BundleProgress>(STEMS_BUNDLE_PROGRESS_EVENT, (event) =>
+        onProgress(event.payload),
+      )
+    : () => {};
+  try {
+    return await job();
+  } finally {
+    stopListening();
+  }
+}
+
+/** Writes a separated song to a `.sbstems` file, with or without the original song. */
+export async function saveStemBundle(
+  request: SaveBundleRequest,
+  onProgress?: (progress: BundleProgress) => void,
+): Promise<SaveBundleResult> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withBundleProgress(onProgress, () =>
+    invoke<SaveBundleResult>("stems_save_bundle", { request }),
+  );
+}
+
+/** Reads a `.sbstems` file into the library and returns its song. */
+export async function openStemBundle(
+  path: string,
+  onProgress?: (progress: BundleProgress) => void,
+): Promise<StemSong> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withBundleProgress(onProgress, () => invoke<StemSong>("stems_open_bundle", { path }));
+}
+
+/**
+ * Subscribes to `.sbstems` files the system asks the app to open (double-click in Finder or
+ * Explorer). Resolves to an unsubscribe function; in a browser there is nothing to listen to.
+ */
+export async function onStemBundleOpened(handler: (path: string) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  const unlisten = await listen<{ path: string }>(STEMS_BUNDLE_OPENED_EVENT, (event) =>
+    handler(event.payload.path),
+  );
+  // Files that arrived before this listener (a double-click that launched the app) are queued
+  // in Rust. Asking for them after listening also tells Rust to send later ones as events.
+  try {
+    const waiting = await invoke<string[]>("take_pending_stem_bundles");
+    waiting.forEach(handler);
+  } catch (cause) {
+    console.error(cause);
+  }
+  return unlisten;
+}
+
+/** Shows a file in Finder or Explorer. */
+export async function revealInFolder(path: string): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  await revealItemInDir(path);
+}
 
 /** The WAV file of one stem (16-bit stereo). */
 export async function readStem(id: string, kind: StemKindId): Promise<ArrayBuffer> {

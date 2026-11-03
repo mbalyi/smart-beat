@@ -7,7 +7,7 @@ import type { StemSong } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { FakeStemPlayer } from "@/test/fake-stem-audio";
 import { renderWithProviders } from "@/test/render";
-import { STEM_SONG } from "@/test/tauri";
+import { backend, mockTauri, STEM_SONG } from "@/test/tauri";
 
 function setup(
   song: StemSong = STEM_SONG,
@@ -319,5 +319,35 @@ describe("Stem page: accessibility", () => {
     const { player } = setup({ ...STEM_SONG, mono: true, skipped: ["vocals"] });
     act(() => player.set({ loop: { start: 10, end: 30 }, rendering: true, speed: 70 }));
     await expectNoA11yViolations();
+  });
+});
+
+describe("Stem page: saving", () => {
+  it("has a Save stems button in the header that opens the Save stems dialog", async () => {
+    const { user } = setup();
+    expect(screen.queryByTestId("stems-saved")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save stems…" }));
+    const dialog = screen.getByRole("dialog", { name: "Save stems" });
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Include the original song" }),
+    ).toBeChecked();
+    await user.click(within(dialog).getAllByRole("button", { name: "Close" })[0]!);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save stems…" })).toHaveFocus();
+  });
+
+  it("marks a song that was saved before", () => {
+    setup({ ...STEM_SONG, savedPath: "/Music/Neon Nights.sbstems" });
+    expect(screen.getByTestId("stems-saved")).toHaveTextContent("Saved");
+  });
+
+  it("shows Saved once the file is written", async () => {
+    mockTauri();
+    backend.saveResult = "/Music/Neon Nights.sbstems";
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: "Save stems…" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByTestId("save-stems-path");
+    expect(screen.getByTestId("stems-saved")).toBeInTheDocument();
   });
 });

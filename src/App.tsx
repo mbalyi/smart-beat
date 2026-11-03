@@ -28,6 +28,7 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 import { dispatchMenuAction, useMenuActions } from "@/hooks/use-menu-actions";
 import { useExternalOpen } from "@/hooks/use-external-open";
 import { useRecentFiles } from "@/hooks/use-recent-files";
+import { useStemBundleOpened } from "@/hooks/use-stem-bundle-opened";
 import { initLayoutPrefs, readLayoutPrefs } from "@/lib/score/layout";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
@@ -45,11 +46,14 @@ import { baseName } from "@/lib/score/format";
 import {
   AUDIO_EXTENSIONS,
   isTauri,
+  openStemBundle,
   pickSavePath,
   pickScoreFile,
+  pickStemBundle,
   savePicks,
   SCORE_EXTENSIONS,
   setWindowTitle,
+  touchStemSong,
   writeScoreFile,
   type StemSong,
 } from "@/lib/tauri";
@@ -305,6 +309,37 @@ export function App() {
   const separateStems = isEnabled("stem-separation")
     ? (button: HTMLElement) => showDialog("stem-separation", button)
     : undefined;
+  /** Shows a separated song's page and notes that it was just used (it moves up in Recent). */
+  const showStemSong = (opened: StemSong) => {
+    // The page and the list recover on their own if this fails: the time is only for ordering.
+    touchStemSong(opened.id).catch(() => {});
+    setStemSong(opened);
+  };
+  /** Reads a saved `.sbstems` file into the library and shows its page, over any open song. */
+  const openStemBundleAt = async (path: string) => {
+    const loading = toast.loading("Opening the saved stems…");
+    try {
+      const opened = await openStemBundle(path);
+      activate(null);
+      setStemSong(opened);
+    } catch (error) {
+      toast.error("Couldn't open the saved stems", { description: errorText(error) });
+    } finally {
+      toast.dismiss(loading);
+    }
+  };
+  /** Open saved stems…: the computer's Open dialog, then the file. */
+  const openSavedStems = isEnabled("stem-separation")
+    ? async () => {
+        try {
+          const path = await pickStemBundle();
+          if (path) await openStemBundleAt(path);
+        } catch (error) {
+          toast.error("Couldn't show the Open dialog", { description: errorText(error) });
+        }
+      }
+    : undefined;
+  useStemBundleOpened((path) => void openStemBundleAt(path), openSavedStems !== undefined);
   // Opening a song replaces the stem page: it would otherwise come back under the start screen.
   const [lastSong, setLastSong] = useState(song);
   if (song !== lastSong) {
@@ -545,7 +580,8 @@ export function App() {
                 onOpenFile={open}
                 onImportAudio={importAudio}
                 onSeparateStems={separateStems}
-                onOpenStemSong={separateStems ? setStemSong : undefined}
+                onOpenStemSong={separateStems ? showStemSong : undefined}
+                onOpenStemBundle={openSavedStems ? () => void openSavedStems() : undefined}
                 onNewSong={startNewSong}
                 onShowShortcuts={() => showDialog("shortcuts")}
                 onShowLicenses={() => showDialog("licenses")}
@@ -611,7 +647,7 @@ export function App() {
         droppedStem={stemDrop}
         onStemSeparated={(separated) => {
           setDialog(null);
-          setStemSong(separated);
+          showStemSong(separated);
         }}
         onAudioImport={async (midi, name) => {
           // Only in memory until saved: closing the song asks first.

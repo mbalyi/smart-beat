@@ -1,17 +1,20 @@
 import {
   ArrowLeftIcon,
+  CheckIcon,
   InfoIcon,
   Loader2Icon,
   PauseIcon,
   PlayIcon,
   RepeatIcon,
+  SaveIcon,
   SquareIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { ExternalLink } from "@/components/external-link";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { SectionKicker } from "@/components/section-kicker";
+import { SaveStemsDialog } from "@/components/stems/save-stems-dialog";
 import { StemRow } from "@/components/stems/stem-row";
 import { engineLabel } from "@/components/stems/stem-engines";
 import { formatTime, joinNames, stemName, STEM_LABELS } from "@/components/stems/stem-labels";
@@ -62,17 +65,43 @@ export function StemPage({
     };
   }, [song, createPlayer]);
 
+  // Where the song was saved from this page; a song opened from a file already knows its path.
+  const [saved, setSaved] = useState<{ id: string; path: string } | null>(null);
+  const savedPath = saved?.id === song.id ? saved.path : song.savedPath;
+  const [saving, setSaving] = useState(false);
+  const saveButton = useRef<HTMLButtonElement>(null);
+
   const kinds = useMemo(() => songKinds(song), [song]);
   const skipped = song.skipped.map((kind) => STEM_LABELS[kind].toLowerCase());
 
   return (
     <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-5 px-4 pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-14 lg:px-8">
       <header className="flex flex-col gap-3">
-        <div>
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="lg" className="bg-card" onClick={onBack}>
             <ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
             Back to start
           </Button>
+          <Button
+            ref={saveButton}
+            variant="outline"
+            size="lg"
+            className="bg-card"
+            onClick={() => setSaving(true)}
+          >
+            <SaveIcon aria-hidden="true" data-icon="inline-start" />
+            Save stems…
+          </Button>
+          {savedPath && (
+            <span
+              data-testid="stems-saved"
+              title={savedPath}
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+            >
+              <CheckIcon aria-hidden="true" className="size-4 text-primary" />
+              Saved
+            </span>
+          )}
         </div>
         <div className="flex flex-col gap-2">
           <SectionKicker>Stem separation</SectionKicker>
@@ -110,6 +139,17 @@ export function StemPage({
         </p>
       )}
       {player && <Stems key={song.id} song={song} kinds={kinds} player={player} />}
+
+      <SaveStemsDialog
+        song={song}
+        open={saving}
+        onOpenChange={setSaving}
+        onSaved={(path) => setSaved({ id: song.id, path })}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          saveButton.current?.focus();
+        }}
+      />
 
       <p className="text-sm text-muted-foreground">
         Separating music by signal processing is not perfect.{" "}
