@@ -278,13 +278,17 @@ fn separates_lists_caches_reads_renders_and_deletes() {
     let ratio = slow_frames as f64 / frames as f64;
     assert!((ratio - 2.0).abs() < 0.01, "length ratio {ratio}");
     assert!(slow_samples.iter().any(|s| s.abs() > 100));
+    // Guitar and piano are known stem names (the 6-part engine makes them): a song without them
+    // just has nothing to play for them.
+    let none = mix(json!({ "guitar": 1.0, "piano": 1.0 }), 1.0).unwrap();
+    assert!(read_wav(&none).2.iter().all(|s| *s == 0));
     // A speed or gain out of range, an unknown song or stem name are refused.
     for (gains, speed) in [
         (all_gains(1.0), 0.4),
         (all_gains(1.0), 1.5),
         (all_gains(1.5), 1.0),
         (all_gains(-0.5), 1.0),
-        (json!({ "guitar": 1.0 }), 1.0),
+        (json!({ "synth": 1.0 }), 1.0),
     ] {
         assert!(mix(gains.clone(), speed).is_err(), "{gains} at {speed}");
     }

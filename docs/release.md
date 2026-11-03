@@ -72,6 +72,16 @@ Direct Google Drive, OneDrive and Dropbox access (#187) needs the client IDs of 
 | `SMARTBEAT_MICROSOFT_CLIENT_ID`  | Application (client) ID of the Entra app registration (public client)         |
 | `SMARTBEAT_DROPBOX_CLIENT_ID`    | App key of the Dropbox app (App folder access)                                |
 
+Where to find the values (GitHub secrets cannot be read back, so a local build needs them from the providers' consoles):
+
+- **Google**: Google Cloud console › the project of Smart Beat › APIs & Services › Credentials › the OAuth 2.0 client of type "Desktop app". The page shows the client ID and the client secret. (Google Drive API enabled under Library.)
+- **Microsoft**: Microsoft Entra admin center › App registrations › the Smart Beat app › Overview › "Application (client) ID". It is a public client; there is no secret to copy.
+- **Dropbox**: Dropbox App Console (dropbox.com/developers/apps) › the Smart Beat app › Settings › "App key". Not the app secret.
+
+Put them in `.env` at the repository root (copy [`.env.example`](../.env.example)) and rebuild; the build script picks the file up only when it is compiled, so a running dev build needs a restart.
+
+**Worktrees.** `.env` is git-ignored, so a linked git worktree (for example `.claude/worktrees/<name>`) does not get it. The build therefore also reads the `.env` of the main checkout (resolved from the worktree's `.git` file, no git command needed). Precedence: real environment variables, then the worktree's own `.env`, then the main checkout's `.env`. One file in the main checkout is enough for every worktree. A provider whose ID is missing shows "Not available in this build" in Settings › Cloud accounts.
+
 To test updater bundles locally, with a throwaway key (never the real one):
 
 ```bash
@@ -113,7 +123,7 @@ and to <https://github.com/mbalyi/smart-beat/releases> for all versions. The REA
 
 - A few seconds after startup, if the last automatic check was more than a day ago, the app asks `latest.json` whether a newer version exists. Nothing is shown when there is none, or when the check fails (offline, no release yet).
 - If there is one, a dialog shows the installed and the new version, the release notes, **Later** and **Download & Install**. Nothing is downloaded until the person clicks the button. The download shows progress, the update's signature is verified, it is installed, and the app restarts.
-- **Help › Check for Updates…** does the same on request and always answers, including "You're up to date" and errors.
+- **Help › Check for Updates** does the same on request and always answers, including "You're up to date" and errors.
 - The time of the last automatic check is remembered in the app's local storage (`smart-beat:last-update-check`).
 
 While the repository is private, `latest.json` cannot be downloaded without a login, so the check fails quietly. Updates start working when the repository is public.

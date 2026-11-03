@@ -16,14 +16,14 @@ declare global {
 }
 
 async function openDialog(app: Page) {
-  await app.getByRole("button", { name: "SoundFonts…" }).click();
+  await app.getByRole("button", { name: "SoundFonts" }).click();
   return app.getByRole("dialog", { name: "SoundFonts" });
 }
 
 async function importFile(app: Page, path: string) {
   await app.evaluate((p) => (window.__dialogResult = p), path);
   const dialog = await openDialog(app);
-  await dialog.getByRole("button", { name: "Import a SoundFont…" }).click();
+  await dialog.getByRole("button", { name: "Import a SoundFont" }).click();
   return dialog;
 }
 

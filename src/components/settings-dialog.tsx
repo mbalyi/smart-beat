@@ -311,7 +311,7 @@ function CloudFolderSetting({
       )}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => void choose()}>
-          Choose folder…
+          Choose folder
         </Button>
         {folder && (
           <Button type="button" variant="outline" size="sm" onClick={() => void link(null)}>

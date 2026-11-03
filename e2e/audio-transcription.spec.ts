@@ -73,7 +73,7 @@ async function openDialog(app: Page, { installed = true } = {}) {
   await app.evaluate((midi) => {
     window.__transcription.midiBase64 = midi;
   }, midiBase64());
-  const welcome = app.getByRole("button", { name: "Import from Audio…" });
+  const welcome = app.getByRole("button", { name: "Import from Audio" });
   if (await welcome.isVisible()) await welcome.click();
   else await emitMenuAction(app, "import-audio"); // an open song: the AI menu
   const dialog = app.getByRole("dialog", { name: "Import from Audio" });
@@ -138,7 +138,7 @@ test.describe("Import from Audio (#88)", () => {
     await emitMenuAction(app, "import-audio");
     await expect(dialog).toBeVisible();
     // Keyboard only: Tab reaches the recording picker inside the dialog, Escape closes it.
-    const choose = dialog.getByRole("button", { name: "Choose recording…" });
+    const choose = dialog.getByRole("button", { name: "Choose recording" });
     for (let i = 0; i < 6 && !(await choose.evaluate((e) => e === document.activeElement)); i++) {
       await app.keyboard.press(tabKey(browserName));
     }

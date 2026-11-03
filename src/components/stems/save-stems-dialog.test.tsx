@@ -37,7 +37,6 @@ function setup(
 
 const CLOUD = "/Users/me/Dropbox";
 const CLOUD_DEST = `${CLOUD}/Neon Nights.sbstems`;
-const place = () => screen.findByRole("radiogroup", { name: "Where to save" });
 
 const dialog = () => screen.getByRole("dialog", { name: "Save stems" });
 const request = (calls: IpcCall[]) =>
@@ -60,22 +59,31 @@ function heldSave() {
   };
 }
 
+const computer = () => screen.getByRole("button", { name: "Save to this computer" });
+const cloud = () => screen.findByRole("button", { name: "Save to Cloud folder · Dropbox" });
+
 describe("Save stems dialog", () => {
-  it("is a small dialog with the original song ticked, a privacy line and a Save button", async () => {
+  it("shows the original-song option first, then the computer card, with no footer buttons", async () => {
     setup();
     const box = screen.getByRole("checkbox", { name: "Include the original song" });
     expect(box).toBeChecked();
     expect(box).toBeEnabled();
     expect(box).toHaveAccessibleDescription(/about 5 to 25 MB/);
-    expect(dialog()).toHaveTextContent("Saved on this computer. Nothing is uploaded.");
-    expect(within(dialog()).getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(computer()).toBeEnabled();
+    expect(computer()).toHaveAccessibleDescription("Choose a folder. Nothing is uploaded.");
+    // The option comes before the cards in reading order.
+    expect(box.compareDocumentPosition(computer()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Only the corner X closes it: no Save button, no footer.
+    expect(within(dialog()).queryByRole("button", { name: "Save" })).toBeNull();
+    expect(dialog().querySelector('[data-slot="dialog-footer"]')).toBeNull();
+    expect(dialog().querySelectorAll('[data-slot="dialog-close"]')).toHaveLength(1);
     await expectNoA11yViolations(dialog());
   });
 
   it("opens the native save dialog named after the song and saves with the original", async () => {
     const held = heldSave();
     const { user, calls, onSaved } = setup(STEM_SONG, { stems_save_bundle: held.handler });
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
 
     expect(calls).toContainEqual({
       cmd: "plugin:dialog|save",
@@ -96,7 +104,7 @@ describe("Save stems dialog", () => {
   it("saves only the stems when the checkbox is cleared", async () => {
     const { user, calls } = setup();
     await user.click(screen.getByRole("checkbox", { name: "Include the original song" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     await screen.findByText(DEST);
     expect(request(calls).includeOriginal).toBe(false);
   });
@@ -104,9 +112,9 @@ describe("Save stems dialog", () => {
   it("does nothing when the native dialog is cancelled", async () => {
     const { user, calls } = setup();
     backend.saveResult = null;
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     expect(calls.some((call) => call.cmd === "stems_save_bundle")).toBe(false);
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(computer()).toBeEnabled();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
@@ -117,7 +125,7 @@ describe("Save stems dialog", () => {
     expect(box).not.toBeChecked();
     expect(box).toHaveAccessibleDescription(/original song is not on this computer/);
     await expectNoA11yViolations(dialog());
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     await screen.findByText(DEST);
     expect(request(calls).includeOriginal).toBe(false);
   });
@@ -130,11 +138,13 @@ describe("Save stems dialog", () => {
         return held.handler();
       },
     });
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
 
     const bar = await screen.findByRole("progressbar", { name: "Save progress" });
     await waitFor(() => expect(bar).toHaveAttribute("aria-valuenow", "25"));
-    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    // The cards are gone while writing, and the corner X is hidden.
+    expect(screen.queryByRole("button", { name: "Save to this computer" })).toBeNull();
+    expect(within(dialog()).queryByRole("button")).toBeNull();
     await expectNoA11yViolations(dialog());
 
     await held.finish({ path: DEST, bytes: 5, originalIncluded: true });
@@ -154,35 +164,38 @@ describe("Save stems dialog", () => {
     const { user } = setup(STEM_SONG, {
       stems_save_bundle: () => ({ path: DEST, bytes: 1, originalIncluded: false }),
     });
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     expect(await screen.findByText(/original song could not be added/)).toBeInTheDocument();
   });
 
-  it("closes from the footer once saved", async () => {
+  it("closes with the corner button once saved, and with Escape", async () => {
     const { user, onOpenChange } = setup();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     await screen.findByText(DEST);
-    await user.click(screen.getAllByRole("button", { name: "Close" })[0]!);
+    await user.click(within(dialog()).getByRole("button", { name: /close/i }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    onOpenChange.mockClear();
+    await user.keyboard("{Escape}");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("shows an error as an alert and lets the user try again", async () => {
+  it("shows an error as an alert and offers the cards again", async () => {
     const held = heldSave();
     const { user } = setup(STEM_SONG, { stems_save_bundle: held.handler });
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     await screen.findByRole("progressbar", { name: "Save progress" });
     await held.fail({ kind: "io", message: "There is not enough space on the disk." });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("not enough space");
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(computer()).toBeEnabled();
     await expectNoA11yViolations(dialog());
   });
 
   it("does not close while the file is being written", async () => {
     const held = heldSave();
     const { user, onOpenChange } = setup(STEM_SONG, { stems_save_bundle: held.handler });
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     await screen.findByRole("progressbar", { name: "Save progress" });
     await user.keyboard("{Escape}");
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -191,47 +204,42 @@ describe("Save stems dialog", () => {
 });
 
 describe("Save stems dialog: where to save (#186)", () => {
-  it("shows no choice without a linked folder, but a hint to link one", async () => {
+  it("offers a Set up cloud storage card, disabled without a settings helper", async () => {
     setup();
-    expect(await screen.findByText(/Link a cloud folder in Settings/)).toBeInTheDocument();
-    expect(screen.queryByRole("radiogroup", { name: "Where to save" })).toBeNull();
-    expect(dialog()).toHaveTextContent(
+    const card = await screen.findByRole("button", { name: "Set up Cloud storage" });
+    expect(card).toBeDisabled();
+    expect(card).toHaveAccessibleDescription(
       "Link a cloud folder in Settings to keep stems in your cloud.",
     );
-    // Without a settings helper the hint is text only.
-    expect(within(dialog()).queryByRole("button", { name: "Settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Save to Cloud folder/ })).toBeNull();
     await expectNoA11yViolations(dialog());
   });
 
-  it("opens Settings from the hint and closes itself", async () => {
+  it("opens Settings from the Set up card and closes itself", async () => {
     const { user, onOpenChange, onOpenCloudSettings } = setup(
       STEM_SONG,
       {},
       { openSettings: true },
     );
-    await user.click(await within(dialog()).findByRole("button", { name: "Settings" }));
+    await user.click(await screen.findByRole("button", { name: "Set up Cloud storage" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onOpenCloudSettings).toHaveBeenCalledOnce();
   });
 
-  it("offers the cloud folder first and Another place second, with the cloud folder chosen", async () => {
+  it("offers this computer first and the cloud folder second when one is linked", async () => {
     setup(STEM_SONG, {}, { cloudFolder: CLOUD });
-    const group = await place();
-    const radios = within(group).getAllByRole("radio");
-    expect(radios).toHaveLength(2);
-    const cloud = within(group).getByRole("radio", { name: "Cloud folder · Dropbox" });
-    const other = within(group).getByRole("radio", { name: "Another place…" });
-    expect(cloud).toBeChecked();
-    expect(other).not.toBeChecked();
-    expect(cloud).toHaveAccessibleDescription(/Smart Beat does not upload anything/);
-    expect(screen.queryByText(/Link a cloud folder/)).toBeNull();
+    const folder = await cloud();
+    expect(folder).toHaveAccessibleDescription(/Smart Beat does not upload anything/);
+    expect(screen.queryByRole("button", { name: "Set up Cloud storage" })).toBeNull();
+    expect(
+      computer().compareDocumentPosition(folder) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     await expectNoA11yViolations(dialog());
   });
 
-  it("saves into the cloud folder without the native dialog", async () => {
+  it("saves into the cloud folder as soon as its card is clicked, without the native dialog", async () => {
     const { user, calls, onSaved } = setup(STEM_SONG, {}, { cloudFolder: CLOUD });
-    await place();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await cloud());
 
     expect(await screen.findByTestId("save-stems-path")).toHaveTextContent(CLOUD_DEST);
     expect(calls).toContainEqual({ cmd: "stems_cloud_save_path", args: { name: "Neon Nights" } });
@@ -245,11 +253,10 @@ describe("Save stems dialog: where to save (#186)", () => {
     await expectNoA11yViolations(dialog());
   });
 
-  it("falls back to the native dialog for Another place, with no cloud text afterwards", async () => {
+  it("uses the native dialog for this computer, with no cloud text afterwards", async () => {
     const { user, calls } = setup(STEM_SONG, {}, { cloudFolder: CLOUD });
-    await user.click(await screen.findByRole("radio", { name: "Another place…" }));
-    expect(screen.getByRole("radio", { name: "Another place…" })).toBeChecked();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await cloud();
+    await user.click(computer());
 
     expect(await screen.findByTestId("save-stems-path")).toHaveTextContent(DEST);
     expect(calls.some((call) => call.cmd === "stems_cloud_save_path")).toBe(false);
@@ -258,22 +265,27 @@ describe("Save stems dialog: where to save (#186)", () => {
     expect(dialog()).not.toHaveTextContent("Saved in your cloud folder");
   });
 
-  it("keeps the dialog as it was when the native dialog is cancelled from Another place", async () => {
+  it("keeps the dialog as it was when the native dialog is cancelled", async () => {
     const { user, calls } = setup(STEM_SONG, {}, { cloudFolder: CLOUD });
-    await user.click(await screen.findByRole("radio", { name: "Another place…" }));
+    await cloud();
     backend.saveResult = null;
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     expect(calls.some((call) => call.cmd === "stems_save_bundle")).toBe(false);
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(computer()).toBeEnabled();
   });
 
-  it("shows the estimate and updates it when the original is switched off and on", async () => {
+  it("shows the estimate next to the option and updates it when the original is switched off and on", async () => {
     const { user, calls } = setup(STEM_SONG, {}, { cloudFolder: CLOUD });
-    expect(await screen.findByText("About 80 MB")).toBeInTheDocument();
+    const estimate = await screen.findByTestId("save-stems-estimate");
+    await waitFor(() => expect(estimate).toHaveTextContent("About 80 MB"));
     expect(calls).toContainEqual({
       cmd: "stems_estimate_bundle",
       args: { id: STEM_SONG.id, includeOriginal: true },
     });
+    // It sits in the option's row, not in a footer.
+    expect(estimate.parentElement).toContainElement(
+      screen.getByRole("checkbox", { name: "Include the original song" }),
+    );
 
     await user.click(screen.getByRole("checkbox", { name: "Include the original song" }));
     expect(await screen.findByText("About 55 MB")).toBeInTheDocument();
@@ -306,11 +318,11 @@ describe("Save stems dialog: where to save (#186)", () => {
     );
     expect(screen.queryByText(/^About /)).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(computer());
     await screen.findByText(DEST);
   });
 
-  it("explains a cloud folder that is gone and lets the user pick another place", async () => {
+  it("explains a cloud folder that is gone and keeps the cards", async () => {
     const { user, calls } = setup(
       STEM_SONG,
       {
@@ -320,12 +332,12 @@ describe("Save stems dialog: where to save (#186)", () => {
       },
       { cloudFolder: CLOUD },
     );
-    await place();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await cloud());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/Is the drive offline/);
     expect(calls.some((call) => call.cmd === "stems_save_bundle")).toBe(false);
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(computer()).toBeEnabled();
+    expect(await cloud()).toBeEnabled();
     await expectNoA11yViolations(dialog());
   });
 
@@ -339,21 +351,19 @@ describe("Save stems dialog: where to save (#186)", () => {
       },
       { cloudFolder: CLOUD },
     );
-    await place();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await cloud());
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not read the folder.");
   });
 
-  it("shows a write error in the cloud folder as an alert and keeps the choice", async () => {
+  it("shows a write error in the cloud folder as an alert and offers the cards again", async () => {
     const held = heldSave();
     const { user } = setup(STEM_SONG, { stems_save_bundle: held.handler }, { cloudFolder: CLOUD });
-    await place();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await cloud());
     await screen.findByRole("progressbar", { name: "Save progress" });
     await held.fail({ kind: "io", message: "There is not enough space on the disk." });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("not enough space");
-    expect(screen.getByRole("radio", { name: "Cloud folder · Dropbox" })).toBeChecked();
+    expect(await cloud()).toBeEnabled();
   });
 
   it("does not close while saving into the cloud folder", async () => {
@@ -363,8 +373,7 @@ describe("Save stems dialog: where to save (#186)", () => {
       { stems_save_bundle: held.handler },
       { cloudFolder: CLOUD },
     );
-    await place();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await cloud());
     await screen.findByRole("progressbar", { name: "Save progress" });
     await user.keyboard("{Escape}");
     expect(onOpenChange).not.toHaveBeenCalled();

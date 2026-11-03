@@ -43,7 +43,7 @@ test.describe("native menu integration", () => {
     await expect(app.locator("html")).toHaveClass(/dark/);
   });
 
-  test("File → Open… shows the native Open dialog", async ({ app }) => {
+  test("File → Open shows the native Open dialog", async ({ app }) => {
     await emitMenuAction(app, "open");
 
     await expect

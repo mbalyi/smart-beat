@@ -170,7 +170,7 @@ function LibrarySelect({
           </SelectContent>
         </Select>
         <Button variant="outline" size="sm" onClick={() => onImport(kind)}>
-          Import…
+          Import
         </Button>
       </div>
       {kind === "amp" && options.length === 0 && (
@@ -589,7 +589,7 @@ function PluginPedalControls({
           disabled={busy !== null || !plugins.enabled || !slot.enabled || status?.loading}
           onClick={openEditor}
         >
-          {busy === "editor" ? "Opening…" : "Open editor…"}
+          {busy === "editor" ? "Opening…" : "Open editor"}
         </Button>
         <Button
           variant="outline"
@@ -976,7 +976,7 @@ export function PedalboardDialog({
             {onBrowsePresets && (
               <Button variant="outline" size="sm" onClick={onBrowsePresets}>
                 <LibraryBigIcon data-icon="inline-start" />
-                Browse presets…
+                Browse presets
               </Button>
             )}
             <form
@@ -1067,13 +1067,13 @@ export function PedalboardDialog({
                 </h3>
                 <Button variant="ghost" size="xs" onClick={onManageLibrary}>
                   <LibraryIcon data-icon="inline-start" />
-                  Sounds…
+                  Sounds
                 </Button>
               </div>
               <h4 className="text-xs font-semibold tracking-wide uppercase">My sounds</h4>
               {mySounds.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Import amp captures (.nam) and cabinets (.wav) with Sounds…, then drag them here.
+                  Import amp captures (.nam) and cabinets (.wav) with Sounds, then drag them here.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1" aria-label="Your amps and cabinets">
@@ -1153,7 +1153,7 @@ export function PedalboardDialog({
                         {plugins.scanning
                           ? "Scanning…"
                           : plugins.scanned.length === 0
-                            ? "Scan for plugins…"
+                            ? "Scan for plugins"
                             : "Scan again"}
                       </Button>
                       {plugins.scanned.length === 0 && !plugins.scanning ? (

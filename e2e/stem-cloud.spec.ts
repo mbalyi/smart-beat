@@ -40,10 +40,10 @@ test.describe("Stems in the cloud folder (#186)", () => {
 
   /** Welcome button, song, Fast engine, Separate, and the page. */
   async function separate(app: Page, path = SONG_PATH) {
-    await app.getByRole("button", { name: "Stem separation…" }).click();
+    await app.getByRole("button", { name: "Stem separation" }).click();
     const dialog = app.getByRole("dialog", { name: "Stem separation" });
     await app.evaluate((p) => (window.__dialogResult = p), path);
-    await dialog.getByRole("button", { name: "Choose a song…" }).click();
+    await dialog.getByRole("button", { name: "Choose a song" }).click();
     await dialog.getByRole("button", { name: "Next" }).click();
     await dialog.getByRole("radio", { name: "Fast" }).check();
     await dialog.getByRole("button", { name: "Separate" }).click();
@@ -55,23 +55,26 @@ test.describe("Stems in the cloud folder (#186)", () => {
   }
 
   async function openSaveDialog(app: Page) {
-    await app.getByRole("button", { name: "Save stems…" }).click();
+    await app.getByRole("button", { name: "Save stems" }).click();
     const dialog = app.getByRole("dialog", { name: "Save stems" });
     await expect(dialog).toBeVisible();
     return dialog;
   }
 
-  const save = (dialog: ReturnType<Page["getByRole"]>) =>
-    dialog.getByRole("button", { name: "Save", exact: true });
-  const where = (dialog: ReturnType<Page["getByRole"]>) =>
-    dialog.getByRole("radiogroup", { name: "Where to save" });
+  /** The cards of the dialog: a click on one saves right away. */
+  const computer = (dialog: ReturnType<Page["getByRole"]>) =>
+    dialog.getByRole("button", { name: "Save to this computer" });
+  const cloud = (dialog: ReturnType<Page["getByRole"]>) =>
+    dialog.getByRole("button", { name: "Save to Cloud folder · Smart Beat" });
+  const setUp = (dialog: ReturnType<Page["getByRole"]>) =>
+    dialog.getByRole("button", { name: "Set up Cloud storage" });
 
-  /** Links the folder, separates and saves into it with the dialog's defaults. */
+  /** Links the folder, separates and saves into the cloud folder card. */
   async function saveToCloud(app: Page) {
     await link(app);
     await separate(app);
     const dialog = await openSaveDialog(app);
-    await save(dialog).click();
+    await cloud(dialog).click();
     await expect(dialog.getByText(SAVED_IN_CLOUD)).toBeVisible();
     await dialog.getByRole("button", { name: "Close" }).first().click();
     await expect(dialog).toBeHidden();
@@ -90,23 +93,24 @@ test.describe("Stems in the cloud folder (#186)", () => {
     await saveToCloud(app);
     await app.evaluate(() => (window.__stems.songs = []));
     await prepare?.();
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await expect(app.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeVisible();
   }
 
-  test("saves to the cloud folder by default, without the native dialog", async ({ app }) => {
+  test("saves to the cloud folder when its card is clicked, without the native dialog", async ({
+    app,
+  }) => {
     await link(app);
     await separate(app);
     // The native Save dialog must not open: it would pick this path.
     await app.evaluate((path) => (window.__saveResult = path), ELSEWHERE);
     const dialog = await openSaveDialog(app);
-    const group = where(dialog);
-    await expect(group).toBeVisible();
-    const cloud = group.getByRole("radio", { name: "Cloud folder · Smart Beat" });
-    await expect(cloud).toBeChecked();
-    await expect(group.getByRole("radio", { name: "Another place…" })).not.toBeChecked();
+    await expect(computer(dialog)).toBeVisible();
+    await expect(cloud(dialog)).toBeVisible();
+    // There is no footer and no Save button: a card saves.
+    await expect(dialog.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
 
-    await save(dialog).click();
+    await cloud(dialog).click();
     await expect(dialog.getByText(SAVED_IN_CLOUD)).toBeVisible();
     const saves = await app.evaluate(() => window.__stemBundles.saves);
     expect(saves).toHaveLength(1);
@@ -117,19 +121,18 @@ test.describe("Stems in the cloud folder (#186)", () => {
   test("gives a second save of the same song a numbered name", async ({ app }) => {
     await saveToCloud(app);
     const dialog = await openSaveDialog(app);
-    await save(dialog).click();
+    await cloud(dialog).click();
     await expect(dialog.getByText(SAVED_IN_CLOUD)).toBeVisible();
     const saves = await app.evaluate(() => window.__stemBundles.saves.map((s) => s.dest));
     expect(saves).toEqual([CLOUD_FILE, `${FOLDER}/neon-nights (2).sbstems`]);
   });
 
-  test("saves somewhere else when Another place is chosen", async ({ app }) => {
+  test("saves somewhere else when Save to this computer is chosen", async ({ app }) => {
     await link(app);
     await separate(app);
     await app.evaluate((path) => (window.__saveResult = path), ELSEWHERE);
     const dialog = await openSaveDialog(app);
-    await where(dialog).getByRole("radio", { name: "Another place…" }).check();
-    await save(dialog).click();
+    await computer(dialog).click();
     await expect(dialog.getByText(ELSEWHERE)).toBeVisible();
     await expect(dialog.getByText(SAVED_IN_CLOUD)).toHaveCount(0);
     const saves = await app.evaluate(() => window.__stemBundles.saves);
@@ -137,20 +140,22 @@ test.describe("Stems in the cloud folder (#186)", () => {
     expect(saves[0].dest).toBe(ELSEWHERE);
     // Nothing was put in the cloud folder, so its list stays empty.
     await dialog.getByRole("button", { name: "Close" }).first().click();
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await expect(cloudSection(app)).toHaveCount(0);
   });
 
-  test("offers only the file chooser and a hint when no folder is linked", async ({ app }) => {
+  test("offers this computer and a Set up cloud storage card when no folder is linked", async ({
+    app,
+  }) => {
     await separate(app);
     await app.evaluate((path) => (window.__saveResult = path), ELSEWHERE);
     const dialog = await openSaveDialog(app);
-    await expect(where(dialog)).toHaveCount(0);
-    await expect(dialog.getByRole("radio")).toHaveCount(0);
+    await expect(cloud(dialog)).toHaveCount(0);
+    await expect(setUp(dialog)).toBeVisible();
     await expect(
       dialog.getByText("Link a cloud folder in Settings to keep stems in your cloud."),
     ).toBeVisible();
-    await save(dialog).click();
+    await computer(dialog).click();
     await expect(dialog.getByText(ELSEWHERE)).toBeVisible();
     await expect(dialog.getByText(SAVED_IN_CLOUD)).toHaveCount(0);
   });
@@ -191,7 +196,7 @@ test.describe("Stems in the cloud folder (#186)", () => {
 
   test("does not show the cloud section when no folder is linked", async ({ app }) => {
     await separate(app);
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await expect(app.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeVisible();
     await expect(cloudSection(app)).toHaveCount(0);
   });
@@ -220,15 +225,14 @@ test.describe("Stems in the cloud folder (#186)", () => {
     app,
   }) => {
     await saveToCloud(app);
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await separate(app, "/Users/me/Music/blue-moon.mp3");
     await app.evaluate((path) => (window.__saveResult = path), "/Users/me/Music/blue-moon.sbstems");
     const dialog = await openSaveDialog(app);
-    await where(dialog).getByRole("radio", { name: "Another place…" }).check();
-    await save(dialog).click();
+    await computer(dialog).click();
     await expect(dialog.getByText("/Users/me/Music/blue-moon.sbstems")).toBeVisible();
     await dialog.getByRole("button", { name: "Close" }).first().click();
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
 
     const recent = (name: string) =>
       app
@@ -241,9 +245,59 @@ test.describe("Stems in the cloud folder (#186)", () => {
     await expect(recent("blue-moon").getByLabel("Saved in your cloud folder")).toHaveCount(0);
   });
 
+  /** The Open saved stems dialog of the start screen, and its cards. */
+  async function openOpenDialog(app: Page) {
+    await app.getByRole("button", { name: "Open saved stems" }).click();
+    const dialog = app.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Open saved stems" })).toBeVisible();
+    return dialog;
+  }
+
+  test("opens saved stems from the cloud folder in the Open saved stems dialog", async ({
+    app,
+  }) => {
+    await saveAndForget(app);
+    const dialog = await openOpenDialog(app);
+    await expect(dialog.getByRole("button", { name: "Open from this computer" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Open from Cloud folder · Smart Beat" }).click();
+    const card = dialog.getByRole("button", { name: /neon-nights/ });
+    await expect(card).toContainText("Stems");
+    await card.click();
+    await expect(dialog).toBeHidden();
+    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
+    expect(await app.evaluate(() => window.__stemBundles.opens)).toEqual([CLOUD_FILE]);
+  });
+
+  test("shows a file that is only online as waiting for download in the Open dialog", async ({
+    app,
+  }) => {
+    await saveAndForget(app, () =>
+      app.evaluate((path) => {
+        window.__cloud.placeholders[path] = true;
+      }, CLOUD_FILE),
+    );
+    const dialog = await openOpenDialog(app);
+    await dialog.getByRole("button", { name: "Open from Cloud folder · Smart Beat" }).click();
+    await expect(dialog.getByRole("button", { name: /neon-nights/ })).toContainText(
+      "Waiting for download",
+    );
+    // Back to the choice.
+    await dialog.getByRole("button", { name: "Back" }).click();
+    await expect(dialog.getByRole("button", { name: "Open from this computer" })).toBeVisible();
+  });
+
+  test("offers a Set up cloud storage card in the Open dialog when no folder is linked", async ({
+    app,
+  }) => {
+    const dialog = await openOpenDialog(app);
+    await expect(dialog.getByRole("button", { name: /^Open from Cloud folder/ })).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Set up Cloud storage" }).click();
+    await expect(app.getByRole("dialog", { name: "Settings" })).toBeVisible();
+  });
+
   for (const colorScheme of ["light", "dark"] as const) {
     for (const width of [375, 1280]) {
-      test(`has no WCAG violations in the Save dialog with the radio group at ${width} px in ${colorScheme} mode`, async ({
+      test(`has no WCAG violations in the Save dialog with the cards at ${width} px in ${colorScheme} mode`, async ({
         app,
       }) => {
         await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
@@ -252,19 +306,17 @@ test.describe("Stems in the cloud folder (#186)", () => {
         await app.evaluate((bytes) => (window.__cloud.estimateBytes = bytes), 62 * MB);
         await separate(app);
         const dialog = await openSaveDialog(app);
-        await expect(where(dialog)).toBeVisible();
+        await expect(cloud(dialog)).toBeVisible();
         await expect(dialog.getByText("About 62 MB")).toBeVisible();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
         expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
 
-        // The other choice, with the original left out.
-        await where(dialog).getByRole("radio", { name: "Another place…" }).check();
+        // With the original left out.
         await dialog.getByRole("checkbox", { name: "Include the original song" }).uncheck();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
 
         // Saved in the cloud folder.
-        await where(dialog).getByRole("radio", { name: "Cloud folder · Smart Beat" }).check();
-        await save(dialog).click();
+        await cloud(dialog).click();
         await expect(dialog.getByText(SAVED_IN_CLOUD)).toBeVisible();
         await app.mouse.move(0, 0);
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
@@ -278,9 +330,43 @@ test.describe("Stems in the cloud folder (#186)", () => {
         await app.emulateMedia({ colorScheme });
         await separate(app);
         const dialog = await openSaveDialog(app);
-        await expect(
-          dialog.getByText("Link a cloud folder in Settings to keep stems in your cloud."),
-        ).toBeVisible();
+        await expect(setUp(dialog)).toBeVisible();
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+      });
+
+      test(`has no WCAG violations in the Open saved stems dialog at ${width} px in ${colorScheme} mode`, async ({
+        app,
+      }) => {
+        await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await app.emulateMedia({ colorScheme });
+        await saveAndForget(app, () =>
+          app.evaluate(
+            ([folder, path]) => {
+              const files = window.__stemBundles.files;
+              files[`${folder}/blue-moon.sbstems`] = files[path];
+              window.__cloud.placeholders[`${folder}/blue-moon.sbstems`] = true;
+            },
+            [FOLDER, CLOUD_FILE],
+          ),
+        );
+        const dialog = await openOpenDialog(app);
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
+
+        await dialog.getByRole("button", { name: "Open from Cloud folder · Smart Beat" }).click();
+        await expect(dialog.getByText("Waiting for download")).toBeVisible();
+        await app.mouse.move(0, 0);
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
+      });
+
+      test(`has no WCAG violations in the Open saved stems dialog with no folder linked at ${width} px in ${colorScheme} mode`, async ({
+        app,
+      }) => {
+        await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await app.emulateMedia({ colorScheme });
+        const dialog = await openOpenDialog(app);
+        await expect(dialog.getByRole("button", { name: "Set up Cloud storage" })).toBeVisible();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
       });
 

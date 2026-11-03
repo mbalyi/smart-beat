@@ -83,7 +83,7 @@ pub struct SaveResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineInfo {
-    /// The [`StemEngine`] name: `fast`, `neural`, `scnet`, `scnet-xl` or `htdemucs`.
+    /// The [`StemEngine`] name: `fast`, `neural`, `scnet`, `scnet-xl`, `htdemucs` or `htdemucs-6s`.
     pub id: String,
     #[serde(default)]
     pub model_id: Option<String>,
@@ -451,7 +451,8 @@ fn engine_info(engine: StemEngine) -> EngineInfo {
     let (model_id, model_sha256) = match engine.onnx_model() {
         Some(model) => (
             Some(model.id().to_owned()),
-            Some(model.info().file.sha256.to_owned()),
+            // Empty while a model's file is not published yet.
+            Some(model.info().file.sha256.to_owned()).filter(|s| !s.is_empty()),
         ),
         None if engine == StemEngine::Neural => (Some("umx-hq".to_owned()), None),
         None => (None, None),

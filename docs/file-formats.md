@@ -2,20 +2,20 @@
 
 What Smart Beat opens, saves and exports, and what each format cannot hold.
 
-| Format              | Extensions                | Open                                     | Save / export                                                    |
-| ------------------- | ------------------------- | ---------------------------------------- | ---------------------------------------------------------------- |
-| Guitar Pro 7/8      | `.gp`                     | Yes                                      | **Native format**: File › Save, Save As                          |
-| Guitar Pro 5        | `.gp5`                    | Yes                                      | File › Save, Save As (limits below)                              |
-| Guitar Pro 4        | `.gp4`                    | Yes                                      | File › Save As (limits below)                                    |
-| Guitar Pro 3        | `.gp3`                    | Yes                                      | File › Save As (limits below)                                    |
-| Guitar Pro 6        | `.gpx`                    | Yes                                      | No (see [below](#guitar-pro-6-gpx-open-only))                    |
-| MuseScore 3 / 4     | `.mscz` `.mscx`           | Yes (own importer)                       | File › Save As (limits below)                                    |
-| MusicXML (partwise) | `.musicxml` `.xml` `.mxl` | Yes (via alphaTab)                       | File › Export › MusicXML (type `.mxl` for the compressed form)   |
-| Standard MIDI       | `.mid` `.midi`            | Yes (own importer)                       | File › Export › MIDI                                             |
-| alphaTex            | `.atex`                   | Yes (via alphaTab)                       | File › Export › alphaTex                                         |
-| ASCII tab           | `.txt`                    | Yes (own importer)                       | File › Export › ASCII tab                                        |
-| Smart Beat stems    | `.sbstems`                | Yes (Open saved stems…, double-click)    | Save stems… on the stem page (see [below](#saved-stems-sbstems)) |
-| Audio               | `.wav` `.m4a`             | (audio track: mp3, wav, flac, ogg, aiff) | File › Export › Audio (WAV), Audio (M4A, macOS only)             |
+| Format              | Extensions                | Open                                     | Save / export                                                   |
+| ------------------- | ------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
+| Guitar Pro 7/8      | `.gp`                     | Yes                                      | **Native format**: File › Save, Save As                         |
+| Guitar Pro 5        | `.gp5`                    | Yes                                      | File › Save, Save As (limits below)                             |
+| Guitar Pro 4        | `.gp4`                    | Yes                                      | File › Save As (limits below)                                   |
+| Guitar Pro 3        | `.gp3`                    | Yes                                      | File › Save As (limits below)                                   |
+| Guitar Pro 6        | `.gpx`                    | Yes                                      | No (see [below](#guitar-pro-6-gpx-open-only))                   |
+| MuseScore 3 / 4     | `.mscz` `.mscx`           | Yes (own importer)                       | File › Save As (limits below)                                   |
+| MusicXML (partwise) | `.musicxml` `.xml` `.mxl` | Yes (via alphaTab)                       | File › Export › MusicXML (type `.mxl` for the compressed form)  |
+| Standard MIDI       | `.mid` `.midi`            | Yes (own importer)                       | File › Export › MIDI                                            |
+| alphaTex            | `.atex`                   | Yes (via alphaTab)                       | File › Export › alphaTex                                        |
+| ASCII tab           | `.txt`                    | Yes (own importer)                       | File › Export › ASCII tab                                       |
+| Smart Beat stems    | `.sbstems`                | Yes (Open saved stems, double-click)     | Save stems on the stem page (see [below](#saved-stems-sbstems)) |
+| Audio               | `.wav` `.m4a`             | (audio track: mp3, wav, flac, ogg, aiff) | File › Export › Audio (WAV), Audio (M4A, macOS only)            |
 
 **Save** writes back into the file the song came from only for `.gp` and `.gp5`. A `.gp3`, `.gp4`, `.mscz` or `.mscx` file opened from disk is never overwritten by Save: it asks for a new file, and Save As offers every format above. The writers for these are checked by reading the files back with alphaTab and with Smart Beat's own importer, not in Guitar Pro 3/4 or MuseScore themselves (see [manual-checks.md](manual-checks.md)), so they should not replace an original unasked.
 
@@ -97,16 +97,16 @@ alphaTex export uses alphaTab's own exporter (`src/lib/export/alphatex.ts`). Com
 
 ## Saved stems (`.sbstems`)
 
-A stem separation (#186) is kept in the app's cache, which can be cleared. **Save stems…** on the stem page writes one separated song to a file the user keeps, and **Open saved stems…** on the start screen (or a double-click on the file) brings it back without separating again. The type name is "Smart Beat stems". Nothing else opens these files; they are not a standard format.
+A stem separation (#186) is kept in the app's cache, which can be cleared. **Save stems** on the stem page writes one separated song to a file the user keeps, and **Open saved stems** on the start screen (or a double-click on the file) brings it back without separating again. The type name is "Smart Beat stems". Nothing else opens these files; they are not a standard format.
 
 **Container.** A ZIP archive. Every entry is **STORED** (no compression): the stems are already FLAC (or WAV), so deflating them gains nothing and costs time. Entries:
 
-| Entry                           | Required | What it is                                                                                            |
-| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `manifest.json`                 | Yes      | UTF-8 JSON, described below                                                                           |
-| `stems/<kind>.flac` (or `.wav`) | Yes      | One entry per stem in the manifest; `kind` is `drums`, `bass`, `vocals`, `panned` or `other`          |
-| `original/<file name>`          | No       | The song that was separated, with its own name; only present when the user ticked the box             |
-| `state.json`                    | No       | The mixer state of the stem page (gains, mutes, solo, speed, loop), so a reopened song sounds as left |
+| Entry                           | Required | What it is                                                                                                      |
+| ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| `manifest.json`                 | Yes      | UTF-8 JSON, described below                                                                                     |
+| `stems/<kind>.flac` (or `.wav`) | Yes      | One entry per stem in the manifest; `kind` is `drums`, `bass`, `vocals`, `guitar`, `piano`, `panned` or `other` |
+| `original/<file name>`          | No       | The song that was separated, with its own name; only present when the user ticked the box                       |
+| `state.json`                    | No       | The mixer state of the stem page (gains, mutes, solo, speed, loop), so a reopened song sounds as left           |
 
 **`manifest.json`.**
 
@@ -140,10 +140,12 @@ A stem separation (#186) is kept in the app's cache, which can be cleared. **Sav
 }
 ```
 
-- `id` is the library id of the separation: 16 lowercase hex characters, the start of a SHA-256 over the original song's bytes, the engine, the parts asked for and the drum setting, so the same song separated the same way has the same id. Opening a file whose `id` is already in the library replaces that entry. `engine.id` is the stem engine (`fast`, `neural`, `scnet`, `scnet-xl`, `htdemucs`); `modelId` and `modelSha256` say which model file made the stems (empty for the built-in engine) and `algorithmVersion` is the engine's own version counter.
+- `id` is the library id of the separation: 16 lowercase hex characters, the start of a SHA-256 over the original song's bytes, the engine, the parts asked for and the drum setting, so the same song separated the same way has the same id. Opening a file whose `id` is already in the library replaces that entry. `engine.id` is the stem engine (`fast`, `neural`, `scnet`, `scnet-xl`, `htdemucs`, `htdemucs-6s`); `modelId` and `modelSha256` say which model file made the stems (empty for the built-in engine) and `algorithmVersion` is the engine's own version counter.
 - `skipped` lists the parts that could not be separated (for example `vocals` and `panned` in a mono song); `pannedShare` is the share of the sound that was panned off centre.
 - Each stem has its `codec` (`flac`; `wav` is also allowed), its size in `bytes`, the `sha256` of the entry's content and the number of `frames`. A reader checks the hash and the frame count before using a stem.
 - `original.embedded` is false when the original was left out; the `fileName`, `sha256` and `bytes` are still recorded so the original can be found again.
+
+**Stem kinds.** The 6-part engine `htdemucs-6s` also writes `guitar` and `piano` entries (`stems/guitar.flac`, `stems/piano.flac`) next to `drums`, `bass`, `vocals` and `other`; every other engine writes the four-part set (the built-in one also `panned`). The format did not change for this: a stem is an entry with a `kind`, so `version` stays 1, an older file of four stems opens as before, and a file with six stems round-trips through save and open. A Smart Beat version from before the 6-part engine refuses such a file, because it does not know the engine id or the two kinds; it does not misread it.
 
 **Versioning.** `version` is a whole number that only goes up when a change would make an older reader misread the file (a renamed or removed field, a different meaning). Adding an optional field or an optional entry does not change it. A reader opens `version` 1 and refuses a higher number with the message that the file was made by a newer Smart Beat.
 
@@ -155,9 +157,9 @@ A stem separation (#186) is kept in the app's cache, which can be cleared. **Sav
 
 ## Saved stems in the cloud folder
 
-The cloud folder (#187, Help › Settings… › Cloud folder) is an ordinary folder on this computer that the user's own drive app keeps in sync: Google Drive for desktop, OneDrive, Dropbox, iCloud Drive or Nextcloud. Smart Beat never talks to those services for it; it only reads and writes files in the folder. A saved separation (#186) can go there too, so the stems reach the user's other computers the same way their tabs do.
+The cloud folder (#187, Help › Settings › Cloud folder) is an ordinary folder on this computer that the user's own drive app keeps in sync: Google Drive for desktop, OneDrive, Dropbox, iCloud Drive or Nextcloud. Smart Beat never talks to those services for it; it only reads and writes files in the folder. A saved separation (#186) can go there too, so the stems reach the user's other computers the same way their tabs do.
 
-**How it works.** The Save stems dialog asks "Where to save": **Cloud folder** (the default when a folder is linked) or **Another place…**. For the cloud folder Smart Beat chooses the file name itself (`<folder>/<song name>.sbstems`, with characters that file systems refuse replaced) and writes it there, with the same progress bar and the same file as anywhere else. When it is written, the dialog says "Saved in your cloud folder. Your drive app uploads it; Smart Beat does not upload anything." The upload, its speed, its retries and the account it goes to are the drive app's business. The start screen lists the `.sbstems` files in the linked folder in a section "Stems in your cloud folder" (Stems badge, cloud mark, size) next to the tabs, and a card opens the stem page. A Recent stem card whose file is in the cloud folder shows a small cloud icon ("Saved in your cloud folder"). With no folder linked the dialog offers only the file chooser and says "Link a cloud folder in Settings to keep stems in your cloud."
+**How it works.** The Save stems dialog works like Save As for songs: after the "Include the original song" option (with the estimated size) it shows cards, **Save to this computer** and **Cloud folder · <name>**, and a click on a card saves right away (there is no Save button). For the cloud folder Smart Beat chooses the file name itself (`<folder>/<song name>.sbstems`, with characters that file systems refuse replaced) and writes it there, with the same progress bar and the same file as anywhere else. When it is written, the dialog says "Saved in your cloud folder. Your drive app uploads it; Smart Beat does not upload anything." The upload, its speed, its retries and the account it goes to are the drive app's business. The start screen lists the `.sbstems` files in the linked folder in a section "Stems in your cloud folder" (Stems badge, cloud mark, size) next to the tabs, and a card opens the stem page. A Recent stem card whose file is in the cloud folder shows a small cloud icon ("Saved in your cloud folder"). Open saved stems asks the same way: **Open from this computer** (the file chooser) or **Open from Cloud folder · <name>**, which lists the saved stems in the folder (a file that is still online says "Waiting for download"). With no folder linked both dialogs show a **Set up Cloud storage** card that opens Settings (Link a cloud folder in Settings to keep stems in your cloud).
 
 **Privacy.** The original song is inside the file only when "Include the original song" is ticked, the same rule as for any other `.sbstems` file ([Saved stems](#saved-stems-sbstems)). When it is, the song goes to the user's own cloud drive through the user's own sync client, under that drive's terms. Smart Beat has no server and sends nothing itself: nothing is uploaded by the app, and the analytics counters (see [analytics.md](analytics.md)) never include file names, folder names or sizes. The stems are derived from the music and can still be copyrighted, so the same conditions apply as to the song ([licensing.md](licensing.md)).
 

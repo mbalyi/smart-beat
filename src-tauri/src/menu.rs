@@ -367,27 +367,27 @@ impl MenuAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::NewSong => "New",
-            Self::Open => "Open…",
-            Self::OpenCloud => "Open from Cloud…",
-            Self::AiModels => "AI Models…",
-            Self::ImportAudio => "Import from Audio…",
-            Self::RecordToTab => "Record to Tab…",
+            Self::Open => "Open",
+            Self::OpenCloud => "Open from Cloud",
+            Self::AiModels => "AI Models",
+            Self::ImportAudio => "Import from Audio",
+            Self::RecordToTab => "Record to Tab",
             Self::ClearRecent => "Clear Menu",
             Self::Save => "Save",
-            Self::SaveAs => "Save As…",
-            Self::ExportAll => "All Formats…",
-            Self::ExportGp => "Smart Beat / Guitar Pro 7…",
-            Self::ExportGp5 => "Guitar Pro 5…",
-            Self::ExportGp4 => "Guitar Pro 4…",
-            Self::ExportGp3 => "Guitar Pro 3…",
-            Self::ExportMusicXml => "MusicXML…",
-            Self::ExportMidi => "MIDI…",
-            Self::ExportAlphaTex => "alphaTex…",
-            Self::ExportAsciiTab => "ASCII Tab…",
-            Self::ExportAudio => "Audio (WAV)…",
-            Self::ExportAudioM4a => "Audio (M4A)…",
-            Self::ExportPdf => "PDF…",
-            Self::Print => "Print or Save as PDF…",
+            Self::SaveAs => "Save As",
+            Self::ExportAll => "All Formats",
+            Self::ExportGp => "Smart Beat / Guitar Pro 7",
+            Self::ExportGp5 => "Guitar Pro 5",
+            Self::ExportGp4 => "Guitar Pro 4",
+            Self::ExportGp3 => "Guitar Pro 3",
+            Self::ExportMusicXml => "MusicXML",
+            Self::ExportMidi => "MIDI",
+            Self::ExportAlphaTex => "alphaTex",
+            Self::ExportAsciiTab => "ASCII Tab",
+            Self::ExportAudio => "Audio (WAV)",
+            Self::ExportAudioM4a => "Audio (M4A)",
+            Self::ExportPdf => "PDF",
+            Self::Print => "Print or Save as PDF",
             Self::CloseWindow => "Close Window",
             Self::Quit => "Quit Smart Beat",
             Self::Undo => "Undo",
@@ -402,18 +402,18 @@ impl MenuAction {
             Self::ZoomOut => "Zoom Out",
             Self::ZoomReset => "Actual Size",
             Self::ToggleFullscreen => "Toggle Full Screen",
-            Self::AddTrack => "Add Track…",
-            Self::AddAudioTrack => "Add Audio Track…",
+            Self::AddTrack => "Add Track",
+            Self::AddAudioTrack => "Add Audio Track",
             Self::DuplicateTrack => "Duplicate Track",
             Self::RemoveTrack => "Remove Track",
-            Self::TrackSettings => "Track Settings…",
-            Self::Lyrics => "Lyrics…",
-            Self::Transpose => "Transpose…",
-            Self::BarSettings => "Bar Settings…",
-            Self::FixBarDurations => "Fix Bar Durations…",
+            Self::TrackSettings => "Track Settings",
+            Self::Lyrics => "Lyrics",
+            Self::Transpose => "Transpose",
+            Self::BarSettings => "Bar Settings",
+            Self::FixBarDurations => "Fix Bar Durations",
             Self::ToggleRepeatStart => "Repeat Start",
             Self::ToggleRepeatEnd => "Repeat End",
-            Self::Bend => "Bend…",
+            Self::Bend => "Bend",
             Self::ToggleHammerPull => "Hammer-On / Pull-Off",
             Self::ToggleSlide => "Slide",
             Self::ToggleVibrato => "Vibrato",
@@ -424,18 +424,18 @@ impl MenuAction {
             Self::ToggleHarmonic => "Natural Harmonic",
             Self::ToggleAccent => "Accent",
             Self::ToggleStaccato => "Staccato",
-            Self::Text => "Text…",
-            Self::Chord => "Chord…",
-            Self::ScaleTool => "Scale Tool…",
+            Self::Text => "Text",
+            Self::Chord => "Chord",
+            Self::ScaleTool => "Scale Tool",
             Self::ToggleLoop => "Loop",
-            Self::SpeedTrainer => "Speed Trainer…",
+            Self::SpeedTrainer => "Speed Trainer",
             Self::ToggleMetronome => "Metronome",
             Self::ToggleCountIn => "Count-In",
             Self::Shortcuts => "Keyboard Shortcuts",
-            Self::Settings => "Settings…",
-            Self::CloudSettings => "Cloud Storage Settings…",
+            Self::Settings => "Settings",
+            Self::CloudSettings => "Cloud Storage Settings",
             Self::Licenses => "Open-Source Licenses",
-            Self::CheckForUpdates => "Check for Updates…",
+            Self::CheckForUpdates => "Check for Updates",
             Self::Tour => "Take the Tour",
             Self::TourEditing => "Editing Tour",
             Self::TourSpeedTrainer => "Speed Trainer Tour",
@@ -1447,7 +1447,7 @@ mod tests {
         let action = MenuAction::CheckForUpdates;
         assert_eq!(action.id(), "help.check-for-updates");
         assert_eq!(action.menu(), "Help");
-        assert_eq!(action.label(), "Check for Updates…");
+        assert_eq!(action.label(), "Check for Updates");
         assert_eq!(
             serde_json::to_string(&action).unwrap(),
             "\"check-for-updates\""
@@ -1526,7 +1526,7 @@ mod tests {
     fn settings_is_an_app_menu_item_the_ui_handles() {
         let action = MenuAction::Settings;
         assert_eq!(action.id(), "help.settings");
-        assert_eq!(action.label(), "Settings…");
+        assert_eq!(action.label(), "Settings");
         assert_eq!(serde_json::to_string(&action).unwrap(), "\"settings\"");
         // The UI shows the dialog; it works without a song.
         assert!(!action.is_native());
@@ -1549,7 +1549,7 @@ mod tests {
     fn open_cloud_is_a_file_item_right_after_open() {
         let action = MenuAction::OpenCloud;
         assert_eq!(action.id(), "file.open-cloud");
-        assert_eq!(action.label(), "Open from Cloud…");
+        assert_eq!(action.label(), "Open from Cloud");
         assert_eq!(action.menu(), "File");
         assert_eq!(serde_json::to_string(&action).unwrap(), "\"open-cloud\"");
         assert_eq!(MenuAction::from_id("file.open-cloud"), Some(action));
@@ -1568,7 +1568,7 @@ mod tests {
     fn cloud_settings_is_a_help_item_next_to_settings() {
         let action = MenuAction::CloudSettings;
         assert_eq!(action.id(), "help.cloud-settings");
-        assert_eq!(action.label(), "Cloud Storage Settings…");
+        assert_eq!(action.label(), "Cloud Storage Settings");
         assert_eq!(action.menu(), "Help");
         assert_eq!(
             serde_json::to_string(&action).unwrap(),

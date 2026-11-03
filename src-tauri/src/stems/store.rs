@@ -48,6 +48,7 @@ pub fn song_id(bytes: &[u8], engine: StemEngine, kinds: &[StemKind], strong_drum
         StemEngine::Scnet => &b"scnet"[..],
         StemEngine::ScnetXl => &b"scnet-xl"[..],
         StemEngine::Htdemucs => &b"htdemucs"[..],
+        StemEngine::Htdemucs6s => &b"htdemucs-6s"[..],
     });
     for kind in kinds {
         hasher.update([0]);

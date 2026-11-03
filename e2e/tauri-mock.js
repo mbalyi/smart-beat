@@ -11,7 +11,7 @@
     arch: "aarch64",
   };
   const SHORTCUTS = [
-    { action: "open", menu: "File", label: "Open…", keys: ["⌘", "O"], spoken: "Command+O" },
+    { action: "open", menu: "File", label: "Open", keys: ["⌘", "O"], spoken: "Command+O" },
     {
       action: "quit",
       menu: "File",
@@ -202,6 +202,8 @@
     scnet: 52271228,
     "scnet-xl": 216163649,
     htdemucs: 176589623,
+    // Not hosted yet, so the app reports it as unavailable and the dialog leaves its card out.
+    "htdemucs-6s": 0,
   };
   window.__stemModels = {
     models: Object.fromEntries(
@@ -214,7 +216,7 @@
           downloadBytes: bytes,
           licence: `The terms of ${engine}: its weights have no stated licence.`,
           licenceSummary: "Weights without a stated licence.",
-          available: true,
+          available: engine !== "htdemucs-6s",
         },
       ]),
     ),
@@ -283,7 +285,15 @@
     return bytes;
   };
   const STEM_SECONDS = 6;
-  const STEM_FREQUENCY = { drums: 220, bass: 110, vocals: 440, panned: 330, other: 165 };
+  const STEM_FREQUENCY = {
+    drums: 220,
+    bass: 110,
+    vocals: 440,
+    guitar: 262,
+    piano: 523,
+    panned: 330,
+    other: 165,
+  };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;

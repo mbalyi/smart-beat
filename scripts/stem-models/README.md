@@ -7,24 +7,26 @@ files are for the one-off conversion of PyTorch checkpoints that upstream only p
 
 ## What was produced
 
-| File                            | Source                                                                                         | Size (bytes) | SHA-256                                                            |
-| ------------------------------- | ---------------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------ |
-| `scnet_cpu.onnx` (SCNet Small)  | not ours: `https://github.com/demixr/scnet-executorch/releases/download/v0.1.2/scnet_cpu.onnx` | 52,271,228   | `f2c050b7264d2b2401497beb712c26a50e6162dfb951041060f23f84929d600e` |
-| `scnet_xl_core.onnx` (SCNet XL) | `export_scnet_xl.py`                                                                           | 216,163,649  | `4ee5107c1978fd68cc666aa35898c9e866fa7c7d47278086a75bf4448807f0ee` |
-| `htdemucs_core.onnx` (HTDemucs) | `htdemucs/export_htdemucs.py`                                                                  | 176,589,623  | `105da2c479af1f11e2f2057a9d5435f97b27b9f9d1d7c728390bf0a8ab5107ee` |
+| File                                                          | Source                                                                                         | Size (bytes)     | SHA-256                                                            |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------ |
+| `scnet_cpu.onnx` (SCNet Small)                                | not ours: `https://github.com/demixr/scnet-executorch/releases/download/v0.1.2/scnet_cpu.onnx` | 52,271,228       | `f2c050b7264d2b2401497beb712c26a50e6162dfb951041060f23f84929d600e` |
+| `scnet_xl_core.onnx` (SCNet XL)                               | `export_scnet_xl.py`                                                                           | 216,163,649      | `4ee5107c1978fd68cc666aa35898c9e866fa7c7d47278086a75bf4448807f0ee` |
+| `htdemucs_core.onnx` (HTDemucs)                               | `htdemucs/export_htdemucs.py`                                                                  | 176,589,623      | `105da2c479af1f11e2f2057a9d5435f97b27b9f9d1d7c728390bf0a8ab5107ee` |
+| `htdemucs_6s_core.onnx` (HTDemucs 6-source, guitar and piano) | `htdemucs/export_htdemucs.py ... htdemucs_6s`                                                  | **not made yet** | **not made yet**                                                   |
 
-The two exported files are hosted as assets of the pre-release
+The two exported files above are hosted as assets of the pre-release
 [`stem-models-v1`](https://github.com/mbalyi/smart-beat/releases/tag/stem-models-v1) (owner's
 decision, 2026-11-03). If an obligation arises they are removed immediately (see
 `docs/licensing.md`).
 
 ## Input checkpoints
 
-| Model                                                         | File                                                                                                 | Size (bytes) | Hash                                                                       |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------- |
-| SCNet XL IHF (MUSDB18-HQ only, 10.09 dB average SDR on MUSDB) | `model_scnet_ep_36_sdr_10.0891.ckpt` from ZFTurbo/Music-Source-Separation-Training release `v1.0.15` | 214,063,778  | SHA-256 `ac25975f0f5704f3d1a3c3c251505b7a0f417a22eafe82773440ee4f7e14b74f` |
-| SCNet XL config                                               | `config_musdb18_scnet_xl_more_wide_v5.yaml` (same release)                                           | not recorded | SHA-256 `54ddcb8aeeae85c8d0e148741e7d87b0fbd38bd21cffa5d59ba124fe1e672f40` |
-| HTDemucs (`htdemucs`, signature 955717e8)                     | `https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th`                      | 84,141,911   | MD5 `b57e3704651588e6702539cd7e8f87f6` (SHA-256 not recorded)              |
+| Model                                                         | File                                                                                                 | Size (bytes)                                                         | Hash                                                                       |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| SCNet XL IHF (MUSDB18-HQ only, 10.09 dB average SDR on MUSDB) | `model_scnet_ep_36_sdr_10.0891.ckpt` from ZFTurbo/Music-Source-Separation-Training release `v1.0.15` | 214,063,778                                                          | SHA-256 `ac25975f0f5704f3d1a3c3c251505b7a0f417a22eafe82773440ee4f7e14b74f` |
+| SCNet XL config                                               | `config_musdb18_scnet_xl_more_wide_v5.yaml` (same release)                                           | not recorded                                                         | SHA-256 `54ddcb8aeeae85c8d0e148741e7d87b0fbd38bd21cffa5d59ba124fe1e672f40` |
+| HTDemucs 6-source (`htdemucs_6s`, signature 5c90dfd2)         | `https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th`                      | 54,996,327 (download size read from the server, file not downloaded) | not recorded                                                               |
+| HTDemucs (`htdemucs`, signature 955717e8)                     | `https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th`                      | 84,141,911                                                           | MD5 `b57e3704651588e6702539cd7e8f87f6` (SHA-256 not recorded)              |
 
 ## How to redo it
 
@@ -42,7 +44,7 @@ docker run --rm -v "$WORK":/work -v "$PWD":/src:ro "$IMAGE" sh -c \
 
 HTDemucs: put the `.th` file in `$WORK`, run `htdemucs/setup_pylib.sh` once in the container (it
 installs `onnx`, `onnxruntime`, `julius`, `demucs` and `openunmix` into `$WORK/pylib`), then
-`WORK=... IMAGE=... htdemucs/run.sh parity` and `... run.sh export`.
+`WORK=... IMAGE=... htdemucs/run.sh parity` and `... run.sh export`. For the 6-source model (`5c90dfd2-34c22ccb.th` in `$WORK`) add its name: `... run.sh parity htdemucs_6s`, `... run.sh export htdemucs_6s`; the script stops if the checkpoint's sources, segment or transformer width differ from the 4-source model's.
 
 ## What the graphs contain and what the host does
 

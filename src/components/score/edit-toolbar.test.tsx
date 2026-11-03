@@ -92,7 +92,7 @@ describe("EditToolbar", () => {
 
   it("opens the bar's settings", async () => {
     const { user, actions } = setup();
-    await user.click(screen.getByRole("button", { name: "Bar…" }));
+    await user.click(screen.getByRole("button", { name: "Bar" }));
     expect(actions.onBar).toHaveBeenCalled();
   });
 
@@ -161,7 +161,7 @@ describe("EditToolbar: nested tuplets (#43)", () => {
   it("opens the nested tuplet dialog from the tuplet menu and applies the combined ratio", async () => {
     const { user, actions } = setup();
     await user.click(screen.getByRole("combobox", { name: "Tuplet" }));
-    await user.click(await screen.findByRole("option", { name: "Nested…" }));
+    await user.click(await screen.findByRole("option", { name: "Nested" }));
     const dialog = await screen.findByRole("dialog", { name: "Nested tuplet" });
     // A triplet of triplets by default: nine notes in the time of four.
     expect(within(dialog).getByTestId("nested-tuplet-result")).toHaveTextContent(
@@ -178,7 +178,7 @@ describe("EditToolbar: nested tuplets (#43)", () => {
   it("combines other ratios and shows the result before applying", async () => {
     const { user, actions } = setup();
     await user.click(screen.getByRole("combobox", { name: "Tuplet" }));
-    await user.click(await screen.findByRole("option", { name: "Nested…" }));
+    await user.click(await screen.findByRole("option", { name: "Nested" }));
     const dialog = await screen.findByRole("dialog", { name: "Nested tuplet" });
     await user.click(within(dialog).getByRole("combobox", { name: /^Inner tuplet/ }));
     await user.click(await screen.findByRole("option", { name: "Quintuplet (5:4)" }));
@@ -192,7 +192,7 @@ describe("EditToolbar: nested tuplets (#43)", () => {
   it("refuses a combination with too many notes", async () => {
     const { user, actions } = setup();
     await user.click(screen.getByRole("combobox", { name: "Tuplet" }));
-    await user.click(await screen.findByRole("option", { name: "Nested…" }));
+    await user.click(await screen.findByRole("option", { name: "Nested" }));
     const dialog = await screen.findByRole("dialog", { name: "Nested tuplet" });
     for (const name of ["Outer tuplet", /^Inner tuplet/]) {
       await user.click(within(dialog).getByRole("combobox", { name }));
@@ -206,7 +206,7 @@ describe("EditToolbar: nested tuplets (#43)", () => {
   it("cancelling changes nothing", async () => {
     const { user, actions } = setup();
     await user.click(screen.getByRole("combobox", { name: "Tuplet" }));
-    await user.click(await screen.findByRole("option", { name: "Nested…" }));
+    await user.click(await screen.findByRole("option", { name: "Nested" }));
     await user.click(
       within(await screen.findByRole("dialog", { name: "Nested tuplet" })).getByRole("button", {
         name: "Cancel",

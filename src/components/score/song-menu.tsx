@@ -40,14 +40,14 @@ export interface EncodingMenu {
 }
 
 const EXPORTS: { format: ExportFormat; label: string }[] = [
-  { format: "gp", label: "Smart Beat / Guitar Pro 7…" },
-  { format: "gp5", label: "Guitar Pro 5…" },
-  { format: "gp4", label: "Guitar Pro 4…" },
-  { format: "gp3", label: "Guitar Pro 3…" },
-  { format: "musicxml", label: "MusicXML…" },
-  { format: "midi", label: "MIDI…" },
-  { format: "atex", label: "alphaTex…" },
-  { format: "ascii-tab", label: "ASCII tab…" },
+  { format: "gp", label: "Smart Beat / Guitar Pro 7" },
+  { format: "gp5", label: "Guitar Pro 5" },
+  { format: "gp4", label: "Guitar Pro 4" },
+  { format: "gp3", label: "Guitar Pro 3" },
+  { format: "musicxml", label: "MusicXML" },
+  { format: "midi", label: "MIDI" },
+  { format: "atex", label: "alphaTex" },
+  { format: "ascii-tab", label: "ASCII tab" },
 ];
 
 /**
@@ -93,24 +93,24 @@ export function FileMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onSaveAs}>
           <SaveAllIcon />
-          Save As…
+          Save As
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel>Export</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={onExportAll}>All formats…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={onExportAll}>All formats</DropdownMenuItem>
           {EXPORTS.map(({ format, label }) => (
             <DropdownMenuItem key={format} onSelect={() => onExport(format)}>
               {label}
             </DropdownMenuItem>
           ))}
-          <DropdownMenuItem onSelect={onExportAudio}>Audio (WAV)…</DropdownMenuItem>
-          {onExportM4a && <DropdownMenuItem onSelect={onExportM4a}>Audio (M4A)…</DropdownMenuItem>}
+          <DropdownMenuItem onSelect={onExportAudio}>Audio (WAV)</DropdownMenuItem>
+          {onExportM4a && <DropdownMenuItem onSelect={onExportM4a}>Audio (M4A)</DropdownMenuItem>}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onPrint}>
           <PrinterIcon />
-          Print / PDF…
+          Print / PDF
         </DropdownMenuItem>
         {encoding && (
           <>
@@ -165,15 +165,15 @@ export function ToolsMenu({
       <DropdownMenuContent align="end" className="min-w-52">
         <DropdownMenuItem onSelect={onTranspose}>
           <ArrowUpDownIcon />
-          Transpose…
+          Transpose
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onTempo}>
           <GaugeIcon />
-          Tempo…
+          Tempo
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onFixBars}>
           <RulerIcon />
-          Fix bar durations…
+          Fix bar durations
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

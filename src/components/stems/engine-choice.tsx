@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { EngineModels } from "@/components/stems/use-engine-models";
 import {
   engineInfo,
-  ENGINES,
+  offeredEngines,
   type EngineInfo,
   type NeuralEngine,
 } from "@/components/stems/stem-engines";
@@ -43,7 +43,7 @@ export function EngineChoice({
         Engine
       </span>
       <div role="radiogroup" aria-labelledby="stem-engine-label" className="flex flex-col gap-2">
-        {ENGINES.map((info) => {
+        {offeredEngines(models.states).map((info) => {
           const ready = models.isReady(info.id);
           return (
             <label
@@ -126,7 +126,7 @@ function ModelPanel({ engine, models }: { engine: NeuralEngine; models: EngineMo
           {label} is not published yet, so it cannot be downloaded. It will appear here once it is.
         </p>
         <Button type="button" variant="outline" disabled>
-          Download {label}…
+          Download {label}
         </Button>
       </div>
     );
@@ -153,7 +153,7 @@ function ModelPanel({ engine, models }: { engine: NeuralEngine; models: EngineMo
         terms first.
       </p>
       <Button type="button" variant="outline" onClick={() => models.open(engine)}>
-        Download {label}…
+        Download {label}
       </Button>
     </div>
   );

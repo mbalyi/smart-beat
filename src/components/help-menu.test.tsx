@@ -8,7 +8,7 @@ import { renderWithProviders } from "@/test/render";
 describe("HelpMenu", () => {
   it.each([
     ["Keyboard Shortcuts", "shortcuts"],
-    ["Settings…", "settings"],
+    ["Settings", "settings"],
     ["Open-Source Licenses", "licenses"],
     ["About Smart Beat", "about"],
   ])("selecting %s opens the %s dialog", async (label, dialog) => {
@@ -24,14 +24,14 @@ describe("HelpMenu", () => {
     );
   });
 
-  it("lists Check for Updates… only when the app can update itself", async () => {
+  it("lists Check for Updates only when the app can update itself", async () => {
     const onCheckForUpdates = vi.fn();
     const { user, unmount } = renderWithProviders(
       <HelpMenu onSelect={vi.fn()} onCheckForUpdates={onCheckForUpdates} />,
     );
 
     await user.click(screen.getByRole("button", { name: "Help" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Check for Updates…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Check for Updates" }));
     expect(onCheckForUpdates).toHaveBeenCalledOnce();
     unmount();
 

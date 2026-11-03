@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { AudioWaveformIcon } from "lucide-react";
 import { track } from "@/lib/telemetry";
 import { toast } from "sonner";
 
@@ -22,6 +23,7 @@ import { useUsageNotice } from "@/hooks/use-usage-notice";
 import { UpdateDialog } from "@/components/update-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
+import { OpenStemsDialog } from "@/components/stems/open-stems-dialog";
 import { StemPage } from "@/components/stems/stem-page";
 import type { DroppedSong } from "@/components/stems/stem-dialog";
 import { useFileDrop } from "@/hooks/use-file-drop";
@@ -79,8 +81,12 @@ const ScoreWorkspace = lazy(() =>
 export function App() {
   const [transcriptionDrop, setTranscriptionDrop] = useState<DroppedRecording | null>(null);
   const [stemDrop, setStemDrop] = useState<DroppedSong | null>(null);
-  /** The separated song whose page is shown instead of the start screen. */
-  const [stemSong, setStemSong] = useState<StemSong | null>(null);
+  /** The separated songs that are open as tabs, and the one whose page is shown. */
+  const [stemSongs, setStemSongs] = useState<StemSong[]>([]);
+  const [activeStemId, setActiveStemId] = useState<string | null>(null);
+  /** Where each separated song was saved from its page (the page forgets it when it closes). */
+  const [savedStems, setSavedStems] = useState<Readonly<Record<string, string>>>({});
+  const [openStemsDialog, setOpenStemsDialog] = useState(false);
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
@@ -141,6 +147,10 @@ export function App() {
   const [leaving, setLeaving] = useState(false);
   /** Save all is running (a second click does nothing). */
   const savingAll = useRef(false);
+  /** The stem page shown instead of the start screen (never over an open song). */
+  const stemSong = song ? null : (stemSongs.find((s) => s.id === activeStemId) ?? null);
+  /** The page fills the window (header, tabs and controls stay, the content scrolls). */
+  const fullHeight = song !== null || stemSong !== null;
   const latest = useRef({ songId: song?.id ?? null });
   useEffect(() => {
     latest.current = { songId: song?.id ?? null };
@@ -153,7 +163,7 @@ export function App() {
    */
   const goHome = () => {
     if (!song) {
-      setStemSong(null);
+      setActiveStemId(null);
       return;
     }
     if (edited.current.size > 0) setLeaving(true);
@@ -208,19 +218,17 @@ export function App() {
 
   const startNewSong = () => void newSong();
 
-  const tabs = (
-    <DocumentTabs
-      tabs={songs.map((s) => ({
-        id: s.id,
-        title: s.summary.title || s.name,
-        edited: editedIds.has(s.id),
-      }))}
-      activeId={song?.id ?? null}
-      onActivate={activate}
-      onClose={closeSong}
-      onNew={startNewSong}
-    />
-  );
+  const closeStem = (id: string) => {
+    const index = stemSongs.findIndex((s) => s.id === id);
+    const rest = stemSongs.filter((s) => s.id !== id);
+    setStemSongs(rest);
+    // Closing the shown page moves to its neighbour, or to the start screen with the last one.
+    if (stemSong?.id === id) setActiveStemId(rest[Math.min(index, rest.length - 1)]?.id ?? null);
+  };
+  const activateStem = (id: string) => {
+    activate(null);
+    setActiveStemId(id);
+  };
   const closing = songs.find((s) => s.id === pendingClose) ?? null;
 
   const showDialog = (
@@ -234,6 +242,36 @@ export function App() {
     setDialog(next);
   };
 
+  // On the stem page, + starts a stem separation (when the feature is on); elsewhere a new song.
+  const newStem = stemSong && isEnabled("stem-separation");
+  const tabs = (
+    <DocumentTabs
+      tabs={[
+        ...songs.map((s) => ({
+          id: s.id,
+          title: s.summary.title || s.name,
+          edited: editedIds.has(s.id),
+        })),
+        ...stemSongs.map((s) => ({
+          id: s.id,
+          title: s.name,
+          edited: false,
+          icon: (
+            <AudioWaveformIcon
+              aria-hidden="true"
+              className="size-3.5 shrink-0 text-muted-foreground"
+            />
+          ),
+        })),
+      ]}
+      activeId={song?.id ?? stemSong?.id ?? null}
+      onActivate={(id) => (typeof id === "number" ? activate(id) : activateStem(id))}
+      onClose={(id) => (typeof id === "number" ? closeSong(id) : closeStem(id))}
+      onNew={(button) => (newStem ? showDialog("stem-separation", button) : startNewSong())}
+      label={stemSongs.length > 0 ? "Open songs and stems" : undefined}
+      newLabel={newStem ? "New stem separation" : undefined}
+    />
+  );
   /** The computer's own Open dialog (a file input in a browser). */
   const showNativeOpenDialog = async () => {
     // A browser (`pnpm dev`) can't show the native dialog: use a file input.
@@ -309,26 +347,34 @@ export function App() {
   const separateStems = isEnabled("stem-separation")
     ? (button: HTMLElement) => showDialog("stem-separation", button)
     : undefined;
+  /** Opens a separated song as a tab and shows its page, over any open song. */
+  const addStemTab = (opened: StemSong) => {
+    activate(null);
+    setStemSongs((open) =>
+      open.some((s) => s.id === opened.id)
+        ? open.map((s) => (s.id === opened.id ? opened : s))
+        : [...open, opened],
+    );
+    setActiveStemId(opened.id);
+  };
   /** Shows a separated song's page and notes that it was just used (it moves up in Recent). */
   const showStemSong = (opened: StemSong) => {
     // The page and the list recover on their own if this fails: the time is only for ordering.
     touchStemSong(opened.id).catch(() => {});
-    setStemSong(opened);
+    addStemTab(opened);
   };
   /** Reads a saved `.sbstems` file into the library and shows its page, over any open song. */
   const openStemBundleAt = async (path: string) => {
     const loading = toast.loading("Opening the saved stems…");
     try {
-      const opened = await openStemBundle(path);
-      activate(null);
-      setStemSong(opened);
+      addStemTab(await openStemBundle(path));
     } catch (error) {
       toast.error("Couldn't open the saved stems", { description: errorText(error) });
     } finally {
       toast.dismiss(loading);
     }
   };
-  /** Open saved stems…: the computer's Open dialog, then the file. */
+  /** Open stems: the computer's Open dialog, then the file. */
   const openSavedStems = isEnabled("stem-separation")
     ? async () => {
         try {
@@ -344,7 +390,7 @@ export function App() {
   const [lastSong, setLastSong] = useState(song);
   if (song !== lastSong) {
     setLastSong(song);
-    if (song) setStemSong(null);
+    if (song) setActiveStemId(null);
   }
   // Import from Audio stays out of reach until the feature is switched on.
   const importAudio = isEnabled("audio-2-tab")
@@ -518,20 +564,20 @@ export function App() {
   return (
     <>
       <SkipLink />
-      <div className={cn("flex flex-col", song ? "h-svh" : "min-h-svh")}>
+      <div className={cn("flex flex-col", fullHeight ? "h-svh" : "min-h-svh")}>
         <AppHeader
           onShowDialog={showDialog}
           onCheckForUpdates={isTauri() ? updater.checkNow : undefined}
           onHelpAction={helpAction}
           resumeStep={tour.resumeStep("main")}
           onHome={goHome}
-          wide={song !== null}
+          wide={fullHeight}
           centerRef={setHeaderSlot}
         />
         <main
           id="main"
           tabIndex={-1}
-          className={cn("flex-1 outline-none", song && "flex min-h-0 flex-col")}
+          className={cn("flex-1 outline-none", fullHeight && "flex min-h-0 flex-col")}
         >
           {songs.length > 0 && (
             <Suspense
@@ -573,10 +619,15 @@ export function App() {
               </div>
             </Suspense>
           )}
-          {!song && stemSong && (
+          {stemSong && (
             <StemPage
+              key={stemSong.id}
               song={stemSong}
-              onBack={() => setStemSong(null)}
+              tabs={tabs}
+              headerSlot={headerSlot}
+              onOpenStems={openSavedStems ? () => setOpenStemsDialog(true) : undefined}
+              onSaved={(path) => setSavedStems((saved) => ({ ...saved, [stemSong.id]: path }))}
+              savedPath={savedStems[stemSong.id]}
               onOpenCloudSettings={() => showDialog("settings", null, "cloud")}
             />
           )}
@@ -587,7 +638,7 @@ export function App() {
                 onImportAudio={importAudio}
                 onSeparateStems={separateStems}
                 onOpenStemSong={separateStems ? showStemSong : undefined}
-                onOpenStemBundle={openSavedStems ? () => void openSavedStems() : undefined}
+                onOpenStemBundle={openSavedStems ? () => setOpenStemsDialog(true) : undefined}
                 onNewSong={startNewSong}
                 onShowShortcuts={() => showDialog("shortcuts")}
                 onShowLicenses={() => showDialog("licenses")}
@@ -605,7 +656,7 @@ export function App() {
             </>
           )}
         </main>
-        {!song && <AppFooter />}
+        {!fullHeight && <AppFooter />}
       </div>
       <input
         ref={fileInputRef}
@@ -698,6 +749,22 @@ export function App() {
           }}
         />
       )}
+      <OpenStemsDialog
+        open={openStemsDialog}
+        onOpenChange={setOpenStemsDialog}
+        onPickComputer={() => {
+          setOpenStemsDialog(false);
+          void openSavedStems?.();
+        }}
+        onOpenStem={(path) => {
+          setOpenStemsDialog(false);
+          void openStemBundleAt(path);
+        }}
+        onSetupCloud={() => {
+          setOpenStemsDialog(false);
+          showDialog("settings", null, "cloud");
+        }}
+      />
       <AiInstallerDialog />
       <UpdateDialog updater={updater} />
       <Toaster position="bottom-right" />

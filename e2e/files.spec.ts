@@ -227,14 +227,14 @@ test.describe("saving and exporting (#15, #16)", () => {
     await openSong(app);
     await app.getByRole("button", { name: "File" }).click();
     const items = await app.getByRole("menuitem").allTextContents();
-    const first = items.indexOf("Smart Beat / Guitar Pro 7…");
+    const first = items.indexOf("Smart Beat / Guitar Pro 7");
     expect(items.slice(first, first + 4)).toEqual([
-      "Smart Beat / Guitar Pro 7…",
-      "Guitar Pro 5…",
-      "Guitar Pro 4…",
-      "Guitar Pro 3…",
+      "Smart Beat / Guitar Pro 7",
+      "Guitar Pro 5",
+      "Guitar Pro 4",
+      "Guitar Pro 3",
     ]);
-    expect(first).toBeLessThan(items.indexOf("MusicXML…"));
+    expect(first).toBeLessThan(items.indexOf("MusicXML"));
     await app.keyboard.press("Escape");
   });
 
@@ -273,11 +273,11 @@ test.describe("saving and exporting (#15, #16)", () => {
       await app.emulateMedia({ colorScheme });
       await openSong(app);
       await app.getByRole("button", { name: "File" }).click();
-      await expect(app.getByRole("menuitem", { name: "Save As…" })).toBeVisible();
+      await expect(app.getByRole("menuitem", { name: "Save As" })).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[role=menu]" });
       await app.keyboard.press("Escape");
       await app.getByRole("button", { name: "Tools" }).click();
-      await expect(app.getByRole("menuitem", { name: "Transpose…" })).toBeVisible();
+      await expect(app.getByRole("menuitem", { name: "Transpose" })).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[role=menu]" });
     });
   }
@@ -347,7 +347,7 @@ test.describe("bar durations (#14)", () => {
     await expect(banner).toContainText("Bar 1 is 3.5 beats too short");
 
     await app.getByRole("button", { name: "Tools" }).click();
-    await app.getByRole("menuitem", { name: "Fix bar durations…" }).click();
+    await app.getByRole("menuitem", { name: "Fix bar durations" }).click();
     await expect(banner).toBeHidden();
     await expectTab(app, ["5"]);
   });

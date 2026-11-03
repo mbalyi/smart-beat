@@ -217,11 +217,11 @@ describe("Welcome", () => {
   it("wires up the primary actions", async () => {
     const { user, onImportAudio, onOpenFile, onNewSong, onShowShortcuts } = renderWelcome();
 
-    await user.click(screen.getByRole("button", { name: "Open a file…" }));
-    await user.click(screen.getByRole("button", { name: "New song" }));
+    await user.click(screen.getByRole("button", { name: "Open a tab" }));
+    await user.click(screen.getByRole("button", { name: "New tab" }));
     await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
 
-    await user.click(screen.getByRole("button", { name: "Import from Audio…" }));
+    await user.click(screen.getByRole("button", { name: "Import from Audio" }));
     expect(onImportAudio).toHaveBeenCalledOnce();
     expect(onOpenFile).toHaveBeenCalledOnce();
     expect(onNewSong).toHaveBeenCalledOnce();
@@ -386,7 +386,7 @@ describe("Welcome: recent cloud songs (#187)", () => {
 });
 
 describe("Welcome: stem separation (#186)", () => {
-  it("has a Stem separation button next to Import from Audio that opens the dialog", async () => {
+  it("has a Stem separation button after Open a tab that opens the dialog", async () => {
     const onSeparateStems = vi.fn();
     const { user } = renderWithProviders(
       <Welcome
@@ -399,12 +399,37 @@ describe("Welcome: stem separation (#186)", () => {
     );
 
     const buttons = screen.getAllByRole("button").map((button) => button.textContent);
-    expect(buttons.indexOf("Stem separation…")).toBe(buttons.indexOf("Import from Audio…") + 1);
-    // Open and New song come first, then the rest.
-    expect(buttons.indexOf("New song")).toBe(buttons.indexOf("Open a file…") + 1);
-    expect(buttons.indexOf("Import from Audio…")).toBe(buttons.indexOf("New song") + 1);
-    await user.click(screen.getByRole("button", { name: "Stem separation…" }));
+    // New tab and Open a tab come first, then the stem buttons, then Import from Audio.
+    expect(buttons.indexOf("Open a tab")).toBe(buttons.indexOf("New tab") + 1);
+    expect(buttons.indexOf("Stem separation")).toBe(buttons.indexOf("Open a tab") + 1);
+    expect(buttons.indexOf("Import from Audio")).toBe(buttons.indexOf("Stem separation") + 1);
+    await user.click(screen.getByRole("button", { name: "Stem separation" }));
     expect(onSeparateStems).toHaveBeenCalledOnce();
+  });
+
+  it("makes New tab and Stem separation the primary buttons and the others outlined", () => {
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onImportAudio={vi.fn()}
+        onSeparateStems={vi.fn()}
+        onOpenStemBundle={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+      />,
+    );
+    const primary = (name: string) =>
+      screen.getByRole("button", { name }).getAttribute("data-variant") === "default";
+    expect(primary("New tab")).toBe(true);
+    expect(primary("Stem separation")).toBe(true);
+    for (const name of [
+      "Open a tab",
+      "Open saved stems",
+      "Import from Audio",
+      "Keyboard shortcuts",
+    ]) {
+      expect(primary(name)).toBe(false);
+    }
   });
 
   it("has an Open saved stems button right after Stem separation that asks to open a file", async () => {
@@ -419,8 +444,8 @@ describe("Welcome: stem separation (#186)", () => {
       />,
     );
     const buttons = screen.getAllByRole("button").map((button) => button.textContent);
-    expect(buttons.indexOf("Open saved stems…")).toBe(buttons.indexOf("Stem separation…") + 1);
-    await user.click(screen.getByRole("button", { name: "Open saved stems…" }));
+    expect(buttons.indexOf("Open saved stems")).toBe(buttons.indexOf("Stem separation") + 1);
+    await user.click(screen.getByRole("button", { name: "Open saved stems" }));
     expect(onOpenStemBundle).toHaveBeenCalledOnce();
   });
 
@@ -428,8 +453,8 @@ describe("Welcome: stem separation (#186)", () => {
     renderWithProviders(
       <Welcome onOpenFile={vi.fn()} onNewSong={vi.fn()} onShowShortcuts={vi.fn()} />,
     );
-    expect(screen.queryByRole("button", { name: "Stem separation…" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open saved stems…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stem separation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open saved stems" })).not.toBeInTheDocument();
     expect(screen.queryByText("Your separated songs")).not.toBeInTheDocument();
   });
 

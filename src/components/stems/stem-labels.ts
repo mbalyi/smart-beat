@@ -5,6 +5,8 @@ export const STEM_LABELS: Record<StemKindId, string> = {
   drums: "Drums",
   bass: "Bass",
   vocals: "Vocals",
+  guitar: "Guitar",
+  piano: "Piano",
   panned: "Guitars and keys",
   other: "Other",
 };
@@ -14,6 +16,8 @@ export const STEM_HINTS: Record<StemKindId, string> = {
   drums: "Kick, snare and cymbals.",
   bass: "The low line of the bass guitar.",
   vocals: "The voice in the middle of the mix.",
+  guitar: "Electric and acoustic guitar. The weaker of the main parts.",
+  piano: "Piano and keys. The weakest part.",
   panned: "Guitars and keys that sit hard to the left or right.",
   other: "Everything that is not pulled out above.",
 };
@@ -27,11 +31,16 @@ export function stemLimit(kind: StemKindId, engine: StemEngine): string {
       return "A guitar playing the same notes can leak in.";
     case "vocals":
       return "Centred guitars and snare can leak in. Mono files cannot be separated.";
+    case "guitar":
+      return "The weaker of the main parts: distorted guitar can leak into Other, and some of it can stay in Vocals or Piano.";
+    case "piano":
+      return "The weakest part: it can sound thin or incomplete, and some of it ends up in Guitar or Other.";
     case "panned":
       return "Only what is hard-panned to one side. Mono files cannot be separated.";
     case "other":
-      return engine === "fast"
-        ? "Everything that was not separated."
+      if (engine === "fast") return "Everything that was not separated.";
+      return engine === "htdemucs-6s"
+        ? "Everything that is not drums, bass, vocals, guitar or piano."
         : "Everything that is not drums, bass or vocals.";
   }
 }

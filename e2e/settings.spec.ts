@@ -11,7 +11,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await app.emulateMedia({ colorScheme });
       await app.setViewportSize(size);
       await app.getByRole("button", { name: "Help" }).click();
-      await app.getByRole("menuitem", { name: "Settings…" }).click();
+      await app.getByRole("menuitem", { name: "Settings" }).click();
 
       const settings = app.getByRole("dialog", { name: "Settings" });
       await expect(settings).toHaveAccessibleDescription(/audio input.*cloud storage/i);

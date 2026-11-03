@@ -7,7 +7,14 @@ import { isEnabled } from "@/lib/features";
 import { STEMS_STOPPED, type SeparateRequest } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
-import { backend, mockTauri, STEM_SONG, UMX_STATUS, type IpcCall } from "@/test/tauri";
+import {
+  backend,
+  mockTauri,
+  STEM_SONG,
+  stemModelStatus,
+  UMX_STATUS,
+  type IpcCall,
+} from "@/test/tauri";
 
 vi.mock("@/lib/features", () => ({ isEnabled: vi.fn(() => false) }));
 
@@ -36,7 +43,7 @@ const dialog = () => screen.getByRole("dialog", { name: "Stem separation" });
 /** Chooses SONG_PATH through the native dialog and goes to the options. */
 async function toOptions(user: ReturnType<typeof setup>["user"], path = SONG_PATH) {
   backend.dialogResult = path;
-  await user.click(screen.getByRole("button", { name: "Choose a song…" }));
+  await user.click(screen.getByRole("button", { name: "Choose a song" }));
   await screen.findByTestId("stem-file-name");
   await user.click(screen.getByRole("button", { name: "Next" }));
 }
@@ -84,10 +91,10 @@ describe("Stem separation dialog: step 1, the song", () => {
   it("shows the chosen song and lets it be replaced or removed", async () => {
     const { user } = setup();
     backend.dialogResult = SONG_PATH;
-    await user.click(screen.getByRole("button", { name: "Choose a song…" }));
+    await user.click(screen.getByRole("button", { name: "Choose a song" }));
     expect(await screen.findByTestId("stem-file-name")).toHaveTextContent("neon-nights.mp3");
     expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Choose another song…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose another song" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remove song" }));
     expect(screen.queryByTestId("stem-file-name")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
@@ -96,7 +103,7 @@ describe("Stem separation dialog: step 1, the song", () => {
   it("keeps the dialog as it is when the native dialog is cancelled", async () => {
     const { user } = setup();
     backend.dialogResult = null;
-    await user.click(screen.getByRole("button", { name: "Choose a song…" }));
+    await user.click(screen.getByRole("button", { name: "Choose a song" }));
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -104,7 +111,7 @@ describe("Stem separation dialog: step 1, the song", () => {
   it("refuses a file that is not audio", async () => {
     const { user } = setup();
     backend.dialogResult = "/Users/me/Documents/notes.pdf";
-    await user.click(screen.getByRole("button", { name: "Choose a song…" }));
+    await user.click(screen.getByRole("button", { name: "Choose a song" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Choose MP3, WAV, FLAC, OGG or AIFF",
     );
@@ -348,7 +355,7 @@ describe("Stem separation dialog: the engines", () => {
       },
     );
     await openEngine(user, "UMX-HQ");
-    await user.click(await screen.findByRole("button", { name: "Download UMX-HQ…" }));
+    await user.click(await screen.findByRole("button", { name: "Download UMX-HQ" }));
     const setupPanel = screen.getByTestId("stem-neural-setup");
     expect(setupPanel).toHaveTextContent("Terms of UMX-HQ");
     expect(setupPanel).toHaveTextContent("trained on MUSDB18-HQ");
@@ -396,7 +403,7 @@ describe("Stem separation dialog: the engines", () => {
     );
     await openEngine(user, "HTDemucs");
     expect(await screen.findByText(/one-time download of 168 MB/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Download HTDemucs…" }));
+    await user.click(screen.getByRole("button", { name: "Download HTDemucs" }));
     const setupPanel = screen.getByTestId("stem-neural-setup");
     expect(setupPanel).toHaveTextContent("Terms of HTDemucs");
     expect(setupPanel).toHaveTextContent("The terms of htdemucs");
@@ -421,7 +428,7 @@ describe("Stem separation dialog: the engines", () => {
       { stem_model_download: () => new Promise((_resolve, reject) => (stop = reject)) },
     );
     await openEngine(user, "SCNet XL");
-    await user.click(await screen.findByRole("button", { name: "Download SCNet XL…" }));
+    await user.click(await screen.findByRole("button", { name: "Download SCNet XL" }));
     await user.click(screen.getByRole("checkbox", { name: /I only use music/ }));
     await user.click(screen.getByRole("button", { name: "Accept and download" }));
     await user.click(await screen.findByRole("button", { name: "Cancel download" }));
@@ -441,7 +448,7 @@ describe("Stem separation dialog: the engines", () => {
       },
     );
     await openEngine(user, "SCNet Small");
-    await user.click(await screen.findByRole("button", { name: "Download SCNet Small…" }));
+    await user.click(await screen.findByRole("button", { name: "Download SCNet Small" }));
     await user.click(screen.getByRole("checkbox", { name: /I only use music/ }));
     await user.click(screen.getByRole("button", { name: "Accept and download" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The download failed");
@@ -453,7 +460,7 @@ describe("Stem separation dialog: the engines", () => {
     });
     await openEngine(user, "SCNet XL");
     expect(await screen.findByText(/SCNet XL is not published yet/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Download SCNet XL…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Download SCNet XL" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
     expect(calls.some((call) => call.cmd === "stem_model_download")).toBe(false);
   });
@@ -482,8 +489,114 @@ describe("Stem separation dialog: the engines", () => {
       await screen.findByRole("button", { name: "Remove HTDemucs from this computer" }),
     );
     expect(calls).toContainEqual({ cmd: "stem_model_remove", args: { model: "htdemucs" } });
-    expect(await screen.findByRole("button", { name: "Download HTDemucs…" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Download HTDemucs" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
+  });
+
+  it("leaves the 6-part engine off the list until its model is available", async () => {
+    const { user, calls } = setup();
+    await toOptions(user);
+    // The status of every model is asked for; the 6-part one says it is not available.
+    await waitFor(() =>
+      expect(calls).toContainEqual({ cmd: "stem_model_status", args: { model: "htdemucs-6s" } }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("radio", { name: "HTDemucs" })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("radio", { name: "HTDemucs 6-part" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/guitar and piano/i)).not.toBeInTheDocument();
+  });
+
+  describe("with the 6-part model available", () => {
+    const available = () => {
+      backend.stemModels["htdemucs-6s"] = stemModelStatus("htdemucs-6s", {
+        available: true,
+        downloadBytes: 123_000_000,
+      });
+    };
+
+    it("lists it after HTDemucs, with an honest note about guitar and piano", async () => {
+      const { user } = setup({}, {}, available);
+      await toOptions(user);
+      const card = await screen.findByRole("radio", { name: "HTDemucs 6-part" });
+      const group = screen.getByRole("radiogroup", { name: "Engine" });
+      expect(
+        within(group)
+          .getAllByRole("radio")
+          .map((radio) => radio.getAttribute("value")),
+      ).toEqual(["fast", "htdemucs", "htdemucs-6s", "scnet-xl", "scnet", "neural"]);
+      expect(card).not.toBeChecked();
+      const label = card.closest("label")!;
+      expect(label).toHaveTextContent("Six parts: drums, bass, vocals, guitar, piano");
+      expect(label).toHaveTextContent("Guitar and piano are weaker");
+      expect(label).toHaveTextContent("Download 117 MB");
+      expect(label).not.toHaveTextContent("Recommended");
+      expect(screen.getAllByText("Recommended")).toHaveLength(1);
+    });
+
+    it("says which parts it makes and which are weaker", async () => {
+      const { user } = setup({}, {}, available);
+      await toOptions(user);
+      await user.click(await screen.findByRole("radio", { name: "HTDemucs 6-part" }));
+      expect(screen.getByText(/HTDemucs 6-part separates/)).toHaveTextContent(
+        "HTDemucs 6-part separates drums, bass, vocals, guitar, piano and other.",
+      );
+      expect(screen.getByText(/piano is the weakest/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Download HTDemucs 6-part" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
+    });
+
+    it("downloads its model through the model commands", async () => {
+      const { user, calls } = setup(
+        {},
+        {
+          stem_model_download: async () => {
+            backend.stemModels["htdemucs-6s"].downloaded = true;
+            return null;
+          },
+        },
+        available,
+      );
+      await toOptions(user);
+      await user.click(await screen.findByRole("radio", { name: "HTDemucs 6-part" }));
+      await user.click(screen.getByRole("button", { name: "Download HTDemucs 6-part" }));
+      expect(screen.getByTestId("stem-neural-setup")).toHaveTextContent("Terms of HTDemucs 6-part");
+      await user.click(screen.getByRole("checkbox"));
+      await user.click(screen.getByRole("button", { name: "Accept and download" }));
+      await waitFor(() =>
+        expect(calls).toContainEqual({
+          cmd: "stem_model_accept_terms",
+          args: { model: "htdemucs-6s" },
+        }),
+      );
+      expect(calls).toContainEqual({ cmd: "stem_model_download", args: { model: "htdemucs-6s" } });
+    });
+
+    it("separates with engine htdemucs-6s and asks for all five parts", async () => {
+      const job = heldSeparation();
+      const { user, calls } = setup({}, { stems_separate: job.handler }, () => {
+        available();
+        backend.stemModels["htdemucs-6s"].downloaded = true;
+        backend.stemModels["htdemucs-6s"].termsAccepted = true;
+      });
+      await toOptions(user);
+      await user.click(await screen.findByRole("radio", { name: "HTDemucs 6-part" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Separate" })).toBeEnabled());
+      await user.click(screen.getByRole("button", { name: "Separate" }));
+      expect(request(calls)).toEqual({
+        path: SONG_PATH,
+        kinds: ["drums", "bass", "vocals", "guitar", "piano"],
+        engine: "htdemucs-6s",
+        strongDrums: false,
+      });
+    });
+
+    it("has no violations on the options step with the 6-part card", async () => {
+      const { user } = setup({}, {}, available);
+      await toOptions(user);
+      await screen.findByRole("radio", { name: "HTDemucs 6-part" });
+      await expectNoA11yViolations(dialog());
+    });
   });
 
   it.each([
@@ -529,9 +642,9 @@ describe("Stem separation dialog: accessibility", () => {
       backend.stemModels.scnet.termsAccepted = true;
     });
     await openEngine(user, "HTDemucs");
-    await screen.findByRole("button", { name: "Download HTDemucs…" });
+    await screen.findByRole("button", { name: "Download HTDemucs" });
     await expectNoA11yViolations(dialog());
-    await user.click(screen.getByRole("button", { name: "Download HTDemucs…" }));
+    await user.click(screen.getByRole("button", { name: "Download HTDemucs" }));
     await expectNoA11yViolations(dialog());
   });
 

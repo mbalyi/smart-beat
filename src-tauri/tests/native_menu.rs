@@ -136,7 +136,7 @@ fn disables_the_edit_menus_outside_edit_mode(menu: &Menu<MockRuntime>) {
     assert_eq!(undo.as_menuitem().unwrap().text().unwrap(), "Undo");
 }
 
-/// Help › Check for Updates… needs no song, and sits after the licences in the Help menu.
+/// Help › Check for Updates needs no song, and sits after the licences in the Help menu.
 fn check_for_updates_is_always_available(menu: &Menu<MockRuntime>) {
     assert!(enabled(menu, MenuAction::CheckForUpdates));
 

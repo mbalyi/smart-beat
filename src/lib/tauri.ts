@@ -1374,16 +1374,28 @@ const STEMS_BUNDLE_PROGRESS_EVENT = "stems-bundle-progress";
 /** Mirrors `BUNDLE_OPENED_EVENT` in `src-tauri/src/stems`: the system opened a `.sbstems` file. */
 export const STEMS_BUNDLE_OPENED_EVENT = "stems-bundle-opened";
 
-/** The parts a song is split into, in the order the page lists them. Mirrors `StemKind`. */
-export const STEM_KINDS = ["drums", "bass", "vocals", "panned", "other"] as const;
+/**
+ * The parts a song is split into, in the order the page lists them. Mirrors `StemKind`. Guitar and
+ * piano exist only in songs made by the 6-source engine (`htdemucs-6s`).
+ */
+export const STEM_KINDS = [
+  "drums",
+  "bass",
+  "vocals",
+  "guitar",
+  "piano",
+  "panned",
+  "other",
+] as const;
 export type StemKindId = (typeof STEM_KINDS)[number];
 
 /**
  * Fast is signal processing and built in. The others are optional downloaded models: `neural` is
  * Open-Unmix UMX-HQ (the first one offered, so its id stayed), then SCNet Small, SCNet XL and
- * HTDemucs. Mirrors `StemEngine` in `src-tauri/src/stems/mod.rs`.
+ * HTDemucs and its 6-source variant (adds guitar and piano). Mirrors `StemEngine` in
+ * `src-tauri/src/stems/mod.rs`.
  */
-export type StemEngine = "fast" | "neural" | "scnet" | "scnet-xl" | "htdemucs";
+export type StemEngine = "fast" | "neural" | "scnet" | "scnet-xl" | "htdemucs" | "htdemucs-6s";
 
 /** Mirrors `SeparateRequest` in `src-tauri/src/stems/mod.rs`. */
 export interface SeparateRequest {
@@ -1685,7 +1697,7 @@ export const removeUmxModel = () => call<void>("umx_model_remove");
 // --- The SCNet and HTDemucs models (#186) ----------------------------------------------------
 
 /** The downloadable models that share the `stem_model_*` commands (UMX-HQ has its own). */
-export const STEM_MODELS = ["scnet", "scnet-xl", "htdemucs"] as const;
+export const STEM_MODELS = ["scnet", "scnet-xl", "htdemucs", "htdemucs-6s"] as const;
 export type StemModelId = (typeof STEM_MODELS)[number];
 
 /** Mirrors `ModelStatus` in `src-tauri/src/stems/models.rs`. */

@@ -36,6 +36,10 @@ pub enum StemKind {
     Drums,
     Bass,
     Vocals,
+    /// Only the six-part neural engine (HTDemucs 6-source) makes this one.
+    Guitar,
+    /// Only the six-part neural engine makes this one; it is the weakest of its parts.
+    Piano,
     /// Everything hard-panned to one side after the parts above were taken out: double-tracked
     /// guitars, wide keys. Not an instrument name, because the signal does not tell which.
     Panned,
@@ -44,7 +48,19 @@ pub enum StemKind {
 }
 
 impl StemKind {
-    pub const ALL: [StemKind; 5] = [
+    /// Every kind, in the order the stems are listed and saved.
+    pub const ALL: [StemKind; 7] = [
+        StemKind::Drums,
+        StemKind::Bass,
+        StemKind::Vocals,
+        StemKind::Guitar,
+        StemKind::Piano,
+        StemKind::Panned,
+        StemKind::Other,
+    ];
+
+    /// The kinds the built-in signal-processing engine can make (never guitar or piano).
+    pub const FAST: [StemKind; 5] = [
         StemKind::Drums,
         StemKind::Bass,
         StemKind::Vocals,
@@ -57,6 +73,8 @@ impl StemKind {
             Self::Drums => "drums",
             Self::Bass => "bass",
             Self::Vocals => "vocals",
+            Self::Guitar => "guitar",
+            Self::Piano => "piano",
             Self::Panned => "panned",
             Self::Other => "other",
         }

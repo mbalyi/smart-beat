@@ -14,12 +14,17 @@ function setup(
   state: ConstructorParameters<typeof FakeStemPlayer>[0] = {},
 ) {
   const player = new FakeStemPlayer({ duration: 215, ...state });
-  const onBack = vi.fn();
+  const onOpenStems = vi.fn();
   const createPlayer = vi.fn(() => player);
   const ui = renderWithProviders(
-    <StemPage song={song} onBack={onBack} createPlayer={createPlayer} />,
+    <StemPage
+      song={song}
+      onOpenStems={onOpenStems}
+      tabs={<nav aria-label="Open songs" />}
+      createPlayer={createPlayer}
+    />,
   );
-  return { ...ui, player, onBack, createPlayer };
+  return { ...ui, player, onOpenStems, createPlayer };
 }
 
 const row = (kind: string) => screen.getByTestId(`stem-${kind}`);
@@ -27,12 +32,34 @@ const row = (kind: string) => screen.getByTestId(`stem-${kind}`);
 const gains = (player: FakeStemPlayer) => player.setGains.mock.calls.at(-1)![0];
 
 describe("Stem page: the song", () => {
-  it("shows the song's name as the heading, and goes back to the start", async () => {
-    const { user, onBack } = setup();
-    expect(screen.getByRole("heading", { level: 1, name: "Neon Nights" })).toBeInTheDocument();
+  it("shows the song's details and the logo, with no big title or Back button", () => {
+    setup();
+    expect(screen.getByRole("heading", { level: 1, name: "Neon Nights" })).toHaveClass("sr-only");
+    expect(screen.getByText("Neon Nights", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByText(/3:35 · Fast\s+engine · 5 parts/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Back to start" }));
-    expect(onBack).toHaveBeenCalledOnce();
+    expect(screen.getByRole("img", { name: "Stem separation" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("Stem separation", { selector: "p,div,span" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back to start" })).not.toBeInTheDocument();
+  });
+
+  it("shows the tab bar first, then the transport, like an open song", () => {
+    setup();
+    const tabs = screen.getByRole("navigation", { name: "Open songs" });
+    const transport = screen.getByRole("region", { name: "Transport" });
+    expect(tabs.compareDocumentPosition(transport) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(transport).toHaveClass("sticky");
+  });
+
+  it("puts the logo, the details and the buttons in the header's centre when it has one", () => {
+    const slot = document.createElement("div");
+    document.body.append(slot);
+    renderWithProviders(<StemPage song={STEM_SONG} headerSlot={slot} createPlayer={() => null} />);
+    expect(within(slot).getByRole("img", { name: "Stem separation" })).toBeInTheDocument();
+    expect(within(slot).getByText(/3:35 · Fast\s+engine · 5 parts/)).toBeInTheDocument();
+    expect(within(slot).getByRole("button", { name: "Save stems" })).toBeInTheDocument();
+    slot.remove();
   });
 
   it.each([
@@ -59,7 +86,7 @@ describe("Stem page: the song", () => {
   });
 
   it("says when there is no audio to play with", () => {
-    renderWithProviders(<StemPage song={STEM_SONG} onBack={vi.fn()} createPlayer={() => null} />);
+    renderWithProviders(<StemPage song={STEM_SONG} createPlayer={() => null} />);
     expect(screen.getByRole("alert")).toHaveTextContent("cannot play audio");
   });
 
@@ -282,30 +309,26 @@ describe("Stem page: loop, speed and count-in", () => {
     expect(screen.getByText(/No loop/)).toBeInTheDocument();
   });
 
-  it("offers the speeds 100 to 50 % and changes it", async () => {
+  it("offers the speeds 100 to 50 % in the same menu as an open song, and changes it", async () => {
     const { user, player } = setup();
-    const group = screen.getByRole("radiogroup", { name: "Speed" });
-    expect(
-      within(group)
-        .getAllByRole("radio")
-        .map((radio) => radio.textContent),
-    ).toEqual(STEM_SPEEDS.map((speed) => `${speed}%`));
-    expect(within(group).getByRole("radio", { name: "Speed 100%" })).toBeChecked();
-    await user.click(within(group).getByRole("radio", { name: "Speed 80%" }));
+    const speed = screen.getByRole("combobox", { name: "Speed" });
+    expect(speed).toHaveTextContent("100%");
+    await user.click(speed);
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(
+      [...STEM_SPEEDS].sort((a, b) => a - b).map((value) => `${value}%`),
+    );
+    await user.click(screen.getByRole("option", { name: "80%" }));
     expect(player.setSpeed).toHaveBeenCalledWith(80);
-    expect(within(group).getByRole("radio", { name: "Speed 80%" })).toBeChecked();
-    // Clicking the chosen speed again does not leave the page without one.
-    await user.click(within(group).getByRole("radio", { name: "Speed 80%" }));
-    expect(player.setSpeed).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("combobox", { name: "Speed" })).toHaveTextContent("80%");
   });
 
   it("turns the count-in on, off by default", async () => {
     const { user, player } = setup();
-    const count = screen.getByRole("switch", { name: /Count-in/ });
-    expect(count).not.toBeChecked();
+    const count = screen.getByRole("button", { name: "Count-in" });
+    expect(count).toHaveAttribute("aria-pressed", "false");
     await user.click(count);
     expect(player.setCountIn).toHaveBeenCalledWith(true);
-    expect(count).toBeChecked();
+    expect(count).toHaveAttribute("aria-pressed", "true");
   });
 });
 
@@ -323,17 +346,18 @@ describe("Stem page: accessibility", () => {
 });
 
 describe("Stem page: saving", () => {
-  it("has a Save stems button in the header that opens the Save stems dialog", async () => {
+  it("has a Save stems icon button in the header that opens the Save stems dialog", async () => {
     const { user } = setup();
+    expect(screen.getByRole("button", { name: "Save stems" })).toHaveTextContent("");
     expect(screen.queryByTestId("stems-saved")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Save stems…" }));
+    await user.click(screen.getByRole("button", { name: "Save stems" }));
     const dialog = screen.getByRole("dialog", { name: "Save stems" });
     expect(
       within(dialog).getByRole("checkbox", { name: "Include the original song" }),
     ).toBeChecked();
     await user.click(within(dialog).getAllByRole("button", { name: "Close" })[0]!);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save stems…" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Save stems" })).toHaveFocus();
   });
 
   it("marks a song that was saved before", () => {
@@ -345,8 +369,8 @@ describe("Stem page: saving", () => {
     mockTauri();
     backend.saveResult = "/Music/Neon Nights.sbstems";
     const { user } = setup();
-    await user.click(screen.getByRole("button", { name: "Save stems…" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save stems" }));
+    await user.click(screen.getByRole("button", { name: "Save to this computer" }));
     await screen.findByTestId("save-stems-path");
     expect(screen.getByTestId("stems-saved")).toBeInTheDocument();
   });
@@ -357,16 +381,31 @@ describe("Stem page: saving", () => {
     const { user } = renderWithProviders(
       <StemPage
         song={STEM_SONG}
-        onBack={vi.fn()}
         onOpenCloudSettings={onOpenCloudSettings}
         createPlayer={() => new FakeStemPlayer({ duration: 215 })}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Save stems…" }));
+    await user.click(screen.getByRole("button", { name: "Save stems" }));
     const dialog = screen.getByRole("dialog", { name: "Save stems" });
-    await user.click(await within(dialog).findByRole("button", { name: "Settings" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Set up Cloud storage" }));
     expect(onOpenCloudSettings).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save stems…" })).not.toHaveFocus();
+    expect(screen.getByRole("button", { name: "Save stems" })).not.toHaveFocus();
+  });
+});
+
+describe("Stem page: opening stems", () => {
+  it("has an Open stems icon button, before Save stems", async () => {
+    const { user, onOpenStems } = setup();
+    const open = screen.getByRole("button", { name: "Open stems" });
+    const save = screen.getByRole("button", { name: "Save stems" });
+    expect(open.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(open);
+    expect(onOpenStems).toHaveBeenCalledOnce();
+  });
+
+  it("leaves Open stems out when the page cannot open any", () => {
+    renderWithProviders(<StemPage song={STEM_SONG} createPlayer={() => null} />);
+    expect(screen.queryByRole("button", { name: "Open stems" })).not.toBeInTheDocument();
   });
 });

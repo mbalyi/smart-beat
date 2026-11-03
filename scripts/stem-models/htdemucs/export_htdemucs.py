@@ -1,8 +1,14 @@
-"""Export the HTDemucs (htdemucs, sig 955717e8) real-valued core to ONNX.
+"""Export the HTDemucs real-valued core to ONNX: `htdemucs` (4 sources, sig 955717e8, the
+default) or `htdemucs_6s` (6 sources: drums, bass, other, vocals, guitar, piano; sig 5c90dfd2).
 
 Run in a throwaway container (see setup_pylib.sh / run.sh):
-  python export_htdemucs.py parity   # wrapper vs stock model, torch only
-  python export_htdemucs.py export   # parity + ONNX export + onnxruntime vs torch
+  python export_htdemucs.py parity [model]   # wrapper vs stock model, torch only
+  python export_htdemucs.py export [model]   # parity + ONNX export + onnxruntime vs torch
+`model` is `htdemucs` (default) or `htdemucs_6s`. The checkpoint must be in $WORK:
+  htdemucs     955717e8-8726e21a.th  https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th
+  htdemucs_6s  5c90dfd2-34c22ccb.th  https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th
+(file names from demucs/remote/files.txt and demucs/remote/htdemucs_6s.yaml, `models: ['5c90dfd2']`)
+The output is htdemucs_core.onnx or htdemucs_6s_core.onnx.
 
 Core signature:  (mix [1,2,343980], z_cac [1,4,2048,336]) ->
                  (x_spec [1,4,4,2048,336], xt [1,4,2,343980])
@@ -26,8 +32,16 @@ from einops import rearrange
 
 torch.set_num_threads(os.cpu_count() or 4)
 WORK = os.environ.get('WORK', '/work')
-WEIGHTS = os.path.join(WORK, '955717e8-8726e21a.th')
-OUT = os.path.join(WORK, 'htdemucs_core.onnx')
+MODELS = {
+    'htdemucs': ('955717e8-8726e21a.th', 'htdemucs_core.onnx', ['drums', 'bass', 'other', 'vocals']),
+    'htdemucs_6s': ('5c90dfd2-34c22ccb.th', 'htdemucs_6s_core.onnx',
+                    ['drums', 'bass', 'other', 'vocals', 'guitar', 'piano']),
+}
+MODEL = sys.argv[2] if len(sys.argv) > 2 else 'htdemucs'
+if MODEL not in MODELS:
+    sys.exit('unknown model %r, use one of %s' % (MODEL, ', '.join(MODELS)))
+WEIGHTS = os.path.join(WORK, MODELS[MODEL][0])
+OUT = os.path.join(WORK, MODELS[MODEL][1])
 L = 343980          # 7.8 s * 44100
 FR, TT = 2048, 336  # freq bins (4096/2, last dropped), frames ceil(L/1024)
 
@@ -256,6 +270,14 @@ def main():
     kw = pk['kwargs']
     print('kwargs bottom_channels', kw['bottom_channels'], 'dconv_mode', kw['dconv_mode'],
           'params', sum(p.numel() for p in model.parameters()))
+    # The wrapper has the 7.8 s segment, the 512-wide transformer and the 8 x 336 / 1344 token grids of
+    # htdemucs baked in (see HTDemucsCore). Stop here if this checkpoint differs, instead of
+    # exporting a graph that is silently wrong.
+    assert list(model.sources) == MODELS[MODEL][2], ('sources', model.sources)
+    assert int(round(model.segment * model.samplerate)) == L, ('segment', model.segment, model.samplerate)
+    dim = model.crosstransformer.norm_in.normalized_shape[0]
+    assert dim == 512, ('transformer width %d, the wrapper assumes 512: derive C/Fr_b/T2 from the model' % dim)
+    print('model', MODEL, 'sources', list(model.sources), 'segment', model.segment, 'transformer width', dim)
     mix = test_signal()
     with torch.no_grad():
         t0 = time.time(); ref = model(mix); print('stock forward %.1fs' % (time.time() - t0), tuple(ref.shape))

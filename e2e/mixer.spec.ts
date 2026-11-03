@@ -151,7 +151,7 @@ test.describe("mixer (#37)", () => {
       const bassBefore = await background("Bass");
 
       await app.getByRole("button", { name: "Actions for Guitar" }).click();
-      await app.getByRole("menuitem", { name: "Colour…" }).click();
+      await app.getByRole("menuitem", { name: "Colour" }).click();
       const dialog = app.getByRole("dialog", { name: "Track colour: Guitar" });
       await dialog.getByRole("button", { name: "Blue" }).click();
       await expect(dialog.getByRole("button", { name: "Blue" })).toHaveAttribute(
@@ -169,7 +169,7 @@ test.describe("mixer (#37)", () => {
         .toEqual(["#3e63dd", null, null, null]);
 
       await app.getByRole("button", { name: "Actions for Guitar" }).click();
-      await app.getByRole("menuitem", { name: "Colour…" }).click();
+      await app.getByRole("menuitem", { name: "Colour" }).click();
       await app
         .getByRole("dialog", { name: "Track colour: Guitar" })
         .getByRole("button", { name: "Reset all colours" })
@@ -198,7 +198,7 @@ test.describe("mixer (#37)", () => {
   test("the drum mixer shows the whole kit when the window is wide enough", async ({ app }) => {
     await withEngine(app);
     await app.getByRole("button", { name: "Actions for Drums" }).click();
-    await app.getByRole("menuitem", { name: "Drum mixer…" }).click();
+    await app.getByRole("menuitem", { name: "Drum mixer" }).click();
     const dialog = app.getByRole("dialog", { name: "Drum mixer: Drums" });
     const strips = dialog.getByRole("list", { name: "Kit pieces" });
     await expect(strips).toBeVisible();
@@ -208,7 +208,7 @@ test.describe("mixer (#37)", () => {
   test("the drum mixer splits the kit into pieces", async ({ app }) => {
     await withEngine(app);
     await app.getByRole("button", { name: "Actions for Drums" }).click();
-    await app.getByRole("menuitem", { name: "Drum mixer…" }).click();
+    await app.getByRole("menuitem", { name: "Drum mixer" }).click();
     const dialog = app.getByRole("dialog", { name: "Drum mixer: Drums" });
     await expect(dialog.getByTestId("drum-element")).toHaveCount(17);
     await expectNoA11yViolations(app);
@@ -234,7 +234,7 @@ test.describe("mixer (#37)", () => {
     await app.getByRole("button", { name: "Automation for Bass" }).click();
     await expectNoA11yViolations(app);
     await app.getByRole("button", { name: "Actions for Drums" }).click();
-    await app.getByRole("menuitem", { name: "Drum mixer…" }).click();
+    await app.getByRole("menuitem", { name: "Drum mixer" }).click();
     await expect(app.getByRole("dialog", { name: "Drum mixer: Drums" })).toBeVisible();
     await expectNoA11yViolations(app);
   });

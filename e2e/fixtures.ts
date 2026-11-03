@@ -279,7 +279,7 @@ export async function waitForScore(page: Page) {
   await expect(page.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 60_000 });
 }
 
-/** Opens a song through File › Open… and the (mocked) native dialog. */
+/** Opens a song through File › Open and the (mocked) native dialog. */
 export async function openSong(page: Page, filePath = PRACTICE_SONG) {
   await page.evaluate((p) => (window.__dialogResult = p), filePath);
   await emitMenuAction(page, "open");

@@ -12,10 +12,10 @@ async function trackAction(app: Page, track: string, item: string) {
 }
 
 const DIALOGS: [name: string | RegExp, open: Opener][] = [
-  ["Drum mixer: Drums", (app) => trackAction(app, "Drums", "Drum mixer…")],
-  ["Pedalboard: Guitar", (app) => trackAction(app, "Guitar", "Effects (pedalboard)…")],
-  ["Track settings", (app) => trackAction(app, "Bass", "Settings…")],
-  [/^Lyrics/, (app) => trackAction(app, "Guitar", "Lyrics…")],
+  ["Drum mixer: Drums", (app) => trackAction(app, "Drums", "Drum mixer")],
+  ["Pedalboard: Guitar", (app) => trackAction(app, "Guitar", "Effects (pedalboard)")],
+  ["Track settings", (app) => trackAction(app, "Bass", "Settings")],
+  [/^Lyrics/, (app) => trackAction(app, "Guitar", "Lyrics")],
   ["Keyboard shortcuts", (app) => emitMenuAction(app, "shortcuts")],
   ["Open-source licenses", (app) => emitMenuAction(app, "licenses")],
   [

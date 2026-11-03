@@ -6,7 +6,7 @@ import {
   SquareIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import heroSelect from "@/assets/stem-separation/hero.webp";
 import logo from "@/assets/stem-separation/logo.webp";
@@ -14,7 +14,7 @@ import { DIALOG_NEON, DialogArt, DialogLogo, DialogStepper } from "@/components/
 import { AI_DIALOG_FRAME } from "@/components/ai/dialog-frame";
 import { BetaBadge } from "@/components/beta-badge";
 import { EngineChoice, ModelSetup } from "@/components/stems/engine-choice";
-import { engineInfo } from "@/components/stems/stem-engines";
+import { engineInfo, neuralParts } from "@/components/stems/stem-engines";
 import { useEngineModels, type EngineModels } from "@/components/stems/use-engine-models";
 import { STEM_HINTS, STEM_LABELS } from "@/components/stems/stem-labels";
 import { Button } from "@/components/ui/button";
@@ -173,7 +173,7 @@ function StemFlow({
       const song = await separateStems(
         {
           path,
-          kinds: engine === "fast" ? kinds : ["drums", "bass", "vocals"],
+          kinds: engine === "fast" ? kinds : [...neuralParts(engine)],
           engine,
           strongDrums: engine === "fast" && strongDrums,
         },
@@ -342,7 +342,7 @@ function SongStep({
           </div>
         )}
         <Button type="button" variant="outline" onClick={onChoose}>
-          {path ? "Choose another song…" : "Choose a song…"}
+          {path ? "Choose another song" : "Choose a song"}
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
@@ -426,10 +426,7 @@ function OptionsStep({
           </div>
         </fieldset>
       ) : (
-        <p className="rounded-xl border bg-card/70 px-4 py-3 text-sm">
-          {engineInfo(engine).label} separates <strong>drums</strong>, <strong>bass</strong>,{" "}
-          <strong>vocals</strong> and <strong>other</strong>.
-        </p>
+        <NeuralParts engine={engine} />
       )}
       {engine === "fast" && kinds.includes("drums") && (
         <div className="flex flex-col gap-2">
@@ -463,6 +460,26 @@ function OptionsStep({
         happened.
       </p>
     </>
+  );
+}
+
+/** What a model separates, in words: "HTDemucs separates drums, bass, vocals and other." */
+function NeuralParts({ engine }: { engine: StemEngine }) {
+  const { label, partsNote } = engineInfo(engine);
+  const names = [...neuralParts(engine).map((kind) => STEM_LABELS[kind].toLowerCase()), "other"];
+  return (
+    <div className="flex flex-col gap-1 rounded-xl border bg-card/70 px-4 py-3 text-sm">
+      <p>
+        {label} separates{" "}
+        {names.map((name, index) => (
+          <Fragment key={name}>
+            <strong>{name}</strong>
+            {index < names.length - 2 ? ", " : index === names.length - 2 ? " and " : "."}
+          </Fragment>
+        ))}
+      </p>
+      {partsNote && <p className="text-xs text-muted-foreground">{partsNote}</p>}
+    </div>
   );
 }
 

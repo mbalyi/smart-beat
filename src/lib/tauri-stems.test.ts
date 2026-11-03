@@ -220,6 +220,18 @@ describe("the SCNet and HTDemucs model commands", () => {
     await expect(stemModelStatus("scnet-xl")).resolves.toMatchObject({ available: false });
   });
 
+  it("reads the 6-part model, which is not available until its file is hosted", async () => {
+    const calls = mockTauri({ stem_model_download: () => null });
+    await expect(stemModelStatus("htdemucs-6s")).resolves.toMatchObject({
+      model: "htdemucs-6s",
+      downloaded: false,
+      available: false,
+    });
+    expect(calls).toContainEqual({ cmd: "stem_model_status", args: { model: "htdemucs-6s" } });
+    await downloadStemModel("htdemucs-6s");
+    expect(calls).toContainEqual({ cmd: "stem_model_download", args: { model: "htdemucs-6s" } });
+  });
+
   it("passes the model to the download and reports only its progress", async () => {
     const calls = mockTauri({
       stem_model_download: async () => {

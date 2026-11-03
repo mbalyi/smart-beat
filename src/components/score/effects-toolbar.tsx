@@ -488,7 +488,7 @@ export function EffectsToolbar({
             {beatToggle("pop", <MarkText>P</MarkText>)}
             {noteToggle("leftHandTap", <MarkText>LH</MarkText>)}
             <PaletteButton
-              label="Bend…"
+              label="Bend"
               shortcut="Shift+B"
               state={onOff(effects.bend !== null)}
               disabled={note === null}
@@ -497,7 +497,7 @@ export function EffectsToolbar({
               <SplineIcon className="size-4" aria-hidden="true" />
             </PaletteButton>
             <PaletteButton
-              label="Whammy…"
+              label="Whammy"
               state={onOff(effects.whammy !== null)}
               disabled={beat === null}
               onClick={actions.onWhammy}
@@ -601,18 +601,18 @@ export function EffectsToolbar({
         >
           {glyph("repeatRight")}
         </PaletteButton>
-        <PaletteButton label="Text…" state={onOff(effects.text !== null)} onClick={actions.onText}>
+        <PaletteButton label="Text" state={onOff(effects.text !== null)} onClick={actions.onText}>
           <TypeIcon className="size-4" aria-hidden="true" />
         </PaletteButton>
         <PaletteButton
-          label="Chord…"
+          label="Chord"
           state={onOff(effects.chord !== null)}
           onClick={actions.onChord}
         >
           <Grid3x3Icon className="size-4" aria-hidden="true" />
         </PaletteButton>
         {!drums && (
-          <PaletteButton label="Lyrics…" onClick={actions.onLyrics}>
+          <PaletteButton label="Lyrics" onClick={actions.onLyrics}>
             <MicVocalIcon className="size-4" aria-hidden="true" />
           </PaletteButton>
         )}

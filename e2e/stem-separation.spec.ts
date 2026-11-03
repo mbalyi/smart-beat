@@ -63,7 +63,7 @@ test.describe("Stem separation (#186)", () => {
   test.skip(!features["stem-separation"], "stem-separation is off in src/lib/features.json");
 
   async function openDialog(app: Page) {
-    await app.getByRole("button", { name: "Stem separation…" }).click();
+    await app.getByRole("button", { name: "Stem separation" }).click();
     const dialog = app.getByRole("dialog", { name: "Stem separation" });
     await expect(dialog).toBeVisible();
     return dialog;
@@ -77,7 +77,7 @@ test.describe("Stem separation (#186)", () => {
   async function chooseSong(app: Page, path = SONG_PATH, keepEngine = false) {
     const dialog = app.getByRole("dialog", { name: "Stem separation" });
     await app.evaluate((p) => (window.__dialogResult = p), path);
-    await dialog.getByRole("button", { name: "Choose a song…" }).click();
+    await dialog.getByRole("button", { name: "Choose a song" }).click();
     await expect(dialog.getByTestId("stem-file-name")).toBeVisible();
     await dialog.getByRole("button", { name: "Next" }).click();
     if (!keepEngine) await dialog.getByRole("radio", { name: "Fast" }).check();
@@ -202,6 +202,12 @@ test.describe("Stem separation (#186)", () => {
     await expect(app.getByText(/No loop/)).toBeVisible();
   });
 
+  /** The page's Speed menu, the same one an open song has. */
+  const setSpeed = async (app: Page, percent: number) => {
+    await app.getByRole("combobox", { name: "Speed" }).click();
+    await app.getByRole("option", { name: `${percent}%` }).click();
+  };
+
   test("seeks when a waveform is clicked and sets a loop by dragging", async ({ app }) => {
     await separate(app);
     const wave = app.getByTestId("waveform-bass");
@@ -218,7 +224,7 @@ test.describe("Stem separation (#186)", () => {
 
   test("renders a slower mix with the gains, and again after a change", async ({ app }) => {
     await separate(app);
-    await app.getByRole("radio", { name: "Speed 80%" }).click();
+    await setSpeed(app, 80);
     await expect.poll(() => app.evaluate(() => window.__stems.renders.length)).toBe(1);
     expect(await app.evaluate(() => window.__stems.renders[0])).toEqual({
       gains: { drums: 1, bass: 1, vocals: 1, panned: 1, other: 1 },
@@ -237,7 +243,7 @@ test.describe("Stem separation (#186)", () => {
     await app.emulateMedia({ reducedMotion: "reduce" });
     await separate(app);
     await app.evaluate(() => (window.__stems.holdRender = true));
-    await app.getByRole("radio", { name: "Speed 60%" }).click();
+    await setSpeed(app, 60);
     const status = app.getByRole("status").filter({ hasText: "Rendering…" });
     await expect(status).toBeVisible();
     const animation = await status
@@ -295,7 +301,7 @@ test.describe("Stem separation (#186)", () => {
 
   test("shows a separated song in the Recent grid, reopens it and deletes it", async ({ app }) => {
     await separate(app);
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await expect(app.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeVisible();
     // The old separate section is gone: the song is a card among the recent songs.
     await expect(app.getByRole("region", { name: "Your separated songs" })).toHaveCount(0);
@@ -305,7 +311,7 @@ test.describe("Stem separation (#186)", () => {
 
     await card.getByRole("button", { name: /^neon-nights/ }).click();
     await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
 
     await card.getByRole("button", { name: "Delete neon-nights" }).click();
     await card.getByRole("button", { name: "Delete the stems of neon-nights" }).click();
@@ -315,11 +321,11 @@ test.describe("Stem separation (#186)", () => {
 
   test("lists the newest or last opened stems first, and marks the saved ones", async ({ app }) => {
     await separate(app);
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await separate(app, "/Users/me/Music/blue-moon.mp3");
     await app.evaluate(() => (window.__saveResult = "/Users/me/Music/blue-moon.sbstems"));
     await saveStems(app);
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
 
     const names = () =>
       app
@@ -334,13 +340,13 @@ test.describe("Stem separation (#186)", () => {
       .getByRole("button", { name: /^neon-nights/ })
       .click();
     await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await expect.poll(names).toEqual(["neon-nigh", "blue-moon"]);
   });
 
-  /** The page's "Save stems…" button and the dialog it opens. */
+  /** The page's "Save stems" button and the dialog it opens. */
   async function openSaveDialog(app: Page) {
-    await app.getByRole("button", { name: "Save stems…" }).click();
+    await app.getByRole("button", { name: "Save stems" }).click();
     const dialog = app.getByRole("dialog", { name: "Save stems" });
     await expect(dialog).toBeVisible();
     return dialog;
@@ -349,7 +355,7 @@ test.describe("Stem separation (#186)", () => {
   /** Opens the dialog, saves to the (mocked) native dialog's `__saveResult` and closes it. */
   async function saveStems(app: Page) {
     const dialog = await openSaveDialog(app);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save to this computer" }).click();
     await expect(dialog.getByTestId("save-stems-path")).toBeVisible();
     await dialog.getByRole("button", { name: "Close" }).first().click();
     await expect(dialog).toBeHidden();
@@ -364,7 +370,7 @@ test.describe("Stem separation (#186)", () => {
     await expect(box).toBeChecked();
     await expect(box).toBeEnabled();
     await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save to this computer" }).click();
 
     await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
     await expect(dialog.getByRole("progressbar", { name: "Save progress" })).toHaveCount(0);
@@ -382,7 +388,7 @@ test.describe("Stem separation (#186)", () => {
     const dialog = await openSaveDialog(app);
     await dialog.getByRole("checkbox", { name: "Include the original song" }).uncheck();
     await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save to this computer" }).click();
     await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
     const saves = await app.evaluate(() => window.__stemBundles.saves);
     expect(saves).toHaveLength(1);
@@ -404,7 +410,7 @@ test.describe("Stem separation (#186)", () => {
     await expect(box).toBeDisabled();
     await expect(box).not.toBeChecked();
     await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save to this computer" }).click();
     await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
     const saves = await app.evaluate(() => window.__stemBundles.saves);
     expect(saves[0].includeOriginal).toBe(false);
@@ -417,7 +423,7 @@ test.describe("Stem separation (#186)", () => {
       window.__saveResult = path;
     }, BUNDLE_PATH);
     const dialog = await openSaveDialog(app);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save to this computer" }).click();
     const bar = dialog.getByRole("progressbar", { name: "Save progress" });
     await expect(bar).toBeVisible();
     await expect(bar).toHaveAttribute("aria-valuenow", "50");
@@ -434,13 +440,13 @@ test.describe("Stem separation (#186)", () => {
     await separate(app);
     await app.evaluate(() => (window.__saveResult = null));
     const dialog = await openSaveDialog(app);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await dialog.getByRole("button", { name: "Save to this computer" }).click();
+    await expect(dialog.getByRole("button", { name: "Save to this computer" })).toBeEnabled();
     await expect(dialog.getByRole("alert")).toHaveCount(0);
     expect(await app.evaluate(() => window.__stemBundles.saves)).toEqual([]);
     await app.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
-    await expect(app.getByRole("button", { name: "Save stems…" })).toBeFocused();
+    await expect(app.getByRole("button", { name: "Save stems" })).toBeFocused();
   });
 
   test("shows why saving failed, and can try again", async ({ app }) => {
@@ -450,10 +456,10 @@ test.describe("Stem separation (#186)", () => {
       window.__saveResult = path;
     }, BUNDLE_PATH);
     const dialog = await openSaveDialog(app);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save to this computer" }).click();
     await expect(dialog.getByRole("alert")).toHaveText("There is not enough room on the disk.");
     await app.evaluate(() => (window.__stemBundles.fail = null));
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save to this computer" }).click();
     await expect(dialog.getByText(BUNDLE_PATH)).toBeVisible();
     await expect(dialog.getByRole("alert")).toHaveCount(0);
   });
@@ -463,7 +469,7 @@ test.describe("Stem separation (#186)", () => {
     await separate(app);
     await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
     await saveStems(app);
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await stemCard(app, "neon-nights").getByRole("button", { name: "Delete neon-nights" }).click();
     await app.getByRole("button", { name: "Delete the stems of neon-nights" }).click();
     await expect(stemCard(app, "neon-nights")).toHaveCount(0);
@@ -472,18 +478,20 @@ test.describe("Stem separation (#186)", () => {
   test("opens saved stems from the start screen", async ({ app }) => {
     await saveAndForget(app);
     await app.evaluate((path) => (window.__dialogResult = path), BUNDLE_PATH);
-    await app.getByRole("button", { name: "Open saved stems…" }).click();
+    await app.getByRole("button", { name: "Open saved stems" }).click();
+    await app.getByRole("button", { name: "Open from this computer" }).click();
     await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
     await expect(app.getByRole("list", { name: "Stems" }).getByRole("listitem")).toHaveCount(5);
     expect(await app.evaluate(() => window.__stemBundles.opens)).toEqual([BUNDLE_PATH]);
     // It is in the library again, marked as saved.
-    await app.getByRole("button", { name: "Back to start" }).click();
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await expect(stemCard(app, "neon-nights").getByText("Saved", { exact: true })).toBeVisible();
   });
 
   test("shows why a stems file could not be opened", async ({ app }) => {
     await app.evaluate(() => (window.__dialogResult = "/Users/me/Music/broken.sbstems"));
-    await app.getByRole("button", { name: "Open saved stems…" }).click();
+    await app.getByRole("button", { name: "Open saved stems" }).click();
+    await app.getByRole("button", { name: "Open from this computer" }).click();
     // A toast, as for a song that cannot be opened.
     await expect(app.getByText("Couldn't open the saved stems")).toBeVisible();
     await expect(app.getByText("This is not a Smart Beat stems file.")).toBeVisible();
@@ -535,7 +543,7 @@ test.describe("Stem separation (#186)", () => {
     const { dialog, group } = await toEngines(app);
     await group.getByRole("radio", { name: "HTDemucs" }).check();
     await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
-    await dialog.getByRole("button", { name: "Download HTDemucs…" }).click();
+    await dialog.getByRole("button", { name: "Download HTDemucs" }).click();
     const terms = dialog.getByTestId("stem-neural-setup");
     await expect(terms).toContainText("Terms of HTDemucs");
     const accept = terms.getByRole("button", { name: "Accept and download" });
@@ -568,7 +576,7 @@ test.describe("Stem separation (#186)", () => {
     await app.evaluate(() => (window.__stemModels.hold = true));
     const { dialog, group } = await toEngines(app);
     await group.getByRole("radio", { name: "SCNet XL" }).check();
-    await dialog.getByRole("button", { name: "Download SCNet XL…" }).click();
+    await dialog.getByRole("button", { name: "Download SCNet XL" }).click();
     await dialog.getByRole("checkbox", { name: /I only use music/ }).check();
     await dialog.getByRole("button", { name: "Accept and download" }).click();
     await dialog.getByRole("button", { name: "Cancel download" }).click();
@@ -585,7 +593,7 @@ test.describe("Stem separation (#186)", () => {
     const { dialog, group } = await toEngines(app);
     await group.getByRole("radio", { name: "SCNet XL" }).check();
     await expect(dialog.getByText(/SCNet XL is not published yet/)).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Download SCNet XL…" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Download SCNet XL" })).toBeDisabled();
     await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
   });
 
@@ -597,7 +605,7 @@ test.describe("Stem separation (#186)", () => {
     await group.getByRole("radio", { name: "SCNet Small" }).check();
     await expect(dialog.getByRole("button", { name: "Separate" })).toBeEnabled();
     await dialog.getByRole("button", { name: "Remove SCNet Small from this computer" }).click();
-    await expect(dialog.getByRole("button", { name: "Download SCNet Small…" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Download SCNet Small" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
     expect(await app.evaluate(() => window.__stemModels.removed)).toEqual(["scnet"]);
   });
@@ -606,7 +614,7 @@ test.describe("Stem separation (#186)", () => {
     const dialog = await openDialog(app);
     await app.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
-    await expect(app.getByRole("button", { name: "Stem separation…" })).toBeFocused();
+    await expect(app.getByRole("button", { name: "Stem separation" })).toBeFocused();
     await openDialog(app);
   });
 
@@ -645,13 +653,13 @@ test.describe("Stem separation (#186)", () => {
         const { dialog, group } = await toEngines(app);
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
         await group.getByRole("radio", { name: "HTDemucs" }).check();
-        await expect(dialog.getByRole("button", { name: "Download HTDemucs…" })).toBeVisible();
+        await expect(dialog.getByRole("button", { name: "Download HTDemucs" })).toBeVisible();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
         await group.getByRole("radio", { name: "SCNet XL" }).check();
-        await expect(dialog.getByRole("button", { name: "Download SCNet XL…" })).toBeDisabled();
+        await expect(dialog.getByRole("button", { name: "Download SCNet XL" })).toBeDisabled();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
         await group.getByRole("radio", { name: "HTDemucs" }).check();
-        await dialog.getByRole("button", { name: "Download HTDemucs…" }).click();
+        await dialog.getByRole("button", { name: "Download HTDemucs" }).click();
         await expect(dialog.getByTestId("stem-neural-setup")).toBeVisible();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
         expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
@@ -669,7 +677,7 @@ test.describe("Stem separation (#186)", () => {
         // The original is gone: the box is disabled.
         await dialog.getByRole("button", { name: "Close" }).first().click();
         await app.evaluate(() => (window.__stems.songs[0].hasOriginal = false));
-        await app.getByRole("button", { name: "Back to start" }).click();
+        await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
         await stemCard(app, "neon-nights")
           .getByRole("button", { name: /^neon-nights/ })
           .click();
@@ -686,7 +694,7 @@ test.describe("Stem separation (#186)", () => {
           window.__saveResult = path;
         }, BUNDLE_PATH);
         await openSaveDialog(app);
-        await dialog.getByRole("button", { name: "Save", exact: true }).click();
+        await dialog.getByRole("button", { name: "Save to this computer" }).click();
         await expect(dialog.getByRole("progressbar", { name: "Save progress" })).toBeVisible();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
 
@@ -703,7 +711,7 @@ test.describe("Stem separation (#186)", () => {
           window.__stemBundles.fail = "There is not enough room on the disk.";
         });
         await openSaveDialog(app);
-        await dialog.getByRole("button", { name: "Save", exact: true }).click();
+        await dialog.getByRole("button", { name: "Save to this computer" }).click();
         await expect(dialog.getByRole("alert")).toBeVisible();
         await app.mouse.move(0, 0);
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
@@ -717,9 +725,9 @@ test.describe("Stem separation (#186)", () => {
         await separate(app);
         await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
         await saveStems(app);
-        await app.getByRole("button", { name: "Back to start" }).click();
+        await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
         await separate(app, "/Users/me/Music/blue-moon.mp3");
-        await app.getByRole("button", { name: "Back to start" }).click();
+        await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
         await expect(
           stemCard(app, "neon-nights").getByText("Saved", { exact: true }),
         ).toBeVisible();

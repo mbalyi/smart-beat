@@ -138,9 +138,31 @@ The agreement of each model with UMX-HQ on this song is a measure of difference,
 - Vocals versus instrumental: the RoFormer family (Mel-Band RoFormer, BS-RoFormer) is reported strongest, about 11.0 dB vocals against about 8.3 for `htdemucs_ft` on the MVSep multisong set. The weights are large (about 460 to 930 MB) and were not tried here.
 - Drums, bass, other: HTDemucs or SCNet XL (SCNet XL bass about 13.8 dB against about 12.5 for HTDemucs on the same table).
 - A two-pass pipeline is possible: split vocals from instrumental first, then run the bass and drums model on the instrumental. A small gain for no extra download, not measured here.
-- Guitar and piano: `htdemucs_6s` has them, but its piano is reported weak ("medium"); a targeted model is still to be found.
+- Guitar and piano: `htdemucs_6s` has them, but its piano is reported weak ("medium"); a targeted model is still to be found. The app now has an engine for `htdemucs_6s` (next section); it is not offered until its converted file is hosted.
 - Practical rules from the notes: keep 44.1 kHz and float32 between steps, no normalisation between steps, and check with a null test (sum of the stems against the input).
 - The app's engine type and download registry should therefore take a list of models, and a pipeline can use several. That is design, not built.
+
+## HTDemucs 6-source (guitar and piano)
+
+Added 2026-11-03 at the owner's request (the research above and the owner's note named `htdemucs_6s`). **Status: implemented and tested against a synthetic six-source stand-in; the real model has not been exported, hosted or run.** Nothing in this section was measured on real music.
+
+**What it is.** The `htdemucs_6s` model of the Demucs project (Demucs signature `5c90dfd2`, file `5c90dfd2-34c22ccb.th`, listed in `demucs/remote/files.txt` and `htdemucs_6s.yaml` as `models: ['5c90dfd2']`). It is the HTDemucs network with six sources, in the order `drums`, `bass`, `other`, `vocals`, `guitar`, `piano`. The upstream checkpoint is 54,996,327 bytes (read from the `Content-Length` of the download address on 2026-11-03; the file was not downloaded), against 84,141,911 for `htdemucs`, so it is not simply the four-source network with two more outputs: **the export script stops if the checkpoint's sources, segment (7.8 s) or transformer width (512) differ from what the wrapper assumes**, instead of writing a wrong graph.
+
+**What the app does with it.** Engine id `htdemucs-6s`, model id `htdemucs-6s`, file `htdemucs_6s_core.onnx` in the `stem-models-v1` release like the other two converted files. Same host code as HTDemucs (`separation::onnx`: the contract differs only in the name and the stem list), so the segmenting, STFT, overlap-add and the `drums, bass, other, vocals, guitar, piano` assembly are the code already tested on the other models. Songs separated with it have the stems `drums`, `bass`, `vocals`, `guitar`, `piano` and `other`; the page lists them in that order, each with Mute, Solo, volume and a waveform like every other stem. The mix and the playback code were already generic over the stem list.
+
+**What it can and cannot do (from the upstream notes, not measured here).** The Demucs project calls the 6-source model experimental and says its piano part is weak. Guitar is better but clearly behind drums, bass and vocals: distorted guitar can leak into Other, and piano or keys can land in Guitar or Other. The app says so on the engine card, in the dialog and under each part on the page ("Limits:"), and does not recommend it over HTDemucs for general use (HTDemucs stays the recommended default).
+
+**Size and speed.** Not known until it is exported. The ONNX of `htdemucs` is about 2.1 times its `.th` file (176.6 MB from 84.1 MB, float32 against float16), which would put this one near 115 MB (an estimate from that ratio; the real number depends on the checkpoint's configuration). Speed and memory should be close to HTDemucs (same network, the segment length is the same) but are not measured.
+
+**Gate.** `HTDEMUCS_6S_PUBLISHED` in `src-tauri/src/stems/models.rs` is `false` and the model's size and SHA-256 are empty placeholders (0 and `""`). While it is false the model reports `available: false`, its download refuses before any request, and the dialog leaves the engine card out of the list. A unit test fails if the flag is turned on without a real size and a 64-digit SHA-256.
+
+**To publish it (owner, needs a download of the checkpoint and an upload).**
+
+1. Download `https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th` (about 55 MB) into the work folder.
+2. `WORK=<folder> IMAGE=<image with torch, einops, numpy> scripts/stem-models/htdemucs/run.sh parity htdemucs_6s`, then `... run.sh export htdemucs_6s` (after `setup_pylib.sh` once). Read the printed parity (SNR against the stock model; the 4-source export gave 129 dB) and the ONNX-against-torch check.
+3. `shasum -a 256 htdemucs_6s_core.onnx` and `stat -f %z htdemucs_6s_core.onnx` give the SHA-256 and the exact size.
+4. Upload `htdemucs_6s_core.onnx` to the `stem-models-v1` release.
+5. Put the size and SHA-256 into `HTDEMUCS_6S` and set `HTDEMUCS_6S_PUBLISHED` to `true` in `src-tauri/src/stems/models.rs`; update the table in `scripts/stem-models/README.md` and the row in `licensing.md`; run it on a real song (`separation_tract <model.onnx> htdemucs-6s <audio>`) and record the measured speed and memory here.
 
 ## Neural licences
 
@@ -155,6 +177,7 @@ Read from primary pages on 2026-10-28.
 | SCNet Small (demixr ONNX)              | MIT  | MIT per the author's statement to us (Small and Large); trained on MUSDB18-HQ only                   | 52,271,228 bytes                     |
 | SCNet XL IHF (ZFTurbo `v1.0.15`)       | MIT  | **None stated**; trained on MUSDB18-HQ only; only a PyTorch checkpoint upstream                      | 214,063,778 bytes (ONNX 216,163,649) |
 | HTDemucs `htdemucs` (Meta)             | MIT  | **None stated**; trained on MUSDB18-HQ plus 800 non-public songs; only a PyTorch file upstream       | 84,141,911 bytes (ONNX 176,589,623)  |
+| HTDemucs `htdemucs_6s` (Meta)          | MIT  | **None stated**; the same family and training data as above; only a PyTorch file upstream            | 54,996,327 bytes (ONNX not made yet) |
 
 **MUSDB18-HQ terms.** UMX-HQ was trained on MUSDB18-HQ ([Zenodo record 3338373](https://zenodo.org/records/3338373), licence field other-nc). Its description says the tracks are "provided for educational purposes only" and "should not be used for any commercial purpose without the express permission of the copyright holders". The Open-Unmix authors do not say whether those terms reach the weights, and the Zenodo field for the weights says MIT. That is the same kind of open question as Transkun and MAESTRO in [`licensing.md`](licensing.md).
 
@@ -164,7 +187,7 @@ Not verified: Spleeter and RoFormer weights licences. UMX-HQ ships as an optiona
 
 ## Saving a separation
 
-A separation lives in the cache under the app's data folder, which is limited (2 GB) and can be cleared, so the stem page has **Save stems…**. It writes one `.sbstems` file (a ZIP of FLAC stems, a manifest and optionally the original song) to a place the user picks, with a progress bar, and **Open saved stems…** on the start screen reads it back into the library without separating again (about the time it takes to copy the files, not the minutes a separation takes). The cached copy is kept, so a song can be saved and also stay in the Recent grid with a "Saved" mark. The format, its versioning and the privacy rule (the original song is included only when the user ticks the box) are in [`file-formats.md`](file-formats.md#saved-stems-sbstems).
+A separation lives in the cache under the app's data folder, which is limited (2 GB) and can be cleared, so the stem page has **Save stems**. It writes one `.sbstems` file (a ZIP of FLAC stems, a manifest and optionally the original song) to a place the user picks, with a progress bar, and **Open saved stems** on the start screen reads it back into the library without separating again (about the time it takes to copy the files, not the minutes a separation takes). The cached copy is kept, so a song can be saved and also stay in the Recent grid with a "Saved" mark. The format, its versioning and the privacy rule (the original song is included only when the user ticks the box) are in [`file-formats.md`](file-formats.md#saved-stems-sbstems).
 
 ## Not done yet
 

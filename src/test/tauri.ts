@@ -30,7 +30,7 @@ export const APP_INFO: AppInfo = {
 
 /** Same shape the Rust `menu_shortcuts` command returns on macOS. */
 export const SHORTCUTS: Shortcut[] = [
-  { action: "open", menu: "File", label: "Open…", keys: ["⌘", "O"], spoken: "Command+O" },
+  { action: "open", menu: "File", label: "Open", keys: ["⌘", "O"], spoken: "Command+O" },
   {
     action: "quit",
     menu: "File",
@@ -96,16 +96,23 @@ export const stemModelStatus = (
   downloaded: false,
   termsAccepted: false,
   termsVersion: 1,
-  downloadBytes: { scnet: 52_271_228, "scnet-xl": 216_163_649, htdemucs: 176_589_623 }[model],
+  // The 6-part model is not hosted yet: as in the app, no size and not available.
+  downloadBytes: {
+    scnet: 52_271_228,
+    "scnet-xl": 216_163_649,
+    htdemucs: 176_589_623,
+    "htdemucs-6s": 0,
+  }[model],
   licence: `The terms of ${model}: the weights have no stated licence.`,
   licenceSummary: "Weights without a stated licence.",
-  available: true,
+  available: model !== "htdemucs-6s",
   ...override,
 });
 const freshStemModels = (): Record<StemModelId, StemModelStatus> => ({
   scnet: stemModelStatus("scnet"),
   "scnet-xl": stemModelStatus("scnet-xl"),
   htdemucs: stemModelStatus("htdemucs"),
+  "htdemucs-6s": stemModelStatus("htdemucs-6s"),
 });
 
 type CommandHandler = (args?: InvokeArgs) => unknown;

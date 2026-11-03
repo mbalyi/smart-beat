@@ -1,14 +1,17 @@
-//! The optional ONNX separation models (issue #186): SCNet Small, SCNet XL and HTDemucs. Each is
+//! The optional ONNX separation models (issue #186): SCNet Small, SCNet XL, HTDemucs and HTDemucs
+//! 6-source. Each is
 //! one file the user downloads once, after accepting that model's terms, into its own folder in
 //! the app's data folder (`models/<id>`), and each runs through `tract` (see
 //! `separation::onnx`). Nothing ships with the app.
 //!
 //! The file table pins the exact size and SHA-256 of every file; the download keeps a file only
-//! when both match. SCNet Small is fetched from the public release of its ONNX export. The XL and
-//! HTDemucs files are our own conversions of the upstream checkpoints (the upstream projects
+//! when both match. SCNet Small is fetched from the public release of its ONNX export. The XL,
+//! HTDemucs and HTDemucs 6-source files are our own conversions of the upstream checkpoints (the upstream projects
 //! only publish PyTorch files), hosted as assets of the `stem-models-v1` release of this
-//! project. While [`HOSTED`] is false those two report `available: false` and refuse to
-//! download, and no request is made to their address.
+//! project. While [`HOSTED`] is false those report `available: false` and refuse to download, and
+//! no request is made to their address. The 6-source file has its own switch,
+//! [`HTDEMUCS_6S_PUBLISHED`], which stays false until the file is converted, uploaded and its
+//! size and SHA-256 are filled in below (a test enforces that).
 
 use super::model_files::{self, Spec};
 use super::umx_model::DownloadRun;
@@ -33,6 +36,13 @@ const HOSTED_BASE: &str = "https://github.com/mbalyi/smart-beat/releases/downloa
 /// from the app (the download then refuses) when a rights holder raises an obligation.
 const HOSTED: bool = true;
 
+/// The HTDemucs 6-source file (`htdemucs_6s_core.onnx`) is NOT converted or hosted yet. Until the
+/// owner has run `scripts/stem-models/htdemucs/run.sh export htdemucs_6s`, uploaded the result to
+/// the `stem-models-v1` release and put its real size and SHA-256 into [`HTDEMUCS_6S`], this is
+/// false: the engine is not offered in the dialog and the download refuses. Flip it to `true` in
+/// the same change that fills in `bytes` and `sha256`.
+const HTDEMUCS_6S_PUBLISHED: bool = false;
+
 /// The public release of the SCNet Small ONNX export (demixr/scnet-executorch, tag v0.1.2).
 const SCNET_BASE: &str = "https://github.com/demixr/scnet-executorch/releases/download/v0.1.2/";
 
@@ -42,16 +52,23 @@ pub enum ModelId {
     Scnet,
     ScnetXl,
     Htdemucs,
+    Htdemucs6s,
 }
 
 impl ModelId {
-    pub const ALL: [ModelId; 3] = [ModelId::Scnet, ModelId::ScnetXl, ModelId::Htdemucs];
+    pub const ALL: [ModelId; 4] = [
+        ModelId::Scnet,
+        ModelId::ScnetXl,
+        ModelId::Htdemucs,
+        ModelId::Htdemucs6s,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
             Self::Scnet => "scnet",
             Self::ScnetXl => "scnet-xl",
             Self::Htdemucs => "htdemucs",
+            Self::Htdemucs6s => "htdemucs-6s",
         }
     }
 
@@ -64,6 +81,7 @@ impl ModelId {
             Self::Scnet => &SCNET,
             Self::ScnetXl => &SCNET_XL,
             Self::Htdemucs => &HTDEMUCS,
+            Self::Htdemucs6s => &HTDEMUCS_6S,
         }
     }
 }
@@ -130,6 +148,25 @@ pub const HTDEMUCS: Model = Model {
     licence_summary: "Code MIT; no licence is stated for the weights. Trained on MUSDB18-HQ and 800 private songs. The file is Smart Beat's conversion of the published checkpoint.",
 };
 
+/// HTDemucs 6-source. NOT PUBLISHED YET: `bytes` and `sha256` are placeholders (0 and empty), the
+/// real values only exist once the file has been converted (see [`HTDEMUCS_6S_PUBLISHED`]).
+pub const HTDEMUCS_6S: Model = Model {
+    id: ModelId::Htdemucs6s,
+    label: "HTDemucs 6-source",
+    folder: "models/htdemucs-6s",
+    base_url: HOSTED_BASE,
+    file: Spec {
+        name: "htdemucs_6s_core.onnx",
+        // TODO(owner): exact size of the converted file, in bytes.
+        bytes: 0,
+        // TODO(owner): SHA-256 of the converted file (`shasum -a 256`), 64 lower-case hex digits.
+        sha256: "",
+    },
+    available: HTDEMUCS_6S_PUBLISHED && HOSTED,
+    terms: HTDEMUCS_6S_TERMS,
+    licence_summary: "Code MIT; no licence is stated for the weights. Trained on MUSDB18-HQ and extra private songs. The guitar and piano parts are experimental: guitar is the weaker of the main parts, piano the weakest. The file is Smart Beat's conversion of the published checkpoint.",
+};
+
 /// What the user reads before the download and accepts. Paragraphs are separated by a blank line.
 /// Change the facts here only together with `docs/licensing.md` and bump `TERMS_VERSION`.
 const SCNET_TERMS: &str = "\
@@ -190,6 +227,29 @@ licence field other-nc) say the tracks are \"provided for educational purposes o
 holders\". The authors do not say whether those terms reach the weights. If a rights holder \
 raises an obligation, the Smart Beat project removes the hosted file and the download stops \
 working.
+
+By accepting you confirm that you only use music you have the rights to.";
+
+const HTDEMUCS_6S_TERMS: &str = "\
+HTDemucs 6-source is the six-part variant of HTDemucs (Hybrid Transformer Demucs), a neural \
+network that splits a song into drums, bass, vocals, guitar, piano and the rest. It was made by \
+Simon Rouard, Francisco Massa and Alexandre Défossez at Meta. The Demucs code is under the MIT \
+licence. The Demucs project calls this variant experimental and says its piano part is weak; \
+the guitar part is better but still clearly weaker than drums, bass and vocals. A distorted \
+guitar can leak into \"other\", and notes of a piano can end up in the guitar or the rest.
+
+Meta publishes the trained weights as a PyTorch file only. The Smart Beat project converted it \
+to ONNX so the app can run it, and hosts the converted file as an asset of a release on its own \
+GitHub page. When you press Download, this computer fetches that file and checks it against a \
+fixed size and SHA-256 sum before it is kept. It stays in Smart Beat's data folder and you can \
+delete it at any time. Separating a song then runs on this computer; nothing is uploaded.
+
+The authors do not state a licence for the weights. The model was trained on MUSDB18-HQ and on \
+additional songs that are not public. The terms of MUSDB18-HQ (Zenodo record 3338373, licence \
+field other-nc) say the tracks are \"provided for educational purposes only\" and \"should not \
+be used for any commercial purpose without the express permission of the copyright holders\". \
+The authors do not say whether those terms reach the weights. If a rights holder raises an \
+obligation, the Smart Beat project removes the hosted file and the download stops working.
 
 By accepting you confirm that you only use music you have the rights to.";
 
@@ -551,7 +611,57 @@ mod tests {
         folders.push(super::super::umx_model::FOLDER);
         folders.sort();
         folders.dedup();
-        assert_eq!(folders.len(), 4);
+        assert_eq!(folders.len(), 5);
+    }
+
+    #[test]
+    fn htdemucs_6s_is_registered_but_gated_until_its_file_is_pinned() {
+        let info = ModelId::Htdemucs6s.info();
+        assert_eq!(ModelId::parse("htdemucs-6s"), Some(ModelId::Htdemucs6s));
+        assert_eq!(info.id.id(), "htdemucs-6s");
+        assert_eq!(info.folder, "models/htdemucs-6s");
+        assert_eq!(info.file.name, "htdemucs_6s_core.onnx");
+        assert_eq!(info.base_url, HOSTED_BASE);
+        assert_eq!(info.available, HTDEMUCS_6S_PUBLISHED && HOSTED);
+        assert!(!info.terms.contains("://"));
+        // The gate: the engine can only be offered with a real size and a real SHA-256 (64
+        // lower-case hex digits). Fill both in before setting HTDEMUCS_6S_PUBLISHED.
+        if info.available {
+            assert!(info.file.bytes > 1_000_000, "pin the real size first");
+            assert!(
+                info.file.sha256.len() == 64
+                    && info
+                        .file
+                        .sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                "pin the real SHA-256 first"
+            );
+        } else {
+            assert_eq!((info.file.bytes, info.file.sha256), (0, ""));
+        }
+    }
+
+    #[test]
+    fn an_unpublished_htdemucs_6s_reports_unavailable_and_refuses_before_any_request() {
+        let dir = tempfile::tempdir().unwrap();
+        write_terms(dir.path(), TERMS_VERSION).unwrap();
+        let status = status_of(dir.path(), &HTDEMUCS_6S);
+        assert_eq!(status.model, "htdemucs-6s");
+        assert_eq!(status.available, HTDEMUCS_6S_PUBLISHED);
+        assert!(!status.downloaded);
+        if !HTDEMUCS_6S_PUBLISHED {
+            let err = download(
+                dir.path(),
+                "http://127.0.0.1:9/",
+                &HTDEMUCS_6S,
+                &mut |_, _| {},
+                &|| false,
+            )
+            .unwrap_err();
+            assert!(err.message.contains("not published for download yet"));
+            assert!(!dir.path().join("htdemucs_6s_core.onnx").exists());
+        }
     }
 
     #[test]
@@ -571,6 +681,10 @@ mod tests {
             );
         }
         const { assert!(HOSTED) };
+        assert_eq!(
+            HTDEMUCS_6S.base_url,
+            "https://github.com/mbalyi/smart-beat/releases/download/stem-models-v1/"
+        );
     }
 
     #[test]
@@ -621,6 +735,29 @@ mod tests {
             assert!(
                 HTDEMUCS_TERMS.contains(needle),
                 "htdemucs: missing {needle}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_htdemucs_6s_terms_state_the_facts_and_the_weak_parts() {
+        for needle in [
+            "Rouard",
+            "Défossez",
+            "Meta",
+            "guitar, piano and the rest",
+            "experimental",
+            "piano part is weak",
+            "converted",
+            "do not state a licence",
+            "MUSDB18-HQ",
+            "other-nc",
+            "rights to",
+            "removes the hosted file",
+        ] {
+            assert!(
+                HTDEMUCS_6S_TERMS.contains(needle),
+                "htdemucs-6s: missing {needle}"
             );
         }
     }

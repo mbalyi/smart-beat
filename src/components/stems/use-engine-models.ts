@@ -49,6 +49,7 @@ const MODEL_OF: Record<Exclude<NeuralEngine, "neural">, StemModelId> = {
   scnet: "scnet",
   "scnet-xl": "scnet-xl",
   htdemucs: "htdemucs",
+  "htdemucs-6s": "htdemucs-6s",
 };
 
 function adapterFor(engine: NeuralEngine): Adapter {

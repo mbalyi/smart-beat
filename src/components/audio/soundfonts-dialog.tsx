@@ -400,7 +400,7 @@ export function SoundFontsDialog({
                   onClick={() => void pickAndImport()}
                 >
                   <FolderOpenIcon data-icon="inline-start" />
-                  {busy ? "Importing…" : "Import a SoundFont…"}
+                  {busy ? "Importing…" : "Import a SoundFont"}
                 </Button>
               </div>
             </section>

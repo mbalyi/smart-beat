@@ -159,9 +159,9 @@ export function WorkspaceToolbar({
   const mainControls = (
     <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
       <div className="flex items-center gap-1.5">
-        <Button variant="outline" size="sm" onClick={onOpen} title="Open…">
+        <Button variant="outline" size="sm" onClick={onOpen} title="Open">
           <FolderOpenIcon data-icon="inline-start" />
-          <span className="max-2xl:sr-only">Open…</span>
+          <span className="max-2xl:sr-only">Open</span>
         </Button>
         {actions}
         <div className="flex gap-1" role="group" aria-label="History" data-tour="history">

@@ -1,6 +1,5 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  GaugeIcon,
   PauseIcon,
   Settings2Icon,
   Repeat2Icon,
@@ -9,6 +8,7 @@ import {
   TimerResetIcon,
 } from "lucide-react";
 
+import { SpeedSelect } from "@/components/shell/speed-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -165,12 +165,10 @@ export function PracticeControls({
   /** The song's sections, to loop one by name (#83). */
   sections?: readonly SongSection[];
 }) {
-  const speedLabelId = useId();
   const soundId = useId();
   const volumeId = useId();
   const beatsId = useId();
   const { loop, range, speed, trainer } = practice;
-  const speeds = [...new Set<number>([...SPEED_PRESETS, speed])].sort((a, b) => a - b);
   const setRange = (next: LoopRange) => onRangeChange(normalizeRange(next, barCount));
 
   return (
@@ -213,27 +211,7 @@ export function PracticeControls({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <GaugeIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-        <span id={speedLabelId} className="text-sm max-xl:sr-only">
-          Speed
-        </span>
-        <Select value={String(speed)} onValueChange={(value) => onSpeedChange(Number(value))}>
-          <SelectTrigger
-            size="sm"
-            aria-labelledby={speedLabelId}
-            className="w-20 tabular-nums"
-            data-tour="speed"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {speeds.map((percent) => (
-              <SelectItem key={percent} value={String(percent)}>
-                {percent}%
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SpeedSelect value={speed} speeds={SPEED_PRESETS} onChange={onSpeedChange} tour="speed" />
         {trainer ? (
           <span className="flex items-center gap-1 text-sm" data-tour="trainer-status">
             <span role="status" className="text-muted-foreground tabular-nums">
@@ -270,7 +248,7 @@ export function PracticeControls({
         ) : (
           <Button variant="outline" size="sm" onClick={onOpenTrainer} data-tour="speed-trainer">
             <TimerResetIcon data-icon="inline-start" />
-            <span className="max-xl:sr-only">Speed Trainer…</span>
+            <span className="max-xl:sr-only">Speed Trainer</span>
           </Button>
         )}
       </div>

@@ -49,6 +49,9 @@ pub enum StemEngine {
     ScnetXl,
     /// The downloaded HTDemucs model.
     Htdemucs,
+    /// The downloaded HTDemucs 6-source model: drums, bass, vocals, guitar, piano and the rest.
+    #[serde(rename = "htdemucs-6s")]
+    Htdemucs6s,
 }
 
 impl StemEngine {
@@ -58,13 +61,29 @@ impl StemEngine {
             Self::Scnet => Some(models::ModelId::Scnet),
             Self::ScnetXl => Some(models::ModelId::ScnetXl),
             Self::Htdemucs => Some(models::ModelId::Htdemucs),
+            Self::Htdemucs6s => Some(models::ModelId::Htdemucs6s),
             Self::Fast | Self::Neural => None,
         }
     }
 
-    /// A neural engine: it needs a downloaded model and makes drums, bass, vocals and other.
+    /// A neural engine: it needs a downloaded model and makes a fixed set of stems.
     pub fn is_neural(self) -> bool {
         self != Self::Fast
+    }
+
+    /// The stems a neural engine makes besides "other" (which every engine makes). The four-part
+    /// engines are unchanged; only the 6-source one adds guitar and piano.
+    pub fn neural_kinds(self) -> &'static [StemKind] {
+        match self {
+            Self::Htdemucs6s => &[
+                StemKind::Drums,
+                StemKind::Bass,
+                StemKind::Vocals,
+                StemKind::Guitar,
+                StemKind::Piano,
+            ],
+            _ => &[StemKind::Drums, StemKind::Bass, StemKind::Vocals],
+        }
     }
 }
 
@@ -74,7 +93,8 @@ impl StemEngine {
 pub struct SeparateRequest {
     pub path: String,
     /// The stems the user wants of their own; "other" is always made. Ignored by the neural
-    /// engines, which make drums, bass, vocals and other.
+    /// engines, which make a fixed set (drums, bass, vocals and other; the 6-source engine also
+    /// guitar and piano).
     pub kinds: Vec<StemKind>,
     pub engine: StemEngine,
     #[serde(default)]
@@ -208,15 +228,16 @@ impl StemsRun {
     }
 }
 
-/// The wanted stems of a fast job in the order of [`StemKind::ALL`], without duplicates and
-/// without "other" (always made).
+/// The wanted stems of a job in the order of [`StemKind::ALL`], without duplicates and without
+/// "other" (always made). A fast job makes the ones asked for (never guitar or piano); a neural
+/// job makes its engine's fixed set.
 fn wanted_kinds(request: &SeparateRequest) -> Vec<StemKind> {
     match request.engine {
-        StemEngine::Fast => StemKind::ALL
+        StemEngine::Fast => StemKind::FAST
             .into_iter()
             .filter(|k| *k != StemKind::Other && request.kinds.contains(k))
             .collect(),
-        _ => vec![StemKind::Drums, StemKind::Bass, StemKind::Vocals],
+        engine => engine.neural_kinds().to_vec(),
     }
 }
 
@@ -609,6 +630,45 @@ mod tests {
     }
 
     #[test]
+    fn the_fast_engine_never_makes_guitar_or_piano_even_when_asked() {
+        let r = request(
+            Path::new("x.wav"),
+            &[
+                StemKind::Guitar,
+                StemKind::Piano,
+                StemKind::Drums,
+                StemKind::Other,
+            ],
+        );
+        assert_eq!(wanted_kinds(&r), [StemKind::Drums]);
+        let only_guitar = request(Path::new("x.wav"), &[StemKind::Guitar, StemKind::Piano]);
+        assert!(wanted_kinds(&only_guitar).is_empty());
+    }
+
+    #[test]
+    fn the_stem_kinds_serialise_by_name_and_keep_the_list_order() {
+        for (kind, name) in [
+            (StemKind::Drums, "drums"),
+            (StemKind::Bass, "bass"),
+            (StemKind::Vocals, "vocals"),
+            (StemKind::Guitar, "guitar"),
+            (StemKind::Piano, "piano"),
+            (StemKind::Panned, "panned"),
+            (StemKind::Other, "other"),
+        ] {
+            assert_eq!(kind.id(), name);
+            assert_eq!(serde_json::to_value(kind).unwrap(), name);
+            assert_eq!(StemKind::from_id(name), Some(kind));
+        }
+        assert_eq!(StemKind::from_id("synth"), None);
+        let mut sorted = StemKind::ALL;
+        sorted.sort();
+        assert_eq!(sorted, StemKind::ALL, "ALL is in the saved/listed order");
+        assert!(!StemKind::FAST.contains(&StemKind::Guitar));
+        assert!(!StemKind::FAST.contains(&StemKind::Piano));
+    }
+
+    #[test]
     fn a_file_that_is_not_audio_is_refused_before_it_is_read() {
         let dir = tempfile::tempdir().unwrap();
         let store = StemStore::new(dir.path().join("stems"));
@@ -669,6 +729,7 @@ mod tests {
             (StemEngine::Scnet, "scnet"),
             (StemEngine::ScnetXl, "scnet-xl"),
             (StemEngine::Htdemucs, "htdemucs"),
+            (StemEngine::Htdemucs6s, "htdemucs-6s"),
         ];
         for (engine, name) in names {
             assert_eq!(serde_json::to_value(engine).unwrap(), name);
@@ -687,6 +748,10 @@ mod tests {
             StemEngine::Htdemucs.onnx_model(),
             Some(models::ModelId::Htdemucs)
         );
+        assert_eq!(
+            StemEngine::Htdemucs6s.onnx_model(),
+            Some(models::ModelId::Htdemucs6s)
+        );
         assert_eq!(StemEngine::Neural.onnx_model(), None);
         assert_eq!(StemEngine::Fast.onnx_model(), None);
         for engine in [StemEngine::Scnet, StemEngine::ScnetXl, StemEngine::Htdemucs] {
@@ -701,6 +766,23 @@ mod tests {
                 [StemKind::Drums, StemKind::Bass, StemKind::Vocals]
             );
         }
+        // Only the 6-source engine also makes guitar and piano.
+        let six = SeparateRequest {
+            engine: StemEngine::Htdemucs6s,
+            kinds: vec![],
+            path: "x.wav".into(),
+            strong_drums: false,
+        };
+        assert_eq!(
+            wanted_kinds(&six),
+            [
+                StemKind::Drums,
+                StemKind::Bass,
+                StemKind::Vocals,
+                StemKind::Guitar,
+                StemKind::Piano
+            ]
+        );
         // Every engine gets its own cache entry for the same song.
         let ids: std::collections::HashSet<_> = names
             .iter()
@@ -716,7 +798,12 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let path = dir.path().join("a.wav");
         write_wav(&path, 44_100, &[0.1; 2_000], &[0.1; 2_000]);
-        for engine in [StemEngine::Scnet, StemEngine::ScnetXl, StemEngine::Htdemucs] {
+        for engine in [
+            StemEngine::Scnet,
+            StemEngine::ScnetXl,
+            StemEngine::Htdemucs,
+            StemEngine::Htdemucs6s,
+        ] {
             let r = SeparateRequest {
                 engine,
                 ..request(&path, &[])
@@ -878,6 +965,282 @@ mod tests {
         assert!(second.load(Ordering::Relaxed));
         run.finish(&second);
         run.cancel();
+    }
+
+    /// A stand-in for an HTDemucs graph with `gains.len()` sources: the spectral branch is zero
+    /// and the time branch returns `gains[i]` times the (standardised) waveform.
+    fn stub_graph(
+        c: onnx::Contract,
+        gains: &'static [f32],
+    ) -> impl FnMut(&[Vec<f32>]) -> Result<Vec<Vec<f32>>, String> {
+        move |inputs| {
+            let spectral = vec![0.0f32; c.output_shape(onnx::Out::Cac).iter().product()];
+            let mut wave = Vec::new();
+            for g in gains {
+                wave.extend(inputs[0].iter().map(|v| v * g));
+            }
+            Ok(vec![spectral, wave])
+        }
+    }
+
+    /// Separates a short synthetic recording with the stub, writes it through the WAV sink and
+    /// commits it to `store` as a song of `engine`.
+    fn stub_song(
+        store: &StemStore,
+        engine: StemEngine,
+        contract: onnx::Contract,
+        gains: &'static [f32],
+        audio: &DecodedAudio,
+    ) -> StemSong {
+        let contract = onnx::Contract {
+            segment: 20_000,
+            ..contract
+        };
+        let id = store::song_id(b"stub", engine, engine.neural_kinds(), false);
+        let staging = store.staging(&id).unwrap();
+        let mut sink = wav::WavSink::new(staging.path(), audio.rate);
+        onnx::separate_with(
+            &contract,
+            &mut stub_graph(contract, gains),
+            audio,
+            &mut sink,
+            &AtomicBool::new(false),
+            &mut |_| {},
+        )
+        .unwrap();
+        let stems = sink.finish().unwrap();
+        let song = StemSong {
+            id,
+            name: "Stub".into(),
+            duration_seconds: audio.duration(),
+            sample_rate: audio.rate,
+            engine,
+            strong_drums: false,
+            bytes: stems.iter().map(|s| s.bytes).sum(),
+            stems,
+            mono: false,
+            skipped: vec![],
+            panned_share: 0.0,
+            created_at_ms: 1,
+            pinned: false,
+            last_opened: None,
+            saved_path: None,
+            has_original: false,
+        };
+        store.commit(staging, &song).unwrap();
+        song
+    }
+
+    fn stub_audio(len: usize) -> DecodedAudio {
+        let wave = |step: f32| -> Vec<f32> {
+            (0..len)
+                .map(|i| 0.4 * (i as f32 * step).sin() + 0.1 * (i as f32 * 0.5 * step).cos())
+                .collect()
+        };
+        DecodedAudio {
+            rate: 44_100,
+            channels: 2,
+            left: wave(0.05),
+            right: wave(0.021),
+        }
+    }
+
+    fn mix_of(
+        store: &StemStore,
+        song: &StemSong,
+        gains: &[(StemKind, f32)],
+    ) -> (Vec<f32>, Vec<f32>) {
+        let map: BTreeMap<StemKind, f32> = gains.iter().copied().collect();
+        let bytes = mix::render(store, song, &map, 1.0).unwrap();
+        let path = std::env::temp_dir().join(format!("sb-mix-{}-{}.wav", song.id, now_ms()));
+        std::fs::write(&path, bytes).unwrap();
+        let mut pcm = wav::Pcm16::open(&path).unwrap();
+        let (mut l, mut r) = (Vec::new(), Vec::new());
+        while pcm.read_block(&mut l, &mut r, 1 << 16).unwrap() > 0 {}
+        let _ = std::fs::remove_file(&path);
+        (l, r)
+    }
+
+    fn rms_err(reference: &[f32], estimate: &[f32]) -> f32 {
+        let n = reference.len().min(estimate.len()) as f32;
+        (reference
+            .iter()
+            .zip(estimate)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            / n)
+            .sqrt()
+    }
+
+    /// In the model's source order: drums, bass, other, vocals, guitar, piano.
+    const SIX: [f32; 6] = [0.30, 0.15, 0.10, 0.20, 0.15, 0.10];
+    const FOUR: [f32; 4] = [0.4, 0.3, 0.2, 0.1];
+
+    #[test]
+    fn a_six_source_stub_is_saved_listed_and_mixed_as_six_stems_plus_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StemStore::new(dir.path().join("stems"));
+        let audio = stub_audio(57_000);
+        let song = stub_song(
+            &store,
+            StemEngine::Htdemucs6s,
+            onnx::HTDEMUCS_6S,
+            &SIX,
+            &audio,
+        );
+        // The six sources of the model, in the saved order: guitar and piano after the vocals.
+        let kinds: Vec<_> = song.stems.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                StemKind::Drums,
+                StemKind::Bass,
+                StemKind::Vocals,
+                StemKind::Guitar,
+                StemKind::Piano,
+                StemKind::Other
+            ]
+        );
+        let frames = audio.frames() as u64;
+        assert!(song.stems.iter().all(|s| s.bytes == 44 + frames * 4));
+        for k in &kinds {
+            assert!(store.stem_path(&song.id, *k).unwrap().exists());
+        }
+        assert_eq!(store.get(&song.id).unwrap().stems, song.stems);
+
+        // Everything on: the stems add back up to the recording.
+        let all: Vec<_> = kinds.iter().map(|k| (*k, 1.0)).collect();
+        let (l, r) = mix_of(&store, &song, &all);
+        assert_eq!(l.len(), audio.frames());
+        assert!(
+            rms_err(&audio.left, &l) < 5e-3,
+            "{}",
+            rms_err(&audio.left, &l)
+        );
+        assert!(rms_err(&audio.right, &r) < 5e-3);
+        // Mute the guitar: exactly its share (0.15 of the input) is gone.
+        let no_guitar: Vec<_> = all
+            .iter()
+            .map(|(k, g)| (*k, if *k == StemKind::Guitar { 0.0 } else { *g }))
+            .collect();
+        let (l, _) = mix_of(&store, &song, &no_guitar);
+        let want: Vec<f32> = audio.left.iter().map(|v| v * 0.85).collect();
+        assert!(rms_err(&want, &l) < 5e-3);
+        // Solo the piano (a stem without a gain is silent): its share only.
+        let (l, _) = mix_of(&store, &song, &[(StemKind::Piano, 1.0)]);
+        let want: Vec<f32> = audio.left.iter().map(|v| v * 0.10).collect();
+        assert!(rms_err(&want, &l) < 5e-3);
+        // Half volume on guitar and piano.
+        let half = [
+            (StemKind::Drums, 1.0),
+            (StemKind::Bass, 1.0),
+            (StemKind::Vocals, 1.0),
+            (StemKind::Guitar, 0.5),
+            (StemKind::Piano, 0.5),
+            (StemKind::Other, 1.0),
+        ];
+        let (l, _) = mix_of(&store, &song, &half);
+        let want: Vec<f32> = audio.left.iter().map(|v| v * (1.0 - 0.5 * 0.25)).collect();
+        assert!(rms_err(&want, &l) < 5e-3);
+        // Out-of-range gains for the new kinds are refused like any other.
+        let bad = BTreeMap::from([(StemKind::Guitar, 1.5)]);
+        assert!(mix::validate(&bad, 1.0).unwrap_err().contains("guitar"));
+    }
+
+    #[test]
+    fn the_four_stem_path_is_unchanged_next_to_the_six_stem_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StemStore::new(dir.path().join("stems"));
+        let audio = stub_audio(45_000);
+        let four = stub_song(&store, StemEngine::Htdemucs, onnx::HTDEMUCS, &FOUR, &audio);
+        let kinds: Vec<_> = four.stems.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                StemKind::Drums,
+                StemKind::Bass,
+                StemKind::Vocals,
+                StemKind::Other
+            ]
+        );
+        assert!(!kinds.contains(&StemKind::Guitar) && !kinds.contains(&StemKind::Piano));
+        let all: Vec<_> = kinds.iter().map(|k| (*k, 1.0)).collect();
+        let (l, _) = mix_of(&store, &four, &all);
+        assert!(rms_err(&audio.left, &l) < 5e-3);
+        // Same recording, other engine: another song in the cache, not a replacement.
+        let six = stub_song(
+            &store,
+            StemEngine::Htdemucs6s,
+            onnx::HTDEMUCS_6S,
+            &SIX,
+            &audio,
+        );
+        assert_ne!(four.id, six.id);
+        assert_eq!(store.list().len(), 2);
+        // The ids of the four-part engines do not depend on guitar or piano existing.
+        assert_eq!(
+            four.id,
+            store::song_id(
+                b"stub",
+                StemEngine::Htdemucs,
+                &[StemKind::Drums, StemKind::Bass, StemKind::Vocals],
+                false
+            )
+        );
+    }
+
+    #[test]
+    fn a_six_stem_song_round_trips_through_a_sbstems_file_and_a_four_stem_one_still_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StemStore::new(dir.path().join("stems"));
+        let audio = stub_audio(30_000);
+        let six = stub_song(
+            &store,
+            StemEngine::Htdemucs6s,
+            onnx::HTDEMUCS_6S,
+            &SIX,
+            &audio,
+        );
+        let four = stub_song(&store, StemEngine::Htdemucs, onnx::HTDEMUCS, &FOUR, &audio);
+        let cancel = AtomicBool::new(false);
+        let fresh = StemStore::new(dir.path().join("elsewhere"));
+        for song in [&six, &four] {
+            let file = dir.path().join(format!("{}.sbstems", song.id));
+            let req = bundle::SaveRequest {
+                id: song.id.clone(),
+                dest: file.to_string_lossy().into_owned(),
+                include_original: false,
+                state: None,
+            };
+            bundle::save(&store, &req, "1.0.0", &cancel, &mut |_| {}).unwrap();
+            let opened = bundle::open(&fresh, &file, &cancel, &mut |_| {}).unwrap();
+            assert_eq!(opened.engine, song.engine);
+            assert_eq!(opened.stems, song.stems);
+            for info in &song.stems {
+                let a = std::fs::read(store.stem_path(&song.id, info.kind).unwrap()).unwrap();
+                let b = std::fs::read(fresh.stem_path(&song.id, info.kind).unwrap()).unwrap();
+                assert_eq!(a, b, "{} {}", song.id, info.kind.id());
+            }
+        }
+        // The six-stem file lists guitar and piano in its manifest, the four-stem one does not.
+        let manifest_of = |song: &StemSong| -> String {
+            let file = dir.path().join(format!("{}.sbstems", song.id));
+            let mut zip = zip::ZipArchive::new(std::fs::File::open(file).unwrap()).unwrap();
+            let mut text = String::new();
+            std::io::Read::read_to_string(&mut zip.by_name("manifest.json").unwrap(), &mut text)
+                .unwrap();
+            text
+        };
+        let six_manifest = manifest_of(&six);
+        assert!(six_manifest.contains("\"htdemucs-6s\""));
+        assert!(
+            six_manifest.contains("stems/guitar.flac") && six_manifest.contains("stems/piano.flac")
+        );
+        let four_manifest = manifest_of(&four);
+        assert!(!four_manifest.contains("guitar") && !four_manifest.contains("piano"));
+        assert!(
+            four_manifest.contains("\"version\":1") || four_manifest.contains("\"version\": 1")
+        );
     }
 
     #[test]

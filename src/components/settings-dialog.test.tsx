@@ -307,7 +307,7 @@ describe("SettingsDialog: cloud folder", () => {
     await user.click(screen.getByRole("button", { name: "Use Dropbox" }));
     expect(await screen.findByText("/Users/me/Dropbox")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Choose folder…" }));
+    await user.click(screen.getByRole("button", { name: "Choose folder" }));
     expect(await screen.findByText("/Users/me/Songs")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Unlink" }));

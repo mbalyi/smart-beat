@@ -44,7 +44,7 @@ use std::time::Instant;
 
 use smart_beat_lib::audio::backing::{DecodedAudio, decode};
 use smart_beat_lib::separation::metrics::sdr_db;
-use smart_beat_lib::separation::onnx::{self, HTDEMUCS, Model, RATE, SCNET, SCNET_XL};
+use smart_beat_lib::separation::onnx::{self, HTDEMUCS, HTDEMUCS_6S, Model, RATE, SCNET, SCNET_XL};
 use smart_beat_lib::separation::synth;
 use smart_beat_lib::separation::{MemorySink, StemKind, umx};
 
@@ -281,7 +281,7 @@ fn run() -> Result<(), String> {
     }
     if positional.len() < 2 {
         return Err(
-            "usage: separation_tract <model.onnx> <scnet|scnet-xl|htdemucs> [<audio> \
+            "usage: separation_tract <model.onnx> <scnet|scnet-xl|htdemucs|htdemucs-6s> [<audio> \
                     [<UMX-HQ weights dir>]] [--seconds N] [--segment SAMPLES] [--overlap F] \
                     [--out DIR]"
                 .into(),
@@ -291,9 +291,10 @@ fn run() -> Result<(), String> {
         "scnet" => SCNET,
         "scnet-xl" => SCNET_XL,
         "htdemucs" => HTDEMUCS,
+        "htdemucs-6s" => HTDEMUCS_6S,
         other => {
             return Err(format!(
-                "unknown model kind {other} (scnet | scnet-xl | htdemucs)"
+                "unknown model kind {other} (scnet | scnet-xl | htdemucs | htdemucs-6s)"
             ));
         }
     };

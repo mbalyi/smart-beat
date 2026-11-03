@@ -1,4 +1,4 @@
-import type { StemEngine } from "@/lib/tauri";
+import type { StemEngine, StemKindId } from "@/lib/tauri";
 
 /** Every engine except Fast is a model the user downloads. */
 export type NeuralEngine = Exclude<StemEngine, "fast">;
@@ -14,7 +14,22 @@ export interface EngineInfo {
   speed: string;
   /** The one we point people to first. */
   recommended?: boolean;
+  /**
+   * The parts it makes besides "other". Left out for the fast engine, where the user picks, and
+   * for the four-part models (drums, bass, vocals).
+   */
+  parts?: readonly StemKindId[];
+  /** A sentence under the list of parts about what is weaker. */
+  partsNote?: string;
+  /**
+   * Not on the list until the app reports its model as available (published, with its size and
+   * SHA-256 pinned). Used by the 6-part engine, whose file is not hosted yet.
+   */
+  hiddenUntilAvailable?: boolean;
 }
+
+/** The parts the four-part models make besides "other". */
+export const FOUR_PARTS: readonly StemKindId[] = ["drums", "bass", "vocals"];
 
 const FAST: EngineInfo = {
   id: "fast",
@@ -32,6 +47,18 @@ export const ENGINES: readonly EngineInfo[] = [
     strength: "Best all-round choice: drums, bass, vocals and the rest.",
     speed: "Faster than real time on a laptop: about 0.6 s per second of music, 1.6 GB of memory.",
     recommended: true,
+  },
+  {
+    id: "htdemucs-6s",
+    label: "HTDemucs 6-part",
+    strength:
+      "Six parts: drums, bass, vocals, guitar, piano and the rest. Guitar and piano are weaker than the other parts.",
+    speed:
+      "The same network as HTDemucs, so expect similar time and memory (not measured for this model).",
+    parts: ["drums", "bass", "vocals", "guitar", "piano"],
+    partsNote:
+      "Guitar is the weaker of the main parts, and piano is the weakest: distorted guitar can leak into Other, and some piano can end up in Guitar or Other.",
+    hiddenUntilAvailable: true,
   },
   {
     id: "scnet-xl",
@@ -58,6 +85,23 @@ export const ENGINES: readonly EngineInfo[] = [
 export const NEURAL_ENGINES: readonly NeuralEngine[] = ENGINES.filter(
   (engine): engine is EngineInfo & { id: NeuralEngine } => engine.id !== "fast",
 ).map((engine) => engine.id);
+
+/**
+ * The cards to show: an engine whose model is not available yet (the 6-part one) stays off the
+ * list until the app reports its model as available.
+ */
+export function offeredEngines(
+  states: Partial<Record<NeuralEngine, { available: boolean }>>,
+): readonly EngineInfo[] {
+  return ENGINES.filter(
+    (info) => !info.hiddenUntilAvailable || states[info.id as NeuralEngine]?.available === true,
+  );
+}
+
+/** The parts a neural engine makes, besides "other" (always made). */
+export function neuralParts(engine: StemEngine): readonly StemKindId[] {
+  return engineInfo(engine).parts ?? FOUR_PARTS;
+}
 
 export function engineInfo(engine: StemEngine): EngineInfo {
   return ENGINES.find((item) => item.id === engine) ?? FAST;

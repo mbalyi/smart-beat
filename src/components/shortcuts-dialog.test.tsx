@@ -11,7 +11,7 @@ describe("ShortcutsDialog", () => {
     renderWithProviders(<ShortcutsDialog open onOpenChange={() => {}} />);
 
     const file = await screen.findByRole("region", { name: "File" });
-    expect(within(file).getByText("Open…")).toBeInTheDocument();
+    expect(within(file).getByText("Open")).toBeInTheDocument();
     expect(within(file).getByText("Quit Smart Beat")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "View" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Help" })).toBeInTheDocument();

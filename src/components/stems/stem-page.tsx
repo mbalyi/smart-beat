@@ -1,27 +1,28 @@
 import {
-  ArrowLeftIcon,
   CheckIcon,
+  FolderOpenIcon,
   InfoIcon,
   Loader2Icon,
   PauseIcon,
   PlayIcon,
-  RepeatIcon,
+  Repeat2Icon,
   SaveIcon,
   SquareIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
+import logo from "@/assets/stem-separation/logo.webp";
 import { ExternalLink } from "@/components/external-link";
 import { LabeledSlider } from "@/components/labeled-slider";
-import { SectionKicker } from "@/components/section-kicker";
+import { SpeedSelect } from "@/components/shell/speed-select";
 import { SaveStemsDialog } from "@/components/stems/save-stems-dialog";
 import { StemRow } from "@/components/stems/stem-row";
 import { engineLabel } from "@/components/stems/stem-engines";
 import { formatTime, joinNames, stemName, STEM_LABELS } from "@/components/stems/stem-labels";
 import { usePosition, useStemState } from "@/components/stems/use-stem-player";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Toggle } from "@/components/ui/toggle";
 import { STEM_LIMITS_URL } from "@/lib/project-info";
 import { createSongPlayer, songKinds } from "@/lib/stems/song-player";
 import { gainsOf, initMixer, mixerReducer } from "@/lib/stems/mixer";
@@ -34,15 +35,32 @@ import {
 } from "@/lib/stems/player";
 import type { StemKindId, StemSong } from "@/lib/tauri";
 
-/** The page of a separated song: a row per stem, one transport, a loop and a speed. */
+/**
+ * The page of a separated song, laid out like an open song: the logo, the song's details and
+ * the Open and Save buttons in the app header's centre, the tab bar, a sticky strip with the
+ * transport (play, position, loop, speed, count-in), then a row per stem.
+ */
 export function StemPage({
   song,
-  onBack,
+  tabs,
+  headerSlot,
+  onOpenStems,
+  onSaved,
+  savedPath: knownPath,
   onOpenCloudSettings,
   createPlayer = createSongPlayer,
 }: {
   song: StemSong;
-  onBack: () => void;
+  /** The tab bar, shown right below the app header (the same one the open songs use). */
+  tabs?: ReactNode;
+  /** Where the page's main controls go: the app header's centre. Without it they sit on top of the page. */
+  headerSlot?: HTMLElement | null;
+  /** Open stems: choose a saved set of stems to open. */
+  onOpenStems?: () => void;
+  /** The stems were saved to this file. */
+  onSaved?: (path: string) => void;
+  /** Where the stems were saved before, when the page was closed and opened again. */
+  savedPath?: string;
   /** Opens Settings on the cloud folder section (from the Save dialog's hint). */
   onOpenCloudSettings?: () => void;
   /** Where the sound comes from; tests give a fake. */
@@ -70,7 +88,7 @@ export function StemPage({
 
   // Where the song was saved from this page; a song opened from a file already knows its path.
   const [saved, setSaved] = useState<{ id: string; path: string } | null>(null);
-  const savedPath = saved?.id === song.id ? saved.path : song.savedPath;
+  const savedPath = saved?.id === song.id ? saved.path : (knownPath ?? song.savedPath);
   const [saving, setSaving] = useState(false);
   const goingToSettings = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
@@ -78,45 +96,71 @@ export function StemPage({
   const kinds = useMemo(() => songKinds(song), [song]);
   const skipped = song.skipped.map((kind) => STEM_LABELS[kind].toLowerCase());
 
-  return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-5 px-4 pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-14 lg:px-8">
-      <header className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="lg" className="bg-card" onClick={onBack}>
-            <ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
-            Back to start
-          </Button>
-          <Button
-            ref={saveButton}
-            variant="outline"
-            size="lg"
-            className="bg-card"
-            onClick={() => setSaving(true)}
-          >
-            <SaveIcon aria-hidden="true" data-icon="inline-start" />
-            Save stems…
-          </Button>
-          {savedPath && (
-            <span
-              data-testid="stems-saved"
-              title={savedPath}
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
-            >
-              <CheckIcon aria-hidden="true" className="size-4 text-primary" />
-              Saved
-            </span>
-          )}
-        </div>
-        <div className="flex flex-col gap-2">
-          <SectionKicker>Stem separation</SectionKicker>
-          <h1 className="font-heading text-[clamp(30px,5vw,52px)] leading-[1.05] font-bold tracking-[-0.04em] break-words">
+  const inHeader = headerSlot !== null && headerSlot !== undefined;
+  const mainControls = (
+    <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-1">
+      <div className="flex min-w-0 items-center gap-3">
+        <img
+          src={logo}
+          alt="Stem separation"
+          draggable={false}
+          className="h-9 w-auto shrink-0 object-contain"
+        />
+        <div className="flex min-w-0 flex-col text-left">
+          <span className="truncate text-sm font-semibold" title={song.name}>
             {song.name}
-          </h1>
-          <p className="text-sm text-muted-foreground">
+          </span>
+          <span className="text-xs text-muted-foreground">
             {formatTime(song.durationSeconds)} · {engineLabel(song.engine)} engine ·{" "}
             {song.stems.length} parts. Everything ran on this computer.
-          </p>
+          </span>
         </div>
+      </div>
+      <div className="flex items-center gap-1.5">
+        {onOpenStems && (
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onOpenStems}
+            aria-label="Open stems"
+            title="Open stems"
+          >
+            <FolderOpenIcon />
+          </Button>
+        )}
+        <Button
+          ref={saveButton}
+          variant="outline"
+          size="icon-sm"
+          onClick={() => setSaving(true)}
+          aria-label="Save stems"
+          title="Save stems"
+        >
+          <SaveIcon />
+        </Button>
+        {savedPath && (
+          <span
+            data-testid="stems-saved"
+            title={savedPath}
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground"
+          >
+            <CheckIcon aria-hidden="true" className="size-4 text-primary" />
+            Saved
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {inHeader && createPortal(mainControls, headerSlot)}
+      <h1 className="sr-only">{song.name}</h1>
+      {tabs}
+      {!inHeader && <div className="border-b bg-card px-3 py-2">{mainControls}</div>}
+      {player ? <Transport player={player} /> : null}
+
+      <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-5 px-4 pt-4 pb-10 sm:px-6 sm:pb-14 lg:px-8">
         {skipped.length > 0 && (
           <p
             data-testid="stems-skipped"
@@ -130,54 +174,57 @@ export function StemPage({
             </span>
           </p>
         )}
-      </header>
 
-      {unsupported && (
-        <p role="alert" className="text-sm text-destructive">
-          This window cannot play audio, so the stems cannot be played here.
+        {unsupported && (
+          <p role="alert" className="text-sm text-destructive">
+            This window cannot play audio, so the stems cannot be played here.
+          </p>
+        )}
+        {!player && !unsupported && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Loading the stems…
+          </p>
+        )}
+        {player && <Stems song={song} kinds={kinds} player={player} />}
+
+        <SaveStemsDialog
+          song={song}
+          open={saving}
+          onOpenChange={setSaving}
+          onSaved={(path) => {
+            setSaved({ id: song.id, path });
+            onSaved?.(path);
+          }}
+          onOpenCloudSettings={
+            onOpenCloudSettings &&
+            (() => {
+              goingToSettings.current = true;
+              onOpenCloudSettings();
+            })
+          }
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            // Settings takes the focus when the dialog closes to open it.
+            if (!goingToSettings.current) saveButton.current?.focus();
+            goingToSettings.current = false;
+          }}
+        />
+
+        <p className="text-sm text-muted-foreground">
+          Separating music by signal processing is not perfect.{" "}
+          <ExternalLink
+            href={STEM_LIMITS_URL}
+            className="font-medium text-foreground underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            What it can and cannot do
+          </ExternalLink>
         </p>
-      )}
-      {!player && !unsupported && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Loading the stems…
-        </p>
-      )}
-      {player && <Stems key={song.id} song={song} kinds={kinds} player={player} />}
-
-      <SaveStemsDialog
-        song={song}
-        open={saving}
-        onOpenChange={setSaving}
-        onSaved={(path) => setSaved({ id: song.id, path })}
-        onOpenCloudSettings={
-          onOpenCloudSettings &&
-          (() => {
-            goingToSettings.current = true;
-            onOpenCloudSettings();
-          })
-        }
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          // Settings takes the focus when the dialog closes to open it.
-          if (!goingToSettings.current) saveButton.current?.focus();
-          goingToSettings.current = false;
-        }}
-      />
-
-      <p className="text-sm text-muted-foreground">
-        Separating music by signal processing is not perfect.{" "}
-        <ExternalLink
-          href={STEM_LIMITS_URL}
-          className="font-medium text-foreground underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          What it can and cannot do
-        </ExternalLink>
-      </p>
+      </div>
     </div>
   );
 }
 
-/** The transport and the rows, once the player exists. */
+/** The rows, once the player exists. */
 function Stems({
   song,
   kinds,
@@ -197,7 +244,6 @@ function Stems({
 
   return (
     <>
-      <Transport player={player} />
       {state.error && (
         <p role="alert" className="text-sm text-destructive">
           {state.error}
@@ -228,7 +274,10 @@ function Stems({
   );
 }
 
-/** Play, position, loop, speed and count-in. */
+/**
+ * The strip under the tab bar, as on an open song: play and stop, the position, the loop, the
+ * speed and the count-in. It stays at the top while the rows scroll.
+ */
 function Transport({ player }: { player: StemPlayer }) {
   const state = useStemState(player);
   const position = usePosition(player);
@@ -267,7 +316,7 @@ function Transport({ player }: { player: StemPlayer }) {
     setLoopNote("");
   };
   const loopText = state.loop
-    ? `Looping ${formatTime(state.loop.start)} to ${formatTime(state.loop.end)}`
+    ? `Looping ${formatTime(state.loop.start)} to ${formatTime(state.loop.end)}.`
     : pendingStart !== null
       ? `Loop starts at ${formatTime(pendingStart)}. Set its end.`
       : "No loop. Drag on a waveform, or set the start and end at the playhead.";
@@ -275,135 +324,100 @@ function Transport({ player }: { player: StemPlayer }) {
   return (
     <section
       aria-label="Transport"
-      className="flex flex-col gap-4 rounded-2xl border border-foreground/10 bg-card p-3 sm:p-4"
+      className="sticky top-0 z-30 flex shrink-0 flex-col gap-1.5 border-b bg-card px-3 py-2"
     >
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          size="lg"
-          disabled={!ready}
-          className="min-w-28 max-sm:h-11"
-          onClick={() => (busy ? player.pause() : void player.play())}
-        >
-          {busy ? (
-            <PauseIcon aria-hidden="true" data-icon="inline-start" />
-          ) : (
-            <PlayIcon aria-hidden="true" data-icon="inline-start" />
-          )}
-          {busy ? "Pause" : "Play"}
-        </Button>
-        <Button
-          size="lg"
-          variant="outline"
-          disabled={!ready}
-          className="bg-card max-sm:h-11"
-          onClick={() => player.stop()}
-        >
-          <SquareIcon aria-hidden="true" data-icon="inline-start" className="fill-current" />
-          Stop
-        </Button>
-        <span role="timer" aria-label="Position" className="text-lg font-semibold tabular-nums">
-          {formatTime(draft ?? position)} / {formatTime(state.duration)}
-        </span>
-        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-          {state.countdown !== null && (
-            <span className="font-semibold text-foreground">Starting in {state.countdown}…</span>
-          )}
-          {state.rendering && (
-            <>
-              <Loader2Icon
-                aria-hidden="true"
-                className="size-4 animate-spin motion-reduce:animate-none"
-              />
-              Rendering…
-            </>
-          )}
-        </p>
-      </div>
-
-      <LabeledSlider
-        label="Position"
-        valueText={`${formatTime(draft ?? position)} of ${formatTime(state.duration)}`}
-        value={Math.min(draft ?? position, state.duration)}
-        min={0}
-        max={Math.max(state.duration, 1)}
-        step={1}
-        disabled={!ready}
-        // Dragging shows where it would land and seeks on release; a key seeks at once.
-        onValueChange={(value) => (dragging ? setDraft(value) : player.seek(value))}
-        onDraggingChange={setDragging}
-        onValueCommit={(value) => {
-          if (draft === null) return;
-          setDraft(null);
-          player.seek(value);
-        }}
-        className="max-sm:h-11"
-      />
-
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div role="group" aria-label="Loop" className="flex flex-wrap items-center gap-2">
-          <RepeatIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex items-center gap-1">
           <Button
-            variant="outline"
-            size="lg"
+            size="icon-sm"
+            onClick={() => (busy ? player.pause() : void player.play())}
             disabled={!ready}
-            className="bg-card max-sm:h-11"
-            onClick={setStart}
+            aria-label={busy ? "Pause" : "Play"}
+            title={busy ? "Pause" : "Play"}
+            className="rounded-full"
           >
-            Set loop start
+            {busy ? <PauseIcon /> : <PlayIcon />}
           </Button>
           <Button
             variant="outline"
-            size="lg"
+            size="icon-sm"
+            onClick={() => player.stop()}
             disabled={!ready}
-            className="bg-card max-sm:h-11"
-            onClick={setEnd}
+            aria-label="Stop"
+            title="Stop"
           >
+            <SquareIcon />
+          </Button>
+        </div>
+        <span role="timer" aria-label="Position" className="text-sm font-semibold tabular-nums">
+          {formatTime(draft ?? position)} / {formatTime(state.duration)}
+        </span>
+        <LabeledSlider
+          label="Position"
+          valueText={`${formatTime(draft ?? position)} of ${formatTime(state.duration)}`}
+          value={Math.min(draft ?? position, state.duration)}
+          min={0}
+          max={Math.max(state.duration, 1)}
+          step={1}
+          disabled={!ready}
+          // Dragging shows where it would land and seeks on release; a key seeks at once.
+          onValueChange={(value) => (dragging ? setDraft(value) : player.seek(value))}
+          onDraggingChange={setDragging}
+          onValueCommit={(value) => {
+            if (draft === null) return;
+            setDraft(null);
+            player.seek(value);
+          }}
+          className="min-w-40 flex-1"
+        />
+        <div role="group" aria-label="Loop" className="flex flex-wrap items-center gap-1.5">
+          <Repeat2Icon aria-hidden="true" className="size-4 text-muted-foreground" />
+          <Button variant="outline" size="sm" disabled={!ready} onClick={setStart}>
+            Set loop start
+          </Button>
+          <Button variant="outline" size="sm" disabled={!ready} onClick={setEnd}>
             Set loop end
           </Button>
           <Button
             variant="outline"
-            size="lg"
+            size="sm"
             disabled={!state.loop && pendingStart === null}
-            className="bg-card max-sm:h-11"
             onClick={clearLoop}
           >
             Clear loop
           </Button>
         </div>
-        <div className="flex items-center gap-2 max-sm:w-full">
-          <span id="stem-speed-label" className="text-sm font-medium">
-            Speed
-          </span>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            spacing={0}
-            aria-labelledby="stem-speed-label"
-            className="max-sm:min-w-0 max-sm:flex-1"
-            value={String(state.speed)}
-            onValueChange={(value) => value && player.setSpeed(Number(value))}
-          >
-            {STEM_SPEEDS.map((speed) => (
-              <ToggleGroupItem
-                key={speed}
-                value={String(speed)}
-                aria-label={`Speed ${speed}%`}
-                size="lg"
-                className="px-3 max-sm:h-11 max-sm:min-w-0 max-sm:flex-1 max-sm:px-0"
-              >
-                {speed}%
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+        <div className="flex items-center gap-1.5">
+          <SpeedSelect
+            value={state.speed}
+            speeds={STEM_SPEEDS}
+            onChange={(percent) => player.setSpeed(percent)}
+          />
         </div>
-        <label className="flex items-center gap-2 text-sm font-medium max-sm:min-h-11">
-          <Switch checked={state.countIn} onCheckedChange={(on) => player.setCountIn(on)} />
-          Count-in ({COUNT_IN_SECONDS} s)
-        </label>
+        <Toggle
+          variant="outline"
+          size="sm"
+          pressed={state.countIn}
+          onPressedChange={(on) => player.setCountIn(on)}
+          title={`Count in ${COUNT_IN_SECONDS} seconds before playing`}
+        >
+          Count-in
+        </Toggle>
       </div>
-      <p className="text-xs text-muted-foreground" aria-live="polite">
-        {loopNote || loopText} A slower speed keeps the pitch; a change to a stem takes a moment to
-        render there.
+      <p role="status" className="text-xs text-muted-foreground">
+        {state.countdown !== null && (
+          <span className="mr-2 font-semibold text-foreground">Starting in {state.countdown}…</span>
+        )}
+        {state.rendering && (
+          <span className="mr-2 inline-flex items-center gap-1 font-semibold text-foreground">
+            <Loader2Icon
+              aria-hidden="true"
+              className="size-3.5 animate-spin motion-reduce:animate-none"
+            />
+            Rendering…
+          </span>
+        )}
+        {loopNote || loopText} A change to a stem takes a moment to render.
       </p>
     </section>
   );

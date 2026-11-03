@@ -60,7 +60,7 @@ describe("DrumKitDialog (#40)", () => {
 
   it("imports a kit whose licence was found", async () => {
     const { user, dialog, importer } = setup();
-    await user.click(within(dialog).getByRole("button", { name: "Import a kit…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import a kit" }));
     expect(importer).toHaveBeenCalledWith("/kits/Free Kit/kit.sfz", {});
   });
 
@@ -71,7 +71,7 @@ describe("DrumKitDialog (#40)", () => {
       );
     });
     const { user, dialog } = setup({ importer });
-    await user.click(within(dialog).getByRole("button", { name: "Import a kit…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import a kit" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(/non-commercial/);
     expect(within(dialog).getByText("This kit cannot be imported")).toBeInTheDocument();
     expect(within(dialog).queryByRole("combobox", { name: "Licence" })).not.toBeInTheDocument();
@@ -87,7 +87,7 @@ describe("DrumKitDialog (#40)", () => {
       return KIT;
     });
     const { user, dialog } = setup({ importer });
-    await user.click(within(dialog).getByRole("button", { name: "Import a kit…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import a kit" }));
     const retry = await within(dialog).findByRole("button", { name: "Import the kit" });
     expect(retry).toBeDisabled();
     await user.click(within(dialog).getByRole("combobox", { name: "Licence" }));
@@ -112,7 +112,7 @@ describe("DrumKitDialog (#40)", () => {
       return KIT;
     });
     const { user, dialog } = setup({ importer });
-    await user.click(within(dialog).getByRole("button", { name: "Import a kit…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import a kit" }));
     await user.click(await within(dialog).findByRole("combobox", { name: "Licence" }));
     await user.click(await screen.findByRole("option", { name: "CC BY (credit the author)" }));
     await user.type(within(dialog).getByRole("textbox", { name: /Credit/ }), "Jane Doe");
@@ -126,6 +126,6 @@ describe("DrumKitDialog (#40)", () => {
   it("explains that importing needs the desktop app", () => {
     const { dialog } = setup({ available: false });
     expect(within(dialog).getByText(/available in the Smart Beat desktop app/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Import a kit…" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Import a kit" })).toBeDisabled();
   });
 });

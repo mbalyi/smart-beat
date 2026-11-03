@@ -88,11 +88,11 @@ test.describe("first launch", () => {
     ).toBeVisible();
 
     // The SoundFonts dialog is part of the tour (#81): the step shows the track panel and points
-    // at its SoundFonts… button.
+    // at its SoundFonts button.
     await coachMark(app).getByRole("button", { name: "Next" }).click();
     await expect(coachMark(app)).toContainText("More instrument sounds");
-    await expect(coachMark(app)).toContainText("SoundFonts…");
-    await expect(app.getByRole("button", { name: "SoundFonts…" })).toBeVisible();
+    await expect(coachMark(app)).toContainText("SoundFonts");
+    await expect(app.getByRole("button", { name: "SoundFonts" })).toBeVisible();
 
     await clickThrough(app);
     // ...and puts it back when the tour ends.

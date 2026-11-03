@@ -38,11 +38,11 @@ Expected: no clicks, dropouts or stuck notes; stopping is immediate; the sound a
 
 - add a 7, 8 and 9 string guitar, pick Drop A, F# standard and Drop B, write a low riff on the lowest strings and play it, on both sound sets;
 - listen for the thin, slowed-down sound the warning in the track settings talks about: is it right to warn at that point (below B1, more than an octave under the recording)? Does the other sound set help, as the message says?
-- write a 7/8 and an 11/16 bar and a triplet of triplets (Tuplet › Nested…) with the metronome on: does the click and the cursor agree with what you hear?
+- write a 7/8 and an 11/16 bar and a triplet of triplets (Tuplet › Nested) with the metronome on: does the click and the cursor agree with what you hear?
 
 ### 2c. The tuner's microphone (#83)
 
-Install the bundled app (the browser and `pnpm tauri dev` skip the entitlement). Open a guitar track, show the fretboard, click **Tuner…**, then **Input** › **Start listening**.
+Install the bundled app (the browser and `pnpm tauri dev` skip the entitlement). Open a guitar track, show the fretboard, click **Tuner**, then **Input** › **Start listening**.
 
 - macOS asks for the microphone once, with Smart Beat's reason. Saying no shows how to allow it in System Settings.
 - Play each open string of a guitar and a bass (a five-string bass's low B too). The note shown is the string's; the needle settles within a few cents of a clip-on tuner's reading, and reacts within about a fifth of a second.
@@ -51,11 +51,11 @@ Install the bundled app (the browser and `pnpm tauri dev` skip the entitlement).
 
 ### 2d. The audio input
 
-Plug an audio interface in (a Focusrite Scarlett or similar) with a guitar in its instrument input. Open Help › Settings….
+Plug an audio interface in (a Focusrite Scarlett or similar) with a guitar in its instrument input. Open Help › Settings.
 
 - Under **Audio**, the **Input** list shows only **System default** at first. **Show all inputs** asks for the microphone, then lists the built-in microphone and the interface by name. The menu bar's microphone indicator goes off again straight away.
 - Choose the interface. Open the tuner, **Input** › **Start listening**: the status names the interface, and the needle follows the guitar, not the room.
-- **Change input…** in the tuner opens Settings on top of it. Choose **System default** and close Settings: the tuner switches to the built-in microphone without being stopped.
+- **Change input** in the tuner opens Settings on top of it. Choose **System default** and close Settings: the tuner switches to the built-in microphone without being stopped.
 - Quit and start Smart Beat again: the interface is still the input.
 - Unplug the interface and listen again: the tuner says it is not connected. Settings lists it as "(not connected)" until it is plugged in again.
 
@@ -63,7 +63,7 @@ Plug an audio interface in (a Focusrite Scarlett or similar) with a guitar in it
 
 Plugins are third-party code, so this is about hearing them work and hearing them fail safely.
 
-- Open a song's pedalboard, switch **Third-party plugins** on (it is off on every launch) and press **Scan for plugins…**: your installed VST3 and CLAP plugins appear with their vendor and version, and files that cannot load are counted as skipped instead of failing the scan.
+- Open a song's pedalboard, switch **Third-party plugins** on (it is off on every launch) and press **Scan for plugins**: your installed VST3 and CLAP plugins appear with their vendor and version, and files that cannot load are counted as skipped instead of failing the scan.
 - Add an amp sim or pedal, open its own window, change a setting there and hear it. Then press **Save settings**, close and reopen the song: the setting is back, in its editor too.
 - Play with the plugin on the master bus at your usual device buffer, then at the smallest and largest your interface offers (128 through 1024 frames in Audio MIDI Setup): the effect must sound even and continuous at every size, never chopping in and out. The block shows the added latency it reports; a 512-frame buffer should read about 10 ms plus the plugin's own.
 - Turn **Third-party plugins** off while playing: the effect disappears immediately and the sound continues dry.
@@ -73,15 +73,15 @@ Plugins are third-party code, so this is about hearing them work and hearing the
 
 ### 2f. The monitor track
 
-Install the bundled app with "Native engine with effects" on. Plug in an audio interface with a guitar in input 1, choose it in Help › Settings… › **Input**, and wear headphones.
+Install the bundled app with "Native engine with effects" on. Plug in an audio interface with a guitar in input 1, choose it in Help › Settings › **Input**, and wear headphones.
 
 - **Channel** under the input lists **Input 1**, **Input 2** and **All inputs mixed**. Choose **Input 1**.
-- Open **Practice mix** and switch **Monitor my input** on. Native effects playback turns on if needed. Use **Input settings…** to choose the interface and channel. The guitar is heard straight away, with the song stopped. The row names the interface and the input, and shows a delay of about 10 ms or less. The input level moves with the guitar.
+- Open **Practice mix** and switch **Monitor my input** on. Native effects playback turns on if needed. Use **Input settings** to choose the interface and channel. The guitar is heard straight away, with the song stopped. The row names the interface and the input, and shows a delay of about 10 ms or less. The input level moves with the guitar.
 - Play along with the song: the guitar does not drift behind the song after several minutes, and there are no clicks or dropouts. Try a loop and a speed change.
-- **Input effects…** in Practice mix or **Effects (pedalboard)…** from the row's menu opens the same pedalboard as the tracks, titled "Pedalboard: Monitor". Add an amp capture and a cabinet: the tone changes while you play. A preset from the guitar presets works too.
+- **Input effects** in Practice mix or **Effects (pedalboard)** from the row's menu opens the same pedalboard as the tracks, titled "Pedalboard: Monitor". Add an amp capture and a cabinet: the tone changes while you play. A preset from the guitar presets works too.
 - In Practice mix choose **Backing only**: your score part is silent, the other tracks play, and you still hear the live input. **Hear only this track** plays the selected score track alongside the live input. **Normal mix** restores the score mix without stopping monitoring.
 - Switch **Monitor my input** off and on: the input closes and reopens, and the pedalboard and levels remain.
-- On the monitor pedalboard, switch **Third-party plugins** on, scan, and add a VST3 amp or CLAP effect. **Open editor…** opens its own window. Change a setting, **Save settings**, save and reopen the song: the setting returns. The same plugin on a score track or master bus keeps its own settings.
+- On the monitor pedalboard, switch **Third-party plugins** on, scan, and add a VST3 amp or CLAP effect. **Open editor** opens its own window. Change a setting, **Save settings**, save and reopen the song: the setting returns. The same plugin on a score track or master bus keeps its own settings.
 - Turn **Third-party plugins** off and on: monitoring passes dry, then the plugin returns. Remove the monitor plugin or monitor track and check its helper exits.
 - Mute, solo, volume, pan and the EQ act like a track's. Soloing a song track silences the monitor track until it is soloed as well.
 - The switch on the row turns listening off: the microphone indicator in the menu bar goes off. Turn it on again.
@@ -106,11 +106,11 @@ WebKit may ignore the `@page` paper size. Check with a song of several tracks an
 
 **macOS (installed app):**
 
-1. File › Print / PDF… › **Export as PDF…** (or File › Export › PDF…): a save dialog asks where, no print panel opens, and a message names the file and its folder when it is done.
+1. File › Print / PDF › **Export as PDF** (or File › Export › PDF): a save dialog asks where, no print panel opens, and a message names the file and its folder when it is done.
 2. Open the PDF: paper size and orientation as chosen, margins, no cut-off bars, every chosen track present.
-3. **Print…** opens the macOS print panel (it was blocked before #83). Its PDF › Save as PDF still works.
+3. **Print** opens the macOS print panel (it was blocked before #83). Its PDF › Save as PDF still works.
 
-**Windows:** Print… opens the system print dialog; choose "Microsoft Print to PDF" and the file name there. **Linux:** Print… opens the GTK print dialog; choose "Print to File" (PDF). Note on each which version you used.
+**Windows:** Print opens the system print dialog; choose "Microsoft Print to PDF" and the file name there. **Linux:** Print opens the GTK print dialog; choose "Print to File" (PDF). Note on each which version you used.
 
 ## Files we write
 
@@ -139,10 +139,10 @@ The automated tests mock the update server. Only two real releases prove the who
 
 1. Publish release N from a tag (for example `v0.2.0`; see [release.md](release.md)) and install it from the GitHub Release page.
 2. Publish release N+1 (`v0.2.1`) with a distinct line in its `CHANGELOG.md` section.
-3. In the installed app, open Help › Check for Updates…. It must offer N+1 with the installed and the available version and N+1's release notes.
+3. In the installed app, open Help › Check for Updates. It must offer N+1 with the installed and the available version and N+1's release notes.
 4. Click **Later**: nothing is downloaded, and the app keeps working.
 5. Check again and click **Download & Install**. The progress bar fills, the app restarts, and About shows N+1.
 6. Check once more: "You're up to date".
 7. Automatic check: install N again, quit, wait or clear the `smart-beat:last-update-check` entry (or reinstall), and start the app. A few seconds after startup the update dialog must appear by itself, only because there is a newer version. With no newer version, nothing must appear.
 
-Also try a failure: switch off the network and use Help › Check for Updates…; it must show an error with **Try again**, and the automatic check must stay silent.
+Also try a failure: switch off the network and use Help › Check for Updates; it must show an error with **Try again**, and the automatic check must stay silent.

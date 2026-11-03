@@ -71,7 +71,7 @@ export function Welcome({
   onSeparateStems?: (button: HTMLElement) => void;
   /** Opens a song that was separated before; separated songs are left out of Recent without it. */
   onOpenStemSong?: (song: StemSong) => void;
-  /** Open saved stems…: asks for a `.sbstems` file and opens it; the button is left out without it. */
+  /** Open saved stems: asks for a `.sbstems` file and opens it; the button is left out without it. */
   onOpenStemBundle?: () => void;
   onNewSong: () => void;
   onShowShortcuts: () => void;
@@ -110,35 +110,40 @@ export function Welcome({
           practice with optional, self-hosted AI tools too.
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:gap-3">
-          <Button size="lg" className={HERO_BUTTON} onClick={onOpenFile} data-tour="open-file">
-            <FolderOpenIcon data-icon="inline-start" />
-            Open a file…
-          </Button>
-          <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onNewSong}>
+          <Button size="lg" className={HERO_BUTTON} onClick={onNewSong}>
             <FilePlusIcon data-icon="inline-start" />
-            New song
+            New tab
           </Button>
-          {onImportAudio && (
-            <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onImportAudio}>
-              <AudioLinesIcon data-icon="inline-start" />
-              Import from Audio…
-            </Button>
-          )}
+          <Button
+            size="lg"
+            variant="outline"
+            className={HERO_BUTTON}
+            onClick={onOpenFile}
+            data-tour="open-file"
+          >
+            <FolderOpenIcon data-icon="inline-start" />
+            Open a tab
+          </Button>
           {onSeparateStems && (
             <Button
               size="lg"
-              variant="outline"
               className={HERO_BUTTON}
               onClick={(event) => onSeparateStems(event.currentTarget)}
             >
               <LayersIcon data-icon="inline-start" />
-              Stem separation…
+              Stem separation
             </Button>
           )}
           {onOpenStemBundle && (
             <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onOpenStemBundle}>
               <PackageOpenIcon data-icon="inline-start" />
-              Open saved stems…
+              Open saved stems
+            </Button>
+          )}
+          {onImportAudio && (
+            <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onImportAudio}>
+              <AudioLinesIcon data-icon="inline-start" />
+              Import from Audio
             </Button>
           )}
           <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onShowShortcuts}>

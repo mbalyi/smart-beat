@@ -1,6 +1,7 @@
-//! Neural stem separation with an ONNX model run by `tract` (issue #186): SCNet Small, SCNet XL
-//! and HTDemucs, the user's optional downloads (see `stems::models`). The models split a song
-//! into drums, bass, vocals and the rest; nothing of them is part of the app.
+//! Neural stem separation with an ONNX model run by `tract` (issue #186): SCNet Small, SCNet XL,
+//! HTDemucs and HTDemucs 6-source, the user's optional downloads (see `stems::models`). The
+//! models split a song into drums, bass, vocals and the rest (the 6-source one also into guitar
+//! and piano); nothing of them is part of the app.
 //!
 //! The graphs hold only the neural network. Everything around it happens here, in plain Rust, so
 //! the app needs no PyTorch and no complex tensors in the graph: the STFT in the layout the
@@ -115,6 +116,15 @@ pub const HTDEMUCS: Contract = Contract {
     stems: &["drums", "bass", "other", "vocals"],
 };
 
+/// HTDemucs 6-source (`htdemucs_6s_core.onnx`, Demucs signature 5c90dfd2): the same network and
+/// framing as [`HTDEMUCS`], two more sources. The segment length (7.8 s) is the one `htdemucs`
+/// uses; `scripts/stem-models/htdemucs/export_htdemucs.py` checks it against the checkpoint.
+pub const HTDEMUCS_6S: Contract = Contract {
+    name: "htdemucs-6s",
+    stems: &["drums", "bass", "other", "vocals", "guitar", "piano"],
+    ..HTDEMUCS
+};
+
 /// SCNet Small (starrytong's checkpoint, `scnet_cpu.onnx`): 343 980 samples (7.8 s) padded to
 /// 337 hops, 338 frames. Normalises the input spectrogram by its mean and standard deviation.
 pub const SCNET: Contract = Contract {
@@ -152,9 +162,9 @@ pub const SCNET_XL: Contract = Contract {
 };
 
 impl Contract {
-    /// The contract of a model by its id (`scnet`, `scnet-xl`, `htdemucs`).
+    /// The contract of a model by its id (`scnet`, `scnet-xl`, `htdemucs`, `htdemucs-6s`).
     pub fn by_name(name: &str) -> Option<Contract> {
-        [SCNET, SCNET_XL, HTDEMUCS]
+        [SCNET, SCNET_XL, HTDEMUCS, HTDEMUCS_6S]
             .into_iter()
             .find(|c| c.name == name)
     }
@@ -399,7 +409,7 @@ fn kind_of(name: &str) -> Result<StemKind, String> {
     StemKind::from_id(name).ok_or_else(|| format!("The model returns an unknown stem: {name}"))
 }
 
-/// Separates `audio` (44.1 kHz) with the graph behind `run`, writing the four stems to `sink` as
+/// Separates `audio` (44.1 kHz) with the graph behind `run`, writing every stem of the contract to `sink` as
 /// their samples become final. `progress` gets the finished fraction after each segment; `cancel`
 /// is checked before each segment and ends the job with [`super::STOPPED`].
 pub fn separate_with(
@@ -720,7 +730,16 @@ mod tests {
         assert_eq!(HTDEMUCS.input_shape(In::Cac), [1, 4, 2048, 336]);
         assert_eq!(HTDEMUCS.input_shape(In::Wave), [1, 2, 343_980]);
         assert_eq!(HTDEMUCS.output_shape(Out::Wave), [1, 4, 2, 343_980]);
-        for c in [SCNET, SCNET_XL, HTDEMUCS] {
+        // The 6-source model has the 4-source one's framing and two more sources.
+        assert_eq!(HTDEMUCS_6S.frames(), HTDEMUCS.frames());
+        assert_eq!(HTDEMUCS_6S.input_shape(In::Cac), [1, 4, 2048, 336]);
+        assert_eq!(HTDEMUCS_6S.output_shape(Out::Wave), [1, 6, 2, 343_980]);
+        assert_eq!(HTDEMUCS_6S.output_shape(Out::Cac), [1, 6, 4, 2048, 336]);
+        assert_eq!(
+            HTDEMUCS_6S.stems,
+            ["drums", "bass", "other", "vocals", "guitar", "piano"]
+        );
+        for c in [SCNET, SCNET_XL, HTDEMUCS, HTDEMUCS_6S] {
             assert_eq!(c.hop * 4, c.n_fft);
             assert_eq!(Contract::by_name(c.name).unwrap().segment, c.segment);
         }
@@ -897,6 +916,67 @@ mod tests {
             let want: Vec<f32> = audio.right.iter().map(|v| v * g).collect();
             assert!(snr_db(&want, r) > 40.0, "{name} right");
         }
+    }
+
+    #[test]
+    fn the_htdemucs_6s_stub_returns_six_stems_that_add_up_to_the_input() {
+        const SIX: [f32; 6] = [0.30, 0.15, 0.10, 0.20, 0.15, 0.10];
+        let c = small(HTDEMUCS_6S, 30_000);
+        let audio = signal(70_000);
+        let mut sink = MemorySink::default();
+        separate_with(
+            &c,
+            &mut |inputs| {
+                let spectral = vec![0.0f32; c.output_shape(Out::Cac).iter().product()];
+                let mut wave = Vec::new();
+                for g in SIX {
+                    wave.extend(inputs[0].iter().map(|v| v * g));
+                }
+                Ok(vec![spectral, wave])
+            },
+            &audio,
+            &mut sink,
+            &AtomicBool::new(false),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(sink.stems.len(), 6);
+        let mut total = vec![0.0f32; 70_000];
+        for (name, g) in c.stems.iter().zip(SIX) {
+            let kind = StemKind::from_id(name).unwrap();
+            let (l, _) = &sink.stems[&kind];
+            assert_eq!(l.len(), 70_000, "{name}");
+            let want: Vec<f32> = audio.left.iter().map(|v| v * g).collect();
+            assert!(snr_db(&want, l) > 40.0, "{name}: {}", snr_db(&want, l));
+            for (t, v) in total.iter_mut().zip(l) {
+                *t += v;
+            }
+        }
+        assert!(snr_db(&audio.left, &total) > 40.0);
+        assert!(sink.stems.contains_key(&StemKind::Guitar));
+        assert!(sink.stems.contains_key(&StemKind::Piano));
+    }
+
+    #[test]
+    fn a_model_that_returns_four_sources_for_the_six_source_contract_is_an_error() {
+        let c = small(HTDEMUCS_6S, 20_000);
+        let audio = signal(10_000);
+        let four = small(HTDEMUCS, 20_000);
+        let mut sink = MemorySink::default();
+        let result = separate_with(
+            &c,
+            &mut |inputs| {
+                let spectral = vec![0.0f32; four.output_shape(Out::Cac).iter().product()];
+                let wave = vec![0.0f32; 4 * 2 * four.segment];
+                let _ = inputs;
+                Ok(vec![spectral, wave])
+            },
+            &audio,
+            &mut sink,
+            &AtomicBool::new(false),
+            &mut |_| {},
+        );
+        assert!(result.unwrap_err().contains("values for output"));
     }
 
     #[test]
