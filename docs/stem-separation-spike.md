@@ -90,16 +90,71 @@ The neural stems also lose less of the other parts (worst collateral 0.1 to 2.9 
 
 **Running it in the app.** No ONNX export and no new dependency are needed. The app reads the original `.pth` files (the legacy PyTorch format, parsed by `src-tauri/src/separation/torch_legacy.rs`, which only understands the few pickle instructions a state dict uses and never runs anything named in the file) and runs the network in Rust (`separation/umx.rs`: three bidirectional LSTM layers between linear layers). Checked against the PyTorch run on the synthetic band, the Rust stems agree to 32.9 dB (drums), 39.4 dB (bass), 49.9 dB (vocals) and 42.5 dB (other) SDR, and give the same drop figures in the table above. A 30 s clip takes 2.2 s in a release build on the 10-core test Mac, so a 6-minute song takes roughly half a minute, faster than the container run. `tract` was not needed; whether it handles bidirectional LSTM was not checked.
 
+## Neural models compared (SCNet, HTDemucs vs UMX-HQ)
+
+Run on 2026-11-03 with the example `separation_tract` (`src-tauri/examples/separation_tract.rs`), which runs each model through `tract` (already in the app, no new crate) and measures it. STFT, iSTFT, segmenting (7.8 s or 11 s, 25% overlap, triangular overlap-add) and stem assembly are Rust code; the graph is the network core only. Conversion notes and parity checks: `scripts/stem-models/README.md`. Weights used: SCNet Small (upstream ONNX), SCNet XL (our ONNX export of the ZFTurbo `v1.0.15` checkpoint), HTDemucs (our export of `htdemucs`), UMX-HQ (the app's own Rust engine).
+
+**Measured here: synthetic band, 30 s, exact ground truth.** SDR in dB against the true parts (higher is better; 0 means as far off as silence). "Other" is the guitars in this band. Real-time factor (RTF) is compute seconds per second of audio, one `tract` thread.
+
+| Model         | Drums | Bass | Vocals | Other | RTF  | Peak memory (RSS) |
+| ------------- | ----- | ---- | ------ | ----- | ---- | ----------------- |
+| UMX-HQ (Rust) | 4.2   | 5.3  | 11.2   | 8.3   | 0.07 | not measured here |
+| SCNet Small   | 11.7  | 14.0 | 20.8   | 16.7  | 0.57 | 993 MiB           |
+| SCNet XL      | 11.9  | 14.0 | 24.9   | 16.6  | 6.03 | 2592 MiB          |
+| HTDemucs      | 13.9  | 16.4 | 17.0   | 17.6  | 0.76 | 1449 MiB          |
+
+The stems of every model add back up to the mixture (36.8 dB for Small, 39.3 for XL, 31.1 for HTDemucs). UMX-HQ's RTF is its own run on the same clip, 0.07 to 0.27 across the three runs (clip length and machine load differ).
+
+**Measured here: one real song, first 45 s ("StereoHangar - Attitude"), no ground truth.**
+
+| Model       | RTF  | Peak memory (RSS) | Stems summed against the mix |
+| ----------- | ---- | ----------------- | ---------------------------- |
+| SCNet Small | 0.63 | 1005 MiB          | 37.3 dB                      |
+| HTDemucs    | 0.57 | 1564 MiB          | 34.0 dB                      |
+| SCNet XL    | 6.86 | 3499 MiB          | 40.9 dB                      |
+
+The agreement of each model with UMX-HQ on this song is a measure of difference, not of quality: drums about 11 dB, bass about 6 dB, vocals 3.3 to 4.1 dB, other about 5 dB. The sum against the mix only shows that nothing is lost or invented overall. **How the stems sound has not been judged.** The WAV stems (drums, bass, vocals, other for each model) are in `~/Documents/smart-beat-spike-notes/listen/` on the owner's machine and are not in the repository; listening notes are left for the owner.
+
+**What the numbers cannot say.**
+
+- The synthetic band is easy and unlike real records; the gaps on real music will be smaller. Take the ranking between the neural models on it lightly: HTDemucs wins drums, bass and other, SCNet XL wins vocals, by amounts that one synthetic clip cannot settle.
+- Speed is single-threaded `tract`. A 4-minute song takes about 2.5 minutes with SCNet Small or HTDemucs and about 27 minutes with SCNet XL at the measured RTF. Running segments on several threads was not tried; it would trade memory (up to several GB for XL) for time. On the synthetic run the last XL segment took about twice as long as the others, so the XL speed may be pessimistic.
+- One real song, 45 s, and one machine (10 cores, 16 GB).
+- MUSDB-style SDR figures quoted below for SCNet and HTDemucs are upstream's, on a different test set and metric than the synthetic band here. Do not compare them with the table above.
+
+**Strengths, by model.** The owner asked for these to be noted next to the models, and for HTDemucs to be the general recommendation. The first column is what we measured; the second is what upstream and MVSep report and was not checked here.
+
+| Model       | Download in the app | Recommended for                                                  | Measured here                                                                                                     | Claimed elsewhere (not verified here)                                  |
+| ----------- | ------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| HTDemucs    | 177 MB (ONNX)       | **General use: the recommended default** among the neural models | Best drums, bass and other on the synthetic band; RTF 0.57 to 0.76                                                | About 12.5 dB bass on the MVSep multisong table (SCNet XL about 13.8)  |
+| SCNet XL    | 216 MB (ONNX)       | **Vocals**; best quality when time does not matter               | Best vocals on the synthetic band (24.9 dB); about 10 times slower than the others; 3.5 GB RAM                    | 10.09 dB average on MUSDB18-HQ (upstream); bass about 13.8 dB on MVSep |
+| SCNet Small | 52 MB (ONNX)        | **Fast and light**: the quick neural option                      | Close to HTDemucs on the synthetic band at the same speed, about a third less memory than HTDemucs on a real song | 9.03 dB average on MUSDB18-HQ (upstream)                               |
+| UMX-HQ      | 143 MB (4 files)    | Older, smaller download; fastest (memory not measured here)      | 6 to 14 dB behind the three newer models on every part                                                            | About 5 to 6 dB median SDR on MUSDB (a different metric)               |
+
+"Other" means everything that is not drums, bass or vocals, so for a guitar or piano part it is a catch-all, not a guitar stem. None of these four models separates guitar or piano on its own.
+
+**More than one model for more than one job.** The owner noted (2026-11-03) that several models may be needed, one per task. What the research says, with the caveat that the figures are MVSep's own and not independent:
+
+- Vocals versus instrumental: the RoFormer family (Mel-Band RoFormer, BS-RoFormer) is reported strongest, about 11.0 dB vocals against about 8.3 for `htdemucs_ft` on the MVSep multisong set. The weights are large (about 460 to 930 MB) and were not tried here.
+- Drums, bass, other: HTDemucs or SCNet XL (SCNet XL bass about 13.8 dB against about 12.5 for HTDemucs on the same table).
+- A two-pass pipeline is possible: split vocals from instrumental first, then run the bass and drums model on the instrumental. A small gain for no extra download, not measured here.
+- Guitar and piano: `htdemucs_6s` has them, but its piano is reported weak ("medium"); a targeted model is still to be found.
+- Practical rules from the notes: keep 44.1 kHz and float32 between steps, no normalisation between steps, and check with a null test (sum of the stems against the input).
+- The app's engine type and download registry should therefore take a list of models, and a pipeline can use several. That is design, not built.
+
 ## Neural licences
 
 Read from primary pages on 2026-10-28.
 
-| Model                                  | Code | Weights licence as stated upstream                                                                   | Size                         |
-| -------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Demucs (facebookresearch)              | MIT  | **None stated in the README**; the repo is no longer maintained; trained on MUSDB-HQ                 | not read                     |
-| Third-party Demucs ONNX (Hugging Face) | n/a  | Card says `mit`; another ONNX port is quoted in the issue as CC BY-NC 4.0, so repackagers disagree   | 21 files, 1.46 GB in total   |
-| Open-Unmix UMX-HQ (Zenodo 3370489)     | MIT  | Zenodo licence field `mit-license`; the README states nothing for the weights; trained on MUSDB18-HQ | 4 x 35.6 MB = about 142.5 MB |
-| Open-Unmix UMXL                        | MIT  | "only licensed for non-commercial use (CC BY-NC-SA 4.0)": excluded                                   | not read                     |
+| Model                                  | Code | Weights licence as stated upstream                                                                   | Size                                 |
+| -------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| Demucs (facebookresearch)              | MIT  | **None stated in the README**; the repo is no longer maintained; trained on MUSDB-HQ                 | not read                             |
+| Third-party Demucs ONNX (Hugging Face) | n/a  | Card says `mit`; another ONNX port is quoted in the issue as CC BY-NC 4.0, so repackagers disagree   | 21 files, 1.46 GB in total           |
+| Open-Unmix UMX-HQ (Zenodo 3370489)     | MIT  | Zenodo licence field `mit-license`; the README states nothing for the weights; trained on MUSDB18-HQ | 4 x 35.6 MB = about 142.5 MB         |
+| Open-Unmix UMXL                        | MIT  | "only licensed for non-commercial use (CC BY-NC-SA 4.0)": excluded                                   | not read                             |
+| SCNet Small (demixr ONNX)              | MIT  | MIT per the author's statement to us (Small and Large); trained on MUSDB18-HQ only                   | 52,271,228 bytes                     |
+| SCNet XL IHF (ZFTurbo `v1.0.15`)       | MIT  | **None stated**; trained on MUSDB18-HQ only; only a PyTorch checkpoint upstream                      | 214,063,778 bytes (ONNX 216,163,649) |
+| HTDemucs `htdemucs` (Meta)             | MIT  | **None stated**; trained on MUSDB18-HQ plus 800 non-public songs; only a PyTorch file upstream       | 84,141,911 bytes (ONNX 176,589,623)  |
 
 **MUSDB18-HQ terms.** UMX-HQ was trained on MUSDB18-HQ ([Zenodo record 3338373](https://zenodo.org/records/3338373), licence field other-nc). Its description says the tracks are "provided for educational purposes only" and "should not be used for any commercial purpose without the express permission of the copyright holders". The Open-Unmix authors do not say whether those terms reach the weights, and the Zenodo field for the weights says MIT. That is the same kind of open question as Transkun and MAESTRO in [`licensing.md`](licensing.md).
 
@@ -116,4 +171,4 @@ Not verified: Spleeter and RoFormer weights licences. UMX-HQ ships as an optiona
 
 ## Decision
 
-The built-in engine ships as the default. Open-Unmix UMX-HQ is offered as an optional download (owner's decision, 2026-10-28). Tab-aligned separation and stems as lanes in the tab view are follow-ups that depend on multi-lane audio (#185).
+The built-in engine ships as the default. Open-Unmix UMX-HQ is offered as an optional download (owner's decision, 2026-10-28). SCNet Small, SCNet XL and HTDemucs run well in `tract` and are further optional downloads (owner's decision, 2026-11-03). The two converted ONNX files (SCNet XL, HTDemucs) are hosted in the pre-release [`stem-models-v1`](https://github.com/mbalyi/smart-beat/releases/tag/stem-models-v1); their weights licences are unstated, the owner accepted that risk and the project removes the files immediately if an obligation arises (see [`licensing.md`](licensing.md)). Tab-aligned separation and stems as lanes in the tab view are follow-ups that depend on multi-lane audio (#185).
