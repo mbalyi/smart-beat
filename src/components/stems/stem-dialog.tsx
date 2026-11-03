@@ -8,8 +8,9 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import heroSelect from "@/assets/import-audio/hero.webp";
-import { DIALOG_NEON, DialogArt, DialogStepper } from "@/components/ai/dialog-art";
+import heroSelect from "@/assets/stem-separation/hero.webp";
+import logo from "@/assets/stem-separation/logo.webp";
+import { DIALOG_NEON, DialogArt, DialogLogo, DialogStepper } from "@/components/ai/dialog-art";
 import { AI_DIALOG_FRAME } from "@/components/ai/dialog-frame";
 import { BetaBadge } from "@/components/beta-badge";
 import { formatBytes, STEM_HINTS, STEM_LABELS } from "@/components/stems/stem-labels";
@@ -202,19 +203,22 @@ function StemFlow({
       : phase === "options"
         ? "Choose which parts to pull out. You can mute, solo and slow each one on the next screen."
         : "Split a song into drums, bass, vocals and more, so you can play along with the rest.";
-  const hero = phase === "file" ? { src: heroSelect, place: "top-[23%] right-5 w-[14%]" } : null;
+  const hero = phase === "file" ? { src: heroSelect, place: "top-[23%] right-3 w-[24%]" } : null;
 
   return (
     <div className="relative isolate flex min-h-0 flex-1 flex-col">
       <DialogArt hero={hero} name={phase} />
       <DialogHeader className="gap-3 px-6 pt-3 md:px-9">
+        <DialogLogo src={logo} />
         <DialogStepper labels={STEPS} current={STEP_OF[phase]} />
         <DialogTitle className="sr-only">Stem separation</DialogTitle>
         <h2 aria-hidden="true" className="flex items-center gap-3 text-2xl font-bold">
           Stem separation
           <BetaBadge />
         </h2>
-        <DialogDescription className="md:pr-[20%]">{description}</DialogDescription>
+        <DialogDescription className={phase === "file" ? "md:pr-[30%]" : "md:pr-[20%]"}>
+          {description}
+        </DialogDescription>
       </DialogHeader>
       <DialogBody className="px-6 pb-4 md:px-9">
         <div className="flex flex-col gap-5">
@@ -313,7 +317,7 @@ function SongStep({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-5 md:pr-[8%]">
+    <div className="flex flex-col gap-5 md:pr-[28%]">
       <div className="flex gap-3 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 text-sm">
         <InfoIcon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" />
         <p>Runs on this computer. Nothing is uploaded.</p>
