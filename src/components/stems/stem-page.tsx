@@ -13,6 +13,7 @@ import { ExternalLink } from "@/components/external-link";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { SectionKicker } from "@/components/section-kicker";
 import { StemRow } from "@/components/stems/stem-row";
+import { engineLabel } from "@/components/stems/stem-engines";
 import { formatTime, joinNames, stemName, STEM_LABELS } from "@/components/stems/stem-labels";
 import { usePosition, useStemState } from "@/components/stems/use-stem-player";
 import { Button } from "@/components/ui/button";
@@ -79,8 +80,8 @@ export function StemPage({
             {song.name}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {formatTime(song.durationSeconds)} · {song.engine === "neural" ? "Neural" : "Fast"}{" "}
-            engine · {song.stems.length} parts. Everything ran on this computer.
+            {formatTime(song.durationSeconds)} · {engineLabel(song.engine)} engine ·{" "}
+            {song.stems.length} parts. Everything ran on this computer.
           </p>
         </div>
         {skipped.length > 0 && (

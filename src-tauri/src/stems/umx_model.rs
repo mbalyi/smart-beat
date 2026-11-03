@@ -8,16 +8,14 @@
 //! Whether this download is offered at all is the owner's decision; the UI keeps it behind the
 //! `stem-separation-neural` feature flag.
 
+use super::model_files::{self, Spec, error};
 use crate::error::{CommandError, ErrorKind};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::io::{Read, Write};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 /// Folder (inside the app data folder) of the downloaded model.
@@ -25,19 +23,9 @@ pub const FOLDER: &str = "models/umx-hq";
 /// Where the files are. The file name and `DOWNLOAD_QUERY` follow it.
 const BASE_URL: &str = "https://zenodo.org/records/3370489/files/";
 const DOWNLOAD_QUERY: &str = "?download=1";
-const TERMS_FILE: &str = "terms.json";
 const PROGRESS_EVENT: &str = "umx-model-download-progress";
 /// Bump when the terms the user accepts change; everyone then has to accept again.
 pub const TERMS_VERSION: u32 = 1;
-const STOPPED: &str = "Download stopped.";
-
-/// One weight file: its name on Zenodo, exact size and SHA-256.
-#[derive(Debug, Clone, Copy)]
-pub struct Spec<'a> {
-    pub name: &'a str,
-    pub bytes: u64,
-    pub sha256: &'a str,
-}
 
 /// The four files of UMX-HQ (one network per target), 35,637,796 bytes each.
 pub const FILES: [Spec<'static>; 4] = [
@@ -87,13 +75,6 @@ By accepting you confirm that you only use music you have the rights to.";
 /// A short line for lists and the model card.
 pub const LICENCE_SUMMARY: &str = "Code MIT. Weights listed on Zenodo as MIT; trained on MUSDB18-HQ, whose own terms say educational use only. The authors do not say whether those terms reach the weights.";
 
-fn error(kind: ErrorKind, message: impl Into<String>) -> CommandError {
-    CommandError::new(kind, message)
-}
-fn io_error(what: &str, e: std::io::Error) -> CommandError {
-    error(ErrorKind::Io, format!("{what}: {e}"))
-}
-
 /// The folder the model files live in.
 pub fn model_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     app.path()
@@ -107,56 +88,26 @@ pub fn is_ready<R: Runtime>(app: &AppHandle<R>) -> bool {
     model_dir(app).is_ok_and(|dir| ready_in(&dir, &FILES))
 }
 
-/// Every file is there with the right size. The sum was checked when it was downloaded.
-fn files_present(dir: &Path, files: &[Spec]) -> bool {
-    files.iter().all(|f| {
-        std::fs::metadata(dir.join(f.name)).is_ok_and(|m| m.is_file() && m.len() == f.bytes)
-    })
-}
 fn ready_in(dir: &Path, files: &[Spec]) -> bool {
-    files_present(dir, files) && terms_accepted(dir)
+    model_files::files_present(dir, files) && terms_accepted(dir)
 }
 
-/// What the user accepted and when. Only the fixed fields, no free text.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Terms {
-    pub version: u32,
-    pub rights_confirmed: bool,
-    /// Seconds since the Unix epoch.
-    pub accepted_at: u64,
+fn files_present(dir: &Path, files: &[Spec]) -> bool {
+    model_files::files_present(dir, files)
 }
-fn read_terms(dir: &Path) -> Option<Terms> {
-    let text = std::fs::read_to_string(dir.join(TERMS_FILE)).ok()?;
-    let terms: Terms = serde_json::from_str(&text).ok()?;
-    (terms.version == TERMS_VERSION && terms.rights_confirmed).then_some(terms)
-}
+
 fn terms_accepted(dir: &Path) -> bool {
-    read_terms(dir).is_some()
+    model_files::terms_accepted(dir, TERMS_VERSION)
 }
 fn require_terms(dir: &Path) -> Result<(), CommandError> {
-    if terms_accepted(dir) {
-        Ok(())
-    } else {
-        Err(error(
-            ErrorKind::Io,
-            "Accept the Open-Unmix terms and confirm your rights to the music first.",
-        ))
-    }
+    model_files::require_terms(
+        dir,
+        TERMS_VERSION,
+        "Accept the Open-Unmix terms and confirm your rights to the music first.",
+    )
 }
 fn write_terms(dir: &Path) -> Result<(), CommandError> {
-    std::fs::create_dir_all(dir)
-        .map_err(|e| io_error("Could not make a folder for the model", e))?;
-    let terms = Terms {
-        version: TERMS_VERSION,
-        rights_confirmed: true,
-        accepted_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs()),
-    };
-    let text = serde_json::to_string(&terms).expect("terms serialize");
-    std::fs::write(dir.join(TERMS_FILE), text)
-        .map_err(|e| io_error("Could not save your acceptance", e))
+    model_files::write_terms(dir, TERMS_VERSION)
 }
 
 /// What the dialog shows about the model.
@@ -185,7 +136,7 @@ fn status_of(dir: &Path, files: &[Spec]) -> UmxStatus {
 
 /// The stop switch of the running download.
 #[derive(Default)]
-pub struct DownloadRun(Mutex<Option<Arc<AtomicBool>>>);
+pub struct DownloadRun(pub(super) Mutex<Option<Arc<AtomicBool>>>);
 impl DownloadRun {
     /// Stops the running download, if any. The part already saved is deleted.
     pub fn stop(&self) {
@@ -193,108 +144,6 @@ impl DownloadRun {
             stop.store(true, Ordering::Relaxed);
         }
     }
-}
-
-/// One download at a time, for the whole app.
-static DOWNLOADING: Mutex<()> = Mutex::new(());
-
-fn sum_hex(hasher: Sha256) -> String {
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-fn part_of(dest: &Path) -> PathBuf {
-    let mut name = dest.as_os_str().to_owned();
-    name.push(".part");
-    PathBuf::from(name)
-}
-
-/// Downloads one file to `dest` through a `.part` file. The file appears under its name only when
-/// it has exactly `spec.bytes` bytes and the right SHA-256; a wrong file is deleted. `on_bytes`
-/// gets the bytes of this file saved so far. Stopping deletes the `.part` file.
-fn download_file(
-    url: &str,
-    dest: &Path,
-    spec: &Spec,
-    on_bytes: &mut dyn FnMut(u64),
-    cancelled: &dyn Fn() -> bool,
-) -> Result<(), CommandError> {
-    let partial = part_of(dest);
-    let result = fetch(url, &partial, spec, on_bytes, cancelled);
-    match result {
-        Ok(()) => std::fs::rename(&partial, dest).map_err(|e| {
-            let _ = std::fs::remove_file(&partial);
-            io_error("Could not save the Open-Unmix model", e)
-        }),
-        Err(e) => {
-            let _ = std::fs::remove_file(&partial);
-            Err(e)
-        }
-    }
-}
-
-fn fetch(
-    url: &str,
-    partial: &Path,
-    spec: &Spec,
-    on_bytes: &mut dyn FnMut(u64),
-    cancelled: &dyn Fn() -> bool,
-) -> Result<(), CommandError> {
-    let network = |why: String| {
-        error(
-            ErrorKind::Network,
-            format!("Could not download the Open-Unmix model: {why}. Try again."),
-        )
-    };
-    let save = |e: std::io::Error| io_error("Could not save the Open-Unmix model", e);
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .timeout_connect(Some(Duration::from_secs(30)))
-        .timeout_recv_response(Some(Duration::from_secs(60)))
-        .timeout_recv_body(Some(Duration::from_secs(60)))
-        .build()
-        .into();
-    if cancelled() {
-        return Err(error(ErrorKind::Io, STOPPED));
-    }
-    let mut response = agent.get(url).call().map_err(|e| network(e.to_string()))?;
-    let status = response.status().as_u16();
-    if status != 200 {
-        return Err(network(format!("the server answered {status}")));
-    }
-    let mut file = std::fs::File::create(partial).map_err(save)?;
-    let mut reader = response.body_mut().as_reader();
-    let (mut hasher, mut done) = (Sha256::new(), 0u64);
-    let mut chunk = vec![0u8; 64 * 1024];
-    loop {
-        if cancelled() {
-            return Err(error(ErrorKind::Io, STOPPED));
-        }
-        let n = reader
-            .read(&mut chunk)
-            .map_err(|e| network(e.to_string()))?;
-        if n == 0 {
-            break;
-        }
-        done += n as u64;
-        if done > spec.bytes {
-            break;
-        }
-        hasher.update(&chunk[..n]);
-        file.write_all(&chunk[..n]).map_err(save)?;
-        on_bytes(done);
-    }
-    file.flush().map_err(save)?;
-    if done != spec.bytes || sum_hex(hasher) != spec.sha256 {
-        return Err(error(
-            ErrorKind::Io,
-            "A downloaded Open-Unmix file is not the expected file, so it was deleted. Try again later.",
-        ));
-    }
-    Ok(())
 }
 
 /// Downloads every file of `files` into `dir` that is not there yet, from `base` + name + query.
@@ -308,44 +157,19 @@ fn download_all(
     cancelled: &dyn Fn() -> bool,
 ) -> Result<(), CommandError> {
     require_terms(dir)?;
-    let _only_one = DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner());
-    std::fs::create_dir_all(dir)
-        .map_err(|e| io_error("Could not make a folder for the model", e))?;
-    let total: u64 = files.iter().map(|f| f.bytes).sum();
-    let mut before = 0u64;
-    for spec in files {
-        let dest = dir.join(spec.name);
-        let present = std::fs::metadata(&dest).is_ok_and(|m| m.is_file() && m.len() == spec.bytes);
-        if !present {
-            let url = format!("{base}{}{DOWNLOAD_QUERY}", spec.name);
-            let offset = before;
-            download_file(
-                &url,
-                &dest,
-                spec,
-                &mut |done| on_progress(offset + done, total),
-                cancelled,
-            )?;
-        }
-        before += spec.bytes;
-        on_progress(before, total);
-    }
-    Ok(())
+    model_files::download_all(
+        dir,
+        base,
+        DOWNLOAD_QUERY,
+        files,
+        "Open-Unmix",
+        on_progress,
+        cancelled,
+    )
 }
 
-/// Deletes the model files and any part of them. The accepted terms stay on file.
 fn remove_files(dir: &Path, files: &[Spec]) -> Result<(), CommandError> {
-    for spec in files {
-        let file = dir.join(spec.name);
-        for path in [part_of(&file), file] {
-            match std::fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(io_error("Could not delete the model", e)),
-            }
-        }
-    }
-    Ok(())
+    model_files::remove_files(dir, files)
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -447,8 +271,11 @@ pub fn umx_model_remove<R: Runtime>(app: AppHandle<R>) -> Result<UmxStatus, Comm
 
 #[cfg(test)]
 mod tests {
+    use super::model_files::{STOPPED, TERMS_FILE, part_of, sum_hex};
     use super::*;
+    use sha2::{Digest, Sha256};
     use std::collections::HashMap;
+    use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::atomic::AtomicUsize;
 

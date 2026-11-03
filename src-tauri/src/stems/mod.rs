@@ -8,6 +8,8 @@
 //! store. The page plays the stems itself; [`mix::render`] makes the slowed-down version.
 
 pub mod mix;
+pub mod model_files;
+pub mod models;
 pub mod store;
 pub mod umx_model;
 pub mod wav;
@@ -24,7 +26,7 @@ pub use store::StemStore;
 
 use crate::audio::backing::{self, DecodedAudio};
 use crate::error::{CommandError, ErrorKind};
-use crate::separation::{self, Options, StemKind, pipeline::Report, stereo, umx};
+use crate::separation::{self, Options, StemKind, onnx, pipeline::Report, stereo, umx};
 
 /// Which separation runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -34,6 +36,30 @@ pub enum StemEngine {
     Fast,
     /// The downloaded Open-Unmix model.
     Neural,
+    /// The downloaded SCNet Small model (ONNX, run by tract).
+    Scnet,
+    /// The downloaded SCNet XL model.
+    #[serde(rename = "scnet-xl")]
+    ScnetXl,
+    /// The downloaded HTDemucs model.
+    Htdemucs,
+}
+
+impl StemEngine {
+    /// The downloaded ONNX model this engine runs, if it is one of those.
+    pub fn onnx_model(self) -> Option<models::ModelId> {
+        match self {
+            Self::Scnet => Some(models::ModelId::Scnet),
+            Self::ScnetXl => Some(models::ModelId::ScnetXl),
+            Self::Htdemucs => Some(models::ModelId::Htdemucs),
+            Self::Fast | Self::Neural => None,
+        }
+    }
+
+    /// A neural engine: it needs a downloaded model and makes drums, bass, vocals and other.
+    pub fn is_neural(self) -> bool {
+        self != Self::Fast
+    }
 }
 
 /// Mirrored by `SeparateRequest` in `src/lib/tauri.ts`.
@@ -42,7 +68,7 @@ pub enum StemEngine {
 pub struct SeparateRequest {
     pub path: String,
     /// The stems the user wants of their own; "other" is always made. Ignored by the neural
-    /// engine, which makes drums, bass, vocals and other.
+    /// engines, which make drums, bass, vocals and other.
     pub kinds: Vec<StemKind>,
     pub engine: StemEngine,
     #[serde(default)]
@@ -141,11 +167,11 @@ impl StemsRun {
 /// without "other" (always made).
 fn wanted_kinds(request: &SeparateRequest) -> Vec<StemKind> {
     match request.engine {
-        StemEngine::Neural => vec![StemKind::Drums, StemKind::Bass, StemKind::Vocals],
         StemEngine::Fast => StemKind::ALL
             .into_iter()
             .filter(|k| *k != StemKind::Other && request.kinds.contains(k))
             .collect(),
+        _ => vec![StemKind::Drums, StemKind::Bass, StemKind::Vocals],
     }
 }
 
@@ -238,7 +264,7 @@ pub fn run_job(
     if request.engine == StemEngine::Fast && kinds.is_empty() {
         return Err(error("Choose at least one stem to separate."));
     }
-    if request.engine == StemEngine::Neural && model_dir.is_none() {
+    if request.engine.is_neural() && model_dir.is_none() {
         return Err(error("The neural model is not downloaded."));
     }
     let strong = request.engine == StemEngine::Fast
@@ -257,7 +283,7 @@ pub fn run_job(
     if audio.frames() == 0 || audio.duration() > backing::MAX_SECONDS {
         return Err(error("The recording is empty or too long"));
     }
-    if request.engine == StemEngine::Neural {
+    if request.engine.is_neural() {
         audio = at_44100(audio)?;
     }
     emit(Stage::Reading, 1.0);
@@ -272,15 +298,24 @@ pub fn run_job(
             emit(Stage::Separating, fraction.clamp(0.0, 1.0));
         }
     };
+    let neural_report = || Report {
+        mono: stereo::is_mono(&audio.left, &audio.right),
+        skipped: Vec::new(),
+        panned_share: 0.0,
+    };
     let report = match (request.engine, model_dir) {
         (StemEngine::Neural, Some(dir)) => {
             let model = umx::Model::load(dir).map_err(error)?;
             umx::separate(&model, &audio, &mut sink, cancel, &mut progress).map_err(error)?;
-            Report {
-                mono: stereo::is_mono(&audio.left, &audio.right),
-                skipped: Vec::new(),
-                panned_share: 0.0,
-            }
+            neural_report()
+        }
+        (engine, Some(dir)) if engine.onnx_model().is_some() => {
+            let id = engine.onnx_model().expect("checked in the guard");
+            let contract = onnx::Contract::by_name(id.id()).expect("every model has a contract");
+            let model =
+                onnx::Model::load(&models::model_file(dir, id), &contract).map_err(error)?;
+            onnx::separate(&model, &audio, &mut sink, cancel, &mut progress).map_err(error)?;
+            neural_report()
         }
         _ => {
             let mut options = Options::for_kinds(&kinds);
@@ -332,6 +367,11 @@ pub async fn stems_separate<R: Runtime>(
             return Err(error("The neural model is not downloaded."));
         }
         Some(umx_model::model_dir(&app).map_err(error)?)
+    } else if let Some(id) = request.engine.onnx_model() {
+        if !models::is_ready(&app, id) {
+            return Err(error(format!("{} is not downloaded.", id.info().label)));
+        }
+        Some(models::model_dir(&app, id).map_err(error)?)
     } else {
         None
     };
@@ -549,6 +589,89 @@ mod tests {
         };
         let err = job(&store, &neural, &cancel).0.unwrap_err();
         assert_eq!(err.message, "The neural model is not downloaded.");
+    }
+
+    #[test]
+    fn the_onnx_engines_have_their_own_names_models_and_stems() {
+        let names = [
+            (StemEngine::Fast, "fast"),
+            (StemEngine::Neural, "neural"),
+            (StemEngine::Scnet, "scnet"),
+            (StemEngine::ScnetXl, "scnet-xl"),
+            (StemEngine::Htdemucs, "htdemucs"),
+        ];
+        for (engine, name) in names {
+            assert_eq!(serde_json::to_value(engine).unwrap(), name);
+            assert_eq!(
+                serde_json::from_value::<StemEngine>(name.into()).unwrap(),
+                engine
+            );
+            assert_eq!(engine.is_neural(), engine != StemEngine::Fast);
+        }
+        assert_eq!(StemEngine::Scnet.onnx_model(), Some(models::ModelId::Scnet));
+        assert_eq!(
+            StemEngine::ScnetXl.onnx_model(),
+            Some(models::ModelId::ScnetXl)
+        );
+        assert_eq!(
+            StemEngine::Htdemucs.onnx_model(),
+            Some(models::ModelId::Htdemucs)
+        );
+        assert_eq!(StemEngine::Neural.onnx_model(), None);
+        assert_eq!(StemEngine::Fast.onnx_model(), None);
+        for engine in [StemEngine::Scnet, StemEngine::ScnetXl, StemEngine::Htdemucs] {
+            let r = SeparateRequest {
+                engine,
+                kinds: vec![],
+                path: "x.wav".into(),
+                strong_drums: false,
+            };
+            assert_eq!(
+                wanted_kinds(&r),
+                [StemKind::Drums, StemKind::Bass, StemKind::Vocals]
+            );
+        }
+        // Every engine gets its own cache entry for the same song.
+        let ids: std::collections::HashSet<_> = names
+            .iter()
+            .map(|(e, _)| store::song_id(b"audio", *e, &[StemKind::Drums], false))
+            .collect();
+        assert_eq!(ids.len(), names.len());
+    }
+
+    #[test]
+    fn an_onnx_engine_without_its_model_is_refused_and_a_broken_file_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StemStore::new(dir.path().join("stems"));
+        let cancel = AtomicBool::new(false);
+        let path = dir.path().join("a.wav");
+        write_wav(&path, 44_100, &[0.1; 2_000], &[0.1; 2_000]);
+        for engine in [StemEngine::Scnet, StemEngine::ScnetXl, StemEngine::Htdemucs] {
+            let r = SeparateRequest {
+                engine,
+                ..request(&path, &[])
+            };
+            let err = job(&store, &r, &cancel).0.unwrap_err();
+            assert_eq!(err.message, "The neural model is not downloaded.");
+        }
+        // A folder whose model file is not an ONNX file: the job fails cleanly.
+        let models = dir.path().join("model");
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::write(models.join("scnet_cpu.onnx"), b"not onnx").unwrap();
+        let r = SeparateRequest {
+            engine: StemEngine::Scnet,
+            ..request(&path, &[])
+        };
+        let mut events = Vec::new();
+        let result = run_job(
+            &store,
+            &r,
+            Some(&models),
+            &cancel,
+            &mut |stage, fraction| events.push((stage, fraction)),
+        );
+        assert!(result.is_err());
+        assert!(store.list().is_empty(), "nothing was saved");
     }
 
     #[test]

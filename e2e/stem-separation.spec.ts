@@ -25,6 +25,15 @@ declare global {
       abort: (() => void) | null;
       releaseRender: (() => void) | null;
     };
+    __stemModels: {
+      models: Record<string, { downloaded: boolean; termsAccepted: boolean; available: boolean }>;
+      downloads: string[];
+      removed: string[];
+      cancelled: number;
+      hold: boolean;
+      fail: string | null;
+      release: (() => void) | null;
+    };
   }
 }
 
@@ -267,6 +276,105 @@ test.describe("Stem separation (#186)", () => {
     await expect(section).toHaveCount(0);
   });
 
+  /** The options step with the engine cards (the dialog is open and a song is chosen). */
+  async function toEngines(app: Page) {
+    const dialog = await openDialog(app);
+    await chooseSong(app);
+    const group = dialog.getByRole("radiogroup", { name: "Engine" });
+    await expect(group).toBeVisible();
+    return { dialog, group };
+  }
+
+  test("lists the engines with what each is best at and recommends HTDemucs", async ({ app }) => {
+    const { group } = await toEngines(app);
+    await expect(group.getByRole("radio")).toHaveCount(5);
+    await expect(group.getByRole("radio", { name: "Fast" })).toBeChecked();
+    const card = (name: string) =>
+      group.locator("label").filter({ has: app.getByRole("radio", { name }) });
+    await expect(card("HTDemucs")).toContainText("Recommended");
+    await expect(card("HTDemucs")).toContainText("Best all-round choice");
+    await expect(card("SCNet XL")).toContainText("Best for vocals");
+    await expect(card("SCNet Small")).toContainText("lightest of the new models");
+    await expect(card("UMX-HQ")).toContainText("better on drums and bass");
+    await expect(group.getByText("Recommended")).toHaveCount(1);
+    await expect(card("HTDemucs")).toContainText("Download 168 MB");
+  });
+
+  test("downloads a model with its terms and progress, then separates with it", async ({ app }) => {
+    await app.evaluate(() => {
+      window.__stemModels.hold = true;
+      window.__stems.hold = true;
+    });
+    const { dialog, group } = await toEngines(app);
+    await group.getByRole("radio", { name: "HTDemucs" }).check();
+    await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
+    await dialog.getByRole("button", { name: "Download HTDemucs…" }).click();
+    const terms = dialog.getByTestId("stem-neural-setup");
+    await expect(terms).toContainText("Terms of HTDemucs");
+    const accept = terms.getByRole("button", { name: "Accept and download" });
+    await expect(accept).toBeDisabled();
+    await terms.getByRole("checkbox", { name: /I only use music I have the rights to/ }).check();
+    await accept.click();
+
+    const bar = dialog.getByRole("progressbar", { name: "Download progress" });
+    await expect(bar).toHaveAttribute("aria-valuenow", "50");
+    await expect(dialog.getByRole("button", { name: "Back" })).toBeDisabled();
+    await app.evaluate(() => window.__stemModels.release?.());
+    await expect(dialog.getByText("HTDemucs is on this computer.")).toBeVisible();
+    expect(await app.evaluate(() => window.__stemModels.downloads)).toEqual(["htdemucs"]);
+
+    await dialog.getByRole("button", { name: "Separate" }).click();
+    await expect(dialog.getByRole("progressbar", { name: "Separation progress" })).toBeVisible();
+    expect(await app.evaluate(() => window.__stems.requests)).toEqual([
+      {
+        path: SONG_PATH,
+        kinds: ["drums", "bass", "vocals"],
+        engine: "htdemucs",
+        strongDrums: false,
+      },
+    ]);
+    await app.evaluate(() => window.__stems.release?.());
+    await expect(app.getByText(/HTDemucs engine/)).toBeVisible();
+  });
+
+  test("stops a download and goes back to the terms", async ({ app }) => {
+    await app.evaluate(() => (window.__stemModels.hold = true));
+    const { dialog, group } = await toEngines(app);
+    await group.getByRole("radio", { name: "SCNet XL" }).check();
+    await dialog.getByRole("button", { name: "Download SCNet XL…" }).click();
+    await dialog.getByRole("checkbox", { name: /I only use music/ }).check();
+    await dialog.getByRole("button", { name: "Accept and download" }).click();
+    await dialog.getByRole("button", { name: "Cancel download" }).click();
+    await expect(dialog.getByRole("button", { name: "Accept and download" })).toBeVisible();
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+    expect(await app.evaluate(() => window.__stemModels.cancelled)).toBe(1);
+    await dialog.getByRole("button", { name: "Not now" }).click();
+    await expect(group.getByRole("radio", { name: "SCNet XL" })).toBeChecked();
+    await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
+  });
+
+  test("cannot download a model that is not published yet", async ({ app }) => {
+    await app.evaluate(() => (window.__stemModels.models["scnet-xl"].available = false));
+    const { dialog, group } = await toEngines(app);
+    await group.getByRole("radio", { name: "SCNet XL" }).check();
+    await expect(dialog.getByText(/SCNet XL is not published yet/)).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Download SCNet XL…" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
+  });
+
+  test("removes a model that is on this computer", async ({ app }) => {
+    await app.evaluate(() => {
+      Object.assign(window.__stemModels.models.scnet, { downloaded: true, termsAccepted: true });
+    });
+    const { dialog, group } = await toEngines(app);
+    await group.getByRole("radio", { name: "SCNet Small" }).check();
+    await expect(dialog.getByRole("button", { name: "Separate" })).toBeEnabled();
+    await dialog.getByRole("button", { name: "Remove SCNet Small from this computer" }).click();
+    await expect(dialog.getByRole("button", { name: "Download SCNet Small…" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
+    expect(await app.evaluate(() => window.__stemModels.removed)).toEqual(["scnet"]);
+  });
+
   test("closes the dialog with Escape and offers it again", async ({ app }) => {
     const dialog = await openDialog(app);
     await app.keyboard.press("Escape");
@@ -295,6 +403,33 @@ test.describe("Stem separation (#186)", () => {
     });
 
     for (const width of [1280, 375]) {
+      test(`has no WCAG violations in the engine cards and terms at ${width} px in ${colorScheme} mode`, async ({
+        app,
+      }) => {
+        await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await app.emulateMedia({ colorScheme });
+        await app.evaluate(() => {
+          window.__stemModels.models["scnet-xl"].available = false;
+          Object.assign(window.__stemModels.models.scnet, {
+            downloaded: true,
+            termsAccepted: true,
+          });
+        });
+        const { dialog, group } = await toEngines(app);
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        await group.getByRole("radio", { name: "HTDemucs" }).check();
+        await expect(dialog.getByRole("button", { name: "Download HTDemucs…" })).toBeVisible();
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        await group.getByRole("radio", { name: "SCNet XL" }).check();
+        await expect(dialog.getByRole("button", { name: "Download SCNet XL…" })).toBeDisabled();
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        await group.getByRole("radio", { name: "HTDemucs" }).check();
+        await dialog.getByRole("button", { name: "Download HTDemucs…" }).click();
+        await expect(dialog.getByTestId("stem-neural-setup")).toBeVisible();
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
+      });
+
       test(`has no WCAG violations on the page at ${width} px in ${colorScheme} mode`, async ({
         app,
       }) => {

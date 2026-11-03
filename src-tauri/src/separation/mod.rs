@@ -13,6 +13,7 @@ pub mod bass;
 pub mod detect;
 pub mod hpss;
 pub mod metrics;
+pub mod onnx;
 pub mod pipeline;
 pub mod stereo;
 pub mod stft;

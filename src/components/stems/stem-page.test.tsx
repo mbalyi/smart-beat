@@ -35,6 +35,21 @@ describe("Stem page: the song", () => {
     expect(onBack).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ["neural", "UMX-HQ"],
+    ["scnet", "SCNet Small"],
+    ["scnet-xl", "SCNet XL"],
+    ["htdemucs", "HTDemucs"],
+  ] as const)("names the %s engine as %s", (engine, label) => {
+    setup({
+      ...STEM_SONG,
+      engine,
+      stems: STEM_SONG.stems.filter((stem) => stem.kind !== "panned"),
+    });
+    expect(screen.getByText(new RegExp(`3:35 · ${label}\\s+engine · 4 parts`))).toBeInTheDocument();
+    expect(row("other")).not.toHaveTextContent("not separated");
+  });
+
   it("loads the stems and stops the sound when it closes", () => {
     const { player, createPlayer, unmount } = setup();
     expect(createPlayer).toHaveBeenCalledWith(STEM_SONG);

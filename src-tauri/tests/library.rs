@@ -273,7 +273,7 @@ fn imported_sounds_stay_on_this_computer() {
             "telemetry.rs",
             "recording/piano_model.rs",
             "recording/muscriptor_model.rs",
-            "stems/umx_model.rs",
+            "stems/model_files.rs",
             "audio/soundfonts.rs",
             "cloud/mod.rs",
             "cloud/oauth.rs",
@@ -328,6 +328,37 @@ fn imported_sounds_stay_on_this_computer() {
     assert!(
         !umx.contains(".post(") && !umx.contains(".put("),
         "umx_model.rs must only download"
+    );
+    // The SCNet and HTDemucs downloads (#186) have two fixed addresses: the public release of the
+    // SCNet Small ONNX export, and the `stem-models-v1` release of this project that holds the
+    // converted SCNet XL and HTDemucs files. They only GET, through the shared download code, and
+    // nothing the user separates is part of a request.
+    let models = std::fs::read_to_string(src.join("stems/models.rs")).unwrap();
+    let releases = [
+        "https://github.com/demixr/scnet-executorch/releases/download/v0.1.2/",
+        "https://github.com/mbalyi/smart-beat/releases/download/stem-models-v1/",
+    ];
+    let mut seen = 0;
+    for (index, _) in models.match_indices("https://") {
+        assert!(
+            releases.iter().any(|r| models[index..].starts_with(r)),
+            "unexpected URL in models.rs"
+        );
+        seen += 1;
+    }
+    assert!(seen >= 2, "models.rs lost its release addresses");
+    let files = std::fs::read_to_string(src.join("stems/model_files.rs")).unwrap();
+    assert!(
+        !files.contains("https://") && !files.contains("http://"),
+        "model_files.rs takes its address from the caller"
+    );
+    assert!(
+        !models.contains(".post(") && !models.contains(".put(") && !files.contains(".post("),
+        "models.rs and model_files.rs must only download"
+    );
+    assert!(
+        !files.contains(".put(") && !files.contains(".delete("),
+        "model_files.rs must only GET"
     );
     // The SoundFont downloads (#81) only GET, from the fixed catalogue addresses, over https.
     // Nothing the user types or imports is part of a request.

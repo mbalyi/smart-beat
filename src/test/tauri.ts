@@ -13,6 +13,8 @@ import {
   type MonitorParams,
   type Shortcut,
   type StemSong,
+  type StemModelId,
+  type StemModelStatus,
   type UmxStatus,
 } from "@/lib/tauri";
 
@@ -80,6 +82,27 @@ export const UMX_STATUS: UmxStatus = {
     "The code is MIT. The weights are listed as MIT, and were trained on MUSDB18-HQ, whose terms allow academic and educational use.",
 };
 
+/** A model of the `stem_model_*` commands before anything is downloaded. */
+export const stemModelStatus = (
+  model: StemModelId,
+  override: Partial<StemModelStatus> = {},
+): StemModelStatus => ({
+  model,
+  downloaded: false,
+  termsAccepted: false,
+  termsVersion: 1,
+  downloadBytes: { scnet: 52_271_228, "scnet-xl": 216_163_649, htdemucs: 176_589_623 }[model],
+  licence: `The terms of ${model}: the weights have no stated licence.`,
+  licenceSummary: "Weights without a stated licence.",
+  available: true,
+  ...override,
+});
+const freshStemModels = (): Record<StemModelId, StemModelStatus> => ({
+  scnet: stemModelStatus("scnet"),
+  "scnet-xl": stemModelStatus("scnet-xl"),
+  htdemucs: stemModelStatus("htdemucs"),
+});
+
 type CommandHandler = (args?: InvokeArgs) => unknown;
 type MockMonitor = { params: MonitorParams; device: string | null; channel: number | null };
 
@@ -127,6 +150,8 @@ export const backend = {
   stemSongs: [] as StemSong[],
   /** What `umx_model_status` returns. */
   umx: { ...UMX_STATUS } as UmxStatus,
+  /** What `stem_model_status` returns, by model. */
+  stemModels: freshStemModels(),
   /** The update the updater plugin finds, or `null` when this is the latest version. */
   update: null as { version: string; body?: string } | null,
   /** Makes `check` or the download fail with this message. */
@@ -175,6 +200,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.usage = { enabled: true, available: false, noticeSeen: true };
   backend.stemSongs = [];
   backend.umx = { ...UMX_STATUS };
+  backend.stemModels = freshStemModels();
   backend.update = null;
   backend.updateError = null;
   backend.updateBytes = 3000;
@@ -261,6 +287,16 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         case "umx_model_status":
           return backend.umx;
+        case "stem_model_cancel":
+          return null;
+        case "stem_model_accept_terms":
+          backend.stemModels[(args as { model: StemModelId }).model].termsAccepted = true;
+          return null;
+        case "stem_model_status":
+          return backend.stemModels[(args as { model: StemModelId }).model];
+        case "stem_model_remove":
+          backend.stemModels[(args as { model: StemModelId }).model].downloaded = false;
+          return null;
         case "get_usage_settings":
           return backend.usage;
         case "set_usage_settings": {

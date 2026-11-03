@@ -1,6 +1,7 @@
 import { LayersIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { engineLabel } from "@/components/stems/stem-engines";
 import { formatBytes, formatTime } from "@/components/stems/stem-labels";
 import { SectionKicker } from "@/components/section-kicker";
 import { Button } from "@/components/ui/button";
@@ -71,7 +72,7 @@ export function StemSongs({ onOpen }: { onOpen: (song: StemSong) => void }) {
                 <span className="truncate text-[17px] font-bold">{song.name}</span>
                 <span className="truncate text-sm text-muted-foreground">
                   {formatTime(song.durationSeconds)} · {song.stems.length} parts ·{" "}
-                  {song.engine === "neural" ? "Neural" : "Fast"} · {formatBytes(song.bytes)}
+                  {engineLabel(song.engine)} · {formatBytes(song.bytes)}
                 </span>
               </span>
             </button>

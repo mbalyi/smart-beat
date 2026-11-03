@@ -15,8 +15,14 @@ const SONG_PATH = "/Users/me/Music/neon-nights.mp3";
 
 type Props = ComponentProps<typeof StemDialog>;
 
-function setup(props: Partial<Props> = {}, overrides: Parameters<typeof mockTauri>[0] = {}) {
+/** `seed` changes the mocked backend, which `mockTauri` resets, before the dialog renders. */
+function setup(
+  props: Partial<Props> = {},
+  overrides: Parameters<typeof mockTauri>[0] = {},
+  seed?: () => void,
+) {
   const calls = mockTauri(overrides);
+  seed?.();
   const onOpenChange = vi.fn();
   const onSeparated = vi.fn();
   const base: Props = { open: true, onOpenChange, onSeparated, ...props };
@@ -33,6 +39,12 @@ async function toOptions(user: ReturnType<typeof setup>["user"], path = SONG_PAT
   await user.click(screen.getByRole("button", { name: "Choose a song…" }));
   await screen.findByTestId("stem-file-name");
   await user.click(screen.getByRole("button", { name: "Next" }));
+}
+
+/** The options step with the engine `name` chosen (the neural flag has to be on). */
+async function openEngine(user: ReturnType<typeof setup>["user"], name: string) {
+  await toOptions(user);
+  await user.click(screen.getByRole("radio", { name }));
 }
 
 const request = (calls: IpcCall[]) =>
@@ -182,7 +194,7 @@ describe("Stem separation dialog: step 2, the options", () => {
     const { user } = setup();
     await toOptions(user);
     expect(screen.queryByRole("radiogroup", { name: "Engine" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/neural/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/neural|HTDemucs|SCNet|UMX/i)).not.toBeInTheDocument();
   });
 });
 
@@ -260,36 +272,68 @@ describe("Stem separation dialog: step 3, the job", () => {
   });
 });
 
-describe("Stem separation dialog: the neural engine", () => {
+describe("Stem separation dialog: the engines", () => {
   beforeEach(() =>
     vi.mocked(isEnabled).mockImplementation((id) => id === "stem-separation-neural"),
   );
 
-  async function openNeural(user: ReturnType<typeof setup>["user"]) {
-    await toOptions(user);
-    await user.click(screen.getByRole("radio", { name: "Neural" }));
-  }
-
-  it("offers an engine choice, with Fast first and chosen", async () => {
+  it("lists the engines as cards, with Fast first and chosen", async () => {
     const { user } = setup();
     await toOptions(user);
     const group = screen.getByRole("radiogroup", { name: "Engine" });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((radio) => radio.getAttribute("value"))).toEqual([
+      "fast",
+      "htdemucs",
+      "scnet-xl",
+      "scnet",
+      "neural",
+    ]);
     expect(within(group).getByRole("radio", { name: "Fast" })).toBeChecked();
-    expect(within(group).getByRole("radio", { name: "Neural" })).not.toBeChecked();
+    expect(within(group).getByRole("radio", { name: "UMX-HQ" })).not.toBeChecked();
+  });
+
+  it("says what each model is best at, and recommends HTDemucs", async () => {
+    const { user } = setup();
+    await toOptions(user);
+    const card = (name: string) => screen.getByRole("radio", { name }).closest("label")!;
+    expect(card("HTDemucs")).toHaveTextContent("Recommended");
+    expect(card("HTDemucs")).toHaveTextContent("Best all-round choice");
+    expect(card("SCNet XL")).toHaveTextContent("Best for vocals");
+    expect(card("SCNet XL")).toHaveTextContent("a 4-minute song takes about 27 minutes");
+    expect(card("SCNet Small")).toHaveTextContent("lightest of the new models");
+    expect(card("UMX-HQ")).toHaveTextContent("better on drums and bass");
+    expect(screen.getAllByText("Recommended")).toHaveLength(1);
+    expect(screen.getByRole("radio", { name: "HTDemucs" })).toHaveAccessibleDescription(
+      /Recommended.*Best all-round choice/,
+    );
+  });
+
+  it("shows where each model stands on its card", async () => {
+    const { user } = setup({}, {}, () => {
+      backend.stemModels["scnet-xl"].available = false;
+      backend.stemModels.scnet.downloaded = true;
+      backend.stemModels.scnet.termsAccepted = true;
+    });
+    await toOptions(user);
+    const card = (name: string) => screen.getByRole("radio", { name }).closest("label")!;
+    await waitFor(() => expect(card("HTDemucs")).toHaveTextContent("Download 168 MB"));
+    expect(card("SCNet Small")).toHaveTextContent("On this computer");
+    expect(card("SCNet XL")).toHaveTextContent("Not published yet");
+    expect(card("UMX-HQ")).toHaveTextContent("Download 136 MB");
+    expect(card("Fast")).toHaveTextContent("Built in");
   });
 
   it("needs the download first and keeps Separate off until it is done", async () => {
     const { user } = setup();
-    await openNeural(user);
+    await openEngine(user, "UMX-HQ");
     expect(await screen.findByText(/one-time download of 136 MB/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
-    expect(screen.getByText(/The neural engine separates/)).toHaveTextContent(
-      "drums, bass, vocals and other",
-    );
+    expect(screen.getByText(/UMX-HQ separates/)).toHaveTextContent("drums, bass, vocals and other");
     expect(screen.queryByRole("group", { name: "Parts to separate" })).not.toBeInTheDocument();
   });
 
-  it("shows the terms, wants the rights confirmed, then downloads with progress", async () => {
+  it("shows the terms, wants the rights confirmed, then downloads UMX-HQ with progress", async () => {
     let release!: () => void;
     const { user, calls } = setup(
       {},
@@ -302,9 +346,10 @@ describe("Stem separation dialog: the neural engine", () => {
         },
       },
     );
-    await openNeural(user);
-    await user.click(await screen.findByRole("button", { name: "Download the neural model…" }));
+    await openEngine(user, "UMX-HQ");
+    await user.click(await screen.findByRole("button", { name: "Download UMX-HQ…" }));
     const setupPanel = screen.getByTestId("stem-neural-setup");
+    expect(setupPanel).toHaveTextContent("Terms of UMX-HQ");
     expect(setupPanel).toHaveTextContent("trained on MUSDB18-HQ");
     const accept = within(setupPanel).getByRole("button", { name: "Accept and download" });
     expect(accept).toBeDisabled();
@@ -320,23 +365,66 @@ describe("Stem separation dialog: the neural engine", () => {
     expect(screen.getByRole("button", { name: "Cancel download" })).toBeEnabled();
 
     await act(async () => release());
-    // The model is on this computer: Separate is on, with the neural request.
+    // The model is on this computer: Separate is on.
     await waitFor(() => expect(screen.getByRole("button", { name: "Separate" })).toBeEnabled());
-    expect(screen.getByText(/neural model is on this computer/)).toBeInTheDocument();
+    expect(screen.getByText("UMX-HQ is on this computer.")).toBeInTheDocument();
+  });
+
+  it("downloads HTDemucs through the model commands, with its own progress", async () => {
+    let release!: () => void;
+    const { user, calls } = setup(
+      {},
+      {
+        stem_model_download: async () => {
+          // Another model's progress is not this download's.
+          await emit("stem-model-download-progress", {
+            model: "scnet",
+            downloadedBytes: 90,
+            totalBytes: 100,
+          });
+          await emit("stem-model-download-progress", {
+            model: "htdemucs",
+            downloadedBytes: 25,
+            totalBytes: 100,
+          });
+          await new Promise<void>((resolve) => (release = resolve));
+          backend.stemModels.htdemucs.downloaded = true;
+          return null;
+        },
+      },
+    );
+    await openEngine(user, "HTDemucs");
+    expect(await screen.findByText(/one-time download of 168 MB/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Download HTDemucs…" }));
+    const setupPanel = screen.getByTestId("stem-neural-setup");
+    expect(setupPanel).toHaveTextContent("Terms of HTDemucs");
+    expect(setupPanel).toHaveTextContent("The terms of htdemucs");
+    await user.click(within(setupPanel).getByRole("checkbox", { name: /I only use music/ }));
+    await user.click(within(setupPanel).getByRole("button", { name: "Accept and download" }));
+
+    expect(calls).toContainEqual({ cmd: "stem_model_accept_terms", args: { model: "htdemucs" } });
+    expect(calls).toContainEqual({ cmd: "stem_model_download", args: { model: "htdemucs" } });
+    const bar = await screen.findByRole("progressbar", { name: "Download progress" });
+    await waitFor(() => expect(bar).toHaveAttribute("aria-valuenow", "25"));
+    expect(screen.getByText("Downloading HTDemucs…")).toBeInTheDocument();
+
+    await act(async () => release());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Separate" })).toBeEnabled());
+    expect(screen.getByText("HTDemucs is on this computer.")).toBeInTheDocument();
   });
 
   it("stops a download and goes back to the terms without an error", async () => {
     let stop!: (error: unknown) => void;
     const { user, calls } = setup(
       {},
-      { umx_model_download: () => new Promise((_resolve, reject) => (stop = reject)) },
+      { stem_model_download: () => new Promise((_resolve, reject) => (stop = reject)) },
     );
-    await openNeural(user);
-    await user.click(await screen.findByRole("button", { name: "Download the neural model…" }));
+    await openEngine(user, "SCNet XL");
+    await user.click(await screen.findByRole("button", { name: "Download SCNet XL…" }));
     await user.click(screen.getByRole("checkbox", { name: /I only use music/ }));
     await user.click(screen.getByRole("button", { name: "Accept and download" }));
     await user.click(await screen.findByRole("button", { name: "Cancel download" }));
-    expect(calls.some((call) => call.cmd === "umx_model_cancel")).toBe(true);
+    expect(calls.some((call) => call.cmd === "stem_model_cancel")).toBe(true);
     await act(async () => stop({ kind: "audio", message: "Download stopped." }));
     expect(await screen.findByRole("button", { name: "Accept and download" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -346,34 +434,79 @@ describe("Stem separation dialog: the neural engine", () => {
     const { user } = setup(
       {},
       {
-        umx_model_download: () => {
+        stem_model_download: () => {
           throw { kind: "network", message: "The download failed: no connection." };
         },
       },
     );
-    await openNeural(user);
-    await user.click(await screen.findByRole("button", { name: "Download the neural model…" }));
+    await openEngine(user, "SCNet Small");
+    await user.click(await screen.findByRole("button", { name: "Download SCNet Small…" }));
     await user.click(screen.getByRole("checkbox", { name: /I only use music/ }));
     await user.click(screen.getByRole("button", { name: "Accept and download" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The download failed");
   });
 
-  it("separates with the neural engine once the model is ready", async () => {
-    const job = heldSeparation();
-    const { user, calls } = setup(
+  it("cannot download a model that is not published yet", async () => {
+    const { user, calls } = setup({}, {}, () => {
+      backend.stemModels["scnet-xl"].available = false;
+    });
+    await openEngine(user, "SCNet XL");
+    expect(await screen.findByText(/SCNet XL is not published yet/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download SCNet XL…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
+    expect(calls.some((call) => call.cmd === "stem_model_download")).toBe(false);
+  });
+
+  it("says when a model's status cannot be read", async () => {
+    const { user } = setup(
       {},
       {
-        stems_separate: job.handler,
-        umx_model_status: () => ({ ...UMX_STATUS, downloaded: true, termsAccepted: true }),
+        stem_model_status: () => {
+          throw { kind: "io", message: "No data folder." };
+        },
       },
     );
-    await openNeural(user);
+    await openEngine(user, "HTDemucs");
+    expect(await screen.findByRole("status")).toHaveTextContent("No data folder.");
+    expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
+  });
+
+  it("removes a model from this computer", async () => {
+    const { user, calls } = setup({}, {}, () => {
+      backend.stemModels.htdemucs.downloaded = true;
+      backend.stemModels.htdemucs.termsAccepted = true;
+    });
+    await openEngine(user, "HTDemucs");
+    await user.click(
+      await screen.findByRole("button", { name: "Remove HTDemucs from this computer" }),
+    );
+    expect(calls).toContainEqual({ cmd: "stem_model_remove", args: { model: "htdemucs" } });
+    expect(await screen.findByRole("button", { name: "Download HTDemucs…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
+  });
+
+  it.each([
+    ["UMX-HQ", "neural"],
+    ["SCNet Small", "scnet"],
+    ["SCNet XL", "scnet-xl"],
+    ["HTDemucs", "htdemucs"],
+  ] as const)("separates with %s once it is ready, sending engine %s", async (name, engine) => {
+    const job = heldSeparation();
+    const { user, calls } = setup({}, { stems_separate: job.handler }, () => {
+      if (engine === "neural") {
+        backend.umx = { ...UMX_STATUS, downloaded: true, termsAccepted: true };
+      } else {
+        backend.stemModels[engine].downloaded = true;
+        backend.stemModels[engine].termsAccepted = true;
+      }
+    });
+    await openEngine(user, name);
     await waitFor(() => expect(screen.getByRole("button", { name: "Separate" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Separate" }));
     expect(request(calls)).toEqual({
       path: SONG_PATH,
       kinds: ["drums", "bass", "vocals"],
-      engine: "neural",
+      engine,
       strongDrums: false,
     });
   });
@@ -384,6 +517,20 @@ describe("Stem separation dialog: accessibility", () => {
     const { user } = setup();
     await expectNoA11yViolations(dialog());
     await toOptions(user);
+    await expectNoA11yViolations(dialog());
+  });
+
+  it("has no violations on the options step with the engine cards", async () => {
+    vi.mocked(isEnabled).mockImplementation((id) => id === "stem-separation-neural");
+    const { user } = setup({}, {}, () => {
+      backend.stemModels["scnet-xl"].available = false;
+      backend.stemModels.scnet.downloaded = true;
+      backend.stemModels.scnet.termsAccepted = true;
+    });
+    await openEngine(user, "HTDemucs");
+    await screen.findByRole("button", { name: "Download HTDemucs…" });
+    await expectNoA11yViolations(dialog());
+    await user.click(screen.getByRole("button", { name: "Download HTDemucs…" }));
     await expectNoA11yViolations(dialog());
   });
 

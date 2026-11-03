@@ -30,9 +30,9 @@ export function stemLimit(kind: StemKindId, engine: StemEngine): string {
     case "panned":
       return "Only what is hard-panned to one side. Mono files cannot be separated.";
     case "other":
-      return engine === "neural"
-        ? "Everything that is not drums, bass or vocals."
-        : "Everything that was not separated.";
+      return engine === "fast"
+        ? "Everything that was not separated."
+        : "Everything that is not drums, bass or vocals.";
   }
 }
 

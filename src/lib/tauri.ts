@@ -1359,18 +1359,23 @@ export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
 
 const STEMS_PROGRESS_EVENT = "stems-progress";
 const UMX_PROGRESS_EVENT = "umx-model-download-progress";
+const STEM_MODEL_PROGRESS_EVENT = "stem-model-download-progress";
 
 /** The parts a song is split into, in the order the page lists them. Mirrors `StemKind`. */
 export const STEM_KINDS = ["drums", "bass", "vocals", "panned", "other"] as const;
 export type StemKindId = (typeof STEM_KINDS)[number];
 
-/** Fast is signal processing and built in; Neural is the optional downloaded model. */
-export type StemEngine = "fast" | "neural";
+/**
+ * Fast is signal processing and built in. The others are optional downloaded models: `neural` is
+ * Open-Unmix UMX-HQ (the first one offered, so its id stayed), then SCNet Small, SCNet XL and
+ * HTDemucs. Mirrors `StemEngine` in `src-tauri/src/stems/mod.rs`.
+ */
+export type StemEngine = "fast" | "neural" | "scnet" | "scnet-xl" | "htdemucs";
 
 /** Mirrors `SeparateRequest` in `src-tauri/src/stems/mod.rs`. */
 export interface SeparateRequest {
   path: string;
-  /** The parts to pull out; "other" is always made. Neural ignores this and `strongDrums`. */
+  /** The parts to pull out; "other" is always made. The neural engines ignore this and `strongDrums`. */
   kinds: StemKindId[];
   engine: StemEngine;
   strongDrums: boolean;
@@ -1529,3 +1534,62 @@ export async function cancelUmxDownload(): Promise<void> {
 }
 
 export const removeUmxModel = () => call<void>("umx_model_remove");
+
+// --- The SCNet and HTDemucs models (#186) ----------------------------------------------------
+
+/** The downloadable models that share the `stem_model_*` commands (UMX-HQ has its own). */
+export const STEM_MODELS = ["scnet", "scnet-xl", "htdemucs"] as const;
+export type StemModelId = (typeof STEM_MODELS)[number];
+
+/** Mirrors `ModelStatus` in `src-tauri/src/stems/models.rs`. */
+export interface StemModelStatus {
+  model: StemModelId;
+  downloaded: boolean;
+  termsAccepted: boolean;
+  termsVersion: number;
+  /** The size of the download, in bytes. */
+  downloadBytes: number;
+  /** The licence wording the user confirms. */
+  licence: string;
+  licenceSummary: string;
+  /** False while the converted model file is not published yet: the download is not offered. */
+  available: boolean;
+}
+
+export interface StemModelDownloadProgress {
+  model: StemModelId;
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
+export const stemModelStatus = (model: StemModelId) =>
+  call<StemModelStatus>("stem_model_status", { model });
+
+/** Records that the user accepted the terms of the model. */
+export const acceptStemModelTerms = (model: StemModelId) =>
+  call<void>("stem_model_accept_terms", { model });
+
+/** Downloads a model. Rejects with "Download stopped." after {@link cancelStemModelDownload}. */
+export async function downloadStemModel(
+  model: StemModelId,
+  onProgress?: (progress: StemModelDownloadProgress) => void,
+): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<StemModelDownloadProgress>(STEM_MODEL_PROGRESS_EVENT, (event) => {
+        if (event.payload.model === model) onProgress(event.payload);
+      })
+    : () => {};
+  try {
+    await invoke<void>("stem_model_download", { model });
+  } finally {
+    stopListening();
+  }
+}
+
+export async function cancelStemModelDownload(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("stem_model_cancel");
+}
+
+export const removeStemModel = (model: StemModelId) => call<void>("stem_model_remove", { model });

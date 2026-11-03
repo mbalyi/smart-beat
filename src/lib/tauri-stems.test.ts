@@ -1,22 +1,27 @@
 import { emit } from "@tauri-apps/api/event";
 
 import {
+  acceptStemModelTerms,
   acceptUmxTerms,
+  cancelStemModelDownload,
   cancelStemSeparation,
   cancelUmxDownload,
   clearStemSongs,
   deleteStemSong,
+  downloadStemModel,
   downloadUmxModel,
   isStemsStopped,
   listStemSongs,
   NotInDesktopAppError,
   pickStemFile,
   readStem,
+  removeStemModel,
   removeUmxModel,
   renderStemMix,
   separateStems,
   STEMS_STOPPED,
   stemCacheInfo,
+  stemModelStatus,
   umxModelStatus,
   type SeparateRequest,
   type StemProgress,
@@ -37,12 +42,15 @@ describe("stem separation outside the desktop app", () => {
     await expect(readStem("a", "drums")).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(renderStemMix("a", {}, 0.5)).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(umxModelStatus()).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(stemModelStatus("htdemucs")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(downloadStemModel("scnet")).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(pickStemFile()).rejects.toBeInstanceOf(NotInDesktopAppError);
   });
 
   it("has nothing to cancel", async () => {
     await expect(cancelStemSeparation()).resolves.toBeUndefined();
     await expect(cancelUmxDownload()).resolves.toBeUndefined();
+    await expect(cancelStemModelDownload()).resolves.toBeUndefined();
   });
 });
 
@@ -154,5 +162,58 @@ describe("the neural model commands", () => {
     await cancelUmxDownload();
     await removeUmxModel();
     expect(calls.map((call) => call.cmd)).toEqual(["umx_model_cancel", "umx_model_remove"]);
+  });
+});
+
+describe("the SCNet and HTDemucs model commands", () => {
+  it("reads the status of the model asked for and records its terms", async () => {
+    const calls = mockTauri();
+    await expect(stemModelStatus("htdemucs")).resolves.toMatchObject({
+      model: "htdemucs",
+      downloaded: false,
+      available: true,
+      downloadBytes: 176_589_623,
+    });
+    await acceptStemModelTerms("htdemucs");
+    expect((await stemModelStatus("htdemucs")).termsAccepted).toBe(true);
+    expect((await stemModelStatus("scnet")).termsAccepted).toBe(false);
+    expect(calls).toContainEqual({ cmd: "stem_model_accept_terms", args: { model: "htdemucs" } });
+  });
+
+  it("reports a model that is not published yet", async () => {
+    mockTauri({
+      stem_model_status: () => ({ ...backend.stemModels["scnet-xl"], available: false }),
+    });
+    await expect(stemModelStatus("scnet-xl")).resolves.toMatchObject({ available: false });
+  });
+
+  it("passes the model to the download and reports only its progress", async () => {
+    const calls = mockTauri({
+      stem_model_download: async () => {
+        await emit("stem-model-download-progress", {
+          model: "scnet",
+          downloadedBytes: 30,
+          totalBytes: 40,
+        });
+        await emit("stem-model-download-progress", {
+          model: "htdemucs",
+          downloadedBytes: 10,
+          totalBytes: 40,
+        });
+        return null;
+      },
+    });
+    const seen: unknown[] = [];
+    await downloadStemModel("htdemucs", (progress) => seen.push(progress));
+    expect(calls).toContainEqual({ cmd: "stem_model_download", args: { model: "htdemucs" } });
+    expect(seen).toEqual([{ model: "htdemucs", downloadedBytes: 10, totalBytes: 40 }]);
+  });
+
+  it("cancels the download and removes a model", async () => {
+    const calls = mockTauri({ stem_model_remove: () => null });
+    await cancelStemModelDownload();
+    await removeStemModel("scnet-xl");
+    expect(calls.map((call) => call.cmd)).toEqual(["stem_model_cancel", "stem_model_remove"]);
+    expect(calls[1]?.args).toEqual({ model: "scnet-xl" });
   });
 });

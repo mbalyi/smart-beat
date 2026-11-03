@@ -130,6 +130,70 @@
     abort: null,
     releaseRender: null,
   };
+  /**
+   * The downloadable stem models (#186, src-tauri/src/stems/umx_model.rs and models.rs), by
+   * engine: `neural` is UMX-HQ (its own `umx_model_*` commands), the rest use `stem_model_*`.
+   * `available: false` is a model that is not published yet. `hold` keeps a download running
+   * until `release()` or a cancel; `fail` makes it reject; `downloads` lists the started ones.
+   */
+  const STEM_MODEL_BYTES = {
+    neural: 142551184,
+    scnet: 52271228,
+    "scnet-xl": 216163649,
+    htdemucs: 176589623,
+  };
+  window.__stemModels = {
+    models: Object.fromEntries(
+      Object.entries(STEM_MODEL_BYTES).map(([engine, bytes]) => [
+        engine,
+        {
+          downloaded: false,
+          termsAccepted: false,
+          termsVersion: 1,
+          downloadBytes: bytes,
+          licence: `The terms of ${engine}: its weights have no stated licence.`,
+          licenceSummary: "Weights without a stated licence.",
+          available: true,
+        },
+      ]),
+    ),
+    downloads: [],
+    removed: [],
+    cancelled: 0,
+    hold: false,
+    fail: null,
+    release: null,
+    abort: null,
+  };
+  /** The status of a model as its command returns it (UMX-HQ has no `model` and no `available`). */
+  const stemModelStatus = (engine) => {
+    const { available, ...status } = window.__stemModels.models[engine];
+    return engine === "neural" ? status : { model: engine, available, ...status };
+  };
+  const stemModelDownload = async (engine) => {
+    const models = window.__stemModels;
+    models.downloads.push(engine);
+    const progress = (fraction) =>
+      window.__emitTauriEvent(
+        engine === "neural" ? "umx-model-download-progress" : "stem-model-download-progress",
+        {
+          ...(engine === "neural" ? {} : { model: engine }),
+          downloadedBytes: Math.round(STEM_MODEL_BYTES[engine] * fraction),
+          totalBytes: STEM_MODEL_BYTES[engine],
+        },
+      );
+    progress(0.5);
+    if (models.hold) {
+      await new Promise((resolve, reject) => {
+        models.release = resolve;
+        models.abort = () => reject({ kind: "audio", message: "Download stopped." });
+      });
+    }
+    if (models.fail) throw { kind: "network", message: models.fail };
+    progress(1);
+    models.models[engine].downloaded = true;
+    return null;
+  };
   /** A 16-bit stereo WAV of a quiet sine, as `stems_read` returns it. */
   const stemWav = (seconds, frequency) => {
     const rate = 8000;
@@ -891,6 +955,29 @@
         if (window.__pianoModel.fail) throw { kind: "audio", message: window.__pianoModel.fail };
         window.__pianoModel.installed = true;
         return null;
+      case "umx_model_status":
+        return stemModelStatus("neural");
+      case "stem_model_status":
+        return stemModelStatus(args.model);
+      case "umx_model_accept_terms":
+      case "stem_model_accept_terms":
+        window.__stemModels.models[args?.model ?? "neural"].termsAccepted = true;
+        return null;
+      case "umx_model_download":
+      case "stem_model_download":
+        return stemModelDownload(args?.model ?? "neural");
+      case "umx_model_cancel":
+      case "stem_model_cancel":
+        window.__stemModels.cancelled += 1;
+        window.__stemModels.abort?.();
+        return null;
+      case "umx_model_remove":
+      case "stem_model_remove": {
+        const engine = args?.model ?? "neural";
+        window.__stemModels.removed.push(engine);
+        window.__stemModels.models[engine].downloaded = false;
+        return null;
+      }
       case "stems_list":
         return window.__stems.songs;
       case "stems_delete":
