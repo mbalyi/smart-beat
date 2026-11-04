@@ -109,7 +109,7 @@ class HTDemucsCore(nn.Module):
         ct = model.crosstransformer
         # precomputed positional embeddings (sizes fixed by the 7.8 s segment)
         from demucs.transformer import create_2d_sin_embedding, create_sin_embedding
-        C = 512
+        C = ct.norm_in.normalized_shape[0]      # 512 for htdemucs (384 -> 512 upsampler), 384 for htdemucs_6s (no upsampler)
         Fr_b, T1 = 8, TT
         T2 = 1344
         pe2 = create_2d_sin_embedding(C, Fr_b, T1, 'cpu', ct.max_period)        # 1,C,Fr,T1
@@ -149,11 +149,11 @@ class HTDemucsCore(nn.Module):
                 x = x + m.freq_emb_scale * self.freq_emb      # broadcast over time
             saved.append(x)
 
-        # bottleneck: 384 -> 512 -> cross transformer -> 384
+        # bottleneck: 384 -> (512 only for htdemucs; identity for htdemucs_6s) -> cross transformer -> 384
         b, c, f, t = x.shape
         x = rearrange(x, "b c f t-> b c (f t)")
-        x = m.channel_upsampler(x)
-        xt = m.channel_upsampler_t(xt)
+        x = getattr(m, 'channel_upsampler', nn.Identity())(x)
+        xt = getattr(m, 'channel_upsampler_t', nn.Identity())(xt)
         ct = m.crosstransformer
         x = rearrange(x, "b c (f t) -> b (t f) c", f=f)
         x = ct.norm_in(x)
@@ -172,9 +172,9 @@ class HTDemucsCore(nn.Module):
         x = rearrange(x, "b (t fr) c -> b c fr t", t=t)
         xt = rearrange(xt, "b t2 c -> b c t2")
         x = rearrange(x, "b c f t-> b c (f t)")
-        x = m.channel_downsampler(x)
+        x = getattr(m, 'channel_downsampler', nn.Identity())(x)
         x = rearrange(x, "b c (f t)-> b c f t", f=f)
-        xt = m.channel_downsampler_t(xt)
+        xt = getattr(m, 'channel_downsampler_t', nn.Identity())(xt)
 
         for idx, decode in enumerate(m.decoder):
             skip = saved.pop(-1)
@@ -270,13 +270,13 @@ def main():
     kw = pk['kwargs']
     print('kwargs bottom_channels', kw['bottom_channels'], 'dconv_mode', kw['dconv_mode'],
           'params', sum(p.numel() for p in model.parameters()))
-    # The wrapper has the 7.8 s segment, the 512-wide transformer and the 8 x 336 / 1344 token grids of
+    # The wrapper has the 7.8 s segment and the 8 x 336 / 1344 token grids of
     # htdemucs baked in (see HTDemucsCore). Stop here if this checkpoint differs, instead of
     # exporting a graph that is silently wrong.
     assert list(model.sources) == MODELS[MODEL][2], ('sources', model.sources)
     assert int(round(model.segment * model.samplerate)) == L, ('segment', model.segment, model.samplerate)
     dim = model.crosstransformer.norm_in.normalized_shape[0]
-    assert dim == 512, ('transformer width %d, the wrapper assumes 512: derive C/Fr_b/T2 from the model' % dim)
+    assert dim in (384, 512), ('transformer width %d: the wrapper derives C from it but was only checked for 384 and 512' % dim)
     print('model', MODEL, 'sources', list(model.sources), 'segment', model.segment, 'transformer width', dim)
     mix = test_signal()
     with torch.no_grad():

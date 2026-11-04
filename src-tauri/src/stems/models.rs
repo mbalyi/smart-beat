@@ -36,11 +36,11 @@ const HOSTED_BASE: &str = "https://github.com/mbalyi/smart-beat/releases/downloa
 /// from the app (the download then refuses) when a rights holder raises an obligation.
 const HOSTED: bool = true;
 
-/// The HTDemucs 6-source file (`htdemucs_6s_core.onnx`) is NOT converted or hosted yet. Until the
-/// owner has run `scripts/stem-models/htdemucs/run.sh export htdemucs_6s`, uploaded the result to
-/// the `stem-models-v1` release and put its real size and SHA-256 into [`HTDEMUCS_6S`], this is
-/// false: the engine is not offered in the dialog and the download refuses. Flip it to `true` in
-/// the same change that fills in `bytes` and `sha256`.
+/// The HTDemucs 6-source file (`htdemucs_6s_core.onnx`) is converted and its size and SHA-256 are
+/// pinned in [`HTDEMUCS_6S`], but it is not hosted yet. Until the owner has uploaded it to the
+/// `stem-models-v1` release (and accepted the weights' licence risk, `docs/licensing.md`), this is
+/// false: the engine is not offered in the dialog and the download refuses. Flip it to `true`
+/// once the asset is public.
 const HTDEMUCS_6S_PUBLISHED: bool = false;
 
 /// The public release of the SCNet Small ONNX export (demixr/scnet-executorch, tag v0.1.2).
@@ -148,8 +148,8 @@ pub const HTDEMUCS: Model = Model {
     licence_summary: "Code MIT; no licence is stated for the weights. Trained on MUSDB18-HQ and 800 private songs. The file is Smart Beat's conversion of the published checkpoint.",
 };
 
-/// HTDemucs 6-source. NOT PUBLISHED YET: `bytes` and `sha256` are placeholders (0 and empty), the
-/// real values only exist once the file has been converted (see [`HTDEMUCS_6S_PUBLISHED`]).
+/// HTDemucs 6-source. The file is converted and pinned, but NOT PUBLISHED YET: it is not an asset
+/// of the `stem-models-v1` release, so the engine stays off (see [`HTDEMUCS_6S_PUBLISHED`]).
 pub const HTDEMUCS_6S: Model = Model {
     id: ModelId::Htdemucs6s,
     label: "HTDemucs 6-source",
@@ -157,10 +157,9 @@ pub const HTDEMUCS_6S: Model = Model {
     base_url: HOSTED_BASE,
     file: Spec {
         name: "htdemucs_6s_core.onnx",
-        // TODO(owner): exact size of the converted file, in bytes.
-        bytes: 0,
-        // TODO(owner): SHA-256 of the converted file (`shasum -a 256`), 64 lower-case hex digits.
-        sha256: "",
+        // The converted file (scripts/stem-models/htdemucs/run.sh export htdemucs_6s).
+        bytes: 116_246_052,
+        sha256: "12157c74e9628fc210091b23e4f6bb53dc3a7c184efb794ad743e5456ec25979",
     },
     available: HTDEMUCS_6S_PUBLISHED && HOSTED,
     terms: HTDEMUCS_6S_TERMS,
@@ -637,8 +636,6 @@ mod tests {
                         .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
                 "pin the real SHA-256 first"
             );
-        } else {
-            assert_eq!((info.file.bytes, info.file.sha256), (0, ""));
         }
     }
 
