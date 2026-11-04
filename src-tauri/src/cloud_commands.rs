@@ -131,12 +131,21 @@ impl CloudState {
     /// A valid access token (refreshed when needed).
     fn token(&self, kind: ProviderKind) -> Result<String, CommandError> {
         let config = config_for(kind);
-        Session {
+        let result = Session {
             kind,
             config: &config,
             store: self.store.as_ref(),
         }
-        .token()
+        .token();
+        if matches!(&result, Err(e) if e.kind == ErrorKind::AuthExpired)
+            && matches!(self.store.load(kind), Ok(None))
+        {
+            // The keychain has no sign-in (it was removed or revoked): the list of connected
+            // accounts must not keep saying "connected", or Settings and the start screen
+            // would disagree.
+            self.linked.remove(kind);
+        }
+        result
     }
 }
 
@@ -918,6 +927,37 @@ mod tests {
 
     fn revision_of(state: &CloudState, item: &str) -> String {
         state.open_map().get(item).unwrap().revision.clone()
+    }
+
+    #[test]
+    fn an_account_whose_sign_in_is_gone_from_the_keychain_is_no_longer_listed_as_connected() {
+        let dir = tempfile::tempdir().unwrap();
+        // The state the app was in: a list that says connected, and an empty keychain.
+        let s = CloudState::with_parts(
+            Box::new(MemoryStore::default()),
+            dir.path().join("pending"),
+            fake,
+        );
+        s.linked.set(ProviderKind::Drive, "me@example.com");
+        assert_eq!(
+            accounts(&s)[0].account.as_deref(),
+            Some("me@example.com"),
+            "before the first use the list is all the app knows"
+        );
+        let error = list(&s, ProviderKind::Drive).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::AuthExpired);
+        // Settings and the start screen now agree: not connected.
+        assert_eq!(accounts(&s)[0].account, None);
+    }
+
+    #[test]
+    fn a_connected_account_stays_listed_when_only_the_listing_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = state(dir.path());
+        s.linked.set(ProviderKind::Drive, "me@example.com");
+        // A valid sign-in stays connected: the token is found, whatever the provider answers.
+        let _ = s.token(ProviderKind::Drive);
+        assert_eq!(accounts(&s)[0].account.as_deref(), Some("me@example.com"));
     }
 
     #[test]
