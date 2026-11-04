@@ -67,8 +67,9 @@ The macOS and Windows buttons start the download of the newest release's install
   <tr>
     <td valign="top" width="33%">
       <img src="src/assets/features/stem-separation.png" alt="Stem separation" width="100%">
-      <p><b>🟣 Coming soon</b></p>
-      <p>Detect the instruments in any song and mute or solo each track. Perfect for covers, remixes and practice.</p>
+      <p><b>🟣 Beta</b></p>
+      <p>Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Save the stems to a file or your cloud folder and open them again later. Perfect for covers and practice.</p>
+      <p><sub>* Limitations: see <a href="#stem-separation-beta">Stem separation (beta)</a> under More about the features, below.</sub></p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/practice-together.png" alt="Practice together" width="100%">
@@ -137,11 +138,25 @@ A heartfelt thank you to the maintainers whose work makes Smart Beat possible. M
   <a href="https://github.com/Yujia-Yan/Transkun" title="The high-accuracy piano model of Record to tab, which turns piano audio into notes."><img alt="Transkun" src="https://img.shields.io/badge/-Transkun-2b2b2b?style=for-the-badge"></a>
 </p>
 
+#### Stem separation (beta)
+
+Stem separation is a beta feature. It runs on your computer (nothing is uploaded), and it gives you a practice aid, not a studio-clean split.
+
+- **Start it** from the start screen (**Stem separation**) or the **+** in the tab bar of a stem page: choose a song (MP3, WAV, FLAC, OGG, AIFF and more), the engine and the parts, and watch the progress. Several separations stay open as tabs next to your songs.
+- **The page** has the same header as an open song: New, Open and Save, the play control and the song's name, length, engine and tempo. Below it: the position, loop, speed (50–100 %, pitch kept), metronome and count-in, then one row per part with mute, solo, volume and a waveform you can drag a loop on.
+- **Tempo and metronome:** the page measures the beats per minute (and, for large lasting changes, the tempo of each section), and the metronome clicks along. The tempo can be off by a half, a double or a 4:3 ratio: the tempo menu offers those, halving, doubling, tapping and typing it.
+- **Engines:** the built-in **Fast** engine (signal processing, about 2 seconds for a song, drums, bass, vocals and panned parts) needs no download. The neural engines are optional downloads, each with its terms shown first: **UMX-HQ** (4 × 35.6 MB), **SCNet Small** (52 MB), **SCNet XL** (216 MB, the best vocals, slow), **HTDemucs** (176 MB, the general recommendation) and **HTDemucs 6-part** (116 MB, adds guitar and piano). **AI › Stem Separation Models** installs and deletes them.
+- **Guitar and piano** come from the experimental HTDemucs 6-part engine: guitar is the weaker of the main parts and piano the weakest. Distorted guitar can leak into the rest.
+- **Measured on a synthetic band** (exact truth): muting a part lowers it by about 4–8 dB with the Fast engine and 8–17 dB with UMX-HQ, which is clearly quieter with audible leftovers, not gone. In signal-to-distortion terms the neural engines score about 4–11 dB (UMX-HQ), 12–21 dB (SCNet Small), 12–25 dB (SCNet XL) and 14–18 dB (HTDemucs). Real music scores lower, and the project has not listened to the stems. Details: [stem separation spike](docs/stem-separation-spike.md).
+- **Save and open:** **Save stems** writes a `.sbstems` file (with or without the original song, with a size estimate) to your computer or your cloud folder; **Open stems** brings it back without separating again. See [file formats](docs/file-formats.md#saved-stems-sbstems).
+
 Special thanks to **[alphaTab](https://alphatab.net/)** ([source](https://github.com/CoderLine/alphaTab), MPL-2.0), the heart of Smart Beat: this project would not exist without it. If you like what Smart Beat does with scores, please give alphaTab a star, try it in your own project, and thank its maintainer, [Danielku15](https://github.com/Danielku15), and the contributors. alphaTab's logo and the RustAudio logo are shown with the maintainers' permission. Smart Beat is independent and is not affiliated with or endorsed by alphaTab or any of these projects. Record to tab listens with **[Basic Pitch](https://github.com/spotify/basic-pitch)** (Spotify, Apache-2.0) and, for the high-accuracy piano mode, **[Transkun](https://github.com/Yujia-Yan/Transkun)** by Yujia Yan (MIT): thank you both for sharing your work openly. All notices are in Help › Open-Source Licenses.
 
 ## Optional add-ons you download yourself
 
 **[MuScriptor](https://huggingface.co/MuScriptor)** by **[Kyutai](https://kyutai.org/)** and **[Mirelo](https://mirelo.ai/)** powers the AI mode of Record to tab and Import from Audio. It is **not part of Smart Beat**: you download it once from inside the app (the weights come straight from the [GGUF mirror](https://huggingface.co/DamRsn/muscriptor-gguf) on Hugging Face, converted to float16 without retraining by DamRsn, and run with [muscriptor.cpp](https://github.com/DamRsn/muscriptor.cpp), MIT), accept its terms on the [official model card](https://huggingface.co/MuScriptor/muscriptor-medium) and confirm that you only use music you have the rights to. The weights are licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): **non-commercial use only**. Transcription runs on your computer; your recordings never leave it. More: [online demo](https://muscriptor.kyutai.org/) (runs on Kyutai's servers, not on your computer), [paper](https://arxiv.org/abs/2607.08168), [announcement](https://kyutai.org/blog/2026-07-10-muscriptor/), [reference code](https://github.com/muscriptor/muscriptor). Smart Beat is independent and is not affiliated with or endorsed by Kyutai or Mirelo (no logos of either are used).
+
+The **stem separation models** are not part of Smart Beat either. **[Open-Unmix](https://github.com/sigsep/open-unmix-pytorch)** UMX-HQ is fetched straight from [Zenodo](https://zenodo.org/records/3370489); **SCNet** ([starrytong/SCNet](https://github.com/starrytong/SCNet), MIT code) and **HTDemucs** and its 6-part variant ([Demucs](https://github.com/facebookresearch/demucs) by Meta, MIT code) are Smart Beat's conversions of the published checkpoints, hosted as assets of the [`stem-models-v1`](https://github.com/mbalyi/smart-beat/releases/tag/stem-models-v1) pre-release of this repository. You download each one from inside the app, accept its terms and confirm that you only use music you have the rights to. **The authors of the SCNet XL and Demucs weights state no licence, and the models were trained on MUSDB18-HQ, whose terms say educational use only**, so use them for the free app only; the open questions and the removal commitment are in [`docs/licensing.md`](docs/licensing.md). Separation runs on your computer; your songs never leave it. Smart Beat is independent and is not affiliated with or endorsed by the authors of these models.
 
 ## Sponsors
 
