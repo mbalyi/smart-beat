@@ -10,8 +10,8 @@
 //! only publish PyTorch files), hosted as assets of the `stem-models-v1` release of this
 //! project. While [`HOSTED`] is false those report `available: false` and refuse to download, and
 //! no request is made to their address. The 6-source file has its own switch,
-//! [`HTDEMUCS_6S_PUBLISHED`], which stays false until the file is converted, uploaded and its
-//! size and SHA-256 are filled in below (a test enforces that).
+//! [`HTDEMUCS_6S_PUBLISHED`], which may only be true while its real size and SHA-256 are filled in
+//! below (a test enforces that).
 
 use super::model_files::{self, Spec};
 use super::umx_model::DownloadRun;
@@ -36,12 +36,11 @@ const HOSTED_BASE: &str = "https://github.com/mbalyi/smart-beat/releases/downloa
 /// from the app (the download then refuses) when a rights holder raises an obligation.
 const HOSTED: bool = true;
 
-/// The HTDemucs 6-source file (`htdemucs_6s_core.onnx`) is converted and its size and SHA-256 are
-/// pinned in [`HTDEMUCS_6S`], but it is not hosted yet. Until the owner has uploaded it to the
-/// `stem-models-v1` release (and accepted the weights' licence risk, `docs/licensing.md`), this is
-/// false: the engine is not offered in the dialog and the download refuses. Flip it to `true`
-/// once the asset is public.
-const HTDEMUCS_6S_PUBLISHED: bool = false;
+/// The HTDemucs 6-source file (`htdemucs_6s_core.onnx`) is hosted as an asset of the
+/// `stem-models-v1` release (2026-11-04, owner's go-ahead) and its size and SHA-256 are pinned in
+/// [`HTDEMUCS_6S`]. Set this to `false` to take the engine out of the dialog and make the
+/// download refuse, for example when a rights holder raises an obligation.
+const HTDEMUCS_6S_PUBLISHED: bool = true;
 
 /// The public release of the SCNet Small ONNX export (demixr/scnet-executorch, tag v0.1.2).
 const SCNET_BASE: &str = "https://github.com/demixr/scnet-executorch/releases/download/v0.1.2/";

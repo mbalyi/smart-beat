@@ -14,9 +14,9 @@ files are for the one-off conversion of PyTorch checkpoints that upstream only p
 | `htdemucs_core.onnx` (HTDemucs)                               | `htdemucs/export_htdemucs.py`                                                                  | 176,589,623  | `105da2c479af1f11e2f2057a9d5435f97b27b9f9d1d7c728390bf0a8ab5107ee` |
 | `htdemucs_6s_core.onnx` (HTDemucs 6-source, guitar and piano) | `htdemucs/export_htdemucs.py ... htdemucs_6s`                                                  | 116,246,052  | `12157c74e9628fc210091b23e4f6bb53dc3a7c184efb794ad743e5456ec25979` |
 
-The two exported files above are hosted as assets of the pre-release
+The three exported files above are hosted as assets of the pre-release
 [`stem-models-v1`](https://github.com/mbalyi/smart-beat/releases/tag/stem-models-v1) (owner's
-decision, 2026-11-03). If an obligation arises they are removed immediately (see
+decision, 2026-11-03; 2026-11-04 for the 6-source file). If an obligation arises they are removed immediately (see
 `docs/licensing.md`).
 
 ## Input checkpoints
