@@ -1883,20 +1883,25 @@ mod tests {
         let target = folder.join("Away.sbstems");
         std::fs::write(folder.join(".Away.sbstems.icloud"), b"plist").unwrap();
         let waited = std::cell::Cell::new(0);
+        let download = std::cell::RefCell::new(None);
         crate::cloud_folder::wait_if_evicted(
             &target,
             std::time::Duration::from_secs(5),
             |_| {
                 let (from, to) = (made.clone(), target.clone());
-                std::thread::spawn(move || {
+                *download.borrow_mut() = Some(std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     std::fs::copy(from, to).unwrap();
-                });
+                }));
             },
             || waited.set(waited.get() + 1),
         )
         .unwrap();
         assert_eq!(waited.get(), 1);
+        // The wait ends when the file shows up, while the "download" may still be writing it. A
+        // real client is done when its placeholder goes; here Windows would refuse the open
+        // (a sharing violation) until the copy has finished, so wait for the copy.
+        download.take().unwrap().join().unwrap();
         let fresh = StemStore::new(dir.path().join("fresh"));
         let opened = open_ok(&fresh, &target);
         assert_eq!(opened.id, ID);
