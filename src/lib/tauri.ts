@@ -1542,7 +1542,11 @@ export interface SaveBundleResult {
 }
 
 export interface BundleProgress {
-  stage: "writing" | "reading";
+  /**
+   * Writing and reading are the file on this computer; a save to an account also uploads it, and
+   * an open from one downloads it first.
+   */
+  stage: "writing" | "reading" | "uploading" | "downloading";
   /** 0 to 1 within the stage. */
   fraction: number;
 }
@@ -1613,6 +1617,77 @@ export async function openStemBundle(
 ): Promise<StemSong> {
   if (!isTauri()) throw new NotInDesktopAppError();
   return withBundleProgress(onProgress, () => invoke<StemSong>("stems_open_bundle", { path }));
+}
+
+/** The cloud services the stems can be saved to, as in `CloudProvider` of `@/lib/cloud`. */
+export type StemCloudProvider = "drive" | "onedrive" | "dropbox";
+
+/** A `.sbstems` file in a connected account (Rust `RemoteFile`). `id` is the item id (`drive:<id>`). */
+export interface CloudStemFile {
+  id: string;
+  name: string;
+  revision: string;
+  size: number;
+  modified_ms: number;
+}
+
+/** Mirrors `StemCloudSaveRequest` in `src-tauri/src/stems`. */
+export interface StemCloudSaveRequest {
+  /** The song in the library. */
+  id: string;
+  provider: StemCloudProvider;
+  /** Add the song itself, so the file works on its own. */
+  includeOriginal: boolean;
+}
+
+/** What a save to an account answers; `item` is its item id (`drive:<id>`). */
+export interface StemCloudSaveResult {
+  item: string;
+  /** The file name the service has, `<song>.sbstems`. */
+  name: string;
+  provider: StemCloudProvider;
+  bytes: number;
+  /** False when the original was asked for but could not be added. */
+  originalIncluded: boolean;
+}
+
+/** Mirrors `STOPPED` in `src-tauri/src/stems/bundle.rs`: what a save or open ends with after Cancel. */
+const STEM_FILE_STOPPED = "Stem file stopped.";
+
+/** The error of a save or open that the person stopped, which is not a failure to report. */
+export const isStemFileStopped = (error: unknown) =>
+  isCommandError(error) && error.message === STEM_FILE_STOPPED;
+
+/** The saved stems (`.sbstems` files only) in a connected account's Smart Beat folder, newest first. */
+export const listCloudStemFiles = (provider: StemCloudProvider) =>
+  call<CloudStemFile[]>("cloud_list_stems", { provider });
+
+/**
+ * Saves a separated song into a connected account: the file is written here, then uploaded.
+ * Progress is `writing` (making the file) and then `uploading`. `cancelStemSeparation` stops it.
+ */
+export async function saveStemBundleToCloud(
+  request: StemCloudSaveRequest,
+  onProgress?: (progress: BundleProgress) => void,
+): Promise<StemCloudSaveResult> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withBundleProgress(onProgress, () =>
+    invoke<StemCloudSaveResult>("stems_cloud_save", { request }),
+  );
+}
+
+/**
+ * Opens a `.sbstems` file of a connected account: downloaded, then read into the library. Progress
+ * is `downloading` and then `reading`. `cancelStemSeparation` stops it.
+ */
+export async function openStemBundleFromCloud(
+  item: string,
+  onProgress?: (progress: BundleProgress) => void,
+): Promise<StemSong> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withBundleProgress(onProgress, () =>
+    invoke<StemSong>("stems_cloud_open", { request: { item } }),
+  );
 }
 
 /**

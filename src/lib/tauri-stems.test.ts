@@ -12,12 +12,15 @@ import {
   downloadStemModel,
   downloadUmxModel,
   estimateStemBundle,
+  isStemFileStopped,
   isStemsStopped,
+  listCloudStemFiles,
   listCloudStems,
   listStemSongs,
   NotInDesktopAppError,
   onStemBundleOpened,
   openStemBundle,
+  openStemBundleFromCloud,
   pickStemBundle,
   pickStemBundleDestination,
   pickStemFile,
@@ -28,6 +31,7 @@ import {
   renderStemMix,
   revealInFolder,
   saveStemBundle,
+  saveStemBundleToCloud,
   separateStems,
   STEMS_STOPPED,
   stemCacheInfo,
@@ -429,5 +433,71 @@ describe("saved stems (.sbstems)", () => {
       cmd: "plugin:opener|reveal_item_in_dir",
       args: { paths: ["/Music/Neon.sbstems"] },
     });
+  });
+});
+
+describe("saved stems in a connected account", () => {
+  it("is not available outside the desktop app", async () => {
+    await expect(listCloudStemFiles("drive")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(
+      saveStemBundleToCloud({ id: "a", provider: "drive", includeOriginal: true }),
+    ).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(openStemBundleFromCloud("drive:a")).rejects.toBeInstanceOf(NotInDesktopAppError);
+  });
+
+  it("lists the stems files of one account", async () => {
+    const files = [{ id: "drive:a", name: "Neon.sbstems", revision: "r", size: 9, modified_ms: 1 }];
+    const calls = mockTauri({ cloud_list_stems: () => files });
+    await expect(listCloudStemFiles("drive")).resolves.toEqual(files);
+    expect(calls).toContainEqual({ cmd: "cloud_list_stems", args: { provider: "drive" } });
+  });
+
+  it("saves with the request as given and reports writing, then uploading", async () => {
+    const calls = mockTauri({
+      stems_cloud_save: async () => {
+        await emit("stems-bundle-progress", { stage: "writing", fraction: 1 });
+        await emit("stems-bundle-progress", { stage: "uploading", fraction: 0.5 });
+        return {
+          item: "dropbox:/Neon.sbstems",
+          name: "Neon.sbstems",
+          provider: "dropbox",
+          bytes: 9,
+          originalIncluded: true,
+        };
+      },
+    });
+    const seen: BundleProgress[] = [];
+    const request = { id: "abc", provider: "dropbox", includeOriginal: true } as const;
+    await expect(
+      saveStemBundleToCloud(request, (progress) => seen.push(progress)),
+    ).resolves.toMatchObject({ item: "dropbox:/Neon.sbstems", name: "Neon.sbstems" });
+    expect(calls).toContainEqual({ cmd: "stems_cloud_save", args: { request } });
+    expect(seen).toEqual([
+      { stage: "writing", fraction: 1 },
+      { stage: "uploading", fraction: 0.5 },
+    ]);
+  });
+
+  it("opens an item and returns its song, reporting the download", async () => {
+    const calls = mockTauri({
+      stems_cloud_open: async () => {
+        await emit("stems-bundle-progress", { stage: "downloading", fraction: 0.2 });
+        return { ...STEM_SONG, savedPath: "drive:abc" };
+      },
+    });
+    const seen: BundleProgress[] = [];
+    const opened = await openStemBundleFromCloud("drive:abc", (progress) => seen.push(progress));
+    expect(opened).toMatchObject({ id: STEM_SONG.id, savedPath: "drive:abc" });
+    expect(calls).toContainEqual({
+      cmd: "stems_cloud_open",
+      args: { request: { item: "drive:abc" } },
+    });
+    expect(seen).toEqual([{ stage: "downloading", fraction: 0.2 }]);
+  });
+
+  it("tells a stop from a failure", () => {
+    expect(isStemFileStopped({ kind: "io", message: "Stem file stopped." })).toBe(true);
+    expect(isStemFileStopped({ kind: "io", message: "Disk full." })).toBe(false);
+    expect(isStemFileStopped(new Error("Stem file stopped."))).toBe(false);
   });
 });

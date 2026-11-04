@@ -2,7 +2,9 @@ import { CheckIcon, CloudIcon, FolderOpenIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { DIALOG_NEON } from "@/components/ai/dialog-art";
+import { CloudProviderLogo } from "@/components/cloud-provider-logos";
 import { formatBytes } from "@/components/stems/stem-labels";
+import { useConnectedDrives } from "@/components/stems/use-connected-drives";
 import { ComputerCard, StorageCard, StorageGrid, TargetArt } from "@/components/target-cards";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,23 +16,35 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { CloudProvider } from "@/lib/cloud";
+import { cloudErrorText } from "@/lib/cloud-items";
 import { errorText } from "@/lib/errors";
 import {
+  cancelStemSeparation,
   estimateStemBundle,
   getCloudFolder,
   isCommandError,
+  isStemFileStopped,
   pickStemBundleDestination,
   revealInFolder,
   saveStemBundle,
+  saveStemBundleToCloud,
   stemsCloudSavePath,
+  type BundleProgress,
   type SaveBundleResult,
   type StemSong,
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 type Phase = "options" | "saving" | "done";
-/** Where the file goes: the linked cloud folder, or a place picked in the computer's dialog. */
+/**
+ * Where the file goes: the linked cloud folder, a place picked in the computer's dialog, or a
+ * connected account (uploaded by Smart Beat).
+ */
 type Place = "cloud" | "computer";
+
+/** A save to an account in progress or done: which one, and what it answered. */
+type DriveSave = { provider: CloudProvider; label: string };
 
 /** The last part of a folder path ("Dropbox" for `/Users/me/Dropbox`). */
 const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).pop() ?? folder;
@@ -42,8 +56,8 @@ const CLOUD_FOLDER_GONE =
 /**
  * Save stems (#186): writes a separated song to a `.sbstems` file that opens again on this or
  * another computer, with or without the original song. It works like Save As for songs: the
- * choice of where to save is a row of cards (this computer, the linked cloud folder), and
- * clicking one saves right away, so there is no footer.
+ * choice of where to save is a row of cards (this computer, the connected cloud accounts, the
+ * linked cloud folder), and clicking one saves right away, so there is no footer.
  */
 export function SaveStemsDialog({
   song,
@@ -107,8 +121,14 @@ function SaveFlow({
   const [phase, setPhase] = useState<Phase>("options");
   const [includeOriginal, setIncludeOriginal] = useState(available);
   const [fraction, setFraction] = useState(0);
+  const [stage, setStage] = useState<BundleProgress["stage"]>("writing");
   const [error, setError] = useState("");
   const [result, setResult] = useState<SaveBundleResult | null>(null);
+  // The connected accounts: undefined while they are being read.
+  const drives = useConnectedDrives();
+  // Set while a save to an account runs and after it: what the progress and the result say.
+  const [drive, setDrive] = useState<DriveSave | null>(null);
+  const [driveName, setDriveName] = useState("");
   // The linked cloud folder: undefined while it is being read, null when none is linked.
   const [folder, setFolder] = useState<string | null | undefined>(undefined);
   const [saved, setSaved] = useState<Place>("computer");
@@ -168,6 +188,7 @@ function SaveFlow({
       return;
     }
     if (!dest) return; // The native dialog was cancelled: nothing changes.
+    setDrive(null);
     setSaved(where);
     setFraction(0);
     setPhase("saving");
@@ -190,6 +211,43 @@ function SaveFlow({
     }
   };
 
+  /** Writes the file here and uploads it to a connected account. */
+  const saveToDrive = async (target: DriveSave) => {
+    setError("");
+    setDrive(target);
+    setStage("writing");
+    setFraction(0);
+    setPhase("saving");
+    onBusy(true);
+    try {
+      const saved = await saveStemBundleToCloud(
+        { id: song.id, provider: target.provider, includeOriginal: available && includeOriginal },
+        (progress) => {
+          if (!mounted.current) return;
+          setStage(progress.stage);
+          setFraction(progress.fraction);
+        },
+      );
+      onSaved?.(saved.item);
+      if (!mounted.current) return;
+      setDriveName(saved.name);
+      setResult({ path: saved.item, bytes: saved.bytes, originalIncluded: saved.originalIncluded });
+      setPhase("done");
+    } catch (cause) {
+      if (!mounted.current) return;
+      // Cancel is the person's own choice: back to the cards without an error.
+      setError(
+        isStemFileStopped(cause)
+          ? ""
+          : (cloudErrorText(cause, target.provider) ?? errorText(cause)),
+      );
+      setDrive(null);
+      setPhase("options");
+    } finally {
+      onBusy(false);
+    }
+  };
+
   return (
     <div className="relative isolate flex min-h-0 flex-1 flex-col overflow-y-auto">
       <TargetArt />
@@ -199,7 +257,7 @@ function SaveFlow({
           {phase === "options"
             ? `Keep “${song.name}” as one file you can open again here, or on another computer.`
             : phase === "saving"
-              ? `Saving “${song.name}”.`
+              ? `Saving “${song.name}”${drive ? ` to ${drive.label}` : ""}.`
               : `“${song.name}” is saved.`}
         </DialogDescription>
       </DialogHeader>
@@ -245,8 +303,25 @@ function SaveFlow({
               onClick={() => void save("computer")}
               testId="save-stems-computer"
             />
-            {folder !== undefined && (
-              <StorageGrid count={1}>
+            {folder !== undefined && drives !== undefined && (
+              <StorageGrid count={drives.length + (folder || drives.length === 0 ? 1 : 0)}>
+                {drives.map((item) => (
+                  <StorageCard
+                    key={item.provider}
+                    art={
+                      <CloudProviderLogo
+                        provider={item.provider}
+                        className="h-10 w-auto drop-shadow-md sm:h-12"
+                      />
+                    }
+                    verb="Save to"
+                    label={item.label}
+                    hint={item.account}
+                    describeHint
+                    onClick={() => void saveToDrive({ provider: item.provider, label: item.label })}
+                    testId={`save-stems-${item.provider}`}
+                  />
+                ))}
                 {folder ? (
                   <StorageCard
                     art={
@@ -260,32 +335,43 @@ function SaveFlow({
                     testId="save-stems-cloud"
                   />
                 ) : (
-                  <StorageCard
-                    art={
-                      <CloudIcon className="size-10 text-primary sm:size-12" aria-hidden="true" />
-                    }
-                    verb="Set up"
-                    label="Cloud storage"
-                    hint="Link a cloud folder in Settings to keep stems in your cloud."
-                    describeHint
-                    disabled={!onOpenCloudSettings}
-                    onClick={() => {
-                      onClose();
-                      onOpenCloudSettings?.();
-                    }}
-                    testId="save-stems-setup"
-                  />
+                  drives.length === 0 && (
+                    <StorageCard
+                      art={
+                        <CloudIcon className="size-10 text-primary sm:size-12" aria-hidden="true" />
+                      }
+                      verb="Set up"
+                      label="Cloud storage"
+                      hint="Connect an account or link a cloud folder in Settings."
+                      describeHint
+                      disabled={!onOpenCloudSettings}
+                      onClick={() => {
+                        onClose();
+                        onOpenCloudSettings?.();
+                      }}
+                      testId="save-stems-setup"
+                    />
+                  )
                 )}
               </StorageGrid>
             )}
           </>
         )}
-        {phase === "saving" && <SaveProgress fraction={fraction} />}
+        {phase === "saving" && (
+          <SaveProgress
+            fraction={fraction}
+            stage={stage}
+            drive={drive}
+            onCancel={drive ? () => void cancelStemSeparation().catch(() => {}) : undefined}
+          />
+        )}
         {phase === "done" && result && (
           <Saved
             result={result}
             wanted={wanted}
             inCloud={saved === "cloud"}
+            drive={drive}
+            driveName={driveName}
             onError={(cause) => setError(errorText(cause))}
           />
         )}
@@ -299,14 +385,35 @@ function SaveFlow({
   );
 }
 
-function SaveProgress({ fraction }: { fraction: number }) {
+function SaveProgress({
+  fraction,
+  stage,
+  drive,
+  onCancel,
+}: {
+  fraction: number;
+  stage: BundleProgress["stage"];
+  /** A save to an account: says what is being done, and can be stopped. */
+  drive: DriveSave | null;
+  onCancel?: () => void;
+}) {
   const percent = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
+  const text = !drive
+    ? "Saving the stems…"
+    : stage === "uploading"
+      ? `Uploading to ${drive.label}…`
+      : "Preparing the file…";
   return (
     <div
       role="status"
       className="flex flex-col gap-1.5 rounded-xl border bg-card/85 px-4 py-3 text-sm"
     >
-      <p className="font-semibold">Saving the stems…</p>
+      <p className="flex items-center gap-2 font-semibold">
+        {drive && (
+          <CloudProviderLogo provider={drive.provider} className="h-5 w-auto max-w-6 shrink-0" />
+        )}
+        {text}
+      </p>
       <div className="flex items-center gap-3">
         <div
           role="progressbar"
@@ -323,6 +430,11 @@ function SaveProgress({ fraction }: { fraction: number }) {
         </div>
         <span className="w-12 text-right font-semibold">{percent}%</span>
       </div>
+      {onCancel && (
+        <Button variant="outline" className="mt-1 self-start bg-card" onClick={onCancel}>
+          Cancel
+        </Button>
+      )}
     </div>
   );
 }
@@ -331,11 +443,16 @@ function Saved({
   result,
   wanted,
   inCloud,
+  drive,
+  driveName,
   onError,
 }: {
   result: SaveBundleResult;
   wanted: boolean;
   inCloud: boolean;
+  /** Set when the file went to a connected account: the result says where, not a path. */
+  drive: DriveSave | null;
+  driveName: string;
   onError: (cause: unknown) => void;
 }) {
   return (
@@ -345,12 +462,12 @@ function Saved({
     >
       <p className="flex items-center gap-2 font-semibold">
         <CheckIcon aria-hidden="true" className="size-4 text-primary" />
-        Saved
+        {drive ? `Saved in ${drive.label}` : "Saved"}
       </p>
       <p data-testid="save-stems-path" className="break-all text-muted-foreground">
-        {result.path}
+        {drive ? driveName : result.path}
       </p>
-      {inCloud && (
+      {inCloud && !drive && (
         <p className="text-muted-foreground">
           Saved in your cloud folder. Your drive app uploads it; Smart Beat does not upload
           anything.
@@ -361,14 +478,16 @@ function Saved({
           The original song could not be added, so the file holds only the stems.
         </p>
       )}
-      <Button
-        variant="outline"
-        className="mt-1 self-start bg-card"
-        onClick={() => revealInFolder(result.path).catch(onError)}
-      >
-        <FolderOpenIcon aria-hidden="true" data-icon="inline-start" />
-        Show in folder
-      </Button>
+      {!drive && (
+        <Button
+          variant="outline"
+          className="mt-1 self-start bg-card"
+          onClick={() => revealInFolder(result.path).catch(onError)}
+        >
+          <FolderOpenIcon aria-hidden="true" data-icon="inline-start" />
+          Show in folder
+        </Button>
+      )}
     </div>
   );
 }

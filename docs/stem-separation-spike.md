@@ -191,6 +191,8 @@ Not verified: Spleeter and RoFormer weights licences. UMX-HQ ships as an optiona
 
 A separation lives in the cache under the app's data folder, which is limited (2 GB) and can be cleared, so the stem page has **Save stems**. It writes one `.sbstems` file (a ZIP of FLAC stems, a manifest and optionally the original song) to a place the user picks, with a progress bar, and **Open saved stems** on the start screen reads it back into the library without separating again (about the time it takes to copy the files, not the minutes a separation takes). The cached copy is kept, so a song can be saved and also stay in the Recent grid with a "Saved" mark. The format, its versioning and the privacy rule (the original song is included only when the user ticks the box) are in [`file-formats.md`](file-formats.md#saved-stems-sbstems).
 
+The same file can also be saved to and opened from a connected Google Drive, OneDrive or Dropbox account (2026-11-04): the bundle goes through a temporary file and is sent or fetched in chunks, so nothing is held whole in memory. How it works and its limits: [file formats](file-formats.md#saved-stems-sbstems).
+
 ## Tempo detection
 
 The stem page shows the song's tempo and can drive a metronome from it. The detector (`src-tauri/src/separation/tempo.rs`, command `stems_detect_tempo`) uses no model and no new dependency; it reads the cached stems (the drums stem next to the sum of all stems, which is the original mix) and keeps the result in the song's `meta.json` (`tempo`, with the algorithm version, so a changed algorithm recomputes it).

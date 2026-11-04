@@ -128,6 +128,16 @@ impl CloudState {
         );
     }
 
+    /// The provider and a valid access token for it, for a transfer that is not a command of
+    /// this module (the stem files, #186). `AuthExpired` when the account is not connected.
+    pub(crate) fn session(
+        &self,
+        kind: ProviderKind,
+    ) -> Result<(Box<dyn Provider>, String), CommandError> {
+        let token = self.token(kind)?;
+        Ok(((self.make)(kind), token))
+    }
+
     /// A valid access token (refreshed when needed).
     fn token(&self, kind: ProviderKind) -> Result<String, CommandError> {
         let config = config_for(kind);
@@ -166,7 +176,7 @@ pub struct FlushResult {
     pub outcome: String,
 }
 
-fn parse_item(item: &str) -> Result<(ProviderKind, &str), CommandError> {
+pub(crate) fn parse_item(item: &str) -> Result<(ProviderKind, &str), CommandError> {
     cloud::parse_item_id(item)
         .ok_or_else(|| CommandError::new(ErrorKind::NotFound, "That is not a cloud file."))
 }
@@ -284,7 +294,14 @@ pub fn disconnect(state: &CloudState, kind: ProviderKind) -> Result<(), CommandE
     Ok(())
 }
 
-pub fn list(state: &CloudState, kind: ProviderKind) -> Result<Vec<RemoteFile>, CommandError> {
+/// Whether a file name is a saved stems file (`.sbstems`, any case). Those are listed by
+/// [`list_stems`] and never as tabs.
+pub fn is_stems_name(name: &str) -> bool {
+    cloud::is_stems_name(name)
+}
+
+/// Every file of the provider's Smart Beat folder, with item ids.
+fn list_all(state: &CloudState, kind: ProviderKind) -> Result<Vec<RemoteFile>, CommandError> {
     let token = state.token(kind)?;
     let mut files = (state.make)(kind).list(&token)?;
     // The app addresses a tab by its item id (`drive:<id>`), never by the provider's bare id:
@@ -292,6 +309,21 @@ pub fn list(state: &CloudState, kind: ProviderKind) -> Result<Vec<RemoteFile>, C
     for file in &mut files {
         file.id = cloud::item_id(kind, &file.id);
     }
+    Ok(files)
+}
+
+/// The tabs of a provider. Saved stems (`.sbstems`) share its folder but are not tabs.
+pub fn list(state: &CloudState, kind: ProviderKind) -> Result<Vec<RemoteFile>, CommandError> {
+    let mut files = list_all(state, kind)?;
+    files.retain(|file| !is_stems_name(&file.name));
+    Ok(files)
+}
+
+/// The saved stems (`.sbstems`) of a provider, newest first (#186).
+pub fn list_stems(state: &CloudState, kind: ProviderKind) -> Result<Vec<RemoteFile>, CommandError> {
+    let mut files = list_all(state, kind)?;
+    files.retain(|file| is_stems_name(&file.name));
+    files.sort_by_key(|file| std::cmp::Reverse(file.modified_ms));
     Ok(files)
 }
 
@@ -717,6 +749,15 @@ pub fn cloud_list(
     list(&state, provider)
 }
 
+/// The saved stems (`.sbstems`) in a provider's Smart Beat folder, newest first (#186).
+#[tauri::command(async)]
+pub fn cloud_list_stems(
+    state: tauri::State<'_, CloudState>,
+    provider: ProviderKind,
+) -> Result<Vec<RemoteFile>, CommandError> {
+    list_stems(&state, provider)
+}
+
 #[tauri::command(async)]
 pub fn cloud_read(
     state: tauri::State<'_, CloudState>,
@@ -927,6 +968,108 @@ mod tests {
 
     fn revision_of(state: &CloudState, item: &str) -> String {
         state.open_map().get(item).unwrap().revision.clone()
+    }
+
+    /// A provider whose folder holds tabs and saved stems, in no particular order.
+    struct Mixed;
+
+    impl Provider for Mixed {
+        fn kind(&self) -> ProviderKind {
+            ProviderKind::Drive
+        }
+        fn account_name(&self, _: &str) -> Result<String, CommandError> {
+            Ok("me".into())
+        }
+        fn list(&self, _: &str) -> Result<Vec<RemoteFile>, CommandError> {
+            let at = |id: &str, name: &str, modified_ms: u64| RemoteFile {
+                id: id.into(),
+                name: name.into(),
+                revision: "r".into(),
+                size: 3,
+                modified_ms,
+            };
+            Ok(vec![
+                at("1", "riff.gp", 50),
+                at("2", "Old.sbstems", 10),
+                at("3", "solo.GP5", 40),
+                at("4", "New.SBSTEMS", 30),
+                at("5", "Middle.sbstems", 20),
+            ])
+        }
+        fn metadata(&self, _: &str, _: &str) -> Result<RemoteFile, CommandError> {
+            Err(CommandError::new(ErrorKind::NotFound, "unused"))
+        }
+        fn read(&self, _: &str, _: &str) -> Result<(Vec<u8>, RemoteFile), CommandError> {
+            Err(CommandError::new(ErrorKind::NotFound, "unused"))
+        }
+        fn write_if_revision(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &[u8],
+        ) -> Result<RemoteFile, CommandError> {
+            Err(CommandError::new(ErrorKind::NotFound, "unused"))
+        }
+        fn create(&self, _: &str, _: &str, _: &[u8]) -> Result<RemoteFile, CommandError> {
+            Err(CommandError::new(ErrorKind::NotFound, "unused"))
+        }
+        fn revoke(&self, _: &str) -> Result<(), CommandError> {
+            Ok(())
+        }
+    }
+
+    fn mixed_state(dir: &Path) -> CloudState {
+        let store = MemoryStore::default();
+        store
+            .save(
+                ProviderKind::Drive,
+                &Tokens {
+                    access_token: "at".into(),
+                    refresh_token: None,
+                    expires_at: 0,
+                    account: "me".into(),
+                },
+            )
+            .unwrap();
+        CloudState::with_parts(Box::new(store), dir.join("pending"), |_| Box::new(Mixed))
+    }
+
+    #[test]
+    fn the_tab_list_leaves_out_saved_stems() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = mixed_state(dir.path());
+        let ids: Vec<String> = list(&s, ProviderKind::Drive)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.id)
+            .collect();
+        assert_eq!(ids, ["drive:1", "drive:3"]);
+    }
+
+    #[test]
+    fn the_stems_list_has_only_stems_newest_first_with_item_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = mixed_state(dir.path());
+        let files = list_stems(&s, ProviderKind::Drive).unwrap();
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["New.SBSTEMS", "Middle.sbstems", "Old.sbstems"]);
+        assert_eq!(files[0].id, "drive:4");
+        assert!(is_stems_name("a.SbStems") && !is_stems_name("a.gp") && !is_stems_name("sbstems"));
+    }
+
+    #[test]
+    fn listing_stems_without_a_sign_in_asks_to_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = CloudState::with_parts(
+            Box::new(MemoryStore::default()),
+            dir.path().join("pending"),
+            |_| Box::new(Mixed),
+        );
+        assert_eq!(
+            list_stems(&s, ProviderKind::Drive).unwrap_err().kind,
+            ErrorKind::AuthExpired
+        );
     }
 
     #[test]

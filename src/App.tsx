@@ -769,6 +769,14 @@ export function App() {
           setOpenStemsDialog(false);
           showDialog("settings", null, "cloud");
         }}
+        onOpenedSong={
+          openSavedStems
+            ? (opened) => {
+                setOpenStemsDialog(false);
+                addStemTab(opened);
+              }
+            : undefined
+        }
       />
       <AiInstallerDialog />
       <UpdateDialog updater={updater} />

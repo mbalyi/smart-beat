@@ -13,6 +13,7 @@ import {
   type MonitorParams,
   type Shortcut,
   type CloudStem,
+  type CloudStemFile,
   type StemSong,
   type StemTempo,
   type StemModelId,
@@ -149,6 +150,8 @@ export const backend = {
   cloudFolder: null as string | null,
   /** The `.sbstems` files `list_cloud_stems` returns (newest first). */
   cloudStems: [] as CloudStem[],
+  /** The `.sbstems` files `cloud_list_stems` returns for each connected account (newest first). */
+  driveStems: {} as Record<string, CloudStemFile[]>,
   /** What `cloud_accounts` returns (none connected by default). */
   cloudAccounts: [] as {
     provider: string;
@@ -311,6 +314,30 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           };
         case "cloud_accounts":
           return backend.cloudAccounts.map((a) => ({ configured: true, ...a }));
+        case "cloud_list_stems":
+          return backend.driveStems[(args as { provider: string }).provider] ?? [];
+        // Saving to an account: the file is named after the song, as the Rust command does.
+        case "stems_cloud_save": {
+          const { id, provider, includeOriginal } = (
+            args as {
+              request: { id: string; provider: string; includeOriginal: boolean };
+            }
+          ).request;
+          const name = backend.stemSongs.find((song) => song.id === id)?.name ?? STEM_SONG.name;
+          return {
+            item: `${provider}:1`,
+            name: `${name}.sbstems`,
+            provider,
+            bytes: 24_000_000,
+            originalIncluded: includeOriginal,
+          };
+        }
+        case "stems_cloud_open": {
+          const { item } = (args as { request: { item: string } }).request;
+          const opened = { ...backend.bundleSong, savedPath: item };
+          backend.stemSongs = [opened, ...backend.stemSongs.filter((s) => s.id !== opened.id)];
+          return opened;
+        }
         case "detect_cloud_folders":
         case "cloud_pending":
         case "cloud_flush":

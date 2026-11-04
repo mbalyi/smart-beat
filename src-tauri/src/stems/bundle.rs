@@ -159,7 +159,7 @@ fn io_fail(what: &str, e: impl std::fmt::Display) -> CommandError {
     fail(ErrorKind::Io, format!("{what}: {e}"))
 }
 
-fn stopped() -> CommandError {
+pub(crate) fn stopped() -> CommandError {
     fail(ErrorKind::Audio, STOPPED)
 }
 
@@ -896,10 +896,11 @@ pub fn read_state(path: &Path) -> Result<Option<Value>, CommandError> {
     Ok(bytes.and_then(|b| serde_json::from_slice(&b).ok()))
 }
 
+/// The payload of [`PROGRESS_EVENT`].
 #[derive(Clone, Copy, Serialize)]
-struct Progress {
-    stage: &'static str,
-    fraction: f32,
+pub(crate) struct Progress {
+    pub(crate) stage: &'static str,
+    pub(crate) fraction: f32,
 }
 
 /// Saves a cached song as a `.sbstems` file. Emits `stems-bundle-progress`

@@ -6,6 +6,19 @@ import { expect, expectNoA11yViolations, test } from "./fixtures";
 
 declare global {
   interface Window {
+    __drives: {
+      accounts: { provider: string; label: string; account: string | null }[];
+      stems: Record<
+        string,
+        { id: string; name: string; revision: string; size: number; modified_ms: number }[]
+      >;
+      listError: Record<string, unknown>;
+      saves: { id: string; provider: string; includeOriginal: boolean }[];
+      opens: string[];
+      hold: boolean;
+      fail: unknown;
+      release: (() => void) | null;
+    };
     __cloud: {
       folder: string | null;
       scores: unknown[];
@@ -158,7 +171,7 @@ test.describe("Stems in the cloud folder (#186)", () => {
     await expect(cloud(dialog)).toHaveCount(0);
     await expect(setUp(dialog)).toBeVisible();
     await expect(
-      dialog.getByText("Link a cloud folder in Settings to keep stems in your cloud."),
+      dialog.getByText("Connect an account or link a cloud folder in Settings."),
     ).toBeVisible();
     await computer(dialog).click();
     await expect(dialog.getByText(ELSEWHERE)).toBeVisible();
@@ -398,6 +411,192 @@ test.describe("Stems in the cloud folder (#186)", () => {
         expect(
           await app.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
         ).toBeLessThanOrEqual(0);
+      });
+    }
+  }
+});
+
+/**
+ * Stems in the connected cloud accounts (#186): the dialogs offer Google Drive, OneDrive and
+ * Dropbox when they are connected, as the tab dialogs do, with the commands mocked in
+ * e2e/tauri-mock.js (`cloud_accounts`, `cloud_list_stems`, `stems_cloud_save`, `stems_cloud_open`).
+ */
+test.describe("Stems in connected accounts (#186)", () => {
+  test.skip(!features["stem-separation"], "stem-separation is off in src/lib/features.json");
+
+  const ACCOUNTS = [
+    { provider: "drive", label: "Google Drive", account: "me@example.com" },
+    { provider: "onedrive", label: "OneDrive", account: "smart-beat@outlook.com" },
+    { provider: "dropbox", label: "Dropbox", account: null },
+  ];
+  const connect = (app: Page) =>
+    app.evaluate((accounts) => (window.__drives.accounts = accounts), ACCOUNTS);
+
+  async function separate(app: Page) {
+    await app.getByRole("button", { name: "Stem separation" }).click();
+    const dialog = app.getByRole("dialog", { name: "Stem separation" });
+    await app.evaluate((p) => (window.__dialogResult = p), SONG_PATH);
+    await dialog.getByRole("button", { name: "Choose a song" }).click();
+    await dialog.getByRole("button", { name: "Next" }).click();
+    await dialog.getByRole("radio", { name: "Fast" }).check();
+    await dialog.getByRole("button", { name: "Separate" }).click();
+    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
+  }
+
+  async function openSaveDialog(app: Page) {
+    await app.getByRole("button", { name: "Save stems" }).click();
+    const dialog = app.getByRole("dialog", { name: "Save stems" });
+    await expect(dialog).toBeVisible();
+    return dialog;
+  }
+
+  async function openOpenDialog(app: Page) {
+    await app.getByRole("button", { name: "Open stems" }).click();
+    const dialog = app.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Open saved stems" })).toBeVisible();
+    return dialog;
+  }
+
+  test("offers the connected accounts in the Save dialog and saves to one with progress", async ({
+    app,
+  }) => {
+    await connect(app);
+    await separate(app);
+    const dialog = await openSaveDialog(app);
+    await expect(dialog.getByRole("button", { name: "Save to Google Drive" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Save to OneDrive" })).toBeVisible();
+    // Dropbox is not connected, and with accounts there is nothing to set up.
+    await expect(dialog.getByRole("button", { name: "Save to Dropbox" })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Set up Cloud storage" })).toHaveCount(0);
+
+    await app.evaluate(() => (window.__drives.hold = true));
+    await dialog.getByRole("button", { name: "Save to Google Drive" }).click();
+    await expect(dialog.getByText("Uploading to Google Drive…")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible();
+    await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+
+    await app.evaluate(() => window.__drives.release?.());
+    await expect(dialog.getByText("Saved in Google Drive")).toBeVisible();
+    await expect(dialog.getByTestId("save-stems-path")).toHaveText("neon-nights.sbstems");
+    const saves = await app.evaluate(() => window.__drives.saves);
+    expect(saves).toEqual([{ id: expect.any(String), provider: "drive", includeOriginal: true }]);
+    await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+  });
+
+  test("stops an upload with Cancel and offers the cards again, without an error", async ({
+    app,
+  }) => {
+    await connect(app);
+    await separate(app);
+    const dialog = await openSaveDialog(app);
+    await app.evaluate(() => (window.__drives.hold = true));
+    await dialog.getByRole("button", { name: "Save to OneDrive" }).click();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog.getByRole("button", { name: "Save to OneDrive" })).toBeVisible();
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+  });
+
+  test("tells the person to reconnect when the sign-in ran out", async ({ app }) => {
+    await connect(app);
+    await separate(app);
+    const dialog = await openSaveDialog(app);
+    await app.evaluate(
+      () => (window.__drives.fail = { kind: "auth-expired", message: "The sign-in expired." }),
+    );
+    await dialog.getByRole("button", { name: "Save to Google Drive" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Reconnect Google Drive in Settings");
+    await expect(dialog.getByRole("button", { name: "Save to Google Drive" })).toBeEnabled();
+  });
+
+  test("lists an account's saved stems in the Open dialog and opens one with progress", async ({
+    app,
+  }) => {
+    await connect(app);
+    await separate(app);
+    const save = await openSaveDialog(app);
+    await save.getByRole("button", { name: "Save to Google Drive" }).click();
+    await expect(save.getByText("Saved in Google Drive")).toBeVisible();
+    await save.getByRole("button", { name: "Close" }).first().click();
+    await expect(save).toBeHidden();
+    // Forget the local copy: the song has to come from the account.
+    await app.evaluate(() => (window.__stems.songs = []));
+
+    const dialog = await openOpenDialog(app);
+    await expect(dialog.getByRole("button", { name: "Open from this computer" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Open from OneDrive" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Open from Google Drive" }).click();
+    const row = dialog.getByTestId("drive-stem");
+    await expect(row).toContainText("neon-nights");
+    await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+
+    await app.evaluate(() => (window.__drives.hold = true));
+    await row.click();
+    await expect(dialog.getByText("Downloading…")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible();
+    await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+
+    await app.evaluate(() => window.__drives.release?.());
+    await expect(dialog).toBeHidden();
+    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
+    expect(await app.evaluate(() => window.__drives.opens)).toHaveLength(1);
+  });
+
+  test("shows a failed listing as an alert and a reconnect hint", async ({ app }) => {
+    await connect(app);
+    await separate(app);
+    await app.evaluate(
+      () => (window.__drives.listError.onedrive = { kind: "auth-expired", message: "Signed out." }),
+    );
+    const dialog = await openOpenDialog(app);
+    await dialog.getByRole("button", { name: "Open from OneDrive" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Reconnect OneDrive in Settings");
+    await expect(dialog.getByRole("button", { name: "Retry" })).toBeVisible();
+  });
+
+  for (const width of [1280, 375]) {
+    for (const colorScheme of ["light", "dark"] as const) {
+      test(`has no WCAG violations in the Save dialog with account cards at ${width} px in ${colorScheme} mode`, async ({
+        app,
+      }) => {
+        await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await app.emulateMedia({ colorScheme });
+        await connect(app);
+        await app.evaluate((folder) => (window.__cloud.folder = folder), FOLDER);
+        await separate(app);
+        const dialog = await openSaveDialog(app);
+        await expect(dialog.getByRole("button", { name: "Save to Google Drive" })).toBeVisible();
+        await expect(
+          dialog.getByRole("button", { name: "Save to Cloud folder · Smart Beat" }),
+        ).toBeVisible();
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
+      });
+
+      test(`has no WCAG violations in the Open dialog with account cards and a list at ${width} px in ${colorScheme} mode`, async ({
+        app,
+      }) => {
+        await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await app.emulateMedia({ colorScheme });
+        await connect(app);
+        await app.evaluate(() => {
+          window.__drives.stems.drive = [
+            {
+              id: "drive:z",
+              name: "blue-moon.sbstems",
+              revision: "r",
+              size: 40 * 1024 * 1024,
+              modified_ms: 1790000000000,
+            },
+          ];
+        });
+        await separate(app);
+        const dialog = await openOpenDialog(app);
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        await dialog.getByRole("button", { name: "Open from Google Drive" }).click();
+        await expect(dialog.getByTestId("drive-stem")).toContainText("blue-moon");
+        await app.mouse.move(0, 0);
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
       });
     }
   }

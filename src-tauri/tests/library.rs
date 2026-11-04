@@ -253,7 +253,8 @@ fn imported_sounds_stay_on_this_computer() {
     // separation (src/stems/umx_model.rs, #186) and the SoundFont downloads
     // (src/audio/soundfonts.rs), and the cloud drive connectors the user links themselves in
     // Settings (src/cloud/: sign-in, and open/save of tabs in their own Google Drive, OneDrive or
-    // Dropbox; nothing is sent until an account is connected). Transcription runs on this
+    // Dropbox, and the large stems files of Stem separation, #186; nothing is sent until an
+    // account is connected). Transcription runs on this
     // computer and sends nothing.
     // No other client, no fs/http/shell permission, no remote host in the CSP. The updater
     // plugin makes its own request from Rust.
@@ -276,6 +277,7 @@ fn imported_sounds_stay_on_this_computer() {
             "stems/model_files.rs",
             "audio/soundfonts.rs",
             "cloud/mod.rs",
+            "cloud/transfer.rs",
             "cloud/oauth.rs",
             "cloud/google_drive.rs",
             "cloud/onedrive.rs",

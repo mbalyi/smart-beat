@@ -185,6 +185,36 @@
       window.__cloud.waiting[path]?.();
     },
   };
+  /**
+   * Stems in connected cloud accounts (#186). `accounts` is what `cloud_accounts` answers (none
+   * connected = none; an entry is `{ provider, label, account }`), `stems` the `.sbstems` files
+   * `cloud_list_stems` lists by provider (a save adds one; the song itself is kept in
+   * `window.__stemBundles.files` under its item id, so it can be opened again), `listError` makes
+   * a provider's listing reject, `saves` and `opens` are the requests, `hold` keeps a save or an
+   * open running until `release()` or a `stems_cancel` (which rejects as the Rust commands do),
+   * `fail` makes the next one reject with that error object.
+   */
+  window.__drives = {
+    accounts: [],
+    stems: {},
+    listError: {},
+    saves: [],
+    opens: [],
+    hold: false,
+    fail: null,
+    release: null,
+    abort: null,
+    counter: 0,
+  };
+  /** Waits while `window.__drives.hold` is set; a `stems_cancel` rejects it as the real ones do. */
+  const heldDriveTransfer = async () => {
+    const drives = window.__drives;
+    if (!drives.hold) return;
+    await new Promise((resolve, reject) => {
+      drives.release = resolve;
+      drives.abort = () => reject({ kind: "io", message: "Stem file stopped." });
+    });
+  };
   /** The `.sbstems` files in the linked folder, as `CloudStem` (`list_cloud_stems`). */
   const cloudStems = () => {
     const cloud = window.__cloud;
@@ -1134,6 +1164,67 @@
         ];
         return song;
       }
+      case "cloud_accounts":
+        return window.__drives.accounts.map((account) => ({ configured: true, ...account }));
+      case "cloud_list_stems": {
+        const drives = window.__drives;
+        if (drives.listError[args.provider]) throw drives.listError[args.provider];
+        return drives.stems[args.provider] ?? [];
+      }
+      case "stems_cloud_save": {
+        const drives = window.__drives;
+        const { id, provider, includeOriginal } = args.request;
+        drives.saves.push(args.request);
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "writing", fraction: 0.5 });
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "uploading", fraction: 0.4 });
+        await heldDriveTransfer();
+        if (drives.fail) {
+          const error = drives.fail;
+          drives.fail = null;
+          throw error;
+        }
+        const song = window.__stems.songs.find((item) => item.id === id);
+        if (!song) throw { kind: "audio", message: "These stems are no longer on this computer." };
+        const originalIncluded = Boolean(includeOriginal && song.hasOriginal);
+        const bytes = song.bytes + (originalIncluded ? 3 * 1024 * 1024 : 0);
+        const item = `${provider}:file-${(drives.counter += 1)}`;
+        const name = `${song.name}.sbstems`;
+        window.__stemBundles.files[item] = { ...song, hasOriginal: originalIncluded };
+        drives.stems[provider] = [
+          {
+            id: item,
+            name,
+            revision: "r1",
+            size: bytes,
+            modified_ms: (window.__stems.clock += 1000),
+          },
+          ...(drives.stems[provider] ?? []),
+        ];
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "uploading", fraction: 1 });
+        song.savedPath = item;
+        return { item, name, provider, bytes, originalIncluded };
+      }
+      case "stems_cloud_open": {
+        const drives = window.__drives;
+        const { item } = args.request;
+        drives.opens.push(item);
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "downloading", fraction: 0.3 });
+        await heldDriveTransfer();
+        if (drives.fail) {
+          const error = drives.fail;
+          drives.fail = null;
+          throw error;
+        }
+        const file = window.__stemBundles.files[item];
+        if (!file) throw { kind: "not-found", message: "This file could not be found." };
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "reading", fraction: 0.5 });
+        const song = { ...file, savedPath: item, lastOpened: (window.__stems.clock += 1000) };
+        window.__stems.songs = [
+          song,
+          ...window.__stems.songs.filter((existing) => existing.id !== song.id),
+        ];
+        return song;
+      }
       case "get_cloud_folder":
         return window.__cloud.folder;
       case "set_cloud_folder":
@@ -1178,6 +1269,7 @@
       case "stems_cancel":
         window.__stems.cancelled += 1;
         window.__stems.abort?.();
+        window.__drives.abort?.();
         return null;
       case "stems_separate": {
         const stems = window.__stems;

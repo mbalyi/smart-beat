@@ -56,16 +56,25 @@ vi.mock("@/components/stems/open-stems-dialog", () => ({
     onPickComputer,
     onOpenStem,
     onSetupCloud,
+    onOpenedSong,
   }: {
     open: boolean;
     onPickComputer: () => void;
     onOpenStem: (path: string) => void;
     onSetupCloud: () => void;
+    onOpenedSong?: (song: typeof STEM_SONG) => void;
   }) =>
     open ? (
       <div role="dialog" aria-label="Open stems dialog">
         <button onClick={onPickComputer}>Computer</button>
         <button onClick={() => onOpenStem("/Cloud/Picked.sbstems")}>Pick a cloud stem</button>
+        <button
+          onClick={() =>
+            onOpenedSong?.({ ...STEM_SONG, id: "cccccccccccccccc", name: "From Drive" })
+          }
+        >
+          Pick an account stem
+        </button>
         <button onClick={onSetupCloud}>Stems cloud setup</button>
       </div>
     ) : null,
@@ -1174,6 +1183,18 @@ describe("App: the stem page looks like a song (#186)", () => {
       cmd: "stems_open_bundle",
       args: { path: "/Cloud/Picked.sbstems" },
     });
+    expect(screen.queryByRole("dialog", { name: "Open stems dialog" })).not.toBeInTheDocument();
+  });
+
+  it("shows the stems opened from a connected account as a new tab and closes the dialog", async () => {
+    const { user } = await renderApp();
+    await openStem("First", "aaaaaaaaaaaaaaaa");
+    await user.click(screen.getByRole("button", { name: "Open stems" }));
+    await user.click(screen.getByRole("button", { name: "Pick an account stem" }));
+    expect(await within(stemTabs()).findByRole("button", { name: "From Drive" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
     expect(screen.queryByRole("dialog", { name: "Open stems dialog" })).not.toBeInTheDocument();
   });
 

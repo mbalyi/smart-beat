@@ -7,6 +7,8 @@ use std::path::Path;
 use std::sync::mpsc;
 
 use serde_json::{Value, json};
+use smart_beat_lib::cloud::keychain::MemoryStore;
+use smart_beat_lib::cloud_commands::{CloudState, provider_for};
 use smart_beat_lib::cloud_folder::CloudFolderStore;
 use smart_beat_lib::menu::MAIN_WINDOW;
 use smart_beat_lib::separation::synth;
@@ -1012,5 +1014,64 @@ fn an_online_only_stems_file_is_waited_for_before_it_opens() {
     assert_eq!(
         serde_json::from_str::<String>(&payloads[0]).unwrap(),
         target.to_string_lossy()
+    );
+}
+
+/// The cloud commands are registered and read their arguments in the shape the page sends. They
+/// stop before any account is asked (no keychain, no network): an unknown song, and an item that
+/// is not a cloud file.
+#[test]
+fn the_cloud_commands_are_registered_and_check_their_arguments_first() {
+    let dir = tempfile::tempdir().unwrap();
+    // No account is signed in (an empty store, not the real keychain) and nothing is reached.
+    let cloud = CloudState::with_parts(
+        Box::new(MemoryStore::default()),
+        dir.path().join("pending"),
+        provider_for,
+    );
+    let app = smart_beat_lib::setup(
+        mock_builder()
+            .manage(StemStore::new(dir.path().join("stems")))
+            .manage(cloud),
+    )
+    .build(mock_context(noop_assets()))
+    .expect("failed to build app");
+    let window = main_window(&app);
+
+    let err = json_of(
+        &window,
+        "stems_cloud_save",
+        json!({ "request": {
+            "id": "0123456789abcdef",
+            "provider": "drive",
+            "includeOriginal": false,
+            "state": { "speed": 1 },
+        }}),
+    )
+    .expect_err("an unknown song");
+    assert_eq!(err["kind"], "not-found", "{err}");
+    assert!(
+        err["message"].as_str().unwrap().contains("not saved"),
+        "{err}"
+    );
+
+    let err = json_of(
+        &window,
+        "stems_cloud_open",
+        json!({ "request": { "item": "/Users/me/a.sbstems" } }),
+    )
+    .expect_err("not a cloud file");
+    assert_eq!(err["kind"], "not-found", "{err}");
+
+    // A provider the app does not know is refused when the arguments are read.
+    let err = json_of(
+        &window,
+        "stems_cloud_save",
+        json!({ "request": { "id": "x", "provider": "box", "includeOriginal": false }}),
+    )
+    .expect_err("an unknown provider");
+    assert!(
+        err.to_string().contains("provider") || err.to_string().contains("variant"),
+        "{err}"
     );
 }

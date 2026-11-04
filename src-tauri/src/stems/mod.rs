@@ -12,6 +12,7 @@
 //! evicted.
 
 pub mod bundle;
+pub mod cloud;
 pub mod codec;
 pub mod mix;
 pub mod model_files;
