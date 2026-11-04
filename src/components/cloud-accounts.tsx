@@ -13,6 +13,7 @@ import {
   type CloudProvider,
   type PendingUpload,
 } from "@/lib/cloud";
+import { announceCloudChange } from "@/lib/cloud-changes";
 import { errorText } from "@/lib/errors";
 import { isCommandError, isTauri } from "@/lib/tauri";
 
@@ -82,6 +83,8 @@ export function CloudAccounts() {
     } finally {
       setBusy(null);
       await refresh();
+      // The start screen behind Settings shows these accounts' songs: it reads them again.
+      announceCloudChange();
     }
   };
 

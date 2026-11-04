@@ -7,6 +7,7 @@ import {
   storeAudioInput,
   storeAudioInputChannel,
 } from "@/lib/audio/input";
+import { onCloudChange } from "@/lib/cloud-changes";
 import { expectNoA11yViolations } from "@/test/axe";
 import { installMediaDevices } from "@/test/media-devices";
 import { renderWithProviders } from "@/test/render";
@@ -317,6 +318,26 @@ describe("SettingsDialog: cloud folder", () => {
       { folder: "/Users/me/Songs" },
       { folder: null },
     ]);
+  });
+
+  it("tells the start screen when the folder is linked or unlinked", async () => {
+    let folder: string | null = null;
+    mockTauri({
+      get_cloud_folder: () => folder,
+      set_cloud_folder: (args) => (folder = (args as { folder: string | null }).folder),
+      detect_cloud_folders: () => [{ provider: "Dropbox", path: "/Users/me/Dropbox" }],
+    });
+    const changed = vi.fn();
+    const stop = onCloudChange(changed);
+    const { user } = renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Use Dropbox" }));
+    await screen.findByText("/Users/me/Dropbox");
+    expect(changed).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Unlink" }));
+    await screen.findByText("No folder linked.");
+    expect(changed).toHaveBeenCalledTimes(2);
+    stop();
   });
 
   it("keeps the folder and says so when linking fails, and sends no path to usage stats", async () => {

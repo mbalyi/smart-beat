@@ -1,6 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 
+import { useCloudChanges } from "@/hooks/use-cloud-changes";
+
 import { errorText } from "@/lib/errors";
 import { getCloudFolder, isTauri, listCloudStems, type CloudStem } from "@/lib/tauri";
 
@@ -25,6 +27,8 @@ export function useCloudStemList(): {
   );
   const [downloading, setDownloading] = useState<ReadonlySet<string>>(new Set());
   const [attempt, setAttempt] = useState(0);
+  // Settings changed the folder while this list stayed open: read it again.
+  const changes = useCloudChanges();
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -44,7 +48,7 @@ export function useCloudStemList(): {
     return () => {
       active = false;
     };
-  }, [attempt]);
+  }, [attempt, changes]);
 
   useEffect(() => {
     if (!isTauri()) return;

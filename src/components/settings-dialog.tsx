@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { usePromise } from "@/hooks/use-promise";
+import { announceCloudChange } from "@/lib/cloud-changes";
 import { errorText } from "@/lib/errors";
 import {
   detectCloudFolders,
@@ -261,6 +262,7 @@ function CloudFolderSetting({
     setError(null);
     try {
       setFolder(await setCloudFolder(next));
+      announceCloudChange();
     } catch (e) {
       setError(`The cloud folder could not be saved. ${errorText(e)}`);
     }
