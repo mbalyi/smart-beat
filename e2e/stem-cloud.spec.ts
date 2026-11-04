@@ -93,6 +93,11 @@ test.describe("Stems in the cloud folder (#186)", () => {
     await saveToCloud(app);
     await app.evaluate(() => (window.__stems.songs = []));
     await prepare?.();
+    // The focus goes back to the Save button a moment after the dialog closes, and its tooltip can
+    // cover the logo in a narrow header: wait for the focus, then take it away.
+    const save = app.getByRole("button", { name: "Save stems" });
+    await expect(save).toBeFocused();
+    await save.blur();
     await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await expect(app.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeVisible();
   }

@@ -1,22 +1,20 @@
 import {
   CheckIcon,
+  FilePlusIcon,
   FolderOpenIcon,
   InfoIcon,
   Loader2Icon,
-  PauseIcon,
-  PlayIcon,
   Repeat2Icon,
   SaveIcon,
-  SquareIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import logo from "@/assets/stem-separation/logo.webp";
 import { ExternalLink } from "@/components/external-link";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { MetronomeControl } from "@/components/shell/metronome-control";
 import { SpeedSelect } from "@/components/shell/speed-select";
+import { TransportButtons } from "@/components/shell/transport-buttons";
 import { SaveStemsDialog } from "@/components/stems/save-stems-dialog";
 import { StemRow } from "@/components/stems/stem-row";
 import { engineLabel } from "@/components/stems/stem-engines";
@@ -65,16 +63,20 @@ function useMetronomeSettings() {
   return [settings, change] as const;
 }
 
+/** How far the step buttons jump, in seconds. */
+const STEP_SECONDS = 5;
+
 /**
- * The page of a separated song, laid out like an open song: the logo, the song's details
- * (with the tempo) and the Open and Save buttons in the app header's centre, a sticky strip
- * with the transport (play, position, loop, speed, metronome, count-in), the tab bar, then a
- * row per stem.
+ * The page of a separated song, laid out like an open song: the New, Open and Save buttons, the
+ * play control and the song's details (with the tempo) in the app header's centre, a sticky
+ * sub header with the position, loop, speed, metronome and count-in, the tab bar, then a row
+ * per stem.
  */
 export function StemPage({
   song,
   tabs,
   headerSlot,
+  onNew,
   onOpenStems,
   onSaved,
   savedPath: knownPath,
@@ -87,6 +89,8 @@ export function StemPage({
   tabs?: ReactNode;
   /** Where the page's main controls go: the app header's centre. Without it they sit on top of the page. */
   headerSlot?: HTMLElement | null;
+  /** New stem separation (the button that was used, to give the focus back to). */
+  onNew?: (button: HTMLElement) => void;
   /** Open stems: choose a saved set of stems to open. */
   onOpenStems?: () => void;
   /** The stems were saved to this file. */
@@ -151,26 +155,19 @@ export function StemPage({
 
   const inHeader = headerSlot !== null && headerSlot !== undefined;
   const mainControls = (
-    <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-1">
-      <div className="flex min-w-0 items-center gap-3">
-        <img
-          src={logo}
-          alt="Stem separation"
-          draggable={false}
-          className="h-9 w-auto shrink-0 object-contain"
-        />
-        <div className="flex min-w-0 flex-col text-left">
-          <span className="truncate text-sm font-semibold" title={song.name}>
-            {song.name}
-          </span>
-          <span data-testid="stems-info" className="text-xs text-muted-foreground">
-            {formatTime(song.durationSeconds)} · {engineLabel(song.engine)} engine ·{" "}
-            {song.stems.length} parts · <TempoInfo model={tempo} player={player} /> · Everything ran
-            on this computer.
-          </span>
-        </div>
-      </div>
+    <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-2">
       <div className="flex items-center gap-1.5">
+        {onNew && (
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={(event) => onNew(event.currentTarget)}
+            aria-label="New stem separation"
+            title="New stem separation"
+          >
+            <FilePlusIcon />
+          </Button>
+        )}
         {onOpenStems && (
           <Button
             variant="outline"
@@ -202,6 +199,19 @@ export function StemPage({
             Saved
           </span>
         )}
+      </div>
+      <div role="group" aria-label="Playback">
+        <PlayButtons player={player} />
+      </div>
+      <div className="flex min-w-0 flex-col text-left">
+        <span className="truncate text-sm font-semibold" title={song.name}>
+          {song.name}
+        </span>
+        <span data-testid="stems-info" className="text-xs text-muted-foreground">
+          {formatTime(song.durationSeconds)} · {engineLabel(song.engine)} engine ·{" "}
+          {song.stems.length} parts · <TempoInfo model={tempo} player={player} /> · Everything ran
+          on this computer.
+        </span>
       </div>
     </div>
   );
@@ -351,8 +361,60 @@ function Stems({
 }
 
 /**
- * The strip above the tab bar, as on an open song: play and stop, the position, the loop, the
- * speed, the metronome and the count-in. It stays at the top while the rows scroll.
+ * The play control of the header: the same buttons as an open song's, stepping by seconds
+ * instead of bars. Before the sound is ready they are there but disabled.
+ */
+function PlayButtons({ player }: { player: StemPlayer | null }) {
+  if (!player) {
+    const nothing = () => undefined;
+    return (
+      <TransportButtons
+        ready={false}
+        playing={false}
+        labels={STEP_LABELS}
+        onFirst={nothing}
+        onPrevious={nothing}
+        onPlayPause={nothing}
+        onStop={nothing}
+        onNext={nothing}
+        onLast={nothing}
+      />
+    );
+  }
+  return <LivePlayButtons player={player} />;
+}
+
+const STEP_LABELS = {
+  first: "To the start",
+  previous: `Back ${STEP_SECONDS} seconds`,
+  next: `Forward ${STEP_SECONDS} seconds`,
+  last: "To the end",
+};
+
+function LivePlayButtons({ player }: { player: StemPlayer }) {
+  const state = useStemState(player);
+  const busy = state.playing || state.countdown !== null;
+  const jump = (seconds: number) =>
+    player.seek(Math.min(Math.max(player.position() + seconds, 0), state.duration));
+  return (
+    <TransportButtons
+      ready={state.loaded}
+      playing={busy}
+      labels={STEP_LABELS}
+      onFirst={() => player.seek(0)}
+      onPrevious={() => jump(-STEP_SECONDS)}
+      onPlayPause={() => (busy ? player.pause() : void player.play())}
+      onStop={() => player.stop()}
+      onNext={() => jump(STEP_SECONDS)}
+      onLast={() => player.seek(state.duration)}
+    />
+  );
+}
+
+/**
+ * The sub header between the app header and the tab bar, as on an open song: the position, the
+ * loop, the speed, the metronome and the count-in, with a line about the loop and the
+ * rendering. It stays at the top while the rows scroll.
  */
 function Transport({ player, metronome }: { player: StemPlayer; metronome: ReactNode }) {
   const state = useStemState(player);
@@ -362,7 +424,6 @@ function Transport({ player, metronome }: { player: StemPlayer; metronome: React
   // The start of a loop whose end is not set yet.
   const [pendingStart, setPendingStart] = useState<number | null>(null);
   const [loopNote, setLoopNote] = useState("");
-  const busy = state.playing || state.countdown !== null;
   const ready = state.loaded;
 
   const setStart = () => {
@@ -403,28 +464,6 @@ function Transport({ player, metronome }: { player: StemPlayer; metronome: React
       className="sticky top-0 z-30 flex shrink-0 flex-col gap-1.5 border-b bg-card px-3 py-2"
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-1">
-          <Button
-            size="icon-sm"
-            onClick={() => (busy ? player.pause() : void player.play())}
-            disabled={!ready}
-            aria-label={busy ? "Pause" : "Play"}
-            title={busy ? "Pause" : "Play"}
-            className="rounded-full"
-          >
-            {busy ? <PauseIcon /> : <PlayIcon />}
-          </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() => player.stop()}
-            disabled={!ready}
-            aria-label="Stop"
-            title="Stop"
-          >
-            <SquareIcon />
-          </Button>
-        </div>
         <span role="timer" aria-label="Position" className="text-sm font-semibold tabular-nums">
           {formatTime(draft ?? position)} / {formatTime(state.duration)}
         </span>

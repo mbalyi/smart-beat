@@ -1149,10 +1149,19 @@ describe("App: the stem page looks like a song (#186)", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Stemmed" })).toBeInTheDocument();
   });
 
-  it("starts a new stem separation from the + button", async () => {
+  it("starts a new stem separation from the + button in the tab bar", async () => {
     const { user } = await renderApp();
     await openStem("First", "aaaaaaaaaaaaaaaa");
-    await user.click(screen.getByRole("button", { name: "New stem separation" }));
+    const tabBar = screen.getByRole("navigation", { name: "Open songs and stems" });
+    await user.click(within(tabBar).getByRole("button", { name: "New stem separation" }));
+    expect(await screen.findByRole("dialog", { name: /Stem separation/ })).toBeInTheDocument();
+  });
+
+  it("starts a new stem separation from the header's New button", async () => {
+    const { user } = await renderApp();
+    await openStem("First", "aaaaaaaaaaaaaaaa");
+    const header = screen.getAllByRole("banner")[0]!;
+    await user.click(within(header).getByRole("button", { name: "New stem separation" }));
     expect(await screen.findByRole("dialog", { name: /Stem separation/ })).toBeInTheDocument();
   });
 
@@ -1168,11 +1177,12 @@ describe("App: the stem page looks like a song (#186)", () => {
     expect(screen.queryByRole("dialog", { name: "Open stems dialog" })).not.toBeInTheDocument();
   });
 
-  it("keeps the details and the Save stems button in the app header's centre", async () => {
+  it("keeps the buttons, the play control and the details in the app header's centre", async () => {
     await renderApp();
     await openStem("First", "aaaaaaaaaaaaaaaa");
     const header = screen.getAllByRole("banner")[0]!;
-    expect(within(header).getByRole("img", { name: "Stem separation" })).toBeInTheDocument();
+    expect(within(header).queryByRole("img", { name: "Stem separation" })).not.toBeInTheDocument();
+    expect(within(header).getByRole("group", { name: "Playback" })).toBeInTheDocument();
     expect(within(header).getByRole("button", { name: "Save stems" })).toBeInTheDocument();
     expect(within(header).getByRole("button", { name: "Open stems" })).toBeInTheDocument();
     expect(within(header).getByText(/engine · 5 parts/)).toBeInTheDocument();

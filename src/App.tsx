@@ -629,6 +629,7 @@ export function App() {
               song={stemSong}
               tabs={tabs}
               headerSlot={headerSlot}
+              onNew={newStem ? (button) => showDialog("stem-separation", button) : undefined}
               onOpenStems={openSavedStems ? () => setOpenStemsDialog(true) : undefined}
               onSaved={(path) => setSavedStems((saved) => ({ ...saved, [stemSong.id]: path }))}
               savedPath={savedStems[stemSong.id]}

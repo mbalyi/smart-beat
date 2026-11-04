@@ -259,6 +259,29 @@ test.describe("Stem separation (#186)", () => {
     await expect(app.getByRole("timer", { name: "Position" })).toHaveText("0:00 / 0:06");
   });
 
+  test("puts New, Open, Save, the play control and the song details in the header, like a song", async ({
+    app,
+  }) => {
+    await separate(app);
+    const header = app.getByRole("banner").first();
+    await expect(header.getByRole("img", { name: "Stem separation" })).toHaveCount(0);
+    const names = ["New stem separation", "Open stems", "Save stems"];
+    const xs: number[] = [];
+    for (const name of names) {
+      const box = await header.getByRole("button", { name }).boundingBox();
+      xs.push(box!.x);
+    }
+    const play = await header.getByRole("button", { name: "Play" }).boundingBox();
+    const info = await header.getByTestId("stems-info").boundingBox();
+    expect(xs).toEqual([...xs].sort((a, b) => a - b));
+    expect(xs[2]!).toBeLessThan(play!.x);
+    expect(play!.x).toBeLessThan(info!.x);
+    // The sub header keeps the position, loop, speed and its note, with no play button.
+    const transport = app.getByRole("region", { name: "Transport" });
+    await expect(transport.getByText(/No loop\./)).toBeVisible();
+    await expect(transport.getByRole("button", { name: "Play" })).toHaveCount(0);
+  });
+
   for (const [width, height] of [
     [1280, 520],
     [375, 812],
@@ -957,6 +980,11 @@ test.describe("Stem separation (#186)", () => {
         await separate(app);
         await app.evaluate((path) => (window.__saveResult = path), BUNDLE_PATH);
         await saveStems(app);
+        // The focus goes back to the Save button a moment after the dialog closes, and its tooltip can
+        // cover the logo in a narrow header: wait for the focus, then take it away.
+        const save = app.getByRole("button", { name: "Save stems" });
+        await expect(save).toBeFocused();
+        await save.blur();
         await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
         await separate(app, "/Users/me/Music/blue-moon.mp3");
         await app.getByRole("button", { name: "Smart Beat", exact: true }).click();

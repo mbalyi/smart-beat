@@ -38,14 +38,14 @@ const row = (kind: string) => screen.getByTestId(`stem-${kind}`);
 const gains = (player: FakeStemPlayer) => player.setGains.mock.calls.at(-1)![0];
 
 describe("Stem page: the song", () => {
-  it("shows the song's details and the logo, with no big title or Back button", () => {
+  it("shows the song's details with no logo, big title or Back button", () => {
     setup();
     expect(screen.getByRole("heading", { level: 1, name: "Neon Nights" })).toHaveClass("sr-only");
     expect(screen.getByText("Neon Nights", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByTestId("stems-info")).toHaveTextContent(
       /3:35 · Fast\s+engine · 5 parts · Finding the tempo… · Everything ran on this computer\./,
     );
-    expect(screen.getByRole("img", { name: "Stem separation" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Stem separation" })).not.toBeInTheDocument();
     expect(
       screen.queryByText("Stem separation", { selector: "p,div,span" }),
     ).not.toBeInTheDocument();
@@ -68,14 +68,14 @@ describe("Stem page: the song", () => {
 
   it("puts the transport before the tab bar also when the controls are not in the header", () => {
     setup();
-    const controls = screen.getByRole("img", { name: "Stem separation" });
+    const controls = screen.getByTestId("stems-info");
     const transport = screen.getByRole("region", { name: "Transport" });
     expect(
       Boolean(controls.compareDocumentPosition(transport) & Node.DOCUMENT_POSITION_FOLLOWING),
     ).toBe(true);
   });
 
-  it("puts the logo, the details and the buttons in the header's centre when it has one", () => {
+  it("puts the buttons, the play control and the details in the header's centre when it has one", () => {
     const slot = document.createElement("div");
     document.body.append(slot);
     renderWithProviders(
@@ -86,8 +86,9 @@ describe("Stem page: the song", () => {
         detectTempo={neverFound}
       />,
     );
-    expect(within(slot).getByRole("img", { name: "Stem separation" })).toBeInTheDocument();
+    expect(within(slot).queryByRole("img", { name: "Stem separation" })).not.toBeInTheDocument();
     expect(within(slot).getByTestId("stems-info")).toHaveTextContent(/3:35 · Fast\s+engine/);
+    expect(within(slot).getByRole("group", { name: "Playback" })).toBeInTheDocument();
     expect(within(slot).getByRole("button", { name: "Save stems" })).toBeInTheDocument();
     slot.remove();
   });
@@ -436,6 +437,64 @@ describe("Stem page: opening stems", () => {
     expect(open.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await user.click(open);
     expect(onOpenStems).toHaveBeenCalledOnce();
+  });
+
+  it("has New stem separation, Open stems and Save stems first, then the play control, then the details", async () => {
+    const onNew = vi.fn();
+    const { user } = renderWithProviders(
+      <StemPage
+        song={STEM_SONG}
+        onNew={onNew}
+        onOpenStems={vi.fn()}
+        createPlayer={() => new FakeStemPlayer({ duration: 215 })}
+        detectTempo={neverFound}
+      />,
+    );
+    const at = (element: Element) =>
+      Array.from(document.body.querySelectorAll("*")).indexOf(element);
+    const order = [
+      screen.getByRole("button", { name: "New stem separation" }),
+      screen.getByRole("button", { name: "Open stems" }),
+      screen.getByRole("button", { name: "Save stems" }),
+      screen.getByRole("group", { name: "Playback" }),
+      screen.getByTestId("stems-info"),
+      screen.getByRole("region", { name: "Transport" }),
+    ].map(at);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    await user.click(screen.getByRole("button", { name: "New stem separation" }));
+    expect(onNew).toHaveBeenCalledOnce();
+  });
+
+  it("leaves New out when the page cannot start a separation", () => {
+    setup();
+    expect(screen.queryByRole("button", { name: "New stem separation" })).not.toBeInTheDocument();
+  });
+
+  it("keeps play and stop in the header's play control and the rest in the sub header", () => {
+    setup();
+    const playback = screen.getByRole("group", { name: "Playback" });
+    const transport = screen.getByRole("region", { name: "Transport" });
+    for (const name of ["Play", "Stop", "Back 5 seconds", "Forward 5 seconds"]) {
+      expect(within(playback).getByRole("button", { name })).toBeInTheDocument();
+      expect(within(transport).queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(within(transport).getByRole("button", { name: "Set loop start" })).toBeInTheDocument();
+    expect(within(transport).getByRole("combobox", { name: /speed/i })).toBeInTheDocument();
+    expect(within(transport).getByText(/No loop\./)).toBeInTheDocument();
+    expect(within(transport).getByText(/takes a moment to render/)).toBeInTheDocument();
+  });
+
+  it("steps back and forward by five seconds and jumps to the ends", async () => {
+    const { player, user } = setup();
+    player.livePosition = 20;
+    await user.click(screen.getByRole("button", { name: "Forward 5 seconds" }));
+    expect(player.seek).toHaveBeenLastCalledWith(25);
+    await user.click(screen.getByRole("button", { name: "Back 5 seconds" }));
+    expect(player.seek).toHaveBeenLastCalledWith(15);
+    await user.click(screen.getByRole("button", { name: "To the end" }));
+    expect(player.seek).toHaveBeenLastCalledWith(215);
+    await user.click(screen.getByRole("button", { name: "To the start" }));
+    expect(player.seek).toHaveBeenLastCalledWith(0);
   });
 
   it("leaves Open stems out when the page cannot open any", () => {

@@ -1,26 +1,20 @@
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  ChevronsLeftIcon,
-  ChevronsRightIcon,
   FolderOpenIcon,
   KeyboardMusicIcon,
   PanelRightIcon,
-  PauseIcon,
   PencilIcon,
-  PlayIcon,
   Redo2Icon,
   ScanEyeIcon,
-  SkipBackIcon,
-  SkipForwardIcon,
   SlidersHorizontalIcon,
-  SquareIcon,
   Undo2Icon,
   ZoomInIcon,
   ZoomOutIcon,
 } from "lucide-react";
 
 import { LcdDisplay } from "@/components/shell/lcd-display";
+import { TransportButtons } from "@/components/shell/transport-buttons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EDIT_PRESSED } from "@/components/ui/mixer-toggle-styles";
@@ -199,71 +193,23 @@ export function WorkspaceToolbar({
         role="group"
         aria-label="Transport"
       >
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onSeekBar(0)}
-            disabled={!ready}
-            aria-label="First bar"
-            title="First bar"
-            className="max-2xl:hidden"
-          >
-            <SkipBackIcon />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onSeekBar(Math.max(0, bar - 1))}
-            disabled={!ready}
-            aria-label="Previous bar"
-            title="Previous bar"
-          >
-            <ChevronsLeftIcon />
-          </Button>
-          <Button
-            size="icon-sm"
-            onClick={onPlayPause}
-            disabled={!ready}
-            aria-label={playing ? "Pause" : "Play"}
-            data-tour="play"
-            title={playing ? "Pause (Space)" : "Play (Space)"}
-            className="rounded-full"
-          >
-            {playing ? <PauseIcon /> : <PlayIcon />}
-          </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={onStop}
-            disabled={!ready}
-            aria-label="Stop"
-            title="Stop"
-          >
-            <SquareIcon />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onSeekBar(Math.min(barCount - 1, bar + 1))}
-            disabled={!ready}
-            aria-label="Next bar"
-            title="Next bar"
-          >
-            <ChevronsRightIcon />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onSeekBar(barCount - 1)}
-            disabled={!ready}
-            aria-label="Last bar"
-            title="Last bar"
-            className="max-2xl:hidden"
-          >
-            <SkipForwardIcon />
-          </Button>
-        </div>
+        <TransportButtons
+          ready={ready}
+          playing={playing}
+          labels={{
+            first: "First bar",
+            previous: "Previous bar",
+            next: "Next bar",
+            last: "Last bar",
+          }}
+          playTitle={{ play: "Play (Space)", pause: "Pause (Space)" }}
+          onFirst={() => onSeekBar(0)}
+          onPrevious={() => onSeekBar(Math.max(0, bar - 1))}
+          onPlayPause={onPlayPause}
+          onStop={onStop}
+          onNext={() => onSeekBar(Math.min(barCount - 1, bar + 1))}
+          onLast={() => onSeekBar(barCount - 1)}
+        />
         {/* In the smallest windows the header has no room: the View menu and ⇧⌘P remain. */}
         <div className="flex items-center gap-1.5 max-sm:hidden">
           <Toggle
