@@ -18,6 +18,7 @@ pub mod pipeline;
 pub mod stereo;
 pub mod stft;
 pub mod synth;
+pub mod tempo;
 pub mod torch_legacy;
 pub mod umx;
 

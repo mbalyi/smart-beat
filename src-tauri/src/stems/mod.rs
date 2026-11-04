@@ -17,6 +17,7 @@ pub mod mix;
 pub mod model_files;
 pub mod models;
 pub mod store;
+pub mod tempo;
 pub mod umx_model;
 pub mod wav;
 
@@ -138,6 +139,9 @@ pub struct StemSong {
     /// this is only the second part; the store works out the first when it reads the song.
     #[serde(default)]
     pub has_original: bool,
+    /// The detected tempo, kept so the page does not wait for the analysis twice.
+    #[serde(default)]
+    pub tempo: Option<tempo::StoredTempo>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -182,6 +186,7 @@ fn error(message: impl Into<String>) -> CommandError {
 pub struct StemsRun {
     job: Mutex<Option<Arc<AtomicBool>>>,
     bundle: Mutex<Option<Arc<AtomicBool>>>,
+    tempo: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 type Slot = Mutex<Option<Arc<AtomicBool>>>;
@@ -219,8 +224,19 @@ impl StemsRun {
     pub fn finish_bundle(&self, stop: &Arc<AtomicBool>) {
         finish_in(&self.bundle, stop);
     }
+    /// A separation is running (its model file may be open).
+    pub fn separating(&self) -> bool {
+        self.job.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    }
+    /// A tempo analysis. It does not stop a separation either.
+    pub fn start_tempo(&self) -> Arc<AtomicBool> {
+        start_in(&self.tempo)
+    }
+    pub fn finish_tempo(&self, stop: &Arc<AtomicBool>) {
+        finish_in(&self.tempo, stop);
+    }
     pub fn cancel(&self) {
-        for slot in [&self.job, &self.bundle] {
+        for slot in [&self.job, &self.bundle, &self.tempo] {
             if let Some(stop) = slot.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 stop.store(true, Ordering::Relaxed);
             }
@@ -418,6 +434,7 @@ pub fn run_job(
         last_opened: None,
         saved_path: None,
         has_original: false,
+        tempo: None,
     };
     source.write(staging.path()).map_err(error)?;
     store.commit(staging, &song).map_err(error)?;
@@ -1026,6 +1043,7 @@ mod tests {
             last_opened: None,
             saved_path: None,
             has_original: false,
+            tempo: None,
         };
         store.commit(staging, &song).unwrap();
         song

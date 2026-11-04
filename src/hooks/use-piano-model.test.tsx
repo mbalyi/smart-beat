@@ -1,12 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 import { usePianoModel } from "@/hooks/use-piano-model";
-import { downloadPianoModel, pianoModelStatus } from "@/lib/tauri";
+import { downloadPianoModel, pianoModelStatus, removePianoModel } from "@/lib/tauri";
 
 vi.mock("@/lib/tauri", () => ({
   isTauri: () => true,
   pianoModelStatus: vi.fn(),
   downloadPianoModel: vi.fn(),
+  removePianoModel: vi.fn(),
 }));
 
 const BYTES = 56_799_421;
@@ -74,5 +75,18 @@ describe("usePianoModel", () => {
     act(() => result.current.download());
     await waitFor(() => expect(result.current.error).toBeNull());
     expect(downloadPianoModel).toHaveBeenCalledTimes(2);
+  });
+
+  it("deletes the model, reports it gone, and says why when it cannot", async () => {
+    vi.mocked(pianoModelStatus).mockResolvedValue({ installed: true, bytes: BYTES });
+    vi.mocked(removePianoModel).mockResolvedValue({ installed: false, bytes: BYTES });
+    const { result } = renderHook(() => usePianoModel(true));
+    await waitFor(() => expect(result.current.installed).toBe(true));
+    await act(() => result.current.remove());
+    expect(result.current).toMatchObject({ installed: false, removing: false, error: null });
+
+    vi.mocked(removePianoModel).mockRejectedValue({ kind: "audio", message: "Still downloading." });
+    await act(() => result.current.remove());
+    expect(result.current.error).toBe("Still downloading.");
   });
 });

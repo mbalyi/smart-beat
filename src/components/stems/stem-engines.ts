@@ -23,7 +23,7 @@ export interface EngineInfo {
   partsNote?: string;
   /**
    * Not on the list until the app reports its model as available (published, with its size and
-   * SHA-256 pinned). Used by the 6-part engine, whose file is not hosted yet.
+   * SHA-256 pinned). Used by the 6-part engine: the app can withdraw its file again.
    */
   hiddenUntilAvailable?: boolean;
 }
@@ -96,6 +96,19 @@ export function offeredEngines(
   return ENGINES.filter(
     (info) => !info.hiddenUntilAvailable || states[info.id as NeuralEngine]?.available === true,
   );
+}
+
+/**
+ * The engine to choose after `removed` was deleted from this computer: the next model on the list
+ * that is ready (going round to the start), or Fast when there is none.
+ */
+export function fallbackEngine(
+  removed: NeuralEngine,
+  isReady: (engine: StemEngine) => boolean,
+): StemEngine {
+  const at = NEURAL_ENGINES.indexOf(removed);
+  const others = [...NEURAL_ENGINES.slice(at + 1), ...NEURAL_ENGINES.slice(0, at)];
+  return others.find(isReady) ?? "fast";
 }
 
 /** The parts a neural engine makes, besides "other" (always made). */

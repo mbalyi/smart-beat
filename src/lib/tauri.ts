@@ -18,7 +18,8 @@ import type { Interpretation } from "@/lib/score/interpretation";
 export type MenuAction =
   | "new-song"
   | "open"
-  | "ai-models"
+  | "record-models"
+  | "stem-models"
   | "import-audio"
   | "record-to-tab"
   | "clear-recent"
@@ -1223,6 +1224,12 @@ export async function downloadPianoModel(onProgress?: (fraction: number) => void
   }
 }
 
+/** Deletes the downloaded high-accuracy piano model (about 55 MB). Refused while it downloads. */
+export async function removePianoModel(): Promise<PianoModelStatus> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<PianoModelStatus>("piano_model_remove");
+}
+
 // --- MuScriptor, the optional AI model (#150) --------------------------------
 
 const MUSCRIPTOR_PROGRESS_EVENT = "muscriptor-model-download-progress";
@@ -1650,6 +1657,28 @@ export async function renderStemMix(
 ): Promise<ArrayBuffer> {
   return call<ArrayBuffer>("stems_render_mix", { id, request: { gains, speed } });
 }
+
+/** Mirrors `Tempo` in `src-tauri/src/separation/tempo.rs`. */
+export interface StemTempo {
+  /** Beats per minute; 0 when there is nothing to measure (silence, a clip of a few seconds). */
+  bpm: number;
+  /** 0 to 1: how clearly the song pulses at that tempo. */
+  confidence: number;
+  /** The first grid beat at or after the start of the file, in seconds. */
+  firstBeatSec: number;
+  /** Other plausible tempos (half and double time, the next peaks), best first. */
+  alternatives: number[];
+  /** One tempo from start to end; a few BPM of drift still counts as steady. */
+  steady: boolean;
+  /** Large, lasting tempo changes covering the song from 0 to its end; empty when steady. */
+  sections: { startSec: number; endSec: number; bpm: number }[];
+}
+
+/**
+ * The tempo of a separated song (analysed once, then kept with the song). A `stems_cancel`
+ * makes it fail with "Tempo detection stopped.".
+ */
+export const detectStemTempo = (id: string) => call<StemTempo>("stems_detect_tempo", { id });
 
 /** Mirrors `UmxStatus` in `src-tauri/src/stems/umx_model.rs`. */
 export interface UmxStatus {

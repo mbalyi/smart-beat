@@ -1,3 +1,6 @@
+import { clickBuffer } from "@/lib/audio/click-sounds";
+import type { ClickSoundId } from "@/lib/score/practice";
+import { beatsBetween, type BeatGrid } from "@/lib/stems/beat-grid";
 import type { StemKindId } from "@/lib/tauri";
 
 /** The practice speeds, in percent of the original (the pitch never changes). */
@@ -22,6 +25,22 @@ export type StemGains = Partial<Record<StemKindId, number>>;
 export interface StemLoop {
   start: number;
   end: number;
+}
+
+/** How far ahead of the audio clock the metronome schedules its clicks. */
+export const CLICK_LOOKAHEAD_SECONDS = 0.2;
+
+/** How often the metronome looks for clicks to schedule (a timer, not the audio clock). */
+export const CLICK_TICK_MS = 25;
+
+/** The metronome: a click on every beat of the grid, in step with the music at any speed. */
+export interface StemMetronome {
+  on: boolean;
+  sound: ClickSoundId;
+  /** 1 = as loud as the master volume, up to `MAX_METRONOME_VOLUME`. */
+  volume: number;
+  /** Null while the tempo is not known: nothing clicks. */
+  grid: BeatGrid | null;
 }
 
 /** What the page shows. A new object after every change, so it works with `useSyncExternalStore`. */
@@ -63,6 +82,8 @@ export interface StemPlayer {
   /** Sets the loop (or clears it with null). A loop shorter than {@link MIN_LOOP_SECONDS} is ignored. */
   setLoop(loop: StemLoop | null): void;
   setCountIn(on: boolean): void;
+  /** Turns the metronome on or off, or changes its tempo grid, sound or volume (also while playing). */
+  setMetronome(metronome: StemMetronome): void;
   dispose(): void;
 }
 
@@ -101,6 +122,11 @@ export interface AudioBackend {
     when: number,
     onEnded: () => void,
   ): AudioVoice;
+  /**
+   * Plays one metronome click at `when` on the audio clock. `cancel` silences it if it has not
+   * sounded yet (or cuts it short).
+   */
+  click(when: number, accent: boolean, sound: ClickSoundId, volume: number): { cancel(): void };
   close(): void;
 }
 
@@ -144,6 +170,7 @@ export function createWebAudioBackend(): AudioBackend | null {
     return null;
   }
   type WebClip = AudioClip & { buffer: AudioBuffer };
+  const clickBuffers = new Map<string, AudioBuffer>();
   return {
     clock: () => context.currentTime,
     resume: async () => {
@@ -188,6 +215,36 @@ export function createWebAudioBackend(): AudioBackend | null {
         },
         // A short ramp keeps a mute from clicking.
         setGain: (value) => node.gain.setTargetAtTime(value, context.currentTime, 0.01),
+      };
+    },
+    click(when, accent, sound, volume) {
+      const key = `${sound}:${accent}`;
+      let buffer = clickBuffers.get(key);
+      if (!buffer) {
+        buffer = clickBuffer(context, sound, accent);
+        clickBuffers.set(key, buffer);
+      }
+      const source = context.createBufferSource();
+      const node = context.createGain();
+      source.buffer = buffer;
+      node.gain.value = volume;
+      source.connect(node).connect(context.destination);
+      const release = () => {
+        source.onended = null;
+        source.disconnect();
+        node.disconnect();
+      };
+      source.onended = release;
+      source.start(Math.max(when, context.currentTime));
+      return {
+        cancel() {
+          try {
+            source.stop();
+          } catch {
+            // Already stopped.
+          }
+          release();
+        },
       };
     },
     close() {
@@ -266,6 +323,12 @@ export function createStemPlayer({
   let playPending = false;
   let countTimer: ReturnType<typeof setInterval> | undefined;
   let disposed = false;
+  let metronome: StemMetronome = { on: false, sound: "classic", volume: 1, grid: null };
+  /** Clicks handed to the audio that may not have sounded yet. */
+  let clicks: { when: number; handle: { cancel(): void } }[] = [];
+  /** Where the next click is looked for: a moment of the song and the audio clock it falls on. */
+  let clickCursor = { song: 0, clock: 0 };
+  let clickTimer: ReturnType<typeof setInterval> | undefined;
   let state: StemPlayerState = {
     loaded: false,
     playing: false,
@@ -285,11 +348,10 @@ export function createStemPlayer({
     for (const listener of [...listeners]) listener();
   };
 
-  /** Seconds into the song now. */
-  const position = (): number => {
-    if (!state.playing) return state.position;
+  /** Seconds into the song at `clock` on the audio clock, while it plays. */
+  const songAt = (clock: number): number => {
     const rate = activeSpeed / 100;
-    let song = anchor.song + Math.max(0, backend.clock() - anchor.clock) * rate;
+    let song = anchor.song + Math.max(0, clock - anchor.clock) * rate;
     const loop = state.loop;
     // A loop only repeats when playback began before its end.
     if (loop && anchor.song < loop.end && song >= loop.end) {
@@ -298,9 +360,78 @@ export function createStemPlayer({
     return Math.min(song, state.duration);
   };
 
+  /** Seconds into the song now. */
+  const position = (): number => (state.playing ? songAt(backend.clock()) : state.position);
+
+  /** Silences the clicks that have not sounded yet, those after `after` on the audio clock. */
+  const cancelClicks = (after = -Infinity) => {
+    const kept: typeof clicks = [];
+    for (const click of clicks) {
+      if (click.when > after) click.handle.cancel();
+      else kept.push(click);
+    }
+    clicks = kept;
+  };
+
+  /**
+   * Hands the audio the clicks that fall in the next moment. A timer calls it often and each
+   * call goes only a little ahead of the audio clock, so a change (a seek, the speed, the
+   * metronome turned off) is heard within that moment, and a busy page cannot make a click late.
+   * It walks the song the way the audio plays it: at the speed's rate, and from the loop's end
+   * back to its start.
+   */
+  const tickClicks = () => {
+    const grid = metronome.grid;
+    if (!metronome.on || !grid || voices.length === 0) return;
+    const now = backend.clock();
+    clicks = clicks.filter((click) => click.when > now);
+    const horizon = now + CLICK_LOOKAHEAD_SECONDS;
+    const rate = activeSpeed / 100;
+    for (let pass = 0; pass < 64 && clickCursor.clock < horizon; pass++) {
+      const loop = state.loop && clickCursor.song < state.loop.end ? state.loop : null;
+      const songEnd = loop ? loop.end : state.duration;
+      const clockEnd = clickCursor.clock + (songEnd - clickCursor.song) / rate;
+      const passEnds = clockEnd <= horizon;
+      const songTo = passEnds ? songEnd : clickCursor.song + (horizon - clickCursor.clock) * rate;
+      for (const beat of beatsBetween(grid, clickCursor.song, songTo)) {
+        const when = clickCursor.clock + (beat.time - clickCursor.song) / rate;
+        clicks.push({
+          when,
+          handle: backend.click(when, beat.accent, metronome.sound, metronome.volume),
+        });
+      }
+      if (!passEnds) {
+        clickCursor = { song: songTo, clock: horizon };
+      } else if (loop) {
+        clickCursor = { song: loop.start, clock: clockEnd };
+      } else {
+        clickCursor = { song: songEnd, clock: clockEnd };
+        break;
+      }
+    }
+  };
+
+  const stopClickTimer = () => {
+    if (clickTimer !== undefined) clearInterval(clickTimer);
+    clickTimer = undefined;
+  };
+
+  /** Clicks from `song`, which sounds at `clock`; starts or stops the timer as needed. */
+  const startClicks = (song: number, clock: number) => {
+    clickCursor = { song, clock };
+    if (metronome.on && metronome.grid) {
+      clickTimer ??= setInterval(tickClicks, CLICK_TICK_MS);
+      tickClicks();
+    } else {
+      stopClickTimer();
+    }
+  };
+
   const stopVoices = () => {
     for (const { voice } of voices) voice.stop();
     voices = [];
+    stopClickTimer();
+    cancelClicks();
   };
 
   /** Starts the sound at `song` seconds, at the active speed. */
@@ -340,6 +471,7 @@ export function createStemPlayer({
       });
     }
     anchor = { song, clock: when };
+    startClicks(song, when);
   };
 
   const stopCount = () => {
@@ -566,6 +698,15 @@ export function createStemPlayer({
     },
     setCountIn(on) {
       emit({ countIn: on });
+    },
+    setMetronome(next) {
+      metronome = next;
+      if (voices.length === 0) return;
+      // Playing: clicks already handed to the audio follow the old settings, so take back the
+      // ones that have not sounded and schedule from now on.
+      const clock = Math.max(backend.clock(), anchor.clock);
+      cancelClicks(backend.clock());
+      startClicks(songAt(clock), clock);
     },
     dispose() {
       if (disposed) return;

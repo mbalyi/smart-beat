@@ -14,7 +14,12 @@ import { DIALOG_NEON, DialogArt, DialogLogo, DialogStepper } from "@/components/
 import { AI_DIALOG_FRAME } from "@/components/ai/dialog-frame";
 import { BetaBadge } from "@/components/beta-badge";
 import { EngineChoice, ModelSetup } from "@/components/stems/engine-choice";
-import { engineInfo, neuralParts } from "@/components/stems/stem-engines";
+import {
+  engineInfo,
+  fallbackEngine,
+  neuralParts,
+  type NeuralEngine,
+} from "@/components/stems/stem-engines";
 import { useEngineModels, type EngineModels } from "@/components/stems/use-engine-models";
 import { STEM_HINTS, STEM_LABELS } from "@/components/stems/stem-labels";
 import { Button } from "@/components/ui/button";
@@ -235,6 +240,12 @@ function StemFlow({
               models={models}
               engine={engine}
               onEngine={setEngine}
+              onRemoveModel={async (model) => {
+                // The chosen model is gone: move to Fast, or the next engine that is ready.
+                if ((await models.remove(model)) && engine === model) {
+                  setEngine(fallbackEngine(model, models.isReady));
+                }
+              }}
               kinds={kinds}
               onKinds={setKinds}
               strongDrums={strongDrums}
@@ -360,6 +371,7 @@ function OptionsStep({
   models,
   engine,
   onEngine,
+  onRemoveModel,
   kinds,
   onKinds,
   strongDrums,
@@ -370,6 +382,7 @@ function OptionsStep({
   models: EngineModels;
   engine: StemEngine;
   onEngine: (engine: StemEngine) => void;
+  onRemoveModel: (engine: NeuralEngine) => void;
   kinds: StemKindId[];
   onKinds: (kinds: StemKindId[]) => void;
   strongDrums: boolean;
@@ -385,7 +398,14 @@ function OptionsStep({
           Song: <span className="font-semibold text-foreground">{baseName(path)}</span>
         </p>
       )}
-      {neuralOffered && <EngineChoice engine={engine} onEngine={onEngine} models={models} />}
+      {neuralOffered && (
+        <EngineChoice
+          engine={engine}
+          onEngine={onEngine}
+          models={models}
+          onRemove={onRemoveModel}
+        />
+      )}
       {engine === "fast" ? (
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1 text-sm font-medium">Parts to separate</legend>

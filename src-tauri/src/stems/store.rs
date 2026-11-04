@@ -403,6 +403,7 @@ mod tests {
             last_opened: None,
             saved_path: None,
             has_original: false,
+            tempo: None,
         }
     }
 

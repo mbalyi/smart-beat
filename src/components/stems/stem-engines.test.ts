@@ -2,6 +2,7 @@ import {
   engineInfo,
   engineLabel,
   ENGINES,
+  fallbackEngine,
   NEURAL_ENGINES,
   neuralParts,
   offeredEngines,
@@ -112,5 +113,21 @@ describe("the parts", () => {
       /weaker.*distorted guitar can leak into Other/,
     );
     expect(stemLimit("piano", "htdemucs-6s")).toMatch(/weakest.*thin or incomplete/);
+  });
+});
+
+describe("the engine after a delete", () => {
+  it("is the next model on the list that is ready, going round, or Fast", () => {
+    const ready =
+      (...ids: StemEngine[]) =>
+      (engine: StemEngine) =>
+        ids.includes(engine);
+    expect(fallbackEngine("htdemucs", ready("htdemucs", "scnet"))).toBe("scnet");
+    expect(fallbackEngine("scnet", ready("htdemucs", "scnet"))).toBe("htdemucs");
+    expect(fallbackEngine("htdemucs", ready("htdemucs", "htdemucs-6s", "neural"))).toBe(
+      "htdemucs-6s",
+    );
+    expect(fallbackEngine("htdemucs", ready("htdemucs"))).toBe("fast");
+    expect(fallbackEngine("neural", ready())).toBe("fast");
   });
 });

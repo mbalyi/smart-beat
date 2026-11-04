@@ -2,7 +2,7 @@
  * Integration tests: the whole UI with the Tauri IPC layer mocked to behave
  * like the Rust core (commands + menu events).
  */
-import { closeInstaller } from "@/lib/ai/ai-store";
+import { closeInstaller, openInstaller } from "@/lib/ai/ai-store";
 import { act, screen, waitFor, within } from "@testing-library/react";
 
 import { App } from "@/App";
@@ -143,12 +143,28 @@ describe("App", () => {
     expect(openTabs()).toHaveLength(1);
   });
 
-  it("opens the AI Models dialog from the AI menu", async () => {
+  it("opens Record to Tab Models and Stem Separation Models from the AI menu", async () => {
+    const { user } = await renderApp();
+    await menu("record-models");
+    expect(await screen.findByTestId("record-models-dialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Record to Tab Models" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("record-models-dialog")).toBeNull());
+    await menu("stem-models");
+    expect(await screen.findByTestId("stem-models-dialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Stem Separation Models" })).toBeInTheDocument();
+  });
+
+  it("comes back to Record to Tab Models when the installer it opened closes", async () => {
     await renderApp();
-    await menu("ai-models");
+    await menu("record-models");
+    await screen.findByTestId("record-models-dialog");
+    act(() => {
+      openInstaller("models");
+    });
     expect(await screen.findByTestId("ai-installer")).toBeInTheDocument();
-    // The installer state is shared by the tests of this file.
     act(() => closeInstaller());
+    expect(await screen.findByTestId("record-models-dialog")).toBeInTheDocument();
   });
 
   it("renders the app shell with landmarks", async () => {

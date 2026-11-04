@@ -867,6 +867,7 @@ pub fn open(
         last_opened: Some(now_ms()),
         saved_path: Some(saved_path),
         has_original: manifest.original.embedded,
+        tempo: None,
     };
     store
         .commit(staging, &song)
@@ -1041,6 +1042,7 @@ mod tests {
             last_opened: None,
             saved_path: None,
             has_original: false,
+            tempo: None,
         };
         store.commit(staging, &song).unwrap();
         song

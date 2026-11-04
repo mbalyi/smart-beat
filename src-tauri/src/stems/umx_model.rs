@@ -144,6 +144,31 @@ impl DownloadRun {
             stop.store(true, Ordering::Relaxed);
         }
     }
+    /// A download is running (a model file is being written).
+    pub fn is_running(&self) -> bool {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    }
+}
+
+/// Refuses to delete a model while a download is writing one or a separation may be reading one.
+/// Removing a model in use would fail the job half way, so the user is asked to wait instead.
+pub(super) fn ensure_unused(
+    downloads: &DownloadRun,
+    separations: &super::StemsRun,
+) -> Result<(), CommandError> {
+    if downloads.is_running() {
+        return Err(model_files::error(
+            ErrorKind::Io,
+            "A model is downloading right now. Wait for it to finish or cancel it, then delete.",
+        ));
+    }
+    if separations.separating() {
+        return Err(model_files::error(
+            ErrorKind::Io,
+            "A song is being separated right now. Wait for it to finish, then delete the model.",
+        ));
+    }
+    Ok(())
 }
 
 /// Downloads every file of `files` into `dir` that is not there yet, from `base` + name + query.
@@ -261,9 +286,15 @@ pub fn umx_model_cancel(run: State<'_, DownloadRun>) {
     run.stop();
 }
 
-/// Deletes the downloaded files and any part of them.
+/// Deletes the downloaded files and any part of them. Refused while a download or a separation
+/// runs.
 #[tauri::command]
-pub fn umx_model_remove<R: Runtime>(app: AppHandle<R>) -> Result<UmxStatus, CommandError> {
+pub fn umx_model_remove<R: Runtime>(
+    app: AppHandle<R>,
+    downloads: State<'_, DownloadRun>,
+    separations: State<'_, super::StemsRun>,
+) -> Result<UmxStatus, CommandError> {
+    ensure_unused(&downloads, &separations)?;
     let dir = folder(&app)?;
     remove_files(&dir, &FILES)?;
     Ok(status_of(&dir, &FILES))
@@ -617,6 +648,25 @@ mod tests {
             let dest = dir.path().join(name);
             assert!(!dest.exists() && !part_of(&dest).exists());
         }
+    }
+
+    #[test]
+    fn deleting_a_model_is_refused_while_a_download_or_a_separation_runs() {
+        let downloads = DownloadRun::default();
+        let separations = crate::stems::StemsRun::default();
+        assert!(!downloads.is_running() && !separations.separating());
+        ensure_unused(&downloads, &separations).unwrap();
+
+        let stop = separations.start();
+        let err = ensure_unused(&downloads, &separations).unwrap_err();
+        assert!(err.message.contains("separated"), "{}", err.message);
+        separations.finish(&stop);
+        ensure_unused(&downloads, &separations).unwrap();
+
+        *downloads.0.lock().unwrap() = Some(Arc::new(AtomicBool::new(false)));
+        assert!(downloads.is_running());
+        let err = ensure_unused(&downloads, &separations).unwrap_err();
+        assert!(err.message.contains("downloading"), "{}", err.message);
     }
 
     #[test]

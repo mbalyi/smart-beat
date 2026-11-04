@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { track } from "@/lib/telemetry";
-import { downloadPianoModel, isTauri, pianoModelStatus } from "@/lib/tauri";
+import { errorText } from "@/lib/errors";
+import { downloadPianoModel, isTauri, pianoModelStatus, removePianoModel } from "@/lib/tauri";
 
 /** The high-accuracy piano model: whether it is on this computer, and getting it. */
 export interface PianoModel {
@@ -17,11 +18,20 @@ export interface PianoModel {
   download: () => void;
 }
 
+/** What the Record to Tab Models dialog adds: deleting the model from this computer. */
+export interface ManagedPianoModel extends PianoModel {
+  /** A delete is under way. */
+  removing: boolean;
+  /** Deletes the model. Why it failed is in `error`. */
+  remove: () => Promise<void>;
+}
+
 /** Looks the model up while `enabled` (the Record dialog is open) and downloads it on request. */
-export function usePianoModel(enabled: boolean): PianoModel {
+export function usePianoModel(enabled: boolean): ManagedPianoModel {
   const [status, setStatus] = useState<{ installed: boolean; bytes: number } | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
   const running = useRef(false);
 
   useEffect(() => {
@@ -57,7 +67,24 @@ export function usePianoModel(enabled: boolean): PianoModel {
       });
   }, []);
 
+  const remove = useCallback(async () => {
+    if (running.current) return;
+    running.current = true;
+    setError(null);
+    setRemoving(true);
+    try {
+      setStatus(await removePianoModel());
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      running.current = false;
+      setRemoving(false);
+    }
+  }, []);
+
   return {
+    removing,
+    remove,
     ready: status !== null,
     installed: status?.installed ?? false,
     bytes: status?.bytes ?? 0,

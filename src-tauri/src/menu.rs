@@ -31,7 +31,8 @@ pub enum MenuAction {
     NewSong,
     Open,
     OpenCloud,
-    AiModels,
+    RecordModels,
+    StemModels,
     ImportAudio,
     RecordToTab,
     ClearRecent,
@@ -113,11 +114,12 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 79] = [
+    pub const ALL: [Self; 80] = [
         Self::NewSong,
         Self::Open,
         Self::OpenCloud,
-        Self::AiModels,
+        Self::RecordModels,
+        Self::StemModels,
         Self::ImportAudio,
         Self::RecordToTab,
         Self::ClearRecent,
@@ -201,7 +203,8 @@ impl MenuAction {
             Self::NewSong => "file.new",
             Self::Open => "file.open",
             Self::OpenCloud => "file.open-cloud",
-            Self::AiModels => "ai.models",
+            Self::RecordModels => "ai.record-models",
+            Self::StemModels => "ai.stem-models",
             Self::ImportAudio => "ai.import-audio",
             Self::RecordToTab => "ai.record-to-tab",
             Self::ClearRecent => "file.clear-recent",
@@ -308,7 +311,7 @@ impl MenuAction {
             | Self::Print
             | Self::CloseWindow
             | Self::Quit => "File",
-            Self::AiModels | Self::ImportAudio | Self::RecordToTab => "AI",
+            Self::RecordModels | Self::StemModels | Self::ImportAudio | Self::RecordToTab => "AI",
             Self::Undo | Self::Redo | Self::ToggleEditMode => "Edit",
             Self::ToggleTheme
             | Self::ToggleFretboard
@@ -369,7 +372,8 @@ impl MenuAction {
             Self::NewSong => "New",
             Self::Open => "Open",
             Self::OpenCloud => "Open from Cloud",
-            Self::AiModels => "AI Models",
+            Self::RecordModels => "Record to Tab Models",
+            Self::StemModels => "Stem Separation Models",
             Self::ImportAudio => "Import from Audio",
             Self::RecordToTab => "Record to Tab",
             Self::ClearRecent => "Clear Menu",
@@ -483,7 +487,8 @@ impl MenuAction {
             // The note effects have plain keys in the score (H, P, L...); menu
             // accelerators would take those keys away from text fields.
             Self::AddAudioTrack
-            | Self::AiModels
+            | Self::RecordModels
+            | Self::StemModels
             | Self::ImportAudio
             | Self::RecordToTab
             | Self::DuplicateTrack
@@ -793,19 +798,23 @@ fn file_menu<'a, R: Runtime>(
         .item(recent)
 }
 
-/// The AI menu: the model installer, the AI features that are out (each only while its feature
+/// The AI menu: the two model dialogs (Record to tab, Stem separation), the AI features that are out (each only while its feature
 /// flag is on), then one disabled entry for each feature that is not out yet.
 fn ai_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Option<Submenu<R>>> {
     use crate::features::enabled;
     let audio = enabled("audio-2-tab");
     let record = enabled("record-2-tab");
+    let stems = enabled("stem-separation") && enabled("stem-separation-neural");
     let soon = crate::features::coming_soon();
-    if !(audio || record) && soon.is_empty() {
+    if !(audio || record || stems) && soon.is_empty() {
         return Ok(None);
     }
     let mut ai = SubmenuBuilder::new(app, "AI");
     if audio || record || enabled("muscriptor-record") {
-        ai = ai.item(&item(app, MenuAction::AiModels)?);
+        ai = ai.item(&item(app, MenuAction::RecordModels)?);
+    }
+    if stems {
+        ai = ai.item(&item(app, MenuAction::StemModels)?);
     }
     if audio {
         ai = ai.item(&item(app, MenuAction::ImportAudio)?);
@@ -813,7 +822,7 @@ fn ai_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Option<Submenu<R>>> 
     if record {
         ai = ai.item(&item(app, MenuAction::RecordToTab)?);
     }
-    if !soon.is_empty() && (audio || record) {
+    if !soon.is_empty() && (audio || record || stems) {
         ai = ai.separator();
     }
     for (id, label) in soon {
@@ -1235,12 +1244,14 @@ mod tests {
         assert_eq!(
             ai,
             [
-                MenuAction::AiModels,
+                MenuAction::RecordModels,
+                MenuAction::StemModels,
                 MenuAction::ImportAudio,
                 MenuAction::RecordToTab
             ]
         );
-        assert!(!MenuAction::AiModels.needs_song());
+        assert!(!MenuAction::RecordModels.needs_song());
+        assert!(!MenuAction::StemModels.needs_song());
         assert!(!MenuAction::ImportAudio.needs_song());
         assert!(MenuAction::RecordToTab.needs_song());
         for action in ai {
@@ -1248,6 +1259,36 @@ mod tests {
             assert!(!action.is_native());
             assert_eq!(action.accelerator_for("macos"), None);
         }
+    }
+
+    #[test]
+    fn the_two_model_dialogs_sit_together_at_the_top_of_the_ai_menu() {
+        let ai: Vec<_> = MenuAction::ALL
+            .into_iter()
+            .filter(|a| a.menu() == "AI")
+            .collect();
+        assert_eq!(ai[..2], [MenuAction::RecordModels, MenuAction::StemModels]);
+        assert_eq!(MenuAction::RecordModels.label(), "Record to Tab Models");
+        assert_eq!(MenuAction::StemModels.label(), "Stem Separation Models");
+        assert_eq!(MenuAction::RecordModels.id(), "ai.record-models");
+        assert_eq!(MenuAction::StemModels.id(), "ai.stem-models");
+        assert_eq!(
+            MenuAction::from_id("ai.stem-models"),
+            Some(MenuAction::StemModels)
+        );
+        // Both open a dialog of the page, and a menu label that opens one has no ellipsis.
+        for action in [MenuAction::RecordModels, MenuAction::StemModels] {
+            assert!(!action.is_native());
+            assert!(!action.label().ends_with('…') && !action.label().ends_with("..."));
+        }
+        assert_eq!(
+            serde_json::to_string(&MenuAction::RecordModels).unwrap(),
+            "\"record-models\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MenuAction::StemModels).unwrap(),
+            "\"stem-models\""
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 
+import type { ClickSoundId } from "@/lib/score/practice";
 import type {
   AudioBackend,
   AudioClip,
@@ -7,10 +8,20 @@ import type {
   StemGains,
   StemLoop,
   StemPlayer,
+  StemMetronome,
   StemPlayerState,
   StemSource,
 } from "@/lib/stems/player";
 import type { StemKindId } from "@/lib/tauri";
+
+/** A metronome click the fake backend was asked for. */
+export interface FakeClick {
+  when: number;
+  accent: boolean;
+  sound: ClickSoundId;
+  volume: number;
+  cancelled: boolean;
+}
 
 /** "Audio bytes" the fake backend decodes: the clip's length in seconds. */
 export const clipBytes = (seconds: number): ArrayBuffer => {
@@ -38,6 +49,7 @@ export interface FakeVoice extends AudioVoice {
 export class FakeAudioBackend implements AudioBackend {
   time = 0;
   voices: FakeVoice[] = [];
+  clicks: FakeClick[] = [];
   resumed = 0;
   closed = false;
   /** When set, `resume` waits for it (to test a Play that is still waiting for the audio). */
@@ -83,6 +95,20 @@ export class FakeAudioBackend implements AudioBackend {
     this.voices.push(voice);
     return voice;
   }
+  click(when: number, accent: boolean, sound: ClickSoundId, volume: number) {
+    const click: FakeClick = { when, accent, sound, volume, cancelled: false };
+    this.clicks.push(click);
+    return {
+      cancel: () => {
+        // A click that has sounded cannot be taken back.
+        if (when > this.time) click.cancelled = true;
+      },
+    };
+  }
+  /** The clicks that sound (not cancelled), as moments on the audio clock. */
+  get heardClicks() {
+    return this.clicks.filter((click) => !click.cancelled);
+  }
   close() {
     this.closed = true;
   }
@@ -122,6 +148,7 @@ export class FakeStemPlayer implements StemPlayer {
   setSpeed = vi.fn((speed: number) => this.set({ speed }));
   setLoop = vi.fn((loop: StemLoop | null) => this.set({ loop }));
   setCountIn = vi.fn((countIn: boolean) => this.set({ countIn }));
+  setMetronome = vi.fn((_metronome: StemMetronome) => {});
   dispose = vi.fn();
 
   constructor(patch: Partial<StemPlayerState> = {}) {

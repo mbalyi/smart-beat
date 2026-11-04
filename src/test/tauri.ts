@@ -14,6 +14,7 @@ import {
   type Shortcut,
   type CloudStem,
   type StemSong,
+  type StemTempo,
   type StemModelId,
   type StemModelStatus,
   type UmxStatus,
@@ -77,6 +78,16 @@ export const STEM_SONG: StemSong = {
   hasOriginal: true,
 };
 
+/** What `stems_detect_tempo` returns unless a test sets `backend.stemTempo`. */
+export const STEM_TEMPO: StemTempo = {
+  bpm: 120,
+  confidence: 0.9,
+  firstBeatSec: 0.5,
+  alternatives: [60, 240],
+  steady: true,
+  sections: [],
+};
+
 /** The neural model before anything is downloaded. */
 export const UMX_STATUS: UmxStatus = {
   downloaded: false,
@@ -96,16 +107,16 @@ export const stemModelStatus = (
   downloaded: false,
   termsAccepted: false,
   termsVersion: 1,
-  // The 6-part model is not hosted yet: as in the app, no size and not available.
+  // The sizes the app pins (src-tauri/src/stems/models.rs); every model is hosted.
   downloadBytes: {
     scnet: 52_271_228,
     "scnet-xl": 216_163_649,
     htdemucs: 176_589_623,
-    "htdemucs-6s": 0,
+    "htdemucs-6s": 116_246_052,
   }[model],
   licence: `The terms of ${model}: the weights have no stated licence.`,
   licenceSummary: "Weights without a stated licence.",
-  available: model !== "htdemucs-6s",
+  available: true,
   ...override,
 });
 const freshStemModels = (): Record<StemModelId, StemModelStatus> => ({
@@ -166,6 +177,8 @@ export const backend = {
   stemSongs: [] as StemSong[],
   /** `.sbstems` paths the system opened before the page was listening (the Rust queue). */
   pendingStemBundles: [] as string[],
+  /** What `stems_detect_tempo` returns. */
+  stemTempo: { ...STEM_TEMPO } as StemTempo,
   /** What `umx_model_status` returns. */
   umx: { ...UMX_STATUS } as UmxStatus,
   /** The song `stems_open_bundle` returns. */
@@ -223,6 +236,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.stemSongs = [];
   backend.bundleSong = { ...STEM_SONG, id: "bbbbbbbbbbbbbbbb", name: "Opened Song" };
   backend.pendingStemBundles = [];
+  backend.stemTempo = { ...STEM_TEMPO };
   backend.umx = { ...UMX_STATUS };
   backend.stemModels = freshStemModels();
   backend.update = null;
@@ -342,6 +356,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           backend.stemSongs = [opened, ...backend.stemSongs.filter((s) => s.id !== opened.id)];
           return opened;
         }
+        case "stems_detect_tempo":
+          return backend.stemTempo;
         case "stems_cache_info":
           return {
             bytes: backend.stemSongs.reduce((sum, song) => sum + song.bytes, 0),
@@ -364,6 +380,9 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return backend.stemModels[(args as { model: StemModelId }).model];
         case "stem_model_remove":
           backend.stemModels[(args as { model: StemModelId }).model].downloaded = false;
+          return null;
+        case "umx_model_remove":
+          backend.umx.downloaded = false;
           return null;
         case "get_usage_settings":
           return backend.usage;

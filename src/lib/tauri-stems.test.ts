@@ -8,6 +8,7 @@ import {
   cancelUmxDownload,
   clearStemSongs,
   deleteStemSong,
+  detectStemTempo,
   downloadStemModel,
   downloadUmxModel,
   estimateStemBundle,
@@ -37,8 +38,9 @@ import {
   type BundleProgress,
   type SeparateRequest,
   type StemProgress,
+  type StemTempo,
 } from "@/lib/tauri";
-import { backend, emitStemBundleOpened, mockTauri, STEM_SONG } from "@/test/tauri";
+import { backend, emitStemBundleOpened, mockTauri, STEM_SONG, STEM_TEMPO } from "@/test/tauri";
 
 const REQUEST: SeparateRequest = {
   path: "/Music/song.mp3",
@@ -68,6 +70,7 @@ describe("stem separation outside the desktop app", () => {
     await expect(revealInFolder("/x.sbstems")).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(stemsCloudSavePath("Song")).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(estimateStemBundle("a", true)).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(detectStemTempo("a")).rejects.toBeInstanceOf(NotInDesktopAppError);
   });
 
   it("lists no cloud stems", async () => {
@@ -150,6 +153,37 @@ describe("stem separation commands", () => {
     });
   });
 
+  it("asks for the tempo of a song and gets the fields the page needs", async () => {
+    const calls = mockTauri();
+    await expect(detectStemTempo("abc")).resolves.toEqual(STEM_TEMPO);
+    expect(calls).toContainEqual({ cmd: "stems_detect_tempo", args: { id: "abc" } });
+
+    const changing: StemTempo = {
+      bpm: 140,
+      confidence: 0.7,
+      firstBeatSec: 0.25,
+      alternatives: [70],
+      steady: false,
+      sections: [
+        { startSec: 0, endSec: 30, bpm: 100 },
+        { startSec: 30, endSec: 70, bpm: 140 },
+      ],
+    };
+    backend.stemTempo = changing;
+    await expect(detectStemTempo("abc")).resolves.toEqual(changing);
+  });
+
+  it("passes a stopped or failed tempo analysis on as the app's error", async () => {
+    mockTauri({
+      stems_detect_tempo: () => {
+        throw { kind: "audio", message: "Tempo detection stopped." };
+      },
+    });
+    await expect(detectStemTempo("abc")).rejects.toMatchObject({
+      message: "Tempo detection stopped.",
+    });
+  });
+
   it("opens the native dialog for an audio file", async () => {
     const calls = mockTauri();
     backend.dialogResult = "/Music/song.flac";
@@ -220,12 +254,13 @@ describe("the SCNet and HTDemucs model commands", () => {
     await expect(stemModelStatus("scnet-xl")).resolves.toMatchObject({ available: false });
   });
 
-  it("reads the 6-part model, which is not available until its file is hosted", async () => {
+  it("reads the 6-part model, which is hosted and about 116 MB", async () => {
     const calls = mockTauri({ stem_model_download: () => null });
     await expect(stemModelStatus("htdemucs-6s")).resolves.toMatchObject({
       model: "htdemucs-6s",
       downloaded: false,
-      available: false,
+      available: true,
+      downloadBytes: 116_246_052,
     });
     expect(calls).toContainEqual({ cmd: "stem_model_status", args: { model: "htdemucs-6s" } });
     await downloadStemModel("htdemucs-6s");

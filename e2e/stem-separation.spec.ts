@@ -55,6 +55,75 @@ declare global {
   }
 }
 
+/** What the tempo detector answers (the contract of `detectStemTempo` in src/lib/tauri.ts, command `stems_detect_tempo`). */
+interface MockTempo {
+  bpm: number;
+  confidence: number;
+  firstBeatSec: number;
+  alternatives: number[];
+  steady: boolean;
+  sections: { startSec: number; endSec: number; bpm: number }[];
+}
+
+const STEADY_TEMPO: MockTempo = {
+  bpm: 92,
+  confidence: 0.9,
+  firstBeatSec: 0.4,
+  alternatives: [46, 184],
+  steady: true,
+  sections: [],
+};
+
+const CHANGING_TEMPO: MockTempo = {
+  ...STEADY_TEMPO,
+  steady: false,
+  sections: [
+    { startSec: 0, endSec: 3, bpm: 92 },
+    { startSec: 3, endSec: 6, bpm: 140 },
+  ],
+};
+
+/**
+ * Makes the tempo detection answer with `tempo` (or fail), whatever the shared mock does, and
+ * records the songs it was asked about in `window.__tempoAsks`.
+ */
+async function mockTempo(app: Page, tempo: MockTempo | "fail", delayMs = 0) {
+  await app.evaluate(
+    ([answer, delay]) => {
+      const w = window as unknown as {
+        __tempoAsks: string[];
+        __TAURI_INTERNALS__: { invoke: (cmd: string, ...rest: unknown[]) => Promise<unknown> };
+      };
+      w.__tempoAsks = [];
+      const real = w.__TAURI_INTERNALS__.invoke.bind(w.__TAURI_INTERNALS__);
+      w.__TAURI_INTERNALS__.invoke = async (cmd, ...rest) => {
+        if (cmd !== "stems_detect_tempo") return real(cmd, ...rest);
+        w.__tempoAsks.push(String((rest[0] as { id?: string } | undefined)?.id));
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        if (answer === "fail") throw new Error("No tempo.");
+        return answer;
+      };
+    },
+    [tempo, delayMs] as const,
+  );
+}
+
+/** Records every metronome click handed to Web Audio: its length (short) and when it starts. */
+async function recordClicks(app: Page) {
+  await app.evaluate(() => {
+    const w = window as unknown as { __clicks: { when: number; now: number }[] };
+    w.__clicks = [];
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (this: AudioBufferSourceNode, ...args) {
+      // The stems and mixes are seconds long; a click is under a third of a second.
+      if (this.buffer && this.buffer.duration < 0.3) {
+        w.__clicks.push({ when: Number(args[0] ?? 0), now: this.context.currentTime });
+      }
+      return start.apply(this, args as Parameters<typeof start>);
+    };
+  });
+}
+
 /** Stem separation (#186), with the stems commands mocked in e2e/tauri-mock.js. */
 
 const SONG_PATH = "/Users/me/Music/neon-nights.mp3";
@@ -105,7 +174,7 @@ test.describe("Stem separation (#186)", () => {
     await chooseSong(app, SONG_PATH, true);
 
     // HTDemucs is chosen first; the built-in engine is the one with parts to choose from.
-    await expect(dialog.getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+    await expect(dialog.getByRole("radio", { name: "HTDemucs", exact: true })).toBeChecked();
     await dialog.getByRole("radio", { name: "Fast" }).check();
 
     // The parts: four to choose from, Other always on and marked.
@@ -188,6 +257,145 @@ test.describe("Stem separation (#186)", () => {
     await expect(app.getByRole("timer", { name: "Position" })).toHaveText("0:06 / 0:06");
     await app.getByRole("button", { name: "Stop" }).click();
     await expect(app.getByRole("timer", { name: "Position" })).toHaveText("0:00 / 0:06");
+  });
+
+  for (const [width, height] of [
+    [1280, 520],
+    [375, 812],
+  ] as const) {
+    test(`puts the transport above the tab bar and keeps it in view while the rows scroll at ${width} px`, async ({
+      app,
+    }) => {
+      await app.setViewportSize({ width, height });
+      await separate(app);
+      const transport = app.getByRole("region", { name: "Transport" });
+      const tabs = app.getByRole("navigation", { name: /Open songs/ });
+      const rows = app.getByRole("list", { name: "Stems" });
+      await expect(transport).toBeVisible();
+      const [t, n, r] = await Promise.all([
+        transport.boundingBox(),
+        tabs.boundingBox(),
+        rows.boundingBox(),
+      ]);
+      // Header, then the transport, then the tab bar, then the rows, with no overlap.
+      expect(t!.y + t!.height).toBeLessThanOrEqual(n!.y + 1);
+      expect(n!.y + n!.height).toBeLessThanOrEqual(r!.y + 1);
+      const top = t!.y;
+      // Scrolling the page: the strip stays where it is, the tab bar goes under it.
+      await rows.evaluate((list) => {
+        const scroller = list.closest("div.overflow-y-auto")!;
+        scroller.scrollTo(0, scroller.scrollHeight);
+      });
+      await expect.poll(async () => (await tabs.boundingBox())!.y + 1).toBeLessThan(top + 1);
+      const scrolled = await transport.boundingBox();
+      expect(scrolled!.y).toBeCloseTo(top, 0);
+      await expect(app.getByRole("button", { name: "Play" })).toBeInViewport();
+      // The last row is not hidden under the strip: its top is at or below the strip's bottom.
+      const last = await rows.getByRole("listitem").last().boundingBox();
+      expect(last!.y + last!.height).toBeGreaterThan(scrolled!.y + scrolled!.height);
+    });
+  }
+
+  test("says it is finding the tempo, then shows it in the details", async ({ app }) => {
+    await mockTempo(app, STEADY_TEMPO, 600);
+    await separate(app);
+    await expect(app.getByText("Finding the tempo…")).toBeVisible();
+    // Playing is not held back.
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled();
+    await expect(app.getByTestId("stem-tempo")).toHaveText("92 BPM");
+    await expect(app.getByTestId("stems-info")).toContainText(/engine · \d parts · 92 BPM/);
+    await expect(app.getByTestId("stem-tempo-changes")).toHaveCount(0);
+    // Asked for this song only (React's development double-mount can ask twice).
+    const asks = await app.evaluate(
+      () => (window as unknown as { __tempoAsks: string[] }).__tempoAsks,
+    );
+    expect(new Set(asks).size).toBe(1);
+  });
+
+  test("says when the tempo was not found, and takes one that is tapped or typed", async ({
+    app,
+  }) => {
+    await mockTempo(app, { ...STEADY_TEMPO, confidence: 0.1 });
+    await separate(app);
+    await expect(app.getByTestId("stem-tempo")).toHaveText("Tempo not found");
+    await expect(app.getByRole("button", { name: "Metronome" })).toBeDisabled();
+    await app.getByTestId("stem-tempo").click();
+    const menu = app.getByRole("dialog", { name: "Tempo" });
+    await menu.getByRole("spinbutton", { name: "Type a tempo" }).fill("100");
+    await app.keyboard.press("Enter");
+    await expect(app.getByTestId("stem-tempo")).toHaveText("100 BPM");
+    await expect(app.getByRole("button", { name: "Metronome" })).toBeEnabled();
+    const tap = menu.getByRole("button", { name: "Tap tempo" });
+    await tap.click();
+    await app.waitForTimeout(500);
+    await tap.click();
+    await expect(app.getByTestId("stem-tempo")).toHaveText(/^\d+(\.\d)? BPM$/);
+    await expect(menu.getByText(/BPM from 2 taps/)).toBeVisible();
+  });
+
+  test("halves, doubles and picks another tempo, and remembers it for the song", async ({
+    app,
+  }) => {
+    await mockTempo(app, STEADY_TEMPO);
+    await separate(app);
+    await app.getByTestId("stem-tempo").click();
+    const menu = app.getByRole("dialog", { name: "Tempo" });
+    await menu.getByRole("button", { name: "Halve" }).click();
+    await expect(app.getByTestId("stem-tempo")).toHaveText("46 BPM");
+    await menu.getByRole("button", { name: "Double" }).click();
+    await menu.getByRole("button", { name: "Double" }).click();
+    await expect(app.getByTestId("stem-tempo")).toHaveText("184 BPM");
+    await menu.getByRole("button", { name: "46 BPM" }).click();
+    await expect(app.getByTestId("stem-tempo")).toHaveText("46 BPM");
+    await app.keyboard.press("Escape");
+    // Leaving the page and opening the song again keeps the tempo the user chose.
+    await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
+    await app.getByRole("button", { name: /^neon-nights/ }).click();
+    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
+    await expect(app.getByTestId("stem-tempo")).toHaveText("46 BPM");
+  });
+
+  test("clicks the metronome on the beat grid while playing, and stops when paused", async ({
+    app,
+  }) => {
+    await mockTempo(app, { ...STEADY_TEMPO, bpm: 120, firstBeatSec: 0, alternatives: [] });
+    await recordClicks(app);
+    await separate(app);
+    await expect(app.getByTestId("stem-tempo")).toHaveText("120 BPM");
+    await app.getByRole("button", { name: "Metronome" }).click();
+    await expect(app.getByRole("button", { name: "Click sound and volume" })).toBeVisible();
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
+    await app.waitForTimeout(1800);
+    await app.getByRole("button", { name: "Pause" }).click();
+    const clicks = await app.evaluate(
+      () => (window as unknown as { __clicks: { when: number }[] }).__clicks,
+    );
+    // 120 BPM = a click every half second.
+    expect(clicks.length).toBeGreaterThanOrEqual(3);
+    for (let i = 1; i < clicks.length; i++) {
+      expect(clicks[i]!.when - clicks[i - 1]!.when).toBeCloseTo(0.5, 2);
+    }
+    // No clicks once paused.
+    const heard = clicks.length;
+    await app.waitForTimeout(600);
+    expect(
+      await app.evaluate(() => (window as unknown as { __clicks: unknown[] }).__clicks.length),
+    ).toBe(heard);
+  });
+
+  test("shows Tempo changes with the parts, and says the click uses one tempo", async ({ app }) => {
+    await mockTempo(app, CHANGING_TEMPO);
+    await separate(app);
+    await app.getByTestId("stem-tempo-changes").click();
+    const popover = app.getByRole("dialog", { name: "Tempo changes" });
+    await expect(popover.getByTestId("stem-tempo-sentence")).toHaveText(
+      "92 BPM until 0:03, then 140 BPM",
+    );
+    await expect(popover.getByText("The playhead is in the 92 BPM part.")).toBeVisible();
+    await expect(popover.getByText(/clicks at one tempo/)).toBeVisible();
+    await popover.getByRole("button", { name: "Follow the tempo changes" }).click();
+    await expect(popover.getByText(/The metronome follows the changes/)).toBeVisible();
   });
 
   test("sets and clears an A-B loop at the playhead", async ({ app }) => {
@@ -521,11 +729,11 @@ test.describe("Stem separation (#186)", () => {
 
   test("lists the engines with what each is best at and recommends HTDemucs", async ({ app }) => {
     const { group } = await toEngines(app);
-    await expect(group.getByRole("radio")).toHaveCount(5);
-    await expect(group.getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+    await expect(group.getByRole("radio")).toHaveCount(6);
+    await expect(group.getByRole("radio", { name: "HTDemucs", exact: true })).toBeChecked();
     await expect(group.getByRole("radio", { name: "Fast" })).not.toBeChecked();
     const card = (name: string) =>
-      group.locator("label").filter({ has: app.getByRole("radio", { name }) });
+      group.locator("[data-engine]").filter({ has: app.getByRole("radio", { name, exact: true }) });
     await expect(card("HTDemucs")).toContainText("Recommended");
     await expect(card("HTDemucs")).toContainText("Best all-round choice");
     await expect(card("SCNet XL")).toContainText("Best for vocals");
@@ -541,7 +749,7 @@ test.describe("Stem separation (#186)", () => {
       window.__stems.hold = true;
     });
     const { dialog, group } = await toEngines(app);
-    await group.getByRole("radio", { name: "HTDemucs" }).check();
+    await group.getByRole("radio", { name: "HTDemucs", exact: true }).check();
     await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
     await dialog.getByRole("button", { name: "Download HTDemucs" }).click();
     const terms = dialog.getByTestId("stem-neural-setup");
@@ -597,17 +805,41 @@ test.describe("Stem separation (#186)", () => {
     await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
   });
 
-  test("removes a model that is on this computer", async ({ app }) => {
+  test("deletes a model from its card with a second click and moves the choice", async ({
+    app,
+  }) => {
     await app.evaluate(() => {
       Object.assign(window.__stemModels.models.scnet, { downloaded: true, termsAccepted: true });
     });
     const { dialog, group } = await toEngines(app);
+    const card = group.locator("[data-engine=scnet]");
     await group.getByRole("radio", { name: "SCNet Small" }).check();
     await expect(dialog.getByRole("button", { name: "Separate" })).toBeEnabled();
-    await dialog.getByRole("button", { name: "Remove SCNet Small from this computer" }).click();
-    await expect(dialog.getByRole("button", { name: "Download SCNet Small" })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Separate" })).toBeDisabled();
+    await expect(card).toContainText("On this computer");
+    await card.getByRole("button", { name: "Delete the SCNet Small model" }).click();
+    expect(await app.evaluate(() => window.__stemModels.removed)).toEqual([]);
+    await card.getByRole("button", { name: "Delete SCNet Small" }).click();
+    await expect(card).toContainText("Download 50 MB");
     expect(await app.evaluate(() => window.__stemModels.removed)).toEqual(["scnet"]);
+    // Nothing else is on this computer: the choice is Fast again.
+    await expect(group.getByRole("radio", { name: "Fast" })).toBeChecked();
+    await expect(dialog.getByRole("button", { name: "Separate" })).toBeEnabled();
+  });
+
+  test("offers the 6-part engine with its size, its terms and Delete", async ({ app }) => {
+    const { dialog, group } = await toEngines(app);
+    const card = group.locator("[data-engine=htdemucs-6s]");
+    await expect(card).toContainText("HTDemucs 6-part");
+    await expect(card).toContainText("Download 111 MB");
+    await group.getByRole("radio", { name: "HTDemucs 6-part" }).check();
+    await dialog.getByRole("button", { name: "Download HTDemucs 6-part" }).click();
+    await expect(dialog.getByTestId("stem-neural-setup")).toContainText("Terms of HTDemucs 6-part");
+    await dialog.getByRole("checkbox").check();
+    await dialog.getByRole("button", { name: "Accept and download" }).click();
+    await expect(card).toContainText("On this computer");
+    await card.getByRole("button", { name: "Delete the HTDemucs 6-part model" }).click();
+    await card.getByRole("button", { name: "Delete HTDemucs 6-part" }).click();
+    await expect(card).toContainText("Download 111 MB");
   });
 
   test("closes the dialog with Escape and offers it again", async ({ app }) => {
@@ -652,13 +884,13 @@ test.describe("Stem separation (#186)", () => {
         });
         const { dialog, group } = await toEngines(app);
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
-        await group.getByRole("radio", { name: "HTDemucs" }).check();
+        await group.getByRole("radio", { name: "HTDemucs", exact: true }).check();
         await expect(dialog.getByRole("button", { name: "Download HTDemucs" })).toBeVisible();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
         await group.getByRole("radio", { name: "SCNet XL" }).check();
         await expect(dialog.getByRole("button", { name: "Download SCNet XL" })).toBeDisabled();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
-        await group.getByRole("radio", { name: "HTDemucs" }).check();
+        await group.getByRole("radio", { name: "HTDemucs", exact: true }).check();
         await dialog.getByRole("button", { name: "Download HTDemucs" }).click();
         await expect(dialog.getByTestId("stem-neural-setup")).toBeVisible();
         await expectNoA11yViolations(app, { popup: "[role=dialog]" });
@@ -753,6 +985,33 @@ test.describe("Stem separation (#186)", () => {
         // With a loop drawn and a stem muted.
         await app.getByRole("button", { name: "Set loop start" }).click();
         await app.getByTestId("stem-drums").getByRole("button", { name: "Mute Drums" }).click();
+        await expectNoA11yViolations(app);
+        expect(
+          await app.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+        ).toBeLessThanOrEqual(0);
+      });
+    }
+
+    for (const width of [375, 1280]) {
+      test(`has no WCAG violations with the tempo menus open at ${width} px in ${colorScheme} mode`, async ({
+        app,
+      }) => {
+        await app.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await app.emulateMedia({ colorScheme });
+        await mockTempo(app, CHANGING_TEMPO);
+        await separate(app);
+        await expect(app.getByRole("button", { name: "Play" })).toBeEnabled();
+        await app.getByRole("button", { name: "Metronome" }).click();
+        await app.getByTestId("stem-tempo").click();
+        await expect(app.getByRole("dialog", { name: "Tempo" })).toBeVisible();
+        await expectNoA11yViolations(app);
+        await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+        await app.keyboard.press("Escape");
+        await app.getByTestId("stem-tempo-changes").click();
+        await expect(app.getByRole("dialog", { name: "Tempo changes" })).toBeVisible();
+        await expectNoA11yViolations(app);
+        await app.keyboard.press("Escape");
+        await app.getByRole("button", { name: "Click sound and volume" }).click();
         await expectNoA11yViolations(app);
         expect(
           await app.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),

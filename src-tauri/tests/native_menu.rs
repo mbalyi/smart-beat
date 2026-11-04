@@ -42,6 +42,10 @@ fn in_menu(action: &MenuAction) -> bool {
         MenuAction::ExportAudioM4a => smart_beat_lib::m4a::SUPPORTED,
         MenuAction::ExportPdf => smart_beat_lib::pdf::SUPPORTED,
         MenuAction::ImportAudio => smart_beat_lib::features::enabled("audio-2-tab"),
+        MenuAction::StemModels => {
+            smart_beat_lib::features::enabled("stem-separation")
+                && smart_beat_lib::features::enabled("stem-separation-neural")
+        }
         _ => true,
     }
 }

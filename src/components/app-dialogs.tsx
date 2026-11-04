@@ -7,7 +7,9 @@ import type { FeatureEntry, TourId } from "@/lib/tour/feature-registry";
 import { AudioTranscriptionDialog } from "@/components/audio/audio-transcription-dialog";
 import type { AudioTranscriptionProvider } from "@/lib/audio-transcription/provider";
 import type { DroppedRecording } from "@/components/audio/audio-transcription-dialog";
+import { RecordModelsDialog } from "@/components/ai/record-models-dialog";
 import { StemDialog, type DroppedSong } from "@/components/stems/stem-dialog";
+import { StemModelsDialog } from "@/components/stems/stem-models-dialog";
 import type { StemSong } from "@/lib/tauri";
 
 export type AppDialog =
@@ -17,7 +19,9 @@ export type AppDialog =
   | "settings"
   | "audio-transcription"
   | "whats-new"
-  | "stem-separation";
+  | "stem-separation"
+  | "record-models"
+  | "stem-models";
 
 export interface AppDialogProps {
   open: boolean;
@@ -101,6 +105,8 @@ export function AppDialogs({
         droppedSong={droppedStem}
         onSeparated={onStemSeparated}
       />
+      <RecordModelsDialog {...props("record-models")} />
+      <StemModelsDialog {...props("stem-models")} />
     </>
   );
 }

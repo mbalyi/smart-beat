@@ -147,8 +147,8 @@ pub const HTDEMUCS: Model = Model {
     licence_summary: "Code MIT; no licence is stated for the weights. Trained on MUSDB18-HQ and 800 private songs. The file is Smart Beat's conversion of the published checkpoint.",
 };
 
-/// HTDemucs 6-source. The file is converted and pinned, but NOT PUBLISHED YET: it is not an asset
-/// of the `stem-models-v1` release, so the engine stays off (see [`HTDEMUCS_6S_PUBLISHED`]).
+/// HTDemucs 6-source. The converted file is pinned and hosted as an asset of the `stem-models-v1`
+/// release; [`HTDEMUCS_6S_PUBLISHED`] takes the engine out again.
 pub const HTDEMUCS_6S: Model = Model {
     id: ModelId::Htdemucs6s,
     label: "HTDemucs 6-source",
@@ -473,13 +473,17 @@ pub fn stem_model_cancel(run: State<'_, DownloadRun>) {
     run.stop();
 }
 
-/// Deletes the downloaded file and any part of it. The accepted terms stay on file.
+/// Deletes the downloaded file and any part of it. The accepted terms stay on file. Refused
+/// while a download or a separation runs.
 #[tauri::command]
 pub fn stem_model_remove<R: Runtime>(
     app: AppHandle<R>,
+    downloads: State<'_, DownloadRun>,
+    separations: State<'_, super::StemsRun>,
     model: String,
 ) -> Result<ModelStatus, CommandError> {
     let id = parse(&model)?;
+    super::umx_model::ensure_unused(&downloads, &separations)?;
     let dir = folder(&app, id)?;
     model_files::remove_files(&dir, &[id.info().file])?;
     Ok(status_of(&dir, id.info()))

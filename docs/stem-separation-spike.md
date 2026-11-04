@@ -191,6 +191,41 @@ Not verified: Spleeter and RoFormer weights licences. UMX-HQ ships as an optiona
 
 A separation lives in the cache under the app's data folder, which is limited (2 GB) and can be cleared, so the stem page has **Save stems**. It writes one `.sbstems` file (a ZIP of FLAC stems, a manifest and optionally the original song) to a place the user picks, with a progress bar, and **Open saved stems** on the start screen reads it back into the library without separating again (about the time it takes to copy the files, not the minutes a separation takes). The cached copy is kept, so a song can be saved and also stay in the Recent grid with a "Saved" mark. The format, its versioning and the privacy rule (the original song is included only when the user ticks the box) are in [`file-formats.md`](file-formats.md#saved-stems-sbstems).
 
+## Tempo detection
+
+The stem page shows the song's tempo and can drive a metronome from it. The detector (`src-tauri/src/separation/tempo.rs`, command `stems_detect_tempo`) uses no model and no new dependency; it reads the cached stems (the drums stem next to the sum of all stems, which is the original mix) and keeps the result in the song's `meta.json` (`tempo`, with the algorithm version, so a changed algorithm recomputes it).
+
+**Method.** All of it is published signal processing, written from the papers.
+
+1. Onset strength: 1024-sample frames every 256 samples, 24 mel-spaced bands from 40 Hz to 12 kHz, log compression, then a half-wave rectified difference against the loudest neighbour band of the previous frame (SuperFlux style, Böck and Widmer 2013). The bands count equally, so hi-hats weigh as much as kick and snare. The trend over one second is removed. The drums stem is added to the mix's envelope unless it is below -34 dB of the mix.
+2. Tempo: autocorrelation of the envelope over 30 to 300 BPM; each candidate also gets its 2x and 4x lags and half its period (the subdivision) added, and a log-normal prior (centre 115 BPM, 0.7 octaves wide) reduces octave errors.
+3. Beats: dynamic programming over the envelope with a log-Gaussian penalty on intervals away from the tempo (Ellis 2007). A robust line fit through the beat times gives the exact tempo (finer than one autocorrelation lag) and the grid phase (`firstBeatSec`, the first grid beat at or after 0).
+4. Sections: the same estimate in 20 s windows every 5 s. A window prefers, among its strong peaks, the one that agrees with the global tempo, so a window that merely feels another pulse of the song is not a new tempo. A change is reported only when at least two windows in a row agree, the tempos differ by 8 % or more, and each section lasts at least 15 s; the boundary is then placed with a change-point search on the envelope. Otherwise `steady` is true with one average tempo and no sections (a drummer drifting from 100 to 104 BPM is steady).
+5. `confidence` (0 to 1) is mostly the autocorrelation at the final period (white noise gives 0.01, real songs 0.25 to 0.55, a click track nearly 1), lowered when a second pulse that is not an octave scores almost as high. `alternatives` lists half and double time, then the next peaks. A silent file or one shorter than 5 s gives `bpm: 0` and confidence 0.
+
+**Synthetic checks** (unit tests): click tracks at 90, 120 and 140 BPM with a first-beat offset come out within 0.3 BPM and 30 ms; 22.05, 44.1 and 48 kHz agree; a swung, jittered groove over noise; 4-on-the-floor kick with a half-time snare stays at 120 with 60 offered as an alternative; a step from 100 to 140 BPM at 30 s gives two sections with the boundary within 1 s; silence, noise and a pure tone give low confidence and do not panic.
+
+**Real songs** (`cargo run --release --example tempo_bench -- <files>`; the mix only, no stems; local files, nothing is stored). A tab's tempo is only a proxy for the recording. The `.mid` files of these tabs hold a default 120 BPM, so the table uses the tempo stored in the matching `.gp` file instead (read by hand from its `score.gpif`).
+
+| Song                            | Detected                                              | Confidence | Tab (.gp)               | Time for the analysis |
+| ------------------------------- | ----------------------------------------------------- | ---------- | ----------------------- | --------------------- |
+| Silly Goose, Set it off (3:35)  | 121.98 BPM, steady                                    | 0.56       | 122 (the .mid says 120) | 0.33 s                |
+| StereoHangar, Attitude (3:24)   | 97.71 BPM, steady                                     | 0.62       | 98 (the .mid says 120)  | 0.32 s                |
+| Limp Bizkit, Ready To Go (6:01) | 86.35 BPM, steady; 114.8 is offered as an alternative | 0.62       | 120                     | 0.58 s                |
+| DEMO1 (2:43)                    | 110.57 BPM, steady                                    | 0.76       | none                    | 0.25 s                |
+
+The first two agree with the tab to a fraction of a BPM. For Ready To Go the detector and the tab disagree (86.35 against 120, a ratio of 0.72); no recording ground truth exists here, so it is not known which is right (the tab may simply carry a default tempo); the 114.8 alternative is within 4 % of the tab. The other songs' timings were taken in a release build without LTO on an Apple Silicon Mac, 0.2 to 0.6 s for 2 to 6 minutes of audio including the envelope of the whole mix.
+
+**Known failure modes.**
+
+- Octave errors are reduced, not removed: a half-time song (snare on beat 3) or a ballad with eighth-note hats can come out at double or half the felt tempo. `alternatives` always holds both octaves so the page can offer them.
+- Ratios of 4:3 and 3:2 (a dotted-eighth riff, a triplet feel) can win over the beat. On StereoHangar the first version without the subdivision term answered 131.3 BPM (a 4:3 error against the tab's 98) and chose 97.7 after the term was added with weight 0.5. That weight was picked on this one song and checked only against the other three, so treat it as plausible, not proven.
+- A live drummer who speeds up by more than 8 % over 15 s or more is reported as a tempo change; a gradual ritardando is not a section until it has settled.
+- Sections need at least 45 s of audio and two agreeing windows, so a change lasting less than about 25 s stays unreported. Boundaries are within a few seconds, not exact.
+- Songs without a steady pulse (free time, ambient intros) get low confidence and may still get a number.
+- The drums stem was exercised with synthetic stems and in the command test only, not on real separated drums.
+- A tempo map with several real tempos is untested on real recordings (no such file was available); one file (Born To Exile, Insomniac) was split into 0 to 17.7 s at 116.8 BPM and the rest at 137.6, which was not verified.
+
 ## Not done yet
 
 - The score-informed prototype (tab alignment plus constrained NMF).

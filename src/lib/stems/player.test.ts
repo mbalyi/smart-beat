@@ -1,6 +1,9 @@
 import { afterEach, beforeEach } from "vitest";
 
+import { steadyGrid } from "@/lib/stems/beat-grid";
 import {
+  CLICK_LOOKAHEAD_SECONDS,
+  CLICK_TICK_MS,
   COUNT_IN_SECONDS,
   createStemPlayer,
   MIN_LOOP_SECONDS,
@@ -518,5 +521,221 @@ describe("Stop and Pause while the audio wakes up", () => {
     await player.play();
     expect(player.state.playing).toBe(true);
     expect(backend.live).toHaveLength(3);
+  });
+});
+
+describe("the metronome", () => {
+  const grid120 = steadyGrid(120, 1);
+  const on = (player: StemPlayer, patch: Partial<Parameters<StemPlayer["setMetronome"]>[0]> = {}) =>
+    player.setMetronome({ on: true, sound: "classic", volume: 1, grid: grid120, ...patch });
+  /** Runs the audio clock and the scheduler's timer together. */
+  const run = (backend: { advance(seconds: number): void }, seconds: number) => {
+    const step = CLICK_TICK_MS / 1000;
+    for (let t = 0; t < seconds - 1e-9; t += step) {
+      backend.advance(step);
+      vi.advanceTimersByTime(CLICK_TICK_MS);
+    }
+  };
+  const whens = (backend: FakeAudioBackend) => backend.heardClicks.map((click) => click.when);
+  const lead = START_LEAD_SECONDS;
+
+  it("clicks on a steady grid from the first beat, accenting the first beat of each bar", async () => {
+    const { player, backend } = await setup();
+    on(player);
+    await player.play();
+    run(backend, 3.2);
+    // 120 BPM = a click every half second; the grid also reaches back before the first beat (1 s).
+    const first = backend.heardClicks.slice(0, 7);
+    expect(first.map((c) => +(c.when - lead).toFixed(3))).toEqual([0, 0.5, 1, 1.5, 2, 2.5, 3]);
+    // Beat 0 is at 1 s: accents are 4 beats (2 s) apart, counted back from it.
+    expect(first.map((c) => c.accent)).toEqual([false, false, true, false, false, false, true]);
+    expect(first.every((c) => c.sound === "classic" && c.volume === 1)).toBe(true);
+  });
+
+  it("clicks once per beat with no repeats or gaps while the scheduler runs in small steps", async () => {
+    const { player, backend } = await setup();
+    on(player);
+    await player.play();
+    run(backend, 10);
+    const gaps = whens(backend)
+      .slice(1)
+      .map((when, i) => +(when - whens(backend)[i]!).toFixed(6));
+    expect(new Set(gaps)).toEqual(new Set([0.5]));
+    // Never further ahead than the lookahead.
+    expect(Math.max(...whens(backend))).toBeLessThanOrEqual(
+      backend.time + CLICK_LOOKAHEAD_SECONDS + 1e-9,
+    );
+  });
+
+  it("uses the sound and the volume given", async () => {
+    const { player, backend } = await setup();
+    on(player, { sound: "cowbell", volume: 2.5 });
+    await player.play();
+    run(backend, 1);
+    expect(backend.heardClicks[0]).toMatchObject({ sound: "cowbell", volume: 2.5 });
+  });
+
+  it("follows the speed: half speed clicks half as often, in step with the music", async () => {
+    const { player, backend } = await setup(100);
+    player.setSpeed(50);
+    await vi.advanceTimersByTimeAsync(0);
+    on(player);
+    await player.play();
+    run(backend, 4.5);
+    const first = backend.heardClicks.slice(0, 5).map((c) => +(c.when - lead).toFixed(3));
+    // One beat per second of the clock now (0.5 s of the song = 1 s of the slowed mix).
+    expect(first).toEqual([0, 1, 2, 3, 4]);
+    // The position moves at the same rate: 4 s of the clock is 2 s of the song.
+    expect(player.position()).toBeCloseTo((backend.time - lead) / 2);
+  });
+
+  it("switches to the new rate when the speed changes while playing", async () => {
+    const { player, backend } = await setup(100);
+    on(player);
+    await player.play();
+    run(backend, 2.1);
+    player.setSpeed(50);
+    await vi.advanceTimersByTimeAsync(0);
+    const restart = backend.clock();
+    const song = player.position();
+    run(backend, 3);
+    const after = backend.heardClicks.filter((c) => c.when > restart);
+    const gaps = after.slice(1).map((c, i) => +(c.when - after[i]!.when).toFixed(3));
+    expect(new Set(gaps)).toEqual(new Set([1]));
+    // Each click lands where the grid has a beat: song seconds are a multiple of half a second from 1.
+    for (const click of after) {
+      const songAt = song + (click.when - restart - lead) / 2;
+      const beats = (songAt - 1) / 0.5;
+      expect(Math.abs(beats - Math.round(beats))).toBeLessThan(0.05);
+    }
+  });
+
+  it("follows a seek: the clicks after it come from the new place", async () => {
+    const { player, backend } = await setup();
+    on(player);
+    await player.play();
+    run(backend, 1);
+    player.seek(30.25);
+    const at = backend.time + lead;
+    run(backend, 1.3);
+    const after = backend.heardClicks.filter((c) => c.when >= at - 1e-9);
+    // 30.25 s of the song: the next beats are at 30.5, 31, ... (the grid is 1 + k/2).
+    expect(after.slice(0, 3).map((c) => +(c.when - at).toFixed(3))).toEqual([0.25, 0.75, 1.25]);
+    // Nothing from the old place is left to sound after the seek.
+    expect(backend.clicks.filter((c) => !c.cancelled && c.when > at && c.when < at + 0.2)).toEqual(
+      [],
+    );
+  });
+
+  it("wraps with the loop: the beats of the loop repeat", async () => {
+    const { player, backend } = await setup();
+    player.setLoop({ start: 2, end: 4 });
+    player.seek(2);
+    on(player);
+    await player.play();
+    run(backend, 6);
+    const rel = whens(backend).map((when) => +(when - lead).toFixed(3));
+    // Four beats per pass of 2 s, over and over, with no click for the loop's end itself.
+    expect(rel.slice(0, 12)).toEqual([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5]);
+    expect(rel.every((time) => time % 0.5 === 0)).toBe(true);
+  });
+
+  it("wraps a loop whose length is not a whole number of beats", async () => {
+    const { player, backend } = await setup();
+    player.setLoop({ start: 2, end: 3.7 });
+    player.seek(2);
+    on(player);
+    await player.play();
+    run(backend, 4);
+    const rel = whens(backend).map((when) => +(when - lead).toFixed(3));
+    // 2.0, 2.5, 3.0, 3.5 in the first pass (1.7 s); the second pass starts at 1.7 s.
+    expect(rel.slice(0, 8)).toEqual([0, 0.5, 1, 1.5, 1.7, 2.2, 2.7, 3.2]);
+  });
+
+  it("stops clicking and stops its timer on Pause, and on Stop", async () => {
+    const { player, backend } = await setup();
+    on(player);
+    await player.play();
+    run(backend, 1);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    player.pause();
+    expect(vi.getTimerCount()).toBe(0);
+    const heard = backend.heardClicks.length;
+    run(backend, 2);
+    expect(backend.heardClicks).toHaveLength(heard);
+    // Whatever was scheduled but not sounded is taken back.
+    expect(backend.clicks.filter((c) => !c.cancelled && c.when > backend.time)).toEqual([]);
+  });
+
+  it("can be turned on and off while playing", async () => {
+    const { player, backend } = await setup();
+    await player.play();
+    run(backend, 1);
+    expect(backend.clicks).toHaveLength(0);
+    on(player);
+    run(backend, 1.05);
+    const count = backend.heardClicks.length;
+    expect(count).toBeGreaterThanOrEqual(2);
+    on(player, { on: false });
+    run(backend, 2);
+    expect(backend.heardClicks.length).toBeLessThanOrEqual(count);
+  });
+
+  it("takes back the clicks not yet sounded when the volume changes, and does not double any", async () => {
+    const { player, backend } = await setup();
+    on(player);
+    await player.play();
+    run(backend, 1);
+    on(player, { volume: 0.5 });
+    run(backend, 2);
+    const times = whens(backend).map((when) => +when.toFixed(3));
+    expect(new Set(times).size).toBe(times.length);
+    expect(backend.heardClicks.at(-1)!.volume).toBe(0.5);
+  });
+
+  it("does not click without a tempo", async () => {
+    const { player, backend } = await setup();
+    on(player, { grid: null });
+    await player.play();
+    run(backend, 2);
+    expect(backend.clicks).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("follows tempo changes when the grid has a tempo per part", async () => {
+    const { player, backend } = await setup();
+    on(player, {
+      grid: {
+        firstBeatSec: 0,
+        segments: [
+          { startSec: 0, bpm: 120 },
+          { startSec: 2, bpm: 60 },
+        ],
+      },
+    });
+    await player.play();
+    run(backend, 5);
+    const rel = whens(backend).map((when) => +(when - lead).toFixed(3));
+    expect(rel.slice(0, 6)).toEqual([0, 0.5, 1, 1.5, 2, 3]);
+  });
+
+  it("waits for the count-in, then clicks from the song's position", async () => {
+    const { player, backend } = await setup();
+    player.setCountIn(true);
+    on(player);
+    await player.play();
+    expect(backend.clicks).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(COUNT_IN_SECONDS * 1000 + 200);
+    expect(player.state.playing).toBe(true);
+    run(backend, 1.2);
+    expect(backend.heardClicks.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("stops clicking when the player is disposed", async () => {
+    const { player } = await setup();
+    on(player);
+    await player.play();
+    player.dispose();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

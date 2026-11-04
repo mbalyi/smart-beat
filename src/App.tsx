@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
 import type { SettingsSection } from "@/components/settings-dialog";
 import { AiInstallerDialog } from "@/components/ai/ai-installer-dialog";
-import { onInstallerReturn, openInstaller } from "@/lib/ai/ai-store";
+import { onInstallerReturn } from "@/lib/ai/ai-store";
 import { CloudOpenDialog } from "@/components/cloud-open-dialog";
 import { SaveTargetDialog } from "@/components/save-target-dialog";
 import { listCloudAccounts, type CloudProvider } from "@/lib/cloud";
@@ -341,6 +341,8 @@ export function App() {
 
   // The installer hands the user back to Import from Audio when it closes.
   useEffect(() => onInstallerReturn("audio", () => setDialog("audio-transcription")), []);
+  // ...and to Record to Tab Models when it was opened from there.
+  useEffect(() => onInstallerReturn("models", () => setDialog("record-models")), []);
 
   const open = () => void showOpenDialog();
   // Stem separation stays out of reach until the feature is switched on.
@@ -507,9 +509,11 @@ export function App() {
       case "open-cloud":
         void showCloudOpen();
         break;
-      case "ai-models":
-        // From the AI menu there is no dialog to go back to.
-        openInstaller();
+      case "record-models":
+        showDialog("record-models");
+        break;
+      case "stem-models":
+        showDialog("stem-models");
         break;
       case "import-audio":
         importAudio?.();

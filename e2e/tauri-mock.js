@@ -79,7 +79,7 @@
     abort: null,
   };
   /** The high-accuracy piano model (src-tauri/src/recording/piano_model.rs): not downloaded at first. */
-  window.__pianoModel = { installed: false, downloads: 0, fail: null };
+  window.__pianoModel = { installed: false, downloads: 0, removed: 0, fail: null };
   /**
    * MuScriptor, the optional AI model (#150, src-tauri/src/recording/muscriptor_model.rs): nothing
    * downloaded and no terms accepted at first. `hold` keeps a download running until `release()`
@@ -116,9 +116,19 @@
    * makes the song a mono file (vocals and panned cannot be separated); `holdRender` keeps a
    * slowed mix from being rendered until `releaseRender()`; `originalMissing` makes the next
    * separated songs ones whose original file is gone (`hasOriginal: false`); `clock` stamps
-   * `createdAtMs` and `lastOpened` so the order of the library is stable.
+   * `createdAtMs` and `lastOpened` so the order of the library is stable. `tempo` is what
+   * `stems_detect_tempo` returns (a test can replace it), `tempoRequests` the ids it was asked for.
    */
   window.__stems = {
+    tempo: {
+      bpm: 120,
+      confidence: 0.9,
+      firstBeatSec: 0.5,
+      alternatives: [60, 240],
+      steady: true,
+      sections: [],
+    },
+    tempoRequests: [],
     songs: [],
     originalMissing: false,
     clock: 1790000000000,
@@ -202,8 +212,8 @@
     scnet: 52271228,
     "scnet-xl": 216163649,
     htdemucs: 176589623,
-    // Not hosted yet, so the app reports it as unavailable and the dialog leaves its card out.
-    "htdemucs-6s": 0,
+    // Hosted since 2026-11-04 (src-tauri/src/stems/models.rs). Set available to false to see it withdrawn.
+    "htdemucs-6s": 116246052,
   };
   window.__stemModels = {
     models: Object.fromEntries(
@@ -216,7 +226,7 @@
           downloadBytes: bytes,
           licence: `The terms of ${engine}: its weights have no stated licence.`,
           licenceSummary: "Weights without a stated licence.",
-          available: engine !== "htdemucs-6s",
+          available: true,
         },
       ]),
     ),
@@ -1020,6 +1030,10 @@
       }
       case "piano_model_status":
         return { installed: window.__pianoModel.installed, bytes: 56799421 };
+      case "piano_model_remove":
+        window.__pianoModel.removed += 1;
+        window.__pianoModel.installed = false;
+        return { installed: false, bytes: 56799421 };
       case "download_piano_model":
         window.__pianoModel.downloads += 1;
         window.__emitTauriEvent("piano-model-download-progress", { fraction: 0.5 });
@@ -1156,6 +1170,9 @@
           bytes: cloud.estimateBytes ?? song.bytes + (withOriginal ? 3 * 1024 * 1024 : 0),
         };
       }
+      case "stems_detect_tempo":
+        window.__stems.tempoRequests.push(args.id);
+        return window.__stems.tempo;
       case "stems_cache_info":
         return { bytes: 0, count: window.__stems.songs.length, limitBytes: 2 * 1024 ** 3 };
       case "stems_cancel":

@@ -15,15 +15,26 @@ import { createPortal } from "react-dom";
 import logo from "@/assets/stem-separation/logo.webp";
 import { ExternalLink } from "@/components/external-link";
 import { LabeledSlider } from "@/components/labeled-slider";
+import { MetronomeControl } from "@/components/shell/metronome-control";
 import { SpeedSelect } from "@/components/shell/speed-select";
 import { SaveStemsDialog } from "@/components/stems/save-stems-dialog";
 import { StemRow } from "@/components/stems/stem-row";
 import { engineLabel } from "@/components/stems/stem-engines";
 import { formatTime, joinNames, stemName, STEM_LABELS } from "@/components/stems/stem-labels";
+import { TempoInfo } from "@/components/stems/tempo-info";
 import { usePosition, useStemState } from "@/components/stems/use-stem-player";
+import { useStemTempo, type DetectTempo } from "@/components/stems/use-stem-tempo";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { STEM_LIMITS_URL } from "@/lib/project-info";
+import {
+  readPracticePrefs,
+  storePracticePrefs,
+  type ClickSoundId,
+  type PracticePrefs,
+} from "@/lib/score/practice";
+import { sectionGrid, steadyGrid, type BeatGrid } from "@/lib/stems/beat-grid";
+import { formatBpm } from "@/lib/stems/tempo";
 import { createSongPlayer, songKinds } from "@/lib/stems/song-player";
 import { gainsOf, initMixer, mixerReducer } from "@/lib/stems/mixer";
 import {
@@ -35,10 +46,30 @@ import {
 } from "@/lib/stems/player";
 import type { StemKindId, StemSong } from "@/lib/tauri";
 
+/** The metronome's settings, remembered with the song page's (the same click and volume). */
+function useMetronomeSettings() {
+  const [settings, setSettings] = useState(() => {
+    const { metronome, metronomeSound, metronomeVolume } = readPracticePrefs();
+    return { on: metronome, sound: metronomeSound, volume: metronomeVolume };
+  });
+  const change = (patch: Partial<{ on: boolean; sound: ClickSoundId; volume: number }>) => {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    const prefs: Partial<PracticePrefs> = {
+      metronome: next.on,
+      metronomeSound: next.sound,
+      metronomeVolume: next.volume,
+    };
+    storePracticePrefs({ ...readPracticePrefs(), ...prefs });
+  };
+  return [settings, change] as const;
+}
+
 /**
- * The page of a separated song, laid out like an open song: the logo, the song's details and
- * the Open and Save buttons in the app header's centre, the tab bar, a sticky strip with the
- * transport (play, position, loop, speed, count-in), then a row per stem.
+ * The page of a separated song, laid out like an open song: the logo, the song's details
+ * (with the tempo) and the Open and Save buttons in the app header's centre, a sticky strip
+ * with the transport (play, position, loop, speed, metronome, count-in), the tab bar, then a
+ * row per stem.
  */
 export function StemPage({
   song,
@@ -49,6 +80,7 @@ export function StemPage({
   savedPath: knownPath,
   onOpenCloudSettings,
   createPlayer = createSongPlayer,
+  detectTempo,
 }: {
   song: StemSong;
   /** The tab bar, shown right below the app header (the same one the open songs use). */
@@ -65,6 +97,8 @@ export function StemPage({
   onOpenCloudSettings?: () => void;
   /** Where the sound comes from; tests give a fake. */
   createPlayer?: (song: StemSong) => StemPlayer | null;
+  /** Finds the tempo; tests give a fake. */
+  detectTempo?: DetectTempo;
 }) {
   const [player, setPlayer] = useState<StemPlayer | null>(null);
   const [unsupported, setUnsupported] = useState(false);
@@ -93,6 +127,25 @@ export function StemPage({
   const goingToSettings = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
 
+  const tempo = useStemTempo(song.id, detectTempo);
+  const [metronome, changeMetronome] = useMetronomeSettings();
+  const { bpm, firstBeatSec, sections, followSections } = tempo.tempo;
+  const grid = useMemo<BeatGrid | null>(() => {
+    if (bpm === null) return null;
+    if (followSections) {
+      return sectionGrid(sections, firstBeatSec) ?? steadyGrid(bpm, firstBeatSec);
+    }
+    return steadyGrid(bpm, firstBeatSec);
+  }, [bpm, firstBeatSec, sections, followSections]);
+  useEffect(() => {
+    player?.setMetronome({
+      on: metronome.on && grid !== null,
+      sound: metronome.sound,
+      volume: metronome.volume,
+      grid,
+    });
+  }, [player, grid, metronome]);
+
   const kinds = useMemo(() => songKinds(song), [song]);
   const skipped = song.skipped.map((kind) => STEM_LABELS[kind].toLowerCase());
 
@@ -110,9 +163,10 @@ export function StemPage({
           <span className="truncate text-sm font-semibold" title={song.name}>
             {song.name}
           </span>
-          <span className="text-xs text-muted-foreground">
+          <span data-testid="stems-info" className="text-xs text-muted-foreground">
             {formatTime(song.durationSeconds)} · {engineLabel(song.engine)} engine ·{" "}
-            {song.stems.length} parts. Everything ran on this computer.
+            {song.stems.length} parts · <TempoInfo model={tempo} player={player} /> · Everything ran
+            on this computer.
           </span>
         </div>
       </div>
@@ -156,9 +210,31 @@ export function StemPage({
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {inHeader && createPortal(mainControls, headerSlot)}
       <h1 className="sr-only">{song.name}</h1>
-      {tabs}
       {!inHeader && <div className="border-b bg-card px-3 py-2">{mainControls}</div>}
-      {player ? <Transport player={player} /> : null}
+      {player ? (
+        <Transport
+          player={player}
+          metronome={
+            <MetronomeControl
+              on={metronome.on && grid !== null}
+              onChange={(on) => changeMetronome({ on })}
+              sound={metronome.sound}
+              onSoundChange={(sound) => changeMetronome({ sound })}
+              volume={metronome.volume}
+              onVolumeChange={(volume) => changeMetronome({ volume })}
+              disabled={grid === null}
+              title={
+                bpm === null
+                  ? tempo.finding
+                    ? "Finding the tempo"
+                    : "Set a tempo first: tap it in the tempo menu"
+                  : `Click along at ${formatBpm(bpm)} beats a minute`
+              }
+            />
+          }
+        />
+      ) : null}
+      {tabs}
 
       <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-5 px-4 pt-4 pb-10 sm:px-6 sm:pb-14 lg:px-8">
         {skipped.length > 0 && (
@@ -275,10 +351,10 @@ function Stems({
 }
 
 /**
- * The strip under the tab bar, as on an open song: play and stop, the position, the loop, the
- * speed and the count-in. It stays at the top while the rows scroll.
+ * The strip above the tab bar, as on an open song: play and stop, the position, the loop, the
+ * speed, the metronome and the count-in. It stays at the top while the rows scroll.
  */
-function Transport({ player }: { player: StemPlayer }) {
+function Transport({ player, metronome }: { player: StemPlayer; metronome: ReactNode }) {
   const state = useStemState(player);
   const position = usePosition(player);
   const [draft, setDraft] = useState<number | null>(null);
@@ -394,6 +470,7 @@ function Transport({ player }: { player: StemPlayer }) {
             onChange={(percent) => player.setSpeed(percent)}
           />
         </div>
+        {metronome}
         <Toggle
           variant="outline"
           size="sm"

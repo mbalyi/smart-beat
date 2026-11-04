@@ -292,6 +292,7 @@ describe("Stem separation dialog: the engines", () => {
     expect(radios.map((radio) => radio.getAttribute("value"))).toEqual([
       "fast",
       "htdemucs",
+      "htdemucs-6s",
       "scnet-xl",
       "scnet",
       "neural",
@@ -304,7 +305,7 @@ describe("Stem separation dialog: the engines", () => {
   it("says what each model is best at, and recommends HTDemucs", async () => {
     const { user } = setup();
     await toOptions(user);
-    const card = (name: string) => screen.getByRole("radio", { name }).closest("label")!;
+    const card = (name: string) => screen.getByRole("radio", { name }).closest("[data-engine]")!;
     expect(card("HTDemucs")).toHaveTextContent("Recommended");
     expect(card("HTDemucs")).toHaveTextContent("Best all-round choice");
     expect(card("SCNet XL")).toHaveTextContent("Best for vocals");
@@ -324,7 +325,7 @@ describe("Stem separation dialog: the engines", () => {
       backend.stemModels.scnet.termsAccepted = true;
     });
     await toOptions(user);
-    const card = (name: string) => screen.getByRole("radio", { name }).closest("label")!;
+    const card = (name: string) => screen.getByRole("radio", { name }).closest("[data-engine]")!;
     await waitFor(() => expect(card("HTDemucs")).toHaveTextContent("Download 168 MB"));
     expect(card("SCNet Small")).toHaveTextContent("On this computer");
     expect(card("SCNet XL")).toHaveTextContent("Not published yet");
@@ -479,22 +480,160 @@ describe("Stem separation dialog: the engines", () => {
     expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
   });
 
-  it("removes a model from this computer", async () => {
-    const { user, calls } = setup({}, {}, () => {
-      backend.stemModels.htdemucs.downloaded = true;
-      backend.stemModels.htdemucs.termsAccepted = true;
+  describe("deleting a model from its card", () => {
+    const onComputer =
+      (...models: Array<"scnet" | "scnet-xl" | "htdemucs" | "htdemucs-6s">) =>
+      () => {
+        for (const model of models) {
+          backend.stemModels[model].downloaded = true;
+          backend.stemModels[model].termsAccepted = true;
+        }
+      };
+    const card = (id: string) => document.querySelector<HTMLElement>(`[data-engine="${id}"]`)!;
+
+    it("puts Delete under 'On this computer', only on models that are there", async () => {
+      const { user } = setup({}, {}, onComputer("htdemucs"));
+      await toOptions(user);
+      const htdemucs = card("htdemucs");
+      await within(htdemucs).findByText("On this computer");
+      expect(
+        within(htdemucs).getByRole("button", { name: "Delete the HTDemucs model" }),
+      ).toBeEnabled();
+      expect(screen.getAllByRole("button", { name: /^Delete the / })).toHaveLength(1);
+      expect(within(card("fast")).queryByRole("button", { name: /Delete/ })).toBeNull();
+      expect(within(card("scnet")).queryByRole("button", { name: /Delete/ })).toBeNull();
     });
-    await openEngine(user, "HTDemucs");
-    await user.click(
-      await screen.findByRole("button", { name: "Remove HTDemucs from this computer" }),
-    );
-    expect(calls).toContainEqual({ cmd: "stem_model_remove", args: { model: "htdemucs" } });
-    expect(await screen.findByRole("button", { name: "Download HTDemucs" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Separate" })).toBeDisabled();
+
+    it("offers the 6-part engine as this build hosts it: its size, its terms and Delete", async () => {
+      const { user } = setup({}, {}, onComputer("htdemucs-6s"));
+      await toOptions(user);
+      const sixPart = await screen.findByRole("radio", { name: "HTDemucs 6-part" });
+      await waitFor(() =>
+        expect(sixPart.closest("[data-engine]")).toHaveTextContent("On this computer"),
+      );
+      await user.click(sixPart);
+      expect(
+        within(card("htdemucs-6s")).getByRole("button", {
+          name: "Delete the HTDemucs 6-part model",
+        }),
+      ).toBeEnabled();
+    });
+
+    it("shows the 6-part download size and its terms when it is not there yet", async () => {
+      const { user } = setup();
+      await toOptions(user);
+      await waitFor(() => expect(card("htdemucs-6s")).toHaveTextContent("Download 111 MB"));
+      await user.click(screen.getByRole("radio", { name: "HTDemucs 6-part" }));
+      await user.click(screen.getByRole("button", { name: "Download HTDemucs 6-part" }));
+      expect(screen.getByTestId("stem-neural-setup")).toHaveTextContent("Terms of HTDemucs 6-part");
+    });
+
+    it("asks for a second click, and Keep backs out", async () => {
+      const { user, calls } = setup({}, {}, onComputer("htdemucs"));
+      await toOptions(user);
+      const first = await screen.findByRole("button", { name: "Delete the HTDemucs model" });
+      await user.click(first);
+      expect(calls.some((call) => call.cmd === "stem_model_remove")).toBe(false);
+      await user.click(screen.getByRole("button", { name: "Keep" }));
+      expect(screen.getByRole("button", { name: "Delete the HTDemucs model" })).toBeInTheDocument();
+      expect(calls.some((call) => call.cmd === "stem_model_remove")).toBe(false);
+
+      await user.click(screen.getByRole("button", { name: "Delete the HTDemucs model" }));
+      await user.click(screen.getByRole("button", { name: "Delete HTDemucs" }));
+      expect(calls).toContainEqual({ cmd: "stem_model_remove", args: { model: "htdemucs" } });
+      await within(card("htdemucs")).findByText("Download 168 MB");
+      expect(screen.queryByRole("button", { name: /^Delete/ })).toBeNull();
+    });
+
+    it("does not choose the engine when Delete is clicked on another card", async () => {
+      const { user } = setup({}, {}, onComputer("htdemucs", "scnet"));
+      await toOptions(user);
+      await user.click(await screen.findByRole("button", { name: "Delete the SCNet Small model" }));
+      expect(screen.getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: "SCNet Small" })).not.toBeChecked();
+    });
+
+    it("moves the choice to the next model that is on this computer", async () => {
+      const { user } = setup({}, {}, onComputer("htdemucs", "scnet"));
+      await toOptions(user);
+      expect(screen.getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+      await user.click(await screen.findByRole("button", { name: "Delete the HTDemucs model" }));
+      await user.click(screen.getByRole("button", { name: "Delete HTDemucs" }));
+      await waitFor(() => expect(screen.getByRole("radio", { name: "SCNet Small" })).toBeChecked());
+      expect(screen.getByRole("button", { name: "Separate" })).toBeEnabled();
+    });
+
+    it("moves the choice to Fast when no model is left", async () => {
+      const { user } = setup({}, {}, onComputer("htdemucs"));
+      await toOptions(user);
+      await user.click(await screen.findByRole("button", { name: "Delete the HTDemucs model" }));
+      await user.click(screen.getByRole("button", { name: "Delete HTDemucs" }));
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Fast" })).toBeChecked());
+      expect(screen.getByRole("group", { name: "Parts to separate" })).toBeInTheDocument();
+    });
+
+    it("keeps the choice when another model is deleted", async () => {
+      const { user } = setup({}, {}, onComputer("htdemucs", "scnet"));
+      await toOptions(user);
+      await user.click(await screen.findByRole("button", { name: "Delete the SCNet Small model" }));
+      await user.click(screen.getByRole("button", { name: "Delete SCNet Small" }));
+      await within(card("scnet")).findByText("Download 50 MB");
+      expect(screen.getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+    });
+
+    it("keeps every Delete off while one delete is under way", async () => {
+      let finish!: () => void;
+      const { user } = setup(
+        {},
+        {
+          stem_model_remove: () =>
+            new Promise((resolve) => {
+              finish = () => resolve(null);
+            }),
+        },
+        onComputer("htdemucs", "scnet"),
+      );
+      await toOptions(user);
+      await user.click(await screen.findByRole("button", { name: "Delete the HTDemucs model" }));
+      await user.click(screen.getByRole("button", { name: "Delete HTDemucs" }));
+      const other = await screen.findByRole("button", { name: "Delete the SCNet Small model" });
+      await waitFor(() => expect(other).toBeDisabled());
+      finish();
+      await waitFor(() => expect(other).toBeEnabled());
+    });
+
+    it("says why when the app refuses, and keeps the model", async () => {
+      const { user } = setup(
+        {},
+        {
+          stem_model_remove: () => {
+            throw { kind: "io", message: "A song is being separated right now." };
+          },
+        },
+        onComputer("htdemucs"),
+      );
+      await toOptions(user);
+      await user.click(await screen.findByRole("button", { name: "Delete the HTDemucs model" }));
+      await user.click(screen.getByRole("button", { name: "Delete HTDemucs" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "A song is being separated right now.",
+      );
+      expect(screen.getByRole("radio", { name: "HTDemucs" })).toBeChecked();
+      expect(screen.getByRole("button", { name: "Delete the HTDemucs model" })).toBeInTheDocument();
+    });
+
+    it("has no violations with the confirmation open", async () => {
+      const { user } = setup({}, {}, onComputer("htdemucs"));
+      await toOptions(user);
+      await user.click(await screen.findByRole("button", { name: "Delete the HTDemucs model" }));
+      await expectNoA11yViolations(dialog());
+    });
   });
 
-  it("leaves the 6-part engine off the list until its model is available", async () => {
-    const { user, calls } = setup();
+  it("leaves the 6-part engine off the list while its model is withdrawn", async () => {
+    const { user, calls } = setup({}, {}, () => {
+      backend.stemModels["htdemucs-6s"].available = false;
+    });
     await toOptions(user);
     // The status of every model is asked for; the 6-part one says it is not available.
     await waitFor(() =>
@@ -526,7 +665,7 @@ describe("Stem separation dialog: the engines", () => {
           .map((radio) => radio.getAttribute("value")),
       ).toEqual(["fast", "htdemucs", "htdemucs-6s", "scnet-xl", "scnet", "neural"]);
       expect(card).not.toBeChecked();
-      const label = card.closest("label")!;
+      const label = card.closest("[data-engine]")!;
       expect(label).toHaveTextContent("Six parts: drums, bass, vocals, guitar, piano");
       expect(label).toHaveTextContent("Guitar and piano are weaker");
       expect(label).toHaveTextContent("Download 117 MB");

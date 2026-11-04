@@ -94,6 +94,8 @@ export interface EngineModels {
   setup: Setup | null;
   /** A download is running: the dialog must not be left or changed. */
   busy: boolean;
+  /** The model being deleted right now. */
+  removing: NeuralEngine | null;
   /** Something went wrong outside a setup (removing a model). */
   error: string;
   /** On this computer, with the terms accepted. */
@@ -102,7 +104,8 @@ export interface EngineModels {
   close: () => void;
   accept: () => void;
   cancel: () => void;
-  remove: (engine: NeuralEngine) => void;
+  /** Deletes the model from this computer. Resolves true when it is gone, false on a failure. */
+  remove: (engine: NeuralEngine) => Promise<boolean>;
 }
 
 /** Whether each model is on this computer, and the terms and download of the one being set up. */
@@ -111,6 +114,7 @@ export function useEngineModels(offered: boolean): EngineModels {
   const [unreadable, setUnreadable] = useState<EngineModels["unreadable"]>({});
   const [setup, setSetup] = useState<Setup | null>(null);
   const [error, setError] = useState("");
+  const [removing, setRemoving] = useState<NeuralEngine | null>(null);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -175,6 +179,7 @@ export function useEngineModels(offered: boolean): EngineModels {
     unreadable,
     setup,
     busy: setup?.stage === "downloading",
+    removing,
     error,
     isReady: (engine) => {
       if (engine === "fast") return true;
@@ -190,12 +195,21 @@ export function useEngineModels(offered: boolean): EngineModels {
     cancel: () => {
       if (setup) void adapterFor(setup.engine).cancel();
     },
-    remove: (engine) => {
+    remove: async (engine) => {
+      // Not while a download runs or another delete is under way.
+      if (setup?.stage === "downloading" || removing) return false;
       setError("");
-      adapterFor(engine)
-        .remove()
-        .then(() => refresh(engine))
-        .catch((cause) => mounted.current && setError(errorText(cause)));
+      setRemoving(engine);
+      try {
+        await adapterFor(engine).remove();
+        await refresh(engine);
+        return true;
+      } catch (cause) {
+        if (mounted.current) setError(errorText(cause));
+        return false;
+      } finally {
+        if (mounted.current) setRemoving(null);
+      }
     },
   };
 }

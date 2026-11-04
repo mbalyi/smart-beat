@@ -1,17 +1,22 @@
 import { act, fireEvent, screen, within } from "@testing-library/react";
 
 import { StemPage } from "@/components/stems/stem-page";
+import type { DetectTempo } from "@/components/stems/use-stem-tempo";
 import { STEM_LIMITS_URL } from "@/lib/project-info";
 import { STEM_SPEEDS } from "@/lib/stems/player";
-import type { StemSong } from "@/lib/tauri";
+import type { StemSong, StemTempo } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { FakeStemPlayer } from "@/test/fake-stem-audio";
 import { renderWithProviders } from "@/test/render";
 import { backend, mockTauri, STEM_SONG } from "@/test/tauri";
 
+/** A tempo that is never found, so a test that is not about it sees "Finding the tempo". */
+const neverFound: DetectTempo = () => new Promise<StemTempo>(() => {});
+
 function setup(
   song: StemSong = STEM_SONG,
   state: ConstructorParameters<typeof FakeStemPlayer>[0] = {},
+  detectTempo: DetectTempo = neverFound,
 ) {
   const player = new FakeStemPlayer({ duration: 215, ...state });
   const onOpenStems = vi.fn();
@@ -22,6 +27,7 @@ function setup(
       onOpenStems={onOpenStems}
       tabs={<nav aria-label="Open songs" />}
       createPlayer={createPlayer}
+      detectTempo={detectTempo}
     />,
   );
   return { ...ui, player, onOpenStems, createPlayer };
@@ -36,7 +42,9 @@ describe("Stem page: the song", () => {
     setup();
     expect(screen.getByRole("heading", { level: 1, name: "Neon Nights" })).toHaveClass("sr-only");
     expect(screen.getByText("Neon Nights", { selector: "span" })).toBeInTheDocument();
-    expect(screen.getByText(/3:35 · Fast\s+engine · 5 parts/)).toBeInTheDocument();
+    expect(screen.getByTestId("stems-info")).toHaveTextContent(
+      /3:35 · Fast\s+engine · 5 parts · Finding the tempo… · Everything ran on this computer\./,
+    );
     expect(screen.getByRole("img", { name: "Stem separation" })).toBeInTheDocument();
     expect(
       screen.queryByText("Stem separation", { selector: "p,div,span" }),
@@ -44,20 +52,42 @@ describe("Stem page: the song", () => {
     expect(screen.queryByRole("button", { name: "Back to start" })).not.toBeInTheDocument();
   });
 
-  it("shows the tab bar first, then the transport, like an open song", () => {
+  it("shows the transport first, then the tab bar, then the rows, like an open song", () => {
     setup();
     const tabs = screen.getByRole("navigation", { name: "Open songs" });
     const transport = screen.getByRole("region", { name: "Transport" });
-    expect(tabs.compareDocumentPosition(transport) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(transport).toHaveClass("sticky");
+    const rows = screen.getByRole("list", { name: "Stems" });
+    const before = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(before(transport, tabs)).toBe(true);
+    expect(before(tabs, rows)).toBe(true);
+    // The strip stays at the top while the rows scroll; the tab bar scrolls away under it.
+    expect(transport).toHaveClass("sticky", "top-0");
+    expect(tabs).not.toHaveClass("sticky");
+  });
+
+  it("puts the transport before the tab bar also when the controls are not in the header", () => {
+    setup();
+    const controls = screen.getByRole("img", { name: "Stem separation" });
+    const transport = screen.getByRole("region", { name: "Transport" });
+    expect(
+      Boolean(controls.compareDocumentPosition(transport) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
   });
 
   it("puts the logo, the details and the buttons in the header's centre when it has one", () => {
     const slot = document.createElement("div");
     document.body.append(slot);
-    renderWithProviders(<StemPage song={STEM_SONG} headerSlot={slot} createPlayer={() => null} />);
+    renderWithProviders(
+      <StemPage
+        song={STEM_SONG}
+        headerSlot={slot}
+        createPlayer={() => null}
+        detectTempo={neverFound}
+      />,
+    );
     expect(within(slot).getByRole("img", { name: "Stem separation" })).toBeInTheDocument();
-    expect(within(slot).getByText(/3:35 · Fast\s+engine · 5 parts/)).toBeInTheDocument();
+    expect(within(slot).getByTestId("stems-info")).toHaveTextContent(/3:35 · Fast\s+engine/);
     expect(within(slot).getByRole("button", { name: "Save stems" })).toBeInTheDocument();
     slot.remove();
   });
@@ -73,7 +103,9 @@ describe("Stem page: the song", () => {
       engine,
       stems: STEM_SONG.stems.filter((stem) => stem.kind !== "panned"),
     });
-    expect(screen.getByText(new RegExp(`3:35 · ${label}\\s+engine · 4 parts`))).toBeInTheDocument();
+    expect(screen.getByTestId("stems-info")).toHaveTextContent(
+      new RegExp(`3:35 · ${label}\\s+engine · 4 parts · `),
+    );
     expect(row("other")).not.toHaveTextContent("not separated");
   });
 
@@ -86,7 +118,9 @@ describe("Stem page: the song", () => {
   });
 
   it("says when there is no audio to play with", () => {
-    renderWithProviders(<StemPage song={STEM_SONG} createPlayer={() => null} />);
+    renderWithProviders(
+      <StemPage song={STEM_SONG} createPlayer={() => null} detectTempo={neverFound} />,
+    );
     expect(screen.getByRole("alert")).toHaveTextContent("cannot play audio");
   });
 
@@ -405,7 +439,9 @@ describe("Stem page: opening stems", () => {
   });
 
   it("leaves Open stems out when the page cannot open any", () => {
-    renderWithProviders(<StemPage song={STEM_SONG} createPlayer={() => null} />);
+    renderWithProviders(
+      <StemPage song={STEM_SONG} createPlayer={() => null} detectTempo={neverFound} />,
+    );
     expect(screen.queryByRole("button", { name: "Open stems" })).not.toBeInTheDocument();
   });
 });
