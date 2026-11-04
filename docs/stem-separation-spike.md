@@ -179,7 +179,7 @@ Read from primary pages on 2026-10-28.
 | SCNet Small (demixr ONNX)              | MIT  | MIT per the author's statement to us (Small and Large); trained on MUSDB18-HQ only                   | 52,271,228 bytes                     |
 | SCNet XL IHF (ZFTurbo `v1.0.15`)       | MIT  | **None stated**; trained on MUSDB18-HQ only; only a PyTorch checkpoint upstream                      | 214,063,778 bytes (ONNX 216,163,649) |
 | HTDemucs `htdemucs` (Meta)             | MIT  | **None stated**; trained on MUSDB18-HQ plus 800 non-public songs; only a PyTorch file upstream       | 84,141,911 bytes (ONNX 176,589,623)  |
-| HTDemucs `htdemucs_6s` (Meta)          | MIT  | **None stated**; the same family and training data as above; only a PyTorch file upstream            | 54,996,327 bytes (ONNX 116,246,052) |
+| HTDemucs `htdemucs_6s` (Meta)          | MIT  | **None stated**; the same family and training data as above; only a PyTorch file upstream            | 54,996,327 bytes (ONNX 116,246,052)  |
 
 **MUSDB18-HQ terms.** UMX-HQ was trained on MUSDB18-HQ ([Zenodo record 3338373](https://zenodo.org/records/3338373), licence field other-nc). Its description says the tracks are "provided for educational purposes only" and "should not be used for any commercial purpose without the express permission of the copyright holders". The Open-Unmix authors do not say whether those terms reach the weights, and the Zenodo field for the weights says MIT. That is the same kind of open question as Transkun and MAESTRO in [`licensing.md`](licensing.md).
 
