@@ -49,6 +49,8 @@ const STATE: &str = "state.json";
 const ORIGINAL_DIR: &str = "original/";
 /// Largest manifest or state entry read.
 const MAX_JSON_BYTES: u64 = 1024 * 1024;
+/// The most memory reserved up front for an entry; a larger one grows as it is read.
+const MAX_PREALLOC_BYTES: u64 = 64 * 1024 * 1024;
 /// A stem is a WAV file in the cache, so it has at most this many frames (4 bytes each).
 const MAX_FRAMES: u64 = (u32::MAX as u64 - 36) / 4;
 /// The stems are 16-bit stereo, mono sources included (they are doubled).
@@ -197,6 +199,13 @@ fn stem_entry_name(kind: StemKind, codec: &str) -> String {
     format!("stems/{}.{codec}", kind.id())
 }
 
+/// The most bytes a stem of `frames` 16-bit stereo frames can take: its PCM, plus room for FLAC
+/// frame headers (a verbatim FLAC frame is barely larger than PCM) and a WAV or FLAC header.
+/// The size is read from the file before anything is allocated for it, so it must be bounded.
+fn max_stem_bytes(frames: u64) -> u64 {
+    frames * 4 + frames / 16 + (1 << 20)
+}
+
 /// Checks everything in the manifest that the rest of the code relies on.
 fn validate(m: &Manifest) -> Result<(), String> {
     if !store::is_valid_id(&m.id) {
@@ -230,6 +239,7 @@ fn validate(m: &Manifest) -> Result<(), String> {
             || stem.bytes == 0
             || stem.frames == 0
             || stem.frames > MAX_FRAMES
+            || stem.bytes > max_stem_bytes(stem.frames)
         {
             return Err(format!("the {} stem is described wrongly", stem.kind.id()));
         }
@@ -304,8 +314,10 @@ fn read_entry<R: Read + std::io::Seek>(
     if file.size() > limit {
         return Err(format!("{entry} is too large"));
     }
-    let mut bytes = Vec::with_capacity(file.size() as usize);
-    file.take(limit + 1)
+    // The size in the ZIP header is the file's word: reserve a bounded start and let the
+    // vector grow with what is really there.
+    let mut bytes = Vec::with_capacity(file.size().min(MAX_PREALLOC_BYTES) as usize);
+    file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > limit {
@@ -1645,6 +1657,28 @@ mod tests {
         edit_manifest(&file, |m| m["stems"][1]["frames"] = 19_999.into());
         assert!(try_open().unwrap_err().message.contains("frames"));
         assert!(fresh.list().is_empty());
+    }
+
+    #[test]
+    fn a_stem_size_larger_than_its_frames_can_need_is_refused_before_reading() {
+        let (dir, store, _) = setup();
+        let file = dir.path().join("a.sbstems");
+        let fresh = StemStore::new(dir.path().join("fresh"));
+        let try_open = || open(&fresh, &file, &AtomicBool::new(false), &mut |_| {});
+        // The reader reserves memory and reads up to the size the manifest gives: a petabyte
+        // there (with a ZIP header to match) would end the app, the largest number would
+        // overflow the read limit.
+        for bytes in [1u64 << 50, u64::MAX] {
+            save_ok(&store, &request(ID, &file, false));
+            edit_manifest(&file, |m| m["stems"][0]["bytes"] = bytes.into());
+            let err = try_open().unwrap_err();
+            assert!(err.message.contains("described wrongly"), "{bytes}: {err}");
+            assert!(fresh.list().is_empty());
+        }
+        // The bound leaves room for what the encoders really write.
+        for frames in [1, 4096, 20_000, MAX_FRAMES] {
+            assert!(max_stem_bytes(frames) >= 44 + frames * 4);
+        }
     }
 
     #[test]

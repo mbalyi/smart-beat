@@ -12,6 +12,8 @@ use crate::separation::{StemKind, StemSink};
 const HEADER_BYTES: u64 = 44;
 /// A RIFF size field is 32 bits.
 const MAX_DATA_BYTES: u64 = u32::MAX as u64 - 36;
+/// The largest `fmt ` chunk the reader accepts (PCM is 16 bytes, extensions are a few more).
+const MAX_FMT_BYTES: u32 = 1024;
 
 fn header(rate: u32, data_bytes: u32) -> [u8; HEADER_BYTES as usize] {
     let mut h = [0u8; HEADER_BYTES as usize];
@@ -155,6 +157,11 @@ impl Pcm16 {
             let size = u32::from_le_bytes(chunk[4..8].try_into().expect("4 bytes"));
             match &chunk[0..4] {
                 b"fmt " => {
+                    // PCM needs 16 bytes; the size comes from the file, so a shorter chunk
+                    // would index past its end and a huge one would allocate gigabytes.
+                    if !(16..=MAX_FMT_BYTES).contains(&size) {
+                        return Err(bad());
+                    }
                     let mut fmt = vec![0u8; size as usize];
                     reader.read_exact(&mut fmt).map_err(|_| bad())?;
                     let tag = u16::from_le_bytes([fmt[0], fmt[1]]);
@@ -281,5 +288,47 @@ mod tests {
         w.write_sample(1i16).unwrap();
         w.finalize().unwrap();
         assert!(Pcm16::open(&path).is_err());
+    }
+
+    /// A `fmt ` chunk with `fmt_size` bytes of PCM stereo 16-bit (cut short or padded), then data.
+    fn wav_with_fmt_size(fmt_size: u32) -> Vec<u8> {
+        let mut fmt = vec![0u8; 16];
+        fmt[0..2].copy_from_slice(&1u16.to_le_bytes());
+        fmt[2..4].copy_from_slice(&2u16.to_le_bytes());
+        fmt[4..8].copy_from_slice(&44_100u32.to_le_bytes());
+        fmt[14..16].copy_from_slice(&16u16.to_le_bytes());
+        fmt.resize(fmt_size as usize, 0);
+        let mut bytes = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
+        bytes.extend_from_slice(&fmt_size.to_le_bytes());
+        bytes.extend_from_slice(&fmt);
+        if fmt_size % 2 == 1 {
+            bytes.push(0);
+        }
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(&[0; 8]);
+        bytes
+    }
+
+    #[test]
+    fn a_fmt_chunk_too_short_or_too_long_is_refused_not_a_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x.wav");
+        // Without the size check, `fmt[14]` and `fmt[4..8]` are read past the chunk's end.
+        for size in [0, 4, 15] {
+            std::fs::write(&path, wav_with_fmt_size(size)).unwrap();
+            assert!(Pcm16::open(&path).is_err(), "fmt chunk of {size} bytes");
+        }
+        // Gigabytes promised and not there: refused before anything is allocated.
+        let mut huge = wav_with_fmt_size(16);
+        huge[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+        std::fs::write(&path, huge).unwrap();
+        assert!(Pcm16::open(&path).is_err());
+        // The sizes a PCM writer uses still open.
+        for size in [16, 18] {
+            std::fs::write(&path, wav_with_fmt_size(size)).unwrap();
+            let pcm = Pcm16::open(&path).unwrap();
+            assert_eq!((pcm.rate, pcm.frames), (44_100, 2));
+        }
     }
 }
