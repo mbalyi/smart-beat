@@ -42,7 +42,7 @@ export class FakeScorePlayer {
   showForPrint = vi.fn((_tracks: number[], _scale: number) => this.restoreAfterPrint);
   previewDrum = vi.fn();
   previewNote = vi.fn();
-  /** Whether the native engine plays (set by tests that need the audio track). */
+  /** Whether the native engine plays (as the real player: when it was asked for). */
   usesNativeEngine = false;
   loadBacking = vi.fn(async (source: { type: string; path?: string; name?: string }) => ({
     name: (source.path ?? source.name ?? "take.mp3").split("/").pop()!,
@@ -75,6 +75,7 @@ export class FakeScorePlayer {
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks) {
     this.options = options;
     this.callbacks = callbacks;
+    this.usesNativeEngine = options.audioEngine === "native";
     FakeScorePlayer.instances.push(this);
   }
 

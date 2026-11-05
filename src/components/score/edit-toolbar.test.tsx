@@ -28,6 +28,7 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     onDeleteBeat: vi.fn(),
     onVoice: vi.fn(),
     onBar: vi.fn(),
+    onTimeSignature: vi.fn(),
     onDone: vi.fn(),
   };
   const props = {
@@ -39,6 +40,7 @@ function setup(overrides: Partial<Parameters<typeof EditToolbar>[0]> = {}) {
     message: "Fret 3 on string 1",
     actions,
     statusId: "status",
+    time: { numerator: 4, denominator: 4 },
     auditionNotes: true,
     onAuditionNotesChange: vi.fn(),
     ...overrides,
@@ -218,5 +220,35 @@ describe("EditToolbar: nested tuplets (#43)", () => {
   it("shows a nested ratio the list does not name under its own ratio", async () => {
     setup({ beat: { ...BEAT, tuplet: { numerator: 9, denominator: 4 } } });
     expect(screen.getByRole("combobox", { name: "Tuplet" })).toHaveTextContent("9:4");
+  });
+
+  it("shows and changes the time signature of the bar", async () => {
+    const { user, actions } = setup({ time: { numerator: 7, denominator: 8 } });
+
+    const beats = screen.getByRole("spinbutton", { name: "Beats per bar" });
+    expect(beats).toHaveValue(7);
+    expect(screen.getByRole("combobox", { name: "Beat unit" })).toHaveTextContent("8");
+
+    await user.clear(beats);
+    await user.type(beats, "5{Enter}");
+    expect(actions.onTimeSignature).toHaveBeenLastCalledWith({ numerator: 5, denominator: 8 });
+
+    await user.click(screen.getByRole("combobox", { name: "Beat unit" }));
+    await user.click(screen.getByRole("option", { name: "16" }));
+    expect(actions.onTimeSignature).toHaveBeenLastCalledWith({ numerator: 7, denominator: 16 });
+    expect(actions.onDone).toHaveBeenCalled();
+  });
+
+  it("keeps the beats per bar within 1 to 32 and ignores no-ops", async () => {
+    const { user, actions } = setup({ time: { numerator: 4, denominator: 4 } });
+    const beats = screen.getByRole("spinbutton", { name: "Beats per bar" });
+
+    await user.clear(beats);
+    await user.type(beats, "99{Enter}");
+    expect(actions.onTimeSignature).toHaveBeenLastCalledWith({ numerator: 32, denominator: 4 });
+
+    await user.clear(beats);
+    await user.type(beats, "4{Enter}");
+    expect(actions.onTimeSignature).toHaveBeenCalledTimes(1);
   });
 });

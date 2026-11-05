@@ -457,7 +457,8 @@ describe("TrackList", () => {
     const onChange = vi.fn();
     const onAdd = vi.fn();
     const onEdit = vi.fn();
-    const audio = { info: null, barTimes: [0, 2000, 4000], onAdd, onEdit };
+    const onRemove = vi.fn();
+    const audio = { info: null, barTimes: [0, 2000, 4000], onAdd, onEdit, onRemove };
     const first = setup({ onChange, audio });
     await first.user.click(screen.getByRole("button", { name: "Add audio track" }));
     expect(onAdd).toHaveBeenCalled();
@@ -488,6 +489,9 @@ describe("TrackList", () => {
     });
     await user.click(within(row).getByRole("button", { name: "Edit the audio track take.mp3" }));
     expect(onEdit).toHaveBeenCalled();
+    // Regression: the row had no way to delete the track (only the editor panel did).
+    await user.click(within(row).getByRole("button", { name: "Remove the audio track" }));
+    expect(onRemove).toHaveBeenCalledTimes(1);
     expect(within(container).queryByRole("button", { name: "Add audio track" })).toBeNull();
   });
 

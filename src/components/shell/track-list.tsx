@@ -554,6 +554,8 @@ export function TrackList({
     barTimes: readonly number[];
     onAdd: () => void;
     onEdit: () => void;
+    /** Removes the audio track from the song. */
+    onRemove: () => void;
   };
 }) {
   const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
@@ -1152,6 +1154,15 @@ export function TrackList({
                       title="Settings and sync points"
                     >
                       <Settings2Icon />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={audio.onRemove}
+                      aria-label="Remove the audio track"
+                      title="Remove the audio track"
+                    >
+                      <Trash2Icon />
                     </Button>
                   </div>
                 </div>

@@ -50,6 +50,29 @@ test.describe("audio track (#38)", () => {
     await expectNoA11yViolations(app);
   });
 
+  // Regression (#209): the track could only be removed from its editor, and a recording added with
+  // the web engine waited for a restart.
+  test("removes the audio track from its row", async ({ app }) => {
+    const editor = await addRecording(app);
+    await editor.getByRole("button", { name: "Close the audio track editor" }).click();
+    const row = app.getByTestId("audio-track-row");
+    await row.getByRole("button", { name: "Remove the audio track" }).click();
+    await expect(row).toBeHidden();
+    await expect.poll(() => app.evaluate(() => window.__engineBacking ?? null)).toBeNull();
+  });
+
+  test("a recording added with the web engine switches to the native engine and loads", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await app.evaluate((path) => (window.__dialogResult = path), "/Users/me/Music/take.mp3");
+    await emitMenuAction(app, "add-audio-track");
+    await expect(app.getByRole("switch", { name: "Native engine with effects" })).toBeChecked();
+    await expect(
+      app.getByRole("region", { name: "Audio track" }).getByTestId("audio-waveform"),
+    ).toBeVisible({ timeout: 30_000 });
+  });
+
   test("syncs bars to the recording with sync points", async ({ app }) => {
     const editor = await addRecording(app);
     const waveform = editor.getByTestId("audio-waveform");
