@@ -92,11 +92,11 @@ jobs:
           retention-days: 14
 
   e2e-additional:
-    # The guided-tour, AI installer and stem separation tests, in their own job so the smoke job
+    # The guided-tour, AI installer, Record to tab, Import from Audio, stem separation and cloud storage tests, in their own job so the smoke job
     # stays short (the groups are defined in playwright.config.ts).
     name: E2E additional functions (${{ matrix.browser }})
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 65
     strategy:
       fail-fast: false
       matrix:
