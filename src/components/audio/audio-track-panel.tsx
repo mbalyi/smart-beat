@@ -9,6 +9,7 @@ import {
 import { AudioLinesIcon, FolderOpenIcon, Trash2Icon, WandIcon, XIcon } from "lucide-react";
 
 import { LabeledSlider } from "@/components/labeled-slider";
+import { Playhead } from "@/components/playhead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,6 +22,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { FILTER_LABELS, formatMs } from "@/lib/audio/audio-track";
 import { audioMsAt } from "@/lib/audio/engine-config";
+import type { PlayheadStore } from "@/lib/score/playhead";
 import type { AudioTrackSettings, BackingFilter, BackingInfo, SyncPoint } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
@@ -179,6 +181,8 @@ export function AudioTrackPanel({
   onImportTempo,
   onClose,
   canEmbed,
+  playhead,
+  playing = false,
 }: {
   audio: AudioTrackSettings;
   /** Null while loading, or when the file is missing. */
@@ -195,8 +199,12 @@ export function AudioTrackPanel({
   onClose: () => void;
   /** Whether the song can embed the recording (saved as .gp). */
   canEmbed: boolean;
+  /** Where playback is: a line follows it across the waveform. */
+  playhead?: PlayheadStore;
+  playing?: boolean;
 }) {
   const ids = useId();
+  const scroller = useRef<HTMLDivElement>(null);
   const bars = Math.max(0, barTimes.length - 1);
   const width = Math.min(MAX_CANVAS, bars * barWidth);
   const points = audio.sync.flatMap((p) =>
@@ -343,7 +351,7 @@ export function AudioTrackPanel({
       </div>
 
       {info ? (
-        <div className="overflow-x-auto pb-1">
+        <div ref={scroller} className="overflow-x-auto pb-1">
           <div
             aria-hidden="true"
             className="relative h-4 text-[10px] text-muted-foreground tabular-nums"
@@ -369,6 +377,14 @@ export function AudioTrackPanel({
             data-testid="audio-waveform"
           >
             <AudioWaveform info={info} sync={audio.sync} barTimes={barTimes} barWidth={barWidth} />
+            {playhead && (
+              <Playhead
+                store={playhead}
+                barWidth={barWidth}
+                playing={playing}
+                scroller={scroller}
+              />
+            )}
             {audio.sync.map((p) => {
               const span = (barTimes[p.bar + 1] ?? barTimes[p.bar] ?? 0) - (barTimes[p.bar] ?? 0);
               return (

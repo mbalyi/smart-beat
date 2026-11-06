@@ -73,6 +73,31 @@ test.describe("audio track (#38)", () => {
     ).toBeVisible({ timeout: 30_000 });
   });
 
+  test("a playhead moves through the audio track and the tracks' bars while playing", async ({
+    app,
+  }) => {
+    const editor = await addRecording(app);
+    const row = app.getByTestId("audio-track-row");
+    await expect(row.getByTestId("playhead")).toHaveCount(0);
+
+    // The player is still taking in the recording on a busy machine: click Play until it plays.
+    await expect(async () => {
+      const play = app.getByRole("button", { name: "Play" });
+      if (await play.isVisible()) await play.click();
+      await expect(app.getByRole("button", { name: "Pause" })).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 20_000 });
+    await expect(row.getByTestId("playhead")).toBeVisible();
+    await expect(editor.getByTestId("playhead")).toBeVisible();
+    // Another lane of the same panel: the first track's bars.
+    await expect(app.getByTestId("playhead")).not.toHaveCount(1);
+    const start = await row.getByTestId("playhead").evaluate((el) => parseFloat(el.style.left));
+    // It advances along the waveform as the song plays.
+    await expect
+      .poll(() => row.getByTestId("playhead").evaluate((el) => parseFloat(el.style.left)))
+      .toBeGreaterThan(start);
+    await app.getByRole("button", { name: "Pause" }).click();
+  });
+
   test("syncs bars to the recording with sync points", async ({ app }) => {
     const editor = await addRecording(app);
     const waveform = editor.getByTestId("audio-waveform");

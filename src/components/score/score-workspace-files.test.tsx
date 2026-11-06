@@ -866,6 +866,35 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     expect(await screen.findByTestId("audio-waveform")).toBeInTheDocument();
   });
 
+  it("moves a playhead through the audio track and every track's bars while playing", async () => {
+    mockTauri();
+    localStorage.setItem("smart-beat:audio-engine", "native");
+    const song = await makeSong("/songs/practice-song.gp");
+    renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
+    const player = FakeScorePlayer.last;
+    player.usesNativeEngine = true;
+    player.becomeReady();
+    backend.dialogResult = "/music/take.wav";
+    await menu("add-audio-track");
+    const waveform = await screen.findByTestId("audio-waveform");
+    expect(screen.queryAllByTestId("playhead")).toHaveLength(0);
+
+    act(() => {
+      player.emit("onPlayingChange", true);
+      player.emit("onBarPosition", 1.5);
+    });
+    const row = screen.getByTestId("audio-track-row");
+    expect(within(row).getByTestId("playhead")).toBeInTheDocument();
+    expect(within(waveform).getByTestId("playhead")).toBeInTheDocument();
+    // The tracks' bars (and the audio row, and the editor's waveform) all show the same spot.
+    const heads = screen.getAllByTestId("playhead");
+    expect(heads.length).toBeGreaterThanOrEqual(3);
+    act(() => player.emit("onBarPosition", 2));
+    for (const head of screen.getAllByTestId("playhead")) {
+      expect(head.style.left).not.toBe("");
+    }
+  });
+
   it("refuses files that are not audio", async () => {
     await setup();
     backend.dialogResult = "/music/notes.txt";

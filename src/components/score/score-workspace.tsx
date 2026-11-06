@@ -129,6 +129,7 @@ import {
   ownDrumKit,
 } from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
+import { PlayheadStore } from "@/lib/score/playhead";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
 import {
   pdfPage,
@@ -517,6 +518,7 @@ export function ScoreWorkspace({
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState<PlaybackPosition>({ currentMs: 0, endMs: 0, bpm: 0 });
   const [bar, setBar] = useState(0);
+  const [playhead] = useState(() => new PlayheadStore());
   const [editing, setEditing] = useState(startEditing);
   const [overlay, setOverlay] = useState<EditOverlay | null>(null);
   /** Beats of the shown track being played (or clicked while paused). */
@@ -866,6 +868,7 @@ export function ScoreWorkspace({
         onPlayingChange: setPlaying,
         onPositionChange: setPosition,
         onBarChange: setBar,
+        onBarPosition: (position) => playhead.set(position),
         onSoundFontError,
         onError: (error) =>
           toast.error("Something went wrong with the score", { description: errorText(error) }),
@@ -908,7 +911,7 @@ export function ScoreWorkspace({
       setPlayedBars(null);
       setMonitorStatus(null);
     };
-  }, [song.score, audioEngine, dispatchPractice]);
+  }, [song.score, audioEngine, dispatchPractice, playhead]);
 
   // A song in a hidden tab does not keep playing.
   useEffect(() => {
@@ -2856,6 +2859,7 @@ export function ScoreWorkspace({
           onSeekBar={(index) => playerRef.current?.seekToBar(index)}
           saved={saved}
           playing={playing}
+          playhead={playhead}
           onMasterEffects={() => openPedalboard(null)}
           audio={
             isTauri()
@@ -2902,6 +2906,8 @@ export function ScoreWorkspace({
           }
           onClose={() => setAudioEditorOpen(false)}
           canEmbed={isTauri()}
+          playhead={playhead}
+          playing={playing}
         />
       )}
       {recordEnabled && (
