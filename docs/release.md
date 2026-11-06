@@ -45,6 +45,10 @@ To try the pipeline without a tag, run the workflow by hand (Actions › Release
 
 Release builds send anonymous usage counters to the Cloudflare Worker in [`analytics/`](../analytics) ([`analytics.md`](analytics.md)). The address comes from the repository **variable** `ANALYTICS_URL` (Settings › Secrets and variables › Actions › Variables), for example `https://smart-beat-analytics.<account>.workers.dev/v1/batch`; the workflow bakes it into the build together with the installer type. Without the variable, or in a pull request, the build has no address and never sends anything.
 
+## Practice together meeting service
+
+"Over the internet" in Practice together needs the Cloudflare Worker in [`signaling/`](../signaling) ([`practice-together.md`](practice-together.md)). [`signaling-deploy.yml`](../.github/workflows/signaling-deploy.yml) tests it on pull requests and deploys it on `main` with the same `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets as the analytics Worker (skipped without them). Set the repository **variable** `SIGNALING_URL` to the Worker's address, for example `https://smart-beat-signaling.<account>.workers.dev`; the release workflow bakes it into the build as `SMART_BEAT_SIGNALING_URL`. Without the variable, or in a pull request, the build has no address and offers Practice together on the same network only.
+
 ## Updater signing key
 
 The updater only installs updates signed with our key. This is separate from Apple and Windows code signing ([`code-signing.md`](code-signing.md)).

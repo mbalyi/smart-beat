@@ -73,8 +73,8 @@ The macOS and Windows buttons start the download of the newest release's install
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/practice-together.png" alt="Practice together" width="100%">
-      <p><b>🟣 Coming soon</b></p>
-      <p>Practice with other musicians online. Share your metronome, loops and practice mode, and jam together in real time — no matter where you are.</p>
+      <p><b>🟢 Available</b></p>
+      <p>Play the same tab with someone else, in time. Pair two computers on the same network or over the internet, start and stop together, and share the metronome, speed and loops. Each of you hears your own sound.</p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/audio-tracks-editing.png" alt="Audio tracks &amp; editing" width="100%">

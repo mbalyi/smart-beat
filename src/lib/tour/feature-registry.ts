@@ -19,6 +19,13 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "practice-together",
+    title: "Practice together",
+    summary:
+      "Play the same tab with someone else, in time. Open Playback › Practice Together, host a session and give the code to the other player (same network, or over the internet), then press Play: you both start together and share the speed, loops, metronome and count-in. Each of you hears your own sound.",
+    since: "1.2.0",
+  },
+  {
     id: "cloud-share",
     title: "Share with a link, and the Cloud library",
     summary:

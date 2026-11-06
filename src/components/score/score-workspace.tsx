@@ -51,6 +51,8 @@ import { RecordBar } from "@/components/score/record-bar";
 import { RecordDialog, type DroppedTake } from "@/components/score/record-dialog";
 import { onTourPanels as subscribeTourPanels, type TourBusMessage } from "@/lib/tour/tour-bus";
 import { useTour } from "@/hooks/use-tour";
+import { PracticeTogetherDialog } from "@/components/practice-together/practice-together-dialog";
+import { TogetherChip } from "@/components/practice-together/sync-quality";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
@@ -75,6 +77,7 @@ import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { usePianoModel } from "@/hooks/use-piano-model";
 import { onInstallerReturn } from "@/lib/ai/ai-store";
 import { recordTargets, useRecordToTab } from "@/hooks/use-record-to-tab";
+import { usePracticeTogether } from "@/hooks/use-practice-together";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import {
   MAX_MASTER_EFFECTS,
@@ -1533,6 +1536,8 @@ export function ScoreWorkspace({
   useEffect(() => onInstallerReturn("record", () => reopenRecord.current()), []);
   const recordBusy = recording.phase.kind !== "idle";
 
+  const [togetherOpen, setTogetherOpen] = useState(false);
+
   // One-time tips the first time an advanced area is opened (#84).
   const tour = useTour();
   const showTip = useEffectEvent(tour.hint);
@@ -1554,10 +1559,34 @@ export function ScoreWorkspace({
         "record-to-tab",
         "First time recording to tab? A short tour explains it.",
       );
-  }, [active, editing, practiceView, trainerOpen, pedalboard.open, recording.dialogOpen]);
+    if (togetherOpen) {
+      showTip(
+        "practice-together",
+        null,
+        "Practice together: the host starts and stops for both of you, and each of you hears your own sound.",
+      );
+    }
+  }, [
+    active,
+    editing,
+    practiceView,
+    trainerOpen,
+    pedalboard.open,
+    recording.dialogOpen,
+    togetherOpen,
+  ]);
   const [recordDrop, setRecordDrop] = useState<DroppedTake | null>(null);
 
+  // Practice together (#158): with a session the host's transport is shared, a guest's is the host's.
+  const together = usePracticeTogether({
+    playerRef,
+    practice,
+    dispatchPractice,
+    score,
+    revision,
+  });
   const playPause = () => {
+    if (together.intercept({ kind: "playPause" })) return;
     trackUsage(playing ? "pause" : "play");
     // Which sounds people actually listen with, not only which they picked.
     if (!playing) {
@@ -2249,6 +2278,7 @@ export function ScoreWorkspace({
   const scoreMenuActions: ScoreMenuActions = {
     onPlayFrom: (at) => {
       editor.setCursorTo({ bar: at, beat: 0, voice: 0 });
+      if (together.intercept({ kind: "playFromBar", bar: at })) return;
       playerRef.current?.seekToBar(at);
       if (!playing && ready) playPause();
     },
@@ -2291,6 +2321,7 @@ export function ScoreWorkspace({
       const range = selectedBars();
       if (!range) return;
       trackUsage("play_selection");
+      if (together.intercept({ kind: "playFromBar", bar: range.start })) return;
       playerRef.current?.seekToBar(range.start);
       if (!playing && ready) playPause();
     },
@@ -2347,6 +2378,9 @@ export function ScoreWorkspace({
         break;
       case "speed-trainer":
         setTrainerOpen(true);
+        break;
+      case "practice-together":
+        setTogetherOpen(true);
         break;
       case "toggle-metronome":
         dispatchPractice({ type: "metronome", value: !practice.metronome });
@@ -2581,12 +2615,19 @@ export function ScoreWorkspace({
         barCount={score.masterBars.length}
         onPlayPause={playPause}
         onStop={() => {
+          if (together.intercept({ kind: "stop" })) return;
           trackUsage("stop");
           if (playerRef.current?.stop()) trackUsage("restart_on_stop_used");
         }}
         onTempo={() => setTempoOpen(true)}
         tempo={{ songBpm: tempoAt(score, bar), speed: practice.speed }}
-        onSeekBar={(index) => playerRef.current?.seekToBar(index)}
+        onSeekBar={(index) => {
+          if (!together.intercept({ kind: "seekBar", bar: index })) {
+            playerRef.current?.seekToBar(index);
+          }
+        }}
+        together={<TogetherChip state={together.state} onOpen={() => setTogetherOpen(true)} />}
+        transportLocked={together.locked}
         practice={
           <PracticeControls
             practice={practice}
@@ -2856,7 +2897,11 @@ export function ScoreWorkspace({
           onReset={resetMix}
           actions={trackActions}
           bar={bar}
-          onSeekBar={(index) => playerRef.current?.seekToBar(index)}
+          onSeekBar={(index) => {
+            if (!together.intercept({ kind: "seekBar", bar: index })) {
+              playerRef.current?.seekToBar(index);
+            }
+          }}
           saved={saved}
           playing={playing}
           playhead={playhead}
@@ -2910,6 +2955,11 @@ export function ScoreWorkspace({
           playing={playing}
         />
       )}
+      <PracticeTogetherDialog
+        open={togetherOpen}
+        onOpenChange={setTogetherOpen}
+        together={together}
+      />
       {recordEnabled && (
         <>
           <RecordDialog

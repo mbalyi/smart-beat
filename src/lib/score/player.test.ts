@@ -1689,3 +1689,90 @@ describe("ScorePlayer.setTheme (#83)", () => {
     expect(hex(api.settings.display.resources.mainGlyphColor)).toBe("#ececee");
   });
 });
+
+describe("ScorePlayer: Practice together (#158)", () => {
+  const position = (api: FakeAlphaTabApi, currentTime: number) =>
+    api.playerPositionChanged.trigger({
+      currentTime,
+      endTime: 12_000,
+      originalTempo: 60,
+      modifiedTempo: 60,
+    });
+
+  afterEach(() => {
+    delete window.__smartBeatOutputLatencyMs;
+    vi.useRealTimers();
+  });
+
+  it("reads the position in ticks and whether it plays", async () => {
+    const { player, api, setPlaying } = await readySetup();
+    api.tickPosition = 1234;
+    expect(player.getTick()).toBe(1234);
+    expect(player.isPlaying()).toBe(false);
+    player.playPause();
+    expect(player.isPlaying()).toBe(true);
+    setPlaying(true);
+    expect(player.isPlaying()).toBe(true);
+  });
+
+  it("knows where a bar starts", async () => {
+    const { player } = await readySetup();
+    expect(player.barStartTick(0)).toBe(0);
+    expect(player.barStartTick(3)).toBe(3 * 3840);
+    expect(player.barStartTick(9999)).toBe(0);
+  });
+
+  it("moves to a tick, shows its bar, and does not stop playback", async () => {
+    const { player, api, callbacks, setPlaying } = await readySetup();
+    setPlaying(true);
+    player.seekToTick(2 * 3840 + 480);
+    expect(api.tickPosition).toBe(2 * 3840 + 480);
+    expect(callbacks.onBarChange).toHaveBeenLastCalledWith(2);
+    expect(player.isPlaying()).toBe(true);
+    expect(api.pause).not.toHaveBeenCalled();
+
+    player.seekToTick(0);
+    expect(api.tickPosition).toBe(0);
+    expect(callbacks.onBarChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("nudges the speed on top of the chosen speed, and keeps the nudge when the speed changes", async () => {
+    const { player, api } = await readySetup();
+    player.setSpeed(80);
+    expect(api.playbackSpeed).toBeCloseTo(0.8);
+    player.nudgeSpeed(1.02);
+    expect(api.playbackSpeed).toBeCloseTo(0.816);
+    player.setSpeed(100);
+    expect(api.playbackSpeed).toBeCloseTo(1.02);
+    player.nudgeSpeed(1);
+    expect(api.playbackSpeed).toBe(1);
+  });
+
+  it("has no heard position before anything played", async () => {
+    const { player } = await readySetup();
+    expect(player.heardTimeMs()).toBeNull();
+  });
+
+  it("holds the heard position while paused and moves it on while playing, at the speed", async () => {
+    const { player, api, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    position(api, 1_000);
+    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(100);
+    expect(player.heardTimeMs()).toBe(1_000); // paused: stays
+
+    setPlaying(true);
+    position(api, 2_000);
+    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(100);
+    expect(player.heardTimeMs()).toBeCloseTo(2_100, 0);
+    api.playbackSpeed = 0.5;
+    expect(player.heardTimeMs()).toBeCloseTo(2_050, 0);
+  });
+
+  it("reports the output latency in milliseconds", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { player } = await readySetup();
+    expect(player.outputLatencyMs()).toBe(150);
+  });
+});

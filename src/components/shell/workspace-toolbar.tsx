@@ -58,6 +58,8 @@ export function WorkspaceToolbar({
   onOpen,
   actions,
   record,
+  together,
+  transportLocked = false,
   editing,
   onToggleEditing,
   edited,
@@ -106,6 +108,10 @@ export function WorkspaceToolbar({
   actions?: ReactNode;
   /** The Record to Tab button, after the undo and redo buttons and the "Edited" badge. */
   record?: ReactNode;
+  /** Practice together: the sync-quality chip beside the Record button (#158). */
+  together?: ReactNode;
+  /** Practice together: a guest follows the host, whose Play, Stop and seek buttons these are. */
+  transportLocked?: boolean;
   editing: boolean;
   onToggleEditing: () => void;
   /** The song was changed since it was opened. */
@@ -186,6 +192,7 @@ export function WorkspaceToolbar({
           </Badge>
         )}
         {record}
+        {together}
       </div>
 
       <div
@@ -209,6 +216,7 @@ export function WorkspaceToolbar({
           onStop={onStop}
           onNext={() => onSeekBar(Math.min(barCount - 1, bar + 1))}
           onLast={() => onSeekBar(barCount - 1)}
+          locked={transportLocked}
         />
         {/* In the smallest windows the header has no room: the View menu and ⇧⌘P remain. */}
         <div className="flex items-center gap-1.5 max-sm:hidden">

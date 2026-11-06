@@ -80,6 +80,7 @@ export type MenuAction =
   | "scale-tool"
   | "toggle-loop"
   | "speed-trainer"
+  | "practice-together"
   | "toggle-metronome"
   | "toggle-count-in"
   | "shortcuts"
@@ -182,6 +183,7 @@ export type CommandErrorKind =
   | "download-timeout"
   | "network"
   | "auth-expired"
+  | "invalid-code"
   | "io";
 
 /** Mirrors `CommandError` in `src-tauri/src/error.rs`: how commands fail. */
@@ -1373,6 +1375,84 @@ export const savePluginState = (track: number | "monitor" | null, sound: number,
 /** Live status of every plugin block of a chain. */
 export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
   call<PluginSlotInfo[]>("audio_plugin_info", { track, sound });
+
+// --- Practice together -------------------------------------------------------
+
+/** Mirrors `LinkState` in `src-tauri/src/practice.rs`. */
+export type PracticeLinkState = "connecting" | "open" | "reconnecting" | "closed";
+
+/** Mirrors `HostInfo` in `src-tauri/src/practice.rs`: what the host shows its guest. */
+export interface PracticeHostInfo {
+  /** The room code to read out, like `ABCD-EFGH-JKMN-PQRS-TVWX`. */
+  code: string;
+  /** The same code as a link. */
+  link: string;
+  /** The address the code stands for (shown so a firewall problem can be found). */
+  address: string;
+}
+
+const PRACTICE_FRAME_EVENT = "practice-frame";
+const PRACTICE_STATE_EVENT = "practice-state";
+
+/** Starts listening for a guest on the local network. */
+export const practiceHost = () => call<PracticeHostInfo>("practice_host");
+
+/** Joins a host by its room code. */
+export const practiceJoin = (code: string) => call<void>("practice_join", { code });
+
+/** Sends one frame to the other app. False when there is no connection right now. */
+export const practiceSend = (text: string) => call<boolean>("practice_send", { text });
+
+/** Ends the session. */
+export const practiceLeave = () => call<void>("practice_leave");
+
+/** Frames from the other app. Resolves to an unsubscribe function. */
+export async function onPracticeFrame(handler: (text: string) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<string>(PRACTICE_FRAME_EVENT, (event) => handler(event.payload));
+}
+
+/** The link going up or down. Resolves to an unsubscribe function. */
+export async function onPracticeState(
+  handler: (state: PracticeLinkState, detail?: string) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<{ state: PracticeLinkState; detail: string | null }>(
+    PRACTICE_STATE_EVENT,
+    (event) => handler(event.payload.state, event.payload.detail ?? undefined),
+  );
+}
+
+const PRACTICE_SIGNAL_EVENT = "practice-signal";
+const PRACTICE_SIGNAL_FAILED_EVENT = "practice-signal-failed";
+
+/** Whether this build can meet another player over the internet (it knows a signaling Worker). */
+export const practiceSignalAvailable = () =>
+  isTauri() ? call<boolean>("practice_signal_available") : Promise.resolve(false);
+
+/** Makes a meeting room for Practice together over the internet. Returns its code. */
+export const practiceSignalCreate = () => call<string>("practice_signal_create");
+
+/** Joins a meeting room by its code. */
+export const practiceSignalJoin = (code: string) => call<void>("practice_signal_join", { code });
+
+/** Hands a setup message (a WebRTC offer, answer or candidate) to the other app. */
+export const practiceSignalSend = (text: string) => call<void>("practice_signal_send", { text });
+
+/** Leaves the meeting room. */
+export const practiceSignalLeave = () => call<void>("practice_signal_leave");
+
+/** Setup messages from the other app. Resolves to an unsubscribe function. */
+export async function onPracticeSignal(handler: (text: string) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<string>(PRACTICE_SIGNAL_EVENT, (event) => handler(event.payload));
+}
+
+/** The meeting room closed or could not be reached. Resolves to an unsubscribe function. */
+export async function onPracticeSignalFailed(handler: (why: string) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<string>(PRACTICE_SIGNAL_FAILED_EVENT, (event) => handler(event.payload));
+}
 
 // --- Stem separation (#186) --------------------------------------------------
 

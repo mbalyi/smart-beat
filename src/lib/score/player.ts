@@ -578,6 +578,7 @@ export class ScorePlayer {
     // While new sounds or a regenerated MIDI load, alphaTab reports position 0;
     // the real one comes back once playback is ready again.
     if (this.resume) return;
+    this.heard = { ms: currentMs, at: performance.now() };
     const next = { currentMs, endMs, bpm: Math.round(bpm * 10) / 10 }; // tempos can have decimals
     const last = this.lastPosition;
     // Position events arrive many times a second; the UI shows whole seconds.
@@ -982,7 +983,70 @@ export class ScorePlayer {
 
   /** Playback speed in percent (100 = as written). */
   setSpeed(percent: number) {
-    this.api.playbackSpeed = percent / 100;
+    this.speedPercent = percent;
+    this.api.playbackSpeed = (percent / 100) * this.speedNudge;
+  }
+
+  private speedPercent = 100;
+  /** Practice together: a small correction on top of the speed, to follow the host (1 = none). */
+  private speedNudge = 1;
+
+  /** Multiplies the speed by a little (Practice together keeps two players in step). 1 = as set. */
+  nudgeSpeed(multiplier: number) {
+    this.speedNudge = multiplier;
+    this.api.playbackSpeed = (this.speedPercent / 100) * multiplier;
+  }
+
+  /** Whether playback is running (or about to: a count-in counts). */
+  isPlaying(): boolean {
+    return this.playing;
+  }
+
+  /** The tick at which a bar starts (0-based), or 0 for a bar that does not exist. */
+  barStartTick(index: number): number {
+    const bar = this.score.masterBars[index];
+    if (!bar) return 0;
+    return this.api.tickCache?.getMasterBarStart(bar) ?? bar.start;
+  }
+
+  /** The playback position in alphaTab ticks. */
+  getTick(): number {
+    return this.api.tickPosition;
+  }
+
+  /** Moves the playback cursor to a tick, also while playing (Practice together). */
+  seekToTick(tick: number) {
+    const bars = this.score.masterBars;
+    let index = 0;
+    for (let i = 0; i < bars.length; i += 1) {
+      const start = this.api.tickCache?.getMasterBarStart(bars[i]!) ?? bars[i]!.start;
+      if (start <= tick) index = i;
+      else break;
+    }
+    this.delayer.clear();
+    this.restartPending = false;
+    this.api.tickPosition = tick;
+    if (this.resume) this.resume.tick = tick;
+    this.reportBar(index);
+    this.scrollToBar(index);
+  }
+
+  /**
+   * Where playback is heard now, in score milliseconds: the last position alphaTab reported
+   * (already delayed by the output latency) moved on by the time since, at the playback speed.
+   */
+  heardTimeMs(): number | null {
+    const stamp = this.heard;
+    if (!stamp) return null;
+    if (!this.playing) return stamp.ms;
+    return stamp.ms + (performance.now() - stamp.at) * this.api.playbackSpeed;
+  }
+
+  private heard: { ms: number; at: number } | null = null;
+
+  /** How long after a start the sound is heard, in milliseconds (Practice together). */
+  outputLatencyMs(): number {
+    return this.outputDelayMs();
   }
 
   /**

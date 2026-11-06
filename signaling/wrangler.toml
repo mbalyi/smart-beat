@@ -1,0 +1,15 @@
+name = "smart-beat-signaling"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# One Durable Object per room. It holds the two setup mailboxes in memory for ten minutes.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# No secrets, no database, no logs of room codes.

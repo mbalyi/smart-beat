@@ -519,6 +519,30 @@
         if (window.__pdfFail) throw { kind: "io", message: window.__pdfFail };
         return null;
       }
+      // Practice together (#158): the link to the other app is simulated. Tests drive the guest
+      // through `window.__practiceTogether` (see below) and read what the app sent.
+      case "practice_host":
+        return {
+          code: "ABCD-EFGH-JKMN-PQRS-TVWX",
+          link: "smartbeat://join/ABCD-EFGH-JKMN-PQRS-TVWX",
+          address: "192.168.1.5:50123",
+        };
+      case "practice_join":
+        return null;
+      case "practice_send": {
+        window.__practiceTogether.receive(args.text);
+        return true;
+      }
+      case "practice_leave":
+        return null;
+      case "practice_signal_available":
+        return false;
+      case "practice_signal_create":
+        return "ABCD-EFGH";
+      case "practice_signal_join":
+      case "practice_signal_send":
+      case "practice_signal_leave":
+        return null;
       // Usage counters (#99): tests read `window.__ipcCalls` for `track_event` and set
       // `window.__usage` ({ enabled, available, noticeSeen }) to simulate a release build.
       case "track_event":
@@ -1388,6 +1412,54 @@
       callbacks.delete(id);
     },
   };
+
+  /**
+   * Practice together (#158): the other player. `sent` holds every frame the app sent (decoded).
+   * With `auto` on, the other player behaves like a healthy guest: it answers pings with pongs
+   * (a 2 ms wire), reports its own sync quality and says ready to every command.
+   */
+  const together = (window.__practiceTogether = {
+    sent: [],
+    auto: true,
+    n: 0,
+    /** Called by `practice_send`: records the frame and answers it. */
+    receive(text) {
+      let frame;
+      try {
+        frame = JSON.parse(text);
+      } catch {
+        return;
+      }
+      together.sent.push(frame.msg);
+      if (!together.auto) return;
+      const msg = frame.msg;
+      if (msg.type === "ping") {
+        setTimeout(() => {
+          const t1 = performance.now();
+          together.frame({ type: "pong", id: msg.id, t0: msg.t0, t1, t2: t1 });
+          together.frame({ type: "report", errorMs: 2, rtt: 3, driftMs: 0 });
+        }, 1);
+      } else if (msg.type === "cmd") {
+        setTimeout(() => together.frame({ type: "ready", id: msg.cmd.id, ok: true }), 1);
+      }
+    },
+    /** A frame arriving from the other player. */
+    frame(msg) {
+      together.n += 1;
+      return window.__emitTauriEvent(
+        "practice-frame",
+        JSON.stringify({ v: 1, n: together.n, msg }),
+      );
+    },
+    /** The link changing state. */
+    state(state, detail) {
+      return window.__emitTauriEvent("practice-state", { state, detail: detail ?? null });
+    },
+    /** The frames of one type that the app sent. */
+    sentOf(type) {
+      return together.sent.filter((m) => m.type === type);
+    },
+  });
 
   /** Test hook: emit a Tauri event. Returns how many listeners received it. */
   window.__emitTauriEvent = (event, payload) => {

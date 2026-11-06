@@ -7,6 +7,8 @@ src-tauri/target
 src-tauri/gen
 analytics/node_modules
 analytics/.wrangler
+signaling/node_modules
+signaling/.wrangler
 src-tauri/icons
 public/third-party-licenses.txt
 public/font

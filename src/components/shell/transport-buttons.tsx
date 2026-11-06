@@ -34,8 +34,11 @@ export function TransportButtons({
   onNext,
   onLast,
   playTitle,
+  locked = false,
 }: {
   ready: boolean;
+  /** Practice together: a guest follows the host, whose buttons these are. */
+  locked?: boolean;
   playing: boolean;
   labels: TransportLabels;
   onFirst: () => void;
@@ -47,13 +50,14 @@ export function TransportButtons({
   /** The play button's tooltip when it differs from "Play" and "Pause" (a song shows its key). */
   playTitle?: { play: string; pause: string };
 }) {
+  const off = !ready || locked;
   return (
     <div className="flex items-center gap-1">
       <Button
         variant="ghost"
         size="icon-sm"
         onClick={onFirst}
-        disabled={!ready}
+        disabled={off}
         aria-label={labels.first}
         title={labels.first}
         className="max-2xl:hidden"
@@ -64,7 +68,7 @@ export function TransportButtons({
         variant="ghost"
         size="icon-sm"
         onClick={onPrevious}
-        disabled={!ready}
+        disabled={off}
         aria-label={labels.previous}
         title={labels.previous}
       >
@@ -73,7 +77,7 @@ export function TransportButtons({
       <Button
         size="icon-sm"
         onClick={onPlayPause}
-        disabled={!ready}
+        disabled={off}
         aria-label={playing ? "Pause" : "Play"}
         data-tour="play"
         title={playing ? (playTitle?.pause ?? "Pause") : (playTitle?.play ?? "Play")}
@@ -85,7 +89,7 @@ export function TransportButtons({
         variant="outline"
         size="icon-sm"
         onClick={onStop}
-        disabled={!ready}
+        disabled={off}
         aria-label="Stop"
         title="Stop"
       >
@@ -95,7 +99,7 @@ export function TransportButtons({
         variant="ghost"
         size="icon-sm"
         onClick={onNext}
-        disabled={!ready}
+        disabled={off}
         aria-label={labels.next}
         title={labels.next}
       >
@@ -105,7 +109,7 @@ export function TransportButtons({
         variant="ghost"
         size="icon-sm"
         onClick={onLast}
-        disabled={!ready}
+        disabled={off}
         aria-label={labels.last}
         title={labels.last}
         className="max-2xl:hidden"

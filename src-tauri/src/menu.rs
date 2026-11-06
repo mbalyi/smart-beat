@@ -96,6 +96,7 @@ pub enum MenuAction {
     ScaleTool,
     ToggleLoop,
     SpeedTrainer,
+    PracticeTogether,
     ToggleMetronome,
     ToggleCountIn,
     Shortcuts,
@@ -181,6 +182,7 @@ impl MenuAction {
         Self::ScaleTool,
         Self::ToggleLoop,
         Self::SpeedTrainer,
+        Self::PracticeTogether,
         Self::ToggleMetronome,
         Self::ToggleCountIn,
         Self::Shortcuts,
@@ -267,6 +269,7 @@ impl MenuAction {
             Self::ScaleTool => "view.scale-tool",
             Self::ToggleLoop => "playback.toggle-loop",
             Self::SpeedTrainer => "playback.speed-trainer",
+            Self::PracticeTogether => "playback.practice-together",
             Self::ToggleMetronome => "playback.toggle-metronome",
             Self::ToggleCountIn => "playback.toggle-count-in",
             Self::Shortcuts => "help.shortcuts",
@@ -351,9 +354,11 @@ impl MenuAction {
             | Self::ToggleStaccato
             | Self::Text
             | Self::Chord => "Note",
-            Self::ToggleLoop | Self::SpeedTrainer | Self::ToggleMetronome | Self::ToggleCountIn => {
-                "Playback"
-            }
+            Self::ToggleLoop
+            | Self::SpeedTrainer
+            | Self::PracticeTogether
+            | Self::ToggleMetronome
+            | Self::ToggleCountIn => "Playback",
             Self::Shortcuts
             | Self::Settings
             | Self::CloudSettings
@@ -438,6 +443,7 @@ impl MenuAction {
             Self::ScaleTool => "Scale Tool",
             Self::ToggleLoop => "Loop",
             Self::SpeedTrainer => "Speed Trainer",
+            Self::PracticeTogether => "Practice Together",
             Self::ToggleMetronome => "Metronome",
             Self::ToggleCountIn => "Count-In",
             Self::Shortcuts => "Keyboard Shortcuts",
@@ -515,6 +521,7 @@ impl MenuAction {
             | Self::ToggleStaccato
             | Self::ScaleTool
             | Self::SpeedTrainer
+            | Self::PracticeTogether
             | Self::ToggleCountIn
             | Self::Licenses
             | Self::CheckForUpdates
@@ -648,6 +655,7 @@ impl MenuAction {
                 | Self::ScaleTool
                 | Self::ToggleLoop
                 | Self::SpeedTrainer
+                | Self::PracticeTogether
                 | Self::ToggleMetronome
                 | Self::ToggleCountIn
         ) || self.needs_edit_mode()
@@ -1021,6 +1029,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let playback = SubmenuBuilder::new(app, "Playback")
         .item(&check_item(app, ToggleLoop)?)
         .item(&item(app, SpeedTrainer)?)
+        .item(&item(app, PracticeTogether)?)
         .separator()
         .item(&check_item(app, ToggleMetronome)?)
         .item(&check_item(app, ToggleCountIn)?)
