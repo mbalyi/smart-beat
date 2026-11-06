@@ -2,7 +2,7 @@ import { CheckIcon, CloudIcon, CopyIcon, LinkIcon, TriangleAlertIcon } from "luc
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { DIALOG_NEON, DialogStepper } from "@/components/ai/dialog-art";
+import { DIALOG_NEON } from "@/components/ai/dialog-art";
 import { CloudProviderLogo } from "@/components/cloud-provider-logos";
 import { StorageCard, StorageGrid, TargetArt } from "@/components/target-cards";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Stepper } from "@/components/ui/stepper";
 import {
   listCloudAccounts,
   type CloudAccount,
@@ -182,11 +183,11 @@ export function ShareDialog({
         <div className="relative isolate flex min-h-0 flex-1 flex-col overflow-y-auto">
           <TargetArt />
           <DialogHeader className="px-6 pt-2 pr-14 md:px-9">
-            {stepLabels && <DialogStepper labels={stepLabels} current={stepIndex} />}
             <DialogTitle className="text-2xl font-bold">{title}</DialogTitle>
             <DialogDescription className="text-sm break-words sm:text-base">
               {description}
             </DialogDescription>
+            {stepLabels && <Stepper steps={stepLabels} current={stepIndex} className="mt-3 pb-1" />}
           </DialogHeader>
           <DialogBody className="gap-3 overflow-visible px-6 md:px-9">
             {phase.step === "storage" &&

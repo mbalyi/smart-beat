@@ -60,13 +60,10 @@ pub enum ShareLevel {
 }
 
 impl ProviderKind {
-    /// The link levels the provider can make. Dropbox links are view only here: an editor link
-    /// needs account features Smart Beat cannot count on.
+    /// The link levels the provider can make. All three offer both; a service can still refuse
+    /// one for a given account or file, and the share then fails with that reason.
     pub fn share_levels(self) -> &'static [ShareLevel] {
-        match self {
-            Self::Drive | Self::Onedrive => &[ShareLevel::View, ShareLevel::Edit],
-            Self::Dropbox => &[ShareLevel::View],
-        }
+        &[ShareLevel::View, ShareLevel::Edit]
     }
 }
 
@@ -323,7 +320,10 @@ mod tests {
             ProviderKind::Drive.share_levels(),
             [ShareLevel::View, ShareLevel::Edit]
         );
-        assert_eq!(ProviderKind::Dropbox.share_levels(), [ShareLevel::View]);
+        assert_eq!(
+            ProviderKind::Dropbox.share_levels(),
+            [ShareLevel::View, ShareLevel::Edit]
+        );
         assert_eq!(
             serde_json::to_string(&ShareLevel::Edit).unwrap(),
             "\"edit\""

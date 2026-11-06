@@ -1207,15 +1207,6 @@ mod tests {
     }
 
     #[test]
-    fn a_level_the_service_cannot_make_is_refused_before_anything_is_sent() {
-        let dir = tempfile::tempdir().unwrap();
-        let s = sharer_state(dir.path());
-        let error = share(&s, "dropbox:/a.gp", ShareLevel::Edit).unwrap_err();
-        assert_eq!(error.kind, ErrorKind::Io);
-        assert!(error.message.contains("Dropbox"));
-    }
-
-    #[test]
     fn sharing_needs_a_cloud_item_and_a_sign_in() {
         let dir = tempfile::tempdir().unwrap();
         let s = sharer_state(dir.path());
@@ -1255,7 +1246,10 @@ mod tests {
             levels(ProviderKind::Drive),
             [ShareLevel::View, ShareLevel::Edit]
         );
-        assert_eq!(levels(ProviderKind::Dropbox), [ShareLevel::View]);
+        assert_eq!(
+            levels(ProviderKind::Dropbox),
+            [ShareLevel::View, ShareLevel::Edit]
+        );
         let json = serde_json::to_value(&accounts[0]).unwrap();
         assert_eq!(json["shareLevels"], serde_json::json!(["view", "edit"]));
     }

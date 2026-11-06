@@ -271,17 +271,30 @@ fn send(
     })
 }
 
-/// `body[field][index].url` of a Dropbox answer.
-fn link_url(body: &[u8], field: &str, index: usize) -> Option<String> {
+/// The first link of a `list_shared_links` answer: its address and, when Dropbox says, its
+/// level (`viewer` or `editor`).
+fn first_link(body: &[u8]) -> Option<(String, Option<String>)> {
     let value: Value = serde_json::from_slice(body).ok()?;
-    Some(
-        value
-            .get(field)?
-            .get(index)?
-            .get("url")?
-            .as_str()?
-            .to_owned(),
-    )
+    let link = value.get("links")?.get(0)?;
+    let url = link.get("url")?.as_str()?.to_owned();
+    let level = link
+        .pointer("/link_permissions/link_access_level/.tag")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    Some((url, level))
+}
+
+/// Dropbox answers a link it will not make (an account without that kind of link) with a 409 that
+/// the generic mapping reports as a network problem; for a share it is a refusal.
+fn share_refused(error: CommandError) -> CommandError {
+    if error.kind == ErrorKind::Network && error.message.contains("(409)") {
+        CommandError::new(
+            ErrorKind::Io,
+            "Dropbox did not allow that kind of link for this file. Try a view link.",
+        )
+    } else {
+        error
+    }
 }
 
 fn status_error(status: u16, body: &[u8], what: &str) -> CommandError {
@@ -563,12 +576,10 @@ impl Provider for Dropbox {
     }
 
     fn share_link(&self, token: &str, id: &str, level: ShareLevel) -> Result<String, CommandError> {
-        if level != ShareLevel::View {
-            return Err(CommandError::new(
-                ErrorKind::Io,
-                "Dropbox links made by Smart Beat are view only.",
-            ));
-        }
+        let want = match level {
+            ShareLevel::View => "viewer",
+            ShareLevel::Edit => "editor",
+        };
         // A file that was shared before has a link already, and Dropbox refuses a second one.
         let existing = self.rpc(
             token,
@@ -576,16 +587,31 @@ impl Provider for Dropbox {
             &json!({"path": id, "direct_only": true}),
             "The file",
         )?;
-        if let Some(url) = link_url(&existing.body, "links", 0) {
-            return Ok(url);
+        let answer = if let Some((url, current)) = first_link(&existing.body) {
+            // An old link with the level that is asked for is the answer; one with another
+            // level is changed to it (a link made here before has no level of its own to read).
+            if current
+                .as_deref()
+                .map_or(level == ShareLevel::View, |c| c == want)
+            {
+                return Ok(url);
+            }
+            self.rpc(
+                token,
+                "/sharing/modify_shared_link_settings",
+                &json!({"url": url, "settings": {"access": want}, "remove_expiration": false}),
+                "The file",
+            )
+        } else {
+            self.rpc(
+                token,
+                "/sharing/create_shared_link_with_settings",
+                &json!({"path": id, "settings": {"audience": "public", "access": want}}),
+                "The file",
+            )
         }
-        let created = self.rpc(
-            token,
-            "/sharing/create_shared_link_with_settings",
-            &json!({"path": id, "settings": {"audience": "public", "access": "viewer"}}),
-            "The file",
-        )?;
-        serde_json::from_slice::<Value>(&created.body)
+        .map_err(share_refused)?;
+        serde_json::from_slice::<Value>(&answer.body)
             .ok()
             .and_then(|v| v.get("url")?.as_str().map(str::to_owned))
             .ok_or_else(|| {
@@ -918,21 +944,76 @@ mod tests {
     }
 
     #[test]
-    fn dropbox_makes_no_edit_links_and_a_missing_permission_asks_to_connect_again() {
-        let (url, seen) = mock(vec![(
-            401,
-            vec![],
-            br#"{"error_summary":"missing_scope/.."}"#.to_vec(),
-        )]);
+    fn makes_a_new_edit_link_with_the_editor_level() {
+        let (url, seen) = mock(vec![
+            ok(json!({"links": []})),
+            ok(json!({"url": "https://www.dropbox.com/s/new/a.gp?dl=0"})),
+        ]);
+        let link = Dropbox::with_base(&url)
+            .share_link("t", "id:1", ShareLevel::Edit)
+            .unwrap();
+        assert_eq!(link, "https://www.dropbox.com/s/new/a.gp?dl=0");
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[1].path, "/sharing/create_shared_link_with_settings");
+        let body: Value = serde_json::from_slice(&seen[1].body).unwrap();
+        assert_eq!(body["settings"]["access"], "editor");
+    }
+
+    #[test]
+    fn an_old_link_with_another_level_is_changed_and_one_with_the_level_is_kept() {
+        let viewer = json!({"links": [{
+            "url": "https://www.dropbox.com/s/old/a.gp?dl=0",
+            "link_permissions": {"link_access_level": {".tag": "viewer"}}
+        }]});
+        let editor = json!({"links": [{
+            "url": "https://www.dropbox.com/s/old/a.gp?dl=0",
+            "link_permissions": {"link_access_level": {".tag": "editor"}}
+        }]});
+        let (url, seen) = mock(vec![
+            ok(viewer.clone()),
+            ok(json!({"url": "https://www.dropbox.com/s/old/a.gp?dl=0"})),
+            ok(editor.clone()),
+            ok(viewer),
+            ok(json!({"url": "https://www.dropbox.com/s/old/a.gp?dl=0"})),
+            ok(editor),
+        ]);
         let dropbox = Dropbox::with_base(&url);
-        assert_eq!(
-            dropbox
-                .share_link("t", "id:1", ShareLevel::Edit)
-                .unwrap_err()
-                .kind,
-            ErrorKind::Io
-        );
-        assert!(seen.lock().unwrap().is_empty());
+        // Viewer to editor: changed.
+        dropbox.share_link("t", "id:1", ShareLevel::Edit).unwrap();
+        // Editor asked for as an editor: kept, nothing changed.
+        dropbox.share_link("t", "id:1", ShareLevel::Edit).unwrap();
+        // Viewer asked for as a viewer: kept.
+        dropbox.share_link("t", "id:1", ShareLevel::View).unwrap();
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[1].path, "/sharing/modify_shared_link_settings");
+        let body: Value = serde_json::from_slice(&seen[1].body).unwrap();
+        assert_eq!(body["settings"]["access"], "editor");
+        assert_eq!(seen[2].path, "/sharing/list_shared_links");
+        assert_eq!(seen[3].path, "/sharing/list_shared_links");
+        assert_eq!(seen.len(), 4);
+    }
+
+    #[test]
+    fn a_link_dropbox_refuses_is_explained_and_a_missing_permission_asks_to_connect_again() {
+        let (url, _) = mock(vec![
+            ok(json!({"links": []})),
+            (
+                409,
+                vec![],
+                br#"{"error_summary":"settings_error/.."}"#.to_vec(),
+            ),
+            (
+                401,
+                vec![],
+                br#"{"error_summary":"missing_scope/.."}"#.to_vec(),
+            ),
+        ]);
+        let dropbox = Dropbox::with_base(&url);
+        let refused = dropbox
+            .share_link("t", "id:1", ShareLevel::Edit)
+            .unwrap_err();
+        assert_eq!(refused.kind, ErrorKind::Io);
+        assert!(refused.message.contains("Try a view link"));
         assert_eq!(
             dropbox
                 .share_link("t", "id:1", ShareLevel::View)

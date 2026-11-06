@@ -25,7 +25,7 @@ function connect(...providers: ("drive" | "onedrive" | "dropbox")[]) {
   > = {
     drive: { provider: "drive", label: "Google Drive", shareLevels: BOTH },
     onedrive: { provider: "onedrive", label: "OneDrive", shareLevels: BOTH },
-    dropbox: { provider: "dropbox", label: "Dropbox", shareLevels: ["view"] },
+    dropbox: { provider: "dropbox", label: "Dropbox", shareLevels: BOTH },
   };
   accounts = (["drive", "onedrive", "dropbox"] as const).map((p) => ({
     ...all[p],
@@ -98,8 +98,26 @@ describe("ShareDialog: a file that is in a drive", () => {
     expect(within(dialog).getByText(/can change the file/)).toBeInTheDocument();
   });
 
-  it("offers only view where the service makes no edit links", async () => {
+  it("offers edit links for Dropbox too", async () => {
     connect("dropbox");
+    const { user, calls } = setup({ kind: "cloud", item: "dropbox:/a.gp", name: "a.gp" });
+    const dialog = await open(user);
+
+    const edit = await within(dialog).findByRole("radio", { name: "Can edit" });
+    expect(edit).toBeEnabled();
+    await user.click(edit);
+    await user.click(within(dialog).getByRole("button", { name: "Copy link" }));
+    await within(dialog).findByRole("textbox", { name: "Share link" });
+    expect(calls.find((c) => c.cmd === "cloud_share")?.args).toEqual({
+      item: "dropbox:/a.gp",
+      level: "edit",
+    });
+  });
+
+  it("offers only view where a service makes no edit links", async () => {
+    accounts = [
+      { provider: "dropbox", label: "Dropbox", account: "me@db.test", shareLevels: ["view"] },
+    ];
     const { user } = setup({ kind: "cloud", item: "dropbox:/a.gp", name: "a.gp" });
     const dialog = await open(user);
 
@@ -181,6 +199,17 @@ describe("ShareDialog: a file that is in a drive", () => {
 });
 
 describe("ShareDialog: a file on this computer", () => {
+  it("puts the title above the steps, as a dialog header", async () => {
+    connect("drive");
+    const { user } = setup(localTab);
+    const dialog = await open(user);
+
+    const title = await within(dialog).findByRole("heading", { name: "Where should it go?" });
+    const steps = within(dialog).getByRole("list", { name: "Steps" });
+    expect(title.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(title.closest("[data-slot=dialog-header]")).toContainElement(steps);
+  });
+
   it("asks which storage first, uploads a copy and then copies the link", async () => {
     connect("drive", "onedrive");
     const { user, calls } = setup(localTab, {
