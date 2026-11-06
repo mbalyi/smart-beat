@@ -146,7 +146,7 @@ describe("AudioTrackPanel", () => {
   it("offers to find a recording that is not loaded", async () => {
     const { user, panel, onLocate } = setup(null, false);
     expect(within(panel).getByText(/is not loaded/)).toBeInTheDocument();
-    await user.click(within(panel).getByRole("button", { name: "Find the file…" }));
+    await user.click(within(panel).getByRole("button", { name: "Find the file" }));
     expect(onLocate).toHaveBeenCalled();
     expect(
       within(panel).getByRole("switch", { name: "Embed the recording in the song file" }),

@@ -2472,7 +2472,7 @@ export function ScoreWorkspace({
   // The red Record to Tab button sits after the undo and redo buttons, next to the transport.
   const recordButton =
     recordEnabled && !recordBusy ? (
-      <Tip label="Record to Tab…">
+      <Tip label="Record to Tab">
         <Button
           variant="outline"
           size="icon-sm"

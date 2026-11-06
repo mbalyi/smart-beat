@@ -86,7 +86,7 @@ describe("audio transcription", () => {
   it("validates dropped formats, size and empty files before upload", async () => {
     const { provider } = setup();
     const drop = (file: File) =>
-      fireEvent.drop(screen.getByRole("button", { name: "Choose recording…" }), {
+      fireEvent.drop(screen.getByRole("button", { name: "Choose recording" }), {
         dataTransfer: { files: [file] },
       });
     drop(new File(["bad"], "song.m4a"));
@@ -123,7 +123,7 @@ describe("audio transcription", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Import from Audio" })).toBeInTheDocument();
     await expectNoA11yViolations();
-    await user.click(screen.getByRole("button", { name: "Save MIDI As…" }));
+    await user.click(screen.getByRole("button", { name: "Save MIDI As" }));
     expect(onSave).toHaveBeenCalledWith(MIDI.midi, "my-song.mid");
     await user.click(screen.getByRole("button", { name: "Import MIDI into Smart Beat" }));
     await waitFor(() => expect(onImport).toHaveBeenCalledWith(MIDI.midi, "my-song.mid"));
@@ -202,7 +202,7 @@ describe("audio transcription", () => {
     await user.click(await screen.findByRole("button", { name: "Import MIDI into Smart Beat" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid MIDI");
     expect(onOpenChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Save MIDI As…" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save MIDI As" })).toBeEnabled();
   });
   it("goes back to the upload step with the recording and instruments kept", async () => {
     const { user, provider } = setup();
@@ -214,10 +214,10 @@ describe("audio transcription", () => {
     await user.click(await screen.findByRole("button", { name: "Back" }));
     expect(screen.getByText("my-song.wav")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove drums" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save MIDI As…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save MIDI As" })).not.toBeInTheDocument();
     await transcribe(user);
     await user.click(await screen.findByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("button", { name: "Replace recording…" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Replace recording" })).toBeEnabled();
     expect(provider.transcribe).toHaveBeenCalledTimes(2);
   });
   it("removes the chosen recording with its X", async () => {
@@ -225,7 +225,7 @@ describe("audio transcription", () => {
     await user.upload(screen.getByLabelText("Choose an audio recording"), recording());
     await user.click(screen.getByRole("button", { name: "Remove recording" }));
     expect(screen.queryByText("my-song.wav")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose recording…" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Choose recording" })).toBeEnabled();
   });
 
   it("offers the download first while MuScriptor is not on this computer", async () => {
@@ -296,7 +296,7 @@ describe("audio transcription", () => {
     await user.click(screen.getByRole("combobox", { name: "Model" }));
     await user.click(await screen.findByRole("option", { name: /^Small/ }));
     expect(getAiState().size).toBe("small");
-    await user.click(screen.getByRole("button", { name: "Download or manage models…" }));
+    await user.click(screen.getByRole("button", { name: "Download or manage models" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(getAiState().installer).toEqual({ open: true, returnTo: "audio" });
   });
@@ -305,7 +305,7 @@ describe("audio transcription", () => {
     const { user, onOpenChange } = setup();
     expect(screen.getByRole("combobox", { name: "Model" })).toBeInTheDocument();
     expect(screen.queryByText("Expected instruments (optional)")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Download or manage models…" }));
+    await user.click(screen.getByRole("button", { name: "Download or manage models" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

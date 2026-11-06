@@ -78,6 +78,18 @@
         }
       },
       {
+        "ext": ["sbstems"],
+        "name": "Smart Beat stems",
+        "description": "Smart Beat stem separation",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "application/x-smart-beat-stems",
+        "exportedType": {
+          "identifier": "com.mbalyi.smartbeat.stems",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
         "ext": ["mid", "midi"],
         "name": "MIDI file",
         "description": "MIDI file",

@@ -45,7 +45,7 @@ test.describe("accessibility", () => {
 
       // Both tabs of the inspector, and a track's menu.
       await app.getByRole("tab", { name: "Song" }).click();
-      await expect(app.getByRole("button", { name: "Transpose…" })).toBeVisible();
+      await expect(app.getByRole("button", { name: "Transpose" })).toBeVisible();
       await expectNoA11yViolations(app);
       await app.getByRole("tab", { name: "Track" }).click();
       await mixer.getByRole("button", { name: "Actions for Bass" }).click();
@@ -250,7 +250,7 @@ test.describe("accessibility", () => {
 
     await expect(app.getByRole("main")).toBeFocused();
     await app.keyboard.press(tab);
-    await expect(app.getByRole("button", { name: "Open a file…" })).toBeFocused();
+    await expect(app.getByRole("button", { name: "New tab" })).toBeFocused();
   });
 
   test("tab order follows the visual order", async ({ app, browserName }) => {
@@ -259,9 +259,10 @@ test.describe("accessibility", () => {
       "Smart Beat", // the logo: back to the start screen
       "Theme",
       "Help",
-      "Open a file…",
-      ...(features["audio-2-tab"] ? ["Import from Audio…"] : []),
-      "New song",
+      "New tab",
+      "Open a tab",
+      ...(features["stem-separation"] ? ["Stem separation", "Open saved stems"] : []),
+      ...(features["audio-2-tab"] ? ["Import from Audio"] : []),
       "Keyboard shortcuts",
       "Take a tour",
     ];

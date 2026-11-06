@@ -423,7 +423,7 @@ describe("PedalboardDialog", () => {
     await user.click(within(dialog).getByRole("combobox", { name: "Amp or pedal capture" }));
     await user.click(screen.getByRole("option", { name: /My 5150/ }));
     expect(chain()[0]).toMatchObject({ model: "abc" });
-    await user.click(within(dialog).getAllByRole("button", { name: "Import…" })[1]!);
+    await user.click(within(dialog).getAllByRole("button", { name: "Import" })[1]!);
     expect(onImport).toHaveBeenCalledWith("cab");
   });
 

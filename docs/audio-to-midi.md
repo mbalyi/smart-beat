@@ -32,7 +32,7 @@ instrument groups; their position is the group id (drums is 36).
 
 ## Entry points
 
-Import from Audio… opens the same dialog from three places: the welcome screen, the native
+Import from Audio opens the same dialog from three places: the welcome screen, the native
 File menu, and the File menu beside Open while a song is open. It is a menu item there
 because the header has no room for another button: at 1280 px, edit mode would wrap the
 header onto a second line.

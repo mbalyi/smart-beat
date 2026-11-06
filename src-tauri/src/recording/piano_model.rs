@@ -197,6 +197,43 @@ pub async fn download_piano_model<R: Runtime>(app: AppHandle<R>) -> Result<(), C
     .map_err(|_| error("Could not download the piano model."))?
 }
 
+/// Deletes the model files and any part of them. Refused while the download runs. Removing it
+/// again, with nothing there, is fine.
+pub fn remove_files(folder: &Path, files: &[ModelFile]) -> Result<(), CommandError> {
+    let Ok(_idle) = DOWNLOADING.try_lock() else {
+        return Err(error(
+            "The piano model is downloading right now. Wait for it to finish, then delete it.",
+        ));
+    };
+    delete_files(folder, files)
+}
+
+/// The deletion itself, without the check for a running download.
+fn delete_files(folder: &Path, files: &[ModelFile]) -> Result<(), CommandError> {
+    for file in files {
+        let path = folder.join(file.name);
+        for target in [path.with_extension("part"), path] {
+            match std::fs::remove_file(&target) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(error(format!("Could not delete the piano model: {e}"))),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Deletes the downloaded piano model from this computer (about 55 MB).
+#[tauri::command]
+pub fn piano_model_remove<R: Runtime>(app: AppHandle<R>) -> Result<PianoModelStatus, CommandError> {
+    let folder = dir(&app)?;
+    remove_files(&folder, &FILES)?;
+    Ok(PianoModelStatus {
+        installed: is_installed(&folder),
+        bytes: total_bytes(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +270,31 @@ mod tests {
     fn the_listed_files_add_up_to_about_55_megabytes() {
         assert_eq!(total_bytes(), 56_799_421);
         assert!(FILES.iter().all(|f| f.sha256.len() == 64));
+    }
+
+    #[test]
+    fn removing_deletes_the_files_and_parts_in_the_given_folder_only() {
+        let dir = tempfile::tempdir().unwrap();
+        for file in &FILES {
+            std::fs::write(dir.path().join(file.name), vec![0u8; file.bytes as usize]).unwrap();
+        }
+        std::fs::write(dir.path().join("transkun-net.part"), b"half").unwrap();
+        std::fs::write(dir.path().join("keep.txt"), b"mine").unwrap();
+        assert!(is_installed(dir.path()));
+        delete_files(dir.path(), &FILES).unwrap();
+        assert!(!is_installed(dir.path()));
+        assert!(!dir.path().join("transkun-net.part").exists());
+        assert!(dir.path().join("keep.txt").exists());
+        // Nothing there: still fine.
+        delete_files(dir.path(), &FILES).unwrap();
+    }
+
+    #[test]
+    fn removing_is_refused_while_a_download_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let _busy = DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner());
+        let err = remove_files(dir.path(), &FILES).unwrap_err();
+        assert!(err.message.contains("downloading"), "{}", err.message);
     }
 
     #[test]

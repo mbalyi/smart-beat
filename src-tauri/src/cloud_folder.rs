@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{CommandError, ErrorKind};
 use crate::score_file::{self, MAX_SIZE};
+use crate::stems::bundle;
 
 /// File name of the setting inside the app data folder.
 pub const FILE_NAME: &str = "cloud-folder.json";
@@ -33,6 +34,9 @@ pub struct CloudScore {
     /// Online-only: the content is not on this machine yet.
     pub placeholder: bool,
 }
+
+/// A saved stem separation (`.sbstems`) in the cloud folder: the same shape as a tab.
+pub type CloudStem = CloudScore;
 
 /// A usual cloud folder found on this machine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -163,19 +167,30 @@ pub fn detect_folders(home: &Path) -> Vec<CloudFolderCandidate> {
 /// The tabs directly inside `folder`, newest first. Evicted iCloud files (`.name.icloud`) are
 /// listed under their real name as placeholders.
 pub fn list_scores(folder: &Path) -> Result<Vec<CloudScore>, CommandError> {
+    list_files(folder, score_file::has_supported_extension)
+}
+
+/// The saved stem separations (`.sbstems`) directly inside `folder`, newest first, with the same
+/// placeholder handling as [`list_scores`]. Nothing is read from the files: a bundle is large.
+pub fn list_stems(folder: &Path) -> Result<Vec<CloudStem>, CommandError> {
+    list_files(folder, bundle::is_bundle)
+}
+
+/// The files directly inside `folder` whose real path `accept`s, newest first. Hidden files
+/// (names starting with a dot, which includes the temp files of a save in progress) are skipped.
+fn list_files(
+    folder: &Path,
+    accept: impl Fn(&Path) -> bool,
+) -> Result<Vec<CloudScore>, CommandError> {
     let entries = fs::read_dir(folder).map_err(|e| match e.kind() {
-        io::ErrorKind::NotFound => CommandError::new(
-            ErrorKind::NotFound,
-            "The cloud folder could not be found. Is the drive offline?",
-        ),
+        io::ErrorKind::NotFound => folder_gone(),
         _ => CommandError::new(
             ErrorKind::Io,
             format!("The cloud folder could not be read: {e}"),
         ),
     })?;
-    let mut scores = Vec::new();
+    let mut files = Vec::new();
     for entry in entries.flatten() {
-        let path = entry.path();
         let Ok(metadata) = entry.metadata() else {
             continue;
         };
@@ -188,20 +203,119 @@ pub fn list_scores(folder: &Path) -> Result<Vec<CloudScore>, CommandError> {
             None => (file_name, false),
         };
         let real_path = folder.join(&name);
-        if !score_file::has_supported_extension(&real_path) || name.starts_with('.') {
+        if !accept(&real_path) || name.starts_with('.') {
             continue;
         }
-        scores.push(CloudScore {
+        files.push(CloudScore {
             size: metadata.len(),
             modified_ms: modified_ms(&metadata),
             placeholder,
             path: real_path.to_string_lossy().into_owned(),
             name,
         });
-        let _ = path;
     }
-    scores.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms).then(a.name.cmp(&b.name)));
-    Ok(scores)
+    files.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms).then(a.name.cmp(&b.name)));
+    Ok(files)
+}
+
+fn folder_gone() -> CommandError {
+    CommandError::new(
+        ErrorKind::NotFound,
+        "The cloud folder could not be found. Is the drive offline?",
+    )
+}
+
+/// Longest name (in characters, without the extension) of a saved separation.
+const MAX_STEMS_NAME_CHARS: usize = 120;
+/// File names are limited to 255 bytes on most file systems; stay well below it, with room for
+/// the extension and a " (n)" number.
+const MAX_STEMS_NAME_BYTES: usize = 200;
+
+/// `name` as a file name stem that is legal on Windows and macOS: the characters
+/// `/ \ : * ? " < > |` and control characters become `_`, dots and spaces around it go, Windows
+/// device names (`CON`, `NUL`, `COM1`, ...) get a leading `_`, and it is cut to a sane length.
+/// A trailing `.sbstems` is dropped (the extension is added later). Never empty: `Stems`.
+pub fn sanitize_stems_name(name: &str) -> String {
+    let mut name = name.trim();
+    if let Some(dot) = name.len().checked_sub(bundle::EXTENSION.len() + 1)
+        && name.is_char_boundary(dot)
+        && name[dot..]
+            .strip_prefix('.')
+            .is_some_and(|ext| ext.eq_ignore_ascii_case(bundle::EXTENSION))
+    {
+        name = &name[..dot];
+    }
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let trim = |s: &str| {
+        s.trim_matches(|c: char| c == '.' || c.is_whitespace())
+            .to_owned()
+    };
+    let mut cleaned = trim(&cleaned);
+    while cleaned.chars().count() > MAX_STEMS_NAME_CHARS || cleaned.len() > MAX_STEMS_NAME_BYTES {
+        cleaned.pop();
+    }
+    let mut cleaned = trim(&cleaned);
+    if cleaned.is_empty() {
+        return "Stems".to_owned();
+    }
+    // `CON.backing` is still the CON device on Windows: the part before the first dot counts.
+    let device = cleaned.split('.').next().unwrap_or_default().trim_end();
+    if is_windows_device(device) {
+        cleaned.insert(0, '_');
+    }
+    cleaned
+}
+
+fn is_windows_device(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            upper
+                .strip_prefix(prefix)
+                .is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']))
+        })
+}
+
+/// Where a separation called `name` goes in the linked `folder`: `<folder>/<name>.sbstems`, or
+/// `<name> (2).sbstems`, `<name> (3).sbstems`, ... when that name is taken (also by an evicted
+/// iCloud file), so a save never replaces a file silently. Nothing is created.
+pub fn stems_save_path(folder: Option<&str>, name: &str) -> Result<PathBuf, CommandError> {
+    let Some(folder) = folder else {
+        return Err(CommandError::new(
+            ErrorKind::NotFound,
+            "Link a cloud folder in Settings first.",
+        ));
+    };
+    let folder = Path::new(folder);
+    if !folder.is_dir() {
+        return Err(folder_gone());
+    }
+    let base = sanitize_stems_name(name);
+    let taken =
+        |file: &str| folder.join(file).exists() || folder.join(format!(".{file}.icloud")).exists();
+    let ext = bundle::EXTENSION;
+    let mut file = format!("{base}.{ext}");
+    let mut n = 2u32;
+    while taken(&file) {
+        if n > 9_999 {
+            return Err(CommandError::new(
+                ErrorKind::Io,
+                "There are too many files with that name in the cloud folder.",
+            ));
+        }
+        file = format!("{base} ({n}).{ext}");
+        n += 1;
+    }
+    Ok(folder.join(file))
 }
 
 /// `.Song.gp.icloud` is how iCloud Drive shows an evicted `Song.gp`.
@@ -258,6 +372,23 @@ pub fn wait_for_download(
     ))
 }
 
+/// [`wait_for_download`] for a reader that reports a plain missing file in its own words: only
+/// an evicted placeholder is waited for, a file that is simply not there is let through.
+pub fn wait_if_evicted(
+    path: &Path,
+    timeout: Duration,
+    request_download: impl Fn(&Path),
+    on_wait: impl FnOnce(),
+) -> Result<(), CommandError> {
+    match wait_for_download(path, timeout, request_download, on_wait) {
+        Err(error) if error.kind == ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
+/// The event sent when a file has to be downloaded first; its payload is the path.
+pub const DOWNLOAD_WAITING_EVENT: &str = "cloud-download-waiting";
+
 /// Asks macOS to download an evicted iCloud file.
 pub fn request_icloud_download(placeholder: &Path) {
     #[cfg(target_os = "macos")]
@@ -293,27 +424,40 @@ pub fn stamp(path: &Path) -> Result<Option<FileStamp>, CommandError> {
     if metadata.len() > MAX_SIZE {
         return Ok(None);
     }
-    let bytes = fs::read(path).map_err(|e| {
+    // Streamed: a stems file is tens of megabytes and the hash needs no more than a buffer.
+    let read_error = |e: io::Error| {
         CommandError::new(
             ErrorKind::Io,
             format!("“{}” could not be read: {e}", file_label(path)),
         )
-    })?;
+    };
+    let mut file = fs::File::open(path).map_err(read_error)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        let n = io::Read::read(&mut file, &mut buffer).map_err(read_error)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
     Ok(Some(FileStamp {
         modified_ms: modified_ms(&metadata),
-        hash: hash_hex(&bytes),
+        hash: hex_of(&hasher.finalize()),
     }))
 }
 
 /// Lower-case SHA-256 hex digest of `bytes`.
 pub fn hash_hex(bytes: &[u8]) -> String {
+    hex_of(&Sha256::digest(bytes))
+}
+
+fn hex_of(digest: &[u8]) -> String {
     use std::fmt::Write as _;
-    Sha256::digest(bytes)
-        .iter()
-        .fold(String::with_capacity(64), |mut out, b| {
-            let _ = write!(out, "{b:02x}");
-            out
-        })
+    digest.iter().fold(String::with_capacity(64), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 /// Whether the file on disk differs from what Smart Beat last saw. Same content with a new
@@ -489,5 +633,176 @@ mod tests {
         let error =
             wait_for_download(&dir.path().join("a.gp"), Duration::ZERO, |_| {}, || {}).unwrap_err();
         assert_eq!(error.kind, ErrorKind::NotFound);
+    }
+
+    fn set_modified(path: &Path, secs: u64) {
+        let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+        file.set_modified(UNIX_EPOCH + Duration::from_secs(secs))
+            .unwrap();
+    }
+
+    #[test]
+    fn lists_only_stems_files_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, secs) in [
+            ("old.sbstems", 100),
+            ("New.SBSTEMS", 300),
+            ("mid.sbstems", 200),
+        ] {
+            let path = dir.path().join(name);
+            fs::write(&path, b"zip").unwrap();
+            set_modified(&path, secs);
+        }
+        fs::write(dir.path().join("tab.gp"), b"x").unwrap();
+        fs::write(dir.path().join("notes.docx"), b"x").unwrap();
+        fs::write(dir.path().join("song.sbstems.zip"), b"x").unwrap();
+        fs::create_dir(dir.path().join("folder.sbstems")).unwrap();
+        let stems = list_stems(dir.path()).unwrap();
+        let names: Vec<_> = stems.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["New.SBSTEMS", "mid.sbstems", "old.sbstems"]);
+        assert_eq!(stems[0].size, 3);
+        assert_eq!(stems[0].modified_ms, 300_000);
+        assert!(stems.iter().all(|s| !s.placeholder));
+        assert!(stems[1].path.ends_with("mid.sbstems"));
+        // The tab lister is unchanged and does not see them.
+        let scores = list_scores(dir.path()).unwrap();
+        assert_eq!(scores.len(), 1);
+        assert_eq!(scores[0].name, "tab.gp");
+    }
+
+    #[test]
+    fn stems_listing_skips_hidden_and_temp_files_and_shows_evicted_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".hidden.sbstems"), b"x").unwrap();
+        // A save in progress (src/stems/bundle.rs): hidden and not `.sbstems`.
+        fs::write(dir.path().join(".Song.sbstems.42-0.tmp"), b"x").unwrap();
+        fs::write(dir.path().join(".Tab.gp.icloud"), b"plist").unwrap();
+        fs::write(dir.path().join(".Away.sbstems.icloud"), b"plist").unwrap();
+        fs::write(dir.path().join("Here.sbstems"), b"x").unwrap();
+        let mut stems = list_stems(dir.path()).unwrap();
+        stems.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(stems.len(), 2);
+        assert_eq!(stems[0].name, "Away.sbstems");
+        assert!(stems[0].placeholder);
+        assert!(stems[0].path.ends_with("Away.sbstems"));
+        assert_eq!(stems[1].name, "Here.sbstems");
+        assert!(!stems[1].placeholder);
+    }
+
+    #[test]
+    fn stems_listing_reports_a_missing_or_unreadable_folder() {
+        let error = list_stems(Path::new("/definitely/not/here")).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::NotFound);
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.sbstems");
+        fs::write(&file, b"x").unwrap();
+        assert_eq!(list_stems(&file).unwrap_err().kind, ErrorKind::Io);
+    }
+
+    #[test]
+    fn stems_file_names_are_made_safe() {
+        let long = "x".repeat(300);
+        let wide = "é".repeat(300);
+        let cases: Vec<(&str, String)> = vec![
+            ("My Song", "My Song".into()),
+            ("AC/DC: Back In Black?", "AC_DC_ Back In Black_".into()),
+            (r#"a\b*c"d<e>f|g"#, "a_b_c_d_e_f_g".into()),
+            ("tab\there\nnew", "tab_here_new".into()),
+            ("  ..Song.. ", "Song".into()),
+            ("Song.", "Song".into()),
+            ("v1.2 mix", "v1.2 mix".into()),
+            ("", "Stems".into()),
+            ("   ", "Stems".into()),
+            ("...", "Stems".into()),
+            ("Song.sbstems", "Song".into()),
+            ("Song.SBSTEMS ", "Song".into()),
+            (".sbstems", "Stems".into()),
+            ("CON", "_CON".into()),
+            ("nul.txt", "_nul.txt".into()),
+            ("com1", "_com1".into()),
+            ("COM0", "COM0".into()),
+            ("Console", "Console".into()),
+            ("Ünïcode ♪ 歌", "Ünïcode ♪ 歌".into()),
+            (&long, "x".repeat(MAX_STEMS_NAME_CHARS)),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(sanitize_stems_name(input), expected, "input {input:?}");
+        }
+        let cut = sanitize_stems_name(&wide);
+        assert!(cut.len() <= MAX_STEMS_NAME_BYTES);
+        assert!(cut.chars().all(|c| c == 'é') && !cut.is_empty());
+        // The cut can leave a dot or space at the end; it is trimmed again.
+        let tricky = format!("{} .tail", "y".repeat(MAX_STEMS_NAME_CHARS - 1));
+        assert_eq!(
+            sanitize_stems_name(&tricky),
+            "y".repeat(MAX_STEMS_NAME_CHARS - 1)
+        );
+    }
+
+    #[test]
+    fn the_save_path_is_in_the_folder_and_taken_names_are_numbered() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_string_lossy().into_owned();
+        let path = stems_save_path(Some(&folder), "Band: Live").unwrap();
+        assert_eq!(path, dir.path().join("Band_ Live.sbstems"));
+        // Nothing is created by asking.
+        assert!(!path.exists());
+        fs::write(&path, b"x").unwrap();
+        let second = stems_save_path(Some(&folder), "Band: Live").unwrap();
+        assert_eq!(second, dir.path().join("Band_ Live (2).sbstems"));
+        fs::write(&second, b"x").unwrap();
+        // An evicted iCloud file counts as taken, and so does another case-spelling's content.
+        fs::write(dir.path().join(".Band_ Live (3).sbstems.icloud"), b"p").unwrap();
+        let fourth = stems_save_path(Some(&folder), "Band: Live").unwrap();
+        assert_eq!(fourth, dir.path().join("Band_ Live (4).sbstems"));
+        // Another name is unaffected.
+        assert_eq!(
+            stems_save_path(Some(&folder), "").unwrap(),
+            dir.path().join("Stems.sbstems")
+        );
+    }
+
+    #[test]
+    fn the_save_path_needs_a_linked_folder_that_exists() {
+        let error = stems_save_path(None, "Song").unwrap_err();
+        assert_eq!(error.kind, ErrorKind::NotFound);
+        assert_eq!(error.message, "Link a cloud folder in Settings first.");
+        let error = stems_save_path(Some("/definitely/not/here"), "Song").unwrap_err();
+        assert_eq!(error.kind, ErrorKind::NotFound);
+        assert_eq!(
+            error.message,
+            "The cloud folder could not be found. Is the drive offline?"
+        );
+    }
+
+    #[test]
+    fn a_stems_file_is_stamped_without_changing_the_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.sbstems");
+        // Bigger than the streaming buffer, so the hash covers several reads.
+        let bytes: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+        fs::write(&path, &bytes).unwrap();
+        assert_eq!(stamp(&path).unwrap().unwrap().hash, hash_hex(&bytes));
+    }
+
+    #[test]
+    fn waiting_for_an_evicted_file_lets_a_missing_one_through() {
+        let dir = tempfile::tempdir().unwrap();
+        wait_if_evicted(
+            &dir.path().join("a.sbstems"),
+            Duration::ZERO,
+            |_| {},
+            || panic!("nothing to wait for"),
+        )
+        .unwrap();
+        fs::write(dir.path().join(".b.sbstems.icloud"), b"plist").unwrap();
+        let error = wait_if_evicted(
+            &dir.path().join("b.sbstems"),
+            Duration::from_millis(300),
+            |_| {},
+            || {},
+        )
+        .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::DownloadTimeout);
     }
 }

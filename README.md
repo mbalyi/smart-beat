@@ -67,8 +67,9 @@ The macOS and Windows buttons start the download of the newest release's install
   <tr>
     <td valign="top" width="33%">
       <img src="src/assets/features/stem-separation.png" alt="Stem separation" width="100%">
-      <p><b>🟣 Coming soon</b></p>
-      <p>Detect the instruments in any song and mute or solo each track. Perfect for covers, remixes and practice.</p>
+      <p><b>🟣 Beta</b></p>
+      <p>Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Save the stems to a file or your cloud folder and open them again later. Perfect for covers and practice.</p>
+      <p><sub>* Limitations: see <a href="#stem-separation-beta">Stem separation (beta)</a> under More about the features, below.</sub></p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/practice-together.png" alt="Practice together" width="100%">
@@ -97,17 +98,17 @@ The macOS and Windows buttons start the download of the newest release's install
 
 ### More about the features
 
-- **Open Guitar Pro files** (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`) with File › Open… (⌘O / Ctrl+O) or by dropping them on the window. Damaged or unsupported files get a clear message.
+- **Open Guitar Pro files** (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`) with File › Open (⌘O / Ctrl+O) or by dropping them on the window. Damaged or unsupported files get a clear message.
 - **Read the music** as standard notation, tablature, or both, per track, optionally with rhythm under the tab. Choose the track, and a page or a continuous (horizontal) layout.
 - **Play it**: play, pause, stop (Space plays and pauses), start from any bar by clicking it or typing its number. The cursor follows the music and the score scrolls with it. Tempo changes in the song are respected.
 - **Mix it**: master volume, and volume, pan, mute and solo per track. The mix starts from the file's own settings and is saved per song (by its content, so renaming or moving the file keeps it). Volume, mute and solo apply instantly. Pan applies at the next pause, because changing it mid-song would cut off ringing notes.
 - **Two built-in sound sets**: _High quality_ (FluidR3 Mono, 15 MB, the default) or _Standard_ (Sonivox, 1 MB, quicker to load), switchable in the inspector. Switching during playback keeps the current sounds playing while the new ones download, then continues from the same point after a short pause while they load.
-- **Add more SoundFonts**: **SoundFonts…** next to _Instrument sounds_ in the inspector opens a dialog where you can import any `.sf2` or `.sf3` file from your computer, or download one of the recommended banks with its description, size and licence: MuseScore General, GeneralUser GS, FluidR3 GM (stereo), Timbres of Heaven and Arachno. Downloads are checked by the app, stay on your computer, and appear in _Instrument sounds_ right away. You can remove any SoundFont you added to free the space. Timbres of Heaven and Arachno are free for personal use only. Very large banks (Timbres of Heaven is almost 400 MB) take a while to load and need plenty of memory.
+- **Add more SoundFonts**: **SoundFonts** next to _Instrument sounds_ in the inspector opens a dialog where you can import any `.sf2` or `.sf3` file from your computer, or download one of the recommended banks with its description, size and licence: MuseScore General, GeneralUser GS, FluidR3 GM (stereo), Timbres of Heaven and Arachno. Downloads are checked by the app, stay on your computer, and appear in _Instrument sounds_ right away. You can remove any SoundFont you added to free the space. Timbres of Heaven and Arachno are free for personal use only. Very large banks (Timbres of Heaven is almost 400 MB) take a while to load and need plenty of memory.
 - **Practice**: loop a range of bars (type them, or drag across bars in the score), play at 25–200 % speed, and let the **Speed Trainer** loop the bars from a slow speed up to a target, a step after each loop (or every few loops). Metronome and count-in, remembered between songs. All in the Playback menu too (Loop ⌘L, Metronome ⇧⌘M).
 - **Fretboard, keyboard and drum pads** (View › Fretboard and Keyboard, ⇧⌘F): the notes being played on the track's instrument, following its tuning and capo. In edit mode, click a fret, key or pad to write that note.
 - **Write music** (Edit › Edit Mode, ⌘E; File › New, ⌘N): an edit cursor on tab and staff. Type frets (two quick digits for 10–29) and pitches by letter (A–G), set note values, dots, rests, ties and tuplets (nested ones too), odd time signatures such as 7/8 and 11/16, write a second voice, select beats (Shift+arrows, drag, ⌘A) to copy, cut and paste them, with unlimited undo and redo (the Edit menu names what it will undo). Moving past the end of a bar or of the song adds beats and bars. The full key list is in Help › Keyboard Shortcuts.
 - **Tracks and instruments** (the Tracks panel and the Track menu): add, remove, reorder and duplicate tracks. Guitars with 3–10 strings (7, 8 and 9-string presets for djent and deathcore), basses with 4–6, banjo, ukulele, drums and any General MIDI instrument, with tuning presets (drop D, C, B, A, A#, F# standard, drop E…), custom tunings (string by string) and a capo. A note appears when the lowest string is far below what the sound was recorded at. See [docs/extended-range-guitars.md](docs/extended-range-guitars.md). Drum tracks use the standard Guitar Pro drum-kit notation, shown in the track settings.
-- **Stays up to date** (desktop app): a quiet check for a new version at most once a day, and Help › Check for Updates… on request. A new version shows its release notes and downloads only after you click **Download & Install**. During the beta, new beta versions are not offered automatically: download them from the releases page.
+- **Stays up to date** (desktop app): a quiet check for a new version at most once a day, and Help › Check for Updates on request. A new version shows its release notes and downloads only after you click **Download & Install**. During the beta, new beta versions are not offered automatically: download them from the releases page.
 
 #### Record to tab (beta)
 
@@ -137,11 +138,25 @@ A heartfelt thank you to the maintainers whose work makes Smart Beat possible. M
   <a href="https://github.com/Yujia-Yan/Transkun" title="The high-accuracy piano model of Record to tab, which turns piano audio into notes."><img alt="Transkun" src="https://img.shields.io/badge/-Transkun-2b2b2b?style=for-the-badge"></a>
 </p>
 
+#### Stem separation (beta)
+
+Stem separation is a beta feature. It runs on your computer (nothing is uploaded), and it gives you a practice aid, not a studio-clean split.
+
+- **Start it** from the start screen (**Stem separation**) or the **+** in the tab bar of a stem page: choose a song (MP3, WAV, FLAC, OGG, AIFF and more), the engine and the parts, and watch the progress. Several separations stay open as tabs next to your songs.
+- **The page** has the same header as an open song: New, Open and Save, the play control and the song's name, length, engine and tempo. Below it: the position, loop, speed (50–100 %, pitch kept), metronome and count-in, then one row per part with mute, solo, volume and a waveform you can drag a loop on.
+- **Tempo and metronome:** the page measures the beats per minute (and, for large lasting changes, the tempo of each section), and the metronome clicks along. The tempo can be off by a half, a double or a 4:3 ratio: the tempo menu offers those, halving, doubling, tapping and typing it.
+- **Engines:** the built-in **Fast** engine (signal processing, about 2 seconds for a song, drums, bass, vocals and panned parts) needs no download. The neural engines are optional downloads, each with its terms shown first: **UMX-HQ** (4 × 35.6 MB), **SCNet Small** (52 MB), **SCNet XL** (216 MB, the best vocals, slow), **HTDemucs** (176 MB, the general recommendation) and **HTDemucs 6-part** (116 MB, adds guitar and piano). **AI › Stem Separation Models** installs and deletes them.
+- **Guitar and piano** come from the experimental HTDemucs 6-part engine: guitar is the weaker of the main parts and piano the weakest. Distorted guitar can leak into the rest.
+- **Measured on a synthetic band** (exact truth): muting a part lowers it by about 4–8 dB with the Fast engine and 8–17 dB with UMX-HQ, which is clearly quieter with audible leftovers, not gone. In signal-to-distortion terms the neural engines score about 4–11 dB (UMX-HQ), 12–21 dB (SCNet Small), 12–25 dB (SCNet XL) and 14–18 dB (HTDemucs). Real music scores lower, and the project has not listened to the stems. Details: [stem separation spike](docs/stem-separation-spike.md).
+- **Save and open:** **Save stems** writes a `.sbstems` file (with or without the original song, with a size estimate) to your computer, your cloud folder or a connected Google Drive, OneDrive or Dropbox account; **Open stems** brings it back without separating again. See [file formats](docs/file-formats.md#saved-stems-sbstems).
+
 Special thanks to **[alphaTab](https://alphatab.net/)** ([source](https://github.com/CoderLine/alphaTab), MPL-2.0), the heart of Smart Beat: this project would not exist without it. If you like what Smart Beat does with scores, please give alphaTab a star, try it in your own project, and thank its maintainer, [Danielku15](https://github.com/Danielku15), and the contributors. alphaTab's logo and the RustAudio logo are shown with the maintainers' permission. Smart Beat is independent and is not affiliated with or endorsed by alphaTab or any of these projects. Record to tab listens with **[Basic Pitch](https://github.com/spotify/basic-pitch)** (Spotify, Apache-2.0) and, for the high-accuracy piano mode, **[Transkun](https://github.com/Yujia-Yan/Transkun)** by Yujia Yan (MIT): thank you both for sharing your work openly. All notices are in Help › Open-Source Licenses.
 
 ## Optional add-ons you download yourself
 
 **[MuScriptor](https://huggingface.co/MuScriptor)** by **[Kyutai](https://kyutai.org/)** and **[Mirelo](https://mirelo.ai/)** powers the AI mode of Record to tab and Import from Audio. It is **not part of Smart Beat**: you download it once from inside the app (the weights come straight from the [GGUF mirror](https://huggingface.co/DamRsn/muscriptor-gguf) on Hugging Face, converted to float16 without retraining by DamRsn, and run with [muscriptor.cpp](https://github.com/DamRsn/muscriptor.cpp), MIT), accept its terms on the [official model card](https://huggingface.co/MuScriptor/muscriptor-medium) and confirm that you only use music you have the rights to. The weights are licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): **non-commercial use only**. Transcription runs on your computer; your recordings never leave it. More: [online demo](https://muscriptor.kyutai.org/) (runs on Kyutai's servers, not on your computer), [paper](https://arxiv.org/abs/2607.08168), [announcement](https://kyutai.org/blog/2026-07-10-muscriptor/), [reference code](https://github.com/muscriptor/muscriptor). Smart Beat is independent and is not affiliated with or endorsed by Kyutai or Mirelo (no logos of either are used).
+
+The **stem separation models** are not part of Smart Beat either. **[Open-Unmix](https://github.com/sigsep/open-unmix-pytorch)** UMX-HQ is fetched straight from [Zenodo](https://zenodo.org/records/3370489); **SCNet** ([starrytong/SCNet](https://github.com/starrytong/SCNet), MIT code) and **HTDemucs** and its 6-part variant ([Demucs](https://github.com/facebookresearch/demucs) by Meta, MIT code) are Smart Beat's conversions of the published checkpoints, hosted as assets of the [`stem-models-v1`](https://github.com/mbalyi/smart-beat/releases/tag/stem-models-v1) pre-release of this repository. You download each one from inside the app, accept its terms and confirm that you only use music you have the rights to. **The authors of the SCNet XL and Demucs weights state no licence, and the models were trained on MUSDB18-HQ, whose terms say educational use only**, so use them for the free app only; the open questions and the removal commitment are in [`docs/licensing.md`](docs/licensing.md). Separation runs on your computer; your songs never leave it. Smart Beat is independent and is not affiliated with or endorsed by the authors of these models.
 
 ## Sponsors
 
@@ -170,7 +185,7 @@ Download the installer for your system from the newest release on the [releases 
 - Debian and Ubuntu (`.deb`): `sudo apt install ./<downloaded file>.deb`
 - Fedora and similar (`.rpm`): `sudo dnf install ./<downloaded file>.rpm`
 
-Only install files you downloaded from the releases page of this repository. Once installed, the app updates itself (Help › Check for Updates…).
+Only install files you downloaded from the releases page of this repository. Once installed, the app updates itself (Help › Check for Updates).
 
 ## Tech stack
 
@@ -308,20 +323,20 @@ docs/                Licensing, code signing, releases and updates, ADRs
   - the license policy (npm and cargo-deny, including advisories);
   - a secret scan of the files and the full git history ([gitleaks](https://github.com/gitleaks/gitleaks), settings in [`.gitleaks.toml`](.gitleaks.toml)).
 - **[Analytics Worker](.github/workflows/analytics-deploy.yml)** tests the usage-counter backend in [`analytics/`](analytics) and deploys it to Cloudflare from `main` ([`docs/analytics.md`](docs/analytics.md)).
-- **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v1.0.0 && git push origin v1.0.0`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts. A release also contains signed updater bundles and `latest.json`, which the app's **Help › Check for Updates…** and its daily automatic check read: see [`docs/release.md`](docs/release.md) for how to cut a release, the signing key and the stable download links.
+- **[Release](.github/workflows/release.yml)** builds `.dmg` (universal), `.msi` and `.exe`, and `.AppImage`, `.deb` and `.rpm` installers. Push a tag matching `package.json` (e.g. `git tag v1.0.0 && git push origin v1.0.0`) to create a draft GitHub Release, or run it manually to get the installers as workflow artifacts. PRs that change packaging configuration (`tauri.conf.json`, icons, EULA, the workflow itself) also build the installers as artifacts. A release also contains signed updater bundles and `latest.json`, which the app's **Help › Check for Updates** and its daily automatic check read: see [`docs/release.md`](docs/release.md) for how to cut a release, the signing key and the stable download links.
 
 ## Privacy and usage statistics
 
-Smart Beat counts anonymously how often features are used (Loop, Metronome, Export and so on), per day, together with the app version, your operating system and the installer type. There is **no identifier** of any kind, so the counts cannot be tied to you or your computer, and nothing about your songs, file names or sounds is sent. Counts are kept on your computer while you are offline and sent in one batch later. Turn it off in **Help › Settings…**; that also deletes counts that have not been sent. Development and pull-request builds never send anything. Details, the exact list of counted features and the backend: [`docs/analytics.md`](docs/analytics.md).
+Smart Beat counts anonymously how often features are used (Loop, Metronome, Export and so on), per day, together with the app version, your operating system and the installer type. There is **no identifier** of any kind, so the counts cannot be tied to you or your computer, and nothing about your songs, file names or sounds is sent. Counts are kept on your computer while you are offline and sent in one batch later. Turn it off in **Help › Settings**; that also deletes counts that have not been sent. Development and pull-request builds never send anything. Details, the exact list of counted features and the backend: [`docs/analytics.md`](docs/analytics.md).
 
 ## Licensing
 
-Smart Beat is **source-available, not open source**. The code is under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use it for personal use, learning and research. Selling it, wrapping it in another product, offering it as a service, or using it inside a company needs permission or a fee: see [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md). The released installers are free to download and use, including for making and selling your own music, under the [`EULA.md`](EULA.md). Questions about licensing: [smart-beat@outlook.com](mailto:smart-beat@outlook.com).
+Smart Beat is **source-available, not open source**. The code is under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use it for personal use, learning and research. Commercial use is not offered: selling it, wrapping it in another product, offering it as a service, or using it inside a company or for a business is not allowed, see [`NONCOMMERCIAL-USE.md`](NONCOMMERCIAL-USE.md). The released installers are free to download and are for the same purposes under the [`EULA.md`](EULA.md); what you create with Smart Beat is yours. Questions about licensing: [smart-beat@outlook.com](mailto:smart-beat@outlook.com).
 
-We only use dependencies whose licenses allow commercial, closed-source distribution, and CI enforces this.
+For code we only use dependencies with permissive licences (or MPL-2.0), and CI enforces this. AI model weights must allow noncommercial use and are accepted one by one, see [ADR 0004](docs/adr/0004-noncommercial-only.md).
 
-- [`docs/licensing.md`](docs/licensing.md): how the source licence, the EULA, third-party licences, model licences and commercial licences fit together, the component review, and the list of projects we must not copy code from.
-- [ADR 0002](docs/adr/0002-source-available-noncommercial-license.md): why we chose this license (it replaces [ADR 0001](docs/adr/0001-project-license.md)).
+- [`docs/licensing.md`](docs/licensing.md): how the source licence, the EULA, third-party licences and model licences fit together, the component review, and the list of projects we must not copy code from.
+- [ADR 0002](docs/adr/0002-source-available-noncommercial-license.md): why we chose this license (it replaces [ADR 0001](docs/adr/0001-project-license.md)); [ADR 0004](docs/adr/0004-noncommercial-only.md): why commercial use is not offered.
 
 ## Contributing
 

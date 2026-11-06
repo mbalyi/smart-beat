@@ -1,5 +1,7 @@
 # ADR 0002: Smart Beat is source-available under PolyForm Noncommercial 1.0.0
 
+> **Update, 2026-11-03:** [ADR 0004](0004-noncommercial-only.md) supersedes the parts below that keep a paid commercial route open (decision points 2 and 5). The licence itself is unchanged. This record is kept as it was written, except that links now point to `NONCOMMERCIAL-USE.md`, the former `COMMERCIAL-LICENSE.md`.
+
 - **Status:** Accepted (lawyer review pending). Confirmed for the public release on 2026-10-12 (#97).
 - **Date:** 2026-10-08
 - **Issue:** [#82](https://github.com/mbalyi/smart-beat/issues/82)
@@ -15,7 +17,7 @@ ADR 0001 kept the source closed. Issue #82 prepares a public repository and GitH
 ## Decision
 
 1. The source code is licensed under the **[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)** ([`LICENSE`](../../LICENSE)). It permits personal, hobby, educational and research use, and use by charities, schools, public research bodies and government institutions. It does not permit use for commercial advantage, which covers selling, wrapping, paid services and a company using the software for its business.
-2. Commercial use needs a separate agreement. [`COMMERCIAL-LICENSE.md`](../../COMMERCIAL-LICENSE.md) says what counts as commercial and how to ask.
+2. Commercial use needs a separate agreement. [`NONCOMMERCIAL-USE.md`](../../NONCOMMERCIAL-USE.md) says what counts as commercial and how to ask.
 3. The released installers stay free to download and are covered by the freeware [`EULA.md`](../../EULA.md). The EULA is a separate grant for the binary; it does not widen the source licence.
 4. Pull requests, suggestions and ideas are welcome, on the terms in [`CONTRIBUTING.md`](../../CONTRIBUTING.md): contributing gives nobody a right to reuse the product or a stake in it, and the contributor grants the owner a perpetual, irrevocable right to use and relicense the contribution (including commercially). Those terms are a draft until a lawyer has reviewed them.
 5. **The dependency rules from ADR 0001 stay in force**, because the owner may ship Smart Beat commercially under other terms:
@@ -30,7 +32,7 @@ ADR 0001 kept the source closed. Issue #82 prepares a public repository and GitH
 
 - The repository can be made public without giving away commercial rights.
 - PolyForm Noncommercial is **source-available, not open source** (the Open Source Definition forbids field-of-use limits). The README and website must not call Smart Beat "open source".
-- The licence does not define "commercial" itself. [`COMMERCIAL-LICENSE.md`](../../COMMERCIAL-LICENSE.md) states the owner's reading; a lawyer should confirm it, especially for "internal use inside a company".
+- The licence does not define "commercial" itself. [`NONCOMMERCIAL-USE.md`](../../NONCOMMERCIAL-USE.md) states the owner's reading; a lawyer should confirm it, especially for "internal use inside a company".
 - Anyone may share modified copies for noncommercial purposes if they pass on the licence terms. If that is not wanted, PolyForm Strict 1.0.0 is the stricter alternative.
 - The contributor terms in `CONTRIBUTING.md` are the inbound licensing mechanism for now. Before accepting substantial external code, have a lawyer review them or replace them with a proper CLA.
 
@@ -46,14 +48,14 @@ Reviewed again for the public release ([#97](https://github.com/mbalyi/smart-bea
 
 ## How the documents fit together
 
-| Layer                        | Document                                                                                         | Who it binds                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
-| Source code                  | [`LICENSE`](../../LICENSE) (PolyForm Noncommercial 1.0.0, unmodified official text)              | Anyone who uses the code                           |
-| Commercial use               | [`COMMERCIAL-LICENSE.md`](../../COMMERCIAL-LICENSE.md): what counts as commercial and how to ask | Companies and anyone earning money with Smart Beat |
-| The released app             | [`EULA.md`](../../EULA.md)                                                                       | Anyone who installs an official installer          |
-| Third-party code and content | Help › Open-Source Licenses, [`docs/licensing.md`](../licensing.md)                              | Each component under its own licence               |
-| AI models                    | Each model's licence, shown before download                                                      | Model users                                        |
-| Contributions                | [`CONTRIBUTING.md`](../../CONTRIBUTING.md)                                                       | Contributors                                       |
+| Layer                        | Document                                                                                       | Who it binds                                       |
+| ---------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Source code                  | [`LICENSE`](../../LICENSE) (PolyForm Noncommercial 1.0.0, unmodified official text)            | Anyone who uses the code                           |
+| Commercial use               | [`NONCOMMERCIAL-USE.md`](../../NONCOMMERCIAL-USE.md): what counts as commercial and how to ask | Companies and anyone earning money with Smart Beat |
+| The released app             | [`EULA.md`](../../EULA.md)                                                                     | Anyone who installs an official installer          |
+| Third-party code and content | Help › Open-Source Licenses, [`docs/licensing.md`](../licensing.md)                            | Each component under its own licence               |
+| AI models                    | Each model's licence, shown before download                                                    | Model users                                        |
+| Contributions                | [`CONTRIBUTING.md`](../../CONTRIBUTING.md)                                                     | Contributors                                       |
 
 If two of these ever disagree, `LICENSE` wins for the source code, the EULA wins for the official app, and a third-party licence wins for its own component.
 

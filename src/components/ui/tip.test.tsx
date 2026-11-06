@@ -51,7 +51,7 @@ describe("tooltips on icon buttons", () => {
   it("keeps the name of buttons that have text or an aria-label", () => {
     renderWithProviders(
       <>
-        <Button title="Open a song">Open…</Button>
+        <Button title="Open a song">Open</Button>
         <Button title="Undo Add note" aria-label="Undo">
           <PlayIcon />
         </Button>
@@ -61,7 +61,7 @@ describe("tooltips on icon buttons", () => {
       </>,
     );
 
-    expect(screen.getByRole("button", { name: "Open…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Loop" })).toBeInTheDocument();
   });

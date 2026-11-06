@@ -1,14 +1,8 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
-import {
-  GaugeIcon,
-  PauseIcon,
-  Settings2Icon,
-  Repeat2Icon,
-  SquareIcon,
-  TimerIcon,
-  TimerResetIcon,
-} from "lucide-react";
+import { PauseIcon, Settings2Icon, Repeat2Icon, SquareIcon, TimerResetIcon } from "lucide-react";
 
+import { MetronomeControl } from "@/components/shell/metronome-control";
+import { SpeedSelect } from "@/components/shell/speed-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,10 +25,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Toggle } from "@/components/ui/toggle";
 import {
-  CLICK_SOUNDS,
   COUNT_IN_BEATS,
   DEFAULT_TRAINER,
-  MAX_METRONOME_VOLUME,
   MAX_SPEED,
   MIN_SPEED,
   normalizeRange,
@@ -165,12 +157,8 @@ export function PracticeControls({
   /** The song's sections, to loop one by name (#83). */
   sections?: readonly SongSection[];
 }) {
-  const speedLabelId = useId();
-  const soundId = useId();
-  const volumeId = useId();
   const beatsId = useId();
   const { loop, range, speed, trainer } = practice;
-  const speeds = [...new Set<number>([...SPEED_PRESETS, speed])].sort((a, b) => a - b);
   const setRange = (next: LoopRange) => onRangeChange(normalizeRange(next, barCount));
 
   return (
@@ -213,27 +201,7 @@ export function PracticeControls({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <GaugeIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-        <span id={speedLabelId} className="text-sm max-xl:sr-only">
-          Speed
-        </span>
-        <Select value={String(speed)} onValueChange={(value) => onSpeedChange(Number(value))}>
-          <SelectTrigger
-            size="sm"
-            aria-labelledby={speedLabelId}
-            className="w-20 tabular-nums"
-            data-tour="speed"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {speeds.map((percent) => (
-              <SelectItem key={percent} value={String(percent)}>
-                {percent}%
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SpeedSelect value={speed} speeds={SPEED_PRESETS} onChange={onSpeedChange} tour="speed" />
         {trainer ? (
           <span className="flex items-center gap-1 text-sm" data-tour="trainer-status">
             <span role="status" className="text-muted-foreground tabular-nums">
@@ -270,87 +238,20 @@ export function PracticeControls({
         ) : (
           <Button variant="outline" size="sm" onClick={onOpenTrainer} data-tour="speed-trainer">
             <TimerResetIcon data-icon="inline-start" />
-            <span className="max-xl:sr-only">Speed Trainer…</span>
+            <span className="max-xl:sr-only">Speed Trainer</span>
           </Button>
         )}
       </div>
 
       <div className="flex items-center gap-1" data-tour="metronome">
-        <span className="inline-flex items-center" role="group" aria-label="Metronome">
-          <Toggle
-            variant="outline"
-            size="sm"
-            pressed={practice.metronome}
-            onPressedChange={onMetronomeChange}
-            className={practice.metronome && onMetronomeVolumeChange ? "rounded-r-none" : undefined}
-          >
-            <TimerIcon data-icon="inline-start" />
-            <span className="max-xl:sr-only">Metronome</span>
-          </Toggle>
-          {practice.metronome && onMetronomeVolumeChange && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  className="-ml-px rounded-l-none"
-                  aria-label="Click sound and volume"
-                  title="Click sound and volume"
-                >
-                  <Settings2Icon />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                className="flex w-64 flex-col gap-3"
-                align="start"
-                aria-label="Metronome click"
-              >
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor={soundId} className="text-sm font-medium">
-                    Click sound
-                  </label>
-                  <Select
-                    value={practice.metronomeSound}
-                    onValueChange={(value) => onMetronomeSoundChange?.(value as ClickSoundId)}
-                  >
-                    <SelectTrigger id={soundId} className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CLICK_SOUNDS.map((sound) => (
-                        <SelectItem key={sound.id} value={sound.id}>
-                          {sound.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor={volumeId} className="flex justify-between text-sm font-medium">
-                    <span>Click volume</span>
-                    <span className="tabular-nums" aria-hidden="true">
-                      {Math.round(practice.metronomeVolume * 100)}%
-                    </span>
-                  </label>
-                  <input
-                    id={volumeId}
-                    type="range"
-                    min={0}
-                    max={MAX_METRONOME_VOLUME}
-                    step={0.05}
-                    value={practice.metronomeVolume}
-                    onChange={(event) => onMetronomeVolumeChange(Number(event.target.value))}
-                    aria-valuetext={`${Math.round(practice.metronomeVolume * 100)} percent`}
-                    className="w-full accent-primary"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    100% is as loud as the master volume; the click can go above it.
-                  </p>
-                </div>
-              </PopoverContent>
-            </Popover>
-          )}
-        </span>
+        <MetronomeControl
+          on={practice.metronome}
+          onChange={onMetronomeChange}
+          sound={practice.metronomeSound}
+          onSoundChange={onMetronomeSoundChange}
+          volume={practice.metronomeVolume}
+          onVolumeChange={onMetronomeVolumeChange}
+        />
         <span className="inline-flex items-center" role="group" aria-label="Count-in">
           <Toggle
             variant="outline"

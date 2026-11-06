@@ -12,9 +12,9 @@ async function withEngineOnDrums(app: Page) {
 
 async function importKit(app: Page, path: string) {
   await app.evaluate((p) => (window.__dialogResult = p), path);
-  await app.getByRole("button", { name: "Kits…" }).click();
+  await app.getByRole("button", { name: "Kits" }).click();
   const dialog = app.getByRole("dialog", { name: "Drum kits" });
-  await dialog.getByRole("button", { name: "Import a kit…" }).click();
+  await dialog.getByRole("button", { name: "Import a kit" }).click();
   return dialog;
 }
 
@@ -36,7 +36,7 @@ test.describe("drum kits (#40)", () => {
       .toBe("kit-1");
 
     // The drum mixer works with the imported kit.
-    await app.getByRole("button", { name: "Drum mixer…" }).click();
+    await app.getByRole("button", { name: "Drum mixer" }).click();
     const mixer = app.getByRole("dialog", { name: "Drum mixer: Drums" });
     await expect(mixer.getByTestId("drum-element")).toHaveCount(17);
     await mixer.getByRole("button", { name: "Done" }).click();

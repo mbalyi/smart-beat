@@ -20,7 +20,9 @@ pub mod recent;
 pub mod recording;
 pub mod score_file;
 pub mod score_write;
+pub mod separation;
 pub mod startup;
+pub mod stems;
 pub mod telemetry;
 pub mod transcription;
 pub mod zoom;
@@ -45,12 +47,20 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(menu_state::MenuStateStore::default())
         .manage(transcription::Dropped::default())
         .manage(open_file::PendingOpen::default())
+        .manage(open_file::PendingBundles::default())
         .manage(recording::muscriptor_model::DownloadRun::default())
         .manage(recording::RecordingRun::default())
+        .manage(stems::StemsRun::default())
+        .manage(stems::umx_model::DownloadRun::default())
         .setup(|app| {
             if app.try_state::<mixer::MixerStore>().is_none() {
                 let dir = app.path().app_data_dir()?.join(MIXER_DIR);
                 app.manage(mixer::MixerStore::new(dir));
+            }
+            if app.try_state::<stems::StemStore>().is_none() {
+                app.manage(stems::StemStore::new(
+                    app.path().app_data_dir()?.join("stems"),
+                ));
             }
             if app.try_state::<audio::AudioState>().is_none() {
                 let dir = app.path().app_data_dir()?.join(LIBRARY_DIR);
@@ -107,17 +117,21 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::menu_shortcuts,
             commands::read_score_file,
             open_file::take_pending_open_files,
+            open_file::take_pending_stem_bundles,
             commands::score_file_stamp,
             commands::write_score_file,
             commands::get_cloud_folder,
             commands::set_cloud_folder,
             commands::detect_cloud_folders,
             commands::list_cloud_scores,
+            commands::list_cloud_stems,
+            commands::stems_cloud_save_path,
             cloud_commands::cloud_accounts,
             cloud_commands::cloud_connect,
             cloud_commands::cloud_cancel_connect,
             cloud_commands::cloud_disconnect,
             cloud_commands::cloud_list,
+            cloud_commands::cloud_list_stems,
             cloud_commands::cloud_read,
             cloud_commands::cloud_item_name,
             cloud_commands::cloud_save,
@@ -147,8 +161,36 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             recording::muscriptor_model::cancel_muscriptor_download,
             recording::muscriptor_model::delete_muscriptor_model,
             recording::cancel_recording_transcription,
+            stems::stems_separate,
+            stems::stems_cancel,
+            stems::stems_list,
+            stems::stems_touch,
+            stems::stems_pin,
+            stems::bundle::stems_save_bundle,
+            stems::bundle::stems_open_bundle,
+            stems::cloud::stems_cloud_save,
+            stems::cloud::stems_cloud_open,
+            stems::bundle::stems_bundle_state,
+            stems::bundle::stems_estimate_bundle,
+            stems::stems_cache_info,
+            stems::stems_delete,
+            stems::stems_clear,
+            stems::stems_read,
+            stems::stems_render_mix,
+            stems::tempo::stems_detect_tempo,
+            stems::umx_model::umx_model_status,
+            stems::umx_model::umx_model_accept_terms,
+            stems::umx_model::umx_model_download,
+            stems::umx_model::umx_model_cancel,
+            stems::umx_model::umx_model_remove,
+            stems::models::stem_model_status,
+            stems::models::stem_model_accept_terms,
+            stems::models::stem_model_download,
+            stems::models::stem_model_cancel,
+            stems::models::stem_model_remove,
             recording::piano_model::piano_model_status,
             recording::piano_model::download_piano_model,
+            recording::piano_model::piano_model_remove,
             commands::update_menu_state,
             commands::track_event,
             commands::get_usage_settings,
@@ -218,8 +260,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Smart Beat");
     // Windows and Linux start Smart Beat with the file as an argument.
-    app.state::<open_file::PendingOpen>()
-        .push(open_file::paths_from_args(std::env::args()));
+    open_file::queue_at_launch(app.handle(), open_file::paths_from_args(std::env::args()));
     app.run(|app, event| {
         // macOS: Finder double-click or "Open With", also while the app is already running.
         #[cfg(target_os = "macos")]
@@ -234,6 +275,8 @@ pub fn run() {
                 running.cancel_all();
             }
             app.state::<recording::RecordingRun>().cancel();
+            app.state::<stems::StemsRun>().cancel();
+            app.state::<stems::umx_model::DownloadRun>().stop();
             app.state::<recording::muscriptor_model::DownloadRun>()
                 .stop();
             // ggml's Metal backend asserts at process exit while a model is still loaded.

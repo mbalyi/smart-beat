@@ -162,7 +162,7 @@ export function LcdDisplay({
             <button
               type="button"
               onClick={onTempo}
-              aria-label={`${tempoName}. Change the tempo…`}
+              aria-label={`${tempoName}. Change the tempo`}
               className="rounded px-1 text-lcd-muted tabular-nums outline-none hover:bg-white/10 hover:text-lcd-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
               {tempoText}

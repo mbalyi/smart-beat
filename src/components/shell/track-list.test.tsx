@@ -140,8 +140,8 @@ describe("TrackList", () => {
   it("runs track actions from the row menu", async () => {
     const { user, actions } = setup();
 
-    await trackAction(user, "Bass", "Settings…");
-    await trackAction(user, "Bass", "Lyrics…");
+    await trackAction(user, "Bass", "Settings");
+    await trackAction(user, "Bass", "Lyrics");
     await trackAction(user, "Bass", "Move up");
     await trackAction(user, "Bass", "Move down");
     await trackAction(user, "Bass", "Duplicate");
@@ -373,7 +373,7 @@ describe("TrackList", () => {
     expect((strips[0] as HTMLElement).style.backgroundColor).toContain("var(--track-1)");
     expect((strips[1] as HTMLElement).style.backgroundColor).toContain("oklch(clamp(");
     await user.click(screen.getByRole("button", { name: "Actions for Bass" }));
-    await user.click(screen.getByRole("menuitem", { name: "Colour…" }));
+    await user.click(screen.getByRole("menuitem", { name: "Colour" }));
     const dialog = await screen.findByRole("dialog", { name: "Track colour: Bass" });
     await user.click(within(dialog).getByRole("button", { name: "Red" }));
     expect(onChange).toHaveBeenLastCalledWith({ type: "track-color", track: 1, color: "#e5484d" });
@@ -397,9 +397,9 @@ describe("TrackList", () => {
       onDrumMixer,
     };
     const { user: u2 } = setup({ onChange, actions });
-    await trackAction(u2, "Drums", "Drum mixer…");
+    await trackAction(u2, "Drums", "Drum mixer");
     expect(onDrumMixer).toHaveBeenCalledWith(2);
-    await trackAction(u2, "Guitar", "Effects (pedalboard)…");
+    await trackAction(u2, "Guitar", "Effects (pedalboard)");
     expect(onEffects).toHaveBeenCalledWith(0);
     await trackAction(u2, "Bass", "Focus (turn the others down)");
     expect(onChange).toHaveBeenCalledWith({ type: "focus", track: 1 });
@@ -422,7 +422,7 @@ describe("TrackList", () => {
     const { user } = setup({ actions });
     await trackAction(user, "Drums", "Normalize drum notation");
     expect(onNormalizeDrums).toHaveBeenCalledWith(2);
-    await trackAction(user, "Guitar", "Copy to instrument…");
+    await trackAction(user, "Guitar", "Copy to instrument");
     expect(onCopyToInstrument).toHaveBeenCalledWith(0);
 
     await user.click(screen.getByRole("button", { name: "Actions for Guitar" }));
@@ -431,7 +431,7 @@ describe("TrackList", () => {
     ).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Actions for Drums" }));
-    expect(screen.queryByRole("menuitem", { name: "Copy to instrument…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Copy to instrument" })).not.toBeInTheDocument();
   });
 
   it("has a master strip with pan, a meter and the mastering effects", async () => {
@@ -576,13 +576,13 @@ describe("TrackList", () => {
       const menu = within(row).getByRole("button", { name: "Actions for the monitor track" });
 
       await user.click(menu);
-      await user.click(screen.getByRole("menuitem", { name: "Effects (pedalboard)…" }));
+      await user.click(screen.getByRole("menuitem", { name: "Effects (pedalboard)" }));
       expect(monitor.onEffects).toHaveBeenCalledTimes(1);
       await user.click(within(row).getByRole("button", { name: "Effects of the monitor track" }));
       expect(monitor.onEffects).toHaveBeenCalledTimes(2);
 
       await user.click(menu);
-      await user.click(screen.getByRole("menuitem", { name: "Input settings…" }));
+      await user.click(screen.getByRole("menuitem", { name: "Input settings" }));
       expect(monitor.onInputSettings).toHaveBeenCalledWith(menu);
 
       await user.click(menu);

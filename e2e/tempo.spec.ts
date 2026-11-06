@@ -6,7 +6,7 @@ import { expect, expectNoA11yViolations, openSong, test } from "./fixtures";
 
 async function openTempo(page: Page) {
   await page.getByRole("button", { name: "Tools" }).click();
-  await page.getByRole("menuitem", { name: "Tempo…" }).click();
+  await page.getByRole("menuitem", { name: "Tempo" }).click();
   return page.getByRole("dialog", { name: "Tempo" });
 }
 
@@ -48,7 +48,7 @@ test.describe("tempo (#46)", () => {
     const inspector = app.getByRole("complementary", { name: "Inspector" });
     await expect(inspector).toContainText("♩ = 60");
 
-    await inspector.getByRole("button", { name: "Change the tempo…" }).click();
+    await inspector.getByRole("button", { name: "Change the tempo" }).click();
     await expect(app.getByRole("dialog", { name: "Tempo" })).toBeVisible();
   });
 

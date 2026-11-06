@@ -24,7 +24,7 @@ test.describe("Guitar Pro 5 files (#53)", () => {
     await expect(scoreRegion(app)).toHaveAccessibleName("Score: Szóló 1");
 
     await app.getByRole("button", { name: "Actions for Ütős hangszer" }).click();
-    await app.getByRole("menuitem", { name: "Drum mixer…" }).click();
+    await app.getByRole("menuitem", { name: "Drum mixer" }).click();
     await expect(app.getByRole("dialog", { name: "Drum mixer: Ütős hangszer" })).toBeVisible();
   });
 

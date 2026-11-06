@@ -206,22 +206,22 @@ function TrackRowMenu({
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => actions.onSettings(i)}>
           <Settings2Icon />
-          Settings…
+          Settings
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => actions.onLyrics(i)}>
           <MicVocalIcon />
-          Lyrics…
+          Lyrics
         </DropdownMenuItem>
         {actions.onEffects && (
           <DropdownMenuItem onSelect={() => actions.onEffects?.(i)}>
             <SlidersHorizontalIcon />
-            Effects (pedalboard)…
+            Effects (pedalboard)
           </DropdownMenuItem>
         )}
         {actions.onDrumMixer && track.kind === "drums" && (
           <DropdownMenuItem onSelect={() => actions.onDrumMixer?.(i)}>
             <DrumIcon />
-            Drum mixer…
+            Drum mixer
           </DropdownMenuItem>
         )}
         {actions.onNormalizeDrums && track.kind === "drums" && (
@@ -236,7 +236,7 @@ function TrackRowMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onColor}>
           <PaletteIcon />
-          Colour…
+          Colour
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {place && place.of > 1 && actions.onMoveInView && (
@@ -272,7 +272,7 @@ function TrackRowMenu({
         {actions.onCopyToInstrument && track.kind !== "drums" && (
           <DropdownMenuItem onSelect={() => actions.onCopyToInstrument?.(i)}>
             <CopyPlusIcon />
-            Copy to instrument…
+            Copy to instrument
           </DropdownMenuItem>
         )}
         <DropdownMenuItem
@@ -455,7 +455,7 @@ function MonitorRow({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={props.onEffects}>
                   <SlidersHorizontalIcon />
-                  Effects (pedalboard)…
+                  Effects (pedalboard)
                 </DropdownMenuItem>
                 {props.onInputSettings && (
                   <DropdownMenuItem
@@ -464,7 +464,7 @@ function MonitorRow({
                     }
                   >
                     <PlugIcon />
-                    Input settings…
+                    Input settings
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
@@ -650,7 +650,7 @@ export function TrackList({
                   variant="ghost"
                   size="icon-xs"
                   aria-label="Add track"
-                  title="Add track…"
+                  title="Add track"
                   onClick={actions.onAdd}
                   data-tour="add-track"
                 >
@@ -661,7 +661,7 @@ export function TrackList({
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Add audio track"
-                    title="Add audio track (mp3, wav…)…"
+                    title="Add audio track (mp3, wav…)"
                     onClick={audio.onAdd}
                   >
                     <FileMusicIcon />

@@ -54,9 +54,9 @@ describe("SoundLibraryDialog", () => {
 
   it("imports, renames with tags and removes", async () => {
     const { user, dialog, onImport, onRename, onRemove } = setup();
-    await user.click(within(dialog).getByRole("button", { name: "Import .nam…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import .nam" }));
     expect(onImport).toHaveBeenCalledWith("amp");
-    await user.click(within(dialog).getByRole("button", { name: "Import .wav…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import .wav" }));
     expect(onImport).toHaveBeenCalledWith("cab");
 
     await user.click(within(dialog).getByRole("button", { name: "Rename God's cab" }));

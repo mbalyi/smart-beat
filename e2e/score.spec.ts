@@ -28,7 +28,7 @@ const SONIVOX = path.join(
 const score = (page: Page) => page.getByRole("region", { name: /^Score:/ });
 
 test.describe("opening Guitar Pro files (#4)", () => {
-  test("File → Open… renders the song picked in the native dialog", async ({ app }) => {
+  test("File → Open renders the song picked in the native dialog", async ({ app }) => {
     await openSong(app);
 
     await expect(app.getByRole("heading", { level: 1, name: "Practice Song" })).toBeVisible();
@@ -142,7 +142,7 @@ test.describe("opening Guitar Pro files (#4)", () => {
     await page.goto("/");
 
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open a file…" }).click();
+    await page.getByRole("button", { name: "Open a tab" }).click();
     await (await chooser).setFiles(path.join(import.meta.dirname, "fixtures/practice-song.gp"));
 
     await waitForScore(page);

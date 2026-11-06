@@ -31,7 +31,8 @@ pub enum MenuAction {
     NewSong,
     Open,
     OpenCloud,
-    AiModels,
+    RecordModels,
+    StemModels,
     ImportAudio,
     RecordToTab,
     ClearRecent,
@@ -113,11 +114,12 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 79] = [
+    pub const ALL: [Self; 80] = [
         Self::NewSong,
         Self::Open,
         Self::OpenCloud,
-        Self::AiModels,
+        Self::RecordModels,
+        Self::StemModels,
         Self::ImportAudio,
         Self::RecordToTab,
         Self::ClearRecent,
@@ -201,7 +203,8 @@ impl MenuAction {
             Self::NewSong => "file.new",
             Self::Open => "file.open",
             Self::OpenCloud => "file.open-cloud",
-            Self::AiModels => "ai.models",
+            Self::RecordModels => "ai.record-models",
+            Self::StemModels => "ai.stem-models",
             Self::ImportAudio => "ai.import-audio",
             Self::RecordToTab => "ai.record-to-tab",
             Self::ClearRecent => "file.clear-recent",
@@ -308,7 +311,7 @@ impl MenuAction {
             | Self::Print
             | Self::CloseWindow
             | Self::Quit => "File",
-            Self::AiModels | Self::ImportAudio | Self::RecordToTab => "AI",
+            Self::RecordModels | Self::StemModels | Self::ImportAudio | Self::RecordToTab => "AI",
             Self::Undo | Self::Redo | Self::ToggleEditMode => "Edit",
             Self::ToggleTheme
             | Self::ToggleFretboard
@@ -367,27 +370,28 @@ impl MenuAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::NewSong => "New",
-            Self::Open => "Open…",
-            Self::OpenCloud => "Open from Cloud…",
-            Self::AiModels => "AI Models…",
-            Self::ImportAudio => "Import from Audio…",
-            Self::RecordToTab => "Record to Tab…",
+            Self::Open => "Open",
+            Self::OpenCloud => "Open from Cloud",
+            Self::RecordModels => "Record to Tab Models",
+            Self::StemModels => "Stem Separation Models",
+            Self::ImportAudio => "Import from Audio",
+            Self::RecordToTab => "Record to Tab",
             Self::ClearRecent => "Clear Menu",
             Self::Save => "Save",
-            Self::SaveAs => "Save As…",
-            Self::ExportAll => "All Formats…",
-            Self::ExportGp => "Smart Beat / Guitar Pro 7…",
-            Self::ExportGp5 => "Guitar Pro 5…",
-            Self::ExportGp4 => "Guitar Pro 4…",
-            Self::ExportGp3 => "Guitar Pro 3…",
-            Self::ExportMusicXml => "MusicXML…",
-            Self::ExportMidi => "MIDI…",
-            Self::ExportAlphaTex => "alphaTex…",
-            Self::ExportAsciiTab => "ASCII Tab…",
-            Self::ExportAudio => "Audio (WAV)…",
-            Self::ExportAudioM4a => "Audio (M4A)…",
-            Self::ExportPdf => "PDF…",
-            Self::Print => "Print or Save as PDF…",
+            Self::SaveAs => "Save As",
+            Self::ExportAll => "All Formats",
+            Self::ExportGp => "Smart Beat / Guitar Pro 7",
+            Self::ExportGp5 => "Guitar Pro 5",
+            Self::ExportGp4 => "Guitar Pro 4",
+            Self::ExportGp3 => "Guitar Pro 3",
+            Self::ExportMusicXml => "MusicXML",
+            Self::ExportMidi => "MIDI",
+            Self::ExportAlphaTex => "alphaTex",
+            Self::ExportAsciiTab => "ASCII Tab",
+            Self::ExportAudio => "Audio (WAV)",
+            Self::ExportAudioM4a => "Audio (M4A)",
+            Self::ExportPdf => "PDF",
+            Self::Print => "Print or Save as PDF",
             Self::CloseWindow => "Close Window",
             Self::Quit => "Quit Smart Beat",
             Self::Undo => "Undo",
@@ -402,18 +406,18 @@ impl MenuAction {
             Self::ZoomOut => "Zoom Out",
             Self::ZoomReset => "Actual Size",
             Self::ToggleFullscreen => "Toggle Full Screen",
-            Self::AddTrack => "Add Track…",
-            Self::AddAudioTrack => "Add Audio Track…",
+            Self::AddTrack => "Add Track",
+            Self::AddAudioTrack => "Add Audio Track",
             Self::DuplicateTrack => "Duplicate Track",
             Self::RemoveTrack => "Remove Track",
-            Self::TrackSettings => "Track Settings…",
-            Self::Lyrics => "Lyrics…",
-            Self::Transpose => "Transpose…",
-            Self::BarSettings => "Bar Settings…",
-            Self::FixBarDurations => "Fix Bar Durations…",
+            Self::TrackSettings => "Track Settings",
+            Self::Lyrics => "Lyrics",
+            Self::Transpose => "Transpose",
+            Self::BarSettings => "Bar Settings",
+            Self::FixBarDurations => "Fix Bar Durations",
             Self::ToggleRepeatStart => "Repeat Start",
             Self::ToggleRepeatEnd => "Repeat End",
-            Self::Bend => "Bend…",
+            Self::Bend => "Bend",
             Self::ToggleHammerPull => "Hammer-On / Pull-Off",
             Self::ToggleSlide => "Slide",
             Self::ToggleVibrato => "Vibrato",
@@ -424,18 +428,18 @@ impl MenuAction {
             Self::ToggleHarmonic => "Natural Harmonic",
             Self::ToggleAccent => "Accent",
             Self::ToggleStaccato => "Staccato",
-            Self::Text => "Text…",
-            Self::Chord => "Chord…",
-            Self::ScaleTool => "Scale Tool…",
+            Self::Text => "Text",
+            Self::Chord => "Chord",
+            Self::ScaleTool => "Scale Tool",
             Self::ToggleLoop => "Loop",
-            Self::SpeedTrainer => "Speed Trainer…",
+            Self::SpeedTrainer => "Speed Trainer",
             Self::ToggleMetronome => "Metronome",
             Self::ToggleCountIn => "Count-In",
             Self::Shortcuts => "Keyboard Shortcuts",
-            Self::Settings => "Settings…",
-            Self::CloudSettings => "Cloud Storage Settings…",
+            Self::Settings => "Settings",
+            Self::CloudSettings => "Cloud Storage Settings",
             Self::Licenses => "Open-Source Licenses",
-            Self::CheckForUpdates => "Check for Updates…",
+            Self::CheckForUpdates => "Check for Updates",
             Self::Tour => "Take the Tour",
             Self::TourEditing => "Editing Tour",
             Self::TourSpeedTrainer => "Speed Trainer Tour",
@@ -483,7 +487,8 @@ impl MenuAction {
             // The note effects have plain keys in the score (H, P, L...); menu
             // accelerators would take those keys away from text fields.
             Self::AddAudioTrack
-            | Self::AiModels
+            | Self::RecordModels
+            | Self::StemModels
             | Self::ImportAudio
             | Self::RecordToTab
             | Self::DuplicateTrack
@@ -793,19 +798,23 @@ fn file_menu<'a, R: Runtime>(
         .item(recent)
 }
 
-/// The AI menu: the model installer, the AI features that are out (each only while its feature
+/// The AI menu: the two model dialogs (Record to tab, Stem separation), the AI features that are out (each only while its feature
 /// flag is on), then one disabled entry for each feature that is not out yet.
 fn ai_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Option<Submenu<R>>> {
     use crate::features::enabled;
     let audio = enabled("audio-2-tab");
     let record = enabled("record-2-tab");
+    let stems = enabled("stem-separation") && enabled("stem-separation-neural");
     let soon = crate::features::coming_soon();
-    if !(audio || record) && soon.is_empty() {
+    if !(audio || record || stems) && soon.is_empty() {
         return Ok(None);
     }
     let mut ai = SubmenuBuilder::new(app, "AI");
     if audio || record || enabled("muscriptor-record") {
-        ai = ai.item(&item(app, MenuAction::AiModels)?);
+        ai = ai.item(&item(app, MenuAction::RecordModels)?);
+    }
+    if stems {
+        ai = ai.item(&item(app, MenuAction::StemModels)?);
     }
     if audio {
         ai = ai.item(&item(app, MenuAction::ImportAudio)?);
@@ -813,7 +822,7 @@ fn ai_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Option<Submenu<R>>> 
     if record {
         ai = ai.item(&item(app, MenuAction::RecordToTab)?);
     }
-    if !soon.is_empty() && (audio || record) {
+    if !soon.is_empty() && (audio || record || stems) {
         ai = ai.separator();
     }
     for (id, label) in soon {
@@ -1235,12 +1244,14 @@ mod tests {
         assert_eq!(
             ai,
             [
-                MenuAction::AiModels,
+                MenuAction::RecordModels,
+                MenuAction::StemModels,
                 MenuAction::ImportAudio,
                 MenuAction::RecordToTab
             ]
         );
-        assert!(!MenuAction::AiModels.needs_song());
+        assert!(!MenuAction::RecordModels.needs_song());
+        assert!(!MenuAction::StemModels.needs_song());
         assert!(!MenuAction::ImportAudio.needs_song());
         assert!(MenuAction::RecordToTab.needs_song());
         for action in ai {
@@ -1248,6 +1259,36 @@ mod tests {
             assert!(!action.is_native());
             assert_eq!(action.accelerator_for("macos"), None);
         }
+    }
+
+    #[test]
+    fn the_two_model_dialogs_sit_together_at_the_top_of_the_ai_menu() {
+        let ai: Vec<_> = MenuAction::ALL
+            .into_iter()
+            .filter(|a| a.menu() == "AI")
+            .collect();
+        assert_eq!(ai[..2], [MenuAction::RecordModels, MenuAction::StemModels]);
+        assert_eq!(MenuAction::RecordModels.label(), "Record to Tab Models");
+        assert_eq!(MenuAction::StemModels.label(), "Stem Separation Models");
+        assert_eq!(MenuAction::RecordModels.id(), "ai.record-models");
+        assert_eq!(MenuAction::StemModels.id(), "ai.stem-models");
+        assert_eq!(
+            MenuAction::from_id("ai.stem-models"),
+            Some(MenuAction::StemModels)
+        );
+        // Both open a dialog of the page, and a menu label that opens one has no ellipsis.
+        for action in [MenuAction::RecordModels, MenuAction::StemModels] {
+            assert!(!action.is_native());
+            assert!(!action.label().ends_with('…') && !action.label().ends_with("..."));
+        }
+        assert_eq!(
+            serde_json::to_string(&MenuAction::RecordModels).unwrap(),
+            "\"record-models\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MenuAction::StemModels).unwrap(),
+            "\"stem-models\""
+        );
     }
 
     #[test]
@@ -1447,7 +1488,7 @@ mod tests {
         let action = MenuAction::CheckForUpdates;
         assert_eq!(action.id(), "help.check-for-updates");
         assert_eq!(action.menu(), "Help");
-        assert_eq!(action.label(), "Check for Updates…");
+        assert_eq!(action.label(), "Check for Updates");
         assert_eq!(
             serde_json::to_string(&action).unwrap(),
             "\"check-for-updates\""
@@ -1526,7 +1567,7 @@ mod tests {
     fn settings_is_an_app_menu_item_the_ui_handles() {
         let action = MenuAction::Settings;
         assert_eq!(action.id(), "help.settings");
-        assert_eq!(action.label(), "Settings…");
+        assert_eq!(action.label(), "Settings");
         assert_eq!(serde_json::to_string(&action).unwrap(), "\"settings\"");
         // The UI shows the dialog; it works without a song.
         assert!(!action.is_native());
@@ -1549,7 +1590,7 @@ mod tests {
     fn open_cloud_is_a_file_item_right_after_open() {
         let action = MenuAction::OpenCloud;
         assert_eq!(action.id(), "file.open-cloud");
-        assert_eq!(action.label(), "Open from Cloud…");
+        assert_eq!(action.label(), "Open from Cloud");
         assert_eq!(action.menu(), "File");
         assert_eq!(serde_json::to_string(&action).unwrap(), "\"open-cloud\"");
         assert_eq!(MenuAction::from_id("file.open-cloud"), Some(action));
@@ -1568,7 +1609,7 @@ mod tests {
     fn cloud_settings_is_a_help_item_next_to_settings() {
         let action = MenuAction::CloudSettings;
         assert_eq!(action.id(), "help.cloud-settings");
-        assert_eq!(action.label(), "Cloud Storage Settings…");
+        assert_eq!(action.label(), "Cloud Storage Settings");
         assert_eq!(action.menu(), "Help");
         assert_eq!(
             serde_json::to_string(&action).unwrap(),

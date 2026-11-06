@@ -2,7 +2,7 @@
  * Integration tests: the whole UI with the Tauri IPC layer mocked to behave
  * like the Rust core (commands + menu events).
  */
-import { closeInstaller } from "@/lib/ai/ai-store";
+import { closeInstaller, openInstaller } from "@/lib/ai/ai-store";
 import { act, screen, waitFor, within } from "@testing-library/react";
 
 import { App } from "@/App";
@@ -21,7 +21,9 @@ import {
   emitFileDrag,
   emitMenuAction,
   emitOpenRecent,
+  emitStemBundleOpened,
   mockTauri,
+  STEM_SONG,
 } from "@/test/tauri";
 
 // alphaTab needs a real browser to render and play: see e2e/score.spec.ts.
@@ -47,10 +49,42 @@ vi.mock("@/components/cloud-open-dialog", () => ({
   ),
 }));
 
+// The real dialog lists the saved stems of every place; here it only offers its three ways out.
+vi.mock("@/components/stems/open-stems-dialog", () => ({
+  OpenStemsDialog: ({
+    open,
+    onPickComputer,
+    onOpenStem,
+    onSetupCloud,
+    onOpenedSong,
+  }: {
+    open: boolean;
+    onPickComputer: () => void;
+    onOpenStem: (path: string) => void;
+    onSetupCloud: () => void;
+    onOpenedSong?: (song: typeof STEM_SONG) => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="Open stems dialog">
+        <button onClick={onPickComputer}>Computer</button>
+        <button onClick={() => onOpenStem("/Cloud/Picked.sbstems")}>Pick a cloud stem</button>
+        <button
+          onClick={() =>
+            onOpenedSong?.({ ...STEM_SONG, id: "cccccccccccccccc", name: "From Drive" })
+          }
+        >
+          Pick an account stem
+        </button>
+        <button onClick={onSetupCloud}>Stems cloud setup</button>
+      </div>
+    ) : null,
+}));
+
 // Import from Audio is behind the audio-2-tab flag, which is off in src/lib/features.json.
-const flags = vi.hoisted(() => ({ audio: true }));
+const flags = vi.hoisted(() => ({ audio: true, stems: false }));
 vi.mock("@/lib/features", () => ({
-  isEnabled: (id: string) => id === "audio-2-tab" && flags.audio,
+  isEnabled: (id: string) =>
+    (id === "audio-2-tab" && flags.audio) || (id === "stem-separation" && flags.stems),
 }));
 
 const SONG = "/Users/me/Songs/practice-song.gp";
@@ -91,7 +125,7 @@ describe("App", () => {
     flags.audio = false;
     try {
       await renderApp();
-      expect(screen.queryByRole("button", { name: "Import from Audio…" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Import from Audio" })).not.toBeInTheDocument();
       await menu("import-audio");
       expect(screen.queryByRole("dialog", { name: "Import from Audio" })).not.toBeInTheDocument();
     } finally {
@@ -101,7 +135,7 @@ describe("App", () => {
 
   it("launches transcription from welcome and from the AI menu, also with a song open", async () => {
     const { user } = await renderApp();
-    await user.click(screen.getByRole("button", { name: "Import from Audio…" }));
+    await user.click(screen.getByRole("button", { name: "Import from Audio" }));
     expect(await screen.findByRole("dialog", { name: "Import from Audio" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await menu("import-audio");
@@ -118,12 +152,28 @@ describe("App", () => {
     expect(openTabs()).toHaveLength(1);
   });
 
-  it("opens the AI Models dialog from the AI menu", async () => {
+  it("opens Record to Tab Models and Stem Separation Models from the AI menu", async () => {
+    const { user } = await renderApp();
+    await menu("record-models");
+    expect(await screen.findByTestId("record-models-dialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Record to Tab Models" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("record-models-dialog")).toBeNull());
+    await menu("stem-models");
+    expect(await screen.findByTestId("stem-models-dialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Stem Separation Models" })).toBeInTheDocument();
+  });
+
+  it("comes back to Record to Tab Models when the installer it opened closes", async () => {
     await renderApp();
-    await menu("ai-models");
+    await menu("record-models");
+    await screen.findByTestId("record-models-dialog");
+    act(() => {
+      openInstaller("models");
+    });
     expect(await screen.findByTestId("ai-installer")).toBeInTheDocument();
-    // The installer state is shared by the tests of this file.
     act(() => closeInstaller());
+    expect(await screen.findByTestId("record-models-dialog")).toBeInTheDocument();
   });
 
   it("renders the app shell with landmarks", async () => {
@@ -174,7 +224,7 @@ describe("App", () => {
     expect(await within(dialog).findByText("Toggle Dark Mode")).toBeInTheDocument();
   });
 
-  it("Smart Beat → Settings… opens the settings", async () => {
+  it("Smart Beat → Settings opens the settings", async () => {
     await renderApp();
 
     await menu("settings");
@@ -182,7 +232,7 @@ describe("App", () => {
     expect(await screen.findByRole("dialog", { name: "Settings" })).toBeInTheDocument();
   });
 
-  it("Help → Cloud Storage Settings… opens the settings on the cloud storage section", async () => {
+  it("Help → Cloud Storage Settings opens the settings on the cloud storage section", async () => {
     await renderApp();
 
     await menu("cloud-settings");
@@ -289,7 +339,7 @@ describe("App", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("Open from Cloud… goes straight to the only drive", async () => {
+    it("Open from Cloud goes straight to the only drive", async () => {
       await renderApp();
       backend.cloudAccounts = [DRIVE];
       await menu("open-cloud");
@@ -299,14 +349,14 @@ describe("App", () => {
       expect(screen.queryByTestId("save-target-dialog")).not.toBeInTheDocument();
     });
 
-    it("Open from Cloud… asks which drive when several are connected", async () => {
+    it("Open from Cloud asks which drive when several are connected", async () => {
       await renderApp();
       backend.cloudAccounts = [DRIVE, OTHER];
       await menu("open-cloud");
       expect(await screen.findByRole("button", { name: "Open from OneDrive" })).toBeInTheDocument();
     });
 
-    it("Open from Cloud… without an account points to the settings", async () => {
+    it("Open from Cloud without an account points to the settings", async () => {
       await renderApp();
       await menu("open-cloud");
       expect(
@@ -329,7 +379,7 @@ describe("App", () => {
     expect(await within(dialog).findByText(/tauri — MIT OR Apache-2.0/)).toBeInTheDocument();
   });
 
-  it("Help → Check for Updates… says when this is the latest version", async () => {
+  it("Help → Check for Updates says when this is the latest version", async () => {
     await renderApp();
 
     await menu("check-for-updates");
@@ -338,7 +388,7 @@ describe("App", () => {
     expect(dialog).toHaveTextContent(`Smart Beat ${APP_INFO.version} is the latest version.`);
   });
 
-  it("Help → Check for Updates… offers a new version and installs it only when asked", async () => {
+  it("Help → Check for Updates offers a new version and installs it only when asked", async () => {
     const { calls, user } = await renderApp();
     backend.update = { version: "0.2.0", body: "- Update dialog." };
 
@@ -357,7 +407,7 @@ describe("App", () => {
     expect(calls.map((c) => c.cmd)).toContain("plugin:updater|download_and_install");
   });
 
-  it("Help → Check for Updates… reports a failed check", async () => {
+  it("Help → Check for Updates reports a failed check", async () => {
     await renderApp();
     backend.updateError = { during: "check", message: "Could not fetch a valid release JSON." };
 
@@ -369,11 +419,11 @@ describe("App", () => {
     );
   });
 
-  it("the in-window Help menu has Check for Updates… in the desktop app", async () => {
+  it("the in-window Help menu has Check for Updates in the desktop app", async () => {
     const { user } = await renderApp();
 
     await user.click(screen.getByRole("button", { name: "Help" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Check for Updates…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Check for Updates" }));
 
     expect(await screen.findByRole("dialog", { name: "You're up to date" })).toBeInTheDocument();
   });
@@ -392,7 +442,7 @@ describe("App", () => {
     );
   });
 
-  it("File → Open… opens a Guitar Pro file picked in the native dialog", async () => {
+  it("File → Open opens a Guitar Pro file picked in the native dialog", async () => {
     const { calls } = await renderApp();
     backend.files.set(SONG, fixtureBytes("practice-song.gp"));
     backend.dialogResult = SONG;
@@ -422,7 +472,7 @@ describe("App", () => {
   it("does nothing when the Open dialog is cancelled", async () => {
     const { calls, user } = await renderApp();
 
-    await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    await user.click(screen.getByRole("button", { name: "Open a tab" }));
 
     await waitFor(() =>
       expect(calls).toContainEqual(expect.objectContaining({ cmd: "plugin:dialog|open" })),
@@ -501,7 +551,7 @@ describe("App", () => {
     const first = FakeScorePlayer.last;
 
     backend.dialogResult = OTHER_SONG;
-    await user.click(screen.getByRole("button", { name: "Open…" }));
+    await user.click(screen.getByRole("button", { name: "Open" }));
 
     await waitFor(() => expect(FakeScorePlayer.last).not.toBe(first));
     expect(first.destroy).not.toHaveBeenCalled();
@@ -534,7 +584,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Smart Beat" }));
 
     // The start screen, with the song still open: paused, not destroyed, its tab kept.
-    expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open a tab" })).toBeInTheDocument();
     expect(first.destroy).not.toHaveBeenCalled();
     expect(first.pause).toHaveBeenCalled();
     // The tabs are not shown on the start screen.
@@ -542,7 +592,7 @@ describe("App", () => {
 
     // Opening another song adds a tab next to the first and shows it.
     backend.dialogResult = OTHER_SONG;
-    await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    await user.click(screen.getByRole("button", { name: "Open a tab" }));
     await screen.findByRole("heading", { level: 1, name: "Structure Song" });
     const tabs = within(screen.getByRole("navigation", { name: "Open songs" }));
     expect(tabs.getAllByRole("listitem")).toHaveLength(2);
@@ -554,10 +604,10 @@ describe("App", () => {
     // Home again keeps both open but hides the tabs; opening the first song again goes back to
     // its tab: the same song, never reloaded.
     await user.click(screen.getByRole("button", { name: "Smart Beat" }));
-    expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open a tab" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
     backend.dialogResult = SONG;
-    await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    await user.click(screen.getByRole("button", { name: "Open a tab" }));
     expect(
       await screen.findByRole("heading", { level: 1, name: "Practice Song" }),
     ).toBeInTheDocument();
@@ -604,7 +654,7 @@ describe("App", () => {
       await menu("open");
       await screen.findByRole("heading", { level: 1, name: "Practice Song" });
       await user.click(logo());
-      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Open a tab" })).toBeInTheDocument();
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
 
@@ -615,7 +665,7 @@ describe("App", () => {
       const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
       await user.click(within(ask).getByRole("button", { name: "Cancel" }));
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Open a file…" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open a tab" })).not.toBeInTheDocument();
       expect(screen.getByText("Edited")).toBeInTheDocument();
     });
 
@@ -625,12 +675,12 @@ describe("App", () => {
       await user.click(logo());
       const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
       await user.click(within(ask).getByRole("button", { name: "Not now" }));
-      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Open a tab" })).toBeInTheDocument();
       // The tabs are hidden on the start screen, but the edited song is still open: opening it
       // again returns to its tab with the edits.
       expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
       backend.dialogResult = SONG;
-      await user.click(screen.getByRole("button", { name: "Open a file…" }));
+      await user.click(screen.getByRole("button", { name: "Open a tab" }));
       expect(await screen.findByText("Edited")).toBeInTheDocument();
       expect(openTabs()).toHaveLength(1);
     });
@@ -641,7 +691,7 @@ describe("App", () => {
       await user.click(logo());
       const ask = await screen.findByRole("alertdialog", { name: "Save your changes?" });
       await user.click(within(ask).getByRole("button", { name: "Save" }));
-      expect(await screen.findByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Open a tab" })).toBeInTheDocument();
       expect(calls.some((c) => c.cmd === "write_score_file")).toBe(true);
       expect(backend.written.has(SONG)).toBe(true);
       expect(screen.queryByRole("navigation", { name: "Open songs" })).not.toBeInTheDocument();
@@ -661,7 +711,7 @@ describe("App", () => {
       await user.click(within(ask).getByRole("button", { name: "Save" }));
       await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
       await new Promise((r) => setTimeout(r, 300));
-      expect(screen.queryByRole("button", { name: "Open a file…" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open a tab" })).not.toBeInTheDocument();
       expect(screen.getByText("Edited")).toBeInTheDocument();
       expect(calls.some((c) => c.cmd === "write_score_file")).toBe(false);
     });
@@ -674,7 +724,7 @@ describe("App", () => {
     await menu("open");
     await screen.findByRole("heading", { level: 1, name: "Practice Song" });
     await user.click(screen.getByRole("button", { name: "Smart Beat" }));
-    await screen.findByRole("button", { name: "Open a file…" });
+    await screen.findByRole("button", { name: "Open a tab" });
 
     await menu("open");
 
@@ -692,7 +742,7 @@ describe("App", () => {
     });
     const { user } = renderWithProviders(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    await user.click(screen.getByRole("button", { name: "Open a tab" }));
 
     expect(await screen.findByText("Couldn't show the Open dialog")).toBeInTheDocument();
   });
@@ -718,7 +768,7 @@ describe("App", () => {
 
   it("starts a new song from the welcome screen", async () => {
     const { user } = renderWithProviders(<App />);
-    await user.click(screen.getByRole("button", { name: "New song" }));
+    await user.click(screen.getByRole("button", { name: "New tab" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Untitled" })).toBeInTheDocument();
   });
 
@@ -762,7 +812,7 @@ describe("App", () => {
     // A song without changes closes without a question; the last close shows the welcome screen.
     await user.click(screen.getByRole("button", { name: "Close Practice Song" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open a file…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open a tab" })).toBeInTheDocument();
   }, 60_000); // Opens, edits and closes tabs and runs an axe scan: over 20 s on a slow CI runner.
 
   it("ignores actions the Rust core handles natively", async () => {
@@ -796,7 +846,7 @@ describe("App", () => {
       ".gp3,.gp4,.gp5,.gpx,.gp,.mid,.midi,.musicxml,.mxl,.xml,.mscx,.mscz,.atex,.capx,.txt",
     );
 
-    await user.click(screen.getByRole("button", { name: "Open a file…" }));
+    await user.click(screen.getByRole("button", { name: "Open a tab" }));
     expect(click).toHaveBeenCalled();
     await user.upload(input, new File([fixtureBytes("practice-song.gp").slice()], "song.gp"));
 
@@ -944,5 +994,218 @@ describe("App: recent songs and saving", () => {
     await screen.findByText("Edited");
     await menu("save");
     await waitFor(() => expect(backend.written.has(SONG)).toBe(true));
+  });
+});
+
+describe("App: saved stems (#186)", () => {
+  beforeEach(() => {
+    flags.stems = true;
+  });
+  afterEach(() => {
+    flags.stems = false;
+  });
+
+  it("opens a .sbstems file picked with Open saved stems on the stem page", async () => {
+    const { user, calls } = await renderApp();
+    backend.dialogResult = "/Music/Opened.sbstems";
+    await user.click(screen.getByRole("button", { name: "Open saved stems" }));
+    await user.click(screen.getByRole("button", { name: "Computer" }));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Opened Song" }),
+    ).toBeInTheDocument();
+    expect(calls).toContainEqual({
+      cmd: "stems_open_bundle",
+      args: { path: "/Music/Opened.sbstems" },
+    });
+    // It came from a file, so the page says it is saved.
+    expect(screen.getByTestId("stems-saved")).toBeInTheDocument();
+    // The page has no Back button: closing its tab, the last one, is the way to the start screen.
+    expect(screen.queryByRole("button", { name: "Back to start" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close Opened Song" }));
+    expect(await screen.findByRole("button", { name: /^Opened Song/ })).toBeInTheDocument();
+  });
+
+  it("does nothing when the Open dialog is cancelled", async () => {
+    const { user, calls } = await renderApp();
+    backend.dialogResult = null;
+    await user.click(screen.getByRole("button", { name: "Open saved stems" }));
+    await user.click(screen.getByRole("button", { name: "Computer" }));
+    expect(calls.some((call) => call.cmd === "stems_open_bundle")).toBe(false);
+    expect(screen.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeInTheDocument();
+  });
+
+  it("reports a file that cannot be opened and stays on the start screen", async () => {
+    const { user } = await renderApp();
+    mockTauri({
+      stems_open_bundle: () => {
+        throw { kind: "io", message: "This file is not a Smart Beat stems file." };
+      },
+    });
+    backend.dialogResult = "/Music/Broken.sbstems";
+    await user.click(screen.getByRole("button", { name: "Open saved stems" }));
+    await user.click(screen.getByRole("button", { name: "Computer" }));
+    expect(await screen.findByText("Couldn't open the saved stems")).toBeInTheDocument();
+    expect(screen.getByText(/not a Smart Beat stems file/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Opened Song" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the file the system hands over, also from an open song", async () => {
+    const { calls } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
+
+    await act(() => emitStemBundleOpened("/Downloads/Shared.sbstems"));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Opened Song" }),
+    ).toBeInTheDocument();
+    expect(calls).toContainEqual({
+      cmd: "stems_open_bundle",
+      args: { path: "/Downloads/Shared.sbstems" },
+    });
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Practice Song" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("marks a card as used when it is opened", async () => {
+    const calls = mockTauri();
+    backend.stemSongs = [STEM_SONG];
+    renderWithProviders(<App />);
+    const card = await screen.findByRole("button", { name: /^Neon Nights/ });
+    await act(async () => card.click());
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Neon Nights" }),
+    ).toBeInTheDocument();
+    expect(calls).toContainEqual({ cmd: "stems_touch", args: { id: STEM_SONG.id } });
+  });
+
+  it("leaves the Open saved stems button out while the feature is off", async () => {
+    flags.stems = false;
+    await renderApp();
+    expect(screen.queryByRole("button", { name: "Open saved stems" })).not.toBeInTheDocument();
+  });
+});
+
+describe("App: the stem page looks like a song (#186)", () => {
+  beforeEach(() => {
+    flags.stems = true;
+  });
+  afterEach(() => {
+    flags.stems = false;
+  });
+
+  const openStem = async (name: string, id: string) => {
+    backend.bundleSong = { ...STEM_SONG, id, name };
+    await act(() => emitStemBundleOpened(`/Music/${name}.sbstems`));
+    await screen.findByRole("heading", { level: 1, name });
+  };
+  const stemTabs = () => screen.getByRole("navigation", { name: "Open songs and stems" });
+
+  it("keeps the stem separations open as tabs, next to the songs", async () => {
+    const { user } = await renderApp();
+    await openStem("First", "aaaaaaaaaaaaaaaa");
+    await openStem("Second", "bbbbbbbbbbbbbbbb");
+
+    expect(within(stemTabs()).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(stemTabs()).getByRole("button", { name: "Second" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+
+    await user.click(within(stemTabs()).getByRole("button", { name: "First" }));
+    expect(screen.getByRole("heading", { level: 1, name: "First" })).toBeInTheDocument();
+    expect(within(stemTabs()).getByRole("button", { name: "First" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+
+    // Closing the shown one shows its neighbour; closing the last goes to the start screen.
+    await user.click(screen.getByRole("button", { name: "Close First" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Second" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close Second" }));
+    expect(screen.getByRole("heading", { level: 1, name: /Practice, create/ })).toBeInTheDocument();
+  });
+
+  it("shows the open songs on the stem page, and goes between a song and a stem tab", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.dialogResult = SONG;
+    await menu("open");
+    await screen.findByRole("heading", { name: "Practice Song" }, { timeout: 5_000 });
+    await openStem("Stemmed", "cccccccccccccccc");
+
+    const tabs = stemTabs();
+    expect(within(tabs).getByRole("button", { name: "Practice Song" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(within(tabs).getByRole("button", { name: "Stemmed" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    // The + here starts a stem separation, not a song.
+    expect(within(tabs).getByRole("button", { name: "New stem separation" })).toBeInTheDocument();
+
+    await user.click(within(tabs).getByRole("button", { name: "Practice Song" }));
+    expect(screen.getByRole("heading", { name: "Practice Song" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "Stemmed" })).not.toBeInTheDocument();
+    expect(within(stemTabs()).getByRole("button", { name: "New song" })).toBeInTheDocument();
+    await user.click(within(stemTabs()).getByRole("button", { name: "Stemmed" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Stemmed" })).toBeInTheDocument();
+  });
+
+  it("starts a new stem separation from the + button in the tab bar", async () => {
+    const { user } = await renderApp();
+    await openStem("First", "aaaaaaaaaaaaaaaa");
+    const tabBar = screen.getByRole("navigation", { name: "Open songs and stems" });
+    await user.click(within(tabBar).getByRole("button", { name: "New stem separation" }));
+    expect(await screen.findByRole("dialog", { name: /Stem separation/ })).toBeInTheDocument();
+  });
+
+  it("starts a new stem separation from the header's New button", async () => {
+    const { user } = await renderApp();
+    await openStem("First", "aaaaaaaaaaaaaaaa");
+    const header = screen.getAllByRole("banner")[0]!;
+    await user.click(within(header).getByRole("button", { name: "New stem separation" }));
+    expect(await screen.findByRole("dialog", { name: /Stem separation/ })).toBeInTheDocument();
+  });
+
+  it("opens saved stems from the header's Open stems button", async () => {
+    const { user, calls } = await renderApp();
+    await openStem("First", "aaaaaaaaaaaaaaaa");
+    await user.click(screen.getByRole("button", { name: "Open stems" }));
+    await user.click(screen.getByRole("button", { name: "Pick a cloud stem" }));
+    expect(calls).toContainEqual({
+      cmd: "stems_open_bundle",
+      args: { path: "/Cloud/Picked.sbstems" },
+    });
+    expect(screen.queryByRole("dialog", { name: "Open stems dialog" })).not.toBeInTheDocument();
+  });
+
+  it("shows the stems opened from a connected account as a new tab and closes the dialog", async () => {
+    const { user } = await renderApp();
+    await openStem("First", "aaaaaaaaaaaaaaaa");
+    await user.click(screen.getByRole("button", { name: "Open stems" }));
+    await user.click(screen.getByRole("button", { name: "Pick an account stem" }));
+    expect(await within(stemTabs()).findByRole("button", { name: "From Drive" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.queryByRole("dialog", { name: "Open stems dialog" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the buttons, the play control and the details in the app header's centre", async () => {
+    await renderApp();
+    await openStem("First", "aaaaaaaaaaaaaaaa");
+    const header = screen.getAllByRole("banner")[0]!;
+    expect(within(header).queryByRole("img", { name: "Stem separation" })).not.toBeInTheDocument();
+    expect(within(header).getByRole("group", { name: "Playback" })).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Save stems" })).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Open stems" })).toBeInTheDocument();
+    expect(within(header).getByText(/engine · 5 parts/)).toBeInTheDocument();
   });
 });

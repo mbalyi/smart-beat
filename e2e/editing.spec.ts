@@ -159,7 +159,7 @@ test.describe("note entry and editing (#9)", () => {
 
     await app.getByRole("button", { name: /^Close Untitled/ }).click();
     await confirm.getByRole("button", { name: "Discard changes" }).click();
-    await expect(app.getByRole("button", { name: "Open a file…" })).toBeVisible();
+    await expect(app.getByRole("button", { name: "Open a tab" })).toBeVisible();
   });
 
   test("a song with changes stays open in its tab while another song is opened", async ({

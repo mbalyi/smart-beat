@@ -36,17 +36,17 @@ for (const colorScheme of ["light", "dark"] as const) {
       )
       .toEqual(normal.map((m, i) => expect.objectContaining({ mute: i === 0 || m.mute })));
     await expectNoA11yViolations(app, { popup: '[role="dialog"][aria-label="Practice mix"]' });
-    await popup.getByRole("button", { name: "Input settings…" }).click();
+    await popup.getByRole("button", { name: "Input settings" }).click();
     const settings = app.getByRole("dialog", { name: "Settings" });
     await expect(settings.getByRole("combobox", { name: "Channel" })).toBeVisible();
     await app.keyboard.press("Escape");
     if (!(await popup.isVisible())) await trigger.click();
-    await popup.getByRole("button", { name: "Input effects…" }).click();
+    await popup.getByRole("button", { name: "Input effects" }).click();
     const board = app.getByRole("dialog", { name: "Pedalboard: Monitor" });
     await board.getByRole("switch", { name: "Use third-party plugins" }).click();
-    await board.getByRole("button", { name: "Scan for plugins…" }).click();
+    await board.getByRole("button", { name: "Scan for plugins" }).click();
     await board.getByRole("button", { name: "Add plugin Test Amp" }).click();
-    await board.getByRole("button", { name: "Open editor…" }).click();
+    await board.getByRole("button", { name: "Open editor" }).click();
     await board.getByRole("button", { name: "Save settings" }).click();
     await expect
       .poll(() =>

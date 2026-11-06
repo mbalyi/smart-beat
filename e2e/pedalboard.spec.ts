@@ -17,7 +17,7 @@ import type { Locator, Page } from "@playwright/test";
 
 async function openPedalboard(app: Page, track = "Guitar") {
   await app.getByRole("button", { name: `Actions for ${track}` }).click();
-  await app.getByRole("menuitem", { name: "Effects (pedalboard)…" }).click();
+  await app.getByRole("menuitem", { name: "Effects (pedalboard)" }).click();
   const dialog = app.getByRole("dialog", { name: `Pedalboard: ${track}` });
   await expect(dialog).toBeVisible();
   return dialog;
@@ -66,7 +66,7 @@ test.describe("pedalboard (#36)", () => {
 
   test("loads a genre preset from the inspector's pedalboard", async ({ app }) => {
     await openSong(app);
-    await app.getByRole("button", { name: "Pedalboard…" }).click();
+    await app.getByRole("button", { name: "Pedalboard" }).click();
     const dialog = app.getByRole("dialog", { name: "Pedalboard: Guitar" });
     await dialog.getByRole("combobox", { name: "Genre" }).click();
     await app.getByRole("option", { name: "Metalcore" }).click();
@@ -133,13 +133,13 @@ test.describe("pedalboard (#36)", () => {
 
   test("imports a cabinet into the sound library, renames and removes it", async ({ app }) => {
     await openSong(app);
-    await app.getByRole("button", { name: "Pedalboard…" }).click();
-    await app.getByRole("button", { name: "Sounds…" }).click();
+    await app.getByRole("button", { name: "Pedalboard" }).click();
+    await app.getByRole("button", { name: "Sounds" }).click();
     const library = app.getByRole("dialog", { name: "Sound library" });
     await expect(library.getByText("4×12 modern (generated)")).toBeVisible();
     await expectNoA11yViolations(app);
     await app.evaluate(() => (window.__dialogResult = "/irs/V30 Mesa.wav"));
-    await library.getByRole("button", { name: "Import .wav…" }).click();
+    await library.getByRole("button", { name: "Import .wav" }).click();
     await expect(library.getByText("V30 Mesa", { exact: true })).toBeVisible();
 
     await library.getByRole("button", { name: "Rename V30 Mesa" }).click();
@@ -155,13 +155,13 @@ test.describe("pedalboard (#36)", () => {
   }) => {
     await openSong(app);
     const dialog = await openPedalboard(app);
-    await dialog.getByRole("button", { name: "Sounds…" }).click();
+    await dialog.getByRole("button", { name: "Sounds" }).click();
     const library = app.getByRole("dialog", { name: "Sound library" });
     await app.evaluate(() => (window.__dialogResult = "/captures/Plexi crunch.nam"));
-    await library.getByRole("button", { name: "Import .nam…" }).click();
+    await library.getByRole("button", { name: "Import .nam" }).click();
     await expect(library.getByText("Plexi crunch", { exact: true })).toBeVisible();
     await app.evaluate(() => (window.__dialogResult = "/irs/Greenback.wav"));
-    await library.getByRole("button", { name: "Import .wav…" }).click();
+    await library.getByRole("button", { name: "Import .wav" }).click();
     await expect(library.getByText("Greenback", { exact: true })).toBeVisible();
     // Tags, then the filter.
     await library.getByRole("button", { name: "Rename Greenback" }).click();
@@ -199,22 +199,22 @@ test.describe("pedalboard (#36)", () => {
 
   test("a broken or wrong file gives a clear error and adds nothing (#41)", async ({ app }) => {
     await openSong(app);
-    await app.getByRole("button", { name: "Pedalboard…" }).click();
-    await app.getByRole("button", { name: "Sounds…" }).click();
+    await app.getByRole("button", { name: "Pedalboard" }).click();
+    await app.getByRole("button", { name: "Sounds" }).click();
     const library = app.getByRole("dialog", { name: "Sound library" });
     const before = await library.getByTestId("library-item").count();
     await app.evaluate(() => (window.__dialogResult = "/captures/broken.nam"));
-    await library.getByRole("button", { name: "Import .nam…" }).click();
+    await library.getByRole("button", { name: "Import .nam" }).click();
     await expect(app.getByText("The file could not be imported")).toBeVisible();
     await expect(app.getByText(/not a Neural Amp Modeler file/)).toBeVisible();
     // A WAV file given to the capture importer.
     await app.evaluate(() => (window.__dialogResult = "/irs/cab.wav"));
-    await library.getByRole("button", { name: "Import .nam…" }).click();
+    await library.getByRole("button", { name: "Import .nam" }).click();
     await expect(app.getByText("This is not a Neural Amp Modeler (.nam) file")).toBeVisible();
     await expect(library.getByTestId("library-item")).toHaveCount(before);
     // A long impulse response imports, with a note about it.
     await app.evaluate(() => (window.__dialogResult = "/irs/Big hall.wav"));
-    await library.getByRole("button", { name: "Import .wav…" }).click();
+    await library.getByRole("button", { name: "Import .wav" }).click();
     await expect(library.getByText(/Only the first 1.4 s/)).toBeVisible();
   });
 
@@ -222,7 +222,7 @@ test.describe("pedalboard (#36)", () => {
     await openSong(app);
     await dropFiles(app, ["/captures/Dropped amp.nam"]);
     await expect(app.getByText("Imported “Dropped amp”")).toBeVisible();
-    await app.getByRole("button", { name: "Pedalboard…" }).click();
+    await app.getByRole("button", { name: "Pedalboard" }).click();
     const dialog = app.getByRole("dialog", { name: "Pedalboard: Guitar" });
     await expect(
       dialog.getByRole("list", { name: "Your amps and cabinets" }).getByText("Dropped amp"),
@@ -235,12 +235,12 @@ test.describe("pedalboard (#36)", () => {
     await app.emulateMedia({ colorScheme: "dark" });
     await openSong(app);
     const dialog = await openPedalboard(app);
-    await dialog.getByRole("button", { name: "Sounds…" }).click();
+    await dialog.getByRole("button", { name: "Sounds" }).click();
     const library = app.getByRole("dialog", { name: "Sound library" });
     await app.evaluate(() => (window.__dialogResult = "/captures/Plexi crunch.nam"));
-    await library.getByRole("button", { name: "Import .nam…" }).click();
+    await library.getByRole("button", { name: "Import .nam" }).click();
     await app.evaluate(() => (window.__dialogResult = "/irs/Big hall.wav"));
-    await library.getByRole("button", { name: "Import .wav…" }).click();
+    await library.getByRole("button", { name: "Import .wav" }).click();
     await library.getByRole("button", { name: "Rename Plexi crunch" }).click();
     await library.getByRole("textbox", { name: "Tags of Plexi crunch" }).fill("metal");
     await library.getByRole("button", { name: "Save the name and tags" }).click();
@@ -296,7 +296,7 @@ test.describe("plugins (#80)", () => {
     await dialog.getByRole("button", { name: "Add plugin Test Amp" }).click();
     await expect(dialog.getByRole("listitem", { name: "Test Amp 1" })).toBeVisible();
     await expect(dialog.getByText("Test Amp · Loading…", { exact: true })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Open editor…" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Open editor" })).toBeDisabled();
     await expect(dialog.getByRole("button", { name: "Save settings" })).toBeDisabled();
     await expectNoA11yViolations(app);
     await app.evaluate(() => {
@@ -321,7 +321,7 @@ test.describe("plugins (#80)", () => {
         },
       ]);
     // The plugin's own editor opens and its settings land in the block.
-    await dialog.getByRole("button", { name: "Open editor…" }).click();
+    await dialog.getByRole("button", { name: "Open editor" }).click();
     await dialog.getByRole("button", { name: "Save settings" }).click();
     await expect
       .poll(() =>
@@ -334,11 +334,11 @@ test.describe("plugins (#80)", () => {
       .toBe("aGk=");
     await dialog.getByRole("switch", { name: "Use third-party plugins" }).click();
     await expect.poll(() => app.evaluate(() => window.__pluginsEnabled)).toBe(false);
-    await expect(dialog.getByRole("button", { name: "Open editor…" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Open editor" })).toBeDisabled();
     await expect(dialog.getByRole("button", { name: "Save settings" })).toBeDisabled();
     await dialog.getByRole("switch", { name: "Use third-party plugins" }).click();
     await expect.poll(() => app.evaluate(() => window.__pluginsEnabled)).toBe(true);
-    await expect(dialog.getByRole("button", { name: "Open editor…" })).toBeEnabled();
+    await expect(dialog.getByRole("button", { name: "Open editor" })).toBeEnabled();
   });
 });
 
@@ -410,7 +410,7 @@ test.describe("compressor and mastering (#39)", () => {
     await withEngine(app);
     await app.getByRole("combobox", { name: "Track" }).click();
     await app.getByRole("option", { name: "Drums" }).click();
-    await app.getByRole("button", { name: "Drum mixer…" }).click();
+    await app.getByRole("button", { name: "Drum mixer" }).click();
     const mixer = app.getByRole("dialog", { name: "Drum mixer: Drums" });
     await mixer.getByRole("button", { name: "Add a bus compressor" }).click();
     await expect
@@ -436,7 +436,7 @@ test.describe("preset browser (#42)", () => {
   test("filters by genre and applies a guitar tone", async ({ app }) => {
     await withEngine(app);
     const dialog = await openPedalboard(app);
-    await dialog.getByRole("button", { name: "Browse presets…" }).click();
+    await dialog.getByRole("button", { name: "Browse presets" }).click();
     const browser = app.getByRole("dialog", { name: "Presets" });
     await browser
       .getByRole("radiogroup", { name: "Genre" })
@@ -461,8 +461,8 @@ test.describe("preset browser (#42)", () => {
     await withEngine(app);
     await app.getByRole("combobox", { name: "Track" }).click();
     await app.getByRole("option", { name: "Drums" }).click();
-    await app.getByRole("button", { name: "Drum mixer…" }).click();
-    await app.getByRole("button", { name: "Drum mix presets…" }).click();
+    await app.getByRole("button", { name: "Drum mixer" }).click();
+    await app.getByRole("button", { name: "Drum mix presets" }).click();
     const browser = app.getByRole("dialog", { name: "Presets" });
     await browser.getByTestId("preset").filter({ hasText: "Deathcore blast" }).click();
     await expectNoA11yViolations(app);
@@ -494,7 +494,7 @@ test.describe("preset browser (#42)", () => {
     await withEngine(app);
     const dialog = await openPedalboard(app);
     await dialog.getByRole("radio", { name: "Mastering" }).click();
-    await app.getByRole("button", { name: "Browse presets…" }).click();
+    await app.getByRole("button", { name: "Browse presets" }).click();
     const browser = app.getByRole("dialog", { name: "Presets" });
     await browser
       .getByRole("radiogroup", { name: "Genre" })
