@@ -1,0 +1,62 @@
+name: Dependency report
+
+# Files one issue a week that lists the outdated npm packages, Cargo crates and GitHub Actions.
+# Dependabot version-update pull requests are off (.github/dependabot.yml); see docs/dependencies.md.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: dependency-report
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    name: Weekly dependency issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-outdated
+
+      - name: Collect outdated dependencies
+        id: collect
+        run: node scripts/dependency-report.mjs --out "$RUNNER_TEMP/report.md"
+
+      - name: File this week's issue
+        if: steps.collect.outputs.count != '0'
+        env:
+          TITLE: ${{ steps.collect.outputs.title }}
+          COUNT: ${{ steps.collect.outputs.count }}
+        run: |
+          gh label create dependencies --description "Weekly dependency report" --color 0366d6 2>/dev/null || true
+
+          # One open report at a time: close last week's before filing this week's.
+          previous=$(gh issue list --label dependencies --state open --search "in:title \"Dependency updates, week of\"" --json number --jq '.[].number')
+
+          url=$(gh issue create --title "$TITLE" --label dependencies --body-file "$RUNNER_TEMP/report.md")
+          echo "Filed $url ($COUNT outdated)"
+
+          for number in $previous; do
+            gh issue close "$number" --reason "not planned" --comment "Superseded by $url"
+          done

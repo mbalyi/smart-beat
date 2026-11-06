@@ -1,37 +1,25 @@
+# Dependabot does not open version-update pull requests here: `open-pull-requests-limit: 0`
+# turns them off so the PR list stays readable. The weekly workflow
+# `.github/workflows/dependency-report.yml` files one issue that lists what is outdated instead.
+#
+# Security updates are not affected by this limit; Dependabot still opens those pull requests.
+# Keep one entry per ecosystem so they keep working (see docs/dependencies.md).
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-    groups:
-      tauri:
-        patterns: ["@tauri-apps/*"]
-      radix-and-shadcn:
-        patterns: ["radix-ui", "shadcn", "cn", "lucide-react", "sonner"]
-      test-tooling:
-        patterns:
-          [
-            "vitest",
-            "@vitest/*",
-            "@testing-library/*",
-            "@playwright/test",
-            "@axe-core/*",
-            "axe-core",
-            "jsdom",
-          ]
-      lint-tooling:
-        patterns: ["eslint", "eslint-*", "@eslint/*", "typescript-eslint", "prettier", "prettier-*"]
+    open-pull-requests-limit: 0
 
   - package-ecosystem: cargo
     directory: /src-tauri
     schedule:
       interval: weekly
-    groups:
-      tauri:
-        patterns: ["tauri", "tauri-*"]
+    open-pull-requests-limit: 0
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
