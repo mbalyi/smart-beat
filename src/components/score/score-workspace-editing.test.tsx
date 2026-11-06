@@ -337,7 +337,7 @@ describe("ScoreWorkspace: practice", () => {
   it("runs the Speed Trainer: starts slow and speeds up after each loop", async () => {
     const { user, player } = await setup();
 
-    await user.click(screen.getByRole("button", { name: "Speed Trainer…" }));
+    await user.click(screen.getByRole("button", { name: "Speed Trainer" }));
     const dialog = await screen.findByRole("dialog", { name: "Speed Trainer" });
     await user.click(within(dialog).getByRole("button", { name: "Start" }));
 
@@ -430,7 +430,7 @@ describe("ScoreWorkspace: tracks", () => {
   it("changes a track's tuning and capo, and reports notes that no longer fit", async () => {
     const { user, song } = await setup();
 
-    await trackAction(user, "Guitar", "Settings…");
+    await trackAction(user, "Guitar", "Settings");
     const dialog = await screen.findByRole("dialog", { name: "Track settings" });
     // Keep the fret numbers: notes on the removed string are deleted.
     await user.click(
@@ -472,7 +472,7 @@ describe("ScoreWorkspace: tracks", () => {
   it("copies a guitar track to piano as a new track, in one undo step (#134)", async () => {
     const { user, song } = await setup();
 
-    await trackAction(user, "Guitar", "Copy to instrument…");
+    await trackAction(user, "Guitar", "Copy to instrument");
     const dialog = await screen.findByRole("dialog", { name: "Copy to instrument" });
     await user.click(within(dialog).getByRole("button", { name: "Copy track" }));
 

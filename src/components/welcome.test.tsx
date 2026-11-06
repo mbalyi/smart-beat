@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { Welcome } from "@/components/welcome";
 import { FEATURES } from "@/components/welcome-features";
 import { expectNoA11yViolations } from "@/test/axe";
+import { backend, mockTauri, STEM_SONG } from "@/test/tauri";
 import { renderWithProviders } from "@/test/render";
 
 function renderWelcome() {
@@ -106,7 +107,7 @@ describe("Welcome", () => {
       "Audio to tab (AI · Beta)",
       "Record to tab (Beta)",
       "Cloud sync (Available)",
-      "Stem separation (Coming soon)",
+      "Stem separation (Beta)",
       "Practice together (Coming soon)",
       "Audio tracks & editing (Coming soon)",
       "Speech to tab (AI · Coming soon)",
@@ -216,11 +217,11 @@ describe("Welcome", () => {
   it("wires up the primary actions", async () => {
     const { user, onImportAudio, onOpenFile, onNewSong, onShowShortcuts } = renderWelcome();
 
-    await user.click(screen.getByRole("button", { name: "Open a file…" }));
-    await user.click(screen.getByRole("button", { name: "New song" }));
+    await user.click(screen.getByRole("button", { name: "Open a tab" }));
+    await user.click(screen.getByRole("button", { name: "New tab" }));
     await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
 
-    await user.click(screen.getByRole("button", { name: "Import from Audio…" }));
+    await user.click(screen.getByRole("button", { name: "Import from Audio" }));
     expect(onImportAudio).toHaveBeenCalledOnce();
     expect(onOpenFile).toHaveBeenCalledOnce();
     expect(onNewSong).toHaveBeenCalledOnce();
@@ -381,5 +382,214 @@ describe("Welcome: recent cloud songs (#187)", () => {
     expect(logo).toHaveAttribute("alt", "");
     await user.click(card);
     expect(onOpenRecent).toHaveBeenCalledWith("drive:abc");
+  });
+});
+
+describe("Welcome: stem separation (#186)", () => {
+  it("has a Stem separation button after Open a tab that opens the dialog", async () => {
+    const onSeparateStems = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onImportAudio={vi.fn()}
+        onSeparateStems={onSeparateStems}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+      />,
+    );
+
+    const buttons = screen.getAllByRole("button").map((button) => button.textContent);
+    // New tab and Open a tab come first, then the stem buttons, then Import from Audio.
+    expect(buttons.indexOf("Open a tab")).toBe(buttons.indexOf("New tab") + 1);
+    expect(buttons.indexOf("Stem separation")).toBe(buttons.indexOf("Open a tab") + 1);
+    expect(buttons.indexOf("Import from Audio")).toBe(buttons.indexOf("Stem separation") + 1);
+    await user.click(screen.getByRole("button", { name: "Stem separation" }));
+    expect(onSeparateStems).toHaveBeenCalledOnce();
+  });
+
+  it("makes New tab and Stem separation the primary buttons and the others outlined", () => {
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onImportAudio={vi.fn()}
+        onSeparateStems={vi.fn()}
+        onOpenStemBundle={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+      />,
+    );
+    const primary = (name: string) =>
+      screen.getByRole("button", { name }).getAttribute("data-variant") === "default";
+    expect(primary("New tab")).toBe(true);
+    expect(primary("Stem separation")).toBe(true);
+    for (const name of [
+      "Open a tab",
+      "Open saved stems",
+      "Import from Audio",
+      "Keyboard shortcuts",
+    ]) {
+      expect(primary(name)).toBe(false);
+    }
+  });
+
+  it("has an Open saved stems button right after Stem separation that asks to open a file", async () => {
+    const onOpenStemBundle = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onSeparateStems={vi.fn()}
+        onOpenStemBundle={onOpenStemBundle}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+      />,
+    );
+    const buttons = screen.getAllByRole("button").map((button) => button.textContent);
+    expect(buttons.indexOf("Open saved stems")).toBe(buttons.indexOf("Stem separation") + 1);
+    await user.click(screen.getByRole("button", { name: "Open saved stems" }));
+    expect(onOpenStemBundle).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the buttons and the separated songs out while the feature is off", () => {
+    renderWithProviders(
+      <Welcome onOpenFile={vi.fn()} onNewSong={vi.fn()} onShowShortcuts={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: "Stem separation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open saved stems" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Your separated songs")).not.toBeInTheDocument();
+  });
+
+  const BLUE_HOUR = { ...STEM_SONG, id: "fedcba9876543210", name: "Blue Hour" };
+
+  it("lists the separated songs in Recent, opens one and deletes one", async () => {
+    mockTauri();
+    backend.stemSongs = [STEM_SONG, BLUE_HOUR];
+    const onOpenStemSong = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={onOpenStemSong}
+      />,
+    );
+
+    const heading = await screen.findByRole("heading", { level: 2, name: "Recent songs" });
+    expect(screen.queryByRole("heading", { name: "Your separated songs" })).not.toBeInTheDocument();
+    const section = heading.closest("section")!;
+    expect(within(section).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(section).getAllByText(/3:35 · 5 parts · Fast/)).toHaveLength(2);
+    expect(within(section).getAllByText("Stems")).toHaveLength(2);
+
+    await user.click(within(section).getByRole("button", { name: /^Blue Hour/ }));
+    expect(onOpenStemSong).toHaveBeenCalledWith(expect.objectContaining({ name: "Blue Hour" }));
+
+    // Deleting asks first, and Keep changes nothing.
+    await user.click(within(section).getByRole("button", { name: "Delete Neon Nights" }));
+    await user.click(within(section).getByRole("button", { name: "Keep" }));
+    expect(within(section).getAllByRole("listitem")).toHaveLength(2);
+    await user.click(within(section).getByRole("button", { name: "Delete Neon Nights" }));
+    await user.click(
+      within(section).getByRole("button", { name: "Delete the stems of Neon Nights" }),
+    );
+    await waitFor(() => expect(within(section).getAllByRole("listitem")).toHaveLength(1));
+    expect(backend.stemSongs.map((song) => song.name)).toEqual(["Blue Hour"]);
+  });
+
+  it("puts the separated songs before the recent songs, the one used last first", async () => {
+    mockTauri();
+    backend.stemSongs = [
+      { ...STEM_SONG, name: "Old", id: "a1", createdAtMs: 1_000, lastOpened: null },
+      { ...STEM_SONG, name: "Reopened", id: "a2", createdAtMs: 500, lastOpened: 9_000 },
+      { ...STEM_SONG, name: "Newer", id: "a3", createdAtMs: 2_000, lastOpened: null },
+    ];
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+        recent={["/Songs/riff.gp5", "/Songs/solo.gp5"]}
+        onOpenRecent={vi.fn()}
+      />,
+    );
+    await screen.findByText("Reopened");
+    const section = screen.getByRole("heading", { name: "Recent songs" }).closest("section")!;
+    const names = within(section)
+      .getAllByRole("listitem")
+      .map((item) => item.querySelector("span.truncate")?.textContent);
+    expect(names).toEqual(["Reopened", "Newer", "Old", "riff.gp5", "solo.gp5"]);
+  });
+
+  it("marks a saved song with Saved", async () => {
+    mockTauri();
+    backend.stemSongs = [{ ...STEM_SONG, savedPath: "/Music/Neon Nights.sbstems" }, BLUE_HOUR];
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+      />,
+    );
+    const saved = await screen.findAllByText("Saved");
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.closest("li")).toHaveTextContent("Neon Nights");
+  });
+
+  it("marks a song saved in the linked cloud folder with a cloud icon, and no other", async () => {
+    mockTauri();
+    backend.cloudFolder = "/Users/me/Dropbox";
+    backend.stemSongs = [
+      { ...STEM_SONG, savedPath: "/Users/me/Dropbox/Neon Nights.sbstems" },
+      { ...BLUE_HOUR, savedPath: "/Users/me/Dropbox-old/Blue Hour.sbstems" },
+    ];
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+      />,
+    );
+    const marks = await screen.findAllByRole("img", { name: "Saved in your cloud folder" });
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.closest("li")).toHaveTextContent("Neon Nights");
+    expect(await screen.findAllByText("Saved")).toHaveLength(2);
+  });
+
+  it("shows no cloud icon when no folder is linked", async () => {
+    mockTauri();
+    backend.stemSongs = [{ ...STEM_SONG, savedPath: "/Users/me/Dropbox/Neon Nights.sbstems" }];
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+      />,
+    );
+    await screen.findByText("Saved");
+    expect(screen.queryByRole("img", { name: "Saved in your cloud folder" })).toBeNull();
+  });
+
+  it("shows no Recent section when nothing was opened or separated", async () => {
+    mockTauri();
+    renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+        onOpenStemSong={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(backend.stemSongs).toEqual([]));
+    expect(screen.queryByRole("heading", { name: "Recent songs" })).not.toBeInTheDocument();
+  });
+
+  it("describes the feature as a beta with its limits", () => {
+    const feature = FEATURES.find((f) => f.title === "Stem separation")!;
+    expect(feature.status).toBe("beta");
+    expect(feature.limits?.length).toBeGreaterThan(2);
   });
 });

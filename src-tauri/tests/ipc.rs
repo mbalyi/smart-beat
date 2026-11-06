@@ -103,9 +103,9 @@ fn menu_shortcuts_are_returned_over_ipc() {
     let open = shortcuts
         .iter()
         .find(|s| s["action"] == "open")
-        .expect("Open… shortcut missing");
+        .expect("Open shortcut missing");
     assert_eq!(open["menu"], "File");
-    assert_eq!(open["label"], "Open…");
+    assert_eq!(open["label"], "Open");
     assert!(open["keys"].as_array().unwrap().contains(&Value::from("O")));
     assert!(open["spoken"].as_str().unwrap().ends_with("+O"));
 }

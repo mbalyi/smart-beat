@@ -58,7 +58,7 @@ describe("ScoreWorkspace", () => {
   it("does not count every knob change as an effect action", async () => {
     const { user, calls } = await setup({ desktop: true });
     await user.click(screen.getByRole("button", { name: "Actions for Guitar" }));
-    await user.click(screen.getByRole("menuitem", { name: "Effects (pedalboard)…" }));
+    await user.click(screen.getByRole("menuitem", { name: "Effects (pedalboard)" }));
     const dialog = screen.getByRole("dialog", { name: "Pedalboard: Guitar" });
     await user.click(within(dialog).getByRole("button", { name: "Add Delay" }));
     const knob = within(dialog).getByRole("slider", { name: "Delay 1, Time" });
@@ -312,7 +312,7 @@ describe("ScoreWorkspace", () => {
 
   it("opens another file", async () => {
     const { user, onOpen } = await setup();
-    await user.click(screen.getByRole("button", { name: "Open…" }));
+    await user.click(screen.getByRole("button", { name: "Open" }));
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
@@ -614,7 +614,7 @@ describe("ScoreWorkspace", () => {
 
     async function openPrintDialog(user: Awaited<ReturnType<typeof setup>>["user"]) {
       await user.click(screen.getByRole("button", { name: "File" }));
-      await user.click(await screen.findByRole("menuitem", { name: "Print / PDF…" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Print / PDF" }));
       return screen.findByRole("dialog", { name: "Print or save as PDF" });
     }
 
@@ -634,7 +634,7 @@ describe("ScoreWorkspace", () => {
 
       const dialog = await openPrintDialog(user);
       expect(dialog).toHaveTextContent("“Guitar”");
-      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+      await user.click(within(dialog).getByRole("button", { name: "Print" }));
 
       // The shown track at the print size, then the print once it is drawn.
       expect(player.showForPrint).toHaveBeenCalledWith([0], 0.9);
@@ -656,7 +656,7 @@ describe("ScoreWorkspace", () => {
       await user.click(within(dialog).getByRole("radio", { name: /^All \d+ tracks/ }));
       await user.click(within(dialog).getByRole("combobox", { name: "Notation size" }));
       await user.click(await screen.findByRole("option", { name: "70%" }));
-      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+      await user.click(within(dialog).getByRole("button", { name: "Print" }));
 
       const [tracks, scale] = player.showForPrint.mock.calls[0]!;
       expect(tracks.length).toBeGreaterThan(1);
@@ -672,7 +672,7 @@ describe("ScoreWorkspace", () => {
       const { user } = await setup();
 
       const dialog = await openPrintDialog(user);
-      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+      await user.click(within(dialog).getByRole("button", { name: "Print" }));
       FakeScorePlayer.last.emit("onRendered");
 
       expect(
@@ -690,7 +690,7 @@ describe("ScoreWorkspace", () => {
       draw(player.options.element);
 
       const dialog = await openPrintDialog(user);
-      await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+      await user.click(within(dialog).getByRole("button", { name: "Print" }));
       player.emit("onRendered");
 
       expect(await screen.findByText("Couldn't print")).toBeInTheDocument();

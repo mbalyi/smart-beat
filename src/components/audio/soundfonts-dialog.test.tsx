@@ -137,7 +137,7 @@ describe("SoundFontsDialog (#81)", () => {
     expect(dialog).toHaveTextContent("Downloading… 42%");
     // One download at a time; the others wait.
     expect(within(dialog).getByRole("button", { name: "Download Arachno" })).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: "Import a SoundFont…" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Import a SoundFont" })).toBeDisabled();
     await expectNoA11yViolations();
 
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -191,14 +191,14 @@ describe("SoundFontsDialog (#81)", () => {
     expect(row).toHaveTextContent("My Bank");
     expect(row).toHaveTextContent("32 MB");
 
-    await user.click(within(dialog).getByRole("button", { name: "Import a SoundFont…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import a SoundFont" }));
     expect(onPick).toHaveBeenCalled();
     expect(onImport).toHaveBeenCalledWith("/music/My Bank.sf2");
   });
 
   it("does nothing when the file picker is cancelled", async () => {
     const { user, dialog, onImport } = setup({ onPick: vi.fn(async () => null) });
-    await user.click(within(dialog).getByRole("button", { name: "Import a SoundFont…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import a SoundFont" }));
     expect(onImport).not.toHaveBeenCalled();
   });
 
@@ -207,7 +207,7 @@ describe("SoundFontsDialog (#81)", () => {
       .fn()
       .mockRejectedValue(new Error("Choose a SoundFont file (.sf2 or .sf3)."));
     const { user, dialog } = setup({ onImport });
-    await user.click(within(dialog).getByRole("button", { name: "Import a SoundFont…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Import a SoundFont" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Choose a SoundFont file");
   });
 
@@ -225,7 +225,7 @@ describe("SoundFontsDialog (#81)", () => {
   it("says that adding SoundFonts needs the desktop app in a browser", async () => {
     const { dialog } = setup({ available: false });
     expect(dialog).toHaveTextContent("available in the Smart Beat desktop app");
-    expect(within(dialog).getByRole("button", { name: "Import a SoundFont…" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Import a SoundFont" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Download Arachno" })).toBeDisabled();
   });
 

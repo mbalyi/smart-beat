@@ -214,7 +214,7 @@ function MiniChain({
         </span>
         <Button variant="ghost" size="xs" onClick={onEdit}>
           <AudioLinesIcon data-icon="inline-start" />
-          Pedalboard…
+          Pedalboard
         </Button>
       </div>
       {chain.length === 0 ? (
@@ -293,7 +293,7 @@ function DrumKitPicker({ kits, current, onChange, onManage, available }: DrumKit
           </SelectContent>
         </Select>
         <Button variant="outline" size="sm" onClick={onManage}>
-          Kits…
+          Kits
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
@@ -400,16 +400,16 @@ export function Inspector({
               size="xs"
               className="ml-1"
               onClick={actions.onTempo}
-              aria-label="Change the tempo…"
+              aria-label="Change the tempo"
             >
-              Change…
+              Change
             </Button>
           </Row>
         </Section>
         <Section title="Tools">
           <div className="flex flex-wrap gap-1.5">
             <Button variant="outline" size="sm" onClick={actions.onTranspose}>
-              Transpose…
+              Transpose
             </Button>
             <Button variant="outline" size="sm" onClick={actions.onFixBars}>
               Fix bar lengths
@@ -437,8 +437,8 @@ export function Inspector({
             <Button
               variant="outline"
               size="icon-sm"
-              aria-label="Track settings…"
-              title="Track settings…"
+              aria-label="Track settings"
+              title="Track settings"
               onClick={actions.onTrackSettings}
             >
               <Settings2Icon />
@@ -508,7 +508,7 @@ export function Inspector({
                 data-tour="soundfonts"
                 onClick={onManageSoundFonts}
               >
-                SoundFonts…
+                SoundFonts
               </Button>
             )}
           </div>
@@ -567,7 +567,7 @@ export function Inspector({
               data-tour="copy-instrument"
             >
               <CopyPlusIcon data-icon="inline-start" />
-              Copy to instrument…
+              Copy to instrument
             </Button>
           )}
           {track.kind === "drums" && actions.onDrumMixer && (
@@ -578,7 +578,7 @@ export function Inspector({
               onClick={actions.onDrumMixer}
             >
               <SlidersVerticalIcon data-icon="inline-start" />
-              Drum mixer…
+              Drum mixer
             </Button>
           )}
           <MiniChain
@@ -604,7 +604,7 @@ export function Inspector({
           )}
           <Button variant="outline" size="sm" className="self-start" onClick={actions.onLyrics}>
             <MicVocalIcon data-icon="inline-start" />
-            Lyrics…
+            Lyrics
           </Button>
         </Section>
       </TabsContent>

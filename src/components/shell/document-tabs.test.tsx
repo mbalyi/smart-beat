@@ -56,3 +56,36 @@ describe("DocumentTabs", () => {
     expect(screen.getByRole("button", { name: "Second (edited)" })).toHaveFocus();
   });
 });
+
+describe("DocumentTabs: other kinds of document", () => {
+  it("mixes numbered songs and named documents, with an icon, a list name and a + label", async () => {
+    const onNew = vi.fn();
+    const onActivate = vi.fn();
+    const { user } = renderWithProviders(
+      <DocumentTabs
+        tabs={[
+          { id: 1, title: "Song", edited: false },
+          { id: "stem-1", title: "Separated", edited: false, icon: <svg data-testid="kind" /> },
+        ]}
+        activeId="stem-1"
+        onActivate={onActivate}
+        onClose={vi.fn()}
+        onNew={onNew}
+        label="Open songs and stems"
+        newLabel="New stem separation"
+      />,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Open songs and stems" });
+    expect(within(nav).getByRole("button", { name: "Separated" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(within(nav).getByTestId("kind")).toBeInTheDocument();
+    await user.click(within(nav).getByRole("button", { name: "Separated" }));
+    expect(onActivate).toHaveBeenCalledWith("stem-1");
+    const plus = within(nav).getByRole("button", { name: "New stem separation" });
+    await user.click(plus);
+    expect(onNew).toHaveBeenCalledWith(plus);
+  });
+});

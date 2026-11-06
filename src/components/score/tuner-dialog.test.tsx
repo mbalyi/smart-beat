@@ -322,7 +322,7 @@ describe("TunerDialog: the audio input", () => {
     const onOpenSettings = vi.fn();
     const { user } = setup({ onOpenSettings });
     await user.click(screen.getByRole("tab", { name: "Input" }));
-    const change = screen.getByRole("button", { name: "Change input…" });
+    const change = screen.getByRole("button", { name: "Change input" });
     await user.click(change);
     expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith(change);
     await expectNoA11yViolations();
@@ -332,7 +332,7 @@ describe("TunerDialog: the audio input", () => {
     installMicrophone(110);
     const { user } = setup();
     await user.click(screen.getByRole("tab", { name: "Input" }));
-    expect(screen.queryByRole("button", { name: "Change input…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change input" })).not.toBeInTheDocument();
   });
 
   it("lets go of the input when listening stops before the input opened", async () => {

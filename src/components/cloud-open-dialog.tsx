@@ -2,9 +2,8 @@ import { CloudProviderLogo } from "@/components/cloud-provider-logos";
 import { CloudOffIcon, FileMusicIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import splashLeft from "@/assets/record-to-tab/splash-bottom-left.webp";
-import splashRight from "@/assets/record-to-tab/splash-bottom-right.webp";
 import { DIALOG_NEON } from "@/components/ai/dialog-art";
+import { TargetArt } from "@/components/target-cards";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -48,24 +47,6 @@ function formatModified(ms: number, now = Date.now()): string {
   if (abs < 86400) return rtf.format(Math.round(seconds / 3600), "hour");
   if (abs < 30 * 86400) return rtf.format(Math.round(seconds / 86400), "day");
   return new Date(ms).toLocaleDateString("en", { dateStyle: "medium" });
-}
-
-/** The graffiti behind the dialog: behind everything, never in the way, hidden from readers. */
-function OpenArt() {
-  return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-      <img
-        src={splashLeft}
-        alt=""
-        className="absolute bottom-0 left-0 w-[40%] opacity-50 dark:opacity-90"
-      />
-      <img
-        src={splashRight}
-        alt=""
-        className="absolute right-0 bottom-0 w-[20%] opacity-50 dark:opacity-90"
-      />
-    </div>
-  );
 }
 
 function OpenContent({
@@ -116,7 +97,7 @@ function OpenContent({
 
   return (
     <div className="relative isolate flex min-h-0 flex-1 flex-col">
-      <OpenArt />
+      <TargetArt />
       <DialogHeader className="px-6 md:px-9">
         <DialogTitle className="flex items-center gap-2.5 text-2xl font-bold">
           <CloudProviderLogo provider={provider} className="h-6 w-auto max-w-8 shrink-0" />

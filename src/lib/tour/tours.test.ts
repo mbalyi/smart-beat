@@ -34,7 +34,7 @@ describe("tours", () => {
     for (const tour of TOUR_LIST) {
       for (const step of tour.steps) {
         const attr = new RegExp(
-          `data-tour=(?:"${step.target}"|\\{\\s*"${step.target}"\\s*\\}|\\{\\s*'${step.target}'\\s*\\})`,
+          `(?:data-tour|tour)=(?:"${step.target}"|\\{\\s*"${step.target}"\\s*\\}|\\{\\s*'${step.target}'\\s*\\})`,
         );
         expect(attr.test(source), `${tour.id}/${step.id} -> ${step.target}`).toBe(true);
       }

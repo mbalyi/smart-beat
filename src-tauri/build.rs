@@ -25,21 +25,31 @@ fn main() {
 }
 
 /// Cloud client IDs and the Google client secret (#187) for `option_env!`, from the git-ignored
-/// `.env` at the repository root. Real environment variables win, so the release pipeline keeps
-/// working without the file.
+/// `.env` at the repository root, and in a linked git worktree also from the `.env` of the main
+/// checkout (git-ignored files do not follow a worktree). Real environment variables win, then
+/// the worktree's own file, then the main checkout's, so the release pipeline keeps working
+/// without any file.
 fn cloud_client_ids() {
     for key in dotenv::KEYS {
         println!("cargo:rerun-if-env-changed={key}");
     }
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo");
-    let file = Path::new(&manifest_dir).join("..").join(".env");
-    let Ok(text) = std::fs::read_to_string(&file) else {
-        return;
-    };
-    println!("cargo:rerun-if-changed=../.env");
-    for (key, value) in dotenv::parse(&text) {
-        if env::var_os(&key).is_none() {
-            println!("cargo:rustc-env={key}={value}");
+    let root = Path::new(&manifest_dir).join("..");
+    // In a linked worktree `.git` is a file; a change of it can change the main checkout.
+    if root.join(".git").is_file() {
+        println!("cargo:rerun-if-changed=../.git");
+    }
+    let mut set = std::collections::HashSet::new();
+    for file in dotenv::env_files(&root) {
+        // Also for a file that does not exist yet: creating it reruns the script.
+        println!("cargo:rerun-if-changed={}", file.display());
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        for (key, value) in dotenv::parse(&text) {
+            if env::var_os(&key).is_none() && set.insert(key.clone()) {
+                println!("cargo:rustc-env={key}={value}");
+            }
         }
     }
 }

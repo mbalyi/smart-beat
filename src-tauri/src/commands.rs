@@ -8,7 +8,9 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, PackageInfo, Runtime, State};
 
 use crate::audio::AudioState;
-use crate::cloud_folder::{self, CloudFolderCandidate, CloudFolderStore, CloudScore, FileStamp};
+use crate::cloud_folder::{
+    self, CloudFolderCandidate, CloudFolderStore, CloudScore, CloudStem, FileStamp,
+};
 use crate::error::{CommandError, ErrorKind};
 use crate::m4a;
 use crate::menu::{self, Shortcut};
@@ -65,25 +67,18 @@ pub fn read_score_file<R: Runtime>(
     path: PathBuf,
 ) -> Result<Response, CommandError> {
     // An online-only cloud file (iCloud evicted, #187) is downloaded first.
-    cloud_folder::wait_for_download(
+    cloud_folder::wait_if_evicted(
         &path,
         cloud_folder::DOWNLOAD_TIMEOUT,
         cloud_folder::request_icloud_download,
         || {
             let _ = app.emit(
-                "cloud-download-waiting",
+                cloud_folder::DOWNLOAD_WAITING_EVENT,
                 path.to_string_lossy().into_owned(),
             );
         },
-    )
-    .or_else(|error| {
-        // A plain missing file keeps the reader's own message.
-        if error.kind == ErrorKind::NotFound {
-            Ok(())
-        } else {
-            Err(error)
-        }
-    })?;
+    )?;
+    // A plain missing file keeps the reader's own message.
     score_file::read(&path).map(Response::new)
 }
 
@@ -154,6 +149,31 @@ pub fn list_cloud_scores(
         return Ok(Vec::new());
     };
     cloud_folder::list_scores(Path::new(&folder))
+}
+
+/// The saved stem separations (`.sbstems`) in the linked cloud folder, newest first. Same shape
+/// and errors as [`list_cloud_scores`]; empty when no folder is linked.
+#[tauri::command(async)]
+pub fn list_cloud_stems(
+    store: State<'_, CloudFolderStore>,
+) -> Result<Vec<CloudStem>, CommandError> {
+    let Some(folder) = store.load() else {
+        return Ok(Vec::new());
+    };
+    cloud_folder::list_stems(Path::new(&folder))
+}
+
+/// Where to save a stem separation called `name` in the linked cloud folder:
+/// `<folder>/<name>.sbstems`, numbered (`name (2).sbstems`) when that file exists. Creates
+/// nothing; the save itself is `stems_save_bundle`. `not-found` when no folder is linked or it is
+/// gone.
+#[tauri::command(async)]
+pub fn stems_cloud_save_path(
+    store: State<'_, CloudFolderStore>,
+    name: String,
+) -> Result<String, CommandError> {
+    cloud_folder::stems_save_path(store.load().as_deref(), &name)
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 /// Exports audio as AAC: the request body is the rendered 16-bit WAV file and

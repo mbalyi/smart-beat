@@ -120,7 +120,7 @@ export function ScoreContextMenu({
             </ContextMenuItem>
             <ContextMenuItem onSelect={actions.onPracticeSelection}>
               <TargetIcon />
-              Practice Selection…
+              Practice Selection
             </ContextMenuItem>
             <ContextMenuItem onSelect={actions.onPlaySelection}>
               <PlayIcon />
@@ -198,7 +198,7 @@ export function ScoreContextMenu({
           )}
         >
           <GaugeIcon />
-          Start Speed Trainer here…
+          Start Speed Trainer here
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

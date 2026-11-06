@@ -432,7 +432,7 @@ export function AudioTranscriptionDialog({
                           openInstaller("audio");
                         }}
                       >
-                        Download or manage models…
+                        Download or manage models
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -479,7 +479,7 @@ export function AudioTranscriptionDialog({
                     disabled={busyAction}
                     onClick={() => void saveMidi()}
                   >
-                    {saving ? "Saving…" : "Save MIDI As…"}
+                    {saving ? "Saving…" : "Save MIDI As"}
                   </Button>
                   <Button size="lg" disabled={busyAction} onClick={() => void importMidi()}>
                     {importing ? "Importing…" : "Import MIDI into Smart Beat"}
@@ -706,7 +706,7 @@ function RecordingDropzone({
         onDragOver={(event) => event.preventDefault()}
         onDrop={drop}
       >
-        {file ? "Replace recording…" : "Choose recording…"}
+        {file ? "Replace recording" : "Choose recording"}
       </Button>
     </div>
   );

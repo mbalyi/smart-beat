@@ -51,7 +51,7 @@ describe("PrintDialog", () => {
 
     await user.click(within(dialog).getByRole("combobox", { name: "Notation size" }));
     await user.click(await screen.findByRole("option", { name: "125%" }));
-    await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Print" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       { paper: "letter", orientation: "landscape", margin: 10, scale: 1.25 },
@@ -70,18 +70,18 @@ describe("PrintDialog", () => {
   it("prints all tracks, or the chosen ones", async () => {
     const { user, dialog, onSubmit } = setup();
     await user.click(within(dialog).getByRole("radio", { name: /All 3 tracks/ }));
-    await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Print" }));
     expect(onSubmit).toHaveBeenLastCalledWith(DEFAULT_PRINT, [0, 1, 2]);
   });
 
   it("needs at least one chosen track", async () => {
     const { user, dialog, onSubmit } = setup();
-    await user.click(within(dialog).getByRole("radio", { name: "Choose tracks…" }));
+    await user.click(within(dialog).getByRole("radio", { name: "Choose tracks" }));
     await user.click(within(dialog).getByRole("checkbox", { name: "Guitar" }));
-    expect(within(dialog).getByRole("button", { name: "Print…" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Print" })).toBeDisabled();
     await user.click(within(dialog).getByRole("checkbox", { name: "Drums" }));
     await user.click(within(dialog).getByRole("checkbox", { name: "Bass" }));
-    await user.click(within(dialog).getByRole("button", { name: "Print…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Print" }));
     expect(onSubmit).toHaveBeenLastCalledWith(DEFAULT_PRINT, [1, 2]);
     await expectNoA11yViolations();
   });
@@ -104,14 +104,14 @@ describe("PrintDialog: Export as PDF (#83)", () => {
     );
     const dialog = screen.getByRole("dialog", { name: "Print or save as PDF" });
     expect(dialog).toHaveTextContent("Export as PDF saves a PDF file where you choose");
-    await user.click(within(dialog).getByRole("button", { name: "Export as PDF…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Export as PDF" }));
     expect(onExportPdf).toHaveBeenCalledWith(DEFAULT_PRINT, [1]);
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("explains the system dialog's PDF option elsewhere", () => {
     const { dialog } = setup();
-    expect(within(dialog).queryByRole("button", { name: "Export as PDF…" })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Export as PDF" })).toBeNull();
     expect(dialog).toHaveTextContent("Microsoft Print to PDF");
   });
 });

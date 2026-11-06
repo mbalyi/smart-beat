@@ -205,7 +205,7 @@ test.describe("tuner (#83)", () => {
     await expect.poll(async () => (await previews()).at(-1)).toMatchObject({ key: 40 });
     expect((await previews()).at(-1)?.program).toEqual(expect.any(Number));
 
-    await fretboard.getByRole("button", { name: "Tuner…" }).click();
+    await fretboard.getByRole("button", { name: "Tuner" }).click();
     const tuner = app.getByRole("dialog", { name: "Tuner: Guitar" });
     // The tuner opens on the input; the reference notes come second.
     await expect(tuner.getByRole("tab", { name: "Input" })).toHaveAttribute(

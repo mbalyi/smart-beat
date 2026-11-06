@@ -4,6 +4,7 @@ import { CloudDownloadIcon, CloudIcon, CloudOffIcon, FileMusicIcon } from "lucid
 import { useEffect, useState } from "react";
 
 import { SectionKicker } from "@/components/section-kicker";
+import { useCloudChanges } from "@/hooks/use-cloud-changes";
 import { errorText } from "@/lib/errors";
 import { listCloudAccounts } from "@/lib/cloud";
 import {
@@ -51,6 +52,8 @@ function problemText(error: unknown): string {
  */
 export function CloudScores({ onOpen }: { onOpen: (path: string) => void }) {
   const [state, setState] = useState<State>({ status: "loading" });
+  // Settings changed an account or the folder while this screen stayed open: read them again.
+  const changes = useCloudChanges();
   /** Files being fetched right now (the core tells us while it waits). */
   const [downloading, setDownloading] = useState<ReadonlySet<string>>(new Set());
 
@@ -84,7 +87,7 @@ export function CloudScores({ onOpen }: { onOpen: (path: string) => void }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [changes]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -116,7 +119,7 @@ export function CloudScores({ onOpen }: { onOpen: (path: string) => void }) {
       active = false;
       void unlisten.then((fn) => fn()).catch(() => {});
     };
-  }, []);
+  }, [changes]);
 
   const folderShown = state.status === "ready" || state.status === "error";
   if (!folderShown && providers.length === 0) return null;

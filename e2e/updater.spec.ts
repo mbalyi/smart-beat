@@ -19,7 +19,7 @@ const offerUpdate = (app: Page) =>
 const ipcCommands = (app: Page) => app.evaluate(() => window.__ipcCalls.map((call) => call.cmd));
 
 test.describe("updates (#82)", () => {
-  test("Help → Check for Updates… says when this is the latest version", async ({ app }) => {
+  test("Help → Check for Updates says when this is the latest version", async ({ app }) => {
     await emitMenuAction(app, "check-for-updates");
 
     const dialog = app.getByRole("dialog", { name: "You're up to date" });
@@ -85,9 +85,9 @@ test.describe("updates (#82)", () => {
     await expect(app.getByRole("dialog", { name: "You're up to date" })).toBeVisible();
   });
 
-  test("the in-window Help menu has Check for Updates…", async ({ app }) => {
+  test("the in-window Help menu has Check for Updates", async ({ app }) => {
     await app.getByRole("button", { name: "Help" }).click();
-    await app.getByRole("menuitem", { name: "Check for Updates…" }).click();
+    await app.getByRole("menuitem", { name: "Check for Updates" }).click();
 
     await expect(app.getByRole("dialog", { name: "You're up to date" })).toBeVisible();
   });

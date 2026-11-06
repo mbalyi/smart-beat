@@ -32,7 +32,7 @@ The bundled sounds are sampled (Sonivox and FluidR3 General MIDI). A guitar soun
 
 ## Nested tuplets
 
-A tuplet inside a tuplet is one flat ratio in alphaTab: the ratios multiply. The tuplet menu has **Nested…**: pick the outer and the inner tuplet and Smart Beat sets the combined ratio on the selected notes (a triplet of triplets is 9 notes in the time of 4, a quintuplet inside a triplet 15 in the time of 8).
+A tuplet inside a tuplet is one flat ratio in alphaTab: the ratios multiply. The tuplet menu has **Nested**: pick the outer and the inner tuplet and Smart Beat sets the combined ratio on the selected notes (a triplet of triplets is 9 notes in the time of 4, a quintuplet inside a triplet 15 in the time of 8).
 
 - Timing and playback follow the ratio (alphaTab rounds each note to whole ticks, a few ticks over the group).
 - The score draws **one bracket** for the whole group, not one inside another.

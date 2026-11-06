@@ -219,7 +219,7 @@ export function PracticeMix({
                   disabled={!monitor.onInputSettings}
                   onClick={(event) => monitor.onInputSettings?.(event.currentTarget)}
                 >
-                  Input settings…
+                  Input settings
                 </Button>
                 <Button
                   variant="outline"
@@ -227,7 +227,7 @@ export function PracticeMix({
                   disabled={!mix.monitor}
                   onClick={monitor.onEffects}
                 >
-                  Input effects…
+                  Input effects
                 </Button>
               </div>
             </>

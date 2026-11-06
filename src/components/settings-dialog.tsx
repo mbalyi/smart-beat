@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { usePromise } from "@/hooks/use-promise";
+import { announceCloudChange } from "@/lib/cloud-changes";
 import { errorText } from "@/lib/errors";
 import {
   detectCloudFolders,
@@ -261,6 +262,7 @@ function CloudFolderSetting({
     setError(null);
     try {
       setFolder(await setCloudFolder(next));
+      announceCloudChange();
     } catch (e) {
       setError(`The cloud folder could not be saved. ${errorText(e)}`);
     }
@@ -280,7 +282,8 @@ function CloudFolderSetting({
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
         Link a folder that your cloud service already syncs (iCloud Drive, Dropbox, OneDrive, Google
-        Drive) to keep your songs on all your computers.
+        Drive) to keep your songs on all your computers. Saved stems can be kept there too: Smart
+        Beat only writes the files, and your drive app uploads them.
       </p>
       <p className="text-sm" data-testid="cloud-folder-current">
         {folder ? (
@@ -310,7 +313,7 @@ function CloudFolderSetting({
       )}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => void choose()}>
-          Choose folder…
+          Choose folder
         </Button>
         {folder && (
           <Button type="button" variant="outline" size="sm" onClick={() => void link(null)}>

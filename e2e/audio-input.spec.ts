@@ -29,7 +29,7 @@ async function installInputs(page: Page) {
 
 async function openSettings(page: Page) {
   await page.getByRole("button", { name: "Help" }).click();
-  await page.getByRole("menuitem", { name: "Settings…" }).click();
+  await page.getByRole("menuitem", { name: "Settings" }).click();
   return page.getByRole("dialog", { name: "Settings" });
 }
 
@@ -67,13 +67,13 @@ test.describe("audio input", () => {
     await app.getByRole("button", { name: "Fretboard" }).click();
     await app
       .getByRole("region", { name: "Fretboard" })
-      .getByRole("button", { name: "Tuner…" })
+      .getByRole("button", { name: "Tuner" })
       .click();
     const tuner = app.getByRole("dialog", { name: "Tuner: Guitar" });
     await tuner.getByRole("tab", { name: "Input" }).click();
     await expect(tuner.getByText("Input: Scarlett 2i2 USB")).toBeVisible();
 
-    const change = tuner.getByRole("button", { name: "Change input…" });
+    const change = tuner.getByRole("button", { name: "Change input" });
     await change.click();
     settings = app.getByRole("dialog", { name: "Settings" });
     const input = settings.getByRole("combobox", { name: "Input" });

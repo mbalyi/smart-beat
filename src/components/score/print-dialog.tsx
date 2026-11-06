@@ -84,7 +84,7 @@ function PrintForm({
             [
               ["shown", `Only “${shownName}”`],
               ["all", `All ${trackNames.length} tracks, as a full score`],
-              ["some", "Choose tracks…"],
+              ["some", "Choose tracks"],
             ] as const
           ).map(([value, label]) => (
             <label key={value} className="flex items-center gap-2">
@@ -211,11 +211,11 @@ function PrintForm({
             disabled={tracks.length === 0}
             onClick={() => onExportPdf(settings, tracks)}
           >
-            Export as PDF…
+            Export as PDF
           </Button>
         )}
         <Button type="submit" disabled={tracks.length === 0}>
-          Print…
+          Print
         </Button>
       </DialogFooter>
     </form>

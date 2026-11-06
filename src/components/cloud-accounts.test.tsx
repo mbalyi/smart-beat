@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 
 import { CloudAccounts, CONNECT_GIVE_UP_MS } from "@/components/cloud-accounts";
 import type { CloudAccount, PendingUpload } from "@/lib/cloud";
+import { onCloudChange } from "@/lib/cloud-changes";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 import { mockTauri } from "@/test/tauri";
@@ -145,6 +146,37 @@ describe("CloudAccounts", () => {
     await user.click(await screen.findByRole("button", { name: "Disconnect Google Drive" }));
     expect(await screen.findByRole("button", { name: "Connect Google Drive" })).toBeInTheDocument();
     expect(calls.find((c) => c.cmd === "cloud_disconnect")?.args).toEqual({ provider: "drive" });
+  });
+
+  it("tells the start screen after it connects or disconnects an account", async () => {
+    let accounts = ACCOUNTS;
+    mockTauri({
+      cloud_accounts: () => accounts,
+      cloud_connect: () => {
+        accounts = [
+          ACCOUNTS[0]!,
+          { ...ACCOUNTS[1]!, account: "Test OneDrive account" },
+          ACCOUNTS[2]!,
+        ];
+        return "Test OneDrive account";
+      },
+      cloud_disconnect: () => {
+        accounts = [{ ...ACCOUNTS[0]!, account: null }, accounts[1]!, accounts[2]!];
+        return null;
+      },
+    });
+    const changed = vi.fn();
+    const stop = onCloudChange(changed);
+    const { user } = renderWithProviders(<CloudAccounts />);
+
+    await user.click(await screen.findByRole("button", { name: "Connect OneDrive" }));
+    await screen.findByText("Test OneDrive account");
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Disconnect Google Drive" }));
+    await screen.findByRole("button", { name: "Connect Google Drive" });
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
+    stop();
   });
 
   it("offers Reconnect after the sign-in expired", async () => {

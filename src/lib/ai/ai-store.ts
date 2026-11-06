@@ -15,7 +15,7 @@ import { track } from "@/lib/telemetry";
 import { readSize, storeSize } from "@/lib/ai/muscriptor-sizes";
 
 /** The dialogs that can ask for the installer, and that it hands the user back to. */
-export type AiReturn = "record" | "audio";
+export type AiReturn = "record" | "audio" | "models";
 
 /**
  * The state of the MuScriptor model and of the installer dialog, shared by every dialog that

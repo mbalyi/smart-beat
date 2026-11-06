@@ -1,7 +1,6 @@
-import { CheckIcon, GaugeIcon, Trash2Icon } from "lucide-react";
-import { useState } from "react";
+import { CheckIcon, GaugeIcon } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { DeleteModelButton } from "@/components/ai/model-rows";
 import { type AiState, isInstalled } from "@/lib/ai/ai-store";
 import { downloadText, SIZES } from "@/lib/ai/muscriptor-sizes";
 import { cn } from "@/lib/utils";
@@ -57,8 +56,6 @@ export function ModelPicker({
   /** Deletes a downloaded size. Without it the picker has no delete buttons. */
   onDelete?: (size: MuscriptorSize) => void;
 }) {
-  // The size whose delete is waiting for a second click.
-  const [confirming, setConfirming] = useState<MuscriptorSize | null>(null);
   return (
     <fieldset disabled={disabled} className="flex flex-col">
       <legend className="sr-only">{legend}</legend>
@@ -142,41 +139,9 @@ export function ModelPicker({
                   <CheckIcon className="size-3" />
                   Installed
                 </span>
-                {onDelete &&
-                  (confirming === info.size ? (
-                    <div className="flex flex-col items-end gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => {
-                          setConfirming(null);
-                          onDelete(info.size);
-                        }}
-                      >
-                        Delete {info.label}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setConfirming(null)}
-                      >
-                        Keep
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      aria-label={`Delete the ${info.label} model`}
-                      onClick={() => setConfirming(info.size)}
-                    >
-                      <Trash2Icon aria-hidden="true" data-icon="inline-start" />
-                      Delete
-                    </Button>
-                  ))}
+                {onDelete && (
+                  <DeleteModelButton label={info.label} onDelete={() => onDelete(info.size)} />
+                )}
               </div>
             ) : (
               <span />

@@ -150,10 +150,10 @@ describe("EffectsToolbar", () => {
 
   it("opens the bend, whammy, text and chord editors", async () => {
     const { user, actions } = setup();
-    await user.click(screen.getByRole("button", { name: "Bend…" }));
-    await user.click(screen.getByRole("button", { name: "Whammy…" }));
-    await user.click(screen.getByRole("button", { name: "Text…" }));
-    await user.click(screen.getByRole("button", { name: "Chord…" }));
+    await user.click(screen.getByRole("button", { name: "Bend" }));
+    await user.click(screen.getByRole("button", { name: "Whammy" }));
+    await user.click(screen.getByRole("button", { name: "Text" }));
+    await user.click(screen.getByRole("button", { name: "Chord" }));
     expect(actions.onBend).toHaveBeenCalled();
     expect(actions.onWhammy).toHaveBeenCalled();
     expect(actions.onText).toHaveBeenCalled();
@@ -163,17 +163,17 @@ describe("EffectsToolbar", () => {
   it("disables note effects without a note", () => {
     setup({ editor: editorOf({ note: false }) });
     expect(screen.getByRole("button", { name: "Palm mute" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Bend…" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Whammy…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Bend" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Whammy" })).toBeDisabled();
     // Text and chords can go on rests.
-    expect(screen.getByRole("button", { name: "Text…" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Text" })).toBeEnabled();
   });
 
   it("offers only what suits the track", async () => {
     const { unmount } = setup({ kind: "pitched" });
     expect(screen.queryByRole("button", { name: "Palm mute" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Slide" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Bend…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bend" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Staccato" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Picking" })).toBeInTheDocument();
     unmount();
@@ -224,7 +224,7 @@ describe("EffectsToolbar", () => {
       "Fade in",
       "Repeat start",
       "Repeat end",
-      "Lyrics…",
+      "Lyrics",
     ]) {
       expect(screen.getByRole("button", { name }), name).toBeInTheDocument();
     }
@@ -272,7 +272,7 @@ describe("EffectsToolbar", () => {
     expect(screen.getByRole("button", { name: "Fermata" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "Fermata" }));
     await user.click(screen.getByRole("button", { name: "Repeat end" }));
-    await user.click(screen.getByRole("button", { name: "Lyrics…" }));
+    await user.click(screen.getByRole("button", { name: "Lyrics" }));
     expect(actions.onFermata).toHaveBeenCalled();
     expect(actions.onRepeat).toHaveBeenCalledWith("end");
     expect(actions.onLyrics).toHaveBeenCalled();

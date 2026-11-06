@@ -22,7 +22,7 @@ test.describe("audio export (#17)", () => {
     await app.evaluate(() => (window.__saveResult = "/Users/me/Music/mix"));
 
     await app.getByRole("button", { name: "File" }).click();
-    await app.getByRole("menuitem", { name: "Audio (WAV)…" }).click();
+    await app.getByRole("menuitem", { name: "Audio (WAV)" }).click();
 
     await expect
       .poll(
@@ -59,7 +59,7 @@ test.describe("audio export (#17)", () => {
     await app.evaluate(() => (window.__saveResult = "/Users/me/Music/mix"));
 
     await app.getByRole("button", { name: "File" }).click();
-    await app.getByRole("menuitem", { name: "Audio (M4A)…" }).click();
+    await app.getByRole("menuitem", { name: "Audio (M4A)" }).click();
 
     // The mock keeps the WAV that the real command turns into AAC.
     await expect
@@ -97,7 +97,7 @@ test.describe("audio export (#17)", () => {
     const peak = async (path: string) => {
       await app.evaluate((p) => (window.__saveResult = p), path);
       await app.getByRole("button", { name: "File" }).click();
-      await app.getByRole("menuitem", { name: "Audio (WAV)…" }).click();
+      await app.getByRole("menuitem", { name: "Audio (WAV)" }).click();
       await expect
         .poll(() => app.evaluate((p) => window.__written.get(p)?.length ?? 0, path), {
           timeout: 60_000,
@@ -134,7 +134,7 @@ test.describe("print and PDF (#17)", () => {
 
   async function openPrintDialog(app: Page) {
     await app.getByRole("button", { name: "File" }).click();
-    await app.getByRole("menuitem", { name: "Print / PDF…" }).click();
+    await app.getByRole("menuitem", { name: "Print / PDF" }).click();
     return app.getByRole("dialog", { name: "Print or save as PDF" });
   }
 
@@ -146,7 +146,7 @@ test.describe("print and PDF (#17)", () => {
     await openSong(app);
 
     const dialog = await openPrintDialog(app);
-    await dialog.getByRole("button", { name: "Print…" }).click();
+    await dialog.getByRole("button", { name: "Print" }).click();
     await expect.poll(() => app.evaluate(() => window.__printCalls)).toBe(1);
 
     // While the print dialog is open, only the copy of the score is printed.
@@ -172,7 +172,7 @@ test.describe("print and PDF (#17)", () => {
     await app.getByRole("option", { name: "Letter" }).click();
     await dialog.getByRole("combobox", { name: "Orientation" }).click();
     await app.getByRole("option", { name: "Landscape" }).click();
-    await dialog.getByRole("button", { name: "Print…" }).click();
+    await dialog.getByRole("button", { name: "Print" }).click();
     await expect.poll(() => app.evaluate(() => window.__printCalls)).toBe(1);
 
     const text = (await app.pdf({ preferCSSPageSize: true })).toString("latin1");
@@ -184,7 +184,7 @@ test.describe("print and PDF (#17)", () => {
     await app.getByRole("radio", { name: "Continuous" }).click();
 
     const dialog = await openPrintDialog(app);
-    await dialog.getByRole("button", { name: "Print…" }).click();
+    await dialog.getByRole("button", { name: "Print" }).click();
 
     await expect.poll(() => app.evaluate(() => window.__printCalls)).toBe(1);
     await app.evaluate(() => window.dispatchEvent(new Event("afterprint")));
@@ -209,7 +209,7 @@ test.describe("print and PDF (#17)", () => {
     await expect(dialog).toContainText("Export as PDF saves a PDF file where you choose");
     await dialog.getByRole("combobox", { name: "Orientation" }).click();
     await app.getByRole("option", { name: "Landscape" }).click();
-    await dialog.getByRole("button", { name: "Export as PDF…" }).click();
+    await dialog.getByRole("button", { name: "Export as PDF" }).click();
 
     await expect(app.getByText("Exported “practice-song.pdf”")).toBeVisible();
     await expect(app.getByText("/Users/me/Music/practice-song.pdf")).toBeVisible();
@@ -245,7 +245,7 @@ test.describe("print and PDF (#17)", () => {
       window.print = () => Promise.reject(new Error("Printing is not allowed.")) as never;
     });
     const dialog = await openPrintDialog(app);
-    await dialog.getByRole("button", { name: "Print…" }).click();
+    await dialog.getByRole("button", { name: "Print" }).click();
     await expect(app.getByText("Couldn't print")).toBeVisible();
     await expect(app.getByText(/Printing is not allowed\./)).toBeVisible();
     await expect(app.locator("#print-root")).toHaveCount(0);
@@ -253,7 +253,7 @@ test.describe("print and PDF (#17)", () => {
     await expect(app.getByRole("radio", { name: "Continuous" })).toBeChecked();
   });
 
-  test("File › Print… (native menu) prints every track as a full score", async ({ app }) => {
+  test("File › Print (native menu) prints every track as a full score", async ({ app }) => {
     await openSong(app);
     await app.evaluate(() => {
       (window as unknown as { __printed: number }).__printed = 0;
@@ -266,7 +266,7 @@ test.describe("print and PDF (#17)", () => {
     await emitMenuAction(app, "print");
     const dialog = app.getByRole("dialog", { name: "Print or save as PDF" });
     await dialog.getByRole("radio", { name: /^All \d+ tracks/ }).check();
-    await dialog.getByRole("button", { name: "Print…" }).click();
+    await dialog.getByRole("button", { name: "Print" }).click();
     await expect
       .poll(() => app.evaluate(() => (window as unknown as { __printed: number }).__printed), {
         timeout: 15_000,

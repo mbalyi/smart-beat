@@ -267,7 +267,7 @@ export function TunerDialog({
                     className="px-0"
                     onClick={(event) => onOpenSettings(event.currentTarget)}
                   >
-                    Change input…
+                    Change input
                   </Button>
                 )}
               </div>

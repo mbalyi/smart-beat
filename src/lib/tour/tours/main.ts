@@ -91,7 +91,7 @@ export const mainTour: TourDefinition = {
       id: "soundfonts",
       target: "soundfonts",
       title: "More instrument sounds",
-      body: "Pick the instrument sounds in the track panel. SoundFonts… opens a dialog where you can import your own .sf2 or .sf3 file, or download a recommended bank such as MuseScore General or GeneralUser GS.",
+      body: "Pick the instrument sounds in the track panel. SoundFonts opens a dialog where you can import your own .sf2 or .sf3 file, or download a recommended bank such as MuseScore General or GeneralUser GS.",
       needsSong: true,
       show: { inspector: true, inspectorTab: "track" },
       placement: "left",

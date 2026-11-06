@@ -43,7 +43,7 @@ const installer = (app: Page) =>
   });
 
 async function openAudio(app: Page) {
-  const welcome = app.getByRole("button", { name: "Import from Audio…" });
+  const welcome = app.getByRole("button", { name: "Import from Audio" });
   if (await welcome.isVisible()) await welcome.click();
   else await emitMenuAction(app, "import-audio"); // an open song: the AI menu
   const dialog = app.getByRole("dialog", { name: "Import from Audio" });

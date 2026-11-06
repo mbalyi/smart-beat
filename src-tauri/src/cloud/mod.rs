@@ -12,6 +12,7 @@ pub mod oauth;
 pub mod onedrive;
 pub mod pages;
 pub mod pending;
+pub mod transfer;
 
 use serde::{Deserialize, Serialize};
 
@@ -105,7 +106,51 @@ pub trait Provider: Send + Sync {
     fn create(&self, token: &str, name: &str, bytes: &[u8]) -> Result<RemoteFile, CommandError>;
     /// Asks the provider to invalidate the token (best effort).
     fn revoke(&self, token: &str) -> Result<(), CommandError>;
+    /// Uploads the file at `path` as a new file called `name`, in chunks read from disk (the file
+    /// may be well over 100 MB, so it is never held in memory whole). `progress` receives the
+    /// fraction sent, 0 to 1. `cancel` is checked between chunks: setting it ends the upload with
+    /// [`ErrorKind::Io`] with the message [`STOPPED`] and leaves nothing behind. (Stem separation,
+    /// #186.) The default says it is not supported; the real providers override it.
+    fn upload_file(
+        &self,
+        _token: &str,
+        _name: &str,
+        _path: &std::path::Path,
+        _progress: &mut dyn FnMut(f32),
+        _cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<RemoteFile, CommandError> {
+        Err(CommandError::new(
+            ErrorKind::Io,
+            "This cloud service cannot upload large files yet.",
+        ))
+    }
+    /// Downloads file `id` to `dest` (streamed to disk, never held whole in memory) and returns
+    /// its metadata. `progress` and `cancel` work as in [`Provider::upload_file`]; a cancelled
+    /// or failed download leaves no partial file at `dest`.
+    fn download_file(
+        &self,
+        _token: &str,
+        _id: &str,
+        _dest: &std::path::Path,
+        _progress: &mut dyn FnMut(f32),
+        _cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<RemoteFile, CommandError> {
+        Err(CommandError::new(
+            ErrorKind::Io,
+            "This cloud service cannot download large files yet.",
+        ))
+    }
 }
+
+/// Whether a file name is a saved stems file (`.sbstems`, any case). A provider lists these next
+/// to the tabs, and the commands then keep the two kinds apart (#186).
+pub fn is_stems_name(name: &str) -> bool {
+    name.to_lowercase().ends_with(".sbstems")
+}
+
+/// The message of the error a stopped transfer ends with: the one the stem file commands use, so
+/// the page tells a stop from a failure the same way.
+pub const STOPPED: &str = crate::stems::bundle::STOPPED;
 
 /// Recent-file id of a provider item: `drive:<id>`.
 pub fn item_id(kind: ProviderKind, id: &str) -> String {

@@ -184,7 +184,7 @@ made with the staging hook disabled. Both `pnpm tauri build` and
 
 ## Live input monitoring
 
-Open **Practice mix**, enable **Monitor my input**, and choose **Input effects…**.
+Open **Practice mix**, enable **Monitor my input**, and choose **Input effects**.
 The monitor pedalboard supports the same VST3 and CLAP blocks as score tracks.
 Each monitor plugin owns its own helper, editor and saved preset, independently
 of the same plugin on a score track or master bus. Plugin status includes added

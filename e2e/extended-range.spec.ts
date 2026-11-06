@@ -150,7 +150,7 @@ test.describe("extended-range guitars (#43)", () => {
 test.describe("odd time signatures (#43)", () => {
   /** Sets the time signature of every bar from the first one with the Bar dialog. */
   async function setTime(page: Page, beats: string, unit: string) {
-    await page.getByRole("button", { name: "Bar…" }).click();
+    await page.getByRole("button", { name: "Bar", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Bar 1" });
     await dialog.getByRole("spinbutton", { name: "Beats per bar" }).fill(beats);
     await dialog.getByRole("combobox", { name: "Beat unit" }).click();
@@ -210,7 +210,7 @@ test.describe("nested tuplets (#43)", () => {
     await app.keyboard.press("0");
 
     await app.getByRole("combobox", { name: "Tuplet" }).click();
-    await app.getByRole("option", { name: "Nested…" }).click();
+    await app.getByRole("option", { name: "Nested" }).click();
     const dialog = app.getByRole("dialog", { name: "Nested tuplet" });
     await expect(dialog.getByTestId("nested-tuplet-result")).toContainText(
       "9 notes in the time of 4 (9:4)",

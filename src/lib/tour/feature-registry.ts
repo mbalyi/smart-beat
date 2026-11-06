@@ -19,17 +19,24 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "stem-separation",
+    title: "Stem separation",
+    summary:
+      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow down each part to play along. Save a separation to a file, with or without the original song, and open it again later from Open saved stems without separating again, or save it in your linked cloud folder so your drive app keeps it on your other computers. Open it from the Stem separation button on the start screen, and install or delete the engines under AI › Stem Separation Models.",
+    since: "1.2.0",
+  },
+  {
     id: "cloud-folder",
     title: "Cloud folder",
     summary:
-      "Link a folder that your cloud drive keeps in sync (Google Drive, OneDrive, Dropbox, iCloud Drive) in Help › Settings…, then open and save your tabs from the Cloud tab on the welcome screen or from File › Open and Save As. If a file changed in the cloud since you opened it, Smart Beat asks before saving over it.",
+      "Link a folder that your cloud drive keeps in sync (Google Drive, OneDrive, Dropbox, iCloud Drive) in Help › Settings, then open and save your tabs from the Cloud tab on the welcome screen or from File › Open and Save As. If a file changed in the cloud since you opened it, Smart Beat asks before saving over it.",
     since: "1.2.0",
   },
   {
     id: "ai-transcription",
     title: "AI transcription with MuScriptor",
     summary:
-      "Import from Audio now works on your computer, and Record to tab has a new AI tab. Both use MuScriptor by Kyutai and Mirelo, an optional model you download once with a guided setup. Non-commercial use only.",
+      "Import from Audio now works on your computer, and Record to tab has a new AI tab. Both use MuScriptor by Kyutai and Mirelo, an optional model you download once with a guided setup, and install or delete under AI › Record to Tab Models. Non-commercial use only.",
     since: "1.1.0",
   },
   {

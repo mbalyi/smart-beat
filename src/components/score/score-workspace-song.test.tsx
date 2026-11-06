@@ -66,7 +66,7 @@ async function menu(action: MenuAction) {
 describe("ScoreWorkspace: song structure", () => {
   it("changes a bar's time signature from the toolbar, with undo", async () => {
     const { user, song, player } = await setup();
-    await user.click(screen.getByRole("button", { name: "Bar…" }));
+    await user.click(screen.getByRole("button", { name: "Bar" }));
     const dialog = await screen.findByRole("dialog", { name: "Bar 1" });
     const beats = within(dialog).getByRole("spinbutton", { name: "Beats per bar" });
     await user.clear(beats);
@@ -87,7 +87,7 @@ describe("ScoreWorkspace: song structure", () => {
 
   it("closes the bar dialog without changes when nothing changed", async () => {
     const { user } = await setup();
-    await user.click(screen.getByRole("button", { name: "Bar…" }));
+    await user.click(screen.getByRole("button", { name: "Bar" }));
     await user.click(await screen.findByRole("button", { name: "Apply" }));
     expect(screen.getByRole("button", { name: /^Undo/ })).toBeDisabled();
   });
@@ -181,7 +181,7 @@ describe("ScoreWorkspace: techniques", () => {
 
   it("puts the whammy bar on the beat", async () => {
     const { user, note } = await setup();
-    await user.click(screen.getByRole("button", { name: "Whammy…" }));
+    await user.click(screen.getByRole("button", { name: "Whammy" }));
     const dialog = await screen.findByRole("dialog", { name: "Whammy bar" });
     await user.click(within(dialog).getByRole("button", { name: "Apply" }));
     expect(note().beat.hasWhammyBar).toBe(true);
@@ -246,7 +246,7 @@ describe("ScoreWorkspace: text, chords, lyrics and scales", () => {
 
   it("opens lyrics from a track's menu", async () => {
     const { user } = await setup();
-    await trackAction(user, "Bass", "Lyrics…");
+    await trackAction(user, "Bass", "Lyrics");
     expect(await screen.findByRole("dialog", { name: "Lyrics: Bass" })).toBeInTheDocument();
   });
 
@@ -282,7 +282,7 @@ describe("ScoreWorkspace: tempo", () => {
 
   async function openTempo(user: Awaited<ReturnType<typeof setup>>["user"]) {
     await user.click(screen.getByRole("button", { name: "Tools" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Tempo…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Tempo" }));
     return screen.findByRole("dialog", { name: "Tempo" });
   }
 
@@ -326,7 +326,7 @@ describe("ScoreWorkspace: tempo", () => {
   it("changes the tempo from the inspector's Song tab", async () => {
     const { user } = await setup();
     await user.click(screen.getByRole("tab", { name: "Song" }));
-    await user.click(screen.getByRole("button", { name: "Change the tempo…" }));
+    await user.click(screen.getByRole("button", { name: "Change the tempo" }));
     expect(await screen.findByRole("dialog", { name: "Tempo" })).toBeInTheDocument();
   });
 });

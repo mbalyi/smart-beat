@@ -1,7 +1,8 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 
 import { CloudScores } from "@/components/cloud-scores";
 import { Welcome } from "@/components/welcome";
+import { announceCloudChange } from "@/lib/cloud-changes";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 import { mockTauri } from "@/test/tauri";
@@ -35,6 +36,44 @@ describe("CloudScores", () => {
     await user.click(screen.getByRole("button", { name: /solo\.gp/ }));
     expect(onOpen).toHaveBeenCalledWith("/cloud/solo.gp");
     expect(screen.queryByText("Waiting for download")).not.toBeInTheDocument();
+  });
+
+  it("reads the accounts again when Settings reconnects one, without a restart", async () => {
+    let signedIn = false;
+    mockTauri({
+      get_cloud_folder: () => null,
+      cloud_accounts: () => [
+        { provider: "drive", label: "Google Drive", configured: true, account: "me@example.com" },
+      ],
+      cloud_list: () => {
+        if (!signedIn) throw { kind: "auth-expired", message: "The sign-in is gone." };
+        return [{ id: "1", name: "riff.gp", revision: "r", size: 1, modified_ms: 1 }];
+      },
+    });
+    renderWithProviders(<CloudScores onOpen={vi.fn()} />);
+    expect(await screen.findByText(/Reconnect Google Drive in Settings/)).toBeInTheDocument();
+
+    // The person reconnects in Settings, which is open over this screen.
+    signedIn = true;
+    act(() => announceCloudChange());
+
+    expect(await screen.findByRole("button", { name: /riff\.gp/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Reconnect Google Drive in Settings/)).not.toBeInTheDocument();
+  });
+
+  it("reads the folder again when Settings links one", async () => {
+    let folder: string | null = null;
+    mockTauri({
+      get_cloud_folder: () => folder,
+      list_cloud_scores: () => [score("riff.gp5")],
+    });
+    renderWithProviders(<CloudScores onOpen={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Cloud" })).toBeNull());
+
+    folder = "/cloud";
+    act(() => announceCloudChange());
+
+    expect(await screen.findByRole("button", { name: /riff\.gp5/ })).toBeInTheDocument();
   });
 
   it("marks online-only files as waiting for download", async () => {

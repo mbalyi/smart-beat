@@ -62,10 +62,13 @@ test.describe("audio track (#38)", () => {
     await app.keyboard.press("Shift+ArrowRight");
     await expect(marker).toHaveAttribute("aria-valuetext", /in the recording/);
     const before = Number(await marker.getAttribute("aria-valuenow"));
+    // hover() waits for the marker to be stable and to be the element under the
+    // pointer; a bounding box read once (and used as raw mouse coordinates) can
+    // be stale after the keyboard re-render, so the press would miss the handle.
+    await marker.hover({ position: { x: 6, y: 10 } });
     const handle = (await marker.boundingBox())!;
-    await app.mouse.move(handle.x + handle.width / 2, handle.y + 10);
     await app.mouse.down();
-    await app.mouse.move(handle.x + handle.width / 2 + 20, handle.y + 10, { steps: 4 });
+    await app.mouse.move(handle.x + 6 + 20, handle.y + 10, { steps: 4 });
     await app.mouse.up();
     await expect
       .poll(async () => Number(await marker.getAttribute("aria-valuenow")))

@@ -192,7 +192,7 @@ export function SoundLibraryDialog({
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-xs font-semibold tracking-wide uppercase">{section.title}</h3>
                   <Button size="sm" variant="outline" onClick={() => onImport(section.kind)}>
-                    Import {section.kind === "amp" ? ".nam" : ".wav"}…
+                    Import {section.kind === "amp" ? ".nam" : ".wav"}
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">{section.help}</p>
