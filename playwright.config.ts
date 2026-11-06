@@ -15,6 +15,7 @@ const ADDITIONAL_SPECS = [
   "**/tour*.spec.ts",
   "**/ai-install.spec.ts",
   "**/stem-separation.spec.ts",
+  "**/stem-cloud.spec.ts",
 ];
 const group = process.env.E2E_GROUP || undefined;
 if (group !== undefined && group !== "smoke" && group !== "additional") {

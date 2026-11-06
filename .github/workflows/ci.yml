@@ -140,8 +140,9 @@ jobs:
           - name: Linux
             os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
-    # Windows took 43 minutes to compile and test, then hit 45 minutes saving its cache.
-    timeout-minutes: ${{ matrix.name == 'Windows' && 60 || 45 }}
+    # Windows took 43 minutes to compile and test, then hit 45 minutes saving its cache. Windows and
+    # macOS get extra room for a cold cache; Linux stays at 45.
+    timeout-minutes: ${{ matrix.name == 'Windows' && 90 || matrix.name == 'macOS' && 75 || 45 }}
     steps:
       - uses: actions/checkout@v7
 
