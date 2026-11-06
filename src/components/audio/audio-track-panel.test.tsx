@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AudioTrackPanel } from "@/components/audio/audio-track-panel";
 import { formatMs } from "@/lib/audio/audio-track";
 import { FLAT_EQ } from "@/lib/score/mixer";
+import { PlayheadStore } from "@/lib/score/playhead";
 import type { AudioTrackSettings, BackingInfo } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -36,7 +37,7 @@ const AUDIO: AudioTrackSettings = {
 /** Four bars of 2 s. */
 const BAR_TIMES = [0, 2000, 4000, 6000, 8000];
 
-function setup(info: BackingInfo | null = INFO, canEmbed = true) {
+function setup(info: BackingInfo | null = INFO, canEmbed = true, playhead?: PlayheadStore) {
   const handlers = {
     onChange: vi.fn(),
     onRemove: vi.fn(),
@@ -62,6 +63,8 @@ function setup(info: BackingInfo | null = INFO, canEmbed = true) {
           setAudio(next);
         }}
         canEmbed={canEmbed}
+        playhead={playhead}
+        playing={playhead !== undefined}
       />
     );
   }
@@ -151,5 +154,17 @@ describe("AudioTrackPanel", () => {
     expect(
       within(panel).getByRole("switch", { name: "Embed the recording in the song file" }),
     ).toBeDisabled();
+  });
+});
+
+describe("AudioTrackPanel playhead", () => {
+  it("follows playback along the waveform at the zoom", () => {
+    const playhead = new PlayheadStore();
+    playhead.set(2.5);
+    setup(INFO, true, playhead);
+    // 40 px per bar.
+    expect(within(screen.getByTestId("audio-waveform")).getByTestId("playhead")).toHaveStyle({
+      left: "100px",
+    });
   });
 });

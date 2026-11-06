@@ -2,6 +2,7 @@ import {
   editorStatus,
   emitMenuAction,
   expect,
+  expectNoA11yViolations,
   newSong,
   openSong,
   scoreRegion,
@@ -26,6 +27,23 @@ test.describe("song structure (#11)", () => {
     for (const section of ["Intro", "Verse", "Coda"]) expect(text).toContain(section);
     // 1 2 1 3 4 5 6 4 5 7: nine bars of 2.4 s at 100 BPM, and the Coda at 150 BPM.
     await expect(app.getByRole("timer")).toHaveText("0:00 / 0:23");
+  });
+
+  test("changes the time signature from the left editing sidebar (#209)", async ({ app }) => {
+    await newSong(app); // four empty 4/4 bars at 120 BPM: 8 seconds
+    await expect(app.getByRole("timer")).toHaveText("0:00 / 0:08");
+
+    const sidebar = app.getByRole("toolbar", { name: "Edit" });
+    await sidebar.getByRole("combobox", { name: "Beat unit" }).click();
+    await app.getByRole("option", { name: "8", exact: true }).click();
+    const beats = sidebar.getByRole("spinbutton", { name: "Beats per bar" });
+    await beats.fill("7");
+    await beats.press("Enter");
+
+    // Four bars of 7/8 at 120 BPM (a beat is an eighth here): 7 seconds.
+    await expect(app.getByRole("timer")).toHaveText("0:00 / 0:07");
+    await expect(beats).toHaveValue("7");
+    await expectNoA11yViolations(app);
   });
 
   test("changes the time signature, tempo, section and repeats with the bar dialog", async ({

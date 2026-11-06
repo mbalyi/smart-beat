@@ -50,6 +50,54 @@ test.describe("audio track (#38)", () => {
     await expectNoA11yViolations(app);
   });
 
+  // Regression (#209): the track could only be removed from its editor, and a recording added with
+  // the web engine waited for a restart.
+  test("removes the audio track from its row", async ({ app }) => {
+    const editor = await addRecording(app);
+    await editor.getByRole("button", { name: "Close the audio track editor" }).click();
+    const row = app.getByTestId("audio-track-row");
+    await row.getByRole("button", { name: "Remove the audio track" }).click();
+    await expect(row).toBeHidden();
+    await expect.poll(() => app.evaluate(() => window.__engineBacking ?? null)).toBeNull();
+  });
+
+  test("a recording added with the web engine switches to the native engine and loads", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await app.evaluate((path) => (window.__dialogResult = path), "/Users/me/Music/take.mp3");
+    await emitMenuAction(app, "add-audio-track");
+    await expect(app.getByRole("switch", { name: "Native engine with effects" })).toBeChecked();
+    await expect(
+      app.getByRole("region", { name: "Audio track" }).getByTestId("audio-waveform"),
+    ).toBeVisible({ timeout: 30_000 });
+  });
+
+  test("a playhead moves through the audio track and the tracks' bars while playing", async ({
+    app,
+  }) => {
+    const editor = await addRecording(app);
+    const row = app.getByTestId("audio-track-row");
+    await expect(row.getByTestId("playhead")).toHaveCount(0);
+
+    // The player is still taking in the recording on a busy machine: click Play until it plays.
+    await expect(async () => {
+      const play = app.getByRole("button", { name: "Play" });
+      if (await play.isVisible()) await play.click();
+      await expect(app.getByRole("button", { name: "Pause" })).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 20_000 });
+    await expect(row.getByTestId("playhead")).toBeVisible();
+    await expect(editor.getByTestId("playhead")).toBeVisible();
+    // Another lane of the same panel: the first track's bars.
+    await expect(app.getByTestId("playhead")).not.toHaveCount(1);
+    const start = await row.getByTestId("playhead").evaluate((el) => parseFloat(el.style.left));
+    // It advances along the waveform as the song plays.
+    await expect
+      .poll(() => row.getByTestId("playhead").evaluate((el) => parseFloat(el.style.left)))
+      .toBeGreaterThan(start);
+    await app.getByRole("button", { name: "Pause" }).click();
+  });
+
   test("syncs bars to the recording with sync points", async ({ app }) => {
     const editor = await addRecording(app);
     const waveform = editor.getByTestId("audio-waveform");

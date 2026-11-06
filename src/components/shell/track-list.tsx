@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 
 import { AudioWaveform } from "@/components/audio/audio-track-panel";
+import { Playhead } from "@/components/playhead";
 import { AutomationLane, LaneKindSelect } from "@/components/audio/automation-lane";
 import { EqPopover } from "@/components/audio/eq-popover";
 import { LevelMeter } from "@/components/audio/level-meter";
@@ -44,6 +45,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { filledBars } from "@/lib/score/bar-grid";
+import type { PlayheadStore } from "@/lib/score/playhead";
 import { barSections, barTexts, shortText, tempoMarkers } from "@/lib/score/tempo";
 import { lowSoundWarning } from "@/lib/audio/sound-ranges";
 import { describeInstrument } from "@/lib/score/instrument-view";
@@ -140,17 +142,21 @@ function BarGrid({
   current,
   dimmed,
   onSeek,
+  playhead,
+  playing,
 }: {
   color: string;
   filled: boolean[];
   current: number;
   dimmed: boolean;
   onSeek: (bar: number) => void;
+  playhead?: PlayheadStore;
+  playing: boolean;
 }) {
   return (
     <div
       aria-hidden="true"
-      className="grid h-6 shrink-0 gap-px"
+      className="relative grid h-6 shrink-0 gap-px"
       style={{ gridTemplateColumns: `repeat(${filled.length}, ${BAR_WIDTH})` }}
     >
       {filled.map((on, bar) => (
@@ -167,6 +173,7 @@ function BarGrid({
           style={on ? { backgroundColor: color } : undefined}
         />
       ))}
+      {playhead && <Playhead store={playhead} barWidth={BAR_PX} playing={playing} />}
     </div>
   );
 }
@@ -514,6 +521,7 @@ export function TrackList({
   onSeekBar,
   saved,
   playing,
+  playhead,
   onMasterEffects,
   audio,
   monitor,
@@ -543,6 +551,8 @@ export function TrackList({
   saved: boolean;
   /** Pan is applied at the next pause during playback (see ScorePlayer.setMix). */
   playing: boolean;
+  /** Where playback is: a line follows it across the bars of every track and the audio track. */
+  playhead?: PlayheadStore;
   /** Opens the master bus's effects. */
   onMasterEffects?: () => void;
   /** The monitor track row (missing: none and none can be added here). */
@@ -554,6 +564,8 @@ export function TrackList({
     barTimes: readonly number[];
     onAdd: () => void;
     onEdit: () => void;
+    /** Removes the audio track from the song. */
+    onRemove: () => void;
   };
 }) {
   const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
@@ -1016,6 +1028,8 @@ export function TrackList({
                       current={bar}
                       dimmed={!audible}
                       onSeek={seekBar}
+                      playhead={playhead}
+                      playing={playing}
                     />
                   </div>
                 </div>
@@ -1048,16 +1062,21 @@ export function TrackList({
                         Clear
                       </Button>
                     </div>
-                    <AutomationLane
-                      name={track.name}
-                      kind={lane}
-                      automation={automation.enabled ? automation : EMPTY_AUTOMATION}
-                      barCount={barCount}
-                      barWidth={BAR_PX}
-                      onChange={(next) =>
-                        onChange({ type: "automation", track: i, automation: next })
-                      }
-                    />
+                    <div className="relative">
+                      <AutomationLane
+                        name={track.name}
+                        kind={lane}
+                        automation={automation.enabled ? automation : EMPTY_AUTOMATION}
+                        barCount={barCount}
+                        barWidth={BAR_PX}
+                        onChange={(next) =>
+                          onChange({ type: "automation", track: i, automation: next })
+                        }
+                      />
+                      {playhead && (
+                        <Playhead store={playhead} barWidth={BAR_PX} playing={playing} />
+                      )}
+                    </div>
                   </div>
                 )}
               </li>
@@ -1153,6 +1172,15 @@ export function TrackList({
                     >
                       <Settings2Icon />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={audio.onRemove}
+                      aria-label="Remove the audio track"
+                      title="Remove the audio track"
+                    >
+                      <Trash2Icon />
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -1161,7 +1189,7 @@ export function TrackList({
                 tabIndex={-1}
                 aria-hidden="true"
                 onClick={audio.onEdit}
-                className="flex items-center overflow-hidden"
+                className="relative flex items-center overflow-hidden"
               >
                 {audio.info ? (
                   <AudioWaveform
@@ -1173,6 +1201,9 @@ export function TrackList({
                   />
                 ) : (
                   <span className="px-2 text-xs text-muted-foreground">Recording not loaded</span>
+                )}
+                {audio.info && playhead && (
+                  <Playhead store={playhead} barWidth={BAR_PX} playing={playing} />
                 )}
               </button>
             </li>

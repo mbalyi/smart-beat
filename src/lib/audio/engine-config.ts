@@ -64,6 +64,19 @@ export function tickOfBar(occurrences: readonly BarOccurrence[], bar: number): n
   return Math.round(o.start + (bar - whole) * (o.end - o.start));
 }
 
+/**
+ * The (fractional) bar position a tick is at, in the pass being played: bar 1.5 is halfway through
+ * the second bar. Repeats and jumps are followed, because each pass has its own tick range.
+ */
+export function barPositionAtTick(occurrences: readonly BarOccurrence[], tick: number): number {
+  for (const o of occurrences) {
+    if (tick >= o.start && tick < o.end) return o.bar + (tick - o.start) / (o.end - o.start);
+  }
+  // Past the last pass (the song ended) or before the first.
+  const last = occurrences[occurrences.length - 1];
+  return last && tick >= last.end ? last.bar + 1 : (occurrences[0]?.bar ?? 0);
+}
+
 /** A lane's value at a bar position: linear between points, flat at the ends. */
 export function laneValueAt(points: readonly AutomationPoint[], bar: number): number | null {
   if (points.length === 0) return null;

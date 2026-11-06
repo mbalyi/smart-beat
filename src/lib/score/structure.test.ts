@@ -16,6 +16,7 @@ import {
   type BarSettings,
   sectionAt,
   sectionsOf,
+  timeSignatureAt,
 } from "@/lib/score/structure";
 import { Snapshot } from "@/lib/score/snapshot";
 import { playedBars, texScore } from "@/test/playback";
@@ -62,6 +63,32 @@ describe("bar settings", () => {
     edit(score, 4, { timeSignature: { numerator: 6, denominator: 8 } });
     edit(score, 1, { timeSignature: { numerator: 3, denominator: 4 } });
     expect(times(score)).toEqual(["4/4", "3/4", "3/4", "3/4", "6/8", "6/8"]);
+  });
+
+  it("changes a 7/8 song back to 4/4 and to other signatures, bar by bar", () => {
+    // Regression: a song with 7/8 bars could not leave 7/8.
+    const score = song();
+    edit(score, 0, { timeSignature: { numerator: 7, denominator: 8 } });
+    expect(times(score).every((t) => t === "7/8")).toBe(true);
+    edit(score, 2, { timeSignature: { numerator: 4, denominator: 4 } });
+    expect(times(score)).toEqual(["7/8", "7/8", "4/4", "4/4", "4/4", "4/4"]);
+    for (const [numerator, denominator] of [
+      [2, 4],
+      [3, 2],
+      [5, 16],
+      [12, 8],
+      [1, 1],
+      [32, 32],
+    ] as const) {
+      edit(score, 1, { timeSignature: { numerator, denominator } });
+      expect(timeSignatureAt(score, 1)).toEqual({ numerator, denominator });
+    }
+  });
+
+  it("reads the time signature of a bar, 4/4 when there is none", () => {
+    const score = song();
+    expect(timeSignatureAt(score, 0)).toEqual({ numerator: 4, denominator: 4 });
+    expect(timeSignatureAt(score, 99)).toEqual({ numerator: 4, denominator: 4 });
   });
 
   it("gives bars that only hold rests new rests, and never moves notes", () => {

@@ -237,6 +237,17 @@ export function barSettingsOf(score: Score, index: number): BarSettings {
   };
 }
 
+/** The time signature of bar `index` (4/4 when there is no such bar). */
+export function timeSignatureAt(score: Score, index: number): TimeSignature {
+  const masterBar = score.masterBars[index];
+  return masterBar
+    ? {
+        numerator: masterBar.timeSignatureNumerator,
+        denominator: masterBar.timeSignatureDenominator,
+      }
+    : { numerator: 4, denominator: 4 };
+}
+
 const sameTime = (a: TimeSignature, b: TimeSignature) =>
   a.numerator === b.numerator && a.denominator === b.denominator;
 

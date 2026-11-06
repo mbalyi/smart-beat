@@ -129,6 +129,7 @@ import {
   ownDrumKit,
 } from "@/lib/score/instrument-view";
 import { keyTonic, prefersFlats } from "@/lib/score/keys";
+import { PlayheadStore } from "@/lib/score/playhead";
 import { hasLyrics, lyricsOf, setLyrics, syllablesAround } from "@/lib/score/lyrics";
 import {
   pdfPage,
@@ -191,6 +192,7 @@ import { summarizeScore, trackMix, type TrackView } from "@/lib/score/score";
 import {
   applyBarSettings,
   barSettingsOf,
+  timeSignatureAt,
   barSettingsRange,
   changedParts,
   sectionsOf,
@@ -516,6 +518,7 @@ export function ScoreWorkspace({
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState<PlaybackPosition>({ currentMs: 0, endMs: 0, bpm: 0 });
   const [bar, setBar] = useState(0);
+  const [playhead] = useState(() => new PlayheadStore());
   const [editing, setEditing] = useState(startEditing);
   const [overlay, setOverlay] = useState<EditOverlay | null>(null);
   /** Beats of the shown track being played (or clicked while paused). */
@@ -835,6 +838,8 @@ export function ScoreWorkspace({
     player.setFocusCut(focusCutDb);
   });
   const playerCreated = useRef(false);
+  // Counts the players made, so the audio track is loaded again into each new one.
+  const [playerEpoch, setPlayerEpoch] = useState(0);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -863,6 +868,7 @@ export function ScoreWorkspace({
         onPlayingChange: setPlaying,
         onPositionChange: setPosition,
         onBarChange: setBar,
+        onBarPosition: (position) => playhead.set(position),
         onSoundFontError,
         onError: (error) =>
           toast.error("Something went wrong with the score", { description: errorText(error) }),
@@ -895,6 +901,7 @@ export function ScoreWorkspace({
     playerRef.current = player;
     if (playerCreated.current) restorePlayerSettings(player);
     playerCreated.current = true;
+    setPlayerEpoch((n) => n + 1);
     return () => {
       player.destroy();
       playerRef.current = null;
@@ -904,7 +911,7 @@ export function ScoreWorkspace({
       setPlayedBars(null);
       setMonitorStatus(null);
     };
-  }, [song.score, audioEngine, dispatchPractice]);
+  }, [song.score, audioEngine, dispatchPractice, playhead]);
 
   // A song in a hidden tab does not keep playing.
   useEffect(() => {
@@ -1731,6 +1738,12 @@ export function ScoreWorkspace({
   const loadRecording = async (settings: AudioTrackSettings) => {
     const player = playerRef.current;
     if (!player?.usesNativeEngine) return;
+    const key = `${settings.name}\n${settings.path ?? ""}`;
+    // The track was removed or replaced while the file loaded: that result is not wanted.
+    const stale = () => {
+      const now = mixRef.current.audioTrack;
+      return !now || `${now.name}\n${now.path ?? ""}` !== key || playerRef.current !== player;
+    };
     const sources: BackingSource[] = [];
     if (settings.path) sources.push({ type: "file", path: settings.path });
     if (settings.embedded && song.path?.toLowerCase().endsWith(".gp")) {
@@ -1740,14 +1753,17 @@ export function ScoreWorkspace({
     for (const source of sources) {
       try {
         const info = await player.loadBacking(source);
-        loadedAudio.current = `${settings.name}\n${settings.path ?? ""}`;
+        if (stale()) return;
+        loadedAudio.current = key;
         setBackingInfo(info);
         return;
       } catch (error) {
+        if (stale()) return;
         lastError = error;
         if (!isCommandError(error) || error.kind !== "not-found") break;
       }
     }
+    if (stale()) return;
     setBackingInfo(null);
     toast.error(`Couldn't open the recording “${settings.name}”`, {
       description: errorText(lastError),
@@ -1760,7 +1776,7 @@ export function ScoreWorkspace({
     if (loadedAudio.current === audioKey) return;
     void loadRecording(audio);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioKey, engineOn, ready]);
+  }, [audioKey, engineOn, ready, playerEpoch]);
 
   /** Opens a recording as the audio track (replacing the current one). */
   const addAudioTrack = async (path?: string) => {
@@ -1786,11 +1802,14 @@ export function ScoreWorkspace({
     changeMix({ type: "audio-track", value: settings });
     setAudioEditorOpen(true);
     if (!engineOn) {
-      toast.info("The audio track plays with the native audio engine", {
-        action: nativeEngineAvailable()
-          ? { label: "Enable effects playback", onClick: () => changeAudioEngine("native") }
-          : undefined,
-      });
+      if (nativeEngineAvailable()) {
+        // The audio track needs the native engine: switch to it, and the recording loads into
+        // the new player (see the effect above).
+        changeAudioEngine("native");
+        toast.info("Switched to effects playback for the audio track");
+      } else {
+        toast.info("The audio track plays with the native audio engine");
+      }
       return;
     }
     await loadRecording(settings);
@@ -2451,6 +2470,8 @@ export function ScoreWorkspace({
     onDeleteBeat: () => editor.deleteBeats(),
     onVoice: (v) => editor.switchVoice(v),
     onBar: openBarDialog,
+    onTimeSignature: (timeSignature) =>
+      submitBar(cursorBar, { ...barSettingsOf(score, cursorBar), timeSignature }),
     onDone: focusScore,
   };
 
@@ -2644,6 +2665,7 @@ export function ScoreWorkspace({
             message={editor.message}
             actions={editActions}
             statusId={statusId}
+            time={timeSignatureAt(score, cursorBar)}
             auditionNotes={auditionNotes}
             onAuditionNotesChange={(on) => {
               setAuditionNotes(on);
@@ -2837,6 +2859,7 @@ export function ScoreWorkspace({
           onSeekBar={(index) => playerRef.current?.seekToBar(index)}
           saved={saved}
           playing={playing}
+          playhead={playhead}
           onMasterEffects={() => openPedalboard(null)}
           audio={
             isTauri()
@@ -2845,6 +2868,7 @@ export function ScoreWorkspace({
                   barTimes,
                   onAdd: () => void addAudioTrack(),
                   onEdit: () => setAudioEditorOpen((open) => !open),
+                  onRemove: removeAudioTrack,
                 }
               : undefined
           }
@@ -2882,6 +2906,8 @@ export function ScoreWorkspace({
           }
           onClose={() => setAudioEditorOpen(false)}
           canEmbed={isTauri()}
+          playhead={playhead}
+          playing={playing}
         />
       )}
       {recordEnabled && (

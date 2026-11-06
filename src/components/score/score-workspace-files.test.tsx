@@ -811,15 +811,41 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     expect(
       within(row).getByRole("button", { name: "Edit the audio track take.mp3" }),
     ).toBeInTheDocument();
-    // Without the native engine it waits, and says why.
-    expect(
-      await toastWith("The audio track plays with the native audio engine"),
-    ).toBeInTheDocument();
+    // The desktop app switches to the native engine by itself: the track needs it.
+    expect(await toastWith("Switched to effects playback for the audio track")).toBeInTheDocument();
     const editor = screen.getByRole("region", { name: "Audio track" });
     expect(within(editor).getByTitle("/music/take.mp3")).toHaveTextContent("take.mp3");
     await user.click(within(editor).getByRole("button", { name: "Remove the audio track" }));
     expect(screen.queryByTestId("audio-track-row")).toBeNull();
     await expectNoA11yViolations();
+  });
+
+  it("loads a new audio track on the first try, even when the native engine was off", async () => {
+    // Regression: the track waited for a restart, because nothing loaded it into the new player.
+    const { user } = await setup({ path: "/songs/practice-song.gp" });
+    expect(localStorage.getItem("smart-beat:audio-engine")).not.toBe("native");
+    backend.dialogResult = "/music/take.mp3";
+    await menu("add-audio-track");
+    await waitFor(() => expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native"));
+    // The switch made a new player; the recording goes into it once it is ready.
+    await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
+    const player = FakeScorePlayer.last;
+    expect(player.usesNativeEngine).toBe(true);
+    await waitFor(() =>
+      expect(player.loadBacking).toHaveBeenCalledWith({ type: "file", path: "/music/take.mp3" }),
+    );
+    player.becomeReady();
+    expect(await screen.findByTestId("audio-waveform")).toBeInTheDocument();
+    // And it can be deleted from its row, with the editor closed.
+    const row = screen.getByTestId("audio-track-row");
+    await user.click(
+      within(screen.getByRole("region", { name: "Audio track" })).getByRole("button", {
+        name: "Close the audio track editor",
+      }),
+    );
+    await user.click(within(row).getByRole("button", { name: "Remove the audio track" }));
+    expect(screen.queryByTestId("audio-track-row")).toBeNull();
+    expect(player.clearBacking).toHaveBeenCalled();
   });
 
   it("loads the recording when the native engine plays", async () => {
@@ -836,6 +862,35 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
       expect(player.loadBacking).toHaveBeenCalledWith({ type: "file", path: "/music/take.wav" }),
     );
     expect(await screen.findByTestId("audio-waveform")).toBeInTheDocument();
+  });
+
+  it("moves a playhead through the audio track and every track's bars while playing", async () => {
+    mockTauri();
+    localStorage.setItem("smart-beat:audio-engine", "native");
+    const song = await makeSong("/songs/practice-song.gp");
+    renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
+    const player = FakeScorePlayer.last;
+    player.usesNativeEngine = true;
+    player.becomeReady();
+    backend.dialogResult = "/music/take.wav";
+    await menu("add-audio-track");
+    const waveform = await screen.findByTestId("audio-waveform");
+    expect(screen.queryAllByTestId("playhead")).toHaveLength(0);
+
+    act(() => {
+      player.emit("onPlayingChange", true);
+      player.emit("onBarPosition", 1.5);
+    });
+    const row = screen.getByTestId("audio-track-row");
+    expect(within(row).getByTestId("playhead")).toBeInTheDocument();
+    expect(within(waveform).getByTestId("playhead")).toBeInTheDocument();
+    // The tracks' bars (and the audio row, and the editor's waveform) all show the same spot.
+    const heads = screen.getAllByTestId("playhead");
+    expect(heads.length).toBeGreaterThanOrEqual(3);
+    act(() => player.emit("onBarPosition", 2));
+    for (const head of screen.getAllByTestId("playhead")) {
+      expect(head.style.left).not.toBe("");
+    }
   });
 
   it("refuses files that are not audio", async () => {

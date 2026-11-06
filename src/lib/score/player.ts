@@ -22,7 +22,12 @@ import {
   TabRhythmMode,
 } from "@coderline/alphatab";
 
-import { barOccurrences, engineExtras, type BarOccurrence } from "@/lib/audio/engine-config";
+import {
+  barOccurrences,
+  barPositionAtTick,
+  engineExtras,
+  type BarOccurrence,
+} from "@/lib/audio/engine-config";
 import { rgbOf, SCORE_PALETTES, type ScoreTheme } from "@/lib/score/score-theme";
 import {
   busMixes,
@@ -112,6 +117,11 @@ export interface ScorePlayerCallbacks {
   onPositionChange?: (position: PlaybackPosition) => void;
   /** Index of the bar being played (or clicked). */
   onBarChange?: (barIndex: number) => void;
+  /**
+   * Where playback is, as a fractional bar (1.5: halfway through the second bar), many times a
+   * second: the playhead in the track lanes.
+   */
+  onBarPosition?: (bar: number) => void;
   /**
    * Instrument sounds failed to load. `previousKept`: the sounds in use before
    * the switch still play (the download failed), so nothing needs reloading.
@@ -428,9 +438,10 @@ export class ScorePlayer {
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
     // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
     api.playerPositionChanged.on((e) =>
-      this.delayer.run(() =>
-        this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo),
-      ),
+      this.delayer.run(() => {
+        this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo);
+        this.reportBarPosition(e.currentTick);
+      }),
     );
     // alphaTab leaves slap, pop, tapping, pick strokes and wah silent: make them
     // audible in the MIDI it just generated (its tick lookup is ready by now).
@@ -577,6 +588,13 @@ export class ScorePlayer {
       last.bpm !== next.bpm;
     this.lastPosition = next;
     if (changed) this.callbacks.onPositionChange?.(next);
+  }
+
+  private reportBarPosition(tick: number) {
+    if (this.resume) return; // alphaTab reports 0 while sounds or the MIDI reload
+    const passes =
+      this.occurrences.length > 0 ? this.occurrences : barOccurrences(this.score, null);
+    this.callbacks.onBarPosition?.(barPositionAtTick(passes, tick));
   }
 
   private reportBar(index: number) {

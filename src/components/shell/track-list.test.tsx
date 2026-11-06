@@ -1,7 +1,13 @@
 import { model } from "@coderline/alphatab";
 import { fireEvent, screen, within } from "@testing-library/react";
 
-import { NOTES_STORAGE_KEY, TrackList, type TrackActions } from "@/components/shell/track-list";
+import {
+  BAR_PX,
+  NOTES_STORAGE_KEY,
+  TrackList,
+  type TrackActions,
+} from "@/components/shell/track-list";
+import { PlayheadStore } from "@/lib/score/playhead";
 import { shortText } from "@/lib/score/tempo";
 import { mixFromScore } from "@/lib/score/mixer";
 import { parseScore } from "@/lib/score/score";
@@ -457,7 +463,8 @@ describe("TrackList", () => {
     const onChange = vi.fn();
     const onAdd = vi.fn();
     const onEdit = vi.fn();
-    const audio = { info: null, barTimes: [0, 2000, 4000], onAdd, onEdit };
+    const onRemove = vi.fn();
+    const audio = { info: null, barTimes: [0, 2000, 4000], onAdd, onEdit, onRemove };
     const first = setup({ onChange, audio });
     await first.user.click(screen.getByRole("button", { name: "Add audio track" }));
     expect(onAdd).toHaveBeenCalled();
@@ -488,7 +495,62 @@ describe("TrackList", () => {
     });
     await user.click(within(row).getByRole("button", { name: "Edit the audio track take.mp3" }));
     expect(onEdit).toHaveBeenCalled();
+    // Regression: the row had no way to delete the track (only the editor panel did).
+    await user.click(within(row).getByRole("button", { name: "Remove the audio track" }));
+    expect(onRemove).toHaveBeenCalledTimes(1);
     expect(within(container).queryByRole("button", { name: "Add audio track" })).toBeNull();
+  });
+
+  it("draws a playhead in the bars of every track and in the audio track while playing", () => {
+    const playhead = new PlayheadStore();
+    playhead.set(1.5);
+    const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
+    const audioTrack = {
+      name: "take.mp3",
+      path: "/take.mp3",
+      embedded: false,
+      enabled: true,
+      volume: 0.8,
+      pan: 0,
+      mute: false,
+      solo: false,
+      eq: { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 },
+      semitones: 0,
+      cents: 0,
+      filter: "off" as const,
+      sync: [],
+    };
+    const info = {
+      name: "take.mp3",
+      durationMs: 4000,
+      sampleRate: 44_100,
+      channels: 2,
+      peaks: [0.2, 0.5],
+      peaksPerSecond: 1,
+    };
+    const { container } = setup({
+      playing: true,
+      playhead,
+      mix: { ...mixFromScore(summary), audioTrack },
+      audio: {
+        info,
+        barTimes: [0, 2000, 4000],
+        onAdd: vi.fn(),
+        onEdit: vi.fn(),
+        onRemove: vi.fn(),
+      },
+    });
+    const heads = within(container).getAllByTestId("playhead");
+    // One in each track's bars and one in the audio track's waveform.
+    expect(heads).toHaveLength(score.tracks.length + 1);
+    for (const head of heads) expect(head).toHaveStyle({ left: `${1.5 * BAR_PX}px` });
+    const row = within(container).getByTestId("audio-track-row");
+    expect(within(row).getByTestId("playhead")).toBeInTheDocument();
+  });
+
+  it("shows no playhead before playback starts", () => {
+    const { container } = setup({ playhead: new PlayheadStore() });
+    expect(within(container).queryByTestId("playhead")).toBeNull();
   });
 
   describe("monitor track", () => {

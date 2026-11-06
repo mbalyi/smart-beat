@@ -998,7 +998,12 @@ fn an_online_only_stems_file_is_waited_for_before_it_opens() {
         let (made, target) = (made.clone(), target.clone());
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(700));
-            std::fs::copy(made, target).unwrap();
+            // A sync client finishes a download under another name and renames it into place.
+            // Copying straight to the target lets the opener find a half-written file, which
+            // Windows refuses to share (os error 32).
+            let part = target.with_extension("part");
+            std::fs::copy(made, &part).unwrap();
+            std::fs::rename(part, target).unwrap();
         })
     };
     let opened = json_of(
