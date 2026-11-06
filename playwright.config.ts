@@ -7,10 +7,16 @@ const isCI = Boolean(process.env.CI);
 
 /**
  * CI runs two jobs per browser so neither hits a timeout (one serial run of everything took
- * over an hour in WebKit): "smoke" is the core flows, "additional" the guided-tour tests and the AI installer.
+ * over an hour in WebKit): "smoke" is the core flows, "additional" the guided-tour tests, the AI
+ * installer and the stem-separation tests (WebKit smoke hit its time limit once they were added).
  * `E2E_GROUP` picks one; unset runs everything (local `pnpm test:e2e`).
  */
-const ADDITIONAL_SPECS = ["**/tour*.spec.ts", "**/ai-install.spec.ts"];
+const ADDITIONAL_SPECS = [
+  "**/tour*.spec.ts",
+  "**/ai-install.spec.ts",
+  "**/stem-separation.spec.ts",
+  "**/stem-cloud.spec.ts",
+];
 const group = process.env.E2E_GROUP || undefined;
 if (group !== undefined && group !== "smoke" && group !== "additional") {
   throw new Error(`E2E_GROUP must be "smoke" or "additional", not "${group}".`);
