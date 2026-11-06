@@ -116,12 +116,15 @@ function EffectRadios({
 function EffectMenu({
   label,
   icon,
+  mark,
   active,
   onDone,
   children,
 }: {
   label: string;
-  icon: ReactNode;
+  icon?: ReactNode;
+  /** The written mark the button shows instead of an icon; it is part of the accessible name. */
+  mark?: string;
   /** An effect of the menu is on at the cursor. */
   active: boolean;
   onDone: () => void;
@@ -131,14 +134,15 @@ function EffectMenu({
     <DropdownMenu modal={false}>
       <Tip label={label}>
         <DropdownMenuTrigger
-          aria-label={active ? `${label} (on)` : label}
+          // The written mark is in the name too (WCAG 2.5.3, Label in Name).
+          aria-label={(mark ? `${label}, ${mark}` : label) + (active ? " (on)" : "")}
           data-slot="palette-button"
           className={cn(
             "relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring",
             active && "border-sky-500 bg-sky-700 text-white hover:bg-sky-600",
           )}
         >
-          {icon}
+          {mark === undefined ? icon : <MarkText>{mark}</MarkText>}
           {/* A corner mark says the button opens a menu of variants. */}
           <span
             aria-hidden="true"
@@ -254,6 +258,7 @@ export function EffectsToolbar({
   /** A toggle for a note effect (its usual value, or `value`). */
   const noteToggle = (
     id: NoteEffectId,
+    /** A string is a written mark (P.M., let ring…): the button is named by it too (WCAG 2.5.3). */
     icon: ReactNode,
     opts: { label?: string; value?: number; shortcut?: string } = {},
   ) => {
@@ -264,6 +269,7 @@ export function EffectsToolbar({
       <PaletteButton
         key={`${id}:${value ?? "on"}`}
         label={opts.label ?? effect.label}
+        mark={typeof icon === "string" ? icon : undefined}
         shortcut={opts.shortcut}
         state={state.effect("note", id, value)}
         disabled={note === null}
@@ -276,7 +282,7 @@ export function EffectsToolbar({
               ),
         )}
       >
-        {icon}
+        {typeof icon === "string" ? <MarkText>{icon}</MarkText> : icon}
       </PaletteButton>
     );
   };
@@ -284,6 +290,7 @@ export function EffectsToolbar({
   /** A toggle for a beat effect (its usual value, or `value`). */
   const beatToggle = (
     id: BeatEffectId,
+    /** A string is a written mark (P.M., let ring…): the button is named by it too (WCAG 2.5.3). */
     icon: ReactNode,
     opts: { label?: string; value?: number; shortcut?: string } = {},
   ) => {
@@ -294,6 +301,7 @@ export function EffectsToolbar({
       <PaletteButton
         key={`${id}:${value ?? "on"}`}
         label={opts.label ?? effect.label}
+        mark={typeof icon === "string" ? icon : undefined}
         shortcut={opts.shortcut}
         state={state.effect("beat", id, value)}
         disabled={beat === null}
@@ -306,7 +314,7 @@ export function EffectsToolbar({
               ),
         )}
       >
-        {icon}
+        {typeof icon === "string" ? <MarkText>{icon}</MarkText> : icon}
       </PaletteButton>
     );
   };
@@ -395,9 +403,9 @@ export function EffectsToolbar({
       )}
 
       <PaletteSection title="Techniques">
-        {noteToggle("hammerPull", <MarkText>H/P</MarkText>, { shortcut: "H" })}
-        {noteToggle("palmMute", <MarkText>P.M.</MarkText>, { shortcut: "P" })}
-        {noteToggle("letRing", <MarkText>let r.</MarkText>, { shortcut: "L" })}
+        {noteToggle("hammerPull", "H/P", { shortcut: "H" })}
+        {noteToggle("palmMute", "P.M.", { shortcut: "P" })}
+        {noteToggle("letRing", "L.R.", { shortcut: "L" })}
         {noteToggle("vibrato", glyph(["wiggleTrill", "wiggleTrill", "wiggleTrill"], "text-base"), {
           shortcut: "W",
         })}
@@ -417,7 +425,7 @@ export function EffectsToolbar({
         {stringed && (
           <EffectMenu
             label="Slide"
-            icon={<MarkText>sl.</MarkText>}
+            mark="sl."
             active={noteOn("slideOut") || noteOn("slideIn")}
             onDone={actions.onDone}
           >
@@ -456,7 +464,7 @@ export function EffectsToolbar({
         {!drums && (
           <EffectMenu
             label="Vibrato and trill"
-            icon={<MarkText>vib.</MarkText>}
+            mark="vib."
             active={noteOn("vibrato") || noteOn("trill")}
             onDone={actions.onDone}
           >
@@ -483,10 +491,10 @@ export function EffectsToolbar({
         )}
         {stringed && (
           <>
-            {beatToggle("tap", <MarkText>T</MarkText>, { label: "Tapping" })}
-            {beatToggle("slap", <MarkText>S</MarkText>)}
-            {beatToggle("pop", <MarkText>P</MarkText>)}
-            {noteToggle("leftHandTap", <MarkText>LH</MarkText>)}
+            {beatToggle("tap", "T", { label: "Tapping" })}
+            {beatToggle("slap", "S")}
+            {beatToggle("pop", "P")}
+            {noteToggle("leftHandTap", "LH")}
             <PaletteButton
               label="Bend"
               shortcut="Shift+B"
@@ -534,7 +542,7 @@ export function EffectsToolbar({
           })}
           <EffectMenu
             label="Picking"
-            icon={<MarkText>pick</MarkText>}
+            mark="pick"
             active={
               beatOn("brush") || beatOn("tremolo") || beatOn("pickStroke") || beatOn("rasgueado")
             }

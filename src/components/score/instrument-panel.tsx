@@ -43,7 +43,7 @@ import {
   scalePrefersFlats,
   type Scale,
 } from "@/lib/score/scales";
-import { spellPitchClass } from "@/lib/score/keys";
+import { spellPitchClass, spokenNoteName } from "@/lib/score/keys";
 import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 
@@ -303,7 +303,18 @@ function Fretboard({
                   </span>
                 );
               }
-              const label = `Fret ${fret}, ${pitchName(s.open + fret, { spoken: true })}${degreeText(degree)}`;
+              // The name spells the note like the cell does (flat keys show "Gb", not "F#"), and
+              // carries the cell's visible text, so voice control can say what it sees (WCAG 2.5.3).
+              const pitch = s.open + fret;
+              const shown = spellPitchClass(pitch, flats);
+              const visible = on
+                ? capo > 0
+                  ? `, ${fret - capo} from the capo`
+                  : ""
+                : degree && shown.length > 1 && shown[1] === "b"
+                  ? `, ${shown}`
+                  : "";
+              const label = `Fret ${fret}, ${spokenNoteName(shown)}${Math.floor(pitch / 12) - 1}${visible}${degreeText(degree)}`;
               return (
                 <button
                   key={fret}
@@ -535,6 +546,7 @@ function DrumPads({
                   >
                     {pad.id}
                   </span>
+                  {/* A space between the two, so the visible text reads "38 Snare", not "38Snare". */}{" "}
                   <span className="line-clamp-2 min-w-0">{pad.name}</span>
                 </>
               );

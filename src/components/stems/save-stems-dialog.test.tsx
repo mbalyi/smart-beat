@@ -65,8 +65,8 @@ function heldSave() {
   };
 }
 
-const computer = () => screen.getByRole("button", { name: "Save to this computer" });
-const cloud = () => screen.findByRole("button", { name: "Save to Cloud folder · Dropbox" });
+const computer = () => screen.getByRole("button", { name: /^Save to this computer/ });
+const cloud = () => screen.findByRole("button", { name: /^Save to Cloud folder · Dropbox/ });
 
 describe("Save stems dialog", () => {
   it("shows the original-song option first, then the computer card, with no footer buttons", async () => {
@@ -76,7 +76,8 @@ describe("Save stems dialog", () => {
     expect(box).toBeEnabled();
     expect(box).toHaveAccessibleDescription(/about 5 to 25 MB/);
     expect(computer()).toBeEnabled();
-    expect(computer()).toHaveAccessibleDescription("Choose a folder. Nothing is uploaded.");
+    // The visible hint is part of the name (WCAG 2.5.3, label in name).
+    expect(computer()).toHaveAccessibleName(/Nothing is uploaded\./);
     // The option comes before the cards in reading order.
     expect(box.compareDocumentPosition(computer()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Only the corner X closes it: no Save button, no footer.
@@ -149,7 +150,7 @@ describe("Save stems dialog", () => {
     const bar = await screen.findByRole("progressbar", { name: "Save progress" });
     await waitFor(() => expect(bar).toHaveAttribute("aria-valuenow", "25"));
     // The cards are gone while writing, and the corner X is hidden.
-    expect(screen.queryByRole("button", { name: "Save to this computer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Save to this computer/ })).toBeNull();
     expect(within(dialog()).queryByRole("button")).toBeNull();
     await expectNoA11yViolations(dialog());
 
@@ -212,11 +213,9 @@ describe("Save stems dialog", () => {
 describe("Save stems dialog: where to save (#186)", () => {
   it("offers a Set up cloud storage card, disabled without a settings helper", async () => {
     setup();
-    const card = await screen.findByRole("button", { name: "Set up Cloud storage" });
+    const card = await screen.findByRole("button", { name: /^Set up Cloud storage/ });
     expect(card).toBeDisabled();
-    expect(card).toHaveAccessibleDescription(
-      "Connect an account or link a cloud folder in Settings.",
-    );
+    expect(card).toHaveAccessibleName(/Connect an account or link a cloud folder in Settings\./);
     expect(screen.queryByRole("button", { name: /^Save to Cloud folder/ })).toBeNull();
     await expectNoA11yViolations(dialog());
   });
@@ -227,7 +226,7 @@ describe("Save stems dialog: where to save (#186)", () => {
       {},
       { openSettings: true },
     );
-    await user.click(await screen.findByRole("button", { name: "Set up Cloud storage" }));
+    await user.click(await screen.findByRole("button", { name: /^Set up Cloud storage/ }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onOpenCloudSettings).toHaveBeenCalledOnce();
   });
@@ -235,8 +234,8 @@ describe("Save stems dialog: where to save (#186)", () => {
   it("offers this computer first and the cloud folder second when one is linked", async () => {
     setup(STEM_SONG, {}, { cloudFolder: CLOUD });
     const folder = await cloud();
-    expect(folder).toHaveAccessibleDescription(/Smart Beat does not upload anything/);
-    expect(screen.queryByRole("button", { name: "Set up Cloud storage" })).toBeNull();
+    expect(folder).toHaveAccessibleName(/Smart Beat does not upload anything/);
+    expect(screen.queryByRole("button", { name: /^Set up Cloud storage/ })).toBeNull();
     expect(
       computer().compareDocumentPosition(folder) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -392,19 +391,19 @@ const ACCOUNTS = [
   { provider: "onedrive", label: "OneDrive", account: "smart-beat@outlook.com" },
   { provider: "dropbox", label: "Dropbox", account: null },
 ];
-const toDrive = () => screen.findByRole("button", { name: "Save to Google Drive" });
+const toDrive = () => screen.findByRole("button", { name: /^Save to Google Drive/ });
 
 describe("Save stems dialog: connected accounts", () => {
   it("offers a card for each connected account between this computer and the cloud folder", async () => {
     setup(STEM_SONG, {}, { cloudAccounts: ACCOUNTS, cloudFolder: CLOUD });
     const drive = await toDrive();
-    const onedrive = screen.getByRole("button", { name: "Save to OneDrive" });
+    const onedrive = screen.getByRole("button", { name: /^Save to OneDrive/ });
     const folder = await cloud();
-    expect(drive).toHaveAccessibleDescription("me@example.com");
-    expect(onedrive).toHaveAccessibleDescription("smart-beat@outlook.com");
+    expect(drive).toHaveAccessibleName(/me@example\.com/);
+    expect(onedrive).toHaveAccessibleName(/smart-beat@outlook\.com/);
     // Dropbox is not connected: no card for it, and no Set up card either.
-    expect(screen.queryByRole("button", { name: "Save to Dropbox" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Set up Cloud storage" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Save to Dropbox/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Set up Cloud storage/ })).toBeNull();
     const before = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(before(computer(), drive)).toBe(true);
@@ -416,19 +415,19 @@ describe("Save stems dialog: connected accounts", () => {
   it("shows the account cards without a Set up card when no folder is linked", async () => {
     setup(STEM_SONG, {}, { cloudAccounts: ACCOUNTS });
     await toDrive();
-    expect(screen.queryByRole("button", { name: "Set up Cloud storage" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Set up Cloud storage/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Save to Cloud folder/ })).toBeNull();
   });
 
   it("keeps the Set up card when no account is connected and no folder is linked", async () => {
     setup(STEM_SONG, {}, { cloudAccounts: [{ ...ACCOUNTS[2]!, label: "Dropbox" }] });
-    expect(await screen.findByRole("button", { name: "Set up Cloud storage" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /^Set up Cloud storage/ })).toBeDisabled();
   });
 
   it("leaves out an account this build cannot use", async () => {
     setup(STEM_SONG, {}, { cloudAccounts: [{ ...ACCOUNTS[0]!, configured: false }, ACCOUNTS[1]!] });
-    await screen.findByRole("button", { name: "Save to OneDrive" });
-    expect(screen.queryByRole("button", { name: "Save to Google Drive" })).toBeNull();
+    await screen.findByRole("button", { name: /^Save to OneDrive/ });
+    expect(screen.queryByRole("button", { name: /^Save to Google Drive/ })).toBeNull();
   });
 
   it("writes the file, uploads it with progress, and says where it is", async () => {
@@ -457,7 +456,7 @@ describe("Save stems dialog: connected accounts", () => {
     const bar = screen.getByRole("progressbar", { name: "Save progress" });
     await waitFor(() => expect(bar).toHaveAttribute("aria-valuenow", "40"));
     // The cards are gone; Cancel is the only button, and the dialog cannot be closed.
-    expect(screen.queryByRole("button", { name: "Save to Google Drive" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Save to Google Drive/ })).toBeNull();
     expect(
       within(dialog())
         .getAllByRole("button")
@@ -483,7 +482,7 @@ describe("Save stems dialog: connected accounts", () => {
   it("saves only the stems to an account when the checkbox is cleared", async () => {
     const { user, calls } = setup(STEM_SONG, {}, { cloudAccounts: ACCOUNTS });
     await user.click(screen.getByRole("checkbox", { name: "Include the original song" }));
-    await user.click(await screen.findByRole("button", { name: "Save to OneDrive" }));
+    await user.click(await screen.findByRole("button", { name: /^Save to OneDrive/ }));
     await screen.findByText("Saved in OneDrive");
     expect(
       (calls.find((call) => call.cmd === "stems_cloud_save")!.args as { request: unknown }).request,

@@ -156,10 +156,10 @@ describe("ScoreWorkspace: techniques", () => {
     await waitFor(() => expect(backend.menuState).toMatchObject({ hasNote: true }));
     const toolbar = screen.getByRole("toolbar", { name: "Effects" });
 
-    await user.click(within(toolbar).getByRole("button", { name: "Palm mute" }));
+    await user.click(within(toolbar).getByRole("button", { name: "Palm mute, P.M." }));
     expect(note().isPalmMute).toBe(true);
     expect(player.refresh).toHaveBeenCalled();
-    expect(within(toolbar).getByRole("button", { name: "Palm mute" })).toHaveAttribute(
+    expect(within(toolbar).getByRole("button", { name: "Palm mute, P.M." })).toHaveAttribute(
       "aria-pressed",
       "true",
     );

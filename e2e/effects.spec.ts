@@ -36,9 +36,9 @@ test.describe("guitar techniques (#12)", () => {
     await expect.poll(() => scoreText(app)).toContain("N.H.");
     await expect(scoreRegion(app)).toBeFocused();
 
-    await effects.getByRole("button", { name: "Let ring" }).click();
+    await effects.getByRole("button", { name: "Let ring, L.R." }).click();
     await expect.poll(() => scoreText(app)).toContain("LetRing");
-    await expect(effects.getByRole("button", { name: "Let ring" })).toHaveAttribute(
+    await expect(effects.getByRole("button", { name: "Let ring, L.R." })).toHaveAttribute(
       "aria-pressed",
       "true",
     );

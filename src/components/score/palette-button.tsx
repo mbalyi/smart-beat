@@ -23,6 +23,15 @@ export function Glyph({ name, className }: { name: SmuflName | SmuflName[]; clas
   );
 }
 
+/**
+ * The accessible name of a button whose icon is a written mark (WCAG 2.5.3,
+ * Label in Name): the name carries the visible mark as separate words, so
+ * "Palm mute, P.M." is read and can be spoken as "click P.M.".
+ */
+function markedName(label: string, mark?: string): string {
+  return mark ? `${label}, ${mark}` : label;
+}
+
 /** A mark written as text in the score (P.M., let ring, tap…), shown as styled text. */
 export function MarkText({ children }: { children: ReactNode }) {
   return (
@@ -47,6 +56,7 @@ const PRESSED: Record<ToggleState, string> = {
  */
 export function PaletteButton({
   label,
+  mark,
   shortcut,
   state,
   disabled,
@@ -55,6 +65,8 @@ export function PaletteButton({
   haspopup,
 }: {
   label: string;
+  /** The written mark the icon shows (see `MarkText`); it becomes part of the accessible name. */
+  mark?: string;
   shortcut?: string;
   /** Toggles only; actions (open a dialog, insert a beat…) leave it out. */
   state?: ToggleState;
@@ -68,7 +80,7 @@ export function PaletteButton({
     <button
       type="button"
       data-slot="palette-button"
-      aria-label={label}
+      aria-label={markedName(label, mark)}
       aria-pressed={pressed}
       aria-haspopup={haspopup ? "menu" : undefined}
       disabled={disabled}

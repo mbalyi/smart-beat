@@ -1,5 +1,5 @@
 import { ChevronRightIcon, LockIcon } from "lucide-react";
-import { useId, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import laptop from "@/assets/cloud/laptop.webp";
 import splashLeft from "@/assets/record-to-tab/splash-bottom-left.webp";
@@ -40,19 +40,17 @@ export function ComputerCard({
   testId,
 }: {
   label: string;
-  /** A short line under the label. */
+  /** A short line under the label; the button's name includes it (WCAG 2.5.3: name contains the visible text). */
   hint?: string;
   onClick: () => void;
   testId?: string;
 }) {
-  const hintId = useId();
   return (
     <button
       type="button"
       className={`${CARD} min-h-24 border-primary/70 bg-gradient-to-r from-primary/25 via-primary/10 to-card/80 pr-4 hover:border-primary hover:from-primary/35`}
       onClick={onClick}
-      aria-label={label}
-      aria-describedby={hint ? hintId : undefined}
+      aria-label={hint ? `${label}, ${hint}` : label}
       data-testid={testId}
     >
       <img
@@ -62,12 +60,9 @@ export function ComputerCard({
         className="pointer-events-none -my-2 ml-1 h-24 w-auto shrink-0 object-contain sm:h-28"
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-lg font-bold sm:text-2xl">{label}</span>
-        {hint && (
-          <span id={hintId} className="text-xs text-foreground/75 sm:text-sm">
-            {hint}
-          </span>
-        )}
+        {/* The spaces keep the spans' text apart for a scanner that joins them (WCAG 2.5.3). */}
+        <span className="text-lg font-bold sm:text-2xl">{label}</span>{" "}
+        {hint && <span className="text-xs text-foreground/75 sm:text-sm">{hint}</span>}
       </span>
       <ChevronRightIcon className="size-6 shrink-0" aria-hidden="true" />
     </button>
@@ -95,7 +90,6 @@ export function StorageCard({
   verb,
   label,
   hint,
-  describeHint = false,
   disabled = false,
   onClick,
   testId,
@@ -105,17 +99,12 @@ export function StorageCard({
   /** "Save to", "Open from": the small line above the name. */
   verb: string;
   label: string;
+  /** The line under the name (the account, or why the drive is locked); part of the button's name. */
   hint?: string;
-  /**
-   * How a screen reader gets the hint: in the button's name (the default, for a locked drive) or
-   * as its description, with the name left as "<verb> <label>".
-   */
-  describeHint?: boolean;
   disabled?: boolean;
   onClick: () => void;
   testId?: string;
 }) {
-  const hintId = useId();
   return (
     <button
       type="button"
@@ -124,10 +113,7 @@ export function StorageCard({
         disabled ? "cursor-not-allowed opacity-55 grayscale" : "hover:border-primary/70"
       }`}
       onClick={onClick}
-      aria-label={
-        hint && !describeHint ? `${verb} ${label}, ${hint.toLowerCase()}` : `${verb} ${label}`
-      }
-      aria-describedby={hint && describeHint ? hintId : undefined}
+      aria-label={hint ? `${verb} ${label}, ${hint}` : `${verb} ${label}`}
       data-testid={testId}
     >
       <span className="flex h-16 w-20 shrink-0 items-center justify-center self-start sm:h-20 sm:w-full">
@@ -135,17 +121,9 @@ export function StorageCard({
       </span>
       <span className="flex min-w-0 flex-1 items-end justify-between gap-2">
         <span className="flex min-w-0 flex-col leading-tight">
-          <span className="text-sm text-muted-foreground">{verb}</span>
-          <span className="text-xl font-bold break-words sm:text-2xl">{label}</span>
-          {hint && (
-            <span
-              id={hintId}
-              className="text-xs text-muted-foreground"
-              aria-hidden={describeHint ? undefined : "true"}
-            >
-              {hint}
-            </span>
-          )}
+          <span className="text-sm text-muted-foreground">{verb}</span>{" "}
+          <span className="text-xl font-bold break-words sm:text-2xl">{label}</span>{" "}
+          {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
         </span>
         {disabled ? (
           <LockIcon className="mb-1 size-5 shrink-0" aria-hidden="true" />

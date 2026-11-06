@@ -96,7 +96,7 @@ describe("SaveTargetDialog", () => {
     expect(screen.getByTestId("save-target-drive")).toBeEnabled();
     expect(screen.getByTestId("save-target-dropbox")).toBeDisabled();
     expect(screen.getByTestId("save-target-onedrive")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Open from Dropbox, not connected" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open from Dropbox, Not connected" })).toBeDisabled();
     expect(screen.getByText("Not available in this build")).toBeInTheDocument();
     await user.click(screen.getByTestId("save-target-dropbox"));
     expect(onChoose).not.toHaveBeenCalled();
@@ -114,7 +114,7 @@ describe("SaveTargetDialog", () => {
         onCancel={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Save to Dropbox, not connected" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save to Dropbox, Not connected" })).toBeDisabled();
   });
 
   it("links to the cloud setup only when asked to", async () => {

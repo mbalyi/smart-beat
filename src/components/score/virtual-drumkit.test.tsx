@@ -69,24 +69,24 @@ describe("VirtualDrumkit", () => {
     for (const group of ["Kicks", "Snares", "Hi-hats", "Toms", "Cymbals", "Percussion"]) {
       expect(within(kit).getByRole("region", { name: group })).toBeInTheDocument();
     }
-    expect(within(kit).getByRole("button", { name: "Hi-Hat (half), 92" })).toBeInTheDocument();
+    expect(within(kit).getByRole("button", { name: "092 Hi-Hat (half)" })).toBeInTheDocument();
     await expectNoA11yViolations();
   });
 
   it("plays and inserts on click, replaces on Shift+click", async () => {
     const { user, kit, onInsert, onReplace, onPreview } = setup();
-    await user.click(within(kit).getByRole("button", { name: "Snare (hit), 38" }));
+    await user.click(within(kit).getByRole("button", { name: "038 Snare (hit)" }));
     expect(onPreview).toHaveBeenCalledWith(38);
     expect(onInsert).toHaveBeenCalledWith(38);
     await user.keyboard("{Shift>}");
-    await user.click(within(kit).getByRole("button", { name: "Snare (rim shot), 91" }));
+    await user.click(within(kit).getByRole("button", { name: "091 Snare (rim shot)" }));
     await user.keyboard("{/Shift}");
     expect(onReplace).toHaveBeenCalledWith(91);
   });
 
   it("only plays when not editing", async () => {
     const { user, kit, onInsert, onPreview } = setup({ editing: false });
-    await user.click(within(kit).getByRole("button", { name: "Ride (bell), 53" }));
+    await user.click(within(kit).getByRole("button", { name: "053 Ride (bell)" }));
     expect(onPreview).toHaveBeenCalledWith(53);
     expect(onInsert).not.toHaveBeenCalled();
   });
@@ -106,11 +106,11 @@ describe("VirtualDrumkit", () => {
 
   it("highlights the drums sounding and the one under the cursor", () => {
     const { kit } = setup({ active: [36, 42], cursorSound: 42 });
-    expect(within(kit).getByRole("button", { name: "Kick (hit), 36" })).toHaveAttribute(
+    expect(within(kit).getByRole("button", { name: "036 Kick (hit)" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    expect(within(kit).getByRole("button", { name: "Hi-Hat (closed), 42" })).toHaveAttribute(
+    expect(within(kit).getByRole("button", { name: "042 Hi-Hat (closed)" })).toHaveAttribute(
       "aria-current",
       "true",
     );
@@ -129,8 +129,8 @@ describe("VirtualDrumkit", () => {
       />,
     );
     const own = screen.getByRole("region", { name: "This track's kit" });
-    expect(within(own).getByRole("button", { name: "Charley, 42" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Hi-Hat (closed), 42" })).not.toBeInTheDocument();
+    expect(within(own).getByRole("button", { name: "042 Charley" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "042 Hi-Hat (closed)" })).not.toBeInTheDocument();
   });
 
   it("filters with the search box", async () => {
@@ -143,7 +143,7 @@ describe("VirtualDrumkit", () => {
       within(kit)
         .getAllByTestId("kit-entry")
         .map((b) => b.getAttribute("aria-label")),
-    ).toEqual(["China (hit), 52", "China (choke), 96"]);
+    ).toEqual(["052 China (hit)", "096 China (choke)"]);
     await user.clear(screen.getByRole("searchbox"));
     await user.type(screen.getByRole("searchbox"), "zzz");
     expect(within(kit).getByText(/No drum matches/)).toBeInTheDocument();
