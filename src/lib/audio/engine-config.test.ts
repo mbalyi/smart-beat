@@ -2,6 +2,7 @@ import {
   audioMsAt,
   automationTicks,
   barOccurrences,
+  barPositionAtTick,
   barTimeline,
   barTimesMs,
   engineExtras,
@@ -227,5 +228,22 @@ describe("engineExtras", () => {
     // Without a choice: the system's default input, first channel.
     expect(engineExtras(m, REPEATED).monitor).toMatchObject({ device: null, channel: 0 });
     expect(engineExtras(mix(), REPEATED).monitor).toBeNull();
+  });
+});
+
+describe("playhead position", () => {
+  it("is the fractional bar of a tick, following repeated passes", () => {
+    expect(barPositionAtTick(REPEATED, 0)).toBe(0);
+    expect(barPositionAtTick(REPEATED, BAR / 2)).toBe(0.5);
+    // The second pass through bars 0-1 is later in time, but still bars 0-1 on the score.
+    expect(barPositionAtTick(REPEATED, 2 * BAR + BAR / 4)).toBe(0.25);
+    expect(barPositionAtTick(REPEATED, 3 * BAR + BAR / 2)).toBe(1.5);
+    expect(barPositionAtTick(REPEATED, 4 * BAR)).toBe(2);
+  });
+
+  it("is the end of the song after the last pass, and the start without passes", () => {
+    expect(barPositionAtTick(REPEATED, 5 * BAR)).toBe(3);
+    expect(barPositionAtTick(REPEATED, 99 * BAR)).toBe(3);
+    expect(barPositionAtTick([], 1234)).toBe(0);
   });
 });

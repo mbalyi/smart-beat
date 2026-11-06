@@ -85,6 +85,34 @@ describe("ScoreWorkspace: song structure", () => {
     expect(song.score.masterBars[2]!.timeSignatureNumerator).toBe(4);
   });
 
+  it("changes the time signature from the left editing sidebar, with undo", async () => {
+    // Regression: the signature could only be reached through the Bar dialog.
+    const { user, song, player } = await setup();
+    const sidebar = screen.getByRole("toolbar", { name: "Edit" });
+    expect(within(sidebar).getByRole("spinbutton", { name: "Beats per bar" })).toHaveValue(4);
+
+    await user.click(within(sidebar).getByRole("combobox", { name: "Beat unit" }));
+    await user.click(await screen.findByRole("option", { name: "8" }));
+    expect(song.score.masterBars.map((b) => b.timeSignatureDenominator)).toEqual([8, 8, 8, 8]);
+
+    const beats = within(sidebar).getByRole("spinbutton", { name: "Beats per bar" });
+    await user.clear(beats);
+    await user.type(beats, "7{Enter}");
+    expect(song.score.masterBars.map((b) => `${b.timeSignatureNumerator}/8`)).toEqual([
+      "7/8",
+      "7/8",
+      "7/8",
+      "7/8",
+    ]);
+    expect(player.refresh).toHaveBeenCalled();
+    // The control follows the bar.
+    expect(within(sidebar).getByRole("spinbutton", { name: "Beats per bar" })).toHaveValue(7);
+
+    await user.click(screen.getByRole("button", { name: "Undo Change time signature" }));
+    expect(song.score.masterBars[0]!.timeSignatureNumerator).toBe(4);
+    expect(song.score.masterBars[0]!.timeSignatureDenominator).toBe(8);
+  });
+
   it("closes the bar dialog without changes when nothing changed", async () => {
     const { user } = await setup();
     await user.click(screen.getByRole("button", { name: "Bar" }));

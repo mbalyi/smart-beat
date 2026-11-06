@@ -97,6 +97,7 @@ async function setup(overrides: Partial<ScorePlayerOptions> = {}) {
     onPlayingChange: vi.fn<Callback<"onPlayingChange">>(),
     onPositionChange: vi.fn<Callback<"onPositionChange">>(),
     onBarChange: vi.fn<Callback<"onBarChange">>(),
+    onBarPosition: vi.fn<Callback<"onBarPosition">>(),
     onSoundFontError: vi.fn<Callback<"onSoundFontError">>(),
     onError: vi.fn<Callback<"onError">>(),
     onActiveBeatsChange: vi.fn<Callback<"onActiveBeatsChange">>(),
@@ -205,6 +206,21 @@ describe("ScorePlayer", () => {
       bpm: 60,
     });
     expect(callbacks.onBarChange).toHaveBeenCalledWith(2);
+  });
+
+  it("reports the bar position on every position event, for the playhead", async () => {
+    const { api, callbacks } = await readySetup();
+    const position = (currentTick: number) =>
+      api.playerPositionChanged.trigger({
+        currentTime: 100,
+        endTime: 12_000,
+        currentTick,
+        originalTempo: 60,
+        modifiedTempo: 60,
+      });
+    position(0);
+    position(1920); // half of the first 4/4 bar
+    expect(callbacks.onBarPosition.mock.calls.map(([bar]) => bar)).toEqual([0, 0.5]);
   });
 
   it("reports the position at most once per second, and every tempo change", async () => {

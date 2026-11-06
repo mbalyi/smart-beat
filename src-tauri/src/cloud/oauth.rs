@@ -509,6 +509,28 @@ mod tests {
         browser_get(port, &format!("/?{query}"))
     }
 
+    /// Reads one whole HTTP request (headers, then the body its Content-Length announces) and
+    /// returns the body. A server that answers with request bytes still unread makes Windows
+    /// reset the connection, and the client then never sees the answer.
+    fn read_request_body(stream: &TcpStream) -> String {
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut length = 0usize;
+        let mut line = String::new();
+        loop {
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" {
+                break;
+            }
+            if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = v.trim().parse().unwrap();
+            }
+        }
+        let mut body = vec![0u8; length];
+        reader.read_exact(&mut body).unwrap();
+        String::from_utf8(body).unwrap()
+    }
+
     /// A token endpoint on 127.0.0.1 that records the request body and answers with tokens.
     fn mock_token_endpoint() -> (String, std::thread::JoinHandle<String>) {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
@@ -518,21 +540,7 @@ mod tests {
         );
         let handle = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut length = 0usize;
-            let mut line = String::new();
-            loop {
-                line.clear();
-                reader.read_line(&mut line).unwrap();
-                if line == "\r\n" {
-                    break;
-                }
-                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                    length = v.trim().parse().unwrap();
-                }
-            }
-            let mut body = vec![0u8; length];
-            reader.read_exact(&mut body).unwrap();
+            let body = read_request_body(&stream);
             let answer = r#"{"access_token":"a","refresh_token":"r","expires_in":3600}"#;
             write!(
                 stream,
@@ -540,7 +548,7 @@ mod tests {
                 answer.len()
             )
             .unwrap();
-            String::from_utf8(body).unwrap()
+            body
         });
         (url, handle)
     }
@@ -554,31 +562,17 @@ mod tests {
         );
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            // Read the whole request, body included. The client may send the headers and the
-            // body in separate segments; answering and closing with the body still unread
-            // makes Windows reset the connection, and the client then sees a network error
-            // instead of the status.
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut length = 0usize;
-            let mut line = String::new();
-            loop {
-                line.clear();
-                reader.read_line(&mut line).unwrap();
-                if line == "\r\n" {
-                    break;
-                }
-                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                    length = v.trim().parse().unwrap();
-                }
-            }
-            let mut request_body = vec![0u8; length];
-            reader.read_exact(&mut request_body).unwrap();
+            // Read all of the request first (a single read can stop after the headers, leaving the
+            // body unread, and closing like that resets the connection on Windows).
+            let _ = read_request_body(&stream);
             let body = r#"{"error":"invalid_grant"}"#;
             let _ = write!(
                 stream,
                 "HTTP/1.1 {status} Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
         });
         url
     }
