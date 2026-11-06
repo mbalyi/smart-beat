@@ -2,10 +2,12 @@
 //! files the user opened or created with it (#187).
 
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
 use serde::Deserialize;
 
 use super::oauth::OAuthConfig;
+use super::transfer::{self, Reply, Sent, Source};
 use super::{Provider, ProviderKind, RemoteFile, agent, encode, http_error};
 use crate::error::{CommandError, ErrorKind};
 use crate::score_file::{MAX_SIZE, ScoreFormat, has_supported_extension};
@@ -21,6 +23,9 @@ pub const CLIENT_SECRET: Option<&str> = option_env!("SMARTBEAT_GOOGLE_CLIENT_SEC
 pub const SCOPE: &str = "https://www.googleapis.com/auth/drive.file";
 
 const FIELDS: &str = "id,name,size,modifiedTime,headRevisionId";
+
+/// The size of one piece of a resumable upload: a multiple of 256 KiB, as Drive asks.
+const UPLOAD_CHUNK: usize = 32 * 256 * 1024;
 
 pub fn oauth_config(client_id: &str) -> OAuthConfig {
     OAuthConfig {
@@ -45,6 +50,7 @@ pub struct GoogleDrive {
     upload_base: String,
     about_base: String,
     revoke_url: String,
+    chunk_size: usize,
 }
 
 impl Default for GoogleDrive {
@@ -54,6 +60,7 @@ impl Default for GoogleDrive {
             upload_base: "https://www.googleapis.com/upload/drive/v3".into(),
             about_base: "https://www.googleapis.com/drive/v3/about".into(),
             revoke_url: "https://oauth2.googleapis.com/revoke".into(),
+            chunk_size: UPLOAD_CHUNK,
         }
     }
 }
@@ -196,9 +203,95 @@ impl GoogleDrive {
             upload_base: format!("{base}/upload/drive/v3"),
             about_base: format!("{base}/drive/v3/about"),
             revoke_url: format!("{base}/revoke"),
+            chunk_size: UPLOAD_CHUNK,
         }
     }
 
+    /// Smaller pieces for a resumable upload, so a test needs only a few bytes.
+    #[cfg(test)]
+    fn with_chunk_size(mut self, chunk_size: usize) -> Self {
+        self.chunk_size = chunk_size;
+        self
+    }
+
+    /// Starts a resumable upload of `total` bytes called `name`; the answer's `Location` is the
+    /// session address, which carries its own authorization.
+    fn start_session(&self, token: &str, name: &str, total: u64) -> Result<String, CommandError> {
+        let url = format!(
+            "{}/files?uploadType=resumable&fields={}",
+            self.upload_base,
+            encode(FIELDS)
+        );
+        let request = transfer::agent(transfer::CHUNK_LIMIT, false)
+            .post(&url)
+            .header("Authorization", bearer(token))
+            .header("Content-Type", "application/json; charset=UTF-8")
+            .header("X-Upload-Content-Type", "application/octet-stream")
+            .header("X-Upload-Content-Length", total.to_string());
+        let body = serde_json::json!({ "name": name }).to_string();
+        let reply = transfer::send_body(request, body.as_bytes())?;
+        if !reply.is_success() {
+            return Err(reply.into_error("The file"));
+        }
+        reply.header("location").map(str::to_owned).ok_or_else(|| {
+            CommandError::new(
+                ErrorKind::Network,
+                "Unexpected answer from Google Drive: no upload address.",
+            )
+        })
+    }
+
+    /// One piece of the upload. With no `data` it asks what the session has instead
+    /// (`Content-Range: bytes */total`).
+    fn put_chunk(
+        &self,
+        session: &str,
+        offset: u64,
+        data: &[u8],
+        total: u64,
+    ) -> Result<Sent<DriveFile>, CommandError> {
+        let range = if data.is_empty() {
+            format!("bytes */{total}")
+        } else {
+            format!("bytes {offset}-{}/{total}", offset + data.len() as u64 - 1)
+        };
+        // The session address carries its own authorization: no bearer token here.
+        let request = transfer::agent(transfer::CHUNK_LIMIT, false)
+            .put(session)
+            .header("Content-Range", range)
+            .header("Content-Type", "application/octet-stream");
+        let reply = transfer::send_body(request, data)?;
+        match reply.status {
+            200 | 201 => {
+                let file: DriveFile = serde_json::from_slice(&reply.body).map_err(parse_error)?;
+                Ok(Sent::Done(file))
+            }
+            // Resume incomplete: `Range: bytes=0-N` is what Drive has (nothing without it).
+            308 => Ok(Sent::Continue {
+                next: received_up_to(&reply),
+            }),
+            _ => Err(reply.into_error("The file")),
+        }
+    }
+
+    /// Ends a resumable upload that was stopped (best effort: the session would expire anyway).
+    fn cancel_session(&self, session: &str) {
+        let _ = transfer::agent(std::time::Duration::from_secs(30), false)
+            .delete(session)
+            .call();
+    }
+}
+
+/// How many bytes a 308 answer says Drive has: the end of `Range: bytes=0-N`, plus one.
+fn received_up_to(reply: &Reply) -> u64 {
+    reply
+        .header("range")
+        .and_then(|range| range.rsplit('-').next())
+        .and_then(|end| end.trim().parse::<u64>().ok())
+        .map_or(0, |end| end + 1)
+}
+
+impl GoogleDrive {
     fn get_json<T: serde::de::DeserializeOwned>(
         &self,
         token: &str,
@@ -277,7 +370,9 @@ impl Provider for GoogleDrive {
             out.extend(
                 list.files
                     .into_iter()
-                    .filter(|f| has_supported_extension(Path::new(&f.name)))
+                    .filter(|f| {
+                        has_supported_extension(Path::new(&f.name)) || super::is_stems_name(&f.name)
+                    })
                     .map(RemoteFile::from),
             );
             match list.next_page_token {
@@ -400,6 +495,69 @@ impl Provider for GoogleDrive {
             .map_err(|e| http_error(e, "The sign-in"))?;
         Ok(())
     }
+
+    fn upload_file(
+        &self,
+        token: &str,
+        name: &str,
+        path: &Path,
+        progress: &mut dyn FnMut(f32),
+        cancel: &AtomicBool,
+    ) -> Result<RemoteFile, CommandError> {
+        transfer::check_cancel(cancel)?;
+        let mut source = Source::open(path)?;
+        let total = source.total();
+        let session = self.start_session(token, name, total)?;
+        let result = transfer::upload_in_chunks(
+            &mut source,
+            self.chunk_size,
+            cancel,
+            progress,
+            |offset, data, total| self.put_chunk(&session, offset, data, total),
+            // What does Drive have? Asking is a piece with nothing in it.
+            |offset, total| {
+                if total == 0 {
+                    return Ok(Sent::Continue { next: offset });
+                }
+                self.put_chunk(&session, offset, &[], total)
+            },
+        );
+        if let Err(error) = &result
+            && transfer::is_stopped(error)
+        {
+            self.cancel_session(&session);
+        }
+        result.map(RemoteFile::from)
+    }
+
+    fn download_file(
+        &self,
+        token: &str,
+        id: &str,
+        dest: &Path,
+        progress: &mut dyn FnMut(f32),
+        cancel: &AtomicBool,
+    ) -> Result<RemoteFile, CommandError> {
+        transfer::check_cancel(cancel)?;
+        let meta = self.metadata(token, id)?;
+        let mut response = transfer::agent(transfer::DOWNLOAD_LIMIT, false)
+            .get(&format!("{}?alt=media", self.file_url(id)))
+            .header("Authorization", bearer(token))
+            .call()
+            .map_err(|e| http_error(e, "The file"))?;
+        let status = response.status().as_u16();
+        if status >= 400 {
+            return Err(http_error(ureq::Error::StatusCode(status), "The file"));
+        }
+        transfer::download_to(
+            dest,
+            meta.size,
+            &mut response.body_mut().as_reader(),
+            cancel,
+            progress,
+        )?;
+        Ok(meta)
+    }
 }
 
 #[cfg(test)]
@@ -422,13 +580,31 @@ mod tests {
         handle: std::thread::JoinHandle<()>,
     }
 
+    /// (status, extra headers, body)
+    type Canned = (u16, Vec<(&'static str, String)>, Vec<u8>);
+
     fn mock(answers: Vec<(u16, Vec<u8>)>) -> Mock {
+        mock_with_headers(
+            answers
+                .into_iter()
+                .map(|(status, body)| (status, vec![], body))
+                .collect(),
+        )
+    }
+
+    fn mock_with_headers(answers: Vec<Canned>) -> Mock {
+        mock_with(|_| answers)
+    }
+
+    /// `answers` is made knowing the server's own address (a session `Location` points to it).
+    fn mock_with(answers: impl FnOnce(&str) -> Vec<Canned>) -> Mock {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let answers = answers(&base);
         let requests = Arc::new(Mutex::new(Vec::new()));
         let log = requests.clone();
         let handle = std::thread::spawn(move || {
-            for (status, body) in answers {
+            for (status, headers, body) in answers {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut data = Vec::new();
                 let mut buf = [0u8; 8192];
@@ -454,12 +630,15 @@ mod tests {
                     head: String::from_utf8_lossy(&data[..head_end]).into_owned(),
                     body: data[head_end..].to_vec(),
                 });
-                write!(
-                    stream,
-                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                let mut head = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
                     body.len()
-                )
-                .unwrap();
+                );
+                for (key, value) in headers {
+                    head.push_str(&format!("{key}: {value}\r\n"));
+                }
+                head.push_str("\r\n");
+                stream.write_all(head.as_bytes()).unwrap();
                 stream.write_all(&body).unwrap();
             }
         });
@@ -494,12 +673,15 @@ mod tests {
     fn lists_supported_tabs_newest_first() {
         let list = r#"{"files":[
             {"id":"a","name":"song.gp5","size":"10","modifiedTime":"2024-05-01T00:00:00Z","headRevisionId":"r1"},
-            {"id":"b","name":"notes.docx","size":"5","modifiedTime":"2024-04-01T00:00:00Z","headRevisionId":"r2"}]}"#;
+            {"id":"b","name":"notes.docx","size":"5","modifiedTime":"2024-04-01T00:00:00Z","headRevisionId":"r2"},
+            {"id":"c","name":"Set.SBSTEMS","size":"7","modifiedTime":"2024-03-01T00:00:00Z","headRevisionId":"r3"}]}"#;
         let m = mock(vec![(200, list.as_bytes().to_vec())]);
         let files = GoogleDrive::with_base(&m.base).list("tok").unwrap();
         let requests = m.finish();
-        assert_eq!(files.len(), 1);
+        // The tab, and the stems file next to it (the commands keep the two apart).
+        assert_eq!(files.len(), 2);
         assert_eq!(files[0].id, "a");
+        assert_eq!(files[1].name, "Set.SBSTEMS");
         assert_eq!(files[0].revision, "r1");
         assert_eq!(files[0].modified_ms, 1_714_521_600_000);
         let head = &requests[0].head;
@@ -635,5 +817,247 @@ mod tests {
                 .extra_auth_params
                 .contains(&("prompt".into(), "select_account consent".into()))
         );
+    }
+
+    /// A file of `len` bytes that is not a tab file (a stems file is not one either).
+    fn file_with(len: usize) -> (tempfile::TempDir, std::path::PathBuf, Vec<u8>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Song.sbstems");
+        let bytes: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &bytes).unwrap();
+        (dir, path, bytes)
+    }
+
+    fn session_headers(base: &str) -> Vec<(&'static str, String)> {
+        vec![("Location", format!("{base}/upload/session/s1"))]
+    }
+
+    fn resume(upto: Option<u64>) -> Canned {
+        let headers = upto
+            .map(|n| vec![("Range", format!("bytes=0-{n}"))])
+            .unwrap_or_default();
+        (308, headers, Vec::new())
+    }
+
+    fn done_json() -> Canned {
+        (
+            200,
+            vec![],
+            br#"{"id":"n1","name":"Song.sbstems","size":"10","modifiedTime":"2024-05-01T12:30:45.500Z","headRevisionId":"r1"}"#.to_vec(),
+        )
+    }
+
+    fn content_ranges(requests: &[Recorded]) -> Vec<String> {
+        requests
+            .iter()
+            .filter_map(|r| {
+                r.head
+                    .lines()
+                    .find(|l| l.to_lowercase().starts_with("content-range:"))
+                    .map(|l| l.split_once(':').unwrap().1.trim().to_owned())
+            })
+            .collect()
+    }
+
+    /// A first answer that opens the session (its `Location` is the mock itself), then `rest`.
+    fn session_mock(rest: Vec<Canned>) -> Mock {
+        mock_with(|base| {
+            let mut answers = vec![(200, session_headers(base), Vec::new())];
+            answers.extend(rest);
+            answers
+        })
+    }
+
+    #[test]
+    fn uploads_a_file_in_resumable_chunks_with_progress() {
+        let (_dir, path, bytes) = file_with(10);
+        let m = session_mock(vec![resume(Some(3)), resume(Some(7)), done_json()]);
+        let drive = GoogleDrive::with_base(&m.base).with_chunk_size(4);
+        let mut fractions = Vec::new();
+        let file = drive
+            .upload_file(
+                "tok",
+                "Song.sbstems",
+                &path,
+                &mut |f| fractions.push(f),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let requests = m.finish();
+        assert_eq!(
+            (file.id.as_str(), file.name.as_str()),
+            ("n1", "Song.sbstems")
+        );
+        assert_eq!(file.revision, "r1");
+        assert_eq!(fractions, vec![0.4, 0.8, 1.0]);
+
+        let init = &requests[0];
+        assert!(
+            init.head
+                .starts_with("POST /upload/drive/v3/files?uploadType=resumable")
+        );
+        assert!(
+            init.head
+                .to_lowercase()
+                .contains("authorization: bearer tok")
+        );
+        assert!(
+            init.head
+                .to_lowercase()
+                .contains("x-upload-content-length: 10")
+        );
+        assert_eq!(init.body, br#"{"name":"Song.sbstems"}"#);
+        assert_eq!(
+            content_ranges(&requests),
+            ["bytes 0-3/10", "bytes 4-7/10", "bytes 8-9/10"]
+        );
+        let sent: Vec<u8> = requests[1..].iter().flat_map(|r| r.body.clone()).collect();
+        assert_eq!(sent, bytes);
+        // The session address has its own authorization: the token is not sent to it.
+        assert!(
+            requests[1..]
+                .iter()
+                .all(|r| !r.head.to_lowercase().contains("authorization"))
+        );
+    }
+
+    #[test]
+    fn a_chunk_that_fails_is_resumed_from_what_drive_has() {
+        let (_dir, path, bytes) = file_with(10);
+        // Chunk 2 fails with a 503 although Drive took it: asking says it has 8 bytes.
+        let m = session_mock(vec![
+            resume(Some(3)),
+            (503, vec![], b"busy".to_vec()),
+            resume(Some(7)),
+            done_json(),
+        ]);
+        let drive = GoogleDrive::with_base(&m.base).with_chunk_size(4);
+        drive
+            .upload_file(
+                "tok",
+                "Song.sbstems",
+                &path,
+                &mut |_| {},
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let requests = m.finish();
+        assert_eq!(
+            content_ranges(&requests),
+            ["bytes 0-3/10", "bytes 4-7/10", "bytes */10", "bytes 8-9/10"]
+        );
+        // Nothing was sent twice or skipped.
+        let sent: Vec<u8> = requests[1..]
+            .iter()
+            .filter(|r| !r.head.contains("bytes */"))
+            .flat_map(|r| r.body.clone())
+            .collect();
+        assert_eq!(sent[..4], bytes[..4]);
+        assert_eq!(sent[sent.len() - 2..], bytes[8..]);
+    }
+
+    #[test]
+    fn a_stop_ends_the_upload_and_asks_drive_to_drop_the_session() {
+        let (_dir, path, _) = file_with(10);
+        let m = session_mock(vec![resume(Some(3)), (499, vec![], Vec::new())]);
+        let drive = GoogleDrive::with_base(&m.base).with_chunk_size(4);
+        let cancel = AtomicBool::new(false);
+        let error = drive
+            .upload_file(
+                "tok",
+                "Song.sbstems",
+                &path,
+                &mut |f| {
+                    if f > 0.0 {
+                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                },
+                &cancel,
+            )
+            .unwrap_err();
+        let requests = m.finish();
+        assert!(transfer::is_stopped(&error));
+        assert_eq!(error.message, crate::cloud::STOPPED);
+        // Start, one chunk, then the DELETE of the session; no second chunk.
+        assert_eq!(requests.len(), 3);
+        assert!(requests[2].head.starts_with("DELETE /upload/session/s1"));
+    }
+
+    #[test]
+    fn an_expired_token_on_start_means_auth_expired() {
+        let (_dir, path, _) = file_with(10);
+        let m = mock(vec![(401, b"{}".to_vec())]);
+        let error = GoogleDrive::with_base(&m.base)
+            .upload_file(
+                "old",
+                "a.sbstems",
+                &path,
+                &mut |_| {},
+                &AtomicBool::new(false),
+            )
+            .unwrap_err();
+        m.finish();
+        assert_eq!(error.kind, ErrorKind::AuthExpired);
+    }
+
+    #[test]
+    fn downloads_to_a_file_with_no_part_file_left() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("Song.sbstems");
+        let content: Vec<u8> = (0..12u8).collect();
+        let m = mock(vec![
+            (200, meta_json("Song.sbstems", "r7")),
+            (200, content.clone()),
+        ]);
+        let mut fractions = Vec::new();
+        let file = GoogleDrive::with_base(&m.base)
+            .download_file(
+                "tok",
+                "f1",
+                &dest,
+                &mut |f| fractions.push(f),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let requests = m.finish();
+        assert_eq!(std::fs::read(&dest).unwrap(), content);
+        assert!(!dir.path().join("Song.sbstems.part").exists());
+        assert_eq!(file.revision, "r7");
+        assert_eq!(fractions.last(), Some(&1.0));
+        assert!(
+            requests[1]
+                .head
+                .starts_with("GET /drive/v3/files/f1?alt=media")
+        );
+        assert!(
+            requests[1]
+                .head
+                .to_lowercase()
+                .contains("authorization: bearer tok")
+        );
+    }
+
+    #[test]
+    fn a_failed_or_stopped_download_leaves_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("Song.sbstems");
+        let m = mock(vec![
+            (200, meta_json("Song.sbstems", "r7")),
+            (404, b"{}".to_vec()),
+        ]);
+        let error = GoogleDrive::with_base(&m.base)
+            .download_file("tok", "f1", &dest, &mut |_| {}, &AtomicBool::new(false))
+            .unwrap_err();
+        m.finish();
+        assert_eq!(error.kind, ErrorKind::NotFound);
+        assert!(!dest.exists());
+
+        let cancel = AtomicBool::new(true);
+        let error = GoogleDrive::with_base("http://127.0.0.1:1")
+            .download_file("tok", "f1", &dest, &mut |_| {}, &cancel)
+            .unwrap_err();
+        assert!(transfer::is_stopped(&error));
+        assert!(!dest.exists());
+        assert!(!dir.path().join("Song.sbstems.part").exists());
     }
 }

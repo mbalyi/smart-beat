@@ -224,6 +224,6 @@ test.describe("practice tools (#7)", () => {
     await expect(app.getByText("Trainer 200% → 200%")).toBeVisible({ timeout: 10_000 });
 
     await app.getByRole("button", { name: "Stop the Speed Trainer" }).click();
-    await expect(app.getByRole("button", { name: "Speed Trainer…" })).toBeVisible();
+    await expect(app.getByRole("button", { name: "Speed Trainer" })).toBeVisible();
   });
 });

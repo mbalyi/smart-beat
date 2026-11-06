@@ -433,6 +433,18 @@ impl Session<'_> {
                 "The cloud sign-in expired. Connect the account again.",
             ));
         };
+        // A build without this provider's client id (a local build without a `.env`) cannot
+        // refresh: the provider would refuse, and that refusal must not delete a sign-in that
+        // another build made and can still use.
+        if self.config.client_id.trim().is_empty() {
+            return Err(CommandError::new(
+                ErrorKind::Io,
+                format!(
+                    "This build has no sign-in keys for {}, so it cannot use the connected account.",
+                    self.kind.label()
+                ),
+            ));
+        }
         match refresh(self.config, &refresh_token) {
             Ok(mut fresh) => {
                 fresh.account = tokens.account;
@@ -576,6 +588,56 @@ mod tests {
             scopes: Vec::new(),
             extra_auth_params: Vec::new(),
         }
+    }
+
+    fn expired_tokens() -> Tokens {
+        Tokens {
+            access_token: "old".into(),
+            refresh_token: Some("refresh".into()),
+            expires_at: 1,
+            account: "me".into(),
+        }
+    }
+
+    #[test]
+    fn a_build_without_a_client_id_keeps_a_sign_in_it_cannot_refresh() {
+        use crate::cloud::keychain::MemoryStore;
+        let store = MemoryStore::default();
+        store.save(ProviderKind::Drive, &expired_tokens()).unwrap();
+        let mut config = config_with(String::new(), None);
+        config.client_id = String::new();
+        let error = Session {
+            kind: ProviderKind::Drive,
+            config: &config,
+            store: &store,
+        }
+        .token()
+        .unwrap_err();
+        assert_ne!(error.kind, ErrorKind::AuthExpired);
+        assert!(
+            error.message.contains("no sign-in keys"),
+            "{}",
+            error.message
+        );
+        // Nothing was asked of the provider and nothing was deleted.
+        assert!(store.load(ProviderKind::Drive).unwrap().is_some());
+    }
+
+    #[test]
+    fn a_refresh_the_provider_refuses_removes_the_sign_in() {
+        use crate::cloud::keychain::MemoryStore;
+        let store = MemoryStore::default();
+        store.save(ProviderKind::Drive, &expired_tokens()).unwrap();
+        let config = config_with(mock_failing_token_endpoint(400), None);
+        let error = Session {
+            kind: ProviderKind::Drive,
+            config: &config,
+            store: &store,
+        }
+        .token()
+        .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::AuthExpired);
+        assert!(store.load(ProviderKind::Drive).unwrap().is_none());
     }
 
     #[test]

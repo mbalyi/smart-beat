@@ -308,7 +308,7 @@ export function EditToolbar({
                       {tupletLabel(customTuplet)}
                     </SelectItem>
                   )}
-                  <SelectItem value={NESTED}>Nested…</SelectItem>
+                  <SelectItem value={NESTED}>Nested</SelectItem>
                 </SelectContent>
               </Select>
             </span>
@@ -334,7 +334,7 @@ export function EditToolbar({
           >
             <Trash2Icon className="size-4" aria-hidden="true" />
           </PaletteButton>
-          <PaletteButton label="Bar…" shortcut="⌘B" onClick={actions.onBar}>
+          <PaletteButton label="Bar" shortcut="⌘B" onClick={actions.onBar}>
             <Columns3CogIcon className="size-4" aria-hidden="true" />
           </PaletteButton>
         </PaletteSection>

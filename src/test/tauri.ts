@@ -12,6 +12,13 @@ import {
   type MixerSettings,
   type MonitorParams,
   type Shortcut,
+  type CloudStem,
+  type CloudStemFile,
+  type StemSong,
+  type StemTempo,
+  type StemModelId,
+  type StemModelStatus,
+  type UmxStatus,
 } from "@/lib/tauri";
 
 /** Same shape the Rust `app_info` command returns (see src-tauri/tests/ipc.rs). */
@@ -25,7 +32,7 @@ export const APP_INFO: AppInfo = {
 
 /** Same shape the Rust `menu_shortcuts` command returns on macOS. */
 export const SHORTCUTS: Shortcut[] = [
-  { action: "open", menu: "File", label: "Open…", keys: ["⌘", "O"], spoken: "Command+O" },
+  { action: "open", menu: "File", label: "Open", keys: ["⌘", "O"], spoken: "Command+O" },
   {
     action: "quit",
     menu: "File",
@@ -49,6 +56,77 @@ export const SHORTCUTS: Shortcut[] = [
   },
 ];
 
+/** A separated song, as `stems_list` returns it. */
+export const STEM_SONG: StemSong = {
+  id: "0123456789abcdef",
+  name: "Neon Nights",
+  durationSeconds: 215,
+  sampleRate: 44_100,
+  engine: "fast",
+  strongDrums: false,
+  stems: (["drums", "bass", "vocals", "panned", "other"] as const).map((kind) => ({
+    kind,
+    bytes: 38_000_000,
+  })),
+  mono: false,
+  skipped: [],
+  pannedShare: 0.3,
+  bytes: 190_000_000,
+  createdAtMs: 1_790_000_000_000,
+  pinned: false,
+  lastOpened: null,
+  savedPath: null,
+  hasOriginal: true,
+};
+
+/** What `stems_detect_tempo` returns unless a test sets `backend.stemTempo`. */
+export const STEM_TEMPO: StemTempo = {
+  bpm: 120,
+  confidence: 0.9,
+  firstBeatSec: 0.5,
+  alternatives: [60, 240],
+  steady: true,
+  sections: [],
+};
+
+/** The neural model before anything is downloaded. */
+export const UMX_STATUS: UmxStatus = {
+  downloaded: false,
+  termsAccepted: false,
+  termsVersion: 1,
+  downloadBytes: 142_551_184,
+  licence:
+    "The code is MIT. The weights are listed as MIT, and were trained on MUSDB18-HQ, whose terms allow academic and educational use.",
+};
+
+/** A model of the `stem_model_*` commands before anything is downloaded. */
+export const stemModelStatus = (
+  model: StemModelId,
+  override: Partial<StemModelStatus> = {},
+): StemModelStatus => ({
+  model,
+  downloaded: false,
+  termsAccepted: false,
+  termsVersion: 1,
+  // The sizes the app pins (src-tauri/src/stems/models.rs); every model is hosted.
+  downloadBytes: {
+    scnet: 52_271_228,
+    "scnet-xl": 216_163_649,
+    htdemucs: 176_589_623,
+    "htdemucs-6s": 116_246_052,
+  }[model],
+  licence: `The terms of ${model}: the weights have no stated licence.`,
+  licenceSummary: "Weights without a stated licence.",
+  available: true,
+  ...override,
+});
+const freshStemModels = (): Record<StemModelId, StemModelStatus> => ({
+  scnet: stemModelStatus("scnet"),
+  "scnet-xl": stemModelStatus("scnet-xl"),
+  htdemucs: stemModelStatus("htdemucs"),
+  "htdemucs-6s": stemModelStatus("htdemucs-6s"),
+});
+
 type CommandHandler = (args?: InvokeArgs) => unknown;
 type MockMonitor = { params: MonitorParams; device: string | null; channel: number | null };
 
@@ -68,6 +146,12 @@ export const backend = {
   mixes: new Map<string, MixerSettings>(),
   /** Path the Open dialog picks, or `null` for Cancel. */
   dialogResult: null as string | null,
+  /** The linked cloud folder `get_cloud_folder` returns (none by default). */
+  cloudFolder: null as string | null,
+  /** The `.sbstems` files `list_cloud_stems` returns (newest first). */
+  cloudStems: [] as CloudStem[],
+  /** The `.sbstems` files `cloud_list_stems` returns for each connected account (newest first). */
+  driveStems: {} as Record<string, CloudStemFile[]>,
   /** What `cloud_accounts` returns (none connected by default). */
   cloudAccounts: [] as {
     provider: string;
@@ -92,6 +176,18 @@ export const backend = {
   projectSettings: new Map<string, MixerSettings>(),
   /** Usage counter settings (see `src-tauri/src/telemetry.rs`); builds without an endpoint have none. */
   usage: { enabled: true, available: false, noticeSeen: true },
+  /** The separated songs `stems_list` returns (newest first). */
+  stemSongs: [] as StemSong[],
+  /** `.sbstems` paths the system opened before the page was listening (the Rust queue). */
+  pendingStemBundles: [] as string[],
+  /** What `stems_detect_tempo` returns. */
+  stemTempo: { ...STEM_TEMPO } as StemTempo,
+  /** What `umx_model_status` returns. */
+  umx: { ...UMX_STATUS } as UmxStatus,
+  /** The song `stems_open_bundle` returns. */
+  bundleSong: { ...STEM_SONG, id: "bbbbbbbbbbbbbbbb", name: "Opened Song" } as StemSong,
+  /** What `stem_model_status` returns, by model. */
+  stemModels: freshStemModels(),
   /** The update the updater plugin finds, or `null` when this is the latest version. */
   update: null as { version: string; body?: string } | null,
   /** Makes `check` or the download fail with this message. */
@@ -131,6 +227,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.mixes.clear();
   backend.dialogResult = null;
   backend.cloudAccounts = [];
+  backend.cloudFolder = null;
+  backend.cloudStems = [];
   backend.menuState = null;
   backend.recent = [];
   backend.pendingOpen = [];
@@ -138,6 +236,12 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.written.clear();
   backend.projectSettings.clear();
   backend.usage = { enabled: true, available: false, noticeSeen: true };
+  backend.stemSongs = [];
+  backend.bundleSong = { ...STEM_SONG, id: "bbbbbbbbbbbbbbbb", name: "Opened Song" };
+  backend.pendingStemBundles = [];
+  backend.stemTempo = { ...STEM_TEMPO };
+  backend.umx = { ...UMX_STATUS };
+  backend.stemModels = freshStemModels();
   backend.update = null;
   backend.updateError = null;
   backend.updateBytes = 3000;
@@ -193,14 +297,119 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         // No folder linked and none detected; no cloud accounts or pending uploads (#187).
         case "get_cloud_folder":
-          return null;
+          return backend.cloudFolder;
+        case "list_cloud_stems":
+          return backend.cloudStems;
+        // Mirrors the Rust command: a path in the linked folder, "not-found" without one.
+        case "stems_cloud_save_path": {
+          if (!backend.cloudFolder) return fail("not-found", "No cloud folder is linked.");
+          return `${backend.cloudFolder}/${(args as { name: string }).name}.sbstems`;
+        }
+        // An estimate: the original adds 25 MB to the stems.
+        case "stems_estimate_bundle":
+          return {
+            bytes: (args as { includeOriginal: boolean }).includeOriginal
+              ? 80 * 1024 * 1024
+              : 55 * 1024 * 1024,
+          };
         case "cloud_accounts":
           return backend.cloudAccounts.map((a) => ({ configured: true, ...a }));
+        case "cloud_list_stems":
+          return backend.driveStems[(args as { provider: string }).provider] ?? [];
+        // Saving to an account: the file is named after the song, as the Rust command does.
+        case "stems_cloud_save": {
+          const { id, provider, includeOriginal } = (
+            args as {
+              request: { id: string; provider: string; includeOriginal: boolean };
+            }
+          ).request;
+          const name = backend.stemSongs.find((song) => song.id === id)?.name ?? STEM_SONG.name;
+          return {
+            item: `${provider}:1`,
+            name: `${name}.sbstems`,
+            provider,
+            bytes: 24_000_000,
+            originalIncluded: includeOriginal,
+          };
+        }
+        case "stems_cloud_open": {
+          const { item } = (args as { request: { item: string } }).request;
+          const opened = { ...backend.bundleSong, savedPath: item };
+          backend.stemSongs = [opened, ...backend.stemSongs.filter((s) => s.id !== opened.id)];
+          return opened;
+        }
         case "detect_cloud_folders":
         case "cloud_pending":
         case "cloud_flush":
           return [];
         case "cloud_disconnect":
+          return null;
+        // Stem separation (#186). Tests override `stems_separate`, `stems_read` and
+        // `stems_render_mix` to play a part.
+        case "stems_list":
+          return backend.stemSongs;
+        case "stems_delete":
+          backend.stemSongs = backend.stemSongs.filter(
+            (song) => song.id !== (args as { id: string }).id,
+          );
+          return null;
+        case "take_pending_stem_bundles":
+          return backend.pendingStemBundles.splice(0);
+        case "stems_touch":
+        case "stems_pin": {
+          const { id, pinned } = args as { id: string; pinned?: boolean };
+          backend.stemSongs = backend.stemSongs.map((song) =>
+            song.id !== id
+              ? song
+              : cmd === "stems_pin"
+                ? { ...song, pinned: pinned ?? false }
+                : { ...song, lastOpened: Date.now() },
+          );
+          return null;
+        }
+        // Saving writes the file at `dest` and marks the song as saved there; opening a file
+        // returns the song (tests set `backend.bundleSong`) as saved at that path.
+        case "stems_save_bundle": {
+          const { id, dest, includeOriginal } = (
+            args as { request: { id: string; dest: string; includeOriginal: boolean } }
+          ).request;
+          backend.stemSongs = backend.stemSongs.map((song) =>
+            song.id === id ? { ...song, savedPath: dest } : song,
+          );
+          return { path: dest, bytes: 24_000_000, originalIncluded: includeOriginal };
+        }
+        case "stems_open_bundle": {
+          const opened = { ...backend.bundleSong, savedPath: (args as { path: string }).path };
+          backend.stemSongs = [opened, ...backend.stemSongs.filter((s) => s.id !== opened.id)];
+          return opened;
+        }
+        case "stems_detect_tempo":
+          return backend.stemTempo;
+        case "stems_cache_info":
+          return {
+            bytes: backend.stemSongs.reduce((sum, song) => sum + song.bytes, 0),
+            count: backend.stemSongs.length,
+            limitBytes: 2 * 1024 ** 3,
+          };
+        case "stems_cancel":
+        case "umx_model_cancel":
+        case "umx_model_accept_terms":
+          if (cmd === "umx_model_accept_terms") backend.umx.termsAccepted = true;
+          return null;
+        case "umx_model_status":
+          return backend.umx;
+        case "stem_model_cancel":
+          return null;
+        case "stem_model_accept_terms":
+          backend.stemModels[(args as { model: StemModelId }).model].termsAccepted = true;
+          return null;
+        case "stem_model_status":
+          return backend.stemModels[(args as { model: StemModelId }).model];
+        case "stem_model_remove":
+          backend.stemModels[(args as { model: StemModelId }).model].downloaded = false;
+          return null;
+        case "umx_model_remove":
+          backend.umx.downloaded = false;
           return null;
         case "get_usage_settings":
           return backend.usage;
@@ -252,6 +461,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         }
         case "plugin:opener|open_url":
+        case "plugin:opener|reveal_item_in_dir":
         case "plugin:process|restart":
         case "plugin:resources|close":
           return null;
@@ -356,6 +566,11 @@ export async function emitOpenRecent(path: string) {
 export async function emitOpenExternalFiles(paths: string[]) {
   backend.pendingOpen.push(...paths);
   await emit("open-external-file");
+}
+
+/** Simulates the system opening a `.sbstems` file: the core sends its path. */
+export async function emitStemBundleOpened(path: string) {
+  await emit("stems-bundle-opened", { path });
 }
 
 /** Simulates the OS dragging files onto the window (Tauri webview events). */

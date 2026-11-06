@@ -1,5 +1,5 @@
 //! The in-app updater is configured in files, not code: a wrong endpoint, a missing public key or a
-//! missing permission only shows up when a user clicks "Check for Updates…" in a released build.
+//! missing permission only shows up when a user clicks "Check for Updates" in a released build.
 //! These checks catch that in CI instead (docs/release.md).
 
 use std::path::Path;

@@ -128,7 +128,14 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
   const downloading = ai.download !== null;
   const index = STEPS.indexOf(step);
   // Opened from the AI menu there is nothing to go back to.
-  const back = returnTo === "audio" ? "Import from Audio" : returnTo ? "recording" : null;
+  const back =
+    returnTo === "audio"
+      ? "Import from Audio"
+      : returnTo === "models"
+        ? "Record to Tab Models"
+        : returnTo
+          ? "recording"
+          : null;
 
   const start = () => {
     setAttempt(target);
@@ -182,9 +189,11 @@ function Installer({ ai, close }: { ai: AiState; close: () => void }) {
     done: (
       <>
         MuScriptor ({info.label}) is now on this computer, and you&apos;ve confirmed the terms.{" "}
-        {back
-          ? `Go back to ${back} and pick the AI mode to start using it.`
-          : "Open Import from Audio or Record to Tab from the AI menu to start using it."}
+        {returnTo === "models"
+          ? `Go back to ${back} to see it there, then pick the AI mode in Record to Tab or Import from Audio.`
+          : back
+            ? `Go back to ${back} and pick the AI mode to start using it.`
+            : "Open Import from Audio or Record to Tab from the AI menu to start using it."}
       </>
     ),
   };

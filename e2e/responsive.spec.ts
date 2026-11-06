@@ -84,8 +84,8 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
       await expect(banner.getByRole("button", { name: "Fix bar" })).toBeInViewport();
 
       for (const [button, item] of [
-        ["File", "Save As…"],
-        ["Tools", "Transpose…"],
+        ["File", "Save As"],
+        ["Tools", "Transpose"],
       ] as const) {
         await app.getByRole("button", { name: button, exact: true }).click();
         await expect(app.getByRole("menuitem", { name: item })).toBeInViewport();
@@ -273,7 +273,7 @@ test("practice monitor controls stay reachable in a short and narrow popup", asy
     const monitor = popup.getByRole("switch", { name: "Monitor my input" });
     await monitor.scrollIntoViewIfNeeded();
     await expect(monitor).toBeInViewport();
-    const settings = popup.getByRole("button", { name: "Input settings…" });
+    const settings = popup.getByRole("button", { name: "Input settings" });
     await settings.scrollIntoViewIfNeeded();
     await expect(settings).toBeInViewport();
     const box = await popup.boundingBox();

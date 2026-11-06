@@ -8,6 +8,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 import type { EffectSlot } from "@/lib/audio/effects";
 import type { RecordedNote } from "@/lib/import/recording";
@@ -17,7 +18,8 @@ import type { Interpretation } from "@/lib/score/interpretation";
 export type MenuAction =
   | "new-song"
   | "open"
-  | "ai-models"
+  | "record-models"
+  | "stem-models"
   | "import-audio"
   | "record-to-tab"
   | "clear-recent"
@@ -569,6 +571,15 @@ export async function detectCloudFolders(): Promise<CloudFolderCandidate[]> {
 export async function listCloudScores(): Promise<CloudScore[]> {
   if (!isTauri()) return [];
   return invoke<CloudScore[]>("list_cloud_scores");
+}
+
+/** A saved separation (`.sbstems`) in the linked cloud folder; the same shape as a song. */
+export type CloudStem = CloudScore;
+
+/** The `.sbstems` files in the linked cloud folder, newest first. Empty in a browser. */
+export async function listCloudStems(): Promise<CloudStem[]> {
+  if (!isTauri()) return [];
+  return invoke<CloudStem[]>("list_cloud_stems");
 }
 
 /** Native folder dialog for the cloud folder. Resolves to the path, or `null` if cancelled. */
@@ -1213,6 +1224,12 @@ export async function downloadPianoModel(onProgress?: (fraction: number) => void
   }
 }
 
+/** Deletes the downloaded high-accuracy piano model (about 55 MB). Refused while it downloads. */
+export async function removePianoModel(): Promise<PianoModelStatus> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return invoke<PianoModelStatus>("piano_model_remove");
+}
+
 // --- MuScriptor, the optional AI model (#150) --------------------------------
 
 const MUSCRIPTOR_PROGRESS_EVENT = "muscriptor-model-download-progress";
@@ -1354,3 +1371,488 @@ export const savePluginState = (track: number | "monitor" | null, sound: number,
 /** Live status of every plugin block of a chain. */
 export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
   call<PluginSlotInfo[]>("audio_plugin_info", { track, sound });
+
+// --- Stem separation (#186) --------------------------------------------------
+
+const STEMS_PROGRESS_EVENT = "stems-progress";
+const UMX_PROGRESS_EVENT = "umx-model-download-progress";
+const STEM_MODEL_PROGRESS_EVENT = "stem-model-download-progress";
+const STEMS_BUNDLE_PROGRESS_EVENT = "stems-bundle-progress";
+/** Mirrors `BUNDLE_OPENED_EVENT` in `src-tauri/src/stems`: the system opened a `.sbstems` file. */
+export const STEMS_BUNDLE_OPENED_EVENT = "stems-bundle-opened";
+
+/**
+ * The parts a song is split into, in the order the page lists them. Mirrors `StemKind`. Guitar and
+ * piano exist only in songs made by the 6-source engine (`htdemucs-6s`).
+ */
+export const STEM_KINDS = [
+  "drums",
+  "bass",
+  "vocals",
+  "guitar",
+  "piano",
+  "panned",
+  "other",
+] as const;
+export type StemKindId = (typeof STEM_KINDS)[number];
+
+/**
+ * Fast is signal processing and built in. The others are optional downloaded models: `neural` is
+ * Open-Unmix UMX-HQ (the first one offered, so its id stayed), then SCNet Small, SCNet XL and
+ * HTDemucs and its 6-source variant (adds guitar and piano). Mirrors `StemEngine` in
+ * `src-tauri/src/stems/mod.rs`.
+ */
+export type StemEngine = "fast" | "neural" | "scnet" | "scnet-xl" | "htdemucs" | "htdemucs-6s";
+
+/** Mirrors `SeparateRequest` in `src-tauri/src/stems/mod.rs`. */
+export interface SeparateRequest {
+  path: string;
+  /** The parts to pull out; "other" is always made. The neural engines ignore this and `strongDrums`. */
+  kinds: StemKindId[];
+  engine: StemEngine;
+  strongDrums: boolean;
+}
+
+export interface StemInfo {
+  kind: StemKindId;
+  bytes: number;
+}
+
+/** A separated song in the library (`<app data>/stems/<id>/`). */
+export interface StemSong {
+  id: string;
+  /** The file's name without its extension. */
+  name: string;
+  durationSeconds: number;
+  sampleRate: number;
+  engine: StemEngine;
+  strongDrums: boolean;
+  stems: StemInfo[];
+  /** The file was mono: vocals and panned parts cannot be told apart. */
+  mono: boolean;
+  /** Parts that were asked for but could not be separated. */
+  skipped: StemKindId[];
+  /** How much of the song sits hard to one side (0 to 1). */
+  pannedShare: number;
+  bytes: number;
+  createdAtMs: number;
+  /** Kept at the top of the library: the size limit never removes it. */
+  pinned: boolean;
+  /** When the song was last opened, in milliseconds (null: never since it was made). */
+  lastOpened: number | null;
+  /** Where the song was last saved as a `.sbstems` file (null: never saved). */
+  savedPath: string | null;
+  /** The original song is available to add to a saved file. */
+  hasOriginal: boolean;
+}
+
+export type StemStage = "reading" | "separating" | "saving" | "done";
+
+export interface StemProgress {
+  stage: StemStage;
+  /** 0 to 1 within the stage. */
+  fraction: number;
+}
+
+export interface StemCacheInfo {
+  bytes: number;
+  count: number;
+  limitBytes: number;
+}
+
+/** What Rust says when {@link cancelStemSeparation} stopped the running job (`separation::STOPPED`). */
+export const STEMS_STOPPED = "Stem separation stopped.";
+
+/** True for the error of a separation that was stopped on purpose. */
+export const isStemsStopped = (error: unknown): boolean =>
+  (typeof error === "string" ? error : (error as { message?: unknown } | null)?.message) ===
+  STEMS_STOPPED;
+
+/** Native Open dialog for the song to separate. */
+export async function pickStemFile(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: "Choose a song to separate",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Audio files", extensions: [...AUDIO_EXTENSIONS] }],
+  });
+}
+
+/**
+ * Splits a song into stems on this computer. `onProgress` gets each stage and the fraction done
+ * in it. Rejects with {@link STEMS_STOPPED} after {@link cancelStemSeparation}. Separating the
+ * same file with the same options again returns the saved song at once.
+ */
+export async function separateStems(
+  request: SeparateRequest,
+  onProgress?: (progress: StemProgress) => void,
+): Promise<StemSong> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<StemProgress>(STEMS_PROGRESS_EVENT, (event) => onProgress(event.payload))
+    : () => {};
+  try {
+    return await invoke<StemSong>("stems_separate", { request });
+  } finally {
+    stopListening();
+  }
+}
+
+/** Stops the running {@link separateStems}, which then rejects. */
+export async function cancelStemSeparation(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("stems_cancel");
+}
+
+/** The separated songs, newest first. */
+export const listStemSongs = () => call<StemSong[]>("stems_list");
+
+export const stemCacheInfo = () => call<StemCacheInfo>("stems_cache_info");
+
+export const deleteStemSong = (id: string) => call<void>("stems_delete", { id });
+
+/** Deletes every separated song. Resolves to the bytes freed. */
+export const clearStemSongs = () => call<number>("stems_clear");
+
+/** Marks the song as just opened, so the start screen lists it first. */
+export const touchStemSong = (id: string) => call<void>("stems_touch", { id });
+
+/** Keeps (or stops keeping) the song out of the library's size limit. */
+export const pinStemSong = (id: string, pinned: boolean) => call<void>("stems_pin", { id, pinned });
+
+/** The extension of a saved separation, and the name the file dialogs give it. */
+export const STEMS_BUNDLE_EXTENSION = "sbstems";
+export const STEMS_BUNDLE_TYPE_NAME = "Smart Beat stems";
+
+/** Mirrors `SaveBundleRequest` in `src-tauri/src/stems`. */
+export interface SaveBundleRequest {
+  id: string;
+  /** The file to write, ending in `.sbstems`. */
+  dest: string;
+  /** Add the song itself, so the file works on its own. */
+  includeOriginal: boolean;
+}
+
+export interface SaveBundleResult {
+  path: string;
+  bytes: number;
+  /** False when the original was asked for but could not be added. */
+  originalIncluded: boolean;
+}
+
+export interface BundleProgress {
+  /**
+   * Writing and reading are the file on this computer; a save to an account also uploads it, and
+   * an open from one downloads it first.
+   */
+  stage: "writing" | "reading" | "uploading" | "downloading";
+  /** 0 to 1 within the stage. */
+  fraction: number;
+}
+
+/** Native Save dialog for a separated song; resolves to the path, or `null` if cancelled. */
+export async function pickStemBundleDestination(defaultName: string): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return saveDialog({
+    title: "Save stems",
+    defaultPath: `${defaultName}.${STEMS_BUNDLE_EXTENSION}`,
+    filters: [{ name: STEMS_BUNDLE_TYPE_NAME, extensions: [STEMS_BUNDLE_EXTENSION] }],
+  });
+}
+
+/**
+ * Where a song called `name` is saved inside the linked cloud folder (a clean file name, numbered
+ * if it exists). Rejects with kind "not-found" when no folder is linked or it is gone.
+ */
+export const stemsCloudSavePath = (name: string) => call<string>("stems_cloud_save_path", { name });
+
+/** About how big the `.sbstems` file of a song will be (an estimate), in bytes. */
+export const estimateStemBundle = (id: string, includeOriginal: boolean) =>
+  call<{ bytes: number }>("stems_estimate_bundle", { id, includeOriginal });
+
+/** Native Open dialog for a saved separation; resolves to the path, or `null` if cancelled. */
+export async function pickStemBundle(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: "Open saved stems",
+    multiple: false,
+    directory: false,
+    filters: [{ name: STEMS_BUNDLE_TYPE_NAME, extensions: [STEMS_BUNDLE_EXTENSION] }],
+  });
+}
+
+/** Runs `job` while the bundle progress events go to `onProgress`. */
+async function withBundleProgress<T>(
+  onProgress: ((progress: BundleProgress) => void) | undefined,
+  job: () => Promise<T>,
+): Promise<T> {
+  const stopListening = onProgress
+    ? await listen<BundleProgress>(STEMS_BUNDLE_PROGRESS_EVENT, (event) =>
+        onProgress(event.payload),
+      )
+    : () => {};
+  try {
+    return await job();
+  } finally {
+    stopListening();
+  }
+}
+
+/** Writes a separated song to a `.sbstems` file, with or without the original song. */
+export async function saveStemBundle(
+  request: SaveBundleRequest,
+  onProgress?: (progress: BundleProgress) => void,
+): Promise<SaveBundleResult> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withBundleProgress(onProgress, () =>
+    invoke<SaveBundleResult>("stems_save_bundle", { request }),
+  );
+}
+
+/** Reads a `.sbstems` file into the library and returns its song. */
+export async function openStemBundle(
+  path: string,
+  onProgress?: (progress: BundleProgress) => void,
+): Promise<StemSong> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withBundleProgress(onProgress, () => invoke<StemSong>("stems_open_bundle", { path }));
+}
+
+/** The cloud services the stems can be saved to, as in `CloudProvider` of `@/lib/cloud`. */
+export type StemCloudProvider = "drive" | "onedrive" | "dropbox";
+
+/** A `.sbstems` file in a connected account (Rust `RemoteFile`). `id` is the item id (`drive:<id>`). */
+export interface CloudStemFile {
+  id: string;
+  name: string;
+  revision: string;
+  size: number;
+  modified_ms: number;
+}
+
+/** Mirrors `StemCloudSaveRequest` in `src-tauri/src/stems`. */
+export interface StemCloudSaveRequest {
+  /** The song in the library. */
+  id: string;
+  provider: StemCloudProvider;
+  /** Add the song itself, so the file works on its own. */
+  includeOriginal: boolean;
+}
+
+/** What a save to an account answers; `item` is its item id (`drive:<id>`). */
+export interface StemCloudSaveResult {
+  item: string;
+  /** The file name the service has, `<song>.sbstems`. */
+  name: string;
+  provider: StemCloudProvider;
+  bytes: number;
+  /** False when the original was asked for but could not be added. */
+  originalIncluded: boolean;
+}
+
+/** Mirrors `STOPPED` in `src-tauri/src/stems/bundle.rs`: what a save or open ends with after Cancel. */
+const STEM_FILE_STOPPED = "Stem file stopped.";
+
+/** The error of a save or open that the person stopped, which is not a failure to report. */
+export const isStemFileStopped = (error: unknown) =>
+  isCommandError(error) && error.message === STEM_FILE_STOPPED;
+
+/** The saved stems (`.sbstems` files only) in a connected account's Smart Beat folder, newest first. */
+export const listCloudStemFiles = (provider: StemCloudProvider) =>
+  call<CloudStemFile[]>("cloud_list_stems", { provider });
+
+/**
+ * Saves a separated song into a connected account: the file is written here, then uploaded.
+ * Progress is `writing` (making the file) and then `uploading`. `cancelStemSeparation` stops it.
+ */
+export async function saveStemBundleToCloud(
+  request: StemCloudSaveRequest,
+  onProgress?: (progress: BundleProgress) => void,
+): Promise<StemCloudSaveResult> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withBundleProgress(onProgress, () =>
+    invoke<StemCloudSaveResult>("stems_cloud_save", { request }),
+  );
+}
+
+/**
+ * Opens a `.sbstems` file of a connected account: downloaded, then read into the library. Progress
+ * is `downloading` and then `reading`. `cancelStemSeparation` stops it.
+ */
+export async function openStemBundleFromCloud(
+  item: string,
+  onProgress?: (progress: BundleProgress) => void,
+): Promise<StemSong> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withBundleProgress(onProgress, () =>
+    invoke<StemSong>("stems_cloud_open", { request: { item } }),
+  );
+}
+
+/**
+ * Subscribes to `.sbstems` files the system asks the app to open (double-click in Finder or
+ * Explorer). Resolves to an unsubscribe function; in a browser there is nothing to listen to.
+ */
+export async function onStemBundleOpened(handler: (path: string) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  const unlisten = await listen<{ path: string }>(STEMS_BUNDLE_OPENED_EVENT, (event) =>
+    handler(event.payload.path),
+  );
+  // Files that arrived before this listener (a double-click that launched the app) are queued
+  // in Rust. Asking for them after listening also tells Rust to send later ones as events.
+  try {
+    const waiting = await invoke<string[]>("take_pending_stem_bundles");
+    waiting.forEach(handler);
+  } catch (cause) {
+    console.error(cause);
+  }
+  return unlisten;
+}
+
+/** Shows a file in Finder or Explorer. */
+export async function revealInFolder(path: string): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  await revealItemInDir(path);
+}
+
+/** The WAV file of one stem (16-bit stereo). */
+export async function readStem(id: string, kind: StemKindId): Promise<ArrayBuffer> {
+  return call<ArrayBuffer>("stems_read", { id, kind });
+}
+
+/**
+ * The stems added up with `gains` (0 to 1 each, mute and solo already applied), slowed to
+ * `speed` (0.5 to 1) without changing the pitch, as a WAV file.
+ */
+export async function renderStemMix(
+  id: string,
+  gains: Partial<Record<StemKindId, number>>,
+  speed: number,
+): Promise<ArrayBuffer> {
+  return call<ArrayBuffer>("stems_render_mix", { id, request: { gains, speed } });
+}
+
+/** Mirrors `Tempo` in `src-tauri/src/separation/tempo.rs`. */
+export interface StemTempo {
+  /** Beats per minute; 0 when there is nothing to measure (silence, a clip of a few seconds). */
+  bpm: number;
+  /** 0 to 1: how clearly the song pulses at that tempo. */
+  confidence: number;
+  /** The first grid beat at or after the start of the file, in seconds. */
+  firstBeatSec: number;
+  /** Other plausible tempos (half and double time, the next peaks), best first. */
+  alternatives: number[];
+  /** One tempo from start to end; a few BPM of drift still counts as steady. */
+  steady: boolean;
+  /** Large, lasting tempo changes covering the song from 0 to its end; empty when steady. */
+  sections: { startSec: number; endSec: number; bpm: number }[];
+}
+
+/**
+ * The tempo of a separated song (analysed once, then kept with the song). A `stems_cancel`
+ * makes it fail with "Tempo detection stopped.".
+ */
+export const detectStemTempo = (id: string) => call<StemTempo>("stems_detect_tempo", { id });
+
+/** Mirrors `UmxStatus` in `src-tauri/src/stems/umx_model.rs`. */
+export interface UmxStatus {
+  downloaded: boolean;
+  termsAccepted: boolean;
+  termsVersion: number;
+  /** The size of the download. */
+  downloadBytes: number;
+  /** The licence wording the user confirms. */
+  licence: string;
+}
+
+export interface UmxDownloadProgress {
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
+export const umxModelStatus = () => call<UmxStatus>("umx_model_status");
+
+/** Records that the user accepted the terms of the neural model. */
+export const acceptUmxTerms = () => call<void>("umx_model_accept_terms");
+
+/** Downloads the neural model. Rejects with "Download stopped." after {@link cancelUmxDownload}. */
+export async function downloadUmxModel(
+  onProgress?: (progress: UmxDownloadProgress) => void,
+): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<UmxDownloadProgress>(UMX_PROGRESS_EVENT, (event) => onProgress(event.payload))
+    : () => {};
+  try {
+    await invoke<void>("umx_model_download");
+  } finally {
+    stopListening();
+  }
+}
+
+export async function cancelUmxDownload(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("umx_model_cancel");
+}
+
+export const removeUmxModel = () => call<void>("umx_model_remove");
+
+// --- The SCNet and HTDemucs models (#186) ----------------------------------------------------
+
+/** The downloadable models that share the `stem_model_*` commands (UMX-HQ has its own). */
+export const STEM_MODELS = ["scnet", "scnet-xl", "htdemucs", "htdemucs-6s"] as const;
+export type StemModelId = (typeof STEM_MODELS)[number];
+
+/** Mirrors `ModelStatus` in `src-tauri/src/stems/models.rs`. */
+export interface StemModelStatus {
+  model: StemModelId;
+  downloaded: boolean;
+  termsAccepted: boolean;
+  termsVersion: number;
+  /** The size of the download, in bytes. */
+  downloadBytes: number;
+  /** The licence wording the user confirms. */
+  licence: string;
+  licenceSummary: string;
+  /** False while the converted model file is not published yet: the download is not offered. */
+  available: boolean;
+}
+
+export interface StemModelDownloadProgress {
+  model: StemModelId;
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
+export const stemModelStatus = (model: StemModelId) =>
+  call<StemModelStatus>("stem_model_status", { model });
+
+/** Records that the user accepted the terms of the model. */
+export const acceptStemModelTerms = (model: StemModelId) =>
+  call<void>("stem_model_accept_terms", { model });
+
+/** Downloads a model. Rejects with "Download stopped." after {@link cancelStemModelDownload}. */
+export async function downloadStemModel(
+  model: StemModelId,
+  onProgress?: (progress: StemModelDownloadProgress) => void,
+): Promise<void> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const stopListening = onProgress
+    ? await listen<StemModelDownloadProgress>(STEM_MODEL_PROGRESS_EVENT, (event) => {
+        if (event.payload.model === model) onProgress(event.payload);
+      })
+    : () => {};
+  try {
+    await invoke<void>("stem_model_download", { model });
+  } finally {
+    stopListening();
+  }
+}
+
+export async function cancelStemModelDownload(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("stem_model_cancel");
+}
+
+export const removeStemModel = (model: StemModelId) => call<void>("stem_model_remove", { model });

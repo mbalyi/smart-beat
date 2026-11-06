@@ -13,6 +13,7 @@
     "updater:allow-check",
     "updater:allow-download-and-install",
     "process:allow-restart",
+    "opener:allow-reveal-item-in-dir",
     {
       "identifier": "opener:allow-open-url",
       "allow": [
@@ -42,6 +43,9 @@
         },
         {
           "url": "https://github.com/mbalyi/smart-beat"
+        },
+        {
+          "url": "https://github.com/mbalyi/smart-beat/blob/main/docs/stem-separation-spike.md"
         },
         {
           "url": "mailto:smart-beat@outlook.com"

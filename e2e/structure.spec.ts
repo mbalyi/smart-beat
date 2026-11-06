@@ -52,7 +52,7 @@ test.describe("song structure (#11)", () => {
     await newSong(app); // four empty 4/4 bars at 120 BPM: 8 seconds
     await expect(app.getByRole("timer")).toHaveText("0:00 / 0:08");
 
-    await app.getByRole("button", { name: "Bar…" }).click();
+    await app.getByRole("button", { name: "Bar", exact: true }).click();
     let dialog = app.getByRole("dialog", { name: "Bar 1" });
     await dialog.getByRole("spinbutton", { name: "Beats per bar" }).fill("3");
     await dialog.getByRole("spinbutton", { name: "Beats per minute" }).fill("60");
@@ -93,7 +93,7 @@ test.describe("song structure (#11)", () => {
     await expect(app.getByRole("timer")).toHaveText("0:00 / 0:10");
     await expect.poll(() => app.evaluate(() => window.__menuState?.repeatEnd)).toBe(true);
 
-    await app.getByRole("button", { name: "Bar…" }).click();
+    await app.getByRole("button", { name: "Bar", exact: true }).click();
     const dialog = app.getByRole("dialog", { name: "Bar 1" });
     await dialog.getByRole("checkbox", { name: "D.S. al Fine", exact: true }).click();
     await expect(dialog.getByRole("status")).toContainText(

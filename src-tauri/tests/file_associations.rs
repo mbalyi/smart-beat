@@ -8,6 +8,9 @@ use std::path::Path;
 use serde_json::Value;
 use smart_beat_lib::score_file::EXTENSIONS;
 
+/// Not a score, so not in `EXTENSIONS`: a saved stem separation (`stems::bundle`).
+const STEMS_EXTENSION: &str = "sbstems";
+
 /// Too generic to claim: registering them would take over every XML and text file.
 const NOT_REGISTERED: [&str; 2] = ["xml", "txt"];
 
@@ -31,6 +34,7 @@ fn every_score_format_is_registered_except_the_generic_ones() {
         .iter()
         .filter(|e| !NOT_REGISTERED.contains(e))
         .map(|e| (*e).to_owned())
+        .chain([STEMS_EXTENSION.to_owned()])
         .collect();
     assert_eq!(registered, expected);
 }

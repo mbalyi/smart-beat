@@ -48,7 +48,7 @@ export const speedTrainerTour: TourDefinition = {
       id: "trainer-bars",
       target: "trainer-bars",
       title: "Speed Trainer: the bars",
-      body: "Speed Trainer… opens this. It starts with your loop; pick a section or change the bars.",
+      body: "Speed Trainer opens this. It starts with your loop; pick a section or change the bars.",
       needsSong: true,
       show: { dialog: "speed-trainer", play: false },
       inDialog: true,

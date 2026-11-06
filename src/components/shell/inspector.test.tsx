@@ -112,8 +112,8 @@ describe("Inspector: TRACK tab", () => {
   it("opens the track settings and the lyrics", async () => {
     const { user, actions } = setup();
 
-    await user.click(screen.getByRole("button", { name: "Track settings…" }));
-    await user.click(screen.getByRole("button", { name: "Lyrics…" }));
+    await user.click(screen.getByRole("button", { name: "Track settings" }));
+    await user.click(screen.getByRole("button", { name: "Lyrics" }));
 
     expect(actions.onTrackSettings).toHaveBeenCalledOnce();
     expect(actions.onLyrics).toHaveBeenCalledOnce();
@@ -151,9 +151,9 @@ describe("Inspector: SONG tab", () => {
     expect(within(info).getByText("♩ = 120")).toBeInTheDocument();
     expect(screen.queryByText(/wrong length/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Transpose…" }));
+    await user.click(screen.getByRole("button", { name: "Transpose" }));
     await user.click(screen.getByRole("button", { name: "Fix bar lengths" }));
-    await user.click(screen.getByRole("button", { name: "Change the tempo…" }));
+    await user.click(screen.getByRole("button", { name: "Change the tempo" }));
     expect(actions.onTempo).toHaveBeenCalledOnce();
     expect(actions.onTranspose).toHaveBeenCalledOnce();
     expect(actions.onFixBars).toHaveBeenCalledOnce();
@@ -195,7 +195,7 @@ describe("Inspector: effects", () => {
       expect.objectContaining({ type: "gate", enabled: true }),
       expect.objectContaining({ type: "cab", enabled: false }),
     ]);
-    await user.click(screen.getByRole("button", { name: "Pedalboard…" }));
+    await user.click(screen.getByRole("button", { name: "Pedalboard" }));
     expect(actions.onEditEffects).toHaveBeenCalled();
     await expectNoA11yViolations();
   });
@@ -268,7 +268,7 @@ describe("Inspector: interpretation", () => {
     const { user, actions } = setup({
       track: { ...SUMMARY.tracks[2]!, kind: "drums", hasTablature: false, canShowTab: true },
     });
-    await user.click(screen.getByRole("button", { name: "Drum mixer…" }));
+    await user.click(screen.getByRole("button", { name: "Drum mixer" }));
     expect(actions.onDrumMixer).toHaveBeenCalled();
   });
 
@@ -278,12 +278,12 @@ describe("Inspector: interpretation", () => {
     });
     await user.click(screen.getByRole("button", { name: "Normalize drum notation" }));
     expect(actions.onNormalizeDrums).toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Copy to instrument…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy to instrument" })).not.toBeInTheDocument();
   });
 
   it("copies a track to another instrument, not for drums (#134)", async () => {
     const { user, actions } = setup();
-    await user.click(screen.getByRole("button", { name: "Copy to instrument…" }));
+    await user.click(screen.getByRole("button", { name: "Copy to instrument" }));
     expect(actions.onCopyToInstrument).toHaveBeenCalled();
     expect(
       screen.queryByRole("button", { name: "Normalize drum notation" }),
@@ -292,7 +292,7 @@ describe("Inspector: interpretation", () => {
 
   it("has no drum mixer button on other tracks", () => {
     setup();
-    expect(screen.queryByRole("button", { name: "Drum mixer…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Drum mixer" })).not.toBeInTheDocument();
   });
 
   it("picks an imported drum kit for a drum track (#40)", async () => {
@@ -324,7 +324,7 @@ describe("Inspector: interpretation", () => {
     await user.click(picker);
     await user.click(await screen.findByRole("option", { name: "Free Kit" }));
     expect(onChange).toHaveBeenCalledWith("free-kit");
-    await user.click(screen.getByRole("button", { name: "Kits…" }));
+    await user.click(screen.getByRole("button", { name: "Kits" }));
     expect(onManage).toHaveBeenCalled();
   });
 });

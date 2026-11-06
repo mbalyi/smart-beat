@@ -277,7 +277,7 @@ export function DrumKitDialog({
             onClick={() => void pickAndImport()}
           >
             <FolderOpenIcon data-icon="inline-start" />
-            {busy ? "Importing…" : "Import a kit…"}
+            {busy ? "Importing…" : "Import a kit"}
           </Button>
           <Button onClick={() => onOpenChange(false)}>Done</Button>
         </DialogFooter>

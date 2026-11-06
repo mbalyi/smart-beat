@@ -34,7 +34,7 @@ describe("PracticeControls", () => {
     await user.click(screen.getByRole("button", { name: "Loop" }));
     await user.click(screen.getByRole("button", { name: "Metronome" }));
     await user.click(screen.getByRole("button", { name: "Count-in" }));
-    await user.click(screen.getByRole("button", { name: "Speed Trainer…" }));
+    await user.click(screen.getByRole("button", { name: "Speed Trainer" }));
 
     expect(props.onLoopChange).toHaveBeenCalledWith(true);
     expect(props.onMetronomeChange).toHaveBeenCalledWith(true);

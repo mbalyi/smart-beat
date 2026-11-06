@@ -204,7 +204,7 @@ export function DrumMixerDialog({
         <DialogFooter>
           {onBrowsePresets && (
             <Button variant="outline" className="sm:mr-auto" onClick={onBrowsePresets}>
-              Drum mix presets…
+              Drum mix presets
             </Button>
           )}
           <Button variant="outline" onClick={() => onChange(null)} disabled={!mixer}>

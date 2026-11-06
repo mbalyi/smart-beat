@@ -103,7 +103,7 @@ export function HelpMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => select("settings")}>
           <SettingsIcon />
-          Settings…
+          Settings
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => select("licenses")}>
           <ScaleIcon />
@@ -112,7 +112,7 @@ export function HelpMenu({
         {onCheckForUpdates && (
           <DropdownMenuItem onSelect={onCheckForUpdates}>
             <DownloadIcon />
-            Check for Updates…
+            Check for Updates
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />

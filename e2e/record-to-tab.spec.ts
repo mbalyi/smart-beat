@@ -320,13 +320,13 @@ test.describe("Record to Tab (#108)", () => {
     expect(recordBox!.x).toBeLessThan(playBox!.x);
     expect(Math.abs(recordBox!.y - fileBox!.y)).toBeLessThan(10);
     await record.hover();
-    await expect(app.getByRole("tooltip", { name: "Record to Tab…" })).toBeVisible();
+    await expect(app.getByRole("tooltip", { name: "Record to Tab" })).toBeVisible();
     await record.click();
     await expect(app.getByRole("dialog", { name: /^Record to Tab/ })).toBeVisible();
     await app.keyboard.press("Escape");
     // The File menu no longer lists it: Record to Tab lives in the AI menu.
     await file.click();
-    await expect(app.getByRole("menuitem", { name: /^Record to Tab…/ })).toHaveCount(0);
+    await expect(app.getByRole("menuitem", { name: /^Record to Tab/ })).toHaveCount(0);
   });
 
   test("the dialog works at a narrow width", async ({ app }) => {
@@ -364,7 +364,7 @@ test.describe("Record to Tab (#108)", () => {
     await app.getByRole("button", { name: "Fretboard" }).click();
     await app
       .getByRole("region", { name: "Fretboard" })
-      .getByRole("button", { name: /^Record…/ })
+      .getByRole("button", { name: /^Record/ })
       .click();
     const dialog = app.getByRole("dialog", { name: /^Record to Tab/ });
     await expect(dialog.getByRole("combobox", { name: "Track" })).toHaveText("Guitar");

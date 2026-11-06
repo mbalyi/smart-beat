@@ -60,7 +60,7 @@ export function AudioDropArea({
         onDragOver={(event) => event.preventDefault()}
         onDrop={drop}
       >
-        {chosen ? "Replace recording…" : "Choose recording…"}
+        {chosen ? "Replace recording" : "Choose recording"}
       </Button>
       {children}
     </div>

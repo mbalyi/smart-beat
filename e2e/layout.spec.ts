@@ -81,7 +81,7 @@ test.describe("song layout (#35)", () => {
     const toolbar = sizes.filter(
       (s) => !["Theme", "Help", "Smart Beat"].includes(s.name) && s.name !== "Track",
     );
-    for (const name of ["Open…", "File", "Tools", "Undo", "Play", "Stop", "Edit", "Mixer"]) {
+    for (const name of ["Open", "File", "Tools", "Undo", "Play", "Stop", "Edit", "Mixer"]) {
       expect(toolbar.map((s) => s.name)).toContain(name);
     }
     expect(new Set(toolbar.map((s) => s.height)), JSON.stringify(toolbar)).toEqual(new Set([28]));
@@ -94,7 +94,7 @@ test.describe("song layout (#35)", () => {
 
     const header = app.getByRole("banner");
     const logo = await header.getByRole("img", { name: "Smart Beat" }).boundingBox();
-    const open = await header.getByRole("button", { name: "Open…" }).boundingBox();
+    const open = await header.getByRole("button", { name: "Open" }).boundingBox();
     const display = await header.getByRole("group", { name: "Display" }).boundingBox();
     const theme = await header.getByRole("button", { name: "Theme" }).boundingBox();
     const help = await header.getByRole("button", { name: "Help" }).boundingBox();
@@ -182,7 +182,7 @@ test.describe("song layout (#35)", () => {
 
     await app.getByRole("tab", { name: "Song" }).click();
     await expect(inspector.getByText("Practice Song")).toBeVisible();
-    await expect(inspector.getByRole("button", { name: "Transpose…" })).toBeVisible();
+    await expect(inspector.getByRole("button", { name: "Transpose" })).toBeVisible();
 
     await app.getByRole("button", { name: "Inspector" }).click();
     await expect(inspector).toBeHidden();
@@ -231,7 +231,7 @@ test.describe("song layout (#35)", () => {
     await tabs.getByRole("button", { name: "Close Practice Song" }).click();
     await expect(app.getByRole("heading", { level: 1, name: "Structure Song" })).toBeVisible();
     await tabs.getByRole("button", { name: "Close Structure Song" }).click();
-    await expect(app.getByRole("button", { name: "Open a file…" })).toBeVisible();
+    await expect(app.getByRole("button", { name: "Open a tab" })).toBeVisible();
   });
 
   test("opening a song that is already open shows its tab", async ({ app }) => {
@@ -285,7 +285,7 @@ test.describe("song layout (#35)", () => {
     );
     await app.getByRole("button", { name: "Actions for Guitar" }).focus();
     await app.keyboard.press("Enter");
-    await expect(app.getByRole("menuitem", { name: "Settings…" })).toBeVisible();
+    await expect(app.getByRole("menuitem", { name: "Settings" })).toBeVisible();
     await app.keyboard.press("Escape");
   });
 });

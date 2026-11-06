@@ -69,12 +69,12 @@ test.describe("anonymous usage counters (#99)", () => {
     }
   });
 
-  test("Help → Settings… switches the counters off and on", async ({ app }) => {
+  test("Help → Settings switches the counters off and on", async ({ app }) => {
     await app.evaluate(() => {
       window.__usage = { enabled: true, available: true, noticeSeen: true };
     });
     await app.getByRole("button", { name: "Help" }).click();
-    await app.getByRole("menuitem", { name: "Settings…" }).click();
+    await app.getByRole("menuitem", { name: "Settings" }).click();
 
     const dialog = app.getByRole("dialog", { name: "Settings" });
     expect((await tracked(app)).filter((e) => e === "settings_open")).toHaveLength(1);
@@ -94,7 +94,7 @@ test.describe("anonymous usage counters (#99)", () => {
 
   test("Settings says so when this build collects nothing", async ({ app }) => {
     await app.getByRole("button", { name: "Help" }).click();
-    await app.getByRole("menuitem", { name: "Settings…" }).click();
+    await app.getByRole("menuitem", { name: "Settings" }).click();
     await expect(app.getByRole("dialog", { name: "Settings" })).toContainText(
       "does not collect any usage statistics",
     );
@@ -107,9 +107,9 @@ test.describe("counters added for 1.0.1 (#153)", () => {
   }) => {
     await openSong(app);
     await app.evaluate((p) => (window.__dialogResult = p), "/music/My Private Bank.sf2");
-    await app.getByRole("button", { name: "SoundFonts…" }).click();
+    await app.getByRole("button", { name: "SoundFonts" }).click();
     const dialog = app.getByRole("dialog", { name: "SoundFonts" });
-    await dialog.getByRole("button", { name: "Import a SoundFont…" }).click();
+    await dialog.getByRole("button", { name: "Import a SoundFont" }).click();
     await dialog.getByRole("button", { name: "Download Arachno" }).click();
     await expect(dialog.getByTestId("catalogue-soundfont").nth(4)).toContainText("Installed");
     await dialog.getByRole("button", { name: "Close" }).click();
@@ -166,7 +166,7 @@ async function trackAction(page: Page, track: string, action: string) {
 test("pedal actions count once and a knob drag sends no effect counters", async ({ app }) => {
   await openSong(app);
   await app.getByRole("button", { name: "Actions for Guitar" }).click();
-  await app.getByRole("menuitem", { name: "Effects (pedalboard)…" }).click();
+  await app.getByRole("menuitem", { name: "Effects (pedalboard)" }).click();
   const dialog = app.getByRole("dialog", { name: /Pedalboard:/ });
   await dialog.getByRole("button", { name: "Add Delay", exact: true }).click();
   const knob = dialog.getByRole("slider", { name: "Delay 1, Time" });

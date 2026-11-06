@@ -177,7 +177,7 @@ describe("SaveTargetDialog", () => {
     expect(screen.getByText("Reconnect Google Drive in Settings")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Save to this computer…" }));
+    await user.click(screen.getByRole("button", { name: "Save to this computer" }));
     expect(onChoose).toHaveBeenCalledWith("computer");
     await user.click(screen.getByTestId("save-target-cancel"));
     expect(onCancel).toHaveBeenCalled();

@@ -66,3 +66,14 @@ describe("latestFeatures", () => {
     expect(latestFeatures([...registry].reverse()).version).toBe("2.0.0");
   });
 });
+
+describe("stem separation in the registry (#186)", () => {
+  it("is announced in 1.2.0", () => {
+    const entry = FEATURE_REGISTRY.find((x) => x.id === "stem-separation");
+    expect(entry).toMatchObject({ title: "Stem separation", since: "1.2.0" });
+    expect(pendingFeatures("1.1.0", "1.2.0", FEATURE_REGISTRY).map((x) => x.id)).toContain(
+      "stem-separation",
+    );
+    expect(pendingFeatures("1.2.0", "1.2.0", FEATURE_REGISTRY)).toEqual([]);
+  });
+});

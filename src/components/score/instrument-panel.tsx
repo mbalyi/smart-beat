@@ -206,7 +206,7 @@ function Fretboard({
             onClick={onOpenTuner}
             className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            Tuner…
+            Tuner
           </button>
         )}
         {onOpenRecord && (
@@ -215,7 +215,7 @@ function Fretboard({
             onClick={onOpenRecord}
             className="rounded-sm font-medium text-foreground underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            Record…
+            Record
             <BetaBadge className="ml-1.5 inline-block align-middle no-underline" />
           </button>
         )}

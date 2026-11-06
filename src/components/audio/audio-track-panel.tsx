@@ -411,7 +411,7 @@ export function AudioTrackPanel({
           The recording “{audio.name}” is not loaded.
           <Button variant="outline" size="sm" onClick={onLocate}>
             <FolderOpenIcon data-icon="inline-start" />
-            Find the file…
+            Find the file
           </Button>
         </p>
       )}

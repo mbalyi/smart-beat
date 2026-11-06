@@ -11,7 +11,7 @@
     arch: "aarch64",
   };
   const SHORTCUTS = [
-    { action: "open", menu: "File", label: "Open…", keys: ["⌘", "O"], spoken: "Command+O" },
+    { action: "open", menu: "File", label: "Open", keys: ["⌘", "O"], spoken: "Command+O" },
     {
       action: "quit",
       menu: "File",
@@ -79,7 +79,7 @@
     abort: null,
   };
   /** The high-accuracy piano model (src-tauri/src/recording/piano_model.rs): not downloaded at first. */
-  window.__pianoModel = { installed: false, downloads: 0, fail: null };
+  window.__pianoModel = { installed: false, downloads: 0, removed: 0, fail: null };
   /**
    * MuScriptor, the optional AI model (#150, src-tauri/src/recording/muscriptor_model.rs): nothing
    * downloaded and no terms accepted at first. `hold` keeps a download running until `release()`
@@ -110,6 +110,230 @@
       partialBytes: 0,
     })),
   });
+  /**
+   * Stem separation (#186, src-tauri/src/stems/). `songs` is the library, newest first. `hold`
+   * keeps a separation running until `release()` or a cancel; `fail` makes it reject; `mono`
+   * makes the song a mono file (vocals and panned cannot be separated); `holdRender` keeps a
+   * slowed mix from being rendered until `releaseRender()`; `originalMissing` makes the next
+   * separated songs ones whose original file is gone (`hasOriginal: false`); `clock` stamps
+   * `createdAtMs` and `lastOpened` so the order of the library is stable. `tempo` is what
+   * `stems_detect_tempo` returns (a test can replace it), `tempoRequests` the ids it was asked for.
+   */
+  window.__stems = {
+    tempo: {
+      bpm: 120,
+      confidence: 0.9,
+      firstBeatSec: 0.5,
+      alternatives: [60, 240],
+      steady: true,
+      sections: [],
+    },
+    tempoRequests: [],
+    songs: [],
+    originalMissing: false,
+    clock: 1790000000000,
+    requests: [],
+    reads: [],
+    renders: [],
+    cancelled: 0,
+    hold: false,
+    holdRender: false,
+    fail: null,
+    mono: false,
+    release: null,
+    abort: null,
+    releaseRender: null,
+  };
+  /**
+   * Saved stem files, `.sbstems` (#186, src-tauri/src/stems/bundle.rs). `saves` are the
+   * `stems_save_bundle` requests, `files` the bundles on the fake disk by path (a save adds one;
+   * a test can add a `StemSong` under a path to have it opened with `stems_open_bundle`), `opens`
+   * the paths that were opened. `hold` keeps a save or an open running until `release()` or
+   * `abort()`; `fail` makes the next one reject.
+   */
+  window.__stemBundles = {
+    saves: [],
+    opens: [],
+    files: {},
+    hold: false,
+    fail: null,
+    release: null,
+    abort: null,
+  };
+  /**
+   * The linked cloud folder (#187) and the stems in it (#186). `folder` is the linked folder (`null`
+   * = none, so `get_cloud_folder` answers `null`); `scores` is what `list_cloud_scores` returns.
+   * `list_cloud_stems` lists the saved stem files (`window.__stemBundles.files`) whose path is in
+   * the folder, so a save into it appears there, with the size and time of that save in `meta`
+   * (`size` and `modified_ms`, as the Rust `CloudScore` serializes them). A path in `placeholders`
+   * is a cloud-only file: opening it announces "cloud-download-waiting" and waits until
+   * `download(path)` (the drive app finished) is called. `savePaths` lists the answers of
+   * `stems_cloud_save_path`, `estimates` the `stems_estimate_bundle` requests, `estimateBytes`
+   * overrides the estimate (`null` = the library size plus 3 MiB for the original).
+   */
+  window.__cloud = {
+    folder: null,
+    scores: [],
+    meta: {},
+    placeholders: {},
+    savePaths: [],
+    estimates: [],
+    estimateBytes: null,
+    waiting: {},
+    download(path) {
+      delete window.__cloud.placeholders[path];
+      window.__cloud.waiting[path]?.();
+    },
+  };
+  /**
+   * Stems in connected cloud accounts (#186). `accounts` is what `cloud_accounts` answers (none
+   * connected = none; an entry is `{ provider, label, account }`), `stems` the `.sbstems` files
+   * `cloud_list_stems` lists by provider (a save adds one; the song itself is kept in
+   * `window.__stemBundles.files` under its item id, so it can be opened again), `listError` makes
+   * a provider's listing reject, `saves` and `opens` are the requests, `hold` keeps a save or an
+   * open running until `release()` or a `stems_cancel` (which rejects as the Rust commands do),
+   * `fail` makes the next one reject with that error object.
+   */
+  window.__drives = {
+    accounts: [],
+    stems: {},
+    listError: {},
+    saves: [],
+    opens: [],
+    hold: false,
+    fail: null,
+    release: null,
+    abort: null,
+    counter: 0,
+  };
+  /** Waits while `window.__drives.hold` is set; a `stems_cancel` rejects it as the real ones do. */
+  const heldDriveTransfer = async () => {
+    const drives = window.__drives;
+    if (!drives.hold) return;
+    await new Promise((resolve, reject) => {
+      drives.release = resolve;
+      drives.abort = () => reject({ kind: "io", message: "Stem file stopped." });
+    });
+  };
+  /** The `.sbstems` files in the linked folder, as `CloudStem` (`list_cloud_stems`). */
+  const cloudStems = () => {
+    const cloud = window.__cloud;
+    if (!cloud.folder) return [];
+    const prefix = `${cloud.folder}/`;
+    return Object.keys(window.__stemBundles.files)
+      .filter((path) => path.startsWith(prefix) && path.endsWith(".sbstems"))
+      .map((path) => ({
+        name: path.slice(prefix.length).replace(/\.sbstems$/, ""),
+        path,
+        size: cloud.meta[path]?.size ?? 40 * 1024 * 1024,
+        modified_ms: cloud.meta[path]?.modified_ms ?? 1790000000000,
+        placeholder: Boolean(cloud.placeholders[path]),
+      }));
+  };
+
+  /**
+   * The downloadable stem models (#186, src-tauri/src/stems/umx_model.rs and models.rs), by
+   * engine: `neural` is UMX-HQ (its own `umx_model_*` commands), the rest use `stem_model_*`.
+   * `available: false` is a model that is not published yet. `hold` keeps a download running
+   * until `release()` or a cancel; `fail` makes it reject; `downloads` lists the started ones.
+   */
+  const STEM_MODEL_BYTES = {
+    neural: 142551184,
+    scnet: 52271228,
+    "scnet-xl": 216163649,
+    htdemucs: 176589623,
+    // Hosted since 2026-11-04 (src-tauri/src/stems/models.rs). Set available to false to see it withdrawn.
+    "htdemucs-6s": 116246052,
+  };
+  window.__stemModels = {
+    models: Object.fromEntries(
+      Object.entries(STEM_MODEL_BYTES).map(([engine, bytes]) => [
+        engine,
+        {
+          downloaded: false,
+          termsAccepted: false,
+          termsVersion: 1,
+          downloadBytes: bytes,
+          licence: `The terms of ${engine}: its weights have no stated licence.`,
+          licenceSummary: "Weights without a stated licence.",
+          available: true,
+        },
+      ]),
+    ),
+    downloads: [],
+    removed: [],
+    cancelled: 0,
+    hold: false,
+    fail: null,
+    release: null,
+    abort: null,
+  };
+  /** The status of a model as its command returns it (UMX-HQ has no `model` and no `available`). */
+  const stemModelStatus = (engine) => {
+    const { available, ...status } = window.__stemModels.models[engine];
+    return engine === "neural" ? status : { model: engine, available, ...status };
+  };
+  const stemModelDownload = async (engine) => {
+    const models = window.__stemModels;
+    models.downloads.push(engine);
+    const progress = (fraction) =>
+      window.__emitTauriEvent(
+        engine === "neural" ? "umx-model-download-progress" : "stem-model-download-progress",
+        {
+          ...(engine === "neural" ? {} : { model: engine }),
+          downloadedBytes: Math.round(STEM_MODEL_BYTES[engine] * fraction),
+          totalBytes: STEM_MODEL_BYTES[engine],
+        },
+      );
+    progress(0.5);
+    if (models.hold) {
+      await new Promise((resolve, reject) => {
+        models.release = resolve;
+        models.abort = () => reject({ kind: "audio", message: "Download stopped." });
+      });
+    }
+    if (models.fail) throw { kind: "network", message: models.fail };
+    progress(1);
+    models.models[engine].downloaded = true;
+    return null;
+  };
+  /** A 16-bit stereo WAV of a quiet sine, as `stems_read` returns it. */
+  const stemWav = (seconds, frequency) => {
+    const rate = 8000;
+    const frames = Math.round(rate * seconds);
+    const bytes = new ArrayBuffer(44 + frames * 4);
+    const view = new DataView(bytes);
+    const text = (offset, value) =>
+      [...value].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+    text(0, "RIFF");
+    view.setUint32(4, 36 + frames * 4, true);
+    text(8, "WAVEfmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 2, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 4, true);
+    view.setUint16(32, 4, true);
+    view.setUint16(34, 16, true);
+    text(36, "data");
+    view.setUint32(40, frames * 4, true);
+    for (let i = 0; i < frames; i++) {
+      const sample = Math.round(Math.sin((2 * Math.PI * frequency * i) / rate) * 8000);
+      view.setInt16(44 + i * 4, sample, true);
+      view.setInt16(46 + i * 4, sample, true);
+    }
+    return bytes;
+  };
+  const STEM_SECONDS = 6;
+  const STEM_FREQUENCY = {
+    drums: 220,
+    bass: 110,
+    vocals: 440,
+    guitar: 262,
+    piano: 523,
+    panned: 330,
+    other: 165,
+  };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
   window.__embeddedAudio = false;
@@ -836,12 +1060,268 @@
       }
       case "piano_model_status":
         return { installed: window.__pianoModel.installed, bytes: 56799421 };
+      case "piano_model_remove":
+        window.__pianoModel.removed += 1;
+        window.__pianoModel.installed = false;
+        return { installed: false, bytes: 56799421 };
       case "download_piano_model":
         window.__pianoModel.downloads += 1;
         window.__emitTauriEvent("piano-model-download-progress", { fraction: 0.5 });
         if (window.__pianoModel.fail) throw { kind: "audio", message: window.__pianoModel.fail };
         window.__pianoModel.installed = true;
         return null;
+      case "umx_model_status":
+        return stemModelStatus("neural");
+      case "stem_model_status":
+        return stemModelStatus(args.model);
+      case "umx_model_accept_terms":
+      case "stem_model_accept_terms":
+        window.__stemModels.models[args?.model ?? "neural"].termsAccepted = true;
+        return null;
+      case "umx_model_download":
+      case "stem_model_download":
+        return stemModelDownload(args?.model ?? "neural");
+      case "umx_model_cancel":
+      case "stem_model_cancel":
+        window.__stemModels.cancelled += 1;
+        window.__stemModels.abort?.();
+        return null;
+      case "umx_model_remove":
+      case "stem_model_remove": {
+        const engine = args?.model ?? "neural";
+        window.__stemModels.removed.push(engine);
+        window.__stemModels.models[engine].downloaded = false;
+        return null;
+      }
+      case "stems_list": {
+        // Pinned first, then the most recently opened (or made).
+        const seen = (song) => song.lastOpened ?? song.createdAtMs;
+        return [...window.__stems.songs].sort(
+          (a, b) => Number(b.pinned) - Number(a.pinned) || seen(b) - seen(a),
+        );
+      }
+      case "stems_delete":
+        window.__stems.songs = window.__stems.songs.filter((song) => song.id !== args.id);
+        return null;
+      case "take_pending_stem_bundles":
+        return [];
+      case "stems_touch": {
+        const song = window.__stems.songs.find((item) => item.id === args.id);
+        if (song) song.lastOpened = window.__stems.clock += 1000;
+        return null;
+      }
+      case "stems_pin": {
+        const song = window.__stems.songs.find((item) => item.id === args.id);
+        if (song) song.pinned = Boolean(args.pinned);
+        return null;
+      }
+      case "stems_save_bundle": {
+        const bundles = window.__stemBundles;
+        const { id, dest, includeOriginal } = args.request;
+        bundles.saves.push(args.request);
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "writing", fraction: 0.5 });
+        if (bundles.hold) {
+          await new Promise((resolve, reject) => {
+            bundles.release = resolve;
+            bundles.abort = () => reject({ kind: "io", message: "Saving stopped." });
+          });
+        }
+        if (bundles.fail) throw { kind: "io", message: bundles.fail };
+        const song = window.__stems.songs.find((item) => item.id === id);
+        if (!song) throw { kind: "audio", message: "These stems are no longer on this computer." };
+        const originalIncluded = Boolean(includeOriginal && song.hasOriginal);
+        const bytes = song.bytes + (originalIncluded ? 3 * 1024 * 1024 : 0);
+        song.savedPath = dest;
+        bundles.files[dest] = { ...song, hasOriginal: originalIncluded };
+        window.__cloud.meta[dest] = { size: bytes, modified_ms: (window.__stems.clock += 1000) };
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "writing", fraction: 1 });
+        return { path: dest, bytes, originalIncluded };
+      }
+      case "stems_open_bundle": {
+        const bundles = window.__stemBundles;
+        bundles.opens.push(args.path);
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "reading", fraction: 0.5 });
+        if (bundles.hold) {
+          await new Promise((resolve, reject) => {
+            bundles.release = resolve;
+            bundles.abort = () => reject({ kind: "io", message: "Opening stopped." });
+          });
+        }
+        if (bundles.fail) throw { kind: "io", message: bundles.fail };
+        const cloud = window.__cloud;
+        if (cloud.placeholders[args.path]) {
+          // An online-only file: wait for the drive app to download it.
+          window.__emitTauriEvent("cloud-download-waiting", args.path);
+          await new Promise((resolve) => (cloud.waiting[args.path] = resolve));
+          delete cloud.waiting[args.path];
+        }
+        const file = bundles.files[args.path];
+        if (!file) throw { kind: "io", message: "This is not a Smart Beat stems file." };
+        const song = { ...file, savedPath: args.path, lastOpened: (window.__stems.clock += 1000) };
+        window.__stems.songs = [
+          song,
+          ...window.__stems.songs.filter((item) => item.id !== song.id),
+        ];
+        return song;
+      }
+      case "cloud_accounts":
+        return window.__drives.accounts.map((account) => ({ configured: true, ...account }));
+      case "cloud_list_stems": {
+        const drives = window.__drives;
+        if (drives.listError[args.provider]) throw drives.listError[args.provider];
+        return drives.stems[args.provider] ?? [];
+      }
+      case "stems_cloud_save": {
+        const drives = window.__drives;
+        const { id, provider, includeOriginal } = args.request;
+        drives.saves.push(args.request);
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "writing", fraction: 0.5 });
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "uploading", fraction: 0.4 });
+        await heldDriveTransfer();
+        if (drives.fail) {
+          const error = drives.fail;
+          drives.fail = null;
+          throw error;
+        }
+        const song = window.__stems.songs.find((item) => item.id === id);
+        if (!song) throw { kind: "audio", message: "These stems are no longer on this computer." };
+        const originalIncluded = Boolean(includeOriginal && song.hasOriginal);
+        const bytes = song.bytes + (originalIncluded ? 3 * 1024 * 1024 : 0);
+        const item = `${provider}:file-${(drives.counter += 1)}`;
+        const name = `${song.name}.sbstems`;
+        window.__stemBundles.files[item] = { ...song, hasOriginal: originalIncluded };
+        drives.stems[provider] = [
+          {
+            id: item,
+            name,
+            revision: "r1",
+            size: bytes,
+            modified_ms: (window.__stems.clock += 1000),
+          },
+          ...(drives.stems[provider] ?? []),
+        ];
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "uploading", fraction: 1 });
+        song.savedPath = item;
+        return { item, name, provider, bytes, originalIncluded };
+      }
+      case "stems_cloud_open": {
+        const drives = window.__drives;
+        const { item } = args.request;
+        drives.opens.push(item);
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "downloading", fraction: 0.3 });
+        await heldDriveTransfer();
+        if (drives.fail) {
+          const error = drives.fail;
+          drives.fail = null;
+          throw error;
+        }
+        const file = window.__stemBundles.files[item];
+        if (!file) throw { kind: "not-found", message: "This file could not be found." };
+        window.__emitTauriEvent("stems-bundle-progress", { stage: "reading", fraction: 0.5 });
+        const song = { ...file, savedPath: item, lastOpened: (window.__stems.clock += 1000) };
+        window.__stems.songs = [
+          song,
+          ...window.__stems.songs.filter((existing) => existing.id !== song.id),
+        ];
+        return song;
+      }
+      case "get_cloud_folder":
+        return window.__cloud.folder;
+      case "set_cloud_folder":
+        window.__cloud.folder = args.folder;
+        return args.folder;
+      case "detect_cloud_folders":
+        return [];
+      case "list_cloud_scores":
+        return window.__cloud.scores;
+      case "list_cloud_stems":
+        return cloudStems();
+      case "stems_cloud_save_path": {
+        const cloud = window.__cloud;
+        if (!cloud.folder) {
+          throw { kind: "not-found", message: "No cloud folder is linked. Link one in Settings." };
+        }
+        const base =
+          String(args.name)
+            .replace(/[\\/:*?"<>|]/g, "_")
+            .trim() || "stems";
+        const taken = (path) => path in window.__stemBundles.files;
+        let path = `${cloud.folder}/${base}.sbstems`;
+        for (let n = 2; taken(path); n += 1) path = `${cloud.folder}/${base} (${n}).sbstems`;
+        cloud.savePaths.push(path);
+        return path;
+      }
+      case "stems_estimate_bundle": {
+        const cloud = window.__cloud;
+        cloud.estimates.push(args);
+        const song = window.__stems.songs.find((item) => item.id === args.id);
+        if (!song) throw { kind: "audio", message: "These stems are no longer on this computer." };
+        const withOriginal = Boolean(args.includeOriginal && song.hasOriginal);
+        return {
+          bytes: cloud.estimateBytes ?? song.bytes + (withOriginal ? 3 * 1024 * 1024 : 0),
+        };
+      }
+      case "stems_detect_tempo":
+        window.__stems.tempoRequests.push(args.id);
+        return window.__stems.tempo;
+      case "stems_cache_info":
+        return { bytes: 0, count: window.__stems.songs.length, limitBytes: 2 * 1024 ** 3 };
+      case "stems_cancel":
+        window.__stems.cancelled += 1;
+        window.__stems.abort?.();
+        window.__drives.abort?.();
+        return null;
+      case "stems_separate": {
+        const stems = window.__stems;
+        stems.requests.push(args.request);
+        window.__emitTauriEvent("stems-progress", { stage: "reading", fraction: 0.5 });
+        window.__emitTauriEvent("stems-progress", { stage: "separating", fraction: 0.5 });
+        if (stems.hold) {
+          await new Promise((resolve, reject) => {
+            stems.release = resolve;
+            stems.abort = () => reject({ kind: "audio", message: "Stem separation stopped." });
+          });
+        }
+        if (stems.fail) throw { kind: "audio", message: stems.fail };
+        const name = args.request.path
+          .split(/[\\/]/)
+          .pop()
+          .replace(/\.[^.]+$/, "");
+        const skipped = stems.mono
+          ? args.request.kinds.filter((kind) => kind === "vocals" || kind === "panned")
+          : [];
+        const kinds = [...args.request.kinds.filter((kind) => !skipped.includes(kind)), "other"];
+        const song = {
+          id: `${name.replace(/\W/g, "").padEnd(16, "0").slice(0, 16)}`,
+          name,
+          durationSeconds: STEM_SECONDS,
+          sampleRate: 44100,
+          engine: args.request.engine,
+          strongDrums: args.request.strongDrums,
+          stems: kinds.map((kind) => ({ kind, bytes: 192044 })),
+          mono: stems.mono,
+          skipped,
+          pannedShare: 0.3,
+          bytes: kinds.length * 192044,
+          createdAtMs: (stems.clock += 1000),
+          pinned: false,
+          lastOpened: null,
+          savedPath: null,
+          hasOriginal: !stems.originalMissing,
+        };
+        stems.songs = [song, ...stems.songs.filter((item) => item.id !== song.id)];
+        return song;
+      }
+      case "stems_read":
+        window.__stems.reads.push(args);
+        return stemWav(STEM_SECONDS, STEM_FREQUENCY[args.kind] ?? 200);
+      case "stems_render_mix": {
+        window.__stems.renders.push(args.request);
+        if (window.__stems.holdRender) {
+          await new Promise((resolve) => (window.__stems.releaseRender = resolve));
+        }
+        return stemWav(STEM_SECONDS / args.request.speed, 200);
+      }
       case "cancel_recording_transcription":
         window.__recordTranscription.cancelled += 1;
         window.__recordTranscription.abort?.();

@@ -179,7 +179,7 @@ test.describe("tracks and instruments (#10)", () => {
     }) => {
       await app.emulateMedia({ colorScheme });
       await openSong(app);
-      await trackAction(app, "Guitar", "Copy to instrument…");
+      await trackAction(app, "Guitar", "Copy to instrument");
       const dialog = app.getByRole("dialog", { name: "Copy to instrument" });
       await expect(dialog).toBeVisible();
       await waitForAnimations(app);

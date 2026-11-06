@@ -79,7 +79,7 @@ const menu = (action: MenuAction) => act(() => emitMenuAction(action));
 /** Makes the song "edited" by transposing the guitar, like a user would. */
 async function edit(user: Awaited<ReturnType<typeof setup>>["user"]) {
   await user.click(screen.getByRole("button", { name: "Tools" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Transpose…" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Transpose" }));
   const dialog = await screen.findByRole("dialog", { name: "Transpose" });
   await user.click(within(dialog).getByRole("button", { name: "Transpose" }));
   await waitFor(() => expect(screen.getByText("Edited")).toBeInTheDocument());
@@ -118,7 +118,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     const { user, calls } = await setup({ path: "/songs/practice-song.gp4" });
     backend.saveResult = null;
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Save As…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Save As" }));
     await waitFor(() => expect(calls.some((c) => c.cmd === "plugin:dialog|save")).toBe(true));
     const dialog = calls.find((c) => c.cmd === "plugin:dialog|save")!;
     expect(dialog.args).toMatchObject({
@@ -307,7 +307,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
 
     backend.saveResult = "/out/song";
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "ASCII tab…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "ASCII tab" }));
     await waitFor(() => expect(backend.written.has("/out/song.txt")).toBe(true));
     expect(text(bytesOf("/out/song.txt"))).toContain("Practice Song - Smart Beat");
     expect(onSaved).not.toHaveBeenCalled();
@@ -318,7 +318,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     const { user, onSaved } = await setup();
     backend.saveResult = "/out/song";
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "alphaTex…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "alphaTex" }));
     await waitFor(() => expect(backend.written.has("/out/song.atex")).toBe(true));
     expect(text(bytesOf("/out/song.atex"))).toContain('\\title "Practice Song"');
 
@@ -332,19 +332,19 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     const { user, onSaved } = await setup();
     await user.click(screen.getByRole("button", { name: "File" }));
     const items = (await screen.findAllByRole("menuitem")).map((i) => i.textContent);
-    const first = items.indexOf("Smart Beat / Guitar Pro 7…");
+    const first = items.indexOf("Smart Beat / Guitar Pro 7");
     expect(items.slice(first, first + 4)).toEqual([
-      "Smart Beat / Guitar Pro 7…",
-      "Guitar Pro 5…",
-      "Guitar Pro 4…",
-      "Guitar Pro 3…",
+      "Smart Beat / Guitar Pro 7",
+      "Guitar Pro 5",
+      "Guitar Pro 4",
+      "Guitar Pro 3",
     ]);
-    expect(first).toBeLessThan(items.indexOf("MusicXML…"));
+    expect(first).toBeLessThan(items.indexOf("MusicXML"));
     await user.keyboard("{Escape}");
 
     backend.saveResult = "/out/menu";
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Guitar Pro 5…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Guitar Pro 5" }));
     await waitFor(() => expect(backend.written.has("/out/menu.gp5")).toBe(true));
 
     for (const [action, path] of [
@@ -398,7 +398,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     backend.saveResult = "/out/mix";
 
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)" }));
 
     await waitFor(() => expect(backend.written.has("/out/mix.wav")).toBe(true));
     const wav = bytesOf("/out/mix.wav");
@@ -415,7 +415,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     backend.saveResult = "/out/mix";
 
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Audio (M4A)…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (M4A)" }));
 
     await waitFor(() => expect(backend.written.has("/out/mix.m4a")).toBe(true));
     // The WAV the song rendered goes to the encoder (the mock keeps it as it is).
@@ -451,17 +451,15 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     FakeScorePlayer.last.becomeReady();
     const fileButtons = screen.getAllByRole("button", { name: "File" });
     await user.click(fileButtons[fileButtons.length - 1]!);
-    await screen.findByRole("menuitem", { name: "Audio (WAV)…" });
-    await waitFor(() =>
-      expect(screen.queryByRole("menuitem", { name: "Audio (M4A)…" })).toBeNull(),
-    );
+    await screen.findByRole("menuitem", { name: "Audio (WAV)" });
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Audio (M4A)" })).toBeNull());
   });
 
   it("does not offer M4A in a plain browser", async () => {
     const { user } = await setup({ desktop: false });
     await user.click(screen.getByRole("button", { name: "File" }));
-    await screen.findByRole("menuitem", { name: "Audio (WAV)…" });
-    expect(screen.queryByRole("menuitem", { name: "Audio (M4A)…" })).not.toBeInTheDocument();
+    await screen.findByRole("menuitem", { name: "Audio (WAV)" });
+    expect(screen.queryByRole("menuitem", { name: "Audio (M4A)" })).not.toBeInTheDocument();
   });
 
   it("reports an encoder that failed", async () => {
@@ -491,7 +489,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     backend.saveResult = null;
 
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)" }));
 
     await waitFor(() => expect(backend.written.size).toBe(0));
     expect(player.renderAudio).not.toHaveBeenCalled();
@@ -503,7 +501,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     player.renderAudio.mockRejectedValueOnce(new Error("The instrument sounds are still loading."));
 
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)" }));
 
     expect((await screen.findAllByText("Couldn't export the audio")).length).toBeGreaterThan(0);
     expect(screen.getByText("The instrument sounds are still loading.")).toBeInTheDocument();
@@ -517,7 +515,7 @@ describe("ScoreWorkspace: saving (desktop app)", () => {
     const { user } = await setup({ desktop: false });
 
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Audio (WAV)" }));
 
     await waitFor(() => expect(click).toHaveBeenCalled());
     expect(createObjectURL).toHaveBeenCalledOnce();
@@ -576,7 +574,7 @@ describe("ScoreWorkspace: saving (browser)", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "File" }));
-    await user.click(await screen.findByRole("menuitem", { name: "MIDI…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "MIDI" }));
     await waitFor(() => expect(names).toEqual(["Practice Song.gp", "Practice Song.mid"]));
     click.mockRestore();
   });
@@ -589,7 +587,7 @@ describe("ScoreWorkspace: transpose", () => {
     const before = first().fret;
 
     await user.click(screen.getByRole("button", { name: "Tools" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Transpose…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Transpose" }));
     const dialog = await screen.findByRole("dialog", { name: "Transpose" });
     expect(within(dialog).getByRole("combobox", { name: "Transpose" })).toHaveTextContent(
       "This track",
@@ -650,7 +648,7 @@ describe("ScoreWorkspace: bar lengths", () => {
   /** Changes bar 1's time signature to 3/4, which leaves the bar too long. */
   async function breakBar(user: Awaited<ReturnType<typeof setup>>["user"]) {
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.click(await screen.findByRole("button", { name: "Bar…" }));
+    await user.click(await screen.findByRole("button", { name: "Bar" }));
     const dialog = await screen.findByRole("dialog", { name: "Bar 1" });
     const beats = within(dialog).getByRole("spinbutton", { name: "Beats per bar" });
     await user.clear(beats);
@@ -692,7 +690,7 @@ describe("ScoreWorkspace: bar lengths", () => {
   it("fixes from the Tools menu and the Bar menu, and says when all is well", async () => {
     const { user, song } = await setup();
     await user.click(screen.getByRole("button", { name: "Tools" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Fix bar durations…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Fix bar durations" }));
     expect(
       (await screen.findAllByText("All bars of this track have the right length")).length,
     ).toBeGreaterThan(0);
@@ -713,7 +711,7 @@ describe("ScoreWorkspace: tuning and pitches", () => {
       );
     const before = pitches();
 
-    await trackAction(user, "Guitar", "Settings…");
+    await trackAction(user, "Guitar", "Settings");
     const dialog = await screen.findByRole("dialog", { name: "Track settings" });
     await user.click(within(dialog).getByRole("button", { name: "Lower string 6" }));
     await user.click(within(dialog).getByRole("button", { name: "Lower string 6" }));
@@ -727,7 +725,7 @@ describe("ScoreWorkspace: tuning and pitches", () => {
 
   it("deletes notes that cannot be played in the new tuning, and offers undo", async () => {
     const { user, song } = await setup();
-    await trackAction(user, "Guitar", "Settings…");
+    await trackAction(user, "Guitar", "Settings");
     const dialog = await screen.findByRole("dialog", { name: "Track settings" });
     const capo = within(dialog).getByRole("spinbutton", { name: "Capo" });
     await user.clear(capo);
@@ -942,7 +940,7 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
 
     // The same pedalboard as the tracks, for the monitor track.
     await user.click(within(row).getByRole("button", { name: "Actions for the monitor track" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Effects (pedalboard)…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Effects (pedalboard)" }));
     const board = await screen.findByRole("dialog", { name: "Pedalboard: Monitor" });
     expect(within(board).queryByRole("button", { name: "Add sound" })).toBeNull();
     await user.click(within(board).getByRole("button", { name: "Add Delay" }));
@@ -974,7 +972,7 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     FakeScorePlayer.last.becomeReady();
     await user.click(screen.getByRole("button", { name: /^Practice mix/ }));
     const popup = await screen.findByRole("dialog", { name: "Practice mix" });
-    expect(within(popup).getByRole("button", { name: "Input effects…" })).toBeDisabled();
+    expect(within(popup).getByRole("button", { name: "Input effects" })).toBeDisabled();
     await user.click(within(popup).getByRole("switch", { name: "Monitor my input" }));
     expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native");
     const player = FakeScorePlayer.last;
@@ -990,9 +988,9 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     await user.click(within(popup).getByRole("switch", { name: "Monitor my input" }));
     expect(player.setMix.mock.lastCall![0].monitor).toEqual(rig);
     await expectNoA11yViolations();
-    await user.click(within(popup).getByRole("button", { name: "Input settings…" }));
+    await user.click(within(popup).getByRole("button", { name: "Input settings" }));
     expect(onOpenSettings).toHaveBeenCalledWith(expect.any(HTMLElement));
-    await user.click(within(popup).getByRole("button", { name: "Input effects…" }));
+    await user.click(within(popup).getByRole("button", { name: "Input effects" }));
     const board = await screen.findByRole("dialog", { name: "Pedalboard: Monitor" });
     expect(within(board).getAllByTestId("effect-block")).toHaveLength(1);
   });
@@ -1028,11 +1026,11 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
 
   it("opens the drum mixer and the pedalboard from a track's menu", async () => {
     const { user } = await setup();
-    await trackAction(user, "Drums", "Drum mixer…");
+    await trackAction(user, "Drums", "Drum mixer");
     const drums = await screen.findByRole("dialog", { name: "Drum mixer: Drums" });
     await user.click(within(drums).getByRole("button", { name: "Mute Snare" }));
     await user.click(within(drums).getByRole("button", { name: "Done" }));
-    await trackAction(user, "Guitar", "Effects (pedalboard)…");
+    await trackAction(user, "Guitar", "Effects (pedalboard)");
     const board = await screen.findByRole("dialog", { name: "Pedalboard: Guitar" });
     await user.click(within(board).getByRole("button", { name: "Add sound" }));
     expect(within(board).getByRole("combobox", { name: "Sound" })).toHaveTextContent("Sound 2");

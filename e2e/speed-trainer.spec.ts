@@ -58,7 +58,7 @@ test.describe("Speed Trainer and score menu (#83)", () => {
     await app.getByRole("menuitem", { name: "Set loop start here" }).click();
     await expect(app.getByRole("button", { name: "Loop" })).toHaveAttribute("aria-pressed", "true");
     await rightClickANote(app);
-    await app.getByRole("menuitem", { name: "Start Speed Trainer here…" }).click();
+    await app.getByRole("menuitem", { name: "Start Speed Trainer here" }).click();
     const dialog = app.getByRole("dialog", { name: "Speed Trainer" });
     await expect(dialog).toBeVisible();
     await expect(
@@ -81,7 +81,7 @@ test.describe("Speed Trainer and score menu (#83)", () => {
     const from = Number(await app.getByRole("spinbutton", { name: "Loop from bar" }).inputValue());
     expect(from).toBeGreaterThan(1);
 
-    await app.getByRole("button", { name: "Speed Trainer…" }).click();
+    await app.getByRole("button", { name: "Speed Trainer" }).click();
     const dialog = app.getByRole("dialog", { name: "Speed Trainer" });
     await dialog.getByRole("combobox", { name: "Section to practise" }).click();
     await app.getByRole("option", { name: /^Intro · bar/ }).click();
