@@ -839,6 +839,9 @@ export function TrackList({
                           style={{ backgroundColor: trackColor(i, mix.trackColors?.[i]) }}
                         />
                         <TrackIcon track={track} />
+                        {/* Outside the button: its name ("Show Bass") must contain the button's
+                            visible text (WCAG 2.5.3), and the number is not part of the name. */}
+                        <span className="-mr-0.5 shrink-0 tabular-nums">{i + 1}.</span>
                         <button
                           type="button"
                           onClick={() => actions.onShow(i)}
@@ -861,7 +864,6 @@ export function TrackList({
                           }`}
                           className="min-w-0 truncate rounded text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
                         >
-                          <span className="tabular-nums">{i + 1}. </span>
                           {track.name}
                           {isShown && <span className="sr-only"> (shown)</span>}
                           {focused && <span className="sr-only"> (in focus)</span>}

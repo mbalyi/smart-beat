@@ -47,13 +47,13 @@ function setup({
 }
 
 const dialog = () => screen.getByRole("dialog");
-const computer = () => screen.getByRole("button", { name: "Open from this computer" });
-const cloud = () => screen.findByRole("button", { name: "Open from Cloud folder · Dropbox" });
+const computer = () => screen.getByRole("button", { name: /^Open from this computer/ });
+const cloud = () => screen.findByRole("button", { name: /^Open from Cloud folder · Dropbox/ });
 
 describe("Open stems dialog", () => {
   it("offers this computer first and a Set up cloud storage card when no folder is linked", async () => {
     const { user, onOpenChange, onSetupCloud } = setup();
-    const setUp = await screen.findByRole("button", { name: "Set up Cloud storage" });
+    const setUp = await screen.findByRole("button", { name: /^Set up Cloud storage/ });
     expect(
       computer().compareDocumentPosition(setUp) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -80,8 +80,8 @@ describe("Open stems dialog", () => {
   it("shows the linked cloud folder second", async () => {
     setup({ cloudFolder: "/Users/me/Dropbox" });
     const folder = await cloud();
-    expect(folder).toHaveAccessibleDescription(/on any of your computers/);
-    expect(screen.queryByRole("button", { name: "Set up Cloud storage" })).toBeNull();
+    expect(folder).toHaveAccessibleName(/on any of your computers/);
+    expect(screen.queryByRole("button", { name: /^Set up Cloud storage/ })).toBeNull();
     expect(
       computer().compareDocumentPosition(folder) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -96,7 +96,7 @@ describe("Open stems dialog", () => {
     await user.click(await cloud());
 
     expect(
-      await screen.findByRole("heading", { name: "Open from Cloud folder · Dropbox" }),
+      await screen.findByRole("heading", { name: /^Open from Cloud folder · Dropbox/ }),
     ).toBeInTheDocument();
     const list = await screen.findByRole("list", { name: "Saved stems in your cloud folder" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
@@ -199,17 +199,17 @@ const remote = (name: string, id: string, size = 80 * MB, modified_ms = 1_790_00
   size,
   modified_ms,
 });
-const fromDrive = () => screen.findByRole("button", { name: "Open from Google Drive" });
+const fromDrive = () => screen.findByRole("button", { name: /^Open from Google Drive/ });
 
 describe("Open stems dialog: connected accounts", () => {
   it("offers a card for each connected account after this computer, before the cloud folder", async () => {
     setup({ accounts: ACCOUNTS, cloudFolder: "/Users/me/Dropbox" });
     const drive = await fromDrive();
-    const onedrive = screen.getByRole("button", { name: "Open from OneDrive" });
+    const onedrive = screen.getByRole("button", { name: /^Open from OneDrive/ });
     const folder = await cloud();
-    expect(drive).toHaveAccessibleDescription("me@example.com");
-    expect(screen.queryByRole("button", { name: "Open from Dropbox" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Set up Cloud storage" })).toBeNull();
+    expect(drive).toHaveAccessibleName(/me@example\.com/);
+    expect(screen.queryByRole("button", { name: /^Open from Dropbox/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Set up Cloud storage/ })).toBeNull();
     const before = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(before(computer(), drive)).toBe(true);
@@ -221,18 +221,18 @@ describe("Open stems dialog: connected accounts", () => {
   it("has no Set up card when an account is connected, even with no folder", async () => {
     setup({ accounts: ACCOUNTS });
     await fromDrive();
-    expect(screen.queryByRole("button", { name: "Set up Cloud storage" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Set up Cloud storage/ })).toBeNull();
   });
 
   it("keeps the Set up card with no account and no folder", async () => {
     setup({ accounts: [ACCOUNTS[2]!] });
-    expect(await screen.findByRole("button", { name: "Set up Cloud storage" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: /^Set up Cloud storage/ })).toBeEnabled();
   });
 
   it("does not offer accounts when the page cannot show a song that comes back", async () => {
     setup({ accounts: ACCOUNTS, withAccounts: false });
-    expect(await screen.findByRole("button", { name: "Set up Cloud storage" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Open from Google Drive" })).toBeNull();
+    expect(await screen.findByRole("button", { name: /^Set up Cloud storage/ })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /^Open from Google Drive/ })).toBeNull();
   });
 
   it("lists the .sbstems files of an account, newest first, and goes back", async () => {

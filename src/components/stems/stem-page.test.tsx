@@ -405,7 +405,7 @@ describe("Stem page: saving", () => {
     backend.saveResult = "/Music/Neon Nights.sbstems";
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Save stems" }));
-    await user.click(screen.getByRole("button", { name: "Save to this computer" }));
+    await user.click(screen.getByRole("button", { name: /^Save to this computer/ }));
     await screen.findByTestId("save-stems-path");
     expect(screen.getByTestId("stems-saved")).toBeInTheDocument();
   });
@@ -422,7 +422,7 @@ describe("Stem page: saving", () => {
     );
     await user.click(screen.getByRole("button", { name: "Save stems" }));
     const dialog = screen.getByRole("dialog", { name: "Save stems" });
-    await user.click(await within(dialog).findByRole("button", { name: "Set up Cloud storage" }));
+    await user.click(await within(dialog).findByRole("button", { name: /^Set up Cloud storage/ }));
     expect(onOpenCloudSettings).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save stems" })).not.toHaveFocus();
