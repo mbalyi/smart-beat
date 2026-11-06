@@ -93,6 +93,8 @@ const OTHER_SONG = "/Users/me/Songs/structure-song.gp";
 // Someone who has already seen What's new for this version: the dialog an update opens once
 // would otherwise sit over every test.
 beforeEach(() => {
+  backend.driveStems = {};
+  backend.driveTabs = {};
   localStorage.setItem(
     TOUR_STORAGE_KEY,
     JSON.stringify({ tours: { main: "skipped" }, hints: {}, lastSeenVersion: APP_VERSION }),
@@ -354,6 +356,63 @@ describe("App", () => {
       backend.cloudAccounts = [DRIVE, OTHER];
       await menu("open-cloud");
       expect(await screen.findByRole("button", { name: "Open from OneDrive" })).toBeInTheDocument();
+    });
+
+    it("Cloud Library lists the tabs and stems of the connected drives", async () => {
+      await renderApp();
+      backend.cloudAccounts = [DRIVE, { ...OTHER, account: null }];
+      backend.driveStems = {
+        drive: [
+          { id: "drive:s1", name: "Neon Nights.sbstems", revision: "r", size: 1, modified_ms: 2 },
+        ],
+      };
+      await menu("cloud-library");
+      const dialog = await screen.findByRole("dialog", { name: "Cloud library" });
+      expect(await within(dialog).findByText("Neon Nights")).toBeInTheDocument();
+      expect(within(dialog).getByText("Not connected")).toBeInTheDocument();
+    });
+
+    it("a library tab opens like any cloud tab, and its dialog closes", async () => {
+      const { user, calls } = await renderApp();
+      backend.cloudAccounts = [DRIVE];
+      backend.driveTabs = {
+        drive: [{ id: "abc", name: "riff.gp", revision: "r", size: 1, modified_ms: 1 }],
+      };
+      await menu("cloud-library");
+      const dialog = await screen.findByRole("dialog", { name: "Cloud library" });
+      await user.click(await within(dialog).findByRole("button", { name: "Open riff.gp" }));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Cloud library" })).not.toBeInTheDocument(),
+      );
+      await waitFor(() =>
+        expect(calls.find((c) => c.cmd === "cloud_read")?.args).toEqual({ item: "drive:abc" }),
+      );
+    });
+
+    it("a library stems file is downloaded and opened as a stem page", async () => {
+      const { user } = await renderApp();
+      backend.cloudAccounts = [DRIVE];
+      backend.driveStems = {
+        drive: [
+          { id: "drive:s1", name: "Opened Song.sbstems", revision: "r", size: 1, modified_ms: 2 },
+        ],
+      };
+      await menu("cloud-library");
+      const dialog = await screen.findByRole("dialog", { name: "Cloud library" });
+      await user.click(await within(dialog).findByRole("button", { name: /^Open Opened Song/ }));
+      expect(
+        await screen.findByRole("heading", { level: 1, name: "Opened Song" }),
+      ).toBeInTheDocument();
+    });
+
+    it("Cloud Library without a connected drive points to the settings", async () => {
+      const { user } = await renderApp();
+      backend.cloudAccounts = [{ ...OTHER, account: null }];
+      await menu("cloud-library");
+      const dialog = await screen.findByRole("dialog", { name: "Cloud library" });
+      await user.click(await within(dialog).findByRole("button", { name: "Connect OneDrive" }));
+      expect(await screen.findByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Cloud library" })).not.toBeInTheDocument();
     });
 
     it("Open from Cloud without an account points to the settings", async () => {
@@ -884,11 +943,13 @@ describe("App: recent songs and saving", () => {
     const list = screen.getByRole("heading", { name: "Recent songs" }).closest("section")!;
     expect(
       within(list)
-        .getAllByRole("button")
+        .getAllByRole("button", { name: /^[\w-]+\.gp/ })
         .map((b) => b.textContent),
     ).toEqual(["practice-song.gpSongs", "structure-song.gpSongs"]);
+    // Each recent song has a share icon next to it (#201).
+    expect(within(list).getAllByRole("button", { name: /^Share a link to/ })).toHaveLength(2);
 
-    await user.click(within(list).getByRole("button", { name: /structure-song\.gp/ }));
+    await user.click(within(list).getByRole("button", { name: /^structure-song\.gp/ }));
 
     expect(
       await screen.findByRole("heading", { level: 1, name: "Structure Song" }),
@@ -941,12 +1002,12 @@ describe("App: recent songs and saving", () => {
     // A file the Rust core can no longer read answers not-found.
     const list = screen.getByRole("heading", { name: "Recent songs" }).closest("section")!;
 
-    await user.click(within(list).getByRole("button", { name: /structure-song\.gp/ }));
+    await user.click(within(list).getByRole("button", { name: /^structure-song\.gp/ }));
 
     await waitFor(() => expect(backend.recent).toEqual([SONG]));
     await waitFor(() =>
       expect(
-        within(list).queryByRole("button", { name: /structure-song\.gp/ }),
+        within(list).queryByRole("button", { name: /^structure-song\.gp/ }),
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
@@ -956,7 +1017,7 @@ describe("App: recent songs and saving", () => {
 
   it("saves the open song to a new file and stops calling it edited", async () => {
     const { user } = await renderWithRecent();
-    await user.click(screen.getByRole("button", { name: /practice-song\.gp/ }));
+    await user.click(screen.getByRole("button", { name: /^practice-song\.gp/ }));
     await screen.findByRole("heading", { level: 1, name: "Practice Song" });
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const score = screen.getByRole("region", { name: /^Score:/ });
@@ -977,7 +1038,7 @@ describe("App: recent songs and saving", () => {
 
   it("Save replaces the file it came from, and the next Save writes there again", async () => {
     const { user } = await renderWithRecent();
-    await user.click(screen.getByRole("button", { name: /practice-song\.gp/ }));
+    await user.click(screen.getByRole("button", { name: /^practice-song\.gp/ }));
     await screen.findByRole("heading", { level: 1, name: "Practice Song" });
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const score = screen.getByRole("region", { name: /^Score:/ });

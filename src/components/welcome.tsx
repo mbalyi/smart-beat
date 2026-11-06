@@ -18,6 +18,7 @@ import { CloudStems } from "@/components/cloud-stems";
 import { OptionalAddons } from "@/components/optional-addons";
 import { isEnabled } from "@/lib/features";
 import { SectionKicker } from "@/components/section-kicker";
+import { ShareButton } from "@/components/share-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -27,6 +28,7 @@ import { useCloudFolder } from "@/components/stems/use-cloud-folder";
 import { useStemSongs } from "@/components/stems/use-stem-songs";
 import { FEATURES, type Feature } from "@/components/welcome-features";
 import { cloudItemName, providerLabel, providerOf } from "@/lib/cloud-items";
+import { tabShareTarget } from "@/lib/cloud-share";
 import type { StemSong } from "@/lib/tauri";
 import { baseName } from "@/lib/score/format";
 import { cn } from "@/lib/utils";
@@ -204,11 +206,11 @@ export function Welcome({
                   />
                 </li>
               ) : (
-                <li key={entry.path} className="min-w-0">
+                <li key={entry.path} className="relative min-w-0">
                   <button
                     type="button"
                     className={cn(
-                      "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card px-4 py-3 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
+                      "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card py-3 pr-14 pl-4 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
                       index % 2 === 0
                         ? "hover:border-brand-yellow/60 focus-visible:border-brand-yellow/60"
                         : "hover:border-brand/60 focus-visible:border-brand/60",
@@ -238,6 +240,10 @@ export function Welcome({
                       </span>
                     </span>
                   </button>
+                  <ShareButton
+                    target={tabShareTarget(entry.path, recentName(entry.path))}
+                    className="absolute top-1/2 right-2 -translate-y-1/2"
+                  />
                 </li>
               ),
             )}

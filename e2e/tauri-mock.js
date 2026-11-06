@@ -197,7 +197,14 @@
   window.__drives = {
     accounts: [],
     stems: {},
+    /** The tabs `cloud_list` lists by provider (a `cloud_create` adds one). */
+    tabs: {},
     listError: {},
+    /** The `cloud_share` requests, `{ item, level }`; `shareError` makes the next one reject. */
+    shares: [],
+    shareError: null,
+    /** The `cloud_create` requests, `{ provider, name, bytes }`. */
+    creates: [],
     saves: [],
     opens: [],
     hold: false,
@@ -1166,6 +1173,36 @@
       }
       case "cloud_accounts":
         return window.__drives.accounts.map((account) => ({ configured: true, ...account }));
+      case "cloud_flush":
+      case "cloud_pending":
+        return [];
+      case "cloud_list": {
+        const drives = window.__drives;
+        if (drives.listError[args.provider]) throw drives.listError[args.provider];
+        return drives.tabs[args.provider] ?? [];
+      }
+      case "cloud_share": {
+        const drives = window.__drives;
+        drives.shares.push({ item: args.item, level: args.level });
+        if (drives.shareError) {
+          const error = drives.shareError;
+          drives.shareError = null;
+          throw error;
+        }
+        return `https://share.example.com/${encodeURIComponent(args.item)}?as=${args.level}`;
+      }
+      case "cloud_create": {
+        const drives = window.__drives;
+        const provider = options.headers.provider;
+        const name = decodeURIComponent(options.headers.name);
+        drives.creates.push({ provider, name, bytes: args.byteLength });
+        const item = `${provider}:created-${(drives.counter += 1)}`;
+        drives.tabs[provider] = [
+          { id: item, name, revision: "r1", size: args.byteLength, modified_ms: 1790000000000 },
+          ...(drives.tabs[provider] ?? []),
+        ];
+        return item;
+      }
       case "cloud_list_stems": {
         const drives = window.__drives;
         if (drives.listError[args.provider]) throw drives.listError[args.provider];

@@ -7,12 +7,24 @@ import { expect, expectNoA11yViolations, test } from "./fixtures";
 declare global {
   interface Window {
     __drives: {
-      accounts: { provider: string; label: string; account: string | null }[];
+      accounts: {
+        provider: string;
+        label: string;
+        account: string | null;
+        shareLevels?: string[];
+      }[];
       stems: Record<
         string,
         { id: string; name: string; revision: string; size: number; modified_ms: number }[]
       >;
+      tabs: Record<
+        string,
+        { id: string; name: string; revision: string; size: number; modified_ms: number }[]
+      >;
       listError: Record<string, unknown>;
+      shares: { item: string; level: string }[];
+      shareError: unknown;
+      creates: { provider: string; name: string; bytes: number }[];
       saves: { id: string; provider: string; includeOriginal: boolean }[];
       opens: string[];
       hold: boolean;

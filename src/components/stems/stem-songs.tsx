@@ -1,11 +1,13 @@
 import { CheckIcon, CloudIcon, LayersIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
+import { ShareButton } from "@/components/share-button";
 import { isInFolder } from "@/components/stems/stem-recent";
 import { engineLabel } from "@/components/stems/stem-engines";
 import { formatTime } from "@/components/stems/stem-labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { stemShareTarget } from "@/lib/cloud-share";
 import type { StemSong } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
@@ -90,15 +92,18 @@ export function StemRecentCard({
           </Button>
         </div>
       ) : (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          aria-label={`Delete ${song.name}`}
-          onClick={() => setAsking(true)}
-        >
-          <Trash2Icon aria-hidden="true" />
-        </Button>
+        <div className="flex shrink-0 items-center">
+          <ShareButton target={stemShareTarget(song)} />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            aria-label={`Delete ${song.name}`}
+            onClick={() => setAsking(true)}
+          >
+            <Trash2Icon aria-hidden="true" />
+          </Button>
+        </div>
       )}
     </div>
   );

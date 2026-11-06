@@ -5,6 +5,9 @@ import { isTauri, NotInDesktopAppError } from "@/lib/tauri";
 /** Cloud services Smart Beat can sign in to. Mirrors the Rust `cloud` module. */
 export type CloudProvider = "drive" | "onedrive" | "dropbox";
 
+/** How much a share link allows (#201). Mirrors `ShareLevel` in the Rust `cloud` module. */
+export type ShareLevel = "view" | "edit";
+
 export interface CloudAccount {
   provider: CloudProvider;
   /** Display name of the service, such as "Google Drive". */
@@ -13,6 +16,8 @@ export interface CloudAccount {
   configured: boolean;
   /** The signed-in account, or `null` when not connected. */
   account: string | null;
+  /** The kinds of share link the service can make; view only when missing. */
+  shareLevels?: ShareLevel[];
 }
 
 export type CloudFlushOutcome = "uploaded" | "conflict" | "waiting";

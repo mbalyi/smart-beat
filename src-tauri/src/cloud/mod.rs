@@ -49,6 +49,27 @@ impl ProviderKind {
     }
 }
 
+/// How much a share link allows its holder (#201).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShareLevel {
+    /// Look at and download the file.
+    View,
+    /// Change the file too.
+    Edit,
+}
+
+impl ProviderKind {
+    /// The link levels the provider can make. Dropbox links are view only here: an editor link
+    /// needs account features Smart Beat cannot count on.
+    pub fn share_levels(self) -> &'static [ShareLevel] {
+        match self {
+            Self::Drive | Self::Onedrive => &[ShareLevel::View, ShareLevel::Edit],
+            Self::Dropbox => &[ShareLevel::View],
+        }
+    }
+}
+
 /// A file in a provider. `revision` is the provider's change token (Drive `headRevisionId`,
 /// Dropbox `rev`, OneDrive `eTag`): a save passes the one it opened and fails with
 /// [`ErrorKind::Conflict`] if the remote moved on.
@@ -106,6 +127,20 @@ pub trait Provider: Send + Sync {
     fn create(&self, token: &str, name: &str, bytes: &[u8]) -> Result<RemoteFile, CommandError>;
     /// Asks the provider to invalidate the token (best effort).
     fn revoke(&self, token: &str) -> Result<(), CommandError>;
+    /// A link to file `id` that anyone who has it can open (#201). The link is a secret like a
+    /// token: callers never log it. The default says it is not supported; the real providers
+    /// override it.
+    fn share_link(
+        &self,
+        _token: &str,
+        _id: &str,
+        _level: ShareLevel,
+    ) -> Result<String, CommandError> {
+        Err(CommandError::new(
+            ErrorKind::Io,
+            "This cloud service cannot make share links yet.",
+        ))
+    }
     /// Uploads the file at `path` as a new file called `name`, in chunks read from disk (the file
     /// may be well over 100 MB, so it is never held in memory whole). `progress` receives the
     /// fraction sent, 0 to 1. `cancel` is checked between chunks: setting it ends the upload with
@@ -191,6 +226,26 @@ pub fn http_error(error: ureq::Error, what: &str) -> CommandError {
     }
 }
 
+/// Maps an HTTP failure of a share request to the error the UI shows: a refusal (403) means the
+/// account or its organisation does not allow links, which reconnecting would not change.
+pub fn share_http_error(error: ureq::Error, what: &str) -> CommandError {
+    match error {
+        ureq::Error::StatusCode(403) => CommandError::new(
+            ErrorKind::Io,
+            "This account does not allow sharing this file with a link.",
+        ),
+        other => http_error(other, what),
+    }
+}
+
+/// Whether `link` looks like what a provider hands out: an `https://` address without spaces.
+/// Anything else is not copied to the clipboard.
+pub fn is_share_link(link: &str) -> bool {
+    link.starts_with("https://")
+        && link.len() > "https://".len()
+        && !link.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 /// Percent-encodes `value` for a URL query or path segment.
 pub fn encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
@@ -260,6 +315,39 @@ mod tests {
         };
         let shown = format!("{t:?}");
         assert!(!shown.contains("secret"));
+    }
+
+    #[test]
+    fn share_levels_follow_what_the_provider_can_make() {
+        assert_eq!(
+            ProviderKind::Drive.share_levels(),
+            [ShareLevel::View, ShareLevel::Edit]
+        );
+        assert_eq!(ProviderKind::Dropbox.share_levels(), [ShareLevel::View]);
+        assert_eq!(
+            serde_json::to_string(&ShareLevel::Edit).unwrap(),
+            "\"edit\""
+        );
+    }
+
+    #[test]
+    fn only_https_addresses_are_share_links() {
+        assert!(is_share_link("https://drive.google.com/file/d/1/view"));
+        assert!(!is_share_link("http://example.com/x"));
+        assert!(!is_share_link("https://"));
+        assert!(!is_share_link("https://a.com/x y"));
+        assert!(!is_share_link("javascript:alert(1)"));
+    }
+
+    #[test]
+    fn a_refused_share_is_not_an_expired_sign_in() {
+        let error = share_http_error(ureq::Error::StatusCode(403), "x");
+        assert_eq!(error.kind, ErrorKind::Io);
+        assert!(!error.message.contains("403"));
+        assert_eq!(
+            share_http_error(ureq::Error::StatusCode(401), "x").kind,
+            ErrorKind::AuthExpired
+        );
     }
 
     #[test]

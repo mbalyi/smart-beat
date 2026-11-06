@@ -7,9 +7,11 @@ import { AppDialogs, type AppDialog } from "@/components/app-dialogs";
 import type { SettingsSection } from "@/components/settings-dialog";
 import { AiInstallerDialog } from "@/components/ai/ai-installer-dialog";
 import { onInstallerReturn } from "@/lib/ai/ai-store";
+import { CloudLibraryDialog } from "@/components/cloud-library-dialog";
 import { CloudOpenDialog } from "@/components/cloud-open-dialog";
 import { SaveTargetDialog } from "@/components/save-target-dialog";
 import { listCloudAccounts, type CloudProvider } from "@/lib/cloud";
+import { ShareProvider } from "@/providers/share-provider";
 import { toCloudDrives, type CloudDrive } from "@/lib/cloud-items";
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
@@ -47,8 +49,10 @@ import { hasScoreExtension } from "@/lib/score/errors";
 import { baseName } from "@/lib/score/format";
 import {
   AUDIO_EXTENSIONS,
+  isStemFileStopped,
   isTauri,
   openStemBundle,
+  openStemBundleFromCloud,
   pickSavePath,
   pickScoreFile,
   pickStemBundle,
@@ -311,6 +315,8 @@ export function App() {
   /** Where Open asks first (connected drives), and the drive whose songs are listed. */
   const [openChooser, setOpenChooser] = useState<CloudDrive[] | null>(null);
   const [cloudOpen, setCloudOpen] = useState<CloudDrive | null>(null);
+  /** File › Cloud Library: every tab and stems file in the connected drives (#201). */
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   /**
    * Open: always asks where first in the desktop app, with every drive that is not set up
@@ -372,6 +378,18 @@ export function App() {
       addStemTab(await openStemBundle(path));
     } catch (error) {
       toast.error("Couldn't open the saved stems", { description: errorText(error) });
+    } finally {
+      toast.dismiss(loading);
+    }
+  };
+  /** Downloads a saved stems file of an online drive and shows its page, over any open song. */
+  const openCloudStemItem = async (item: string) => {
+    const loading = toast.loading("Opening the saved stems…");
+    try {
+      addStemTab(await openStemBundleFromCloud(item));
+    } catch (error) {
+      if (!isStemFileStopped(error))
+        toast.error("Couldn't open the saved stems", { description: errorText(error) });
     } finally {
       toast.dismiss(loading);
     }
@@ -509,6 +527,9 @@ export function App() {
       case "open-cloud":
         void showCloudOpen();
         break;
+      case "cloud-library":
+        setLibraryOpen(true);
+        break;
       case "record-models":
         showDialog("record-models");
         break;
@@ -566,7 +587,7 @@ export function App() {
   });
 
   return (
-    <>
+    <ShareProvider onSetUpCloud={() => showDialog("settings", null, "cloud")}>
       <SkipLink />
       <div className={cn("flex flex-col", fullHeight ? "h-svh" : "min-h-svh")}>
         <AppHeader
@@ -778,9 +799,25 @@ export function App() {
             : undefined
         }
       />
+      <CloudLibraryDialog
+        open={libraryOpen}
+        onOpenChange={setLibraryOpen}
+        onSetUpCloud={() => {
+          setLibraryOpen(false);
+          showDialog("settings", null, "cloud");
+        }}
+        onOpenTab={(item) => {
+          setLibraryOpen(false);
+          void openPath(item);
+        }}
+        onOpenStems={(item) => {
+          setLibraryOpen(false);
+          void openCloudStemItem(item);
+        }}
+      />
       <AiInstallerDialog />
       <UpdateDialog updater={updater} />
       <Toaster position="bottom-right" />
-    </>
+    </ShareProvider>
   );
 }

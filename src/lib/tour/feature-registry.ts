@@ -19,6 +19,13 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "cloud-share",
+    title: "Share with a link, and the Cloud library",
+    summary:
+      "Click the share icon next to a tab or a saved stems file to copy a link to it. For a file in Google Drive, OneDrive or Dropbox the link is made at once; for a file on this computer you pick the drive and Smart Beat puts a copy there first. Stems get their own link. File › Cloud Library lists everything Smart Beat keeps in each connected drive. Dropbox needs to be connected again once to allow links.",
+    since: "1.2.0",
+  },
+  {
     id: "stem-separation",
     title: "Stem separation",
     summary:

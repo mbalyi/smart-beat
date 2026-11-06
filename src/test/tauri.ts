@@ -133,6 +133,8 @@ type MockMonitor = { params: MonitorParams; device: string | null; channel: numb
 export interface IpcCall {
   cmd: string;
   args?: InvokeArgs;
+  /** The invoke options' headers of a raw-body call (`cloud_create` names its provider there). */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -152,6 +154,8 @@ export const backend = {
   cloudStems: [] as CloudStem[],
   /** The `.sbstems` files `cloud_list_stems` returns for each connected account (newest first). */
   driveStems: {} as Record<string, CloudStemFile[]>,
+  /** The tabs `cloud_list` returns for each connected account (newest first). */
+  driveTabs: {} as Record<string, CloudStemFile[]>,
   /** What `cloud_accounts` returns (none connected by default). */
   cloudAccounts: [] as {
     provider: string;
@@ -159,6 +163,8 @@ export const backend = {
     /** Defaults to true (a build with credentials). */
     configured?: boolean;
     account: string | null;
+    /** The link levels the service makes (view only when left out). */
+    shareLevels?: string[];
   }[],
   /** The last menu state the UI sent. */
   menuState: null as MenuState | null,
@@ -248,7 +254,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   mockWindows("main");
   mockIPC(
     (cmd, args) => {
-      calls.push({ cmd, args });
+      calls.push({ cmd, args, headers: lastOptions?.headers });
       const override = overrides[cmd];
       if (override) return override(args);
       switch (cmd) {
@@ -314,6 +320,8 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           };
         case "cloud_accounts":
           return backend.cloudAccounts.map((a) => ({ configured: true, ...a }));
+        case "cloud_list":
+          return backend.driveTabs[(args as { provider: string }).provider] ?? [];
         case "cloud_list_stems":
           return backend.driveStems[(args as { provider: string }).provider] ?? [];
         // Saving to an account: the file is named after the song, as the Rust command does.
@@ -337,6 +345,11 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           const opened = { ...backend.bundleSong, savedPath: item };
           backend.stemSongs = [opened, ...backend.stemSongs.filter((s) => s.id !== opened.id)];
           return opened;
+        }
+        // A share link is made by the service: the mock gives one that names what was asked.
+        case "cloud_share": {
+          const { item, level } = args as { item: string; level: string };
+          return `https://share.example.com/${encodeURIComponent(item)}?as=${level}`;
         }
         case "detect_cloud_folders":
         case "cloud_pending":

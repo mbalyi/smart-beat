@@ -4,7 +4,9 @@ import { CloudDownloadIcon, CloudIcon, CloudOffIcon, FileMusicIcon } from "lucid
 import { useEffect, useState } from "react";
 
 import { SectionKicker } from "@/components/section-kicker";
+import { ShareButton } from "@/components/share-button";
 import { useCloudChanges } from "@/hooks/use-cloud-changes";
+import { tabShareTarget } from "@/lib/cloud-share";
 import { errorText } from "@/lib/errors";
 import { listCloudAccounts } from "@/lib/cloud";
 import {
@@ -171,11 +173,11 @@ export function CloudScores({ onOpen }: { onOpen: (path: string) => void }) {
       ) : scores.length + remote.length === 0 ? null : (
         <ul className="grid gap-3 sm:grid-cols-2">
           {remote.map(({ provider, item }, index) => (
-            <li key={item.id} className="min-w-0">
+            <li key={item.id} className="relative min-w-0">
               <button
                 type="button"
                 className={cn(
-                  "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card px-4 py-3 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
+                  "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card py-3 pr-14 pl-4 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
                   index % 2 === 0
                     ? "hover:border-brand-yellow/60 focus-visible:border-brand-yellow/60"
                     : "hover:border-brand/60 focus-visible:border-brand/60",
@@ -205,17 +207,21 @@ export function CloudScores({ onOpen }: { onOpen: (path: string) => void }) {
                   </span>
                 </span>
               </button>
+              <ShareButton
+                target={tabShareTarget(item.id, item.name)}
+                className="absolute top-1/2 right-2 -translate-y-1/2"
+              />
             </li>
           ))}
           {scores.map((score, index) => {
             const waiting = score.placeholder;
             const fetching = downloading.has(score.path);
             return (
-              <li key={score.path} className="min-w-0">
+              <li key={score.path} className="relative min-w-0">
                 <button
                   type="button"
                   className={cn(
-                    "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card px-4 py-3 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
+                    "group flex min-h-[76px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-2xl border bg-card py-3 pr-14 pl-4 text-left transition-[border-color,background-color,transform] duration-150 outline-none hover:-translate-y-0.5 hover:bg-muted focus-visible:-translate-y-0.5 focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
                     index % 2 === 0
                       ? "hover:border-brand-yellow/60 focus-visible:border-brand-yellow/60"
                       : "hover:border-brand/60 focus-visible:border-brand/60",
@@ -249,6 +255,13 @@ export function CloudScores({ onOpen }: { onOpen: (path: string) => void }) {
                     )}
                   </span>
                 </button>
+                {/* An online-only file has nothing on this computer to upload yet. */}
+                {!waiting && (
+                  <ShareButton
+                    target={tabShareTarget(score.path, score.name)}
+                    className="absolute top-1/2 right-2 -translate-y-1/2"
+                  />
+                )}
               </li>
             );
           })}
