@@ -1014,18 +1014,7 @@ export class ScorePlayer {
 
   /** Playback speed in percent (100 = as written). */
   setSpeed(percent: number) {
-    this.speedPercent = percent;
-    this.api.playbackSpeed = (percent / 100) * this.speedNudge;
-  }
-
-  private speedPercent = 100;
-  /** Practice together: a small correction on top of the speed, to follow the host (1 = none). */
-  private speedNudge = 1;
-
-  /** Multiplies the speed by a little (Practice together keeps two players in step). 1 = as set. */
-  nudgeSpeed(multiplier: number) {
-    this.speedNudge = multiplier;
-    this.api.playbackSpeed = (this.speedPercent / 100) * multiplier;
+    this.api.playbackSpeed = percent / 100;
   }
 
   /** Whether playback is running (or about to: a count-in counts). */

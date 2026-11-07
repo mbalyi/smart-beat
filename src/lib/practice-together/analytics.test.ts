@@ -6,7 +6,9 @@ import {
   joined,
   lengthRange,
   opened,
+  handOverSessionAnalytics,
   presetChosen,
+  sessionAnalytics,
   setupFailed,
   sharedStart,
 } from "@/lib/practice-together/analytics";
@@ -152,6 +154,29 @@ describe("counting a Practice together session", () => {
       "15_60m",
       "over_60m",
       "over_60m",
+    ]);
+  });
+});
+
+describe("a session that moves to the tab it received", () => {
+  it("is not counted as ended, and the resumed session counts its own end once", () => {
+    const first = sessionAnalytics(false);
+    first.observe(state("synchronized", { role: "guest" }));
+    vi.mocked(track).mockClear();
+
+    // The handoff closes the old session on purpose: nothing is counted.
+    handOverSessionAnalytics();
+    first.observe(state("closed", { role: "guest" }));
+    expect(calls()).toEqual([]);
+
+    // The resumed session reuses the counter; its real end is counted, once.
+    const resumed = sessionAnalytics(true);
+    expect(resumed).toBe(first);
+    resumed.observe(state("synchronized", { role: "guest" }));
+    resumed.observe(state("closed", { role: "guest", kind: "peer-left" }));
+    resumed.observe(state("closed", { role: "guest", kind: "peer-left" }));
+    expect(calls().filter(([event]) => event === "practice_together_end")).toEqual([
+      ["practice_together_end", "peer_left"],
     ]);
   });
 });

@@ -15,6 +15,12 @@ const token = (): string => {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 };
 
+/** The secret in an `Authorization: Bearer …` header, or "". */
+const bearer = (request: Request): string => {
+  const match = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "");
+  return match ? match[1]! : "";
+};
+
 const isRole = (value: unknown): value is Role => value === "host" || value === "guest";
 
 /** A guest's own id: random hex made by the app. Anything else is ignored. */
@@ -62,6 +68,7 @@ export class Room implements DurableObject {
         if (result === "unknown") return json({ error: "unknown" }, 404);
         if (result === "full") return json({ error: "full" }, 409);
         if (result === "banned") return json({ error: "banned" }, 403);
+        if (result === "rate-limited") return json({ error: "rate-limited" }, 429);
         this.wake();
         return json(result);
       }
@@ -109,7 +116,8 @@ export class Room implements DurableObject {
       }
       case "/poll": {
         const role = url.searchParams.get("role");
-        const key = url.searchParams.get("token") ?? "";
+        // The token travels in a header, not in the address: addresses end up in logs.
+        const key = bearer(request);
         const after = Number(url.searchParams.get("after") ?? "0");
         if (!isRole(role) || !Number.isFinite(after)) return json({ error: "bad-request" }, 400);
         const deadline = now + POLL_MS;

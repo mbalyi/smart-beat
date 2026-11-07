@@ -231,3 +231,18 @@ export function decode(text: string): Envelope | null {
 
 /** The version two apps speak: the lower one. */
 export const negotiate = (mine: number, theirs: number): number => Math.min(mine, theirs);
+
+/**
+ * The host's loop, kept inside this score: the host's bar numbers mean nothing to a guest whose
+ * score has fewer bars (a bad or hostile message), so they are brought into range. No bars, no loop.
+ */
+export function clampLoop(
+  loop: { from: number; to: number } | null,
+  bars: number,
+): { from: number; to: number } | null {
+  if (!loop || bars < 1) return null;
+  const last = bars - 1;
+  const from = Math.min(Math.max(0, Math.trunc(loop.from)), last);
+  const to = Math.min(Math.max(from, Math.trunc(loop.to)), last);
+  return { from, to };
+}

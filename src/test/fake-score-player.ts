@@ -56,7 +56,6 @@ export class FakeScorePlayer {
   setMonitorInput = vi.fn();
   seekToBar = vi.fn();
   // Practice together (#158).
-  nudgeSpeed = vi.fn();
   isPlaying = vi.fn(() => false);
   getTick = vi.fn(() => 0);
   seekToTick = vi.fn();

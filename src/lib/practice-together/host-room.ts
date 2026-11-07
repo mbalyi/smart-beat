@@ -250,6 +250,15 @@ export class HostRoom {
     for (const seat of this.seats.values()) seat.session.setScore(score);
   }
 
+  /** Sends the host's tab to every guest again (Sync tab). True when there was a guest to send it to. */
+  shareTabAgain(): boolean {
+    let sent = false;
+    for (const seat of this.seats.values()) {
+      if (!seat.retiring && seat.session.shareTabAgain()) sent = true;
+    }
+    return sent;
+  }
+
   /** Leaves: every guest is told, and the room stops listening. */
   leave(reason = "left") {
     if (this.ended) return;

@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   JOINED,
+  JOIN_WINDOW_MS,
   MAX_AGE_MS,
   MAX_GUEST_MESSAGES,
+  MAX_GUEST_PENDING,
+  MAX_GUEST_TOTAL,
   MAX_GUESTS,
-  MAX_HOST_MESSAGES,
+  MAX_JOINS,
   MAX_MESSAGE,
   RoomState,
+  SEAT_IDLE_MS,
   TTL_MS,
 } from "../src/rooms";
 
@@ -98,7 +102,29 @@ describe("RoomState", () => {
     room.send("host", host, "b", 1, peer);
     expect(room.read("guest", guest, 1, 2)).toMatchObject({ messages: ["b"], next: 2 });
     expect(room.read("guest", guest, 2, 2)).toMatchObject({ messages: [], next: 2 });
-    expect(room.read("guest", guest, -5, 2)).toMatchObject({ messages: ["a", "b"] });
+    // What was read is not kept: asking for it again finds nothing, and the cursor stays.
+    expect(room.read("guest", guest, -5, 2)).toMatchObject({ messages: [], next: 2 });
+  });
+
+  it("lets a poll that is asked again (its answer was lost) get the same messages", () => {
+    const { room, host, guest, peer } = pair();
+    room.send("host", host, "a", 1, peer);
+    expect(room.read("guest", guest, 0, 2)).toMatchObject({ messages: ["a"], next: 1 });
+    // Only what the client says it has (`after`) is dropped, so the same call answers the same.
+    expect(room.read("guest", guest, 0, 3)).toMatchObject({ messages: ["a"], next: 1 });
+    expect(room.read("guest", guest, 1, 3)).toMatchObject({ messages: [], next: 1 });
+  });
+
+  it("drops what the host has heard, so the host's mailbox only holds what is new", () => {
+    const { room, host, guest } = pair();
+    for (let i = 0; i < 10; i += 1) room.send("guest", guest, `m${i}`, 1);
+    const first = room.read("host", host, 0, 2);
+    if (typeof first === "string") throw new Error(first);
+    expect(first.messages).toHaveLength(11);
+    expect(first.next).toBe(11);
+    expect(room.read("host", host, 11, 3)).toMatchObject({ messages: [], next: 11 });
+    room.send("guest", guest, "later", 4);
+    expect(room.read("host", host, 11, 5)).toMatchObject({ messages: ["later"], next: 12 });
   });
 
   it("refuses a wrong token or the other side's token", () => {
@@ -119,14 +145,45 @@ describe("RoomState", () => {
   });
 
   it("limits the size and the number of messages", () => {
-    const { room, host, guest, peer } = pair();
+    const { room, host, peer } = pair();
     expect(room.send("host", host, "x".repeat(MAX_MESSAGE + 1), 1, peer)).toBe("too-big");
     expect(room.send("host", host, "x".repeat(MAX_MESSAGE), 1, peer)).toBe("ok");
     for (let i = 1; i < MAX_GUEST_MESSAGES; i += 1) room.send("host", host, "m", 1, peer);
     expect(room.send("host", host, "m", 1, peer)).toBe("full");
-    // The host's mailbox (one slot is the arrival notice) has its own limit.
-    for (let i = 1; i < MAX_HOST_MESSAGES; i += 1) room.send("guest", guest, "m", 1);
-    expect(room.send("guest", guest, "m", 1)).toBe("full");
+  });
+
+  it("gives each guest its own share of the host's mailbox", () => {
+    const room = new RoomState();
+    const host = room.create(0, "h")!;
+    const a = room.join(0, "ta") as { peer: string };
+    const b = room.join(0, "tb") as { peer: string };
+    // Guest A sends until it is stopped. The arrival notice is one of its messages.
+    let sent = 1;
+    while (room.send("guest", "ta", "junk", 1) === "ok") sent += 1;
+    expect(sent).toBe(MAX_GUEST_PENDING);
+    // Guest B is not held up by it.
+    expect(room.send("guest", "tb", "offer-answer", 1)).toBe("ok");
+    // Once the host has read what is waiting, A may send again.
+    const heard = room.read("host", host, 0, 2);
+    if (typeof heard === "string") throw new Error(heard);
+    room.read("host", host, heard.next, 3);
+    expect(room.send("guest", "ta", "again", 4)).toBe("ok");
+    expect(a.peer).not.toBe(b.peer);
+  });
+
+  it("stops a guest that keeps sending for ever", () => {
+    const room = new RoomState();
+    const host = room.create(0, "h")!;
+    room.join(0, "ta");
+    let after = 0;
+    let ok = 0;
+    for (let i = 0; i < MAX_GUEST_TOTAL + 50; i += 1) {
+      if (room.send("guest", "ta", "x", 1) === "ok") ok += 1;
+      const read = room.read("host", host, after, 1);
+      if (typeof read !== "string") after = read.next;
+    }
+    expect(ok).toBe(MAX_GUEST_TOTAL);
+    expect(room.send("guest", "ta", "x", 1)).toBe("full");
   });
 
   it("is gone ten minutes after the host was last heard, and the code can be used again", () => {
@@ -202,6 +259,36 @@ describe("RoomState", () => {
       expect(room.kick(host, first.peer, true, 2)).toBe("ok");
       expect(room.join(3, "t2", "abcdef01")).toBe("banned");
       expect(room.join(3, "t3", "abcdef02")).toMatchObject({ token: "t3" });
+    });
+
+    it("takes only so many joins in a while, rejoins included", () => {
+      const room = new RoomState();
+      room.create(0, "h");
+      for (let i = 0; i < MAX_JOINS; i += 1) {
+        expect(room.join(1 + i, `t${i}`, "abcdef01")).toMatchObject({ token: `t${i}` });
+      }
+      expect(room.join(100, "late", "abcdef01")).toBe("rate-limited");
+      expect(room.join(100, "late", "abcdef02")).toBe("rate-limited");
+      // The window moves on.
+      expect(room.join(JOIN_WINDOW_MS + MAX_JOINS + 1, "later", "abcdef01")).toMatchObject({
+        token: "later",
+      });
+    });
+
+    it("gives the seat of a guest that went quiet to a newcomer in a full room", () => {
+      const room = new RoomState();
+      room.create(0, "h");
+      for (let i = 0; i < MAX_GUESTS; i += 1) room.join(1, `t${i}`);
+      // Nobody is quiet yet: the room is full.
+      expect(room.join(2, "new")).toBe("full");
+      // Every guest but the first keeps polling.
+      for (let i = 1; i < MAX_GUESTS; i += 1) room.read("guest", `t${i}`, 0, SEAT_IDLE_MS);
+      expect(room.join(SEAT_IDLE_MS + 5, "new")).toMatchObject({ token: "new" });
+      expect(room.guestCount).toBe(MAX_GUESTS);
+      expect(room.read("guest", "t0", 0, SEAT_IDLE_MS + 6)).toBe("denied");
+      expect(room.read("guest", "t1", 0, SEAT_IDLE_MS + 6)).not.toBe("denied");
+      // Everyone is active again: full.
+      expect(room.join(SEAT_IDLE_MS + 6, "another")).toBe("full");
     });
 
     it("cannot ban a guest that did not say its id, only remove it", () => {

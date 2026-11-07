@@ -121,14 +121,16 @@ export class SharedTransport {
     return true;
   }
 
-  private schedule(cmd: Command, localAt: number): () => void {
+  private schedule(cmd: Command, localAt: number): (abort?: boolean) => void {
     const player = this.options.player();
     if (!player || cmd.action === "settings") return () => {};
     const early = cmd.action === "play" ? player.outputLatencyMs() : 0;
-    return fireAt(
+    let fired = false;
+    const cancel = fireAt(
       localAt - early,
       this.now,
       (error) => {
+        fired = true;
         this.startErrors.push(error);
         this.resetDrift();
         switch (cmd.action) {
@@ -148,6 +150,11 @@ export class SharedTransport {
       },
       this.options.spinMs,
     );
+    return (abort) => {
+      cancel();
+      // The host called the start off after it had happened here: do not play alone.
+      if (abort && fired && cmd.action === "play") player.pause();
+    };
   }
 
   private resetDrift() {

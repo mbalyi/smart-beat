@@ -811,10 +811,18 @@ export class ScoreEditor {
   // --- Editing ---------------------------------------------------------------
 
   /**
+   * Set by the app while the score may not be changed (a Practice together guest follows the
+   * host's tab). It returns true to refuse an edit, undo or redo, and says why itself. Every
+   * change of the music goes through `run`, so nothing slips past it.
+   */
+  blocked: (() => boolean) | null = null;
+
+  /**
    * Runs an edit as one undo step: records `targets` before and after,
    * re-finishes the model and notifies listeners.
    */
   run(label: string, targets: () => Iterable<object>, apply: () => void, message = label) {
+    if (this.blocked?.()) return;
     track(EDIT_EVENTS[label] ?? "edit");
     // Any edit ends a two-digit fret: its second digit must not undo this edit.
     this.pendingDigit = null;
@@ -842,6 +850,7 @@ export class ScoreEditor {
   }
 
   undo() {
+    if (this.blocked?.()) return;
     const entry = this.history.undo();
     if (!entry) return;
     track("undo");
@@ -853,6 +862,7 @@ export class ScoreEditor {
   }
 
   redo() {
+    if (this.blocked?.()) return;
     const entry = this.history.redo();
     if (!entry) return;
     track("redo");

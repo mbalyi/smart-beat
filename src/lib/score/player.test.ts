@@ -1738,16 +1738,11 @@ describe("ScorePlayer: Practice together (#158)", () => {
     expect(callbacks.onBarChange).toHaveBeenLastCalledWith(0);
   });
 
-  it("nudges the speed on top of the chosen speed, and keeps the nudge when the speed changes", async () => {
+  it("sets the speed as chosen, with no correction on top (Practice together never nudges)", async () => {
     const { player, api } = await readySetup();
     player.setSpeed(80);
     expect(api.playbackSpeed).toBeCloseTo(0.8);
-    player.nudgeSpeed(1.02);
-    expect(api.playbackSpeed).toBeCloseTo(0.816);
-    player.setSpeed(100);
-    expect(api.playbackSpeed).toBeCloseTo(1.02);
-    player.nudgeSpeed(1);
-    expect(api.playbackSpeed).toBe(1);
+    expect("nudgeSpeed" in player).toBe(false);
   });
 
   it("says whether the song is loaded, so a start would play", async () => {

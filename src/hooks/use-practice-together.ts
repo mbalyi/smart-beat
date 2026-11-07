@@ -14,6 +14,7 @@ import { putHandoff, takeHandoff } from "@/lib/practice-together/handoff";
 import {
   hosted,
   joined,
+  handOverSessionAnalytics,
   playerRemoved,
   presetChosen,
   rejoined,
@@ -39,7 +40,11 @@ import {
 import { hostOverInternet, joinOverInternet, rtcSupported } from "@/lib/practice-together/rtc";
 import { Session, type SessionState } from "@/lib/practice-together/session";
 import { SharedTransport, type TransportPlayer } from "@/lib/practice-together/shared-transport";
-import type { RequestAction, ScoreFingerprint } from "@/lib/practice-together/protocol";
+import {
+  clampLoop,
+  type RequestAction,
+  type ScoreFingerprint,
+} from "@/lib/practice-together/protocol";
 import type { TabProgress } from "@/lib/practice-together/tab-transfer";
 import type { GuestAcceptor, PeerTransport } from "@/lib/practice-together/transport";
 import type { Score } from "@/lib/score/model";
@@ -93,6 +98,8 @@ export interface PracticeTogether {
   /** Joins the session this app was last in again (after a drop, or when its battery ran out). */
   rejoin(): Promise<void>;
   leave(): void;
+  /** The host sends its tab to every guest again (Sync tab). */
+  syncTab(): void;
   /** The host removes a guest; it can join again with the code. */
   kick(id: string): void;
   /** The host removes a guest for good: it cannot join this session again. */
@@ -151,7 +158,16 @@ const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : ((e as { message?: string } | null)?.message ?? String(e));
 
 /** Problems worth a toast when they appear (the rest are shown in the dialog and the chip). */
-const TOAST_KINDS = new Set(["late", "poor", "dropped", "woke", "tab", "peer-left"]);
+const TOAST_KINDS = new Set([
+  "late",
+  "poor",
+  "dropped",
+  "woke",
+  "tab",
+  "peer-left",
+  "kicked",
+  "banned",
+]);
 
 /** A burst of edits is fingerprinted once, this long after the last one. */
 const FINGERPRINT_DEBOUNCE_MS = 200;
@@ -230,8 +246,22 @@ export function usePracticeTogether({
     [head, settle],
   );
   const approvalsWaiting = Math.max(0, waiting.length - 1);
+  // A host with the dialog closed is told someone is waiting (a toast is read out, too).
+  const waitingName = head?.name;
+  useEffect(() => {
+    if (waitingName) {
+      toast.info(`${waitingName} wants to join`, {
+        description: "Open Practice together to let them in.",
+        id: "together-waiting",
+      });
+    }
+  }, [waitingName]);
+
+  /** Counts the sessions started and ended: a host or join still connecting when it changes is stale. */
+  const attemptRef = useRef(0);
 
   const end = useCallback(() => {
+    attemptRef.current += 1;
     sessionRef.current?.leave();
     sessionRef.current = null;
     sharedRef.current?.release();
@@ -250,6 +280,7 @@ export function usePracticeTogether({
       const session = sessionRef.current;
       // Only a guest moves along with the tab it received.
       if (!(session instanceof Session)) return;
+      handOverSessionAnalytics();
       const { transport, session: id, peerName } = session.release();
       sessionRef.current = null;
       sharedRef.current?.release();
@@ -350,7 +381,11 @@ export function usePracticeTogether({
       const shared = new SharedTransport({
         player: () => playerRef.current,
         applySettings: (cmd) => {
-          for (const action of actionsFor(practiceRef.current, cmd)) dispatchRef.current(action);
+          // The host's loop is kept inside this score's bars.
+          const loop = clampLoop(cmd.loop, scoreRef.current.masterBars.length);
+          for (const action of actionsFor(practiceRef.current, { ...cmd, loop })) {
+            dispatchRef.current(action);
+          }
         },
       });
       const takeOver = target.role === "guest" ? target.takeOver : undefined;
@@ -419,6 +454,7 @@ export function usePracticeTogether({
   const host = useCallback(
     async (kind: ConnectionKind) => {
       end();
+      const attempt = attemptRef.current;
       // This click is what lets the page start sound later, when the other computer says Play.
       void playerRef.current?.warmUpAudio().catch(() => {});
       setError(null);
@@ -426,11 +462,14 @@ export function usePracticeTogether({
       try {
         if (kind === "lan") {
           const { acceptor, info } = await hostOnLan();
+          // The song was closed (or another session started) while connecting: let go of it.
+          if (attemptRef.current !== attempt) return void acceptor.close();
           setHostCode({ kind, code: info.code, address: info.address });
           await open({ role: "host", acceptor });
           hosted(kind);
         } else {
           const { acceptor, code } = await hostOverInternet();
+          if (attemptRef.current !== attempt) return void acceptor.close();
           setHostCode({ kind, code });
           await open({ role: "host", acceptor });
           hosted(kind);
@@ -449,15 +488,19 @@ export function usePracticeTogether({
   const join = useCallback(
     async (kind: ConnectionKind, code: string, again = false) => {
       end();
+      const attempt = attemptRef.current;
       // This click is what lets the page start sound later, when the other computer says Play.
       void playerRef.current?.warmUpAudio().catch(() => {});
       setError(null);
       setStarting(true);
       try {
         if (kind === "lan") {
-          await open({ role: "guest", transport: await joinOnLan(code), link: "open" });
+          const transport = await joinOnLan(code);
+          if (attemptRef.current !== attempt) return void transport.close();
+          await open({ role: "guest", transport, link: "open" });
         } else {
           const transport = await joinOverInternet(code, undefined, guestId());
+          if (attemptRef.current !== attempt) return void transport.close();
           await open({ role: "guest", transport, link: "connecting" });
         }
         // Remembered so that a drop (or a dead battery) can be answered with one click.
@@ -493,6 +536,11 @@ export function usePracticeTogether({
     setLastSession(null);
     end();
   }, [end]);
+
+  const syncTab = useCallback(() => {
+    const session = sessionRef.current;
+    if (session instanceof HostRoom) session.shareTabAgain();
+  }, []);
 
   const kick = useCallback((id: string) => {
     const session = sessionRef.current;
@@ -666,6 +714,7 @@ export function usePracticeTogether({
       join: (kind: ConnectionKind, code: string) => join(kind, code),
       rejoin,
       leave,
+      syncTab,
       kick,
       ban,
       intercept,
@@ -685,6 +734,7 @@ export function usePracticeTogether({
       join,
       rejoin,
       leave,
+      syncTab,
       kick,
       ban,
       intercept,

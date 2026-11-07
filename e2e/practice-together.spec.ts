@@ -218,9 +218,10 @@ test.describe("Practice together", () => {
         { type: "request", action: "play" },
         { type: "request", action: "stop", tick: 0 },
       ]);
-    // Nothing started here: the host's command is what starts it.
+    // Nothing started here: the host's command is what starts it, so the guest still shows Play
+    // (a guest that played by itself would show Pause).
     await expect(app.getByRole("button", { name: "Play" })).toBeVisible();
-    expect(await app.evaluate(() => window.__practiceTogether.sentOf("cmd").length)).toBe(0);
+    await expect(app.getByRole("button", { name: "Pause" })).toHaveCount(0);
   });
 
   test("shows that the connection dropped and leaves cleanly", async ({ app }) => {

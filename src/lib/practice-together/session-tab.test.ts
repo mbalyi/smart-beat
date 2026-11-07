@@ -257,6 +257,37 @@ describe("a guest without the tab", () => {
   });
 });
 
+describe("Sync tab: the host sends its tab again", () => {
+  it("starts over after the host gave up, and a guest that has it already is not sent it twice", async () => {
+    const { host, guest } = connect();
+    // The guest cannot open the tab: the host tries twice and gives up.
+    guest.receiveResult = "unreadable";
+    await settle(6_000);
+    const tries = guest.received.length;
+    expect(tries).toBeGreaterThanOrEqual(1);
+    await settle(3_000);
+    expect(guest.received.length).toBe(tries);
+
+    // The guest can now: pressing Sync tab sends it again, with progress, and it arrives.
+    guest.receiveResult = null;
+    const seen: number[] = [];
+    host.session.subscribe((st) => st.transfer && seen.push(st.transfer.done));
+    expect(host.session.shareTabAgain()).toBe(true);
+    await settle(3_000);
+    expect(guest.received.length).toBe(tries + 1);
+    expect(guest.opened).toBe(1);
+    expect(seen.length).toBeGreaterThan(1);
+  });
+
+  it("is only for a host with a guest", () => {
+    const pair = memoryPair({ up: 1 });
+    const guest = side(pair[1], "guest");
+    expect(guest.session.shareTabAgain()).toBe(false);
+    const host = side(pair[0], "host");
+    expect(host.session.shareTabAgain()).toBe(false);
+  });
+});
+
 describe("the host edits the tab", () => {
   it("sends the new version a moment after the last edit, once the guest has the first", async () => {
     const { host, guest } = connect();

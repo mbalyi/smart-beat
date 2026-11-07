@@ -107,7 +107,7 @@ export function PracticeTogetherLauncher({
                 <p className="text-sm text-muted-foreground">
                   {joining
                     ? "Someone else already started a session. You need its code; the tab comes from the host, so you do not need to have it."
-                    : "You host the session. Pick the tab you want to play together, then give the code to the other player."}
+                    : "You host the session. Pick the tab you want to play together, then give the code to the other players."}
                 </p>
               </div>
             </TogetherContent>

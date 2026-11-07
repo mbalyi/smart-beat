@@ -1385,7 +1385,7 @@ export type PracticeLinkState = "connecting" | "open" | "reconnecting" | "closed
 export interface PracticeHostInfo {
   /** The room code to read out, like `ABCD-EFGH-JKMN-PQRS-TVWX`. */
   code: string;
-  /** The same code as a link. */
+  /** The same code as a `smartbeat://join/…` link. Reserved: no such link is registered or opened yet. */
   link: string;
   /** The address the code stands for (shown so a firewall problem can be found). */
   address: string;

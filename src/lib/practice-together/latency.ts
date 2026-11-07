@@ -60,12 +60,16 @@ export const PREPARE_MARGIN_MS = 100;
 /** No start is ever scheduled further ahead than this. */
 export const MAX_LEAD_MS = 3000;
 
+/** The guest's "ready" must also get back to the host before the start: a little extra room. */
+export const READY_BACK_MARGIN_MS = 30;
+
 /**
- * How far ahead to schedule a start: the slow end of the one-way time, a few times the jitter,
- * and the time to prepare, but never below the preset's floor.
+ * How far ahead to schedule a start. The host sends the command, the guest prepares and says
+ * "ready", and the host must hear it before the start: a whole round trip (the slow end of it),
+ * a few times the jitter, the time to prepare and a little room. Never below the preset's floor.
  */
 export function leadTimeMs(stats: LatencyStats, floorMs: number, jitterFactor: number): number {
-  const wire = stats.p95 / 2 + jitterFactor * stats.jitter + PREPARE_MARGIN_MS;
+  const wire = stats.p95 + jitterFactor * stats.jitter + PREPARE_MARGIN_MS + READY_BACK_MARGIN_MS;
   return Math.round(Math.min(MAX_LEAD_MS, Math.max(floorMs, wire)));
 }
 

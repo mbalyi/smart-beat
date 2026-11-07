@@ -1,6 +1,6 @@
 //! Practice together (#158): two links talking over loopback, the way two apps would on a LAN.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpStream};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
@@ -164,21 +164,175 @@ fn a_bad_or_unreachable_code_fails_cleanly() {
 }
 
 #[test]
-fn too_many_wrong_codes_close_the_host() {
-    let (host_sink, host_rx) = sink();
-    let host = Link::host(Ipv4Addr::LOCALHOST, host_sink).unwrap();
-    let mut room = Room::parse(&host.code()).unwrap();
+fn many_wrong_codes_do_not_end_the_session() {
+    let p = pair();
+    let mut room = Room::parse(&p.host.code()).unwrap();
     room.token[1] ^= 0x55;
-    for _ in 0..25 {
+    for _ in 0..30 {
         let (s, _rx) = sink();
         let _ = Link::join(&room.code(), s);
     }
-    let event = wait_for(
-        &host_rx,
-        "the host to close",
-        |e| matches!(e, Event::State { conn: 0, state, .. } if *state == LinkState::Closed),
+    // The guest that was let in is still in, and the host still listens.
+    assert!(p.guest.send(None, "still here"));
+    assert_eq!(frame(&p.host_rx), "still here");
+    assert!(p.host.send(Some(p.conn), "and so am I"));
+    assert_eq!(frame(&p.guest_rx), "and so am I");
+    let closed = p
+        .host_rx
+        .try_iter()
+        .any(|e| matches!(e, Event::State { conn: 0, state, .. } if state == LinkState::Closed));
+    assert!(!closed, "the host must not close because of strangers");
+}
+
+#[test]
+fn an_address_that_keeps_guessing_is_turned_away() {
+    let (host_sink, _host_rx) = sink();
+    let host = Link::host(Ipv4Addr::LOCALHOST, host_sink).unwrap();
+    let mut wrong = Room::parse(&host.code()).unwrap();
+    wrong.token[2] ^= 0x33;
+    let mut last = None;
+    for _ in 0..12 {
+        let (s, _rx) = sink();
+        last = Link::join(&wrong.code(), s).err();
+    }
+    assert_eq!(last, Some(JoinError::Denied));
+    // Turned away from now on, even with the right code: it is the address that is blocked.
+    let (s, _rx) = sink();
+    assert_eq!(
+        Link::join(&host.code(), s).err(),
+        Some(JoinError::Denied),
+        "a blocked address stays out for a while"
     );
-    assert!(matches!(event, Event::State { detail: Some(d), .. } if d.contains("wrong codes")));
+}
+
+/// A raw connection that has not said anything.
+fn knock(port: u16) -> TcpStream {
+    TcpStream::connect((Ipv4Addr::LOCALHOST, port)).expect("connect")
+}
+
+/// True when the other end has closed this connection (within `wait`).
+fn closed_by_peer(stream: &mut TcpStream, wait: Duration) -> bool {
+    stream.set_read_timeout(Some(wait)).unwrap();
+    let mut byte = [0u8; 1];
+    match stream.read(&mut byte) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(e) => !matches!(
+            e.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ),
+    }
+}
+
+#[test]
+fn a_handshake_has_one_deadline_so_a_slow_sender_is_cut_off() {
+    let (host_sink, _host_rx) = sink();
+    let host = Link::host(Ipv4Addr::LOCALHOST, host_sink).unwrap();
+    let mut stream = knock(host.port());
+    let started = Instant::now();
+    // One byte of the frame every 0.8 s: every read arrives in time, the whole never does.
+    let mut sender = stream.try_clone().unwrap();
+    let drip = std::thread::spawn(move || {
+        for byte in [0u8, 0, 0, 6, 1, 2, 3, 4, 5, 6] {
+            if sender.write_all(&[byte]).is_err() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(800));
+        }
+    });
+    assert!(
+        closed_by_peer(&mut stream, Duration::from_secs(6)),
+        "the host must hang up on a handshake that takes too long"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "cut off after {:?}",
+        started.elapsed()
+    );
+    let _ = drip.join();
+}
+
+#[test]
+fn idle_connections_cannot_tie_up_the_host() {
+    let p = pair();
+    // A stranger opens a lot of connections and says nothing.
+    let mut strangers: Vec<TcpStream> = (0..60).map(|_| knock(p.host.port())).collect();
+    std::thread::sleep(Duration::from_millis(300));
+    let held = strangers
+        .iter_mut()
+        .filter_map(|s| (!closed_by_peer(s, Duration::from_millis(20))).then_some(()))
+        .count();
+    assert!(
+        held <= 3,
+        "{held} idle connections are being waited for; one address may have three"
+    );
+    // The session goes on meanwhile.
+    assert!(p.guest.send(None, "hello"));
+    assert_eq!(frame(&p.host_rx), "hello");
+}
+
+#[test]
+fn leaving_while_reconnecting_leaves_no_ghost_connection() {
+    use std::net::{SocketAddrV4, TcpListener};
+    use std::sync::mpsc;
+
+    // A host by hand: it lets the guest in, drops it, then takes the reconnect slowly.
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let room = Room {
+        addr: SocketAddrV4::new(Ipv4Addr::LOCALHOST, port),
+        token: [7, 7, 7, 7, 7, 7],
+    };
+    let (asked_tx, asked_rx) = mpsc::channel();
+    let (seen_tx, seen_rx) = mpsc::channel();
+    let fake = std::thread::spawn(move || {
+        let (mut first, _) = listener.accept().unwrap();
+        let _ = read_frame(&mut first);
+        write_frame(&mut first, b"ok").unwrap();
+        drop(first);
+        let (mut second, _) = listener.accept().unwrap();
+        let _ = read_frame(&mut second);
+        asked_tx.send(()).unwrap();
+        // The guest is told to leave while it waits for this answer.
+        std::thread::sleep(Duration::from_millis(1500));
+        let _ = write_frame(&mut second, b"ok");
+        // A ghost would keep this open and keep sending keep-alives.
+        second
+            .set_read_timeout(Some(Duration::from_secs(4)))
+            .unwrap();
+        let ended = loop {
+            match read_frame(&mut second) {
+                Ok(body) if body.is_empty() => continue,
+                Ok(_) => continue,
+                Err(e) => {
+                    break !matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    );
+                }
+            }
+        };
+        seen_tx.send(ended).unwrap();
+    });
+
+    let (guest_sink, guest_rx) = sink();
+    let guest = Link::join(&room.code(), guest_sink).unwrap();
+    state(&guest_rx, LinkState::Reconnecting);
+    asked_rx.recv_timeout(WAIT).expect("the guest came back");
+    guest.leave();
+    state(&guest_rx, LinkState::Closed);
+    // Nothing more is said for a link that has been left, even when the host answers now.
+    std::thread::sleep(Duration::from_millis(2000));
+    let later: Vec<Event> = guest_rx.try_iter().collect();
+    assert!(
+        later.is_empty(),
+        "a left link must stay quiet, but said {later:?}"
+    );
+    assert!(
+        seen_rx.recv_timeout(Duration::from_secs(6)).unwrap(),
+        "the connection made after leaving must be closed, not kept alive"
+    );
+    fake.join().unwrap();
 }
 
 #[test]

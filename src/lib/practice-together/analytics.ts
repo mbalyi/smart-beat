@@ -65,6 +65,8 @@ export class SessionAnalytics {
   private lastSeen: ProblemKind | null = null;
   private tabCounted = false;
   private finished = false;
+  /** The session is moving to another tab: its closing is not the end of the session. */
+  private handingOver = false;
 
   private readonly now: () => number;
 
@@ -72,8 +74,18 @@ export class SessionAnalytics {
     this.now = now;
   }
 
+  /** The connection moves to another workspace: the next closing snapshot is not an end. */
+  handOver(): void {
+    this.handingOver = true;
+  }
+
+  /** The resumed session carries on counting. */
+  resume(): void {
+    this.handingOver = false;
+  }
+
   observe(state: SessionState): void {
-    if (this.finished) return;
+    if (this.finished || this.handingOver) return;
 
     if (state.phase === "synchronized" && this.synchronizedAt === null) {
       this.synchronizedAt = this.now();
@@ -124,6 +136,12 @@ let carried: SessionAnalytics | null = null;
  * same counter and is not counted again.
  */
 export function sessionAnalytics(resumed: boolean): SessionAnalytics {
-  if (!(resumed && carried)) carried = new SessionAnalytics();
+  if (resumed && carried) carried.resume();
+  else carried = new SessionAnalytics();
   return carried;
+}
+
+/** A guest's session is about to move to the tab it received: its closing is not counted. */
+export function handOverSessionAnalytics(): void {
+  carried?.handOver();
 }

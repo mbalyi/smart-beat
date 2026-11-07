@@ -4,13 +4,14 @@ import {
   CopyIcon,
   GlobeIcon,
   LogOutIcon,
+  RefreshCwIcon,
   RotateCcwIcon,
   UserCheckIcon,
   UserXIcon,
   UsersIcon,
   WifiIcon,
 } from "lucide-react";
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from "react";
 
 import { DirectConnectionHelp } from "@/components/practice-together/direct-connection-help";
 import {
@@ -238,7 +239,7 @@ function ChooseStep({
             )}
             <p className="text-sm text-muted-foreground">
               {kind === "lan"
-                ? "Both computers on the same Wi-Fi or cable. The best choice: it is the steadiest and nothing leaves your network."
+                ? "All the computers on the same Wi-Fi or cable. The best choice: it is the steadiest and nothing leaves your network."
                 : "Connects through a small meeting service, then talks directly. A public address lookup server is contacted, and a strict firewall can block it."}
             </p>
             {kind === "lan" && (
@@ -382,11 +383,28 @@ function ConnectStep({ together, onClose }: { together: PracticeTogether; onClos
 }
 
 /** A player asks the host to let it in (the host sees them one at a time). */
+/**
+ * Moves the keyboard focus to `ref` when an inline question appears, and back to where it was when
+ * the question goes away (a keyboard user is not left tabbing past the rows to reach it).
+ */
+function useQuestionFocus(ref: RefObject<HTMLButtonElement | null>) {
+  useEffect(() => {
+    const before = document.activeElement;
+    ref.current?.focus();
+    return () => {
+      if (before instanceof HTMLElement && before.isConnected) before.focus();
+    };
+  }, [ref]);
+}
+
 function ApprovalCard({ together }: { together: PracticeTogether }) {
+  const first = useRef<HTMLButtonElement>(null);
+  useQuestionFocus(first);
   if (!together.approval) return null;
   return (
     <div
       role="alertdialog"
+      aria-live="assertive"
       aria-label="Let this player in?"
       className="flex flex-col gap-3 rounded-lg border border-primary/60 p-3"
     >
@@ -396,7 +414,7 @@ function ApprovalCard({ together }: { together: PracticeTogether }) {
           ` ${together.approvalsWaiting} more ${together.approvalsWaiting === 1 ? "is" : "are"} waiting.`}
       </p>
       <div className="flex gap-2">
-        <Button type="button" size="sm" onClick={() => together.approval?.answer(true)}>
+        <Button ref={first} type="button" size="sm" onClick={() => together.approval?.answer(true)}>
           Let in
         </Button>
         <Button
@@ -559,10 +577,27 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
               />
             </dl>
             <TransferLine transfer={together.transfer} />
+            {isHost && peers.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={together.syncTab}
+                  disabled={!!together.transfer && together.transfer.done < together.transfer.total}
+                >
+                  <RefreshCwIcon aria-hidden="true" />
+                  Sync tab
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Sends your tab to everyone again.
+                </span>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">
               {isHost
                 ? "Press Play in the toolbar: all of you start together. Pause, Stop, speed, loop, metronome and count-in are shared. Your tracks, mute and solo stay your own."
-                : "Press Play or Stop in the toolbar: the host starts both of you at the same moment. The speed, loop, metronome and count-in follow the host. Your tracks, mute and solo stay your own."}
+                : "Press Play or Stop in the toolbar: the host starts everyone at the same moment. The speed, loop, metronome and count-in follow the host. Your tracks, mute and solo stay your own."}
             </p>
           </div>
           <div className={cn(CARD, "flex flex-col gap-2")}>
@@ -686,6 +721,8 @@ function ConfirmRemoval({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const cancel = useRef<HTMLButtonElement>(null);
+  useQuestionFocus(cancel);
   return (
     <div
       role="alertdialog"
@@ -709,7 +746,7 @@ function ConfirmRemoval({
         <Button type="button" size="sm" variant="destructive" onClick={onConfirm}>
           {how === "kick" ? `Kick ${peer.name}` : `Ban ${peer.name}`}
         </Button>
-        <Button type="button" size="sm" variant="outline" onClick={onCancel}>
+        <Button ref={cancel} type="button" size="sm" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
       </div>

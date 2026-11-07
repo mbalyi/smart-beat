@@ -57,7 +57,14 @@ describe("leadTimeMs", () => {
     const calm = leadTimeMs(stats({ p95: 20, jitter: 1 }), 250, 3);
     const rough = leadTimeMs(stats({ p95: 400, jitter: 40 }), 250, 3);
     expect(rough).toBeGreaterThan(calm);
-    expect(rough).toBe(Math.round(200 + 120 + 100));
+    // A whole round trip (the guest's "ready" has to come back), the jitter, preparing and room.
+    expect(rough).toBe(Math.round(400 + 120 + 100 + 30));
+  });
+
+  it("budgets a full round trip, so a 110 ms each way wire is not ready too late", () => {
+    // Tight (floor 250) on 110 ms each way: the old half-round-trip lead was 250 ms, but the
+    // start needs the command out, the guest preparing, and "ready" back: 220 + 100 + 30.
+    expect(leadTimeMs(stats({ p95: 220, jitter: 0 }), 250, 3)).toBeGreaterThanOrEqual(350);
   });
 
   it("is capped", () => {

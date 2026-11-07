@@ -72,6 +72,7 @@ function together(): PracticeTogether {
     join: vi.fn(async () => {}),
     rejoin: vi.fn(async () => {}),
     leave: vi.fn(),
+    syncTab: vi.fn(),
     kick: vi.fn(),
     ban: vi.fn(),
     intercept: vi.fn(() => false),

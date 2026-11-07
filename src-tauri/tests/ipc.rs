@@ -1689,6 +1689,28 @@ fn songs_the_system_wants_opened_are_handed_over_once() {
 }
 
 #[test]
+fn practice_together_ends_the_old_session_before_the_new_one_speaks() {
+    let app = app();
+    let window = main_window(&app);
+    let (tx, rx) = mpsc::channel();
+    app.listen("practice-state", move |event| {
+        let _ = tx.send(event.payload().to_owned());
+    });
+
+    invoke(&window, "practice_host").unwrap();
+    invoke(&window, "practice_host").unwrap();
+    // The first session's "closed" must come before the second one's "connecting", or the page
+    // would take the old link's end for the new link's.
+    let mut states = Vec::new();
+    while let Ok(payload) = rx.recv_timeout(Duration::from_millis(300)) {
+        let value: Value = serde_json::from_str(&payload).unwrap();
+        states.push(value["state"].as_str().unwrap().to_owned());
+    }
+    assert_eq!(states, ["connecting", "closed", "connecting"], "{states:?}");
+    invoke(&window, "practice_leave").unwrap();
+}
+
+#[test]
 fn practice_together_hosts_reports_bad_codes_and_leaves() {
     let app = app();
     let window = main_window(&app);

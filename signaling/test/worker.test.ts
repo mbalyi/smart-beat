@@ -29,6 +29,12 @@ const call = (path: string, init?: RequestInit) =>
 const post = (path: string, body?: unknown) =>
   call(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
+/** A poll, with the token in the Authorization header (never in the address). */
+const poll = (code: string, role: string, token: string, after = 0) =>
+  call(`/v1/rooms/${code}/poll?role=${role}&after=${after}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+
 async function open() {
   const made = (await (await post("/v1/rooms")).json()) as { code: string; token: string };
   const joined = (await (await post(`/v1/rooms/${made.code}/join`)).json()) as {
@@ -90,7 +96,7 @@ describe("rooms over HTTP", () => {
     expect((await post(`/v1/rooms/${code}/kick`, { token: host })).status).toBe(400);
     // The first guest is still in.
     await post(`/v1/rooms/${code}/send`, { role: "host", token: host, to: peer, msg: "hi" });
-    const got = await call(`/v1/rooms/${code}/poll?role=guest&token=${guest}&after=0`);
+    const got = await poll(code, "guest", guest);
     expect(await got.json()).toMatchObject({ messages: ["hi"] });
   });
 
@@ -109,7 +115,7 @@ describe("rooms over HTTP", () => {
   it("relays messages both ways, and tells the host who wrote", async () => {
     const { code, host, guest, peer } = await open();
     await post(`/v1/rooms/${code}/send`, { role: "host", token: host, to: peer, msg: "offer" });
-    const got = await call(`/v1/rooms/${code}/poll?role=guest&token=${guest}&after=0`);
+    const got = await poll(code, "guest", guest);
     expect(await got.json()).toMatchObject({
       messages: ["offer"],
       from: ["host"],
@@ -117,7 +123,7 @@ describe("rooms over HTTP", () => {
       guest: true,
     });
     await post(`/v1/rooms/${code}/send`, { role: "guest", token: guest, msg: "answer" });
-    const back = await call(`/v1/rooms/${code}/poll?role=host&token=${host}&after=0`);
+    const back = await poll(code, "host", host);
     expect(await back.json()).toMatchObject({
       messages: ['{"k":"joined"}', "answer"],
       from: [peer, peer],
@@ -133,16 +139,16 @@ describe("rooms over HTTP", () => {
     };
     await post(`/v1/rooms/${code}/send`, { role: "host", token: host, to: second.peer, msg: "2" });
     await post(`/v1/rooms/${code}/send`, { role: "host", token: host, to: peer, msg: "1" });
-    const mine = await call(`/v1/rooms/${code}/poll?role=guest&token=${guest}&after=0`);
+    const mine = await poll(code, "guest", guest);
     expect(await mine.json()).toMatchObject({ messages: ["1"] });
-    const theirs = await call(`/v1/rooms/${code}/poll?role=guest&token=${second.token}&after=0`);
+    const theirs = await poll(code, "guest", second.token);
     expect(await theirs.json()).toMatchObject({ messages: ["2"] });
     expect(peer).not.toBe(second.peer);
   });
 
   it("wakes a waiting poll when a message arrives", async () => {
     const { code, host, guest, peer } = await open();
-    const waiting = call(`/v1/rooms/${code}/poll?role=guest&token=${guest}&after=0`);
+    const waiting = poll(code, "guest", guest);
     await new Promise((r) => setTimeout(r, 20));
     await post(`/v1/rooms/${code}/send`, {
       role: "host",
@@ -156,7 +162,7 @@ describe("rooms over HTTP", () => {
   it("answers an empty poll after twenty seconds", async () => {
     vi.useFakeTimers();
     const { code, guest } = await open();
-    const waiting = call(`/v1/rooms/${code}/poll?role=guest&token=${guest}&after=0`);
+    const waiting = poll(code, "guest", guest);
     await vi.advanceTimersByTimeAsync(20_001);
     expect(await (await waiting).json()).toMatchObject({ messages: [], next: 0 });
   });
@@ -170,8 +176,14 @@ describe("rooms over HTTP", () => {
       (await post(`/v1/rooms/${code}/send`, { role: "boss", token: host, msg: "m" })).status,
     ).toBe(400);
     expect((await post(`/v1/rooms/${code}/send`, { role: "host", token: host })).status).toBe(400);
-    expect((await call(`/v1/rooms/${code}/poll?role=host&token=x&after=0`)).status).toBe(403);
-    expect((await call(`/v1/rooms/${code}/poll?role=nope&token=${host}`)).status).toBe(400);
+    expect((await poll(code, "host", "x")).status).toBe(403);
+    expect(
+      (
+        await call(`/v1/rooms/${code}/poll?role=nope`, {
+          headers: { authorization: `Bearer ${host}` },
+        })
+      ).status,
+    ).toBe(400);
     expect((await post(`/v1/rooms/${code}/send`, "not json" as unknown)).status).toBe(400);
   });
 
@@ -191,5 +203,51 @@ describe("rooms over HTTP", () => {
     expect((await call("/v1/rooms/ABCDEFGH/join")).status).toBe(405);
     expect((await call("/v1/rooms")).status).toBe(404);
     expect((await call("/")).status).toBe(404);
+  });
+
+  it("answers a broken percent escape in the code with 400, not a crash", async () => {
+    expect((await call("/v1/rooms/%E0/poll?role=host")).status).toBe(400);
+    expect((await post("/v1/rooms/%ZZ/join")).status).toBe(400);
+  });
+
+  it("takes the poll token from the Authorization header only, never from the address", async () => {
+    const { code, host } = await open();
+    const inAddress = await call(`/v1/rooms/${code}/poll?role=host&token=${host}&after=0`);
+    expect(inAddress.status).toBe(403);
+    expect((await poll(code, "host", host)).status).toBe(200);
+    expect((await poll(code, "host", "")).status).toBe(403);
+  });
+
+  it("limits how fast one address makes rooms when the platform limiter is there", async () => {
+    const seen: string[] = [];
+    let allowed = 2;
+    env = {
+      ...env,
+      CREATE_LIMIT: {
+        limit: async ({ key }) => {
+          seen.push(key);
+          return { success: allowed-- > 0 };
+        },
+      },
+    };
+    const make = () =>
+      call("/v1/rooms", { method: "POST", headers: { "cf-connecting-ip": "203.0.113.9" } });
+    expect((await make()).status).toBe(200);
+    expect((await make()).status).toBe(200);
+    const refused = await make();
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toEqual({ error: "rate-limited" });
+    expect(seen).toEqual(["203.0.113.9", "203.0.113.9", "203.0.113.9"]);
+  });
+
+  it("tells a guest that joins too often to wait", async () => {
+    const { code } = await open();
+    const id = "abcdef0123456789";
+    for (let i = 0; i < 29; i += 1) {
+      expect((await post(`/v1/rooms/${code}/join`, { guest: id })).status).toBe(200);
+    }
+    const refused = await post(`/v1/rooms/${code}/join`, { guest: id });
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toEqual({ error: "rate-limited" });
   });
 });

@@ -1029,3 +1029,28 @@ describe("usage counters (#99)", () => {
     expect(events(calls)).toEqual([]);
   });
 });
+
+describe("a score that may not be changed (a Practice together guest's copy)", () => {
+  it("refuses every edit, undo and redo while it is blocked, and works again after", () => {
+    const { editor } = newSong();
+    editor.typeDigit(3);
+    expect(frets(editor)).toEqual(["6:3"]);
+    const revision = editor.revision;
+
+    let blockedCalls = 0;
+    editor.blocked = () => {
+      blockedCalls += 1;
+      return true;
+    };
+    editor.typeDigit(5);
+    editor.undo();
+    editor.redo();
+    expect(frets(editor)).toEqual(["6:3"]);
+    expect(editor.revision).toBe(revision);
+    expect(blockedCalls).toBeGreaterThanOrEqual(2);
+
+    editor.blocked = null;
+    editor.undo();
+    expect(frets(editor)).not.toEqual(["6:3"]);
+  });
+});

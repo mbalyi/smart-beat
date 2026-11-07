@@ -58,6 +58,7 @@ function together(over: Partial<PracticeTogether> = {}): PracticeTogether {
     join: vi.fn(async () => {}),
     rejoin: vi.fn(async () => {}),
     leave: vi.fn(),
+    syncTab: vi.fn(),
     kick: vi.fn(),
     ban: vi.fn(),
     intercept: vi.fn(() => false),
@@ -284,9 +285,9 @@ describe("PracticeTogetherDialog: playing together", () => {
     expect(screen.getByText("250 ms")).toBeInTheDocument();
   });
 
-  it("tells a guest that Play starts both and the settings follow the host", () => {
+  it("tells a guest that Play starts everyone and the settings follow the host", () => {
     renderDialog(together({ state: session({ role: "guest" }) }));
-    expect(screen.getByText(/the host starts both of you at the same moment/)).toBeInTheDocument();
+    expect(screen.getByText(/the host starts everyone at the same moment/)).toBeInTheDocument();
     expect(screen.getByTestId("peer-you")).toHaveTextContent("±2.5 ms");
   });
 
@@ -302,6 +303,31 @@ describe("PracticeTogetherDialog: playing together", () => {
   it("shows a warning about the connection", () => {
     renderDialog(together({ state: session({ problem: problem("poor") }) }));
     expect(screen.getByRole("alert")).toHaveTextContent("too unsteady");
+  });
+
+  it("lets the host send its tab again with Sync tab, and shows it is on its way", async () => {
+    const t = together({ state: session() });
+    const { user, rerender } = renderDialog(t);
+    await user.click(screen.getByRole("button", { name: "Sync tab" }));
+    expect(t.syncTab).toHaveBeenCalledTimes(1);
+    // While the tab is on its way the button waits, and the progress shows.
+    rerender(
+      <PracticeTogetherDialog
+        open
+        onOpenChange={vi.fn()}
+        together={{
+          ...t,
+          transfer: { direction: "send", name: "Smoke", done: 1, total: 4 },
+        }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Sync tab" })).toBeDisabled();
+    expect(screen.getByTestId("tab-transfer")).toBeInTheDocument();
+  });
+
+  it("does not offer Sync tab to a guest", () => {
+    renderDialog(together({ state: session({ role: "guest" }) }));
+    expect(screen.queryByRole("button", { name: "Sync tab" })).toBeNull();
   });
 
   it("leaves the session", async () => {

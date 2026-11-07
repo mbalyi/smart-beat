@@ -52,7 +52,7 @@ export function TogetherFrame({
             </DialogTitle>
             <DialogDescription className="mb-2 text-base">
               Play the same tab with someone else, in time. Each of you hears your own sound; the
-              host starts and stops for both.
+              host starts and stops for everyone.
             </DialogDescription>
             <DialogStepper labels={steps} current={step} />
           </DialogHeader>

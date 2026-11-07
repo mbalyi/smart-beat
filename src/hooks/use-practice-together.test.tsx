@@ -117,7 +117,7 @@ function setup() {
         playerRef: { current: player },
         practice,
         dispatchPractice,
-        score: {} as Score,
+        score: { masterBars: new Array(8).fill({}) } as unknown as Score,
         revision: 0,
       }),
     { initialProps: { practice: initialPractice() } },
@@ -181,6 +181,57 @@ beforeEach(() => {
   vi.mocked(practiceSignalAvailable).mockResolvedValue(true);
   vi.mocked(toast.info).mockClear();
   vi.mocked(toast.warning).mockClear();
+});
+
+describe("usePracticeTogether: a host or join that is still connecting", () => {
+  it("lets go of the connection when the song is closed before it is made", async () => {
+    let finish: (value: {
+      acceptor: ReturnType<typeof memoryAcceptor>["acceptor"];
+      code: string;
+    }) => void = () => {};
+    vi.mocked(hostOverInternet).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const { result, unmount } = setup();
+    let started: Promise<void> = Promise.resolve();
+    act(() => {
+      started = result.current.host("internet");
+    });
+    unmount();
+    const room = memoryAcceptor();
+    const close = vi.spyOn(room.acceptor, "close");
+    await act(async () => {
+      finish({ acceptor: room.acceptor, code: "ABCD-EFGH" });
+      await started;
+    });
+    // Nobody is left to end this room: it is closed at once, not kept listening.
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("lets go of a joined connection when another session was started meanwhile", async () => {
+    let finish: (transport: PeerTransport) => void = () => {};
+    vi.mocked(joinOnLan).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const { result } = setup();
+    let first: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.join("lan", CODE);
+    });
+    act(() => result.current.leave());
+    const pair = memoryPair();
+    const close = vi.spyOn(pair[1], "close");
+    await act(async () => {
+      finish(pair[1]);
+      await first;
+    });
+    expect(close).toHaveBeenCalled();
+    expect(result.current.state).toBeNull();
+  });
 });
 
 describe("usePracticeTogether: hosting", () => {
@@ -689,7 +740,7 @@ describe("usePracticeTogether: ending and remembering", () => {
         playerRef: { current: null },
         practice: initialPractice(),
         dispatchPractice: vi.fn(),
-        score: {} as Score,
+        score: { masterBars: new Array(8).fill({}) } as unknown as Score,
         revision: 0,
       }),
     );

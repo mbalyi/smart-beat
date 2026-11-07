@@ -13,3 +13,12 @@ tag = "v1"
 new_sqlite_classes = ["Room"]
 
 # No secrets, no database, no logs of room codes.
+
+# Rooms per address: every room is a Durable Object with an alarm, so one address may make ten
+# a minute. The Worker reads this as `env.CREATE_LIMIT` (and works without it, as in the tests).
+[[ratelimits]]
+name = "CREATE_LIMIT"
+namespace_id = "1001"
+  [ratelimits.simple]
+  limit = 10
+  period = 60

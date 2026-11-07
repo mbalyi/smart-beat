@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_FRAME_CHARS,
+  clampLoop,
   PROTOCOL_VERSION,
   decode,
   encode,
@@ -75,5 +76,16 @@ describe("protocol", () => {
   it("speaks the lower of two versions", () => {
     expect(negotiate(2, 1)).toBe(1);
     expect(negotiate(1, 3)).toBe(1);
+  });
+});
+
+describe("clampLoop", () => {
+  it("keeps the host's loop inside the guest's score", () => {
+    expect(clampLoop({ from: 2, to: 5 }, 16)).toEqual({ from: 2, to: 5 });
+    expect(clampLoop({ from: 40, to: 90 }, 16)).toEqual({ from: 15, to: 15 });
+    expect(clampLoop({ from: -3, to: 4 }, 16)).toEqual({ from: 0, to: 4 });
+    expect(clampLoop({ from: 5, to: 2 }, 16)).toEqual({ from: 5, to: 5 });
+    expect(clampLoop({ from: 0, to: 3 }, 0)).toBeNull();
+    expect(clampLoop(null, 16)).toBeNull();
   });
 });

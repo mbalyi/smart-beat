@@ -311,6 +311,16 @@ function readInstrumentView(): boolean {
 
 /** How long a note entered while editing sounds (ms). */
 const EDIT_NOTE_MS = 700;
+/** The practice settings a Practice together guest takes from the host. */
+const GUEST_LOCKED_ACTIONS: ReadonlySet<string> = new Set([
+  "speed",
+  "loop",
+  "range",
+  "metronome",
+  "count-in",
+  "count-in-beats",
+  "start-trainer",
+]);
 
 export const AUDITION_STORAGE_KEY = "smart-beat:audition-notes";
 
@@ -682,8 +692,19 @@ export function ScoreWorkspace({
   const [practice, dispatchPracticeAction] = useReducer(practiceReducer, undefined, () =>
     initialPractice(readPracticePrefs()),
   );
+  /**
+   * Set while a Practice together guest follows the host: speed, loop, metronome and count-in are
+   * the host's (the session sets them on this side through `dispatchShared`).
+   */
+  const practiceLocked = useRef<(action: PracticeAction) => boolean>(() => false);
+  /** What the session uses to apply the host's settings here: nothing blocks it. */
+  const dispatchShared = useCallback(
+    (action: PracticeAction) => dispatchPracticeAction(action),
+    [],
+  );
   /** Every practice change goes through here so switching a tool on is counted once. */
   const dispatchPractice = useCallback((action: PracticeAction) => {
+    if (practiceLocked.current(action)) return;
     if (action.type === "loop" && action.value) trackUsage("loop_on");
     else if (action.type === "metronome" && action.value) trackUsage("metronome_on");
     else if (action.type === "count-in" && action.value) trackUsage("count_in_on");
@@ -942,9 +963,12 @@ export function ScoreWorkspace({
     };
   }, [song.score, audioEngine, dispatchPractice, playhead]);
 
+  // Says whether this tab owns a Practice together session (set below, once it is known). The
+  // shared playback is then stopped for everyone, not just here.
+  const hiddenSessionRef = useRef<() => boolean>(() => false);
   // A song in a hidden tab does not keep playing.
   useEffect(() => {
-    if (!active) playerRef.current?.pause();
+    if (!active && !hiddenSessionRef.current()) playerRef.current?.pause();
   }, [active]);
 
   // Practice settings go to the player whenever they change.
@@ -1629,7 +1653,7 @@ export function ScoreWorkspace({
   const together = usePracticeTogether({
     playerRef,
     practice,
-    dispatchPractice,
+    dispatchPractice: dispatchShared,
     score,
     revision,
     title: song.name,
@@ -1639,6 +1663,17 @@ export function ScoreWorkspace({
       ((tab) =>
         onReceiveTab(tab, song.received ? { replaceId: song.id, mix: mixRef.current } : {})),
   });
+  useEffect(() => {
+    practiceLocked.current = (action) => {
+      if (!together.readOnly) return false;
+      if (!GUEST_LOCKED_ACTIONS.has(action.type)) return false;
+      toast.info("The host sets the speed, loop, metronome and count-in.", {
+        description: "They follow the host while you are in the session.",
+        id: "together-settings",
+      });
+      return true;
+    };
+  }, [together.readOnly]);
   // A guest follows the host's tab, so it is not edited here (the host's edits come over).
   const [wasReadOnly, setWasReadOnly] = useState(false);
   if (!!together.readOnly !== wasReadOnly) {
@@ -1654,12 +1689,36 @@ export function ScoreWorkspace({
       });
       return true;
     };
-  }, [together.readOnly]);
+    // Every change of the music goes through the editor: a guest's copy refuses all of them.
+    editor.blocked = () => editingBlocked.current();
+    return () => {
+      editor.blocked = null;
+    };
+  }, [together.readOnly, editor]);
   // A session plays with the SoundFonts, and nobody moves the cursor with a click while its song
   // plays (the two computers would be at different places).
-  const sessionOn = together.state !== null;
+  useEffect(() => {
+    hiddenSessionRef.current = () => {
+      const state = together.state;
+      if (!state || state.phase === "closed" || state.phase === "failed") return false;
+      // The host's tab switch pauses every player; a guest's tab is the host's to start and stop.
+      if (state.role === "host" && playing) together.intercept({ kind: "playPause" });
+      return true;
+    };
+  });
+  // (A session that ended by itself, because the host left or the guest was removed, is over:
+  // the engine and the bar clicks come back.)
+  const sessionOn =
+    together.state !== null &&
+    together.state.phase !== "closed" &&
+    together.state.phase !== "failed";
   useSessionEngine(sessionOn, audioEngine, setAudioEngine);
   useEffect(() => playerRef.current?.setSeekLock(sessionOn), [sessionOn, playerEpoch]);
+  // The player is rebuilt when the session switches the engine to the SoundFonts: the one that
+  // plays now gets its audio ready too, not only the one that was there at the click.
+  useEffect(() => {
+    if (sessionOn) void playerRef.current?.warmUpAudio().catch(() => {});
+  }, [sessionOn, playerEpoch]);
   const playPause = () => {
     if (together.intercept({ kind: "playPause" })) return;
     trackUsage(playing ? "pause" : "play");

@@ -137,7 +137,11 @@ export interface SessionHooks {
   /** Gets ready (seek, speed, loop, metronome). False means this app cannot start in time. */
   prepare(cmd: Command): Promise<boolean>;
   /** Starts at the local time `localAt`. Returns a way to take it back before it happens. */
-  schedule(cmd: Command, localAt: number): () => void;
+  /**
+   * Starts `cmd` at the local time `localAt`. The function it returns calls the start off; with
+   * `true` (the host cancelled it) it also stops a start that has already happened.
+   */
+  schedule(cmd: Command, localAt: number): (abort?: boolean) => void;
   /** The guest only: how far this app's playback is from the host's, in milliseconds. */
   driftMs?(): number;
   /** The host only: where playback is, in score milliseconds as heard (null: nothing to report). */
@@ -215,6 +219,25 @@ export const MAX_OFFER_TRIES = 2;
 
 const NO_QUALITY: SyncQuality = { errorMs: Infinity, bucket: "none" };
 
+/** Messages only a guest acts on; a host that hears one drops it. */
+const GUEST_ONLY: ReadonlySet<string> = new Set([
+  "welcome",
+  "refuse",
+  "cmd",
+  "abort",
+  "state",
+  "tab-offer",
+  "tab-chunk",
+]);
+/** Messages only a host acts on; a guest that hears one drops it. */
+const HOST_ONLY: ReadonlySet<string> = new Set([
+  "hello",
+  "ready",
+  "request",
+  "tab-ack",
+  "tab-done",
+]);
+
 const describe = (kind: ProblemKind): string => {
   switch (kind) {
     case "score":
@@ -290,7 +313,9 @@ export class Session {
   /** Commands waiting for the other app's answer (host). */
   private waiting = new Map<number, (ok: boolean) => void>();
   /** Starts that were scheduled and can still be called off. */
-  private cancels = new Map<number, () => void>();
+  private cancels = new Map<number, (abort?: boolean) => void>();
+  /** Commands the host called off, so that one still being prepared is not started. */
+  private aborted = new Set<number>();
   private state: SessionState;
   // Sharing the tab (#158).
   private peerCaps: string[] = [];
@@ -366,6 +391,8 @@ export class Session {
 
   /** The open score changed: tell the other app, which checks it against its own. */
   setScore(score: ScoreFingerprint) {
+    // The same version again (the app checks now and then) is not news: no chatter.
+    if (score.key === this.score.key && score.bars === this.score.bars) return;
     this.score = score;
     // A guest tells the host which tab it has; the host answers a difference with its own tab.
     if (this.wasWelcomed && this.role === "guest") this.sendHello();
@@ -543,7 +570,10 @@ export class Session {
       caps: [...CAPABILITIES],
       score: this.score,
       session: this.wasWelcomed ? (this.state.session ?? undefined) : this.resumeId,
-      ...(this.resumeId !== undefined && !this.wasWelcomed && { resume: true }),
+      // A guest that comes back says so (a new session of this guest, or the same one whose
+      // line dropped): the host may not have noticed the old line is gone, and welcomes it again.
+      ...(((this.resumeId !== undefined && !this.wasWelcomed) ||
+        this.state.phase === "reconnecting") && { resume: true }),
       ...(this.guestId !== undefined && { guest: this.guestId }),
     });
   }
@@ -554,6 +584,13 @@ export class Session {
     const frame = decode(text);
     if (!frame || this.state.phase === "closed" || this.state.phase === "failed") return;
     const msg = frame.msg;
+    // A message only makes sense at one end. A modified client could send `welcome` to skip the
+    // host's approval, so the wrong end drops it, and a host hears nothing but `hello` and `bye`
+    // until it has let the guest in.
+    if (this.role === "host" ? GUEST_ONLY.has(msg.type) : HOST_ONLY.has(msg.type)) return;
+    if (this.role === "host" && !this.wasWelcomed && msg.type !== "hello" && msg.type !== "bye") {
+      return;
+    }
     switch (msg.type) {
       case "hello":
         return void this.onHello(msg, frame.v);
@@ -578,8 +615,11 @@ export class Session {
         this.waiting.delete(msg.id);
         return;
       case "abort":
-        this.cancels.get(msg.id)?.();
+        this.cancels.get(msg.id)?.(true);
         this.cancels.delete(msg.id);
+        this.aborted.add(msg.id);
+        if (this.aborted.size > 32)
+          this.aborted.delete(this.aborted.values().next().value as number);
         return this.setProblem(problem("late"));
       case "report":
         return this.onReport(msg);
@@ -629,6 +669,12 @@ export class Session {
         this.dropTransfers();
         return this.welcome(msg.name);
       }
+      // A known guest that does not know this session is a new app of the same guest (it
+      // rejoined, or restarted) before the host noticed the old line was gone.
+      if (knownGuest && msg.session !== this.state.session) {
+        this.dropTransfers();
+        return this.welcome(msg.name);
+      }
       // The same guest saying hello again: it came back, or its score changed. A guest that has
       // an id is known by it, whatever name it uses now.
       if (!knownGuest && msg.name !== this.state.peerName && msg.session !== this.state.session) {
@@ -643,6 +689,8 @@ export class Session {
       this.patch({ peerName: msg.name });
       return this.refuse("score");
     }
+    // A guest that says hello again while the host is deciding does not ask twice.
+    if (this.state.phase === "approving") return;
     this.patch({ phase: "approving", peerName: msg.name });
     const ok = (await this.hooks.approve?.(msg.name)) ?? true;
     if (!ok) return this.refuse("declined");
@@ -697,7 +745,13 @@ export class Session {
       return this.send({ type: "ready", id: cmd.id, ok: false, reason: "late" });
     }
     const ok = await this.hooks.prepare(cmd).catch(() => false);
-    if (!ok || this.localTimeOf(cmd.at) - this.now() < 0) {
+    // "Ready" must still reach the host before its deadline: it takes one way and a margin.
+    const oneWay = this.latency.stats().p50 / 2;
+    if (
+      !ok ||
+      this.aborted.has(cmd.id) ||
+      this.localTimeOf(cmd.at) - this.now() < oneWay + READY_MARGIN_MS
+    ) {
       return this.send({ type: "ready", id: cmd.id, ok: false, reason: "late" });
     }
     this.send({ type: "ready", id: cmd.id, ok: true });
@@ -844,6 +898,20 @@ export class Session {
   }
 
   private offerAgain = false;
+  /** The next offer goes out even if the guest says it has this version (Sync tab). */
+  private forceOffer = false;
+
+  /**
+   * The host sends its tab to the guest again, whatever the guest says it has, and starts counting
+   * its tries afresh. False when this is not a host or there is no guest to send it to.
+   */
+  shareTabAgain(): boolean {
+    if (this.role !== "host" || !this.wasWelcomed || !this.hooks.tab?.offer) return false;
+    this.attempts.clear();
+    this.forceOffer = true;
+    this.offerSoon(0);
+    return true;
+  }
 
   private async offerTab() {
     const offer = this.hooks.tab?.offer;
@@ -859,9 +927,11 @@ export class Session {
     // Not while playing: a replaced tab stops the guest's playback.
     if (this.hooks.position?.()?.playing) return this.offerSoon(OFFER_RETRY_MS);
     this.offering = true;
+    const force = this.forceOffer;
+    this.forceOffer = false;
     try {
       const payload = await offer();
-      if (!payload || !this.wasWelcomed || payload.key === this.peerKey) return;
+      if (!payload || !this.wasWelcomed || (payload.key === this.peerKey && !force)) return;
       if (payload.bytes.length > MAX_TAB_BYTES) {
         return this.setProblem({ kind: "tab", message: tabFailureText("too-big"), fatal: false });
       }

@@ -89,5 +89,6 @@ export function useTabSharing({ scoreRef, titleRef, revisionRef, detachRef, rece
     [scoreRef, titleRef, revisionRef, detachRef, receiveRef, fingerprint],
   );
 
-  return { hooks, fingerprint, trust };
+  // One object for as long as its parts stand: the effects that list it do not run on every render.
+  return useMemo(() => ({ hooks, fingerprint, trust }), [hooks, fingerprint, trust]);
 }
