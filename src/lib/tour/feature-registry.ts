@@ -19,6 +19,13 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "practice-together",
+    title: "Practice together",
+    summary:
+      "Play the same tab with someone else, in time. Open Playback › Practice Together, host a session and give the code to the other player (same network, or over the internet), or join one without having the tab: the host sends it. Press Play from either side and you both start together, sharing the speed, loops, metronome and count-in, and the host's edits follow. Each of you hears your own sound. Find it in the Playback menu, beside Record to Tab and on the start screen.",
+    since: "1.2.0",
+  },
+  {
     id: "cloud-share",
     title: "Share with a link, and the Cloud library",
     summary:

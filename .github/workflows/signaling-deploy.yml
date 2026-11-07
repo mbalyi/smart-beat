@@ -1,0 +1,78 @@
+# Tests the Practice together signaling Worker (signaling/) and, on main, deploys it to Cloudflare.
+# Needs the repository secrets CLOUDFLARE_API_TOKEN_SIGNALING (its own token, Workers Scripts: Edit
+# only) and CLOUDFLARE_ACCOUNT_ID. Without them the
+# deploy job is skipped. After the first deploy, set the repository variable SIGNALING_URL to the
+# Worker's address so release builds offer "Over the internet" (docs/practice-together.md).
+name: Signaling Worker
+
+on:
+  pull_request:
+    paths: ["signaling/**", ".github/workflows/signaling-deploy.yml"]
+  push:
+    branches: [main]
+    paths: ["signaling/**", ".github/workflows/signaling-deploy.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: signaling-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: signaling
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: signaling/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  deploy:
+    name: Deploy
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_SIGNALING }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check the secrets
+        id: secrets
+        working-directory: .
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN_SIGNALING / CLOUDFLARE_ACCOUNT_ID are not set: skipping the deploy (docs/practice-together.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.secrets.outputs.ready == 'true'
+      - uses: pnpm/action-setup@v6
+        if: steps.secrets.outputs.ready == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.secrets.outputs.ready == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: signaling/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        if: steps.secrets.outputs.ready == 'true'
+      - name: Deploy the Worker
+        if: steps.secrets.outputs.ready == 'true'
+        run: pnpm exec wrangler deploy

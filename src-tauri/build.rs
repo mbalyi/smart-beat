@@ -12,6 +12,7 @@ const WINDOWS_MANIFEST: &str = "windows-app-manifest.xml";
 fn main() {
     // Set by the release pipeline (docs/analytics.md); without them the usage counters are off.
     println!("cargo:rerun-if-env-changed=SMART_BEAT_ANALYTICS_URL");
+    println!("cargo:rerun-if-env-changed=SMART_BEAT_SIGNALING_URL");
     println!("cargo:rerun-if-env-changed=SMART_BEAT_INSTALLER");
     cloud_client_ids();
     embed_windows_manifest_in_tests();

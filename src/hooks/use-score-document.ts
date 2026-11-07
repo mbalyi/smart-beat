@@ -14,6 +14,7 @@ import {
 import { ENCODING_LABELS, type EncodingChoice, type TextEncodingId } from "@/lib/score/encoding";
 import { describeOpenError, hasScoreExtension } from "@/lib/score/errors";
 import { baseName, fileKey } from "@/lib/score/format";
+import type { ReceivedScore } from "@/hooks/use-tab-sharing";
 import { initialMix, mixFromScore } from "@/lib/score/mixer";
 import type { Score, ScoreSummary } from "@/lib/score/score";
 import {
@@ -49,6 +50,11 @@ export interface ScoreDocument {
   isNew?: boolean;
   /** Exists only in memory, like an audio transcription: unsaved until the first save. */
   unsaved?: boolean;
+  /**
+   * The host's tab, received in a Practice together session (#158): who sent it and the score
+   * fingerprint it matches. Saving it asks for a file, like any song made in memory.
+   */
+  received?: { from: string; key: string };
   /** Guitar Pro 3–5 files: the encoding the text was read with (#53). */
   encoding?: TextEncodingId;
   /** The encoding the user picked for this file, or "auto". */
@@ -74,6 +80,12 @@ function storeEncoding(key: string, choice: EncodingChoice) {
   } catch {
     // Not remembered; the file still opens with the choice now.
   }
+}
+
+/** What the tab bar and the window title call a song: its title, and who sent it if it is the host's. */
+export function songTitle(song: ScoreDocument): string {
+  const title = song.summary.title || song.name;
+  return song.received ? `${title} (from ${song.received.from})` : title;
 }
 
 /** Name of a song created with File › New. */
@@ -336,6 +348,40 @@ export function useScoreDocuments() {
   );
 
   /**
+   * Opens the host's tab (Practice together) as a tab of its own, marked as received. `replaceId`
+   * is the tab of an earlier version of it: this one takes its place. `mix` is the guest's own
+   * mute, solo and volume, kept when the tracks are the same.
+   */
+  const openReceived = useCallback(
+    async (tab: ReceivedScore, options: { replaceId?: number; mix?: MixerSettings } = {}) => {
+      const id = ++counter.current;
+      try {
+        const { summarizeScore } = await import("@/lib/score/score");
+        const summary = summarizeScore(tab.score);
+        const song: ScoreDocument = {
+          id,
+          name: `${tab.name} (from ${tab.from})`,
+          path: null,
+          fileKey: null,
+          score: tab.score,
+          summary,
+          mix: initialMix(summary, options.mix ?? null),
+          received: { from: tab.from, key: tab.key },
+        };
+        const { replaceId } = options;
+        if (replaceId !== undefined && songsRef.current.some((s) => s.id === replaceId)) {
+          sources.current.delete(replaceId);
+          setSongs((list) => list.map((s) => (s.id === replaceId ? song : s)));
+          setActiveId(id);
+        } else add(song);
+      } catch (error) {
+        toast.error(`Couldn't open “${tab.name}”`, { description: describeOpenError(error) });
+      }
+    },
+    [add],
+  );
+
+  /**
    * After a save: the song now lives at `saved.path` (null for a download) and
    * its content hash is `saved.fileKey`. The same document, so the workspace
    * stays open.
@@ -404,6 +450,7 @@ export function useScoreDocuments() {
     openFile,
     newSong,
     openScore,
+    openReceived,
     markSaved,
     reopenWithEncoding,
     reloadFromDisk,

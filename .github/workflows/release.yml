@@ -195,6 +195,9 @@ jobs:
           SMARTBEAT_MICROSOFT_CLIENT_ID: ${{ secrets.SMARTBEAT_MICROSOFT_CLIENT_ID }}
           SMARTBEAT_DROPBOX_CLIENT_ID: ${{ secrets.SMARTBEAT_DROPBOX_CLIENT_ID }}
           SMART_BEAT_ANALYTICS_URL: ${{ github.event_name != 'pull_request' && vars.ANALYTICS_URL || '' }}
+          # Practice together over the internet (#158, docs/practice-together.md): the address of the
+          # signaling Worker. Without it the app only offers the same-network option.
+          SMART_BEAT_SIGNALING_URL: ${{ github.event_name != 'pull_request' && vars.SIGNALING_URL || '' }}
         with:
           args: ${{ matrix.tauri-args }} ${{ steps.updater.outputs.args }}
           tagName: ${{ steps.release.outputs.tag }}

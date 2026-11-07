@@ -29,7 +29,8 @@ export interface TourApi {
   /** Records that the "What's new" list was seen up to the running version. */
   markVersionSeen: () => void;
   /** Shows a one-time tip with a "Show me" button; only the first call per id does anything. */
-  hint: (id: string, tour: TourId, message: string) => void;
+  /** A one-time toast. With a tour it offers "Show me"; without one it only informs. */
+  hint: (id: string, tour: TourId | null, message: string) => void;
   /** Forgets which tips were shown ("Reset Tips"). */
   resetHints: () => void;
 }

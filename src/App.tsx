@@ -11,6 +11,7 @@ import { CloudLibraryDialog } from "@/components/cloud-library-dialog";
 import { CloudOpenDialog } from "@/components/cloud-open-dialog";
 import { SaveTargetDialog } from "@/components/save-target-dialog";
 import { listCloudAccounts, type CloudProvider } from "@/lib/cloud";
+import { opened as countTogetherOpened } from "@/lib/practice-together/analytics";
 import { ShareProvider } from "@/providers/share-provider";
 import { toCloudDrives, type CloudDrive } from "@/lib/cloud-items";
 import { AppFooter } from "@/components/app-footer";
@@ -25,6 +26,11 @@ import { useUsageNotice } from "@/hooks/use-usage-notice";
 import { UpdateDialog } from "@/components/update-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { Welcome } from "@/components/welcome";
+import {
+  PracticeTogetherLauncher,
+  type TogetherSource,
+} from "@/components/practice-together/practice-together-launcher";
+import type { TogetherMode } from "@/components/practice-together/practice-together-dialog";
 import { OpenStemsDialog } from "@/components/stems/open-stems-dialog";
 import { StemPage } from "@/components/stems/stem-page";
 import type { DroppedSong } from "@/components/stems/stem-dialog";
@@ -34,7 +40,7 @@ import { useExternalOpen } from "@/hooks/use-external-open";
 import { useRecentFiles } from "@/hooks/use-recent-files";
 import { useStemBundleOpened } from "@/hooks/use-stem-bundle-opened";
 import { initLayoutPrefs, readLayoutPrefs } from "@/lib/score/layout";
-import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
+import { firstScoreFile, songTitle, useScoreDocuments } from "@/hooks/use-score-document";
 import { useTheme } from "@/hooks/use-theme";
 import { useUpdater } from "@/hooks/use-updater";
 import type { HelpAction } from "@/components/help-menu";
@@ -91,6 +97,9 @@ export function App() {
   /** Where each separated song was saved from its page (the page forgets it when it closes). */
   const [savedStems, setSavedStems] = useState<Readonly<Record<string, string>>>({});
   const [openStemsDialog, setOpenStemsDialog] = useState(false);
+  /** Practice together from the start screen: the first choice, and what the next shown tab does. */
+  const [togetherLauncher, setTogetherLauncher] = useState(false);
+  const [togetherIntent, setTogetherIntent] = useState<TogetherMode | null>(null);
   const [dialog, setDialog] = useState<AppDialog | null>(null);
   const [returnFocusTo, setReturnFocusTo] = useState<HTMLElement | null>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
@@ -110,6 +119,7 @@ export function App() {
     openFile,
     newSong,
     openScore,
+    openReceived,
     markSaved,
     reopenWithEncoding,
     reloadFromDisk,
@@ -253,7 +263,7 @@ export function App() {
       tabs={[
         ...songs.map((s) => ({
           id: s.id,
-          title: s.summary.title || s.name,
+          title: songTitle(s),
           edited: editedIds.has(s.id),
         })),
         ...stemSongs.map((s) => ({
@@ -351,6 +361,24 @@ export function App() {
   useEffect(() => onInstallerReturn("models", () => setDialog("record-models")), []);
 
   const open = () => void showOpenDialog();
+  // The tab chosen for Practice together is opened; the dialog of the shown tab continues from
+  // there (host: it is the tab to share; join: a blank tab that the host's tab replaces). The
+  // wish lapses when no tab was shown within a minute (the file picker was cancelled).
+  useEffect(() => {
+    if (!togetherIntent) return;
+    const timer = setTimeout(() => setTogetherIntent(null), 60_000);
+    return () => clearTimeout(timer);
+  }, [togetherIntent]);
+  const startTogether = (source: TogetherSource) => {
+    setTogetherIntent("host");
+    if (source.kind === "recent") void openPath(source.path);
+    else if (source.kind === "file") open();
+    else startNewSong();
+  };
+  const joinTogether = () => {
+    setTogetherIntent("join");
+    startNewSong();
+  };
   // Stem separation stays out of reach until the feature is switched on.
   const separateStems = isEnabled("stem-separation")
     ? (button: HTMLElement) => showDialog("stem-separation", button)
@@ -507,7 +535,7 @@ export function App() {
 
   useEffect(() => {
     const title = song
-      ? `${song.summary.title || song.name} — Smart Beat`
+      ? `${songTitle(song)} — Smart Beat`
       : stemSong
         ? `${stemSong.name} — Stem separation — Smart Beat`
         : "Smart Beat";
@@ -632,12 +660,15 @@ export function App() {
                     onOpen={open}
                     onSetUpCloud={setUpCloud}
                     onOpenScore={(score, name) => void openScore(score, name)}
+                    onReceiveTab={(tab, options) => void openReceived(tab, options)}
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}
                     onReopenWithEncoding={(choice) => reopenWithEncoding(s.id, choice)}
                     onReloadFromDisk={() => reloadFromDisk(s.id)}
                     startEditing={s.isNew}
                     droppedAudio={s.id === song?.id ? droppedAudio : null}
+                    togetherIntent={s.id === song?.id ? togetherIntent : null}
+                    onTogetherIntentHandled={() => setTogetherIntent(null)}
                     onOpenSettings={(from) => showDialog("settings", from)}
                   />
                 ))}
@@ -665,6 +696,10 @@ export function App() {
                 onSeparateStems={separateStems}
                 onOpenStemSong={separateStems ? showStemSong : undefined}
                 onOpenStemBundle={openSavedStems ? () => setOpenStemsDialog(true) : undefined}
+                onPracticeTogether={() => {
+                  countTogetherOpened("start");
+                  setTogetherLauncher(true);
+                }}
                 onNewSong={startNewSong}
                 onShowShortcuts={() => showDialog("shortcuts")}
                 onShowLicenses={() => showDialog("licenses")}
@@ -714,6 +749,13 @@ export function App() {
           activate(null);
         }}
         onSave={() => void saveAllAndGoHome()}
+      />
+      <PracticeTogetherLauncher
+        open={togetherLauncher}
+        onOpenChange={setTogetherLauncher}
+        recent={recent}
+        onStart={startTogether}
+        onJoin={joinTogether}
       />
       <AppDialogs
         open={dialog}

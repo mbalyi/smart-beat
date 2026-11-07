@@ -88,10 +88,10 @@ export const FEATURES: readonly Feature[] = [
   {
     title: "Practice together",
     image: practiceTogether,
-    badge: "Coming soon",
-    status: "soon",
+    badge: "Available",
+    status: "available",
     description:
-      "Practice with other musicians online. Share your metronome, loops and practice mode, and jam together in real time — no matter where you are.",
+      "Play the same tab with someone else, in time. Pair two computers on the same network or over the internet, start and stop together, and share the metronome, speed and loops. Each of you hears your own sound.",
   },
   {
     title: "Audio tracks & editing",

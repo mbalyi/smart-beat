@@ -84,6 +84,14 @@ agree, do not install or use the Software.
    off at any time in Help > Settings. Details: docs/analytics.md in the
    source repository.
 
+   Practice together never sends your tab or audio anywhere: the two
+   computers talk to each other, and each makes its own sound. Room codes
+   are not counted. Over the internet, the Software contacts a meeting
+   service operated by Licensor, which only passes on short setup messages
+   and deletes the room after ten minutes, and a public STUN server
+   (Cloudflare) to find your public address. The other player can see that
+   address. Details: docs/practice-together.md in the source repository.
+
 7. UPDATES
    The Software checks for a new version at most once a day, and when you
    choose Help > Check for Updates. It downloads and installs an update

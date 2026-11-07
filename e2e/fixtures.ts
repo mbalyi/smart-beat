@@ -62,6 +62,7 @@ type MenuAction =
   | "scale-tool"
   | "toggle-loop"
   | "speed-trainer"
+  | "practice-together"
   | "toggle-metronome"
   | "toggle-count-in"
   | "shortcuts"
@@ -118,6 +119,14 @@ declare global {
       fail: string | null;
       release: (() => void) | null;
       abort: (() => void) | null;
+    };
+    /** Practice together (#158): the simulated other player (see e2e/tauri-mock.js). */
+    __practiceTogether: {
+      sent: { type: string; [key: string]: unknown }[];
+      auto: boolean;
+      frame: (msg: Record<string, unknown>) => number;
+      state: (state: "connecting" | "open" | "reconnecting" | "closed", detail?: string) => number;
+      sentOf: (type: string) => { type: string; [key: string]: unknown }[];
     };
     __emitMenuAction: (action: MenuAction) => number;
     __emitTauriEvent: (event: string, payload: unknown) => number;

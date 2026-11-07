@@ -1,0 +1,22 @@
+{
+  "name": "smart-beat-signaling",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cloudflare Worker that introduces two Smart Beat apps to each other for Practice together over the internet. It relays short setup messages and nothing else.",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "type": "module",
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261006.1",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.2",
+    "wrangler": "^4.149.0"
+  }
+}

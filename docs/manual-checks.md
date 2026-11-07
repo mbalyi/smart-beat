@@ -131,6 +131,43 @@ Save a song (try `practice-song.gp` from `e2e/fixtures`, and a song of your own 
 
 Write down which version of each program you used.
 
+## Practice together (two computers)
+
+### 7. Play in time with a second computer (#158)
+
+The automated tests use simulated wires and clocks. Only two real computers show the real start error, the drift and the network behaviour. See [practice-together.md](practice-together.md) for how it works and for where to write the numbers. Use the same file on both, for example `practice-song.gp` from `e2e/fixtures`, and set Inspector › Sync offset (ms) on each computer first (check 1).
+
+**Start error on the same network.** Two computers on the same Wi-Fi, then again with both on a cable:
+
+1. Computer A: Playback › Practice Together › Host a session › Start a session. Computer B: Join with a code, type the code, and on A press **Let in**.
+2. Wait for the chip to show a sync quality (Excellent or Good, ± a few ms) on both.
+3. Turn the Metronome on and the Count-in off, speed 100 %. Put the two computers next to each other with their speakers at the same distance from a phone or a recorder.
+4. Press Play on A about 10 times (Stop between). Record the clicks. In an audio editor measure the gap between the two computers' first clicks each time. Write down the smallest, the typical and the largest gap, the Wi-Fi or cable, the engine (native on or off) and the audio quality setting.
+5. Repeat with Audio quality set to Tight and to Safe. Check that Safe starts later (the dialog shows "Starts ahead by") and Tight sooner.
+
+Expected: a gap of a few milliseconds, steady from press to press. Write the numbers into the "Measured error" section of `practice-together.md`.
+
+**Ten minutes.**
+
+1. Host a session, turn Metronome on, and start a loop-free song of 10 minutes or more (or loop 4 bars).
+2. Play for 10 minutes with the recorder running. Listen for the two clicks drifting apart or flamming, and watch Drift in the dialog.
+3. Expected: no audible drift, Drift staying within a few tens of milliseconds, no jumps. Note the largest Drift shown.
+
+**Failure cases.**
+
+- **Sleep and wake:** close the lid on the guest for a minute, open it. The chip shows the connection and a message about syncing again; after a few seconds it is synchronized and Play works.
+- **Dropped Wi-Fi:** switch Wi-Fi off on the guest for 5 s and on again: "Reconnecting…", then synchronized. Switch it off for 30 s: the session ends with a message.
+- **Different version of the score:** open the same song on both, then make an edit on one: a warning, and the host's Play does not start. Undo the edit: the warning goes. Joining with a different file is refused with a message.
+- **Not ready in time:** while the host presses Play, put the guest under load (or pause its process); the start is called off for both with a message.
+- **Declined guest:** press **Decline**: the guest sees "The host did not let you in."
+- **Controls:** press Play on the guest: both computers start together a moment later, the same as when the host presses it; Pause and Stop work from either side too. While a song plays, clicking another bar is refused on both with a message; stopped, a click moves both. Mute, solo and the Mixer stay each player's own.
+- **Tab sharing:** on the guest open a different song (or none) and join: the host's tab arrives as "Title (from Host)" and the session goes on. Edit the tab on the host, stop playback: the guest's copy follows within a second. The guest cannot edit the received tab during the session.
+- **Shared settings:** on the host change the speed, the loop, the Metronome and the Count-in; the guest follows within a moment.
+
+**Over the internet** (needs a build with the signaling address, see practice-together.md). Two computers on different networks (a phone hotspot is enough): host with "Over the internet", join with the 8-character code. Check that it connects, shows a larger ± value than on the LAN, and that Play starts together. With a firewall that blocks it, the message after 25 s says so.
+
+**Operating systems.** Do the same-network steps with one computer on macOS and one on another system (Windows or Linux). Note the first-connection prompts (macOS Local Network; Windows Firewall) and the versions used. On Linux also check whether "Over the internet" is offered.
+
 ## Updates (needs two published releases)
 
 ### 6. Update from one release to the next (#82)

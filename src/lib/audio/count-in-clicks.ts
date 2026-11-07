@@ -15,6 +15,26 @@ function audio(): AudioContext {
   return context;
 }
 
+/**
+ * Opens the click audio ahead of time. A browser only lets a page start sound after a click or a
+ * key press, so a context first created by a network message (Practice together: the host's Play
+ * starts a count-in on the guest's computer, which nobody touched) stays silent or sounds late.
+ * Call this from a click or a key press, e.g. when a session starts.
+ */
+export function primeClickAudio(): Promise<void> {
+  try {
+    const ctx = audio();
+    // A silent blip: some browsers only count the context as started after it played something.
+    const source = ctx.createBufferSource();
+    source.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    source.connect(ctx.destination);
+    source.start();
+    return ctx.state === "running" ? Promise.resolve() : ctx.resume().catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
+}
+
 function buffer(ctx: AudioContext, sound: ClickSoundId, accent: boolean): AudioBuffer {
   const key = `${sound}:${accent}`;
   let found = buffers.get(key);

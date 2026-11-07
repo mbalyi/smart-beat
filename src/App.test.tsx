@@ -528,6 +528,35 @@ describe("App", () => {
     await expectNoA11yViolations(document.body, { page: true });
   });
 
+  it("Practice together from the start screen: pick a tab for a new session, then its dialog goes on", async () => {
+    const { user } = await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    backend.dialogResult = SONG;
+
+    await user.click(screen.getByRole("button", { name: "Practice together" }));
+    const choice = await screen.findByTestId("practice-together-launcher");
+    expect(within(choice).getByRole("radio", { name: "Start a new session" })).toBeChecked();
+    await user.click(within(choice).getByRole("button", { name: "Pick a tab" }));
+    await user.click(within(choice).getByRole("button", { name: "Open a file…" }));
+
+    // The tab opens and its own dialog is already up, on starting the session.
+    const dialog = await screen.findByTestId("practice-together-dialog", {}, { timeout: 5_000 });
+    expect(within(dialog).getByRole("radio", { name: "Start a new session" })).toBeChecked();
+    expect(within(dialog).getByRole("button", { name: "Start a session" })).toBeInTheDocument();
+  });
+
+  it("Practice together from the start screen: joining opens a blank tab on the join form", async () => {
+    const { user } = await renderApp();
+    await user.click(screen.getByRole("button", { name: "Practice together" }));
+    const choice = await screen.findByTestId("practice-together-launcher");
+    await user.click(within(choice).getByRole("radio", { name: "Join an existing session" }));
+    await user.click(within(choice).getByRole("button", { name: "Join a session" }));
+
+    const dialog = await screen.findByTestId("practice-together-dialog", {}, { timeout: 5_000 });
+    expect(within(dialog).getByRole("radio", { name: "Join an existing session" })).toBeChecked();
+    expect(within(dialog).getByLabelText("Room code")).toBeInTheDocument();
+  });
+
   it("does nothing when the Open dialog is cancelled", async () => {
     const { calls, user } = await renderApp();
 

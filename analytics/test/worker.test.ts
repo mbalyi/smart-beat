@@ -263,6 +263,18 @@ describe("event details", () => {
       ["panic", "/Users/jane"],
       ["play", "audio:io"],
       ["export", "audio"],
+      // Practice together never carries a room code, an address, a name or a title.
+      ["practice_together_open", "ABCD-EFGH"],
+      ["practice_together_host", "192.168.1.20"],
+      ["practice_together_join", "ABCD-EFGH-JKMN-PQRS-TVWX"],
+      ["practice_together_setup_failed", "wifi"],
+      ["practice_together_sync", "Johnny"],
+      ["practice_together_preset", "fast"],
+      ["practice_together_play", "My Song"],
+      ["practice_together_end", "because"],
+      ["practice_together_length", "12"],
+      ["practice_together_problem", "Mark"],
+      ["practice_together_tab", "My Song.gp"],
     ]) {
       expect((await post(batch([{ day: today, event, format, count: 1 }]))).status).toBe(400);
     }
@@ -290,11 +302,11 @@ describe("error and panic counters", () => {
       { event: "panic", format: "stems", count: 2 },
     ]);
   });
-  it("has 10 areas and 14 kinds, and error takes each combination once", () => {
-    expect(ERROR_AREAS).toHaveLength(10);
-    expect(ERROR_KINDS).toHaveLength(14);
-    expect(EVENT_DETAILS.error).toHaveLength(140);
-    expect(new Set(EVENT_DETAILS.error).size).toBe(140);
+  it("has 11 areas and 15 kinds, and error takes each combination once", () => {
+    expect(ERROR_AREAS).toHaveLength(11);
+    expect(ERROR_KINDS).toHaveLength(15);
+    expect(EVENT_DETAILS.error).toHaveLength(165);
+    expect(new Set(EVENT_DETAILS.error).size).toBe(165);
     expect(EVENT_DETAILS.panic).toEqual([...ERROR_AREAS]);
   });
   it("lists the same areas and kinds as the app", () => {

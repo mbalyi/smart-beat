@@ -18,10 +18,10 @@ function registeredCommands(): string[] {
 
 describe("error counter categories", () => {
   it("has the lists the core and the Worker have, as one area:kind product", () => {
-    expect(ERROR_AREAS).toHaveLength(10);
-    expect(ERROR_KINDS).toHaveLength(14);
-    expect(ERROR_DETAILS).toHaveLength(140);
-    expect(new Set(ERROR_DETAILS).size).toBe(140);
+    expect(ERROR_AREAS).toHaveLength(11);
+    expect(ERROR_KINDS).toHaveLength(15);
+    expect(ERROR_DETAILS).toHaveLength(165);
+    expect(new Set(ERROR_DETAILS).size).toBe(165);
     const rust = readFileSync("src-tauri/src/telemetry.rs", "utf8");
     const listed = (name: string) => {
       const body = new RegExp(`pub const ${name}: \\[&str; \\d+\\] = \\[([^\\]]*)\\]`).exec(rust);
@@ -69,6 +69,11 @@ describe("error counter categories", () => {
       something_new: "other",
       "": "other",
     };
+    Object.assign(cases, {
+      practice_host: "practice",
+      practice_join: "practice",
+      practice_signal_create: "practice",
+    });
     for (const [command, area] of Object.entries(cases)) {
       expect(areaOf(command), command).toBe(area);
     }

@@ -87,6 +87,34 @@ describe("track", () => {
     ]);
   });
 
+  it("counts Practice together only with the fixed words (#158)", () => {
+    const calls = mockTauri();
+    track("practice_together_open", "Toolbar");
+    track("practice_together_host", "lan");
+    track("practice_together_join", "internet");
+    track("practice_together_sync", "good");
+    track("practice_together_end", "peer_left");
+    track("practice_together_length", "5_15m");
+    track("practice_together_play");
+    track("practice_together_host", "ABCD-EFGH");
+    track("practice_together_join", "192.168.1.20");
+    track("practice_together_tab", "My Song.gp");
+    track("practice_together_play", "Johnny");
+    expect(tracked(calls)).toEqual([
+      { event: "practice_together_open", format: "toolbar" },
+      { event: "practice_together_host", format: "lan" },
+      { event: "practice_together_join", format: "internet" },
+      { event: "practice_together_sync", format: "good" },
+      { event: "practice_together_end", format: "peer_left" },
+      { event: "practice_together_length", format: "5_15m" },
+      { event: "practice_together_play", format: null },
+      { event: "practice_together_host", format: null },
+      { event: "practice_together_join", format: null },
+      { event: "practice_together_tab", format: null },
+      { event: "practice_together_play", format: null },
+    ]);
+  });
+
   it("counts the AI engine with the install size and the state of the rights confirmation (#150)", () => {
     const calls = mockTauri();
     track("ai_install", "Medium");

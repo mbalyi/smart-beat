@@ -262,6 +262,7 @@ test.describe("accessibility", () => {
       "New tab",
       "Open a tab",
       ...(features["stem-separation"] ? ["Stem separation", "Open saved stems"] : []),
+      "Practice together",
       ...(features["audio-2-tab"] ? ["Import from Audio"] : []),
       "Keyboard shortcuts",
       "Take a tour",

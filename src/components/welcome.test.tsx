@@ -108,7 +108,7 @@ describe("Welcome", () => {
       "Record to tab (Beta)",
       "Cloud sync (Available)",
       "Stem separation (Beta)",
-      "Practice together (Coming soon)",
+      "Practice together (Available)",
       "Audio tracks & editing (Coming soon)",
       "Speech to tab (AI · Coming soon)",
       "Hum to accompaniment (AI · Coming soon)",
@@ -447,6 +447,31 @@ describe("Welcome: stem separation (#186)", () => {
     expect(buttons.indexOf("Open saved stems")).toBe(buttons.indexOf("Stem separation") + 1);
     await user.click(screen.getByRole("button", { name: "Open saved stems" }));
     expect(onOpenStemBundle).toHaveBeenCalledOnce();
+  });
+
+  it("has a Practice together button right after Open saved stems", async () => {
+    const onPracticeTogether = vi.fn();
+    const { user } = renderWithProviders(
+      <Welcome
+        onOpenFile={vi.fn()}
+        onSeparateStems={vi.fn()}
+        onOpenStemBundle={vi.fn()}
+        onPracticeTogether={onPracticeTogether}
+        onNewSong={vi.fn()}
+        onShowShortcuts={vi.fn()}
+      />,
+    );
+    const buttons = screen.getAllByRole("button").map((button) => button.textContent);
+    expect(buttons.indexOf("Practice together")).toBe(buttons.indexOf("Open saved stems") + 1);
+    await user.click(screen.getByRole("button", { name: "Practice together" }));
+    expect(onPracticeTogether).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the Practice together button out without a handler", () => {
+    renderWithProviders(
+      <Welcome onOpenFile={vi.fn()} onNewSong={vi.fn()} onShowShortcuts={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: "Practice together" })).not.toBeInTheDocument();
   });
 
   it("leaves the buttons and the separated songs out while the feature is off", () => {

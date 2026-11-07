@@ -18,6 +18,7 @@ const DIALOGS: [name: string | RegExp, open: Opener][] = [
   [/^Lyrics/, (app) => trackAction(app, "Guitar", "Lyrics")],
   ["Keyboard shortcuts", (app) => emitMenuAction(app, "shortcuts")],
   ["Open-source licenses", (app) => emitMenuAction(app, "licenses")],
+  ["Practice together", (app) => emitMenuAction(app, "practice-together")],
   [
     "Update available",
     async (app) => {

@@ -46,6 +46,7 @@ describe("pendingFeatures", () => {
   it("shows the cloud folder to users coming from 1.1.0 once 1.2.0 runs", () => {
     const shown = pendingFeatures("1.1.0", "1.2.0", FEATURE_REGISTRY);
     expect(shown.map((x) => x.id)).toContain("cloud-folder");
+    expect(shown.map((x) => x.id)).toContain("practice-together");
     expect(pendingFeatures("1.1.0", "1.1.0", FEATURE_REGISTRY)).toEqual([]);
   });
   it("uses the real registry by default", () => {
