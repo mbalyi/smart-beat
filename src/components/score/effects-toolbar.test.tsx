@@ -66,7 +66,7 @@ describe("EffectsToolbar", () => {
   it("shows the note's effects as pressed toggles and switches them", async () => {
     const { user, actions } = setup();
     const toolbar = screen.getByRole("toolbar", { name: "Effects" });
-    expect(within(toolbar).getByRole("button", { name: "Palm mute" })).toHaveAttribute(
+    expect(within(toolbar).getByRole("button", { name: "Palm mute, P.M." })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -74,24 +74,24 @@ describe("EffectsToolbar", () => {
       "aria-pressed",
       "true",
     );
-    expect(within(toolbar).getByRole("button", { name: "Let ring" })).toHaveAttribute(
+    expect(within(toolbar).getByRole("button", { name: "Let ring, L.R." })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
     // The key is shown in the tooltip, on hover and on keyboard focus.
-    await user.hover(within(toolbar).getByRole("button", { name: "Hammer-on / pull-off" }));
+    await user.hover(within(toolbar).getByRole("button", { name: "Hammer-on / pull-off, H/P" }));
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Hammer-on / pull-off (H)");
-    await user.unhover(within(toolbar).getByRole("button", { name: "Hammer-on / pull-off" }));
+    await user.unhover(within(toolbar).getByRole("button", { name: "Hammer-on / pull-off, H/P" }));
     await expectNoA11yViolations();
 
-    await user.click(within(toolbar).getByRole("button", { name: "Let ring" }));
+    await user.click(within(toolbar).getByRole("button", { name: "Let ring, L.R." }));
     expect(actions.onToggleNote).toHaveBeenCalledWith("letRing");
     expect(actions.onDone).toHaveBeenCalled();
   });
 
   it("picks effects with more choices from menus", async () => {
     const { user, actions } = setup();
-    await user.click(screen.getByRole("button", { name: "Slide" }));
+    await user.click(screen.getByRole("button", { name: "Slide, sl." }));
     await user.click(
       await screen.findByRole("menuitemradio", { name: "Legato slide to the next note" }),
     );
@@ -102,7 +102,7 @@ describe("EffectsToolbar", () => {
     expect(actions.onNoteEffect).toHaveBeenCalledWith("harmonic", HarmonicType.Pinch);
 
     // The vibrato is on: its menu says so, and shows the current choice.
-    await user.click(screen.getByRole("button", { name: "Vibrato and trill (on)" }));
+    await user.click(screen.getByRole("button", { name: "Vibrato and trill, vib. (on)" }));
     expect(await screen.findByRole("menuitemradio", { name: "Wide vibrato" })).toBeChecked();
     // No trill yet: its speed can't be chosen.
     expect(screen.getByRole("menuitemradio", { name: "32nd notes" })).toHaveAttribute(
@@ -116,16 +116,16 @@ describe("EffectsToolbar", () => {
 
   it("sets beat effects, grace notes and tapping from the menus", async () => {
     const { user, actions } = setup();
-    await user.click(screen.getByRole("button", { name: "Picking" }));
+    await user.click(screen.getByRole("button", { name: "Picking, pick" }));
     await user.click(await screen.findByRole("menuitemradio", { name: "Arpeggio up" }));
     expect(actions.onBeatEffect).toHaveBeenCalledWith("brush", model.BrushType.ArpeggioUp);
 
-    await user.click(screen.getByRole("button", { name: "Picking" }));
+    await user.click(screen.getByRole("button", { name: "Picking, pick" }));
     await user.click(await screen.findByRole("menuitemradio", { name: "Downstroke" }));
     expect(actions.onBeatEffect).toHaveBeenCalledWith("pickStroke", model.PickStroke.Down);
 
     // The rasgueado patterns are in a submenu: open it with the keyboard.
-    await user.click(screen.getByRole("button", { name: "Picking" }));
+    await user.click(screen.getByRole("button", { name: "Picking, pick" }));
     (await screen.findByRole("menuitem", { name: "Rasgueado" })).focus();
     await user.keyboard("{ArrowRight}");
     await user.click(await screen.findByRole("menuitemradio", { name: "Rasgueado ami (triplet)" }));
@@ -162,7 +162,7 @@ describe("EffectsToolbar", () => {
 
   it("disables note effects without a note", () => {
     setup({ editor: editorOf({ note: false }) });
-    expect(screen.getByRole("button", { name: "Palm mute" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Palm mute, P.M." })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Bend" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Whammy" })).toBeDisabled();
     // Text and chords can go on rests.
@@ -171,11 +171,11 @@ describe("EffectsToolbar", () => {
 
   it("offers only what suits the track", async () => {
     const { unmount } = setup({ kind: "pitched" });
-    expect(screen.queryByRole("button", { name: "Palm mute" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Slide" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Palm mute, P.M." })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Slide, sl." })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Bend" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Staccato" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Picking" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Picking, pick" })).toBeInTheDocument();
     unmount();
 
     setup({ kind: "drums" });
@@ -184,8 +184,10 @@ describe("EffectsToolbar", () => {
     // Drum hits have a loudness too (#178).
     expect(screen.getByRole("button", { name: "Forte (f)" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Staccato" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Picking" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Vibrato and trill" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Picking, pick" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Vibrato and trill, vib." }),
+    ).not.toBeInTheDocument();
     await expectNoA11yViolations();
   });
 
@@ -253,11 +255,11 @@ describe("EffectsToolbar", () => {
     editor.typeDigit(7);
     editor.moveBeat(-1, true); // select both: palm mute only on the first
     setup({ editor });
-    expect(screen.getByRole("button", { name: "Palm mute" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Palm mute, P.M." })).toHaveAttribute(
       "aria-pressed",
       "mixed",
     );
-    expect(screen.getByRole("button", { name: "Let ring" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Let ring, L.R." })).toHaveAttribute(
       "aria-pressed",
       "false",
     );

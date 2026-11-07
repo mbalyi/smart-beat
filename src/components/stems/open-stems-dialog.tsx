@@ -190,7 +190,6 @@ function OpenFlow({
                 verb="Open from"
                 label={item.label}
                 hint={item.account}
-                describeHint
                 onClick={() => setView(item)}
                 testId={`open-stems-${item.provider}`}
               />
@@ -201,7 +200,6 @@ function OpenFlow({
                 verb="Open from"
                 label={`Cloud folder · ${folderName(folder)}`}
                 hint="The stems you saved there, on any of your computers."
-                describeHint
                 onClick={() => setView("cloud")}
                 testId="open-stems-cloud"
               />
@@ -212,7 +210,6 @@ function OpenFlow({
                   verb="Set up"
                   label="Cloud storage"
                   hint="Connect an account or link a cloud folder in Settings to open stems from your cloud."
-                  describeHint
                   onClick={() => {
                     onClose();
                     onSetupCloud();

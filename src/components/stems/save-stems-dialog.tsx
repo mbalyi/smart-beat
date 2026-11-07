@@ -317,7 +317,6 @@ function SaveFlow({
                     verb="Save to"
                     label={item.label}
                     hint={item.account}
-                    describeHint
                     onClick={() => void saveToDrive({ provider: item.provider, label: item.label })}
                     testId={`save-stems-${item.provider}`}
                   />
@@ -330,7 +329,6 @@ function SaveFlow({
                     verb="Save to"
                     label={`Cloud folder · ${folderName(folder)}`}
                     hint="Your drive app uploads the file. Smart Beat does not upload anything."
-                    describeHint
                     onClick={() => void save("cloud")}
                     testId="save-stems-cloud"
                   />
@@ -343,7 +341,6 @@ function SaveFlow({
                       verb="Set up"
                       label="Cloud storage"
                       hint="Connect an account or link a cloud folder in Settings."
-                      describeHint
                       disabled={!onOpenCloudSettings}
                       onClick={() => {
                         onClose();

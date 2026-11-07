@@ -244,6 +244,20 @@ describe("InstrumentPanel: scale tool", () => {
     expect(screen.getByRole("button", { name: "Fret 2, F sharp2" })).toBeInTheDocument();
   });
 
+  it("spells a fret's name like the fret shows it, with the shown text in the name", () => {
+    // F major is a flat key: the cell shows "Bb", so the name says so too (WCAG 2.5.3).
+    setup({ editing: true, scale: { root: 5, type: "major" }, onScaleChange: vi.fn() });
+    const fret = screen.getByRole("button", { name: "Fret 6, B flat2, Bb, in the scale" });
+    expect(fret).toHaveTextContent("Bb");
+  });
+
+  it("names a played fret with the number it shows when there is a capo", () => {
+    setup({ editing: true, capo: 2, active: [note(6, 3, 69)] });
+    // Fret 3 from the capo is the 5th fret: the cell shows 3.
+    const fret = screen.getByRole("button", { name: "Fret 5, A4, 3 from the capo" });
+    expect(fret).toHaveTextContent("3");
+  });
+
   it("starts a scale on the key's tonic", async () => {
     const onScaleChange = vi.fn();
     const { user } = setup({ defaultScaleRoot: 7, onScaleChange });

@@ -125,6 +125,7 @@ export function VirtualDrumkit({
               const index = order.indexOf(entry);
               const sounding = active.includes(entry.id);
               const atCursor = cursorSound === entry.id;
+              const number = String(entry.id).padStart(3, "0");
               return (
                 <Tip
                   key={entry.id}
@@ -136,7 +137,8 @@ export function VirtualDrumkit({
                     }}
                     type="button"
                     tabIndex={index === current ? 0 : -1}
-                    aria-label={`${entry.name}, ${entry.id}`}
+                    // The name starts with the visible number and name, as written (WCAG 2.5.3, Label in Name).
+                    aria-label={`${number} ${entry.name}`}
                     aria-pressed={sounding}
                     aria-current={atCursor ? "true" : undefined}
                     onFocus={() => setFocusIndex(index)}
@@ -149,9 +151,8 @@ export function VirtualDrumkit({
                       atCursor && "ring-2 ring-amber-500",
                     )}
                   >
-                    <span className="w-7 shrink-0 font-mono tabular-nums">
-                      {String(entry.id).padStart(3, "0")}
-                    </span>
+                    <span className="w-7 shrink-0 font-mono tabular-nums">{number}</span>
+                    {/* A space between the two, so the visible text reads "038 Snare", not "038Snare". */}{" "}
                     <span className="truncate">{entry.name}</span>
                   </button>
                 </Tip>

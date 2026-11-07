@@ -142,9 +142,9 @@ test.describe("drum tab (#49)", () => {
     await expect(kit.getByRole("region", { name: "Cymbals" })).toBeVisible();
     await expectNoA11yViolations(app);
 
-    await kit.getByRole("button", { name: "Snare (rim shot), 91" }).click();
+    await kit.getByRole("button", { name: "091 Snare (rim shot)" }).click();
     await expect.poll(() => editorStatus(app)).toMatch(/Snare \(rim shot\)/);
-    await expect(kit.getByRole("button", { name: "Snare (rim shot), 91" })).toHaveAttribute(
+    await expect(kit.getByRole("button", { name: "091 Snare (rim shot)" })).toHaveAttribute(
       "aria-current",
       "true",
     );
