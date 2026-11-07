@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { ERROR_AREAS, ERROR_DETAILS } from "@/lib/error-counters";
 import { isTauri } from "@/lib/tauri";
 
 /**
@@ -89,7 +90,9 @@ export type TrackedEvent =
   | "tour_start"
   | "tour_finish"
   | "tour_skip"
-  | "tour_close";
+  | "tour_close"
+  | "error"
+  | "panic";
 
 /** File formats for open_file and export. */
 const FILE_FORMATS = [
@@ -192,6 +195,9 @@ const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
   tour_finish: TOURS,
   tour_skip: TOURS,
   tour_close: TOURS,
+  // A failed command, "<area>:<kind>" (invoke.ts), and a panic of the core, by area (#164).
+  error: ERROR_DETAILS,
+  panic: ERROR_AREAS,
 };
 
 /**

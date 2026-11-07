@@ -337,7 +337,12 @@ pub fn track_event(
     format: Option<String>,
 ) -> Result<(), CommandError> {
     telemetry.record(event, format.as_deref())?;
-    telemetry.flush_in_background();
+    if event.is_urgent() {
+        // Errors and panics (#164) go out at once when online, not with the hourly batch.
+        telemetry.flush_urgent_in_background();
+    } else {
+        telemetry.flush_in_background();
+    }
     Ok(())
 }
 

@@ -95,6 +95,9 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             // Counters of an earlier session go out now, not when the page first tracks.
             if let Some(t) = app.try_state::<std::sync::Arc<telemetry::Telemetry>>() {
                 t.flush_at_launch();
+                // Panics are counted by area and sent at once (docs/analytics.md). Installed
+                // once per process; the tests' counters have no endpoint, so they record nothing.
+                telemetry::install_panic_hook(std::sync::Arc::clone(&t));
             }
             startup::show_later(app.handle());
             Ok(())

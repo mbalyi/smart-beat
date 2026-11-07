@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,9 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 pub const RETRY_AFTER: Duration = Duration::from_secs(60);
 /// Network timeout of one upload.
 pub const TIMEOUT: Duration = Duration::from_secs(5);
+/// Least time between two uploads that an error or a panic starts (#164). Errors in between wait
+/// in the queue and go out with the next upload.
+pub const URGENT_GAP: Duration = Duration::from_secs(10);
 
 /// Where counters are sent. Set when the release pipeline builds the app; development and
 /// pull-request builds have none, which turns the counters off completely.
@@ -139,6 +142,10 @@ pub enum Event {
     AiTranscribeStart,
     /// An audio file went through the AI engine (Record to tab or Import from Audio).
     AiTranscribeFile,
+    /// A command failed (#164); detail: `<area>:<kind>` from fixed lists, never the message.
+    Error,
+    /// The Rust side panicked (#164); detail: the area, never the message or location.
+    Panic,
 }
 
 impl Event {
@@ -194,8 +201,80 @@ impl Event {
             Self::AiTranscribeStart | Self::AiTranscribeFile => {
                 &["rights_confirmed", "rights_unconfirmed"]
             }
+            Self::Error => ERROR_DETAILS.as_slice(),
+            Self::Panic => &ERROR_AREAS,
             _ => &[],
         }
+    }
+
+    /// Events that are sent at once instead of waiting for the hourly upload (#164).
+    pub fn is_urgent(self) -> bool {
+        matches!(self, Self::Error | Self::Panic)
+    }
+}
+
+/// The parts of the app a failure is filed under (`error` and `panic` details). Mirrors
+/// `ERROR_AREAS` in `src/lib/error-counters.ts` and the Worker's `events.ts`.
+pub const ERROR_AREAS: [&str; 10] = [
+    "file", "export", "audio", "plugin", "import", "ai", "stems", "cloud", "settings", "other",
+];
+
+/// The kinds of a failed command: every [`ErrorKind`] in its wire spelling, plus `unknown` for a
+/// rejection that carries no kind.
+pub const ERROR_KINDS: [&str; 14] = [
+    "not-found",
+    "unsupported-type",
+    "too-large",
+    "not-a-score",
+    "invalid-key",
+    "invalid-settings",
+    "invalid-menu-state",
+    "audio",
+    "conflict",
+    "download-timeout",
+    "network",
+    "auth-expired",
+    "io",
+    "unknown",
+];
+
+/// Every `error` detail: each area with each kind, `area:kind`. Built once.
+static ERROR_DETAILS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    ERROR_AREAS
+        .iter()
+        .flat_map(|area| {
+            ERROR_KINDS.iter().map(move |kind| {
+                let detail: &'static str = Box::leak(format!("{area}:{kind}").into_boxed_str());
+                detail
+            })
+        })
+        .collect()
+});
+
+/// The area a panic is filed under, from the source file of the panic location (`src/audio/x.rs`
+/// or `src-tauri/src/audio/x.rs`). Only this area is kept: never the file, line or message. Code
+/// outside Smart Beat (dependencies, the standard library) is `other`.
+pub fn panic_area(file: &str) -> &'static str {
+    let file = file.replace('\\', "/");
+    if file.contains("/.cargo/") || file.contains("/registry/") || file.contains("/rustc/") {
+        return "other";
+    }
+    let Some(inside) = file.rsplit_once("src/").map(|(_, rest)| rest) else {
+        return "other";
+    };
+    let first = inside.split('/').next().unwrap_or("");
+    let second = inside.split('/').nth(1).unwrap_or("");
+    match first {
+        "audio" if second.starts_with("plugin") => "plugin",
+        "audio" | "audio.rs" => "audio",
+        "stems" | "separation" => "stems",
+        "recording" => "ai",
+        "cloud" | "cloud.rs" | "cloud_commands.rs" | "cloud_folder.rs" => "cloud",
+        "pdf.rs" | "m4a.rs" | "score_write.rs" | "export" => "export",
+        "transcription.rs" => "import",
+        "score_file.rs" | "recent.rs" | "open_file.rs" | "project.rs" => "file",
+        "mixer.rs" | "menu.rs" | "menu_state.rs" | "telemetry.rs" | "zoom.rs" => "settings",
+        _ => "other",
     }
 }
 
@@ -287,6 +366,22 @@ pub struct Telemetry {
     /// Serialises uploads so a final flush never sends what a running upload already carries.
     upload_lock: Mutex<()>,
     flushing: AtomicBool,
+    /// When an error or a panic last started an upload (#164).
+    last_urgent: Mutex<Option<Instant>>,
+    /// Panics not yet written to `usage.json`, per [`ERROR_AREAS`] entry. The panic hook only
+    /// touches these (lock-free) and tries the file afterwards; the next normal access drains them.
+    panics: [AtomicU32; ERROR_AREAS.len()],
+}
+
+/// Which pauses an upload ignores.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pauses {
+    /// Both the hourly pause and the short back-off apply (background uploads after tracking).
+    Respect,
+    /// None applies (launch).
+    Ignore,
+    /// An error or a panic: not the hourly pause, but the back-off (offline) and [`URGENT_GAP`].
+    Urgent,
 }
 
 /// What one upload attempt did.
@@ -314,6 +409,8 @@ impl Telemetry {
             last_failure: Mutex::new(None),
             upload_lock: Mutex::new(()),
             flushing: AtomicBool::new(false),
+            last_urgent: Mutex::new(None),
+            panics: std::array::from_fn(|_| AtomicU32::new(0)),
         }
     }
 
@@ -397,6 +494,7 @@ impl Telemetry {
         };
         let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut counters = self.load();
+        self.drain_panics(&mut counters, day);
         let key = key(event, format.copied());
         let slot = counters
             .days
@@ -419,7 +517,58 @@ impl Telemetry {
     /// The counters waiting to be sent, oldest day first, at most [`MAX_ENTRIES`].
     pub fn pending(&self) -> Vec<Entry> {
         let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        entries(&self.load())
+        let mut counters = self.load();
+        if self.drain_panics(&mut counters, &today()) {
+            let _ = write_json(&self.usage_path(), &counters);
+        }
+        entries(&counters)
+    }
+
+    /// Counts one panic in `area` (#164), for the panic hook: it never blocks, never panics and
+    /// does no network. The count first goes into a lock-free counter, then into `usage.json` if
+    /// the counter lock is free right now; otherwise the next normal access writes it.
+    pub fn record_panic(&self, area: &str) {
+        self.record_panic_on(&today(), area);
+    }
+
+    /// Like [`Telemetry::record_panic`] for a given `YYYY-MM-DD` day (tests).
+    pub fn record_panic_on(&self, day: &str, area: &str) {
+        let Some(slot) = ERROR_AREAS.iter().position(|known| *known == area) else {
+            return;
+        };
+        if !self.active() {
+            return;
+        }
+        self.panics[slot].fetch_add(1, Ordering::SeqCst);
+        // `try_lock`: this may run on the audio thread, or while `record_on` holds the lock.
+        if let Ok(_guard) = self.lock.try_lock() {
+            let mut counters = self.load();
+            if self.drain_panics(&mut counters, day) {
+                let _ = write_json(&self.usage_path(), &counters);
+            }
+        }
+    }
+
+    /// Moves the panics counted by the hook into `counters`. Returns whether there were any.
+    fn drain_panics(&self, counters: &mut Counters, day: &str) -> bool {
+        let mut any = false;
+        for (slot, area) in ERROR_AREAS.iter().enumerate() {
+            let n = self.panics[slot].swap(0, Ordering::SeqCst);
+            if n > 0 {
+                any = true;
+                let count = counters
+                    .days
+                    .entry(day.to_owned())
+                    .or_default()
+                    .entry(format!("panic|{area}"))
+                    .or_insert(0);
+                *count = count.saturating_add(n);
+            }
+        }
+        if any {
+            trim(counters);
+        }
+        any
     }
 
     /// Uploads the pending counters once. The local counters are reduced by exactly what the
@@ -445,22 +594,38 @@ impl Telemetry {
     /// Uploads whatever an earlier session left, on a background thread, ignoring the hourly
     /// pause. Called by the core at launch, so it does not depend on the page.
     pub fn flush_at_launch(self: &std::sync::Arc<Self>) {
-        self.spawn_upload(false);
+        self.spawn_upload(Pauses::Ignore);
     }
 
     /// Starts an upload on a background thread unless the hourly pause (after a success) or the
     /// short back-off (after a failure) is running, or an upload is. Never blocks and never
     /// reports a failure to the caller.
     pub fn flush_in_background(self: &std::sync::Arc<Self>) {
-        self.spawn_upload(true);
+        self.spawn_upload(Pauses::Respect);
     }
 
-    fn spawn_upload(self: &std::sync::Arc<Self>, respect_pauses: bool) {
-        if !self.active() || (respect_pauses && !self.due()) {
+    /// Like [`Telemetry::flush_in_background`] for an error or a panic (#164): sent at once when
+    /// the device is online, without waiting for the hourly pause. The short back-off after a
+    /// failed upload (offline) and [`URGENT_GAP`] still apply, so a burst of errors is one
+    /// request; whatever is skipped stays queued for the next upload or the next launch.
+    pub fn flush_urgent_in_background(self: &std::sync::Arc<Self>) {
+        self.spawn_upload(Pauses::Urgent);
+    }
+
+    fn spawn_upload(self: &std::sync::Arc<Self>, pauses: Pauses) {
+        if !self.active() {
             return;
+        }
+        match pauses {
+            Pauses::Respect if !self.due() => return,
+            Pauses::Urgent if !self.urgent_due() => return,
+            _ => {}
         }
         if self.flushing.swap(true, Ordering::SeqCst) {
             return;
+        }
+        if pauses == Pauses::Urgent {
+            *self.last_urgent.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
         }
         let this = std::sync::Arc::clone(self);
         std::thread::spawn(move || {
@@ -476,6 +641,17 @@ impl Telemetry {
                 .is_some_and(|at| at.elapsed() < pause)
         };
         !recent(&self.last_flush, FLUSH_INTERVAL) && !recent(&self.last_failure, RETRY_AFTER)
+    }
+
+    /// Whether an error or a panic may start an upload now: not while offline (the back-off after
+    /// a failure) and not within [`URGENT_GAP`] of the last one.
+    fn urgent_due(&self) -> bool {
+        let recent = |slot: &Mutex<Option<Instant>>, pause: Duration| {
+            slot.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some_and(|at| at.elapsed() < pause)
+        };
+        !recent(&self.last_failure, RETRY_AFTER) && !recent(&self.last_urgent, URGENT_GAP)
     }
 
     /// Runs one upload and updates the pauses: only a success starts the hourly pause, a failure
@@ -580,6 +756,25 @@ impl Telemetry {
         }
         let _ = write_json(&self.usage_path(), &counters);
     }
+}
+
+/// Counts every panic of the process under its area and sends it at once (#164). The hook keeps
+/// the default behaviour (the previous hook still runs) and can neither panic nor wait: a panic
+/// inside a panic hook aborts the process, so everything runs under `catch_unwind`, and only the
+/// area is derived from the panic location. Message and location are dropped. Installed once.
+pub fn install_panic_hook(telemetry: std::sync::Arc<Telemetry>) {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let area = info.location().map_or("other", |at| panic_area(at.file()));
+                telemetry.record_panic(area);
+                telemetry.flush_urgent_in_background();
+            }));
+            previous(info);
+        }));
+    });
 }
 
 fn key(event: Event, format: Option<&str>) -> String {
@@ -789,6 +984,8 @@ mod tests {
             "ai_rights_confirmed",
             "ai_transcribe_start",
             "ai_transcribe_file",
+            "error",
+            "panic",
         ] {
             let event: Event = serde_json::from_value(serde_json::json!(name)).unwrap();
             t.record_on("2026-01-01", event, None).unwrap();
@@ -1145,6 +1342,305 @@ mod tests {
             }
             assert!(t.record_on("2026-01-01", event, Some("secret")).is_err());
         }
+    }
+
+    #[test]
+    fn error_and_panic_details_are_fixed_lists() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        // Every area with every kind; 10 areas x 14 kinds, each once.
+        assert_eq!(
+            Event::Error.details().len(),
+            ERROR_AREAS.len() * ERROR_KINDS.len()
+        );
+        for area in ERROR_AREAS {
+            for kind in ERROR_KINDS {
+                t.record_on("2026-01-01", Event::Error, Some(&format!("{area}:{kind}")))
+                    .unwrap();
+            }
+            t.record_on("2026-01-01", Event::Panic, Some(area)).unwrap();
+        }
+        for bad in [
+            "audio",
+            "audio:",
+            ":io",
+            "foo:io",
+            "audio:foo",
+            "audio:io:extra",
+            "audio io",
+            "/Users/jane/My Song.gp5",
+            "disk on fire",
+        ] {
+            assert!(
+                t.record_on("2026-01-01", Event::Error, Some(bad)).is_err(),
+                "{bad}"
+            );
+        }
+        for bad in ["audio:io", "foo", "", "/Users/jane", "a|b"] {
+            assert!(
+                t.record_on("2026-01-01", Event::Panic, Some(bad)).is_err(),
+                "{bad}"
+            );
+        }
+        // Not allowed on other events, and neither event is a free-text channel.
+        assert!(
+            t.record_on("2026-01-01", Event::Play, Some("audio:io"))
+                .is_err()
+        );
+        assert!(
+            t.record_on("2026-01-01", Event::Export, Some("audio"))
+                .is_err()
+        );
+        // The detail is kept in its canonical spelling.
+        t.record_on("2026-01-02", Event::Error, Some("AUDIO:Not-Found"))
+            .unwrap();
+        assert!(t.pending().iter().any(|e| e.day == "2026-01-02"
+            && e.event == "error"
+            && e.format.as_deref() == Some("audio:not-found")));
+    }
+
+    #[test]
+    fn error_kinds_match_the_command_error_kinds() {
+        // Exhaustive on purpose: a new `ErrorKind` fails to compile here until it is counted.
+        fn wire(kind: ErrorKind) -> &'static str {
+            match kind {
+                ErrorKind::NotFound => "not-found",
+                ErrorKind::UnsupportedType => "unsupported-type",
+                ErrorKind::TooLarge => "too-large",
+                ErrorKind::NotAScore => "not-a-score",
+                ErrorKind::InvalidKey => "invalid-key",
+                ErrorKind::InvalidSettings => "invalid-settings",
+                ErrorKind::InvalidMenuState => "invalid-menu-state",
+                ErrorKind::Audio => "audio",
+                ErrorKind::Conflict => "conflict",
+                ErrorKind::DownloadTimeout => "download-timeout",
+                ErrorKind::Network => "network",
+                ErrorKind::AuthExpired => "auth-expired",
+                ErrorKind::Io => "io",
+            }
+        }
+        let all = [
+            ErrorKind::NotFound,
+            ErrorKind::UnsupportedType,
+            ErrorKind::TooLarge,
+            ErrorKind::NotAScore,
+            ErrorKind::InvalidKey,
+            ErrorKind::InvalidSettings,
+            ErrorKind::InvalidMenuState,
+            ErrorKind::Audio,
+            ErrorKind::Conflict,
+            ErrorKind::DownloadTimeout,
+            ErrorKind::Network,
+            ErrorKind::AuthExpired,
+            ErrorKind::Io,
+        ];
+        for kind in all {
+            assert_eq!(serde_json::to_value(kind).unwrap(), wire(kind));
+            assert!(ERROR_KINDS.contains(&wire(kind)), "{kind:?}");
+        }
+        assert_eq!(
+            ERROR_KINDS.len(),
+            all.len() + 1,
+            "the extra one is `unknown`"
+        );
+        assert_eq!(ERROR_KINDS.last(), Some(&"unknown"));
+    }
+
+    #[test]
+    fn error_and_panic_are_urgent_and_nothing_else_is() {
+        assert!(Event::Error.is_urgent() && Event::Panic.is_urgent());
+        for event in [
+            Event::Play,
+            Event::Export,
+            Event::AppStart,
+            Event::AiInstall,
+        ] {
+            assert!(!event.is_urgent());
+        }
+    }
+
+    #[test]
+    fn panics_are_filed_under_an_area_never_a_file() {
+        for (file, area) in [
+            ("src/audio/engine.rs", "audio"),
+            ("src-tauri/src/audio/engine.rs", "audio"),
+            ("src/audio/plugin.rs", "plugin"),
+            ("src/audio/plugin_process.rs", "plugin"),
+            ("src/stems/mod.rs", "stems"),
+            ("src/separation/pipeline.rs", "stems"),
+            ("src/recording/muscriptor.rs", "ai"),
+            ("src/transcription.rs", "import"),
+            ("src/cloud/oauth.rs", "cloud"),
+            ("src/cloud_commands.rs", "cloud"),
+            ("src/pdf.rs", "export"),
+            ("src/m4a.rs", "export"),
+            ("src/score_file.rs", "file"),
+            ("src/recent.rs", "file"),
+            ("src/mixer.rs", "settings"),
+            (r"src-tauri\src\audio\mod.rs", "audio"),
+            ("src/startup.rs", "other"),
+            ("src/lib.rs", "other"),
+            ("", "other"),
+            (
+                "/Users/jane/.cargo/registry/src/index.crates.io-1/foo-1.0.0/src/audio/x.rs",
+                "other",
+            ),
+            ("/rustc/abc/library/core/src/option.rs", "other"),
+            ("nothing", "other"),
+        ] {
+            assert_eq!(panic_area(file), area, "{file}");
+            assert!(ERROR_AREAS.contains(&panic_area(file)));
+        }
+    }
+
+    #[test]
+    fn a_panic_is_counted_under_its_area() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        t.record_panic_on("2026-01-01", "audio");
+        t.record_panic_on("2026-01-01", "audio");
+        t.record_panic_on("2026-01-01", "cloud");
+        // An area that is not on the list is ignored, never stored.
+        t.record_panic_on("2026-01-01", "/Users/jane/My Song.gp5");
+        let pending = t.pending();
+        assert_eq!(pending.len(), 2);
+        assert!(pending.contains(&Entry {
+            day: "2026-01-01".into(),
+            event: "panic".into(),
+            format: Some("audio".into()),
+            count: 2,
+        }));
+    }
+
+    #[test]
+    fn a_panic_does_nothing_when_the_counters_are_off() {
+        let (dir, t) = telemetry(None);
+        t.record_panic("audio");
+        assert!(!dir.path().join("nested").exists());
+        assert!(t.pending().is_empty());
+        let (dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        t.update_settings(Some(false), None).unwrap();
+        t.record_panic("audio");
+        assert!(!dir.path().join("nested").join(USAGE_FILE).exists());
+    }
+
+    #[test]
+    fn recording_a_panic_never_waits_for_the_counter_lock() {
+        let (dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        t.record_on("2026-01-01", Event::Play, None).unwrap();
+        let held = t.lock.lock().unwrap();
+        // The hook may run while `record_on` holds the lock (a panic inside it): it must return.
+        t.record_panic_on("2026-01-01", "audio");
+        assert!(
+            !fs::read_to_string(dir.path().join("nested").join(USAGE_FILE))
+                .unwrap()
+                .contains("panic")
+        );
+        drop(held);
+        // Nothing was lost: the next normal access writes it.
+        assert!(
+            t.pending()
+                .iter()
+                .any(|e| e.event == "panic" && e.count == 1)
+        );
+        assert!(
+            fs::read_to_string(dir.path().join("nested").join(USAGE_FILE))
+                .unwrap()
+                .contains("panic|audio")
+        );
+    }
+
+    #[test]
+    fn a_panic_with_an_unwritable_data_folder_does_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        // The data folder is a file, so nothing can be saved there.
+        let blocker = dir.path().join("data");
+        fs::write(&blocker, "x").unwrap();
+        let t = Telemetry::new(&blocker, Some("http://127.0.0.1:9/x"), "1.2.3");
+        t.record_panic_on("2026-01-01", "audio");
+        t.record_panic_on("2026-01-01", "other");
+    }
+
+    #[test]
+    fn an_urgent_upload_ignores_the_hourly_pause_but_not_the_back_off() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:1/v1/batch"));
+        *t.last_flush.lock().unwrap() = Some(Instant::now());
+        assert!(!t.due(), "the hourly pause is running");
+        assert!(t.urgent_due(), "an error does not wait for it");
+        // Offline: the failed upload is the back-off, errors do not retry in a loop.
+        *t.last_failure.lock().unwrap() = Some(Instant::now());
+        assert!(!t.urgent_due());
+        *t.last_failure.lock().unwrap() = Some(Instant::now() - RETRY_AFTER);
+        assert!(t.urgent_due());
+        // A burst is one request: the gap since the last urgent upload.
+        *t.last_urgent.lock().unwrap() = Some(Instant::now());
+        assert!(!t.urgent_due());
+        *t.last_urgent.lock().unwrap() = Some(Instant::now() - URGENT_GAP);
+        assert!(t.urgent_due());
+    }
+
+    /// Waits until the queue is empty or `seconds` have passed.
+    fn wait_until_sent(t: &Telemetry, seconds: u64) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(seconds);
+        while Instant::now() < deadline {
+            if t.pending().is_empty() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
+    #[test]
+    fn an_error_is_sent_at_once_during_the_hourly_pause() {
+        let (url, server) = mock_server(vec![200]);
+        let (_dir, t) = telemetry(Some(&url));
+        let t = std::sync::Arc::new(t);
+        t.record_on("2026-01-01", Event::Play, None).unwrap();
+        *t.last_flush.lock().unwrap() = Some(Instant::now());
+        t.flush_in_background();
+        assert!(!t.pending().is_empty(), "a normal event waits for the hour");
+
+        t.record_on("2026-01-01", Event::Error, Some("audio:io"))
+            .unwrap();
+        t.flush_urgent_in_background();
+        assert!(wait_until_sent(&t, 5), "the error was not sent");
+        let bodies = server.join().unwrap();
+        assert_eq!(bodies.len(), 1);
+        let sent: serde_json::Value = serde_json::from_str(&bodies[0]).unwrap();
+        let events: Vec<(&str, Option<&str>)> = sent["counts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| (c["event"].as_str().unwrap(), c["format"].as_str()))
+            .collect();
+        assert!(events.contains(&("error", Some("audio:io"))), "{events:?}");
+        // The queued feature counter rides along.
+        assert!(events.contains(&("play", None)), "{events:?}");
+    }
+
+    #[test]
+    fn an_error_recorded_offline_waits_for_the_next_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let offline = std::sync::Arc::new(Telemetry::new(
+            &data,
+            Some("http://127.0.0.1:1/v1/batch"),
+            "1.2.3",
+        ));
+        offline
+            .record_on("2026-01-01", Event::Error, Some("cloud:network"))
+            .unwrap();
+        offline.flush_urgent_in_background();
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(offline.pending().len(), 1, "nothing was lost while offline");
+        drop(offline);
+
+        let (url, server) = mock_server(vec![200]);
+        let online = std::sync::Arc::new(Telemetry::new(&data, Some(&url), "1.2.3"));
+        online.flush_at_launch();
+        assert!(wait_until_sent(&online, 5));
+        let sent: serde_json::Value = serde_json::from_str(&server.join().unwrap()[0]).unwrap();
+        assert_eq!(sent["counts"][0]["event"], "error");
+        assert_eq!(sent["counts"][0]["format"], "cloud:network");
     }
 
     #[test]

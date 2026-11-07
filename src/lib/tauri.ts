@@ -2,8 +2,9 @@
  * Typed bridge to the Rust core (`src-tauri`). Every call degrades gracefully
  * when the UI runs in a plain browser (e.g. `pnpm dev` or Playwright).
  */
+import { invoke } from "@/lib/invoke";
 import type { PdfPage } from "@/lib/print";
-import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
+import type { InvokeArgs } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";

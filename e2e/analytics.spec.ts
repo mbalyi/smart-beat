@@ -1,5 +1,7 @@
 import type { Page } from "@playwright/test";
 
+import features from "../src/lib/features.json" with { type: "json" };
+
 import { emitMenuAction, expect, expectNoA11yViolations, openSong, test } from "./fixtures";
 
 /** The usage counters the page asked the core to record (#99), in order. */
@@ -188,4 +190,32 @@ test("pedal actions count once and a knob drag sends no effect counters", async 
   expect(events.filter((e) => e === "pedal_add:amp_sim")).toHaveLength(1);
   expect(events.filter((e) => e === "pedal_remove:amp_sim")).toHaveLength(1);
   expect(events.filter((e) => e === "pedal_move")).toHaveLength(1);
+});
+
+test.describe("error counters (#164)", () => {
+  test.skip(!features["stem-separation-neural"], "the stem model flag is off in features.json");
+
+  test("counts a failed command by area and kind, never its message", async ({ app }) => {
+    // The mock's next stem model download fails with a message that holds private data.
+    await app.evaluate(
+      `window.__stemModels.fail = "Cannot reach /Users/jane/Secret Songs (jane@example.com)"`,
+    );
+    await emitMenuAction(app, "stem-models");
+    const dialog = app.getByRole("dialog", { name: "Stem Separation Models" });
+    await dialog.getByRole("button", { name: "Install the SCNet Small model" }).click();
+    await dialog.getByRole("checkbox").check();
+    await dialog.getByRole("button", { name: "Accept and download" }).click();
+
+    await expect.poll(() => tracked(app)).toContain("error:stems:network");
+    const sent = JSON.stringify(
+      await app.evaluate(() =>
+        window.__ipcCalls.filter((c) => c.cmd === "track_event").map((c) => c.args),
+      ),
+    );
+    expect(sent).not.toMatch(/jane|Secret|example\.com|stem_model_download|scnet/i);
+    // Counted once, and the counter's own call did not count itself.
+    expect((await tracked(app)).filter((e) => e.startsWith("error:"))).toEqual([
+      "error:stems:network",
+    ]);
+  });
 });

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/invoke";
 
 import type { CloudProvider, ShareLevel } from "@/lib/cloud";
 import { createCloudItem, isCloudItem, providerOf, rememberCloudName } from "@/lib/cloud-items";

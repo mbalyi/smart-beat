@@ -83,6 +83,8 @@ export const EVENTS = [
   "tour_finish",
   "tour_skip",
   "tour_close",
+  "error",
+  "panic",
 ] as const;
 
 // The recommended SoundFont banks (soundfonts.rs) and the sound sets counted by name; any file the
@@ -116,6 +118,38 @@ export const FORMATS = [
   "txt",
   "png",
 ] as const;
+
+// Where a failure is filed (ERROR_AREAS in telemetry.rs) and what kind it was (ERROR_KINDS: every
+// ErrorKind in its wire spelling, plus "unknown"). `error` carries "<area>:<kind>", `panic` the area.
+export const ERROR_AREAS = [
+  "file",
+  "export",
+  "audio",
+  "plugin",
+  "import",
+  "ai",
+  "stems",
+  "cloud",
+  "settings",
+  "other",
+] as const;
+export const ERROR_KINDS = [
+  "not-found",
+  "unsupported-type",
+  "too-large",
+  "not-a-score",
+  "invalid-key",
+  "invalid-settings",
+  "invalid-menu-state",
+  "audio",
+  "conflict",
+  "download-timeout",
+  "network",
+  "auth-expired",
+  "io",
+  "unknown",
+] as const;
+const ERROR_DETAILS = ERROR_AREAS.flatMap((area) => ERROR_KINDS.map((kind) => `${area}:${kind}`));
 
 export const OSES = ["macos", "windows", "linux"] as const;
 export const INSTALLERS = ["dmg", "windows", "appimage", "linux-pkg"] as const;
@@ -189,4 +223,6 @@ export const EVENT_DETAILS: Partial<Record<(typeof EVENTS)[number], readonly str
   tour_finish: TOURS,
   tour_skip: TOURS,
   tour_close: TOURS,
+  error: ERROR_DETAILS,
+  panic: ERROR_AREAS,
 };
