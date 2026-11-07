@@ -48,8 +48,9 @@ function fakePlayer() {
     stop: vi.fn(() => false),
     seekToTick: vi.fn(),
     heardTimeMs: vi.fn((): number | null => null),
-    nudgeSpeed: vi.fn(),
     outputLatencyMs: vi.fn(() => 0),
+    isReady: vi.fn(() => true),
+    warmUpAudio: vi.fn(async () => {}),
     getTick: vi.fn(() => 960),
     barStartTick: vi.fn((index: number) => index * 3840),
   } satisfies TogetherPlayer;
@@ -61,6 +62,7 @@ function peer(role: "host" | "guest", transport: PeerTransport, name = "Other") 
     prepared: [] as Command[],
     scheduled: [] as Command[],
     cancelled: 0,
+    requested: [] as [string, number | undefined][],
   };
   const hooks: SessionHooks = {
     async prepare(cmd) {
@@ -70,6 +72,9 @@ function peer(role: "host" | "guest", transport: PeerTransport, name = "Other") 
     schedule(cmd) {
       log.scheduled.push(cmd);
       return () => void (log.cancelled += 1);
+    },
+    request(action, tick) {
+      log.requested.push([action, tick]);
     },
   };
   const session = new Session({
@@ -311,7 +316,6 @@ describe("usePracticeTogether: the host's transport", () => {
       await result.current.host("lan");
     });
     expect(result.current.intercept({ kind: "playPause" })).toBe(false);
-    expect(result.current.locked).toBe(false);
   });
 
   it("starts both players together on Play, at the agreed time", async () => {
@@ -326,7 +330,6 @@ describe("usePracticeTogether: the host's transport", () => {
     const cmd = guest.log.scheduled[0]!;
     expect(cmd).toMatchObject({ action: "play", tick: 960, speed: 100, loop: null });
     expect(player.seekToTick).toHaveBeenCalledWith(960);
-    expect(result.current.locked).toBe(false);
   });
 
   it("pauses both when it is already playing", async () => {
@@ -366,6 +369,73 @@ describe("usePracticeTogether: the host's transport", () => {
     expect(guest.log.scheduled[1]).toMatchObject({ action: "play", tick: 2 * 3840 });
   });
 
+  it("does not move the position while the song plays", async () => {
+    const { result, player, guest } = await hosting();
+    player.isPlaying.mockReturnValue(true);
+    let handled = false;
+    act(() => {
+      handled = result.current.intercept({ kind: "seekBar", bar: 3 });
+    });
+    expect(handled).toBe(true);
+    act(() => {
+      result.current.intercept({ kind: "playFromBar", bar: 2 });
+    });
+    expect(toast.info).toHaveBeenCalledWith(
+      "Pause or stop first to move to another bar in a Practice together session.",
+      { id: "together-seek" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(guest.log.scheduled).toEqual([]);
+    // Stopping is allowed while it plays.
+    act(() => {
+      result.current.intercept({ kind: "stop" });
+    });
+    await waitFor(() => expect(guest.log.scheduled[0]?.action).toBe("stop"), { timeout: 3000 });
+  });
+
+  it("does what the guest asks: starts and stops both, with its own position", async () => {
+    const { player, guest } = await hosting();
+    act(() => void guest.session.request("play"));
+    await waitFor(() => expect(guest.log.scheduled).toHaveLength(1), { timeout: 3000 });
+    expect(guest.log.scheduled[0]).toMatchObject({ action: "play", tick: 960 });
+    await waitFor(() => expect(player.playPause).toHaveBeenCalledTimes(1), { timeout: 3000 });
+
+    player.isPlaying.mockReturnValue(true);
+    act(() => void guest.session.request("pause"));
+    await waitFor(() => expect(guest.log.scheduled[1]?.action).toBe("pause"), { timeout: 3000 });
+    await waitFor(() => expect(player.pause).toHaveBeenCalled(), { timeout: 3000 });
+
+    act(() => void guest.session.request("stop"));
+    await waitFor(() => expect(guest.log.scheduled[2]?.action).toBe("stop"), { timeout: 3000 });
+  });
+
+  it("ignores a guest's request that makes no sense now", async () => {
+    const { player, guest } = await hosting();
+    player.isPlaying.mockReturnValue(true);
+    act(() => {
+      guest.session.request("play");
+      guest.session.request("seek", 3840);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(guest.log.scheduled).toEqual([]);
+    player.isPlaying.mockReturnValue(false);
+    act(() => void guest.session.request("pause"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(guest.log.scheduled).toEqual([]);
+  });
+
+  it("moves to the position the guest picked, while stopped", async () => {
+    const { guest } = await hosting();
+    act(() => void guest.session.request("seek", 7680));
+    await waitFor(() => expect(guest.log.scheduled).toHaveLength(1), { timeout: 3000 });
+    expect(guest.log.scheduled[0]).toMatchObject({ action: "seek", tick: 7680 });
+  });
+
+  it("gets its sound ready when the click that hosts arrives", async () => {
+    const { player } = await hosting();
+    expect(player.warmUpAudio).toHaveBeenCalled();
+  });
+
   it("sends a changed speed, loop, metronome and count-in to the guest", async () => {
     const { rerender, guest } = await hosting();
     rerender({
@@ -401,12 +471,45 @@ describe("usePracticeTogether: the host's transport", () => {
 });
 
 describe("usePracticeTogether: the guest", () => {
-  it("is locked and the transport is the host's", async () => {
-    const { result, player } = await joining();
-    expect(result.current.locked).toBe(true);
+  it("asks the host for Play, Pause and Stop, and does not start on its own", async () => {
+    const { result, player, host } = await joining();
+    let handled = false;
+    act(() => {
+      handled = result.current.intercept({ kind: "playPause" });
+    });
+    expect(handled).toBe(true);
+    player.isPlaying.mockReturnValue(true);
+    act(() => {
+      result.current.intercept({ kind: "playPause" });
+      result.current.intercept({ kind: "stop" });
+    });
+    await waitFor(() => expect(host.log.requested).toHaveLength(3), { timeout: 3000 });
+    expect(host.log.requested).toEqual([
+      ["play", undefined],
+      ["pause", undefined],
+      ["stop", 0],
+    ]);
+    expect(player.playPause).not.toHaveBeenCalled();
+    expect(player.stop).not.toHaveBeenCalled();
+  });
+
+  it("asks the host to move to a bar while stopped, and to play from it", async () => {
+    const { result, host } = await joining();
+    act(() => {
+      result.current.intercept({ kind: "seekBar", bar: 2 });
+      result.current.intercept({ kind: "playFromBar", bar: 3 });
+    });
+    await waitFor(() => expect(host.log.requested).toHaveLength(2), { timeout: 3000 });
+    expect(host.log.requested).toEqual([
+      ["seek", 2 * 3840],
+      ["play", 3 * 3840],
+    ]);
+  });
+
+  it("does not move the position while the song plays, and says why", async () => {
+    const { result, player, host } = await joining();
+    player.isPlaying.mockReturnValue(true);
     for (const request of [
-      { kind: "playPause" },
-      { kind: "stop" },
       { kind: "seekBar", bar: 2 },
       { kind: "playFromBar", bar: 2 },
     ] as const) {
@@ -417,11 +520,17 @@ describe("usePracticeTogether: the guest", () => {
       expect(handled).toBe(true);
     }
     expect(toast.info).toHaveBeenCalledWith(
-      "The host controls playback in a Practice together session.",
+      "Pause or stop first to move to another bar in a Practice together session.",
+      { id: "together-seek" },
     );
-    expect(player.playPause).not.toHaveBeenCalled();
-    expect(player.stop).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(host.log.requested).toEqual([]);
     expect(player.seekToTick).not.toHaveBeenCalled();
+  });
+
+  it("gets its sound ready when the click that joins arrives", async () => {
+    const { player } = await joining();
+    expect(player.warmUpAudio).toHaveBeenCalled();
   });
 
   it("takes the host's speed, loop, metronome and count-in", async () => {
@@ -466,13 +575,7 @@ describe("usePracticeTogether: the guest", () => {
     expect(player.seekToTick).toHaveBeenCalledWith(1920);
   });
 
-  it("tells the guest when the score is not the same, with a toast", async () => {
-    const { host } = await joining();
-    act(() => host.session.setScore({ key: "other-score", bars: 8 }));
-    await waitFor(() =>
-      expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("different versions")),
-    );
-  });
+  // A different tab is no longer an error: the host sends its own (use-practice-together-tab.test).
 });
 
 describe("usePracticeTogether: ending and remembering", () => {
@@ -482,7 +585,6 @@ describe("usePracticeTogether: ending and remembering", () => {
     expect(result.current.state).toBeNull();
     expect(result.current.hostCode).toBeNull();
     expect(result.current.approval).toBeNull();
-    expect(result.current.locked).toBe(false);
     await waitFor(() => expect(guest.session.snapshot.problem?.kind).toBe("peer-left"));
   });
 

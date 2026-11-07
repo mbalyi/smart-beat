@@ -63,6 +63,9 @@ export class FakeScorePlayer {
   barStartTick = vi.fn((index: number) => index * 3840);
   heardTimeMs = vi.fn((): number | null => null);
   outputLatencyMs = vi.fn(() => 0);
+  isReady = vi.fn(() => true);
+  warmUpAudio = vi.fn(async () => {});
+  setSeekLock = vi.fn();
   destroy = vi.fn();
   refresh = vi.fn();
   setEditing = vi.fn();

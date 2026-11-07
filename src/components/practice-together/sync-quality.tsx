@@ -1,6 +1,8 @@
 import { UsersIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tip";
 import { errorText, type SyncQuality } from "@/lib/practice-together/clock-sync";
 import type { SessionState } from "@/lib/practice-together/session";
 import { cn } from "@/lib/utils";
@@ -27,6 +29,34 @@ export function SyncQualityBadge({ quality }: { quality: SyncQuality }) {
       <span className="tabular-nums">{errorText(quality)}</span>
       <span>{WORDS[quality.bucket]}</span>
     </Badge>
+  );
+}
+
+/**
+ * The toolbar button beside Record to Tab. Without a session it is an icon that opens the
+ * dialog (join a session or start one); with one it becomes the sync-quality chip.
+ */
+export function TogetherButton({
+  state,
+  onOpen,
+}: {
+  state: SessionState | null;
+  onOpen: () => void;
+}) {
+  if (state && state.phase !== "closed") return <TogetherChip state={state} onOpen={onOpen} />;
+  return (
+    <Tip label="Practice together">
+      <Button
+        variant="outline"
+        size="icon-sm"
+        aria-label="Practice together"
+        data-tour="practice-together"
+        data-testid="together-button"
+        onClick={onOpen}
+      >
+        <UsersIcon aria-hidden="true" />
+      </Button>
+    </Tip>
   );
 }
 

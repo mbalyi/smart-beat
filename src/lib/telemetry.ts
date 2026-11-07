@@ -92,7 +92,18 @@ export type TrackedEvent =
   | "tour_skip"
   | "tour_close"
   | "error"
-  | "panic";
+  | "panic"
+  | "practice_together_open"
+  | "practice_together_host"
+  | "practice_together_join"
+  | "practice_together_setup_failed"
+  | "practice_together_sync"
+  | "practice_together_preset"
+  | "practice_together_play"
+  | "practice_together_end"
+  | "practice_together_length"
+  | "practice_together_problem"
+  | "practice_together_tab";
 
 /** File formats for open_file and export. */
 const FILE_FORMATS = [
@@ -125,6 +136,8 @@ const CATALOGUE_SOUNDFONTS = [
 const SOUNDFONT_IDS = ["sonivox", "fluidr3", ...CATALOGUE_SOUNDFONTS, "custom"];
 
 const TOURS = ["main", "editing", "speed-trainer", "effects", "record-to-tab"];
+
+const CONNECTIONS = ["lan", "internet"];
 
 /** Fixed details per event; the wire field remains `format` for older apps. */
 const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
@@ -198,6 +211,26 @@ const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
   // A failed command, "<area>:<kind>" (invoke.ts), and a panic of the core, by area (#164).
   error: ERROR_DETAILS,
   panic: ERROR_AREAS,
+  practice_together_open: ["menu", "toolbar", "start"],
+  practice_together_host: CONNECTIONS,
+  practice_together_join: CONNECTIONS,
+  practice_together_setup_failed: CONNECTIONS,
+  practice_together_sync: ["excellent", "good", "unstable"],
+  practice_together_preset: ["auto", "tight", "balanced", "safe"],
+  practice_together_end: ["left", "peer_left", "dropped", "failed"],
+  practice_together_length: ["under_1m", "1_5m", "5_15m", "15_60m", "over_60m"],
+  practice_together_problem: [
+    "score",
+    "version",
+    "declined",
+    "busy",
+    "dropped",
+    "poor",
+    "late",
+    "woke",
+    "tab",
+  ],
+  practice_together_tab: ["sent", "received", "failed"],
 };
 
 /**

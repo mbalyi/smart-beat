@@ -1,7 +1,11 @@
 import { screen, within } from "@testing-library/react";
 
 import { PracticeTogetherDialog } from "@/components/practice-together/practice-together-dialog";
-import { SyncQualityBadge, TogetherChip } from "@/components/practice-together/sync-quality";
+import {
+  SyncQualityBadge,
+  TogetherButton,
+  TogetherChip,
+} from "@/components/practice-together/sync-quality";
 import type { PracticeTogether } from "@/hooks/use-practice-together";
 import { problem, type SessionState } from "@/lib/practice-together/session";
 import { expectNoA11yViolations } from "@/test/axe";
@@ -31,7 +35,8 @@ function together(over: Partial<PracticeTogether> = {}): PracticeTogether {
     starting: false,
     error: null,
     internetAvailable: true,
-    locked: false,
+    transfer: null,
+    readOnly: false,
     setName: vi.fn(),
     setQuality: vi.fn(),
     host: vi.fn(async () => {}),
@@ -66,15 +71,65 @@ describe("PracticeTogetherDialog: choosing", () => {
     expect(t.host).toHaveBeenCalledExactlyOnceWith("internet");
   });
 
-  it("does not offer the internet where it is not in the build", () => {
+  it("does not offer the internet where it is not in the build, and says why", () => {
     renderDialog(together({ internetAvailable: false }));
-    expect(screen.getByRole("radio", { name: "Over the internet" })).toBeDisabled();
+    const internet = screen.getByRole("radio", { name: "Over the internet" });
+    expect(internet).toBeDisabled();
+    expect(internet).toHaveAccessibleDescription(/needs the online connection service/);
+    expect(screen.getByText(/which this build does not include/)).toBeVisible();
+  });
+
+  it("offers the internet without a reason where it is in the build", () => {
+    renderDialog(together({ internetAvailable: true }));
+    expect(screen.getByRole("radio", { name: "Over the internet" })).toBeEnabled();
+    expect(screen.queryByText(/which this build does not include/)).not.toBeInTheDocument();
+  });
+
+  it("starts on joining when it was opened to join, and says the tab comes from the host", () => {
+    renderWithProviders(
+      <PracticeTogetherDialog
+        open
+        onOpenChange={vi.fn()}
+        together={together()}
+        initialMode="join"
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "Join an existing session" })).toBeChecked();
+    expect(screen.getByLabelText("Room code")).toBeInTheDocument();
+    expect(screen.getByTestId("mode-hint")).toHaveTextContent("The tab comes from the host");
+  });
+
+  it("starts on a new session by default and says the tab is shared", () => {
+    renderDialog(together());
+    expect(screen.getByRole("radio", { name: "Start a new session" })).toBeChecked();
+    expect(screen.queryByLabelText("Room code")).not.toBeInTheDocument();
+    expect(screen.getByTestId("mode-hint")).toHaveTextContent("gets this tab from you");
+  });
+
+  it("puts the logo in the header, the description above the stepper and no title text", () => {
+    renderDialog(together());
+    const dialog = screen.getByRole("dialog", { name: "Practice together" });
+    expect(within(dialog).getByTestId("together-logo")).toHaveAttribute("aria-hidden", "true");
+    // The title is only the logo: its text is for screen readers, and no other heading repeats it.
+    const title = within(dialog).getByRole("heading", { name: "Practice together" });
+    expect(within(title).getByText("Practice together")).toHaveClass("sr-only");
+    expect(within(dialog).getAllByRole("heading")).toHaveLength(1);
+    const description = within(dialog).getByText(/Play the same tab with someone else/);
+    const stepper = within(dialog).getByRole("list");
+    expect(description.compareDocumentPosition(stepper)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("shows the feature picture at the top of the content, not pinned to the bottom", () => {
+    renderDialog(together());
+    const hero = document.querySelector("[data-hero='practice-together']");
+    expect(hero).toHaveClass("float-right");
+    expect(hero?.getAttribute("src")).toContain("practice-together");
   });
 
   it("joins with a typed code", async () => {
     const t = together();
     const { user } = renderDialog(t);
-    await user.click(screen.getByRole("radio", { name: "Join with a code" }));
+    await user.click(screen.getByRole("radio", { name: "Join an existing session" }));
     const join = screen.getByRole("button", { name: "Join the session" });
     expect(join).toBeDisabled();
     await user.type(screen.getByLabelText("Room code"), "abcd-efgh");
@@ -180,9 +235,9 @@ describe("PracticeTogetherDialog: playing together", () => {
     expect(screen.getByText("250 ms")).toBeInTheDocument();
   });
 
-  it("tells a guest that the host controls playback", () => {
+  it("tells a guest that Play starts both and the settings follow the host", () => {
     renderDialog(together({ state: session({ role: "guest" }) }));
-    expect(screen.getByText(/The host controls Play, Pause, Stop/)).toBeInTheDocument();
+    expect(screen.getByText(/the host starts both of you at the same moment/)).toBeInTheDocument();
     expect(screen.getByTestId("peer-you")).toHaveTextContent("±2.5 ms");
   });
 
@@ -250,5 +305,55 @@ describe("SyncQualityBadge", () => {
     renderWithProviders(<SyncQualityBadge quality={{ errorMs: Infinity, bucket: "none" }} />);
     expect(screen.getByText("Syncing")).toBeInTheDocument();
     expect(screen.getByText("—")).toBeInTheDocument();
+  });
+});
+
+describe("PracticeTogetherDialog: the tab on its way", () => {
+  it("shows the guest the tab being received and the host the tab being sent", () => {
+    const { unmount } = renderDialog(
+      together({
+        state: session({ role: "guest", phase: "syncing" }),
+        transfer: { direction: "receive", name: "Riff", done: 3, total: 10 },
+      }),
+    );
+    expect(screen.getByText(/Receiving "Riff" from the host/)).toBeVisible();
+    expect(screen.getByRole("progressbar", { name: /Receiving "Riff"/ })).toHaveAttribute(
+      "value",
+      "3",
+    );
+    unmount();
+    renderDialog(
+      together({
+        state: session({ role: "host", phase: "synchronized" }),
+        transfer: { direction: "send", name: "Riff", done: 10, total: 10 },
+      }),
+    );
+    expect(screen.getByText('Sent "Riff".')).toBeVisible();
+  });
+
+  it("shows nothing without a transfer", () => {
+    renderDialog(together({ state: session({ phase: "syncing" }) }));
+    expect(screen.queryByTestId("tab-transfer")).not.toBeInTheDocument();
+  });
+});
+
+describe("TogetherButton", () => {
+  it("is an icon button that opens the dialog while there is no session", async () => {
+    const onOpen = vi.fn();
+    const { user } = renderWithProviders(<TogetherButton state={null} onOpen={onOpen} />);
+    await user.click(screen.getByRole("button", { name: "Practice together" }));
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("together-chip")).not.toBeInTheDocument();
+  });
+
+  it("is the button again after a session closed", () => {
+    renderWithProviders(<TogetherButton state={session({ phase: "closed" })} onOpen={vi.fn()} />);
+    expect(screen.getByTestId("together-button")).toBeInTheDocument();
+  });
+
+  it("becomes the sync chip while a session runs", () => {
+    renderWithProviders(<TogetherButton state={session()} onOpen={vi.fn()} />);
+    expect(screen.getByTestId("together-chip")).toHaveAttribute("data-phase", "synchronized");
+    expect(screen.queryByTestId("together-button")).not.toBeInTheDocument();
   });
 });

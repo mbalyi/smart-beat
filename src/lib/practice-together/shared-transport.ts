@@ -1,18 +1,18 @@
 /**
- * Practice together: turns the session's scheduled commands into playback on this computer, and
- * keeps this player in step with the host's while it plays.
+ * Practice together: turns the session's scheduled commands into playback on this computer.
  *
  * Starting: the command is prepared (position, speed, loop, metronome, count-in), the other app
  * is told it is ready, and the start is made at the agreed instant. The instant is moved earlier
  * by this computer's output latency, so the sound is heard at the same moment on both.
  *
- * Following: the host reports its position every second. The guest compares it with its own
- * (a median of a few readings, because the synthesizer reports in chunks), and speeds up or slows
- * down a little instead of jumping, so the music never stutters.
+ * Once playing, nothing is corrected. Both computers run the same score at the same speed from
+ * the same instant, and a speed or position change in the middle of a song is what people hear as
+ * the two drifting apart (a measurement of the position is only as exact as the synthesizer's
+ * reports, which come in chunks). The guest still compares its position with the host's reports,
+ * but only to show the drift; the next Play starts both again from the same instant.
  */
 import type { Command } from "@/lib/practice-together/protocol";
-import type { Session, SessionHooks } from "@/lib/practice-together/session";
-import { PRESETS } from "@/lib/practice-together/quality-presets";
+import type { SessionHooks } from "@/lib/practice-together/session";
 
 /** What the shared transport needs from the player (`ScorePlayer` has all of it). */
 export interface TransportPlayer {
@@ -24,18 +24,12 @@ export interface TransportPlayer {
   seekToTick(tick: number): void;
   /** Where playback is heard, in score milliseconds; null before anything played. */
   heardTimeMs(): number | null;
-  /** Multiplies the speed a little (1 = as set). */
-  nudgeSpeed(multiplier: number): void;
   /** How long after a start the sound is heard, in milliseconds. */
   outputLatencyMs(): number;
+  /** Whether the song is loaded, so a start plays. */
+  isReady(): boolean;
 }
 
-/** Drift beyond this is large: it is corrected faster and the group is told. */
-export const BIG_DRIFT_MS = 150;
-/** The fastest correction of a big drift (a fraction of the speed). */
-export const BIG_NUDGE = 0.05;
-/** A drift is corrected over about this long. */
-export const CORRECT_OVER_MS = 3000;
 /** The last milliseconds before a start are waited out in a tight loop: a timer is too coarse. */
 export const SPIN_MS = 12;
 /** Readings the drift is the median of. */
@@ -88,22 +82,15 @@ const median = (values: number[]): number => {
 export class SharedTransport {
   private readonly options: SharedTransportOptions;
   private readonly now: () => number;
-  private session: Session | null = null;
   private speed = 100;
   private readings: number[] = [];
   private drift = 0;
-  private nudge = 1;
   /** How late each start was made, in milliseconds (negative: early). For measuring. */
   readonly startErrors: number[] = [];
 
   constructor(options: SharedTransportOptions) {
     this.options = options;
     this.now = options.now ?? (() => performance.now());
-  }
-
-  /** Connects to the session whose commands this runs. */
-  bind(session: Session) {
-    this.session = session;
   }
 
   /** The hooks to give the {@link Session}. */
@@ -124,6 +111,8 @@ export class SharedTransport {
   private async prepare(cmd: Command): Promise<boolean> {
     const player = this.options.player();
     if (!player) return false;
+    // A start with nothing loaded would do nothing here: say so, instead of starting alone.
+    if (cmd.action === "play" && !player.isReady()) return false;
     this.options.applySettings(cmd);
     this.speed = cmd.speed;
     // The settings reach the player through the app's state: give them a moment to land.
@@ -164,16 +153,9 @@ export class SharedTransport {
   private resetDrift() {
     this.readings = [];
     this.drift = 0;
-    this.setNudge(1);
   }
 
-  private setNudge(multiplier: number) {
-    if (multiplier === this.nudge) return;
-    this.nudge = multiplier;
-    this.options.player()?.nudgeSpeed(multiplier);
-  }
-
-  /** The host's report: compare, then correct gently. */
+  /** The host's report: compare with this player's position, to show how far apart they are. */
   private follow(pos: number, localAt: number, playing: boolean) {
     const player = this.options.player();
     if (!player) return;
@@ -189,19 +171,9 @@ export class SharedTransport {
     if (this.readings.length < 3) return;
     this.drift = Math.round(median(this.readings) * 10) / 10;
     this.options.onDrift?.(this.drift);
-    const preset = PRESETS[this.session?.snapshot.preset ?? "balanced"];
-    const size = Math.abs(this.drift);
-    if (size <= preset.driftToleranceMs) {
-      this.setNudge(1);
-      return;
-    }
-    const limit = size > BIG_DRIFT_MS ? BIG_NUDGE : preset.maxNudge;
-    const correction = Math.min(limit, size / CORRECT_OVER_MS);
-    // Ahead: slow down. Behind: speed up.
-    this.setNudge(1 + (this.drift > 0 ? -correction : correction));
   }
 
-  /** Back to the normal speed (the session ended). */
+  /** The session ended. */
   release() {
     this.resetDrift();
   }

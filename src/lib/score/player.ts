@@ -52,7 +52,12 @@ import {
 import { DRUM_TAB_LINES } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
-import { playClick, playCountInClicks, type ClickRun } from "@/lib/audio/count-in-clicks";
+import {
+  playClick,
+  playCountInClicks,
+  primeClickAudio,
+  type ClickRun,
+} from "@/lib/audio/count-in-clicks";
 import type { ClickSoundId, LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
 import { tempoAt } from "@/lib/score/structure";
@@ -144,6 +149,8 @@ export interface ScorePlayerCallbacks {
   onMeters?: (meters: EngineMeters) => void;
   /** Native engine only: a sound crashed, so every effect was switched off and playback stopped. */
   onEngineFault?: () => void;
+  /** Practice together: a click tried to move the cursor while the song plays (it was ignored). */
+  onSeekBlocked?: () => void;
   /** Native engine only: effect blocks that cannot run (per track, and the master's). */
   onEffectProblems?: (problems: EffectProblems) => void;
   /** Native engine: the bars in playback order (after every MIDI load), for the audio track. */
@@ -422,6 +429,7 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
+      if (this.seekLocked) this.updateInteraction();
       if (this.playing && !this.latencyMeasured && !this.engine) {
         this.latencyMeasured = true;
         void measureLatency().then((info) => {
@@ -481,9 +489,15 @@ export class ScorePlayer {
     api.beatMouseDown.on((clicked) => {
       // A click on the drum tab is a click on the drum beat it shows.
       const beat = realBeatOf(clicked);
-      this.delayer.clear(); // the click moves the cursor: what waits belongs to the old position
-      this.reportBar(beat.voice.bar.index);
-      if (this.editing) this.seekToBeat(beat);
+      if (this.seekLocked && this.playing) {
+        // Practice together: nobody moves the cursor while the song plays (the two computers
+        // would play different places). A click still selects a beat for editing.
+        callbacks.onSeekBlocked?.();
+      } else {
+        this.delayer.clear(); // the click moves the cursor: what waits belongs to the old position
+        this.reportBar(beat.voice.bar.index);
+        if (this.editing) this.seekToBeat(beat);
+      }
       if (!this.playing) callbacks.onActiveBeatsChange?.(this.ownBeats([beat]));
       // The note (if any) is reported right after the beat: wait for it.
       const extend = this.shiftDown;
@@ -862,8 +876,25 @@ export class ScorePlayer {
    */
   setEditing(editing: boolean) {
     this.editing = editing;
-    this.api.settings.player.enableUserInteraction = !editing;
+    this.updateInteraction();
     this.api.updateSettings();
+  }
+
+  /** Clicks move the playback cursor (and select ranges) outside edit mode, but not when locked. */
+  private updateInteraction() {
+    this.api.settings.player.enableUserInteraction =
+      !this.editing && !(this.seekLocked && this.playing);
+  }
+
+  private seekLocked = false;
+
+  /**
+   * Practice together: while on, a click in the score cannot move the cursor during playback
+   * (it still can while stopped or paused). alphaTab reads the setting when the mouse is used.
+   */
+  setSeekLock(on: boolean) {
+    this.seekLocked = on;
+    this.updateInteraction();
   }
 
   /** Clears a range selected with the mouse outside edit mode (a loop stays). */
@@ -1049,6 +1080,30 @@ export class ScorePlayer {
     return this.outputDelayMs();
   }
 
+  /** Whether the song is loaded, so Play starts it (Practice together asks before a start). */
+  isReady(): boolean {
+    return this.ready;
+  }
+
+  /**
+   * Gets the sound ready for a start nobody clicked (Practice together: the other computer's Play
+   * starts it here). A browser only opens sound output after a click or a key press, and the
+   * output latency is only known once the output was opened, so this is called from the click
+   * that hosts or joins a session. Without it a guest's first count-in and metronome clicks are
+   * silent or late, and the first start is not moved earlier by the output latency.
+   */
+  async warmUpAudio(): Promise<void> {
+    await primeClickAudio();
+    if (this.engine) return;
+    // alphaTab's output opens (and resumes) its AudioContext when asked to activate.
+    (this.api.player?.output as { activate?: () => void } | undefined)?.activate?.();
+    if (!this.latencyMeasured) {
+      this.latencyMeasured = true;
+      const info = await measureLatency();
+      if (!this.destroyed) this.latencyInfo = info;
+    }
+  }
+
   /**
    * Metronome: `volume` goes up to 3 (above the master volume). The native engine clicks in
    * the chosen `sound`; alphaTab's synthesizer has one fixed click, and in the native engine
@@ -1103,6 +1158,7 @@ export class ScorePlayer {
     this.synthCount.run?.cancel();
     this.synthCount = null;
     this.playing = false; // the song never started: Play must start it, not pause it
+    this.updateInteraction();
     this.callbacks.onPlayingChange?.(false);
   }
 
@@ -1379,6 +1435,7 @@ export class ScorePlayer {
       if (clicks) {
         const beatSeconds = clicks.beatSeconds / this.api.playbackSpeed;
         this.playing = true;
+        this.updateInteraction();
         this.synthCount = {
           run: playCountInClicks(clicks.beats, beatSeconds, this.countInVolume, this.countInSound),
           timer: setTimeout(
@@ -1395,6 +1452,7 @@ export class ScorePlayer {
       }
     }
     this.playing = !this.playing;
+    this.updateInteraction();
     this.api.playPause();
   }
 

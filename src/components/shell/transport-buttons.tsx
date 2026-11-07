@@ -34,11 +34,8 @@ export function TransportButtons({
   onNext,
   onLast,
   playTitle,
-  locked = false,
 }: {
   ready: boolean;
-  /** Practice together: a guest follows the host, whose buttons these are. */
-  locked?: boolean;
   playing: boolean;
   labels: TransportLabels;
   onFirst: () => void;
@@ -50,7 +47,7 @@ export function TransportButtons({
   /** The play button's tooltip when it differs from "Play" and "Pause" (a song shows its key). */
   playTitle?: { play: string; pause: string };
 }) {
-  const off = !ready || locked;
+  const off = !ready;
   return (
     <div className="flex items-center gap-1">
       <Button

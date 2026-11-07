@@ -226,6 +226,53 @@ describe("scheduled commands", () => {
   });
 });
 
+describe("a guest's requests", () => {
+  it("reach the host, which decides and starts it for both", async () => {
+    const { host, guest } = await connect();
+    const asked: [string, number | undefined][] = [];
+    host.hooks.request = (action, tick) => asked.push([action, tick]);
+    expect(guest.session.request("play")).toBe(true);
+    expect(guest.session.request("seek", 3840)).toBe(true);
+    expect(guest.session.request("pause")).toBe(true);
+    expect(guest.session.request("stop")).toBe(true);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(asked).toEqual([
+      ["play", undefined],
+      ["seek", 3840],
+      ["pause", undefined],
+      ["stop", undefined],
+    ]);
+  });
+
+  it("cannot be made before the clocks are in sync, or by the host", async () => {
+    const pair = memoryPair({ up: 1 });
+    const guest = side(pair[1], "guest");
+    guest.session.start();
+    expect(guest.session.request("play")).toBe(false);
+    const { host } = await connect();
+    expect(host.session.request("play")).toBe(false);
+  });
+
+  it("are ignored by a host that is not synchronized, and a guest never acts on one", async () => {
+    const pair = memoryPair({ up: 1 });
+    const host = side(pair[0], "host");
+    const asked: string[] = [];
+    host.hooks.request = (action) => asked.push(action);
+    host.session.start();
+    openPair(pair);
+    pair[1].send(encode({ type: "request", action: "play" }, 1));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(asked).toEqual([]);
+
+    const { guest } = await connect();
+    const guestAsked: string[] = [];
+    guest.hooks.request = (action) => guestAsked.push(action);
+    // The host's session sends nothing like it; a stray one is dropped.
+    expect(decode(encode({ type: "request", action: "nap" as never }, 1))).toBeNull();
+    expect(guestAsked).toEqual([]);
+  });
+});
+
 describe("failures", () => {
   it("reconnects after a short drop and syncs again", async () => {
     const { pair, host, guest } = await connect();

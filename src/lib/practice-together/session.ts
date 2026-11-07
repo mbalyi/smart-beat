@@ -20,16 +20,29 @@ import {
 } from "@/lib/practice-together/quality-presets";
 import {
   CAPABILITIES,
+  MAX_TAB_BYTES,
   PROTOCOL_VERSION,
   decode,
   encode,
   negotiate,
   type Command,
   type Message,
+  type RequestAction,
   type RefuseReason,
   type ScoreFingerprint,
 } from "@/lib/practice-together/protocol";
+import {
+  TabReceiver,
+  TabSender,
+  checkOffer,
+  tabFailureText,
+  type ReceivedTab,
+  type TabOffer,
+  type TabPayload,
+  type TabProgress,
+} from "@/lib/practice-together/tab-transfer";
 import type { LinkState, PeerTransport } from "@/lib/practice-together/transport";
+import { fileKey } from "@/lib/score/format";
 
 export type SessionRole = "host" | "guest";
 
@@ -55,7 +68,9 @@ export type ProblemKind =
   | "late"
   | "woke"
   | "peer-left"
-  | "not-synchronized";
+  | "not-synchronized"
+  /** The tab could not be shared (the message says why). */
+  | "tab";
 
 /** Something the people in the session need to be told. */
 export interface Problem {
@@ -84,6 +99,8 @@ export interface SessionState {
   problem: Problem | null;
   /** What the other app says about its own clock estimate and drift. */
   peer: PeerReport | null;
+  /** The host's tab on its way to the guest (or a new version of it), for the dialog. */
+  transfer?: TabProgress | null;
 }
 
 /** What the app does with a command. All three run on this computer's clock. */
@@ -100,6 +117,22 @@ export interface SessionHooks {
   hostState?(pos: number, localAt: number, playing: boolean): void;
   /** The host only: whether to let a guest in. */
   approve?(name: string): Promise<boolean>;
+  /** The host only: the guest asks for Play, Pause, Stop or a position (the host decides). */
+  request?(action: RequestAction, tick: number | undefined): void;
+  /** Sharing the host's tab (#158). Without it the session works only on one shared file. */
+  tab?: TabHooks;
+}
+
+export interface TabHooks {
+  /** The host only: the open tab as it is now (null: nothing to share). */
+  offer?(): Promise<TabPayload | null>;
+  /**
+   * The guest only: a tab arrived whole and checked. Reads it; null when it is fine, or the
+   * reason it cannot be opened.
+   */
+  receive?(tab: ReceivedTab): Promise<string | null>;
+  /** The guest only: the answer went out, so the app may now open the tab and move the session. */
+  opened?(): void;
 }
 
 export interface SessionOptions {
@@ -113,6 +146,11 @@ export interface SessionOptions {
   now?: () => number;
   /** For a host: the id guests are welcomed to. */
   session?: string;
+  /**
+   * For a guest that takes over a live connection from another session (it moved to the tab it
+   * just received): the session id it was welcomed to. It says hello as a returning guest.
+   */
+  resume?: string;
 }
 
 /** A dropped connection is given this long to come back before the session ends. */
@@ -128,13 +166,19 @@ export const STATE_MS = 1_000;
 export const READY_MARGIN_MS = 30;
 /** A command that arrives with less than this left cannot be prepared. */
 export const MIN_PREPARE_MS = 20;
+/** A new version of the host's tab is sent this long after the last edit. */
+export const OFFER_DEBOUNCE_MS = 600;
+/** While the host plays, a new version of its tab waits and asks again this often. */
+export const OFFER_RETRY_MS = 500;
+/** A version the guest could not take is offered this many times. */
+export const MAX_OFFER_TRIES = 2;
 
 const NO_QUALITY: SyncQuality = { errorMs: Infinity, bucket: "none" };
 
 const describe = (kind: ProblemKind): string => {
   switch (kind) {
     case "score":
-      return "You have different versions of this score open. Open the same file on both computers.";
+      return "The tab is not the same on both computers yet. The host's tab is being shared.";
     case "version":
       return "The other Smart Beat is too old or too new for this. Update both apps.";
     case "declined":
@@ -153,6 +197,8 @@ const describe = (kind: ProblemKind): string => {
       return "The other player left the session.";
     case "not-synchronized":
       return "Wait until the clocks are in sync.";
+    case "tab":
+      return tabFailureText("failed");
   }
 };
 
@@ -190,6 +236,16 @@ export class Session {
   /** Starts that were scheduled and can still be called off. */
   private cancels = new Map<number, () => void>();
   private state: SessionState;
+  // Sharing the tab (#158).
+  private peerCaps: string[] = [];
+  private sender: TabSender | null = null;
+  private receiver: TabReceiver | null = null;
+  private offerId = 0;
+  private offerTimer: ReturnType<typeof setTimeout> | undefined;
+  private offering = false;
+  /** How often each version was offered, so a guest that cannot take it is not asked forever. */
+  private attempts = new Map<string, number>();
+  private resumeId: string | undefined;
 
   constructor(options: SessionOptions) {
     this.role = options.role;
@@ -198,11 +254,12 @@ export class Session {
     this.now = options.now ?? (() => performance.now());
     this.name = options.name;
     this.score = options.score;
+    this.resumeId = options.resume;
     this.choice = options.quality ?? "auto";
     this.state = {
       role: options.role,
       phase: options.role === "host" ? "waiting" : "syncing",
-      session: options.session ?? (options.role === "host" ? randomId() : null),
+      session: options.session ?? options.resume ?? (options.role === "host" ? randomId() : null),
       peerName: null,
       quality: NO_QUALITY,
       latency: this.latency.stats(),
@@ -210,6 +267,7 @@ export class Session {
       leadMs: PRESETS.balanced.leadFloorMs,
       problem: null,
       peer: null,
+      transfer: null,
     };
     this.unsubscribe.push(
       this.transport.onFrame((text) => this.receive(text)),
@@ -247,8 +305,32 @@ export class Session {
   /** The open score changed: tell the other app, which checks it against its own. */
   setScore(score: ScoreFingerprint) {
     this.score = score;
-    if (this.wasWelcomed) this.sendHello();
+    // A guest tells the host which tab it has; the host answers a difference with its own tab.
+    if (this.wasWelcomed && this.role === "guest") this.sendHello();
     this.checkScore();
+  }
+
+  /**
+   * Hands the live connection to another session (the guest moved to the tab it received).
+   * Nothing is said to the other app and the transport stays open.
+   */
+  release(): { transport: PeerTransport; session: string | null; peerName: string | null } {
+    const handoff = {
+      transport: this.transport,
+      session: this.state.session,
+      peerName: this.state.peerName,
+    };
+    if (this.state.phase === "closed" || this.state.phase === "failed") return handoff;
+    this.stopPings();
+    clearTimeout(this.reconnectTimer);
+    this.dropTransfers();
+    for (const resolve of this.waiting.values()) resolve(false);
+    this.waiting.clear();
+    for (const cancel of this.cancels.values()) cancel();
+    this.cancels.clear();
+    this.patch({ phase: "closed", problem: null });
+    for (const stop of this.unsubscribe.splice(0)) stop();
+    return handoff;
   }
 
   /**
@@ -266,6 +348,16 @@ export class Session {
     if (this.state.phase === "closed") return;
     this.send({ type: "bye", reason });
     this.finish("closed", null);
+  }
+
+  /**
+   * The guest asks the host for Play, Pause, Stop or a new position; the host turns it into a
+   * command both apps run at the same moment. False when it cannot be asked yet.
+   */
+  request(action: RequestAction, tick?: number): boolean {
+    if (this.role !== "guest" || this.state.phase !== "synchronized") return false;
+    this.send({ type: "request", action, ...(tick === undefined ? {} : { tick }) });
+    return true;
   }
 
   /**
@@ -330,6 +422,7 @@ export class Session {
     }
     if (link === "reconnecting" && before !== "reconnecting") {
       this.stopPings();
+      this.dropTransfers();
       if (!this.wasWelcomed && this.role === "host") {
         this.patch({ phase: "waiting", peerName: null });
       }
@@ -355,7 +448,8 @@ export class Session {
       role: this.role,
       caps: [...CAPABILITIES],
       score: this.score,
-      session: this.wasWelcomed ? (this.state.session ?? undefined) : undefined,
+      session: this.wasWelcomed ? (this.state.session ?? undefined) : this.resumeId,
+      ...(this.resumeId !== undefined && !this.wasWelcomed && { resume: true }),
     });
   }
 
@@ -394,6 +488,23 @@ export class Session {
         return this.setProblem(problem("late"));
       case "report":
         return this.onReport(msg);
+      case "request":
+        // Only a synchronized host acts on it, and the app decides whether it makes sense now.
+        if (this.role === "host" && this.state.phase === "synchronized") {
+          this.hooks.request?.(msg.action, msg.tick);
+        }
+        return;
+      case "tab-offer":
+        return void this.onTabOffer(msg);
+      case "tab-chunk":
+        return void this.onTabChunk(msg);
+      case "tab-ack":
+        if (this.sender?.id === msg.id) this.sender.ack(msg.n);
+        return;
+      case "tab-done":
+        return this.onTabDone(msg);
+      case "tab-abort":
+        return this.onTabAbort(msg);
       case "bye":
         return this.role === "host"
           ? this.guestGone()
@@ -409,9 +520,15 @@ export class Session {
   private async onHello(msg: Extract<Message, { type: "hello" }>, version: number) {
     this.peerKey = msg.score.key;
     if (this.role === "guest") return this.checkScore();
+    this.peerCaps = msg.caps;
     if (negotiate(PROTOCOL_VERSION, version) < 1) return this.refuse("version");
     this.version = negotiate(PROTOCOL_VERSION, version);
     if (this.wasWelcomed) {
+      // The guest moved the live connection to the tab it received: welcome it again.
+      if (msg.resume && msg.session === this.state.session) {
+        this.dropTransfers();
+        return this.welcome(msg.name);
+      }
       // The same guest saying hello again: it came back, or its score changed.
       if (msg.name !== this.state.peerName && msg.session !== this.state.session) {
         return this.refuse("busy");
@@ -420,7 +537,8 @@ export class Session {
       if (this.state.phase === "reconnecting") this.welcome(msg.name);
       return;
     }
-    if (msg.score.key !== this.score.key) {
+    // A guest that cannot take a tab can only play the same file.
+    if (msg.score.key !== this.score.key && (!this.hooks.tab?.offer || !msg.caps.includes("tab"))) {
       this.patch({ peerName: msg.name });
       return this.refuse("score");
     }
@@ -439,7 +557,7 @@ export class Session {
       name: this.name,
     });
     this.patch({ peerName: name, phase: "syncing", peer: null, problem: null });
-    this.checkScore();
+    this.checkScore(0);
     this.beginSync();
   }
 
@@ -594,12 +712,168 @@ export class Session {
     if (next === "synchronized") this.startState();
   }
 
-  /** Whether both apps have the same score open. A difference blocks starting together. */
-  private checkScore() {
+  /**
+   * Whether both apps have the same score open. A difference blocks starting together; the host
+   * answers it by sending its tab (`delay`: edits come in bursts, so a new version waits a moment).
+   */
+  private checkScore(delay = OFFER_DEBOUNCE_MS) {
     if (this.peerKey === null) return;
     const same = this.peerKey === this.score.key;
-    if (!same) this.setProblem(problem("score"));
-    else if (this.state.problem?.kind === "score") this.setProblem(null);
+    if (!same) {
+      this.setProblem(problem("score"));
+      this.offerSoon(delay);
+    } else if (this.state.problem?.kind === "score") this.setProblem(null);
+  }
+
+  // ----- sharing the tab -------------------------------------------------------------------
+
+  /** The host sends its tab soon, when the guest has another one. */
+  private offerSoon(delay: number) {
+    if (this.role !== "host" || !this.hooks.tab?.offer || !this.peerCaps.includes("tab")) return;
+    clearTimeout(this.offerTimer);
+    this.offerTimer = setTimeout(() => void this.offerTab(), delay);
+  }
+
+  private offerAgain = false;
+
+  private async offerTab() {
+    const offer = this.hooks.tab?.offer;
+    const { phase } = this.state;
+    if (this.role !== "host" || !offer || !this.wasWelcomed) return;
+    if (phase === "closed" || phase === "failed" || phase === "reconnecting") return;
+    // One at a time: when this one is done, the guest's answer shows whether another is needed.
+    if (this.sender) return;
+    if (this.offering) {
+      this.offerAgain = true;
+      return;
+    }
+    // Not while playing: a replaced tab stops the guest's playback.
+    if (this.hooks.position?.()?.playing) return this.offerSoon(OFFER_RETRY_MS);
+    this.offering = true;
+    try {
+      const payload = await offer();
+      if (!payload || !this.wasWelcomed || payload.key === this.peerKey) return;
+      if (payload.bytes.length > MAX_TAB_BYTES) {
+        return this.setProblem({ kind: "tab", message: tabFailureText("too-big"), fatal: false });
+      }
+      const tries = this.attempts.get(payload.key) ?? 0;
+      if (tries >= MAX_OFFER_TRIES) return;
+      this.attempts.set(payload.key, tries + 1);
+      const sha = await fileKey(payload.bytes);
+      if (!this.wasWelcomed || this.sender) return;
+      this.sender = new TabSender((this.offerId += 1), payload, sha, {
+        send: (msg) => this.send(msg),
+        progress: (transfer) => this.patch({ transfer }),
+      });
+      this.sender.start();
+    } catch {
+      this.setProblem({ kind: "tab", message: tabFailureText("failed"), fatal: false });
+    } finally {
+      this.offering = false;
+      if (this.offerAgain) {
+        this.offerAgain = false;
+        this.offerSoon(0);
+      }
+    }
+  }
+
+  private onTabDone(msg: Extract<Message, { type: "tab-done" }>) {
+    const sender = this.sender;
+    if (this.role !== "host" || !sender || sender.id !== msg.id) return;
+    this.sender = null;
+    this.patch({ transfer: null });
+    if (!msg.ok) {
+      this.setProblem({ kind: "tab", message: tabFailureText(msg.reason ?? ""), fatal: false });
+      return;
+    }
+    // The guest has this version; it says so again when it moves to it (and an edit made
+    // meanwhile is offered next).
+    this.peerKey = sender.key;
+    this.checkScore();
+  }
+
+  private onTabAbort(msg: Extract<Message, { type: "tab-abort" }>) {
+    if (this.sender?.id === msg.id) {
+      this.sender.stop();
+      this.sender = null;
+      this.patch({ transfer: null });
+      this.setProblem({ kind: "tab", message: tabFailureText(msg.reason), fatal: false });
+    } else if (this.receiver?.id === msg.id) {
+      this.receiver = null;
+      this.patch({ transfer: null });
+      this.setProblem({ kind: "tab", message: tabFailureText(msg.reason), fatal: false });
+    }
+  }
+
+  private async onTabOffer(offer: TabOffer) {
+    if (this.role !== "guest") return;
+    if (this.receiver) this.send({ type: "tab-abort", id: this.receiver.id, reason: "replaced" });
+    this.receiver = null;
+    if (!this.hooks.tab?.receive) {
+      return this.send({ type: "tab-abort", id: offer.id, reason: "unsupported" });
+    }
+    // Already the same tab: nothing to send.
+    if (offer.key === this.score.key) {
+      return this.send({ type: "tab-done", id: offer.id, ok: true, reason: "have" });
+    }
+    const bad = checkOffer(offer);
+    if (bad) {
+      this.send({ type: "tab-abort", id: offer.id, reason: bad });
+      return this.setProblem({ kind: "tab", message: tabFailureText(bad), fatal: false });
+    }
+    this.receiver = new TabReceiver(offer, {
+      send: (msg) => this.send(msg),
+      progress: (transfer) => this.patch({ transfer }),
+    });
+  }
+
+  private async onTabChunk(msg: Extract<Message, { type: "tab-chunk" }>) {
+    const receiver = this.receiver;
+    if (this.role !== "guest" || !receiver || receiver.id !== msg.id) return;
+    const result = receiver.accept(msg);
+    if (result.status === "more") return;
+    if (result.status === "bad") return this.failReceiving(receiver, result.reason, "abort");
+    this.receiver = null;
+    const { offer } = receiver;
+    if ((await fileKey(result.bytes)) !== offer.sha) {
+      return this.failReceiving(receiver, "checksum", "abort");
+    }
+    const tab = {
+      name: offer.name,
+      bytes: result.bytes,
+      key: offer.key,
+      bars: offer.bars,
+      from: this.state.peerName ?? "the host",
+    };
+    const reason = await this.hooks.tab?.receive?.(tab).catch(() => "unreadable");
+    if (this.state.phase === "closed" || this.state.phase === "failed") return;
+    if (reason) return this.failReceiving(receiver, reason, "done");
+    this.send({ type: "tab-done", id: offer.id, ok: true });
+    this.patch({ transfer: null });
+    // The app opens the tab and moves this session along with it.
+    this.hooks.tab?.opened?.();
+  }
+
+  private failReceiving(receiver: TabReceiver, reason: string, how: "abort" | "done") {
+    if (this.receiver === receiver) this.receiver = null;
+    const id = receiver.id;
+    this.send(
+      how === "abort"
+        ? { type: "tab-abort", id, reason }
+        : { type: "tab-done", id, ok: false, reason },
+    );
+    this.patch({ transfer: null });
+    this.setProblem({ kind: "tab", message: tabFailureText(reason), fatal: false });
+  }
+
+  /** Stops whatever is being shared (the link dropped, the guest left, a new guest came). */
+  private dropTransfers() {
+    clearTimeout(this.offerTimer);
+    this.sender?.stop();
+    this.sender = null;
+    this.receiver = null;
+    this.offerAgain = false;
+    if (this.state.transfer) this.patch({ transfer: null });
   }
 
   // ----- bookkeeping -----------------------------------------------------------------------
@@ -620,6 +894,9 @@ export class Session {
   /** The host's guest left: listen for the next one. */
   private guestGone() {
     this.stopPings();
+    this.dropTransfers();
+    this.attempts.clear();
+    this.peerCaps = [];
     clearTimeout(this.reconnectTimer);
     for (const cancel of this.cancels.values()) cancel();
     this.cancels.clear();
@@ -639,6 +916,7 @@ export class Session {
 
   private finish(phase: "closed" | "failed", p: Problem | null) {
     this.stopPings();
+    this.dropTransfers();
     clearTimeout(this.reconnectTimer);
     for (const resolve of this.waiting.values()) resolve(false);
     this.waiting.clear();

@@ -26,6 +26,7 @@ vi.mock(import("@coderline/alphatab"), async (importOriginal) => ({
 vi.mock(import("@/lib/audio/count-in-clicks"), () => ({
   playCountInClicks: vi.fn(() => ({ cancel: vi.fn() })),
   playClick: vi.fn(),
+  primeClickAudio: vi.fn(async () => {}),
 }));
 
 vi.mock(import("@/lib/tauri"), async (importOriginal) => ({
@@ -106,6 +107,7 @@ async function setup(overrides: Partial<ScorePlayerOptions> = {}) {
     onRendered: vi.fn<Callback<"onRendered">>(),
     onRangeSelect: vi.fn<Callback<"onRangeSelect">>(),
     onLoopRestart: vi.fn<Callback<"onLoopRestart">>(),
+    onSeekBlocked: vi.fn<Callback<"onSeekBlocked">>(),
   } satisfies ScorePlayerCallbacks;
   const mix = mixFromScore(summary);
   const player = new ScorePlayer(
@@ -1746,6 +1748,72 @@ describe("ScorePlayer: Practice together (#158)", () => {
     expect(api.playbackSpeed).toBeCloseTo(1.02);
     player.nudgeSpeed(1);
     expect(api.playbackSpeed).toBe(1);
+  });
+
+  it("says whether the song is loaded, so a start would play", async () => {
+    const { player, becomeReady } = await setup();
+    expect(player.isReady()).toBe(false);
+    becomeReady();
+    expect(player.isReady()).toBe(true);
+  });
+
+  describe("the seek lock of a session", () => {
+    it("lets a click move the cursor while stopped, and not while the song plays", async () => {
+      const { player, api, setPlaying } = await readySetup();
+      player.setSeekLock(true);
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+      setPlaying(true);
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+      setPlaying(false);
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+      player.setSeekLock(false);
+      setPlaying(true);
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+    });
+
+    it("locks as soon as Play is pressed, also during the count-in", async () => {
+      const { player, api } = await readySetup();
+      player.setSeekLock(true);
+      player.playPause();
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+      player.playPause();
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+    });
+
+    it("ignores a click on a beat while playing, and says so; edit mode still selects", async () => {
+      const { player, api, score, callbacks, setPlaying } = await readySetup();
+      const beat = score.tracks[0]!.staves[0]!.bars[1]!.voices[0]!.beats[2]!;
+      player.setSeekLock(true);
+      player.setEditing(true);
+      setPlaying(true);
+      api.beatMouseDown.trigger(beat);
+      await Promise.resolve();
+      expect(api.tickPosition).toBe(0);
+      expect(callbacks.onSeekBlocked).toHaveBeenCalledOnce();
+      expect(callbacks.onBeatClick).toHaveBeenCalled();
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+
+      setPlaying(false);
+      api.beatMouseDown.trigger(beat);
+      expect(api.tickPosition).toBe(3840 + 2 * 960);
+      expect(callbacks.onSeekBlocked).toHaveBeenCalledOnce();
+    });
+
+    it("keeps edit mode's own handling when the lock goes", async () => {
+      const { player, api, setPlaying } = await readySetup();
+      player.setEditing(true);
+      player.setSeekLock(true);
+      setPlaying(false);
+      player.setSeekLock(false);
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+    });
+  });
+
+  it("gets the sound ready for a start nobody clicked", async () => {
+    const { primeClickAudio } = await import("@/lib/audio/count-in-clicks");
+    const { player } = await readySetup();
+    await player.warmUpAudio();
+    expect(primeClickAudio).toHaveBeenCalled();
   });
 
   it("has no heard position before anything played", async () => {

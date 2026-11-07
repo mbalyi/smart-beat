@@ -2,9 +2,14 @@
 
 Issue: [#158](https://github.com/mbalyi/smart-beat/issues/158) (first step towards [#94](https://github.com/mbalyi/smart-beat/issues/94))
 
-Two Smart Beat apps play the same tab in time. The host's Play, Pause, Stop and position start for both at the same moment, and the speed, loop, metronome and count-in are shared. Each computer makes its own sound: no audio or tab is ever sent. Track mute and solo stay local. Playback starts at an agreed instant on a shared clock, not when a message arrives.
+Two Smart Beat apps play the same tab in time. Play, Pause, Stop and the position (the host's, or a guest's request that the host carries out) start for both at the same moment, and the speed, loop, metronome and count-in are shared. Each computer makes its own sound: no audio or tab is ever sent. Track mute and solo stay local. Playback starts at an agreed instant on a shared clock, not when a message arrives.
 
-Menu: Playback › Practice Together. A chip in the toolbar shows the sync quality (± ms) and opens the dialog.
+Where to start it:
+
+- **Start screen:** the **Practice together** button after Open saved stems. It asks first: _Start a new session_ (then pick the tab: a recent song, a file or a blank tab; the tab opens and its own dialog goes on with the connection) or _Join an existing session_ (a blank tab opens on the join form; the tab comes from the host). Code: `practice-together-launcher.tsx`, wired in `App.tsx` (`togetherIntent`).
+- **An open tab:** the Users icon button beside Record to Tab, or Playback › Practice Together. The same first choice; the tab is the open one, so there is no step to pick it. Once a session exists the button turns into the chip that shows the sync quality (± ms) and reopens the dialog.
+
+The dialog's look (`together-frame.tsx`): the logo is the title, the description sits above the stepper, and the feature picture (the one of the start screen's feature card) is at the top right with the cards flowing around it. Over the internet stays visible but disabled, with the reason beside it, while the build has no signaling service.
 
 ## How it fits together
 
@@ -39,6 +44,8 @@ The alphabet is Crockford base 32 (no I, L, O or U); typed codes ignore case, da
 
 Only explicitly joined players take part: a wrong token is refused (after 20 wrong tries the host stops listening), and the host sees the guest's name and must press **Let in** before anything else happens. Another player cannot take over a running session: a second `hello` with a different name and session is answered `busy`.
 
+A guest does not need the host's tab beforehand. When its `hello` carries another score fingerprint (and the capability `tab`), the host lets it in as usual and then sends its tab (see "Sharing the tab"). Only a guest that cannot take a tab (an older Smart Beat) is refused with `score`.
+
 ## Protocol
 
 `src/lib/practice-together/protocol.ts`. Every frame is `{ v, n, msg }`: protocol version, a counter per sender and the message. The two apps speak the lower of their versions; frames over 16 K characters, malformed frames and unknown types are dropped.
@@ -51,10 +58,29 @@ Only explicitly joined players take part: a wrong token is refused (after 20 wro
 | `cmd`               | `play`, `pause`, `stop`, `seek` or `settings`, with tick, speed, loop, metronome, count-in and the host time `at` it takes effect |
 | `ready` / `abort`   | The guest is (not) ready for command `id`; the host calls a start off                                                             |
 | `state`             | The host's position (score ms, as heard) and whether it plays, every second                                                       |
-| `report`            | The guest's sync error, round trip and drift, for the host's display                                                              |
+| `report`            | The guest's sync error, round trip and measured drift, for the host's display                                                     |
+| `request`           | A guest asks the host for `play`, `pause`, `stop` or `seek` (with a tick, while stopped)                                          |
 | `bye`               | Leaving                                                                                                                           |
+| `tab-offer`         | The host offers its tab: name, size, number of pieces, SHA-256 of the file (`sha`) and the score fingerprint it matches (`key`)   |
+| `tab-chunk`         | Piece `i` of the offer, as base64 (8 KiB of file, about 11 K characters: always inside a 16 K frame)                              |
+| `tab-ack`           | The guest has the first `n` pieces; the host keeps at most 12 pieces ahead                                                        |
+| `tab-done`          | The guest opened the tab (`ok`), or could not (`reason`); `reason: "have"` means it already had that version                      |
+| `tab-abort`         | Either side stops an offer (`too-big`, `corrupt`, `checksum`, `unsupported`, `replaced`, ...)                                     |
 
 The score fingerprint is the SHA-256 of the alphaTex text of the open score, edits included, so two apps with the same file and no different edits match whatever the file format.
+
+## Sharing the tab
+
+Both players play the same tab, so the host sends its own to a guest that has another version (or none), and again after every edit.
+
+- **What travels.** The open score as a Guitar Pro file (the format Smart Beat saves), cut into 8 KiB pieces and sent as base64 in `tab-chunk` frames. Gzip would shrink it, but a tab is some tens of kilobytes and the pieces fit any transport, so it is not worth the code. Over 12 MiB the host refuses to send it and says so.
+- **Pace.** The host sends 12 pieces, then one more for every piece the guest has acknowledged. The guest acknowledges every fourth piece and the last. `Session.state.transfer` carries the progress for the dialog ("Getting the tab from the host…" on the guest, "Sending the tab…" on the host).
+- **Checks.** The guest refuses an offer with no pieces or too many, pieces out of order or of the wrong size, and a file whose SHA-256 differs from `sha`. Then it reads the file; one that does not read is answered `tab-done` with `ok: false`. Both ends show "The tab arrived damaged" or "could not be opened" and the host does not offer the same version more than twice.
+- **Where it opens.** On the guest, as a tab of its own named after the host's song and marked "(from <host>)" in the tab bar. It is not saved anywhere: closing it does not ask, and Save asks for a file. The guest's own tab stays as it was.
+- **The session moves with it.** A session belongs to the workspace of one tab, so the guest's workspace hands the live connection over (`Session.release()` and `handoff.ts`) and the new tab's workspace takes it (`usePracticeTogether` with `received`). It says `hello` again as the same guest (`resume: true` and the session id); the host answers `welcome` and the clocks are measured again, which takes about a second before the first start. The connection is never closed in between, so the host does not see the guest leave.
+- **Fingerprint of a received tab.** Writing a score to Guitar Pro and reading it back may change how alphaTex writes it out, so the guest keeps the host's fingerprint (`key` of the offer) for the received tab until it is edited. Without that, the two apps would never agree and the host would offer the tab again.
+- **Editing.** The host may edit during a session. A moment after the last edit (600 ms) the host sends the new version, and only while nothing plays: during playback the offer waits and asks again every half second. The guest's tab is replaced in the same place in the tab bar and keeps the guest's own mute, solo and volume when the tracks are the same; the position in the score starts at the beginning, since the bars may have changed. While a session lasts, the guest's copy is read-only (Edit is refused with a short message), because two people editing would never agree; after leaving, it is an ordinary tab.
+- **While the tab is on its way** the host cannot start (`command` answers `score`), because the guest would be playing something else.
 
 ## The shared clock
 
@@ -72,11 +98,11 @@ The score fingerprint is the SHA-256 of the alphaTex text of the open score, edi
 
 `latency.ts`, `quality-presets.ts`. The start is scheduled `leadMs = clamp(p95(rtt) / 2 + k × jitter + 100 ms, floor, 3000 ms)` after the command, where 100 ms is the time to prepare. Jitter is the RFC 3550 style running mean of the change between neighbouring round trips.
 
-| Preset   | Lead floor | k   | Ping | Drift left alone | Largest nudge | Native buffer |
-| -------- | ---------- | --- | ---- | ---------------- | ------------- | ------------- |
-| Tight    | 250 ms     | 2   | 1 s  | 12 ms            | ±1 %          | 128 frames    |
-| Balanced | 450 ms     | 3   | 2 s  | 20 ms            | ±2 %          | 256 frames    |
-| Safe     | 900 ms     | 4   | 3 s  | 40 ms            | ±2 %          | 512 frames    |
+| Preset   | Lead floor | k   | Ping | Native buffer |
+| -------- | ---------- | --- | ---- | ------------- |
+| Tight    | 250 ms     | 2   | 1 s  | 128 frames    |
+| Balanced | 450 ms     | 3   | 2 s  | 256 frames    |
+| Safe     | 900 ms     | 4   | 3 s  | 512 frames    |
 
 **Auto** (the default) picks Tight when the error is at most 5 ms, the 95th percentile RTT at most 25 ms and the jitter at most 3 ms; Balanced up to 15 ms and 100 ms; Safe beyond. It is Balanced until 4 round trips are measured. The choice is remembered in `localStorage` (`smart-beat:practice-together:quality`). The sound is always rendered locally; the preset never changes what is streamed (nothing is).
 
@@ -91,9 +117,23 @@ The score fingerprint is the SHA-256 of the alphaTex text of the open score, edi
 
 The host's speed, loop, metronome and count-in follow with a `settings` command whenever they change. A guest's Speed Trainer is ended (the host runs it and its speeds are sent).
 
-## Staying in time
+## After the start: nothing is corrected
 
-The host reports its position every second (`state`). The guest compares it with its own, taking the age of the report into account, and takes the median of the last 5 readings (at least 3). Within the preset's tolerance nothing happens. Beyond it the speed is nudged by `drift / 3 s` of a unit, capped by the preset (1 or 2 %); beyond 150 ms the cap is 5 %. Ahead: slower; behind: faster. The nudge is a separate multiplier on top of the practice speed, so the Speed Trainer is unaffected. There are no jumps.
+Both computers run the same score at the same speed from the same instant, so once playing they stay together. The clocks are measured before every start (and the pings go on, so the estimate is fresh for the next one), but **nothing is re-synchronised or corrected while the song plays**: no speed change, no jump. An early version nudged the speed by up to ±5 % whenever the guest's measured position differed from the host's. That measurement is only as exact as the synthesizer's position reports (they come in chunks, and are off while the host's CPU is busy with audible tracks), so a single bad reading made the guest speed up or slow down for seconds and the two slid 1 to 2 seconds apart. Pause or Stop, then Play, starts both again from the same instant.
+
+The host still reports its position every second (`state`) and the guest compares it with its own, taking the age of the report into account and taking the median of the last 5 readings (at least 3). That number is only **shown** (Drift in the dialog, and the `report` the host shows); it changes nothing.
+
+Because nobody may move the position while the song plays, a click on a bar is refused during playback (the score ignores it and a message says to pause or stop first), for the host and the guest alike. While stopped or paused, a bar can be picked: the host's pick is shared with the guest, and a guest's pick is sent to the host as a `request` that the host shares.
+
+### Who may press what
+
+Both players can press Play, Pause and Stop. A guest's press is a `request`; the host decides whether it makes sense now (Play when it is already playing, Pause when it is not, and a position while playing are ignored) and then sends the usual command with a start time ahead, so both still start at the same instant. The host's own buttons work the same way. The host decides the settings (speed, loop, metronome, count-in) and its position is the one that counts.
+
+### Sound engine, metronome and count-in
+
+A session always plays with the SoundFonts (alphaTab's synthesizer). The native engine has its own clock and audio buffers and cannot be started at an agreed instant, so when the app is set to the native engine it is switched to the SoundFonts for the session and switched back when the session ends (the saved choice is not changed).
+
+The metronome and the count-in are played with Web Audio (the count-in always, the metronome in every sound but the classic click). A browser only lets a page make sound after a click or a key press, and the guest's page is started by a network message that nobody clicked, so the first count-in clicks on the guest were silent or late. The click that hosts or joins a session now opens the click audio and the synthesizer's output (`ScorePlayer.warmUpAudio`), and measures the output latency, which the first start needs to be moved earlier by. A start that cannot play because the song is not loaded yet is reported as "not ready", so nobody starts alone.
 
 ## When something goes wrong
 
@@ -111,10 +151,21 @@ The host reports its position every second (`state`). The guest compares it with
 ## Privacy
 
 - The tab, the audio and the playback never go through any server. In a session they travel only between the two computers. The meeting service sees only setup messages.
-- Room codes and tokens are never part of the usage counters ([`analytics.md`](analytics.md)); nothing about Practice together is counted.
+- The anonymous usage counters ([`analytics.md`](analytics.md)) count only that things happen (a session hosted or joined, how well the clocks agreed, how it ended, a length range). Room codes, tokens, addresses, player names, song titles and tab contents are never part of them, and the details are fixed words, so nothing typed can be sent.
 - **Same network:** nothing leaves your network. The host's local address is inside the code.
 - **Over the internet:** the app contacts the signaling Worker (to make or join a room) and `stun.cloudflare.com` (to learn its public address). The other player can then see that address in the WebRTC connection. This is said in the dialog. The room is deleted after 10 minutes.
 - The user's name is typed in the dialog and shown to the other player only.
+
+## A direct connection without a router
+
+On the Choose step, "Same network" has a link, "Need a direct connection? (no router, cable or hotspot)". It opens a help view with the steps of the computer's own system only (`detectDesktopOs()` in `src/lib/practice-together/desktop-os.ts` reads `navigator.userAgentData`, `platform` and `userAgent`; the text is in `direct-connection.ts`):
+
+- **macOS:** Smart Beat cannot switch Wi-Fi sharing on (there is no supported way for an app to), so the help offers a cable, a phone's hotspot, and Internet Sharing in System Settings.
+- **Windows:** Settings › Network & internet › Mobile hotspot, then the other player joins it. A cable and a phone's hotspot are listed as well.
+- **Linux:** Turn On Wi-Fi Hotspot (GNOME) or `nmcli device wifi hotspot`, then the other player joins it.
+- **Anything else** (phones, Chromebooks, unknown systems): only the cable and phone-hotspot tips.
+
+Every system also gets what to expect (a computer that makes the network usually loses its normal Wi-Fi internet, so "Over the internet" will not work meanwhile; accuracy is typically ±1–5 ms and a cable is the steadiest) and how to check (after both are on the same network, the host starts a session again and the other player types the new code). The steps are written without version numbers and were not tried on every system version.
 
 ## Permissions of the operating system
 
@@ -126,11 +177,11 @@ The host reports its position every second (`state`). The guest compares it with
 
 Only "Over the internet" needs it; without it the app offers the same network only.
 
-1. Add the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (the same ones the analytics Worker uses). The token needs _Workers Scripts: Edit_.
+1. Add the repository secrets `CLOUDFLARE_API_TOKEN_SIGNALING` (a token of its own, with only _Workers Scripts: Edit_, so it is separate from the analytics Worker's `CLOUDFLARE_API_TOKEN`) and `CLOUDFLARE_ACCOUNT_ID` (shared).
 2. Merge a change under `signaling/` to `main`. [`signaling-deploy.yml`](../.github/workflows/signaling-deploy.yml) tests it and runs `wrangler deploy`. Without the secrets the deploy job is skipped with a warning.
 3. Set the repository **variable** `SIGNALING_URL` (Settings › Secrets and variables › Actions › Variables) to the Worker's address, for example `https://smart-beat-signaling.<account>.workers.dev`, without a trailing path. `release.yml` bakes it into release builds as `SMART_BEAT_SIGNALING_URL`. Without it, and in pull requests, the build has no address and the option is not offered.
 
-Locally: `pnpm --dir signaling dev` runs the Worker; build the app with `SMART_BEAT_SIGNALING_URL=http://127.0.0.1:8787` set to try it. Tests: `pnpm --dir signaling test`.
+Locally: `pnpm --dir signaling dev` runs the Worker; build the app with `SMART_BEAT_SIGNALING_URL=http://127.0.0.1:8787` set (in the shell or in the git-ignored `.env`, see `.env.example`) to try it. The deployed Worker is `https://smart-beat-signaling.smart-beat.workers.dev`. Tests: `pnpm --dir signaling test`.
 
 ## Measured error
 
@@ -147,7 +198,7 @@ Not measured yet, and to be written here after the checks in [manual-checks.md](
 
 Limits:
 
-- alphaSynth reports its position in chunks, so drift is found with a resolution of roughly a tenth of a second; the median of five readings and the tolerance absorb it. The native engine reports every 25 ms.
+- alphaSynth reports its position in chunks, so the drift shown has a resolution of roughly a tenth of a second; the median of five readings absorbs it.
 - alphaSynth has no scheduled start and a 500 ms buffer; its start error is the timer's (a millisecond or two) plus how well the output latency is known. Set the sync offset in the Inspector ([manual-checks.md](manual-checks.md), check 1) on both computers.
 - WebRTC in WebKitGTK is unverified.
 - No TURN relay: two computers behind strict firewalls cannot connect over the internet.

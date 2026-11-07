@@ -9,7 +9,14 @@ export const PROTOCOL_VERSION = 1;
 export const MAX_FRAME_CHARS = 16 * 1024;
 
 /** What this app can do, so a newer app can talk to an older one. */
-export const CAPABILITIES = ["transport", "metronome", "speed", "loop"] as const;
+export const CAPABILITIES = ["transport", "metronome", "speed", "loop", "tab"] as const;
+
+/** One piece of a shared tab is this many bytes (about 11 K characters as base64, under a frame). */
+export const TAB_CHUNK_BYTES = 8 * 1024;
+/** A tab bigger than this (as a Guitar Pro file) is not sent. */
+export const MAX_TAB_BYTES = 12 * 1024 * 1024;
+/** How many pieces may be on the way before the receiver has said it got the first of them. */
+export const TAB_WINDOW = 12;
 
 /** Which score a peer has open. Two apps only start together on the same one. */
 export interface ScoreFingerprint {
@@ -19,6 +26,9 @@ export interface ScoreFingerprint {
 }
 
 export type TransportAction = "play" | "pause" | "stop" | "seek" | "settings";
+
+/** What a guest may ask the host to do. The host decides and starts it for both. */
+export type RequestAction = "play" | "pause" | "stop" | "seek";
 
 /** What a scheduled command carries: the shared transport state after it happens. */
 export interface Command {
@@ -47,6 +57,8 @@ export type Message =
       score: ScoreFingerprint;
       /** The session a guest was welcomed to, when it comes back after a dropped connection. */
       session?: string;
+      /** A guest moving the live connection to the tab it just received: welcome it again. */
+      resume?: boolean;
     }
   | { type: "welcome"; session: string; version: number; name: string }
   | { type: "refuse"; reason: RefuseReason }
@@ -58,7 +70,29 @@ export type Message =
   /** The host's playback position (score milliseconds, as heard) at its clock `at`. */
   | { type: "state"; pos: number; at: number; playing: boolean }
   | { type: "report"; errorMs: number; rtt: number; driftMs: number }
-  | { type: "bye"; reason: string };
+  /** A guest asks the host for Play, Pause, Stop or a new position (`tick`, when stopped). */
+  | { type: "request"; action: RequestAction; tick?: number }
+  | { type: "bye"; reason: string }
+  // ----- sharing the tab (host to guest, as a Guitar Pro file in pieces) -----
+  /** The host offers its tab. `sha` checks the file, `key` is the score fingerprint it matches. */
+  | {
+      type: "tab-offer";
+      id: number;
+      name: string;
+      size: number;
+      chunks: number;
+      sha: string;
+      key: string;
+      bars: number;
+    }
+  /** Piece `i` (from 0) of offer `id`, as base64. */
+  | { type: "tab-chunk"; id: number; i: number; data: string }
+  /** The guest has the first `n` pieces: the host may send more. */
+  | { type: "tab-ack"; id: number; n: number }
+  /** The guest has opened the whole tab (or could not). */
+  | { type: "tab-done"; id: number; ok: boolean; reason?: string }
+  /** Either side stops offer `id`. */
+  | { type: "tab-abort"; id: number; reason: string };
 
 export type RefuseReason = "version" | "score" | "declined" | "busy";
 
@@ -80,6 +114,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const ACTIONS: readonly string[] = ["play", "pause", "stop", "seek", "settings"];
+const REQUEST_ACTIONS: readonly string[] = ["play", "pause", "stop", "seek"];
 
 function validCommand(c: unknown): c is Command {
   if (!isObject(c)) return false;
@@ -111,7 +146,8 @@ function validMessage(m: unknown): m is Message {
         isObject(score) &&
         isString(score.key) &&
         isNumber(score.bars) &&
-        (m.session === undefined || isString(m.session))
+        (m.session === undefined || isString(m.session)) &&
+        (m.resume === undefined || typeof m.resume === "boolean")
       );
     }
     case "welcome":
@@ -132,8 +168,36 @@ function validMessage(m: unknown): m is Message {
       return isNumber(m.pos) && isNumber(m.at) && typeof m.playing === "boolean";
     case "report":
       return isNumber(m.errorMs) && isNumber(m.rtt) && isNumber(m.driftMs);
+    case "request":
+      return (
+        isString(m.action) &&
+        REQUEST_ACTIONS.includes(m.action) &&
+        (m.tick === undefined || isNumber(m.tick))
+      );
     case "bye":
       return isString(m.reason);
+    case "tab-offer":
+      return (
+        isNumber(m.id) &&
+        isString(m.name) &&
+        isNumber(m.size) &&
+        isNumber(m.chunks) &&
+        isString(m.sha) &&
+        isString(m.key) &&
+        isNumber(m.bars)
+      );
+    case "tab-chunk":
+      return isNumber(m.id) && isNumber(m.i) && isString(m.data);
+    case "tab-ack":
+      return isNumber(m.id) && isNumber(m.n);
+    case "tab-done":
+      return (
+        isNumber(m.id) &&
+        typeof m.ok === "boolean" &&
+        (m.reason === undefined || isString(m.reason))
+      );
+    case "tab-abort":
+      return isNumber(m.id) && isString(m.reason);
     default:
       return false;
   }

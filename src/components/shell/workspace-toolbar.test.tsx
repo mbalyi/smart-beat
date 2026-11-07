@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react";
 
+import { TogetherButton } from "@/components/practice-together/sync-quality";
 import { WorkspaceToolbar } from "@/components/shell/workspace-toolbar";
 import { parseScore } from "@/lib/score/score";
 import { renderWithProviders } from "@/test/render";
@@ -70,16 +71,18 @@ describe("WorkspaceToolbar: Practice together (#158)", () => {
     expect(onSeekBar).toHaveBeenCalledWith(3);
   });
 
-  it("locks Play, Stop and the bar buttons for a guest, who follows the host", async () => {
-    const { user, onPlayPause, onStop, onSeekBar } = renderToolbar({ transportLocked: true });
-    for (const name of TRANSPORT) {
-      expect(screen.getByRole("button", { name })).toBeDisabled();
-    }
-    await user.click(screen.getByRole("button", { name: "Play" }));
-    await user.click(screen.getByRole("button", { name: "Stop" }));
-    expect(onPlayPause).not.toHaveBeenCalled();
-    expect(onStop).not.toHaveBeenCalled();
-    expect(onSeekBar).not.toHaveBeenCalled();
+  it("has a Practice together button beside Record to Tab before a session starts", async () => {
+    const onOpen = vi.fn();
+    const { user } = renderToolbar({
+      record: <button type="button">Record to Tab</button>,
+      together: <TogetherButton state={null} onOpen={onOpen} />,
+    });
+    const buttons = screen
+      .getAllByRole("button")
+      .map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(buttons.indexOf("Practice together")).toBe(buttons.indexOf("Record to Tab") + 1);
+    await user.click(screen.getByRole("button", { name: "Practice together" }));
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 
   it("shows the session chip it is given", () => {

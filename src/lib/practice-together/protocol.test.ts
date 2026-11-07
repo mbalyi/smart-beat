@@ -40,6 +40,8 @@ const messages: Message[] = [
   { type: "abort", id: 7, reason: "peer-late" },
   { type: "state", pos: 100, at: 5, playing: true },
   { type: "report", errorMs: 2.5, rtt: 4, driftMs: -1 },
+  { type: "request", action: "play" },
+  { type: "request", action: "seek", tick: 3840 },
   { type: "bye", reason: "left" },
 ];
 
@@ -59,6 +61,8 @@ describe("protocol", () => {
     '{"v":1,"n":1,"msg":{"type":"ping","id":"1","t0":1}}',
     '{"v":1,"n":1,"msg":{"type":"cmd","cmd":{"id":1,"action":"explode"}}}',
     '{"v":1,"n":null,"msg":{"type":"bye","reason":"x"}}',
+    '{"v":1,"n":1,"msg":{"type":"request","action":"settings"}}',
+    '{"v":1,"n":1,"msg":{"type":"request","action":"play","tick":"3"}}',
   ])("drops a malformed frame: %s", (text) => {
     expect(decode(text)).toBeNull();
   });

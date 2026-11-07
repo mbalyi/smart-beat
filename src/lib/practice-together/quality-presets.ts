@@ -1,7 +1,6 @@
 /**
  * Practice together: the audio quality setting. It trades latency for safety:
- * a tight session starts sooner and corrects drift quickly but needs a good network;
- * a safe one waits longer and is calm. Auto picks one from the measured network.
+ * a tight session starts sooner but needs a good network; a safe one waits longer and is calm. Auto picks one from the measured network.
  * The sound is always rendered on each computer, never streamed.
  */
 import type { SyncQuality } from "@/lib/practice-together/clock-sync";
@@ -17,10 +16,6 @@ export interface PresetSettings {
   jitterFactor: number;
   /** Time between clock pings. */
   pingMs: number;
-  /** A drift under this many milliseconds is left alone. */
-  driftToleranceMs: number;
-  /** The largest playback-speed correction (0.01 is ±1%). */
-  maxNudge: number;
   /** The native engine's audio buffer, in frames (smaller is tighter, larger is safer). */
   bufferFrames: number;
 }
@@ -30,24 +25,18 @@ export const PRESETS: Record<QualityPreset, PresetSettings> = {
     leadFloorMs: 250,
     jitterFactor: 2,
     pingMs: 1000,
-    driftToleranceMs: 12,
-    maxNudge: 0.01,
     bufferFrames: 128,
   },
   balanced: {
     leadFloorMs: 450,
     jitterFactor: 3,
     pingMs: 2000,
-    driftToleranceMs: 20,
-    maxNudge: 0.02,
     bufferFrames: 256,
   },
   safe: {
     leadFloorMs: 900,
     jitterFactor: 4,
     pingMs: 3000,
-    driftToleranceMs: 40,
-    maxNudge: 0.02,
     bufferFrames: 512,
   },
 };
@@ -65,7 +54,7 @@ export const QUALITY_HINTS: Record<QualityChoice, string> = {
   auto: "Picks the setting from how the connection behaves.",
   tight: "Starts soonest. Best on a quiet wired or 5 GHz network.",
   balanced: "A good start for most rooms.",
-  safe: "Waits longer and corrects gently. For a busy or distant connection.",
+  safe: "Waits longer before it starts. For a busy or distant connection.",
 };
 
 /** What Auto picks right now. */

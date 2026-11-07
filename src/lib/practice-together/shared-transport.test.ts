@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Command } from "@/lib/practice-together/protocol";
 import { Session } from "@/lib/practice-together/session";
 import {
-  BIG_NUDGE,
   SharedTransport,
   fireAt,
   type TransportPlayer,
@@ -15,7 +14,7 @@ class FakePlayer implements TransportPlayer {
   tick = 0;
   heard: number | null = 0;
   latency = 0;
-  nudges: number[] = [];
+  ready = true;
   events: { what: string; at: number }[] = [];
   private readonly clock: () => number;
   constructor(clock: () => number = () => performance.now()) {
@@ -43,11 +42,11 @@ class FakePlayer implements TransportPlayer {
   heardTimeMs() {
     return this.heard;
   }
-  nudgeSpeed(m: number) {
-    this.nudges.push(m);
-  }
   outputLatencyMs() {
     return this.latency;
+  }
+  isReady() {
+    return this.ready;
   }
 }
 
@@ -144,6 +143,16 @@ describe("SharedTransport commands", () => {
     expect(await transport.hooks.prepare(cmd())).toBe(false);
   });
 
+  it("says it cannot start when the song is not loaded, instead of starting alone", async () => {
+    const { transport, player } = make();
+    player!.ready = false;
+    const play = transport.hooks.prepare(cmd());
+    const settings = transport.hooks.prepare(cmd({ action: "settings" }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await play).toBe(false);
+    expect(await settings).toBe(true);
+  });
+
   it("starts at the agreed instant, early by the output latency", async () => {
     const { transport, player } = make();
     player!.latency = 30;
@@ -203,8 +212,8 @@ describe("SharedTransport commands", () => {
   });
 });
 
-describe("SharedTransport following the host", () => {
-  const follow = (transport: SharedTransport, player: FakePlayer, drift: number, times = 5) => {
+describe("SharedTransport while the song plays", () => {
+  const report = (transport: SharedTransport, player: FakePlayer, drift: number, times = 5) => {
     // The host was at 5000 ms when it reported; this player was `drift` ms ahead of that.
     player.playing = true;
     for (let i = 0; i < times; i += 1) {
@@ -224,53 +233,38 @@ describe("SharedTransport following the host", () => {
     return { transport, player, drifts };
   };
 
-  it("leaves a small drift alone", () => {
+  it("measures the drift for the dialog, and never changes the playback because of it", () => {
+    for (const drift of [8, 60, -60, 500, -1200]) {
+      const { transport, player, drifts } = make();
+      report(transport, player, drift);
+      expect(transport.hooks.driftMs?.()).toBe(drift);
+      expect(drifts.at(-1)).toBe(drift);
+      // No seek, no start or stop: the song plays on as it was started.
+      expect(player.events).toEqual([]);
+    }
+  });
+
+  it("does not use a speed correction at all", () => {
     const { transport, player } = make();
-    follow(transport, player, 8);
-    expect(player.nudges).toEqual([]);
-    expect(transport.hooks.driftMs?.()).toBe(8);
+    report(transport, player, 800, 20);
+    expect("nudgeSpeed" in player).toBe(false);
+    expect(player.events).toEqual([]);
   });
 
-  it("slows down when ahead and speeds up when behind", () => {
-    const ahead = make();
-    follow(ahead.transport, ahead.player, 60);
-    expect(ahead.player.nudges.at(-1)).toBeLessThan(1);
-    const behind = make();
-    follow(behind.transport, behind.player, -60);
-    expect(behind.player.nudges.at(-1)).toBeGreaterThan(1);
-  });
-
-  it("keeps small corrections gentle and big ones larger, but bounded", () => {
-    const small = make();
-    follow(small.transport, small.player, 40);
-    expect(Math.abs(small.player.nudges.at(-1)! - 1)).toBeLessThanOrEqual(0.02);
-    const big = make();
-    follow(big.transport, big.player, 500);
-    expect(1 - big.player.nudges.at(-1)!).toBeCloseTo(BIG_NUDGE, 5);
-  });
-
-  it("goes back to normal speed once the drift is gone", () => {
-    const { transport, player } = make();
-    follow(transport, player, 80);
-    follow(transport, player, 0, 5);
-    expect(player.nudges.at(-1)).toBe(1);
-  });
-
-  it("is not fooled by one odd reading", () => {
+  it("is not fooled by one odd reading in the measurement", () => {
     const { transport, player } = make();
     player.playing = true;
     for (const reading of [2, 1, 300, 3, 2]) {
       player.heard = 5000 + reading;
       transport.hooks.hostState?.(5000, performance.now(), true);
     }
-    expect(player.nudges).toEqual([]);
     expect(Math.abs(transport.hooks.driftMs!())).toBeLessThan(5);
   });
 
-  it("waits for a few readings before correcting", () => {
-    const { transport, player } = make();
-    follow(transport, player, 100, 2);
-    expect(player.nudges).toEqual([]);
+  it("waits for a few readings before it says anything", () => {
+    const { transport, player, drifts } = make();
+    report(transport, player, 100, 2);
+    expect(drifts).toEqual([]);
   });
 
   it("takes the time since the report into account", () => {
@@ -284,12 +278,17 @@ describe("SharedTransport following the host", () => {
     expect(transport.hooks.driftMs?.()).toBe(0);
   });
 
-  it("resets while paused", () => {
+  it("starts measuring afresh after every start and while paused", async () => {
     const { transport, player } = make();
-    follow(transport, player, 100);
+    report(transport, player, 100);
+    expect(transport.hooks.driftMs?.()).toBe(100);
     player.playing = false;
     transport.hooks.hostState?.(5000, performance.now(), false);
-    expect(player.nudges.at(-1)).toBe(1);
+    expect(transport.hooks.driftMs?.()).toBe(0);
+    report(transport, player, 100);
+    const at = performance.now() + 20;
+    transport.hooks.schedule(cmd({ at }), at);
+    await vi.advanceTimersByTimeAsync(50);
     expect(transport.hooks.driftMs?.()).toBe(0);
   });
 });
@@ -328,8 +327,6 @@ describe("two players over a session", () => {
       hooks: guestT.hooks,
       now: () => performance.now() + shift,
     });
-    hostT.bind(host);
-    guestT.bind(guest);
     host.start();
     guest.start();
     openPair(pair);

@@ -21,7 +21,6 @@ describe("presets", () => {
     expect(PRESETS.tight.leadFloorMs).toBeLessThan(PRESETS.balanced.leadFloorMs);
     expect(PRESETS.balanced.leadFloorMs).toBeLessThan(PRESETS.safe.leadFloorMs);
     expect(PRESETS.tight.bufferFrames).toBeLessThan(PRESETS.safe.bufferFrames);
-    expect(PRESETS.tight.driftToleranceMs).toBeLessThan(PRESETS.safe.driftToleranceMs);
   });
 
   it("change the lead time measurably on the same network", () => {

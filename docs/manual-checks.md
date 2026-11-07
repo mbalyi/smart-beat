@@ -160,7 +160,8 @@ Expected: a gap of a few milliseconds, steady from press to press. Write the num
 - **Different version of the score:** open the same song on both, then make an edit on one: a warning, and the host's Play does not start. Undo the edit: the warning goes. Joining with a different file is refused with a message.
 - **Not ready in time:** while the host presses Play, put the guest under load (or pause its process); the start is called off for both with a message.
 - **Declined guest:** press **Decline**: the guest sees "The host did not let you in."
-- **Controls:** on the guest the Play, Stop and bar buttons are disabled and Space says the host controls playback; mute, solo and the Mixer still work.
+- **Controls:** press Play on the guest: both computers start together a moment later, the same as when the host presses it; Pause and Stop work from either side too. While a song plays, clicking another bar is refused on both with a message; stopped, a click moves both. Mute, solo and the Mixer stay each player's own.
+- **Tab sharing:** on the guest open a different song (or none) and join: the host's tab arrives as "Title (from Host)" and the session goes on. Edit the tab on the host, stop playback: the guest's copy follows within a second. The guest cannot edit the received tab during the session.
 - **Shared settings:** on the host change the speed, the loop, the Metronome and the Count-in; the guest follows within a moment.
 
 **Over the internet** (needs a build with the signaling address, see practice-together.md). Two computers on different networks (a phone hotspot is enough): host with "Over the internet", join with the 8-character code. Check that it connects, shows a larger ± value than on the LAN, and that Play starts together. With a firewall that blocks it, the message after 25 s says so.

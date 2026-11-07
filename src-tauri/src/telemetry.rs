@@ -146,6 +146,28 @@ pub enum Event {
     Error,
     /// The Rust side panicked (#164); detail: the area, never the message or location.
     Panic,
+    /// The Practice together dialog was opened (#158); detail: where from.
+    PracticeTogetherOpen,
+    /// A session was hosted (#158); detail: same network or internet.
+    PracticeTogetherHost,
+    /// A session was joined (#158); detail: same network or internet.
+    PracticeTogetherJoin,
+    /// Hosting or joining could not be set up (#158); detail: same network or internet.
+    PracticeTogetherSetupFailed,
+    /// A session got its first synchronized clock (#158); detail: the sync-quality word.
+    PracticeTogetherSync,
+    /// The audio quality was chosen in a session (#158); detail: the choice.
+    PracticeTogetherPreset,
+    /// A shared start ran on this computer (#158).
+    PracticeTogetherPlay,
+    /// A session ended (#158); detail: why.
+    PracticeTogetherEnd,
+    /// How long a session lasted (#158); detail: a length range.
+    PracticeTogetherLength,
+    /// The session told its players about a problem (#158); detail: which kind.
+    PracticeTogetherProblem,
+    /// The host's tab was sent to, or received from, the other player (#158); detail: the outcome.
+    PracticeTogetherTab,
 }
 
 impl Event {
@@ -203,6 +225,18 @@ impl Event {
             }
             Self::Error => ERROR_DETAILS.as_slice(),
             Self::Panic => &ERROR_AREAS,
+            Self::PracticeTogetherOpen => &["menu", "toolbar", "start"],
+            Self::PracticeTogetherHost
+            | Self::PracticeTogetherJoin
+            | Self::PracticeTogetherSetupFailed => &["lan", "internet"],
+            Self::PracticeTogetherSync => &["excellent", "good", "unstable"],
+            Self::PracticeTogetherPreset => &["auto", "tight", "balanced", "safe"],
+            Self::PracticeTogetherEnd => &["left", "peer_left", "dropped", "failed"],
+            Self::PracticeTogetherLength => &["under_1m", "1_5m", "5_15m", "15_60m", "over_60m"],
+            Self::PracticeTogetherProblem => &[
+                "score", "version", "declined", "busy", "dropped", "poor", "late", "woke", "tab",
+            ],
+            Self::PracticeTogetherTab => &["sent", "received", "failed"],
             _ => &[],
         }
     }
@@ -215,13 +249,14 @@ impl Event {
 
 /// The parts of the app a failure is filed under (`error` and `panic` details). Mirrors
 /// `ERROR_AREAS` in `src/lib/error-counters.ts` and the Worker's `events.ts`.
-pub const ERROR_AREAS: [&str; 10] = [
-    "file", "export", "audio", "plugin", "import", "ai", "stems", "cloud", "settings", "other",
+pub const ERROR_AREAS: [&str; 11] = [
+    "file", "export", "audio", "plugin", "import", "ai", "stems", "cloud", "practice", "settings",
+    "other",
 ];
 
 /// The kinds of a failed command: every [`ErrorKind`] in its wire spelling, plus `unknown` for a
 /// rejection that carries no kind.
-pub const ERROR_KINDS: [&str; 14] = [
+pub const ERROR_KINDS: [&str; 15] = [
     "not-found",
     "unsupported-type",
     "too-large",
@@ -234,6 +269,7 @@ pub const ERROR_KINDS: [&str; 14] = [
     "download-timeout",
     "network",
     "auth-expired",
+    "invalid-code",
     "io",
     "unknown",
 ];
@@ -270,6 +306,7 @@ pub fn panic_area(file: &str) -> &'static str {
         "stems" | "separation" => "stems",
         "recording" => "ai",
         "cloud" | "cloud.rs" | "cloud_commands.rs" | "cloud_folder.rs" => "cloud",
+        "practice.rs" | "practice_signal.rs" => "practice",
         "pdf.rs" | "m4a.rs" | "score_write.rs" | "export" => "export",
         "transcription.rs" => "import",
         "score_file.rs" | "recent.rs" | "open_file.rs" | "project.rs" => "file",
@@ -986,6 +1023,17 @@ mod tests {
             "ai_transcribe_file",
             "error",
             "panic",
+            "practice_together_open",
+            "practice_together_host",
+            "practice_together_join",
+            "practice_together_setup_failed",
+            "practice_together_sync",
+            "practice_together_preset",
+            "practice_together_play",
+            "practice_together_end",
+            "practice_together_length",
+            "practice_together_problem",
+            "practice_together_tab",
         ] {
             let event: Event = serde_json::from_value(serde_json::json!(name)).unwrap();
             t.record_on("2026-01-01", event, None).unwrap();
@@ -1347,7 +1395,7 @@ mod tests {
     #[test]
     fn error_and_panic_details_are_fixed_lists() {
         let (_dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
-        // Every area with every kind; 10 areas x 14 kinds, each once.
+        // Every area with every kind; 11 areas x 15 kinds, each once.
         assert_eq!(
             Event::Error.details().len(),
             ERROR_AREAS.len() * ERROR_KINDS.len()
@@ -1415,6 +1463,7 @@ mod tests {
                 ErrorKind::DownloadTimeout => "download-timeout",
                 ErrorKind::Network => "network",
                 ErrorKind::AuthExpired => "auth-expired",
+                ErrorKind::InvalidCode => "invalid-code",
                 ErrorKind::Io => "io",
             }
         }
@@ -1431,6 +1480,7 @@ mod tests {
             ErrorKind::DownloadTimeout,
             ErrorKind::Network,
             ErrorKind::AuthExpired,
+            ErrorKind::InvalidCode,
             ErrorKind::Io,
         ];
         for kind in all {
@@ -1471,6 +1521,8 @@ mod tests {
             ("src/transcription.rs", "import"),
             ("src/cloud/oauth.rs", "cloud"),
             ("src/cloud_commands.rs", "cloud"),
+            ("src/practice.rs", "practice"),
+            ("src/practice_signal.rs", "practice"),
             ("src/pdf.rs", "export"),
             ("src/m4a.rs", "export"),
             ("src/score_file.rs", "file"),
@@ -1641,6 +1693,53 @@ mod tests {
         let sent: serde_json::Value = serde_json::from_str(&server.join().unwrap()[0]).unwrap();
         assert_eq!(sent["counts"][0]["event"], "error");
         assert_eq!(sent["counts"][0]["format"], "cloud:network");
+    }
+
+    #[test]
+    fn practice_together_counts_only_fixed_details() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        // Only a fixed word is ever kept: never a room code, an address, a name or a title.
+        let allowed = [
+            ("practice_together_open", vec!["menu", "toolbar", "start"]),
+            ("practice_together_host", vec!["lan", "internet"]),
+            ("practice_together_join", vec!["lan", "internet"]),
+            ("practice_together_setup_failed", vec!["lan", "internet"]),
+            (
+                "practice_together_sync",
+                vec!["excellent", "good", "unstable"],
+            ),
+            (
+                "practice_together_preset",
+                vec!["auto", "tight", "balanced", "safe"],
+            ),
+            ("practice_together_play", vec![]),
+            (
+                "practice_together_end",
+                vec!["left", "peer_left", "dropped", "failed"],
+            ),
+            (
+                "practice_together_length",
+                vec!["under_1m", "1_5m", "5_15m", "15_60m", "over_60m"],
+            ),
+            (
+                "practice_together_problem",
+                vec![
+                    "score", "version", "declined", "busy", "dropped", "poor", "late", "woke",
+                    "tab",
+                ],
+            ),
+            ("practice_together_tab", vec!["sent", "received", "failed"]),
+        ];
+        for (name, details) in allowed {
+            let event: Event = serde_json::from_value(serde_json::json!(name)).unwrap();
+            t.record_on("2026-01-01", event, None).unwrap();
+            for detail in &details {
+                t.record_on("2026-01-01", event, Some(detail)).unwrap();
+            }
+            for private in ["ABCD-EFGH", "192.168.1.20", "Johnny", "My Song"] {
+                assert!(t.record_on("2026-01-01", event, Some(private)).is_err());
+            }
+        }
     }
 
     #[test]
