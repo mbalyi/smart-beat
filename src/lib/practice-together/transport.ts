@@ -16,6 +16,41 @@ export interface PeerTransport {
   onState(listener: (state: LinkState, detail?: string) => void): () => void;
 }
 
+/** One guest's connection, as the host first sees it. */
+export interface GuestLink extends PeerTransport {
+  readonly state: LinkState;
+}
+
+/** What the host knows of a guest from the way it connected. */
+export interface GuestInfo {
+  /** Where it connected from (the same network only). */
+  address?: string;
+}
+
+/** Who may be turned away from now on. */
+export interface Block {
+  guest?: string;
+  address?: string;
+}
+
+/**
+ * The host's side of "listening": new guests arrive here, each as a connection of its own. The
+ * session decides who stays; this only carries the bytes and can end one guest's connection.
+ */
+export interface GuestAcceptor {
+  /** A guest connected (it has not said hello yet). Returns a function that stops listening. */
+  onGuest(listener: (link: GuestLink, info: GuestInfo) => void): () => void;
+  /**
+   * Ends one guest's connection. With `block`, that guest (or its address) is turned away from
+   * now on where the transport can do it.
+   */
+  remove(link: GuestLink, block?: Block): void;
+  /** Whether new guests can still arrive (an internet room can be lost while guests stay). */
+  onListening(listener: (listening: boolean, detail?: string) => void): () => void;
+  /** Stops listening and ends every connection. */
+  close(): void;
+}
+
 /**
  * Two connected in-memory ends, for tests and for the browser (e2e) build. `latency` is the
  * one-way delay in milliseconds and may differ per direction.
@@ -76,4 +111,47 @@ export function openPair(pair: [PeerTransport, PeerTransport]) {
 export function dropPair(pair: [PeerTransport, PeerTransport]) {
   const ends = pair as unknown as { set(s: LinkState, d?: string): void }[];
   for (const end of ends) end.set("reconnecting", "connection lost");
+}
+
+/**
+ * A host's listening side for tests and the browser (e2e) build: guests arrive when the test says
+ * so (`arrive`), and what the host does to them is recorded.
+ */
+export function memoryAcceptor() {
+  const arrivals = new Set<(link: GuestLink, info: GuestInfo) => void>();
+  const listening = new Set<(listening: boolean, detail?: string) => void>();
+  const removed: { link: GuestLink; block?: Block }[] = [];
+  let closed = false;
+  const acceptor: GuestAcceptor = {
+    onGuest(listener) {
+      arrivals.add(listener);
+      return () => arrivals.delete(listener);
+    },
+    remove(link, block) {
+      removed.push({ link, block });
+      link.close();
+    },
+    onListening(listener) {
+      listening.add(listener);
+      return () => listening.delete(listener);
+    },
+    close() {
+      closed = true;
+    },
+  };
+  return {
+    acceptor,
+    /** A guest connects (its link: an end of a {@link memoryPair}). */
+    arrive(link: GuestLink, info: GuestInfo = {}) {
+      for (const listener of [...arrivals]) listener(link, info);
+    },
+    /** The room is lost (or back): `listening` false/true. */
+    setListening(value: boolean, detail?: string) {
+      for (const listener of [...listening]) listener(value, detail);
+    },
+    removed,
+    get closed() {
+      return closed;
+    },
+  };
 }

@@ -68,6 +68,12 @@ export type ProblemKind =
   | "late"
   | "woke"
   | "peer-left"
+  /** The host removed this player (it can join again). */
+  | "kicked"
+  /** The host banned this player from the session. */
+  | "banned"
+  /** The session already has all its players. */
+  | "full"
   | "not-synchronized"
   /** The tab could not be shared (the message says why). */
   | "tab";
@@ -86,6 +92,25 @@ export interface PeerReport {
   driftMs: number;
 }
 
+/** One guest on the host's roster. */
+export interface PeerInfo {
+  /** The guest's own id: stable while the session lasts, whatever connection it comes on. */
+  id: string;
+  name: string;
+  /** `reconnecting` is a guest that dropped out and may come back. */
+  phase: SessionPhase;
+  /** How well the host's clock and this guest's agree, as the host measures it. */
+  quality: SyncQuality;
+  latency: LatencyStats;
+  /** What the guest says about its own clock estimate and drift. */
+  peer: PeerReport | null;
+  problem: Problem | null;
+  /** Where it connected from (the same network only). */
+  address?: string;
+  /** The tab on its way to this guest. */
+  transfer: TabProgress | null;
+}
+
 export interface SessionState {
   role: SessionRole;
   phase: SessionPhase;
@@ -101,6 +126,10 @@ export interface SessionState {
   peer: PeerReport | null;
   /** The host's tab on its way to the guest (or a new version of it), for the dialog. */
   transfer?: TabProgress | null;
+  /** The host's roster: a guest per entry, in the order they joined. Without it, one guest. */
+  peers?: PeerInfo[];
+  /** The host: whether new players can still join (a lost internet room cannot take more). */
+  listening?: boolean;
 }
 
 /** What the app does with a command. All three run on this computer's clock. */
@@ -115,8 +144,11 @@ export interface SessionHooks {
   position?(): { pos: number; playing: boolean } | null;
   /** The guest only: the host's position at the local time `localAt`. */
   hostState?(pos: number, localAt: number, playing: boolean): void;
-  /** The host only: whether to let a guest in. */
-  approve?(name: string): Promise<boolean>;
+  /**
+   * The host only: whether to let a guest in. `signal` aborts when the guest went away before the
+   * answer, so the question can be taken back.
+   */
+  approve?(name: string, signal?: AbortSignal): Promise<boolean>;
   /** The host only: the guest asks for Play, Pause, Stop or a position (the host decides). */
   request?(action: RequestAction, tick: number | undefined): void;
   /** Sharing the host's tab (#158). Without it the session works only on one shared file. */
@@ -151,12 +183,20 @@ export interface SessionOptions {
    * just received): the session id it was welcomed to. It says hello as a returning guest.
    */
   resume?: string;
+  /** For a guest: its own stable id, sent in hello so the host knows it when it comes back. */
+  guest?: string;
+  /** For a host: how long a guest that dropped out has to come back (default {@link RECONNECT_MS}). */
+  reconnectMs?: number;
 }
 
 /** A dropped connection is given this long to come back before the session ends. */
 export const RECONNECT_MS = 20_000;
-/** The computer slept when the ping timer was this late. */
-export const SLEEP_GAP_MS = 3_000;
+/**
+ * The computer slept when the ping timer ran this much later than it was set for. It is lateness,
+ * not the time between pings: a slow setting pings every 3 s, and a busy page (playback, drawing
+ * the score) delays timers by a second or two, neither of which is a sleep.
+ */
+export const SLEEP_LATE_MS = 10_000;
 /** The pings sent at the start, to get a first estimate quickly. */
 export const BURST_PINGS = 8;
 export const BURST_GAP_MS = 120;
@@ -195,6 +235,12 @@ const describe = (kind: ProblemKind): string => {
       return "This computer was asleep. Syncing the clocks again…";
     case "peer-left":
       return "The other player left the session.";
+    case "kicked":
+      return "The host removed you from the session. You can join again with the code.";
+    case "banned":
+      return "The host blocked you from this session.";
+    case "full":
+      return "The session is full: it holds ten players, the host included.";
     case "not-synchronized":
       return "Wait until the clocks are in sync.";
     case "tab":
@@ -202,7 +248,15 @@ const describe = (kind: ProblemKind): string => {
   }
 };
 
-const fatalKinds: ProblemKind[] = ["version", "declined", "busy", "peer-left"];
+const fatalKinds: ProblemKind[] = [
+  "version",
+  "declined",
+  "busy",
+  "peer-left",
+  "kicked",
+  "banned",
+  "full",
+];
 
 export function problem(kind: ProblemKind): Problem {
   return { kind, message: describe(kind), fatal: fatalKinds.includes(kind) };
@@ -228,7 +282,9 @@ export class Session {
   private link: LinkState = "connecting";
   private wasWelcomed = false;
   private pingTimer: ReturnType<typeof setTimeout> | undefined;
-  private lastTick = 0;
+  /** When the next ping timer is due, on this app's clock and on the wall clock. */
+  private due = 0;
+  private dueWall = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private stateTimer: ReturnType<typeof setInterval> | undefined;
   /** Commands waiting for the other app's answer (host). */
@@ -246,6 +302,10 @@ export class Session {
   /** How often each version was offered, so a guest that cannot take it is not asked forever. */
   private attempts = new Map<string, number>();
   private resumeId: string | undefined;
+  /** This app's own id (a guest) and the one the guest said (a host). */
+  private readonly guestId: string | undefined;
+  private peerGuest: string | undefined;
+  private readonly reconnectMs: number;
 
   constructor(options: SessionOptions) {
     this.role = options.role;
@@ -255,6 +315,8 @@ export class Session {
     this.name = options.name;
     this.score = options.score;
     this.resumeId = options.resume;
+    this.guestId = options.guest;
+    this.reconnectMs = options.reconnectMs ?? RECONNECT_MS;
     this.choice = options.quality ?? "auto";
     this.state = {
       role: options.role,
@@ -338,7 +400,6 @@ export class Session {
    * connection is already in: a guest joined over a LAN is connected before the session exists.
    */
   start(link: LinkState = this.link) {
-    this.lastTick = this.now();
     this.link = link;
     if (link === "open") this.opened();
   }
@@ -374,8 +435,25 @@ export class Session {
       return "not-synchronized";
     }
     const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() + this.state.leadMs };
+    const peer = this.dispatch(cmd);
+    const mine = this.hooks.prepare(cmd).catch(() => false);
+    const [mineOk, peerOk] = await Promise.all([mine, peer]);
+    if (!mineOk || !peerOk) {
+      this.callOff(cmd.id, mineOk ? "peer-late" : "host-late");
+      return "late";
+    }
+    this.cancels.set(cmd.id, this.hooks.schedule(cmd, cmd.at));
+    return "started";
+  }
+
+  /**
+   * The host sends `cmd` to this guest. Resolves with whether the guest said it is ready before
+   * the start was too close. (A host with several guests sends one command to each of them and
+   * starts it for itself once: see `HostRoom`.)
+   */
+  dispatch(cmd: Command): Promise<boolean> {
     this.send({ type: "cmd", cmd });
-    const peer = new Promise<boolean>((resolve) => {
+    return new Promise<boolean>((resolve) => {
       this.waiting.set(cmd.id, resolve);
       setTimeout(
         () => {
@@ -384,15 +462,29 @@ export class Session {
         Math.max(0, cmd.at - this.now() - READY_MARGIN_MS),
       );
     });
-    const mine = this.hooks.prepare(cmd).catch(() => false);
-    const [mineOk, peerOk] = await Promise.all([mine, peer]);
-    if (!mineOk || !peerOk) {
-      this.send({ type: "abort", id: cmd.id, reason: mineOk ? "peer-late" : "host-late" });
-      this.setProblem(problem("late"));
-      return "late";
-    }
-    this.cancels.set(cmd.id, this.hooks.schedule(cmd, cmd.at));
-    return "started";
+  }
+
+  /** The host calls off command `id` for this guest (it was not ready, or the host was not). */
+  callOff(id: number, reason: string) {
+    this.send({ type: "abort", id, reason });
+    this.setProblem(problem("late"));
+  }
+
+  /** Whether the guest was let in (a host: the roster keeps a place for it while it is). */
+  get welcomed(): boolean {
+    return this.wasWelcomed;
+  }
+
+  /** The id the guest said it has (a host). */
+  get guest(): string | undefined {
+    return this.peerGuest;
+  }
+
+  /** The host removes this guest: it is told why, and the connection ends. */
+  dismiss(reason: "kicked" | "banned") {
+    if (this.state.phase === "closed" || this.state.phase === "failed") return;
+    this.send({ type: "bye", reason });
+    this.finish("closed", null);
   }
 
   // ----- link ------------------------------------------------------------------------------
@@ -410,7 +502,9 @@ export class Session {
       // A refusal was already explained; do not overwrite it.
       if (this.state.problem?.fatal) return this.finish("failed", this.state.problem);
       if (this.wasWelcomed) {
-        this.finish("closed", problem("peer-left"));
+        // The line is gone for good and nobody said goodbye (a goodbye is `bye`): the connection
+        // dropped. The guest can try to come back (Rejoin).
+        this.finish("closed", { ...problem("dropped"), fatal: true });
       } else {
         this.finish("failed", {
           kind: "dropped",
@@ -430,7 +524,7 @@ export class Session {
         this.patch({ phase: "reconnecting", problem: problem("dropped") });
         this.reconnectTimer = setTimeout(
           () => this.finish("failed", { ...problem("dropped"), fatal: true }),
-          RECONNECT_MS,
+          this.reconnectMs,
         );
       }
     }
@@ -450,6 +544,7 @@ export class Session {
       score: this.score,
       session: this.wasWelcomed ? (this.state.session ?? undefined) : this.resumeId,
       ...(this.resumeId !== undefined && !this.wasWelcomed && { resume: true }),
+      ...(this.guestId !== undefined && { guest: this.guestId }),
     });
   }
 
@@ -506,9 +601,12 @@ export class Session {
       case "tab-abort":
         return this.onTabAbort(msg);
       case "bye":
-        return this.role === "host"
-          ? this.guestGone()
-          : this.finish("closed", problem("peer-left"));
+        if (this.role === "host") return this.guestGone();
+        // The host says why when it removes this player.
+        return this.finish(
+          "closed",
+          problem(msg.reason === "kicked" || msg.reason === "banned" ? msg.reason : "peer-left"),
+        );
       case "state":
         if (this.role === "guest" && this.clock.ready) {
           this.hooks.hostState?.(msg.pos, this.localTimeOf(msg.at), msg.playing);
@@ -519,6 +617,8 @@ export class Session {
 
   private async onHello(msg: Extract<Message, { type: "hello" }>, version: number) {
     this.peerKey = msg.score.key;
+    const knownGuest = msg.guest !== undefined && msg.guest === this.peerGuest;
+    this.peerGuest ??= msg.guest;
     if (this.role === "guest") return this.checkScore();
     this.peerCaps = msg.caps;
     if (negotiate(PROTOCOL_VERSION, version) < 1) return this.refuse("version");
@@ -529,8 +629,9 @@ export class Session {
         this.dropTransfers();
         return this.welcome(msg.name);
       }
-      // The same guest saying hello again: it came back, or its score changed.
-      if (msg.name !== this.state.peerName && msg.session !== this.state.session) {
+      // The same guest saying hello again: it came back, or its score changed. A guest that has
+      // an id is known by it, whatever name it uses now.
+      if (!knownGuest && msg.name !== this.state.peerName && msg.session !== this.state.session) {
         return this.refuse("busy");
       }
       this.checkScore();
@@ -580,7 +681,7 @@ export class Session {
   }
 
   private onRefuse(reason: RefuseReason) {
-    const kind: ProblemKind = reason === "declined" ? "declined" : reason;
+    const kind: ProblemKind = reason;
     this.finish("failed", problem(kind));
   }
 
@@ -609,24 +710,32 @@ export class Session {
     this.clock.reset();
     this.latency.reset();
     this.stopPings();
-    this.lastTick = this.now();
     let sent = 0;
+    /** Sets the next timer, noting when it is due so that a late one shows. */
+    const later = (action: () => void, delay: number) => {
+      this.due = this.now() + delay;
+      this.dueWall = Date.now() + delay;
+      this.pingTimer = setTimeout(action, delay);
+    };
     const burst = () => {
       this.ping();
       sent += 1;
-      if (sent < BURST_PINGS) this.pingTimer = setTimeout(burst, BURST_GAP_MS);
-      else this.pingTimer = setTimeout(steady, this.preset().pingMs);
+      later(
+        sent < BURST_PINGS ? burst : steady,
+        sent < BURST_PINGS ? BURST_GAP_MS : this.preset().pingMs,
+      );
     };
     const steady = () => {
-      const t = this.now();
-      if (t - this.lastTick > SLEEP_GAP_MS) {
+      // The page's own clock stops while some computers sleep, the wall clock does not: either one
+      // running far past the due time means a sleep (a busy page is late by a second or two).
+      const late = Math.max(this.now() - this.due, Date.now() - this.dueWall);
+      if (late > SLEEP_LATE_MS) {
         // The computer slept: the clock estimate is from another life.
         this.patch({ phase: "syncing", problem: problem("woke") });
         return this.beginSync();
       }
-      this.lastTick = t;
       this.ping();
-      this.pingTimer = setTimeout(steady, this.preset().pingMs);
+      later(steady, this.preset().pingMs);
     };
     burst();
   }

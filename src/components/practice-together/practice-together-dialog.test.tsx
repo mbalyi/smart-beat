@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 
 import { PracticeTogetherDialog } from "@/components/practice-together/practice-together-dialog";
 import {
@@ -7,7 +7,7 @@ import {
   TogetherChip,
 } from "@/components/practice-together/sync-quality";
 import type { PracticeTogether } from "@/hooks/use-practice-together";
-import { problem, type SessionState } from "@/lib/practice-together/session";
+import { problem, type PeerInfo, type SessionState } from "@/lib/practice-together/session";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
 
@@ -22,8 +22,23 @@ const session = (over: Partial<SessionState> = {}): SessionState => ({
   leadMs: 250,
   problem: null,
   peer: { errorMs: 3.2, rtt: 4, driftMs: 1.4 },
+  peers: [peerInfo()],
   ...over,
 });
+
+function peerInfo(over: Partial<PeerInfo> = {}): PeerInfo {
+  return {
+    id: "ann",
+    name: "Bass laptop",
+    phase: "synchronized",
+    quality: { errorMs: 2.5, bucket: "excellent" },
+    latency: { samples: 20, p50: 4, p95: 8, jitter: 1 },
+    peer: { errorMs: 3.2, rtt: 4, driftMs: 1.4 },
+    problem: null,
+    transfer: null,
+    ...over,
+  };
+}
 
 function together(over: Partial<PracticeTogether> = {}): PracticeTogether {
   return {
@@ -41,8 +56,13 @@ function together(over: Partial<PracticeTogether> = {}): PracticeTogether {
     setQuality: vi.fn(),
     host: vi.fn(async () => {}),
     join: vi.fn(async () => {}),
+    rejoin: vi.fn(async () => {}),
     leave: vi.fn(),
+    kick: vi.fn(),
+    ban: vi.fn(),
     intercept: vi.fn(() => false),
+    approvalsWaiting: 0,
+    lastSession: null,
     ...over,
   };
 }
@@ -103,7 +123,7 @@ describe("PracticeTogetherDialog: choosing", () => {
     renderDialog(together());
     expect(screen.getByRole("radio", { name: "Start a new session" })).toBeChecked();
     expect(screen.queryByLabelText("Room code")).not.toBeInTheDocument();
-    expect(screen.getByTestId("mode-hint")).toHaveTextContent("gets this tab from you");
+    expect(screen.getByTestId("mode-hint")).toHaveTextContent("get this tab from you");
   });
 
   it("puts the logo in the header, the description above the stepper and no title text", () => {
@@ -186,7 +206,36 @@ describe("PracticeTogetherDialog: connecting", () => {
     renderDialog(hosting());
     expect(screen.getByTestId("room-code")).toHaveTextContent("ABCD-EFGH-JKMN-PQRS-TVWX");
     expect(screen.getByText(/Listening on 192\.168\.1\.5:5000/)).toBeInTheDocument();
-    expect(screen.getByText("Waiting for the other player…")).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for the other players…/)).toBeInTheDocument();
+  });
+
+  it("puts the copy button on the same row as the code, as an icon with a name", async () => {
+    const { user } = renderDialog(hosting());
+    const row = screen.getByTestId("room-code-row");
+    const code = within(row).getByTestId("room-code");
+    const copy = within(row).getByRole("button", { name: "Copy" });
+    expect(row).toContainElement(copy);
+    // An icon only: no visible text, and the code is not pushed to its own line.
+    expect(copy).toHaveTextContent("");
+    expect(row).toHaveClass("flex", "items-center");
+    expect(row).not.toHaveClass("flex-wrap");
+    expect(code).toHaveClass("min-w-0", "break-all");
+    await user.click(copy);
+    expect(await navigator.clipboard.readText()).toBe("ABCD-EFGH-JKMN-PQRS-TVWX");
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("says how many more are waiting to be let in", () => {
+    renderDialog(
+      hosting({
+        state: session({ phase: "approving", peerName: "Drummer", peer: null }),
+        approval: { name: "Drummer", answer: vi.fn() },
+        approvalsWaiting: 2,
+      }),
+    );
+    expect(screen.getByRole("alertdialog", { name: "Let this player in?" })).toHaveTextContent(
+      "2 more are waiting",
+    );
   });
 
   it("asks the host before letting anyone in", async () => {
@@ -227,7 +276,7 @@ describe("PracticeTogetherDialog: connecting", () => {
 });
 
 describe("PracticeTogetherDialog: playing together", () => {
-  it("shows the sync quality of both players", () => {
+  it("shows the sync quality of the player", () => {
     renderDialog(together({ state: session() }));
     expect(screen.getByTestId("peer-other")).toHaveTextContent("Bass laptop");
     expect(screen.getByTestId("peer-other")).toHaveTextContent("±3.2 ms");
@@ -264,6 +313,178 @@ describe("PracticeTogetherDialog: playing together", () => {
 
   it("has no accessibility violations", async () => {
     renderDialog(together({ state: session({ problem: problem("poor") }) }));
+    await expectNoA11yViolations(screen.getByRole("dialog"));
+  });
+});
+
+describe("PracticeTogetherDialog: several players", () => {
+  const crowd = () =>
+    session({
+      peerName: "Ann and Bob",
+      peers: [
+        peerInfo({ id: "ann", name: "Ann" }),
+        peerInfo({ id: "bob", name: "Bob", peer: { errorMs: 12, rtt: 9, driftMs: 3 } }),
+        peerInfo({ id: "cy", name: "Cy", phase: "reconnecting", peer: null }),
+      ],
+    });
+
+  it("lists every guest with its own sync quality and counts the players", () => {
+    renderDialog(together({ state: crowd() }));
+    const rows = screen.getAllByTestId("peer-other");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent("Ann");
+    expect(rows[0]).toHaveTextContent("±3.2 ms");
+    expect(rows[1]).toHaveTextContent("±12 ms");
+    expect(rows[1]).toHaveTextContent("Good");
+    expect(rows[2]).toHaveTextContent("Connection lost: can rejoin");
+    expect(screen.getByText("4 of 10 players")).toBeInTheDocument();
+    expect(screen.getByText(/all of you start together/)).toBeInTheDocument();
+  });
+
+  it("asks before it kicks, tells what it means, and kicks on confirm", async () => {
+    const t = together({ state: crowd() });
+    const { user } = renderDialog(t);
+    await user.click(screen.getByRole("button", { name: "Kick Bob" }));
+    const card = screen.getByRole("alertdialog", { name: "Kick Bob?" });
+    expect(card).toHaveTextContent("They can join again with the code.");
+    expect(t.kick).not.toHaveBeenCalled();
+    await user.click(within(card).getByRole("button", { name: "Kick Bob" }));
+    expect(t.kick).toHaveBeenCalledExactlyOnceWith("bob");
+    expect(t.ban).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog", { name: "Kick Bob?" })).not.toBeInTheDocument();
+  });
+
+  it("asks before it bans, tells it is for good, and bans on confirm", async () => {
+    const t = together({ state: crowd() });
+    const { user } = renderDialog(t);
+    await user.click(screen.getByRole("button", { name: "Ban Ann" }));
+    const card = screen.getByRole("alertdialog", { name: "Ban Ann?" });
+    expect(card).toHaveTextContent("cannot join again, even with the code");
+    await user.click(within(card).getByRole("button", { name: "Ban Ann" }));
+    expect(t.ban).toHaveBeenCalledExactlyOnceWith("ann");
+    expect(t.kick).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the host thinks again", async () => {
+    const t = together({ state: crowd() });
+    const { user } = renderDialog(t);
+    await user.click(screen.getByRole("button", { name: "Ban Cy" }));
+    await user.click(
+      within(screen.getByRole("alertdialog", { name: "Ban Cy?" })).getByRole("button", {
+        name: "Cancel",
+      }),
+    );
+    expect(screen.queryByRole("alertdialog", { name: "Ban Cy?" })).not.toBeInTheDocument();
+    expect(t.ban).not.toHaveBeenCalled();
+  });
+
+  it("lets a guest in from the session page too, while others are playing", async () => {
+    const answer = vi.fn();
+    const { user } = renderDialog(together({ state: crowd(), approval: { name: "Dee", answer } }));
+    await user.click(
+      within(screen.getByRole("alertdialog", { name: "Let this player in?" })).getByRole("button", {
+        name: "Let in",
+      }),
+    );
+    expect(answer).toHaveBeenCalledWith(true);
+  });
+
+  it("says when everyone has left, and when no new player can join", () => {
+    renderDialog(
+      together({
+        state: session({ peers: [], peerName: null, phase: "reconnecting", listening: false }),
+        hostCode: { kind: "lan", code: "ABCD-EFGH-JKMN-PQRS-TVWX" },
+      }),
+    );
+    expect(screen.getByText(/Everyone has left/)).toBeInTheDocument();
+    expect(screen.getByText(/New players can no longer join/)).toBeInTheDocument();
+  });
+
+  it("does not show kick and ban to a guest", () => {
+    renderDialog(together({ state: session({ role: "guest", peers: undefined }) }));
+    expect(screen.queryByRole("button", { name: /^Kick/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Ban/ })).not.toBeInTheDocument();
+  });
+
+  it("has no accessibility violations with a crowd and a question open", async () => {
+    const { user } = renderDialog(together({ state: crowd() }));
+    await user.click(screen.getByRole("button", { name: "Kick Bob" }));
+    await expectNoA11yViolations(screen.getByRole("dialog"));
+  });
+});
+
+describe("PracticeTogetherDialog: coming back", () => {
+  const last = { kind: "lan" as const, code: "ABCD-EFGH-JKMN-PQRS-TVWX", host: "Drummer", at: 1 };
+
+  it("offers to rejoin the session this guest was in", async () => {
+    const t = together({ lastSession: last });
+    const { user } = renderDialog(t);
+    const row = screen.getByTestId("rejoin");
+    expect(row).toHaveTextContent("You were in Drummer's session.");
+    await user.click(within(row).getByRole("button", { name: "Rejoin" }));
+    expect(t.rejoin).toHaveBeenCalledOnce();
+  });
+
+  it("offers it after a dropped connection ended the session, with the reason", async () => {
+    const t = together({
+      lastSession: last,
+      state: session({
+        role: "guest",
+        phase: "failed",
+        peers: undefined,
+        problem: { ...problem("dropped"), fatal: true },
+      }),
+    });
+    const { user } = renderDialog(t);
+    expect(screen.getByRole("alert")).toHaveTextContent("The connection dropped");
+    await user.click(screen.getByRole("button", { name: "Rejoin" }));
+    expect(t.rejoin).toHaveBeenCalled();
+  });
+
+  it("offers it after being kicked, and says the guest may come back", () => {
+    renderDialog(
+      together({
+        lastSession: last,
+        state: session({
+          role: "guest",
+          phase: "closed",
+          peers: undefined,
+          problem: { ...problem("kicked"), fatal: true },
+        }),
+      }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("You can join again with the code");
+    expect(screen.getByRole("button", { name: "Rejoin" })).toBeEnabled();
+  });
+
+  it("says a ban is for good, and offers nothing to rejoin", () => {
+    renderDialog(
+      together({
+        lastSession: null,
+        state: session({
+          role: "guest",
+          phase: "closed",
+          peers: undefined,
+          problem: { ...problem("banned"), fatal: true },
+        }),
+      }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("blocked you from this session");
+    expect(screen.queryByRole("button", { name: "Rejoin" })).not.toBeInTheDocument();
+  });
+
+  it("does not offer a rejoin without a remembered session", () => {
+    renderDialog(together());
+    expect(screen.queryByTestId("rejoin")).not.toBeInTheDocument();
+  });
+
+  it("waits while a rejoin is under way", async () => {
+    renderDialog(together({ lastSession: last, starting: true }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rejoin" })).toBeDisabled());
+  });
+
+  it("has no accessibility violations", async () => {
+    renderDialog(together({ lastSession: last }));
     await expectNoA11yViolations(screen.getByRole("dialog"));
   });
 });

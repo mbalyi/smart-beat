@@ -312,6 +312,46 @@ describe("failures", () => {
     expect(guest.session.snapshot.problem).toBeNull();
   });
 
+  it("does not take a slow ping setting for a sleep", async () => {
+    // Safe pings every 3 s: the time between pings is not how late the timer was.
+    const { host, guest } = await connect(2, { clockOffset: 7_000, quality: "safe" });
+    const problems: (string | undefined)[] = [];
+    host.session.subscribe((st) => problems.push(st.problem?.kind));
+    guest.session.subscribe((st) => problems.push(st.problem?.kind));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(problems).not.toContain("woke");
+    expect(host.session.snapshot.phase).toBe("synchronized");
+    expect(guest.session.snapshot.phase).toBe("synchronized");
+  });
+
+  it("does not take a busy page for a sleep, however often it is late", async () => {
+    const { guest } = await connect(2, { clockOffset: 7_000, quality: "balanced" });
+    const problems: (string | undefined)[] = [];
+    guest.session.subscribe((st) => problems.push(st.problem?.kind));
+    // Playback and drawing hold the page up: the timer comes a few seconds late, again and again.
+    const real = performance.now.bind(performance);
+    let stalled = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => real() + stalled);
+    for (let i = 0; i < 8; i += 1) {
+      stalled += 4_000;
+      await vi.advanceTimersByTimeAsync(2_100);
+    }
+    expect(problems).not.toContain("woke");
+    expect(guest.session.snapshot.phase).toBe("synchronized");
+  });
+
+  it("notices a sleep that the page's own clock did not count", async () => {
+    // Some computers stop performance.now() while they sleep; the wall clock keeps going.
+    const { guest } = await connect();
+    const problems: (string | undefined)[] = [];
+    guest.session.subscribe((st) => problems.push(st.problem?.kind));
+    vi.setSystemTime(Date.now() + 120_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(problems).toContain("woke");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(guest.session.snapshot.phase).toBe("synchronized");
+  });
+
   it("warns when the quality is too poor", async () => {
     const { guest } = await connect(180);
     expect(guest.session.snapshot.problem?.kind).toBe("poor");

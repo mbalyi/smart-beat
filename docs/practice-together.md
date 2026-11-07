@@ -2,7 +2,7 @@
 
 Issue: [#158](https://github.com/mbalyi/smart-beat/issues/158) (first step towards [#94](https://github.com/mbalyi/smart-beat/issues/94))
 
-Two Smart Beat apps play the same tab in time. Play, Pause, Stop and the position (the host's, or a guest's request that the host carries out) start for both at the same moment, and the speed, loop, metronome and count-in are shared. Each computer makes its own sound: no audio or tab is ever sent. Track mute and solo stay local. Playback starts at an agreed instant on a shared clock, not when a message arrives.
+Up to ten Smart Beat apps (the host and nine guests) play the same tab in time. Play, Pause, Stop and the position (the host's, or a guest's request that the host carries out) start for both at the same moment, and the speed, loop, metronome and count-in are shared. Each computer makes its own sound: no audio or tab is ever sent. Track mute and solo stay local. Playback starts at an agreed instant on a shared clock, not when a message arrives.
 
 Where to start it:
 
@@ -29,9 +29,9 @@ Practice together dialog + toolbar chip
                                  the signaling Worker signaling/
 ```
 
-- **Same network (LAN).** The host listens on a free TCP port (`Link::host`). The guest connects with a room code (`Link::join`) and presents the secret token in its first frame. Frames are a 4-byte length and UTF-8 text, at most 64 KiB; a length of 0 is a keep-alive every 2 s that is never passed on. A connection silent for 8 s is dead. A guest whose connection drops retries with a growing pause for 20 s. Rust emits `practice-frame` and `practice-state` events to the page; the page calls `practice_host`, `practice_join`, `practice_send` and `practice_leave`. No new crate: standard sockets and threads.
-- **Over the internet.** The two apps meet in a room of the signaling Worker, swap a WebRTC offer, answer and candidates, then talk directly over one ordered data channel (`rtc.ts`). The requests to the Worker are made from Rust (`practice_signal.rs`, `ureq`), not from the page, so the content security policy stays closed. The only ICE server is `stun:stun.cloudflare.com:3478`; there is no TURN relay, so a strict firewall can block a connection. After 25 s without an open channel the app says so. A failed connection is restarted by the host (ICE restart).
-- **Signaling Worker** ([`signaling/`](../signaling)). A Cloudflare Worker with one Durable Object per room. It holds two mailboxes in memory, relays setup messages and nothing else, and deletes the room 10 minutes after it was made. Limits: 8 KiB per message, 200 messages per room, one guest. Long polls last up to 20 s. It keeps no database and no log of room codes.
+- **Same network (LAN).** The host listens on a free TCP port (`Link::host`). The guest connects with a room code (`Link::join`) and presents the secret token in its first frame. Frames are a 4-byte length and UTF-8 text, at most 64 KiB; a length of 0 is a keep-alive every 2 s that is never passed on. A connection silent for 8 s is dead. A guest whose connection drops retries with a growing pause for 20 s. **A host keeps one connection per guest** (at most 16 at once, so a stranger with the code cannot hold more open); every event carries the connection number (`conn`; 0 is the link itself), a new connection's state event carries the guest's address, and the host tells the guests apart by it. Rust emits `practice-frame` (`{ conn, text }`) and `practice-state` (`{ conn, state, detail }`) events to the page; the page calls `practice_host`, `practice_join`, `practice_send` (a host names the `conn`), `practice_kick` (end one guest's connection, and with `ban` turn its address away from then on) and `practice_leave`. No new crate: standard sockets and threads.
+- **Over the internet.** The apps meet in a room of the signaling Worker, swap a WebRTC offer, answer and candidates, then talk directly over one ordered data channel each (`rtc.ts`): the host has one `RTCPeerConnection` per guest, and the Worker tells it which guest wrote each setup message. The requests to the Worker are made from Rust (`practice_signal.rs`, `ureq`), not from the page, so the content security policy stays closed. The only ICE server is `stun:stun.cloudflare.com:3478`; there is no TURN relay, so a strict firewall can block a connection. After 25 s without an open channel the app says so. A failed connection is restarted by the host (ICE restart).
+- **Signaling Worker** ([`signaling/`](../signaling)). A Cloudflare Worker with one Durable Object per room. It holds a mailbox for the host and one for each guest in memory, relays setup messages and nothing else, and deletes the room 10 minutes after the host was last heard (and at the latest 12 hours after it was made, so a guest can come back to a long session). Limits: 8 KiB per message, 9 guests per room (ten players with the host), 200 messages per guest and 1500 for the host. A guest that joins is announced to the host (`joined`), which starts a connection to it. A guest says its own id when it joins, so the same app takes its old place again (the old token stops working); the host can remove a guest (`/kick`) and ban its id (the Worker refuses it from then on). Long polls last up to 20 s. It keeps no database and no log of room codes.
 
 ## Room codes and who may join
 
@@ -42,7 +42,24 @@ Practice together dialog + toolbar chip
 
 The alphabet is Crockford base 32 (no I, L, O or U); typed codes ignore case, dashes and spaces, and read I and L as 1 and O as 0. The code can also be shared as `smartbeat://join/<code>`.
 
-Only explicitly joined players take part: a wrong token is refused (after 20 wrong tries the host stops listening), and the host sees the guest's name and must press **Let in** before anything else happens. Another player cannot take over a running session: a second `hello` with a different name and session is answered `busy`.
+Only explicitly joined players take part: a wrong token is refused (after 20 wrong tries the host stops listening), and the host sees each guest's name and must press **Let in** before anything else happens. Several guests asking at once are asked about one at a time ("2 more are waiting"). Nobody can take over another player's place: a guest is known by its own id (a random 16-character text the app makes once and keeps in its own storage; it is only ever sent to the host and, over the internet, to the meeting service), not by its name.
+
+### Up to ten players
+
+`host-room.ts` (`HostRoom`) is the host's end of a session: a `Session` per guest (each measures its own clock, shares the tab and takes the guest's requests) and one place where the host's commands are turned into a single start. The limit is **ten players including the host**, so nine guests (`MAX_PLAYERS`); a tenth is told "The session is full" and turned away.
+
+- **One command, every guest.** The host picks one start time for everyone: `at = now + the longest lead time any guest needs`, sends the same command (`cmd`, same id and `at`) to every guest that is in sync, prepares itself once and starts once. A guest that says it is not ready (or does not answer) in time misses _that_ start only; it is told (`abort`) and the others start. When the host is not ready, or no guest is, nothing starts (as with one guest). A guest that has another version of the tab is left out until the tab has arrived.
+- **Per-guest sync.** Each seat is measured with its own clock exchange; the dialog lists every guest with its own quality (the guest's own estimate, as `report`), and the toolbar chip shows the worst. Round trip and "Starts ahead by" show the slowest.
+- **The tab for everyone.** Each seat offers the host's tab to its guest on its own (pieces, checks, edits: see "Sharing the tab").
+- **Requests from guests** go to the same place as the host's own buttons, so two guests pressing Play at once start one shared start.
+
+### Coming back
+
+A guest whose connection drops (a Wi-Fi blip, a closed lid) is given 20 s by its own app to get the line back. If the guest's app was closed or its battery died, the host keeps its place on the roster for **10 minutes** ("Connection lost: can rejoin"): the other players are not held up. The guest app remembers the last session it joined (kind and code, in its own storage, expiring after 6 hours; never in the usage counters) and offers **Rejoin** in the dialog after the session ended (a lost connection, or being kicked) and when the dialog is opened again. It joins the same code with the same guest id; the host recognises it, gives its place back without asking again, and measures the clocks again. Rejoin is not offered after the host ended the session, after a ban, or after the guest pressed Leave on purpose. The code works as long as the host's session does: on the same network the host's socket, over the internet while the host keeps polling the meeting room (up to 12 hours).
+
+### Kick and ban
+
+The host's roster has **Kick** and **Ban** for every guest, each with a confirmation in the dialog (an inline question, no second window). A kick says "The host removed you from the session. You can join again with the code." and frees the place; the guest may come back, and is asked about again. A ban blocks the guest's id for the rest of the session and, where the transport knows it, its address (the same network: the host's Rust refuses the address; the meeting room refuses the id): "The host blocked you from this session." Both send a `bye` with the reason (`kicked` or `banned`) before the connection is closed. A new session lets everyone in again. A ban is as strong as the guest id: a guest that clears its app data gets a new id, which is why the same network also turns the address away.
 
 A guest does not need the host's tab beforehand. When its `hello` carries another score fingerprint (and the capability `tab`), the host lets it in as usual and then sends its tab (see "Sharing the tab"). Only a guest that cannot take a tab (an older Smart Beat) is refused with `score`.
 
@@ -52,15 +69,15 @@ A guest does not need the host's tab beforehand. When its `hello` carries anothe
 
 | Message             | Purpose                                                                                                                           |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `hello` / `welcome` | The guest introduces itself (name, capabilities, score fingerprint); the host answers with the session id                         |
-| `refuse`            | `version`, `score`, `declined` or `busy`                                                                                          |
+| `hello` / `welcome` | The guest introduces itself (name, capabilities, score fingerprint, its own `guest` id); the host answers with the session id     |
+| `refuse`            | `version`, `score`, `declined`, `busy`, `full` (ten players) or `banned`                                                          |
 | `ping` / `pong`     | Four timestamps for the clock exchange                                                                                            |
 | `cmd`               | `play`, `pause`, `stop`, `seek` or `settings`, with tick, speed, loop, metronome, count-in and the host time `at` it takes effect |
 | `ready` / `abort`   | The guest is (not) ready for command `id`; the host calls a start off                                                             |
 | `state`             | The host's position (score ms, as heard) and whether it plays, every second                                                       |
 | `report`            | The guest's sync error, round trip and measured drift, for the host's display                                                     |
 | `request`           | A guest asks the host for `play`, `pause`, `stop` or `seek` (with a tick, while stopped)                                          |
-| `bye`               | Leaving                                                                                                                           |
+| `bye`               | Leaving; from the host to a guest it removes, the reason `kicked` or `banned`                                                     |
 | `tab-offer`         | The host offers its tab: name, size, number of pieces, SHA-256 of the file (`sha`) and the score fingerprint it matches (`key`)   |
 | `tab-chunk`         | Piece `i` of the offer, as base64 (8 KiB of file, about 11 K characters: always inside a 16 K frame)                              |
 | `tab-ack`           | The guest has the first `n` pieces; the host keeps at most 12 pieces ahead                                                        |
@@ -137,16 +154,18 @@ The metronome and the count-in are played with Web Audio (the count-in always, t
 
 ## When something goes wrong
 
-| Case                           | What happens                                                                                                                            |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Different version of the score | Refused at joining; changing the score later shows a warning and the host cannot start                                                  |
-| Connection drops               | "Reconnecting…" for 20 s; the guest says hello again with its session id and the clocks are measured again; after 20 s the session ends |
-| Computer sleeps                | The clock is measured again; a message says so                                                                                          |
-| A player is not ready in time  | The start is called off for both and a message says so                                                                                  |
-| Quality too poor               | A warning in the dialog, the chip and a toast                                                                                           |
-| Other app too old or too new   | Refused with `version`                                                                                                                  |
-| Guest leaves                   | The host goes back to waiting for a new guest                                                                                           |
-| Host leaves                    | The session ends for the guest                                                                                                          |
+| Case                           | What happens                                                                                                                                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Different version of the score | Refused at joining; changing the score later shows a warning and the host cannot start                                                                                                                                                           |
+| Connection drops               | A guest: "Reconnecting…" for 20 s; it says hello again with its session id and the clocks are measured again; after 20 s the session ends and the dialog offers **Rejoin**. A host keeps the guest's place for 10 minutes and the others play on |
+| Computer sleeps                | The clock is measured again; a message says so                                                                                                                                                                                                   |
+| A player is not ready in time  | The start is called off for both and a message says so                                                                                                                                                                                           |
+| Quality too poor               | A warning in the dialog, the chip and a toast                                                                                                                                                                                                    |
+| Other app too old or too new   | Refused with `version`                                                                                                                                                                                                                           |
+| Guest leaves                   | Its place is freed and the host sees "<name> left the session." for a few seconds; the others play on                                                                                                                                            |
+| Session full                   | The tenth guest is told "The session is full" and turned away                                                                                                                                                                                    |
+| Kicked or banned               | "The host removed you…" (can join again) or "The host blocked you from this session." (cannot)                                                                                                                                                   |
+| Host leaves                    | The session ends for the guest                                                                                                                                                                                                                   |
 
 ## Privacy
 

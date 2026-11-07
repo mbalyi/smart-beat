@@ -1,9 +1,12 @@
 import {
+  BanIcon,
   CheckIcon,
   CopyIcon,
   GlobeIcon,
   LogOutIcon,
+  RotateCcwIcon,
   UserCheckIcon,
+  UserXIcon,
   UsersIcon,
   WifiIcon,
 } from "lucide-react";
@@ -20,6 +23,7 @@ import { SyncQualityBadge } from "@/components/practice-together/sync-quality";
 import { Button } from "@/components/ui/button";
 import { DialogBody, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Tip } from "@/components/ui/tip";
 import {
   Select,
   SelectContent,
@@ -30,12 +34,14 @@ import {
 import { cn } from "@/lib/utils";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ConnectionKind, PracticeTogether } from "@/hooks/use-practice-together";
+import { MAX_PLAYERS } from "@/lib/practice-together/protocol";
 import {
   QUALITY_CHOICES,
   QUALITY_HINTS,
   QUALITY_LABELS,
   type QualityChoice,
 } from "@/lib/practice-together/quality-presets";
+import type { PeerInfo } from "@/lib/practice-together/session";
 
 const STEPS = ["Choose", "Connect", "Play together"] as const;
 
@@ -165,6 +171,7 @@ function ChooseStep({
               {together.error ?? problem?.message}
             </p>
           )}
+          {together.lastSession && <RejoinRow together={together} />}
           <div className={cn(CARD, "flex flex-col gap-4")}>
             <div className="flex flex-col gap-1.5">
               <label htmlFor={nameId} className="text-sm font-semibold">
@@ -197,7 +204,7 @@ function ChooseStep({
             </ToggleGroup>
             <p className="text-sm text-muted-foreground" data-testid="mode-hint">
               {mode === "host"
-                ? "You host: the other player gets this tab from you if they do not have it yet, and you start and stop for both."
+                ? "You host: up to nine other players get this tab from you if they do not have it yet, and you start and stop for all of you."
                 : "You join the host's session with its code. The tab comes from the host, so you do not need to have it."}
             </p>
             <ToggleGroup
@@ -307,22 +314,27 @@ function ConnectStep({ together, onClose }: { together: PracticeTogether; onClos
           <div className={cn(CARD, "flex flex-col gap-3")} aria-live="polite">
             {isHost ? (
               <>
-                <h3 className="text-base font-semibold">Give this code to the other player</h3>
-                <div className="flex flex-wrap items-center gap-3">
+                <h3 className="text-base font-semibold">Give this code to the other players</h3>
+                <div className="flex items-center gap-2" data-testid="room-code-row">
                   <output
                     data-testid="room-code"
-                    className="rounded-lg border bg-background px-4 py-2 font-mono text-xl font-bold tracking-wider break-all"
+                    className="min-w-0 rounded-lg border bg-background px-3 py-2 font-mono text-lg font-bold tracking-wider break-all sm:text-xl"
                   >
                     {code}
                   </output>
-                  <Button type="button" variant="outline" size="sm" onClick={() => void copy()}>
-                    {copied ? (
-                      <CheckIcon data-icon="inline-start" />
-                    ) : (
-                      <CopyIcon data-icon="inline-start" />
-                    )}
-                    {copied ? "Copied" : "Copy"}
-                  </Button>
+                  <Tip label={copied ? "Copied" : "Copy the code"}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      aria-label={copied ? "Copied" : "Copy"}
+                      data-testid="copy-code"
+                      onClick={() => void copy()}
+                    >
+                      {copied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
+                    </Button>
+                  </Tip>
                 </div>
                 {together.hostCode?.address && (
                   <p className="text-sm text-muted-foreground">
@@ -332,37 +344,10 @@ function ConnectStep({ together, onClose }: { together: PracticeTogether; onClos
                 )}
                 {state.phase === "waiting" && (
                   <p role="status" className="text-sm">
-                    Waiting for the other player…
+                    Waiting for the other players… Up to {MAX_PLAYERS - 1} can join, one by one.
                   </p>
                 )}
-                {together.approval && (
-                  <div
-                    role="alertdialog"
-                    aria-label="Let this player in?"
-                    className="flex flex-col gap-3 rounded-lg border border-primary/60 p-3"
-                  >
-                    <p className="text-sm">
-                      <span className="font-semibold">{together.approval.name}</span> wants to join.
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => together.approval?.answer(true)}
-                      >
-                        Let in
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => together.approval?.answer(false)}
-                      >
-                        Decline
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                <ApprovalCard together={together} />
               </>
             ) : (
               <p role="status" className="text-sm">
@@ -393,6 +378,62 @@ function ConnectStep({ together, onClose }: { together: PracticeTogether; onClos
         </Button>
       </Footer>
     </>
+  );
+}
+
+/** A player asks the host to let it in (the host sees them one at a time). */
+function ApprovalCard({ together }: { together: PracticeTogether }) {
+  if (!together.approval) return null;
+  return (
+    <div
+      role="alertdialog"
+      aria-label="Let this player in?"
+      className="flex flex-col gap-3 rounded-lg border border-primary/60 p-3"
+    >
+      <p className="text-sm">
+        <span className="font-semibold">{together.approval.name}</span> wants to join.
+        {together.approvalsWaiting > 0 &&
+          ` ${together.approvalsWaiting} more ${together.approvalsWaiting === 1 ? "is" : "are"} waiting.`}
+      </p>
+      <div className="flex gap-2">
+        <Button type="button" size="sm" onClick={() => together.approval?.answer(true)}>
+          Let in
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => together.approval?.answer(false)}
+        >
+          Decline
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** A guest that dropped out (or was removed) can try the session it was in again. */
+function RejoinRow({ together }: { together: PracticeTogether }) {
+  const last = together.lastSession!;
+  return (
+    <div
+      className={cn(CARD, "flex flex-wrap items-center justify-between gap-3")}
+      data-testid="rejoin"
+    >
+      <p className="min-w-0 flex-1 text-sm">
+        {last.host ? `You were in ${last.host}'s session.` : "You were in a session."} Something
+        went wrong? Join it again.
+      </p>
+      <Button
+        type="button"
+        size="sm"
+        disabled={together.starting}
+        onClick={() => void together.rejoin()}
+      >
+        <RotateCcwIcon data-icon="inline-start" />
+        Rejoin
+      </Button>
+    </div>
   );
 }
 
@@ -440,14 +481,23 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
   const state = together.state!;
   const isHost = state.role === "host";
   const selectId = useId();
-  const peerError = state.peer?.errorMs;
+  const [confirm, setConfirm] = useState<{ peer: PeerInfo; how: "kick" | "ban" } | null>(null);
+  const peers = isHost ? (state.peers ?? []) : [];
   return (
     <>
       <DialogBody className="px-6 pb-4 md:px-9">
         <TogetherContent>
           {state.problem && <Problem message={state.problem.message} />}
+          {isHost && <ApprovalCard together={together} />}
           <div className={cn(CARD, "flex flex-col gap-3")}>
-            <h3 className="text-base font-semibold">In the session</h3>
+            <h3 className="text-base font-semibold">
+              In the session
+              {isHost && (
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  {peers.length + 1} of {MAX_PLAYERS} players
+                </span>
+              )}
+            </h3>
             <ul className="flex flex-col gap-2">
               <li className="flex items-center justify-between gap-3" data-testid="peer-you">
                 <span>
@@ -459,22 +509,49 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
                   <SyncQualityBadge quality={state.quality} />
                 )}
               </li>
-              <li className="flex items-center justify-between gap-3" data-testid="peer-other">
-                <span>{state.peerName ?? "Other player"}</span>
-                {isHost && peerError !== undefined ? (
-                  <SyncQualityBadge
-                    quality={{
-                      errorMs: peerError,
-                      bucket: peerError <= 5 ? "excellent" : peerError <= 15 ? "good" : "unstable",
-                    }}
+              {isHost ? (
+                peers.map((peer) => (
+                  <GuestRow
+                    key={peer.id}
+                    peer={peer}
+                    onKick={() => setConfirm({ peer, how: "kick" })}
+                    onBan={() => setConfirm({ peer, how: "ban" })}
                   />
-                ) : (
+                ))
+              ) : (
+                <li className="flex items-center justify-between gap-3" data-testid="peer-other">
+                  <span>{state.peerName ?? "Other player"}</span>
                   <span className="text-sm text-muted-foreground">Session clock</span>
-                )}
-              </li>
+                </li>
+              )}
             </ul>
+            {confirm && (
+              <ConfirmRemoval
+                peer={confirm.peer}
+                how={confirm.how}
+                onCancel={() => setConfirm(null)}
+                onConfirm={() => {
+                  if (confirm.how === "kick") together.kick(confirm.peer.id);
+                  else together.ban(confirm.peer.id);
+                  setConfirm(null);
+                }}
+              />
+            )}
+            {isHost && state.listening === false && (
+              <p className="text-sm text-muted-foreground">
+                New players can no longer join. The players already in stay connected.
+              </p>
+            )}
+            {isHost && peers.length === 0 && (
+              <p role="status" className="text-sm">
+                Everyone has left. The code still works: {together.hostCode?.code}
+              </p>
+            )}
             <dl className="grid grid-cols-3 gap-2 text-sm">
-              <Stat label="Round trip" value={`${Math.round(state.latency.p50)} ms`} />
+              <Stat
+                label={peers.length > 1 ? "Slowest round trip" : "Round trip"}
+                value={`${Math.round(state.latency.p50)} ms`}
+              />
               <Stat label="Starts ahead by" value={`${state.leadMs} ms`} />
               <Stat
                 label="Drift"
@@ -484,7 +561,7 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
             <TransferLine transfer={together.transfer} />
             <p className="text-sm text-muted-foreground">
               {isHost
-                ? "Press Play in the toolbar: both of you start together. Pause, Stop, speed, loop, metronome and count-in are shared. Your tracks, mute and solo stay your own."
+                ? "Press Play in the toolbar: all of you start together. Pause, Stop, speed, loop, metronome and count-in are shared. Your tracks, mute and solo stay your own."
                 : "Press Play or Stop in the toolbar: the host starts both of you at the same moment. The speed, loop, metronome and count-in follow the host. Your tracks, mute and solo stay your own."}
             </p>
           </div>
@@ -528,6 +605,115 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
         </Button>
       </Footer>
     </>
+  );
+}
+
+const PHASE_TEXT: Partial<Record<PeerInfo["phase"], string>> = {
+  approving: "Waiting to be let in",
+  syncing: "Matching the clocks…",
+  reconnecting: "Connection lost: can rejoin",
+};
+
+/** One guest of the host: who, how well in sync, and the buttons to remove it. */
+function GuestRow({
+  peer,
+  onKick,
+  onBan,
+}: {
+  peer: PeerInfo;
+  onKick: () => void;
+  onBan: () => void;
+}) {
+  const error = peer.peer?.errorMs;
+  const synced = peer.phase === "synchronized" && error !== undefined;
+  return (
+    <li
+      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+      data-testid="peer-other"
+      data-peer={peer.id}
+      data-phase={peer.phase}
+    >
+      <span className="min-w-0 break-words">{peer.name}</span>
+      <span className="flex items-center gap-2">
+        {synced ? (
+          <SyncQualityBadge
+            quality={{
+              errorMs: error,
+              bucket: error <= 5 ? "excellent" : error <= 15 ? "good" : "unstable",
+            }}
+          />
+        ) : (
+          <span className="text-sm text-muted-foreground">
+            {PHASE_TEXT[peer.phase] ?? "Matching the clocks…"}
+          </span>
+        )}
+        <Tip label={`Kick ${peer.name}`}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Kick ${peer.name}`}
+            onClick={onKick}
+          >
+            <UserXIcon aria-hidden="true" />
+          </Button>
+        </Tip>
+        <Tip label={`Ban ${peer.name}`}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Ban ${peer.name}`}
+            onClick={onBan}
+          >
+            <BanIcon aria-hidden="true" />
+          </Button>
+        </Tip>
+      </span>
+    </li>
+  );
+}
+
+/** Asks the host to confirm a kick or a ban before it happens. */
+function ConfirmRemoval({
+  peer,
+  how,
+  onCancel,
+  onConfirm,
+}: {
+  peer: PeerInfo;
+  how: "kick" | "ban";
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      role="alertdialog"
+      aria-label={how === "kick" ? `Kick ${peer.name}?` : `Ban ${peer.name}?`}
+      className="flex flex-col gap-3 rounded-lg border border-destructive/50 p-3"
+    >
+      <p className="text-sm">
+        {how === "kick" ? (
+          <>
+            Remove <span className="font-semibold">{peer.name}</span> from the session? They can
+            join again with the code.
+          </>
+        ) : (
+          <>
+            Ban <span className="font-semibold">{peer.name}</span> from this session? They cannot
+            join again, even with the code. Starting a new session lets them in again.
+          </>
+        )}
+      </p>
+      <div className="flex gap-2">
+        <Button type="button" size="sm" variant="destructive" onClick={onConfirm}>
+          {how === "kick" ? `Kick ${peer.name}` : `Ban ${peer.name}`}
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

@@ -17,9 +17,12 @@ const token = (): string => {
 
 const isRole = (value: unknown): value is Role => value === "host" || value === "guest";
 
+/** A guest's own id: random hex made by the app. Anything else is ignored. */
+const GUEST_ID = /^[0-9a-f]{8,64}$/;
+
 /**
- * One room. State lives in memory: a room only matters for the minute it takes two apps to
- * connect, and a Durable Object that restarts simply makes the pair start again.
+ * One room. State lives in memory: a room only matters while players connect (or come back),
+ * and a Durable Object that restarts simply makes everyone start again.
  */
 export class Room implements DurableObject {
   private readonly room = new RoomState();
@@ -32,6 +35,12 @@ export class Room implements DurableObject {
   }
 
   async alarm() {
+    // The host's activity moves the expiry later: wait for the new time.
+    const now = Date.now();
+    if (this.room.alive && this.room.expiry > now) {
+      await this.state.storage.setAlarm(this.room.expiry);
+      return;
+    }
     this.room.clear();
     this.wake();
   }
@@ -47,17 +56,37 @@ export class Room implements DurableObject {
         return json({ token: mine });
       }
       case "/join": {
-        const result = this.room.join(now, token());
+        const body = (await request.json().catch(() => null)) as { guest?: unknown } | null;
+        const id = typeof body?.guest === "string" && GUEST_ID.test(body.guest) ? body.guest : null;
+        const result = this.room.join(now, token(), id);
         if (result === "unknown") return json({ error: "unknown" }, 404);
         if (result === "full") return json({ error: "full" }, 409);
+        if (result === "banned") return json({ error: "banned" }, 403);
         this.wake();
-        return json({ token: result });
+        return json(result);
+      }
+      case "/kick": {
+        const body = (await request.json().catch(() => null)) as {
+          token?: unknown;
+          peer?: unknown;
+          ban?: unknown;
+        } | null;
+        if (!body || typeof body.token !== "string" || typeof body.peer !== "string") {
+          return json({ error: "bad-request" }, 400);
+        }
+        const result = this.room.kick(body.token, body.peer, body.ban === true, now);
+        if (result === "ok") {
+          this.wake();
+          return json({ ok: true });
+        }
+        return json({ error: result }, { denied: 403, gone: 404, unknown: 404 }[result]);
       }
       case "/send": {
         const body = (await request.json().catch(() => null)) as {
           role?: unknown;
           token?: unknown;
           msg?: unknown;
+          to?: unknown;
         } | null;
         if (
           !body ||
@@ -67,12 +96,15 @@ export class Room implements DurableObject {
         ) {
           return json({ error: "bad-request" }, 400);
         }
-        const result = this.room.send(body.role, body.token, body.msg, now);
+        const to = typeof body.to === "string" ? body.to : undefined;
+        const result = this.room.send(body.role, body.token, body.msg, now, to);
         if (result === "ok") {
           this.wake();
           return json({ ok: true });
         }
-        const status = { denied: 403, "too-big": 413, full: 429, gone: 404 }[result];
+        const status = { denied: 403, "too-big": 413, full: 429, gone: 404, "no-guest": 404 }[
+          result
+        ];
         return json({ error: result }, status);
       }
       case "/poll": {
@@ -86,7 +118,7 @@ export class Room implements DurableObject {
           if (result === "denied") return json({ error: "denied" }, 403);
           if (result === "gone") return json({ error: "gone" }, 404);
           if (result.messages.length > 0 || Date.now() >= deadline) {
-            return json({ ...result, guest: this.room.hasGuest });
+            return json({ ...result, guest: this.room.hasGuest, guests: this.room.guestCount });
           }
           await new Promise<void>((resolve) => {
             const done = () => {

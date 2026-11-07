@@ -42,7 +42,7 @@ export default {
       }
       return json({ error: "busy" }, 503);
     }
-    const match = /^\/v1\/rooms\/([^/]+)\/(join|send|poll)$/.exec(url.pathname);
+    const match = /^\/v1\/rooms\/([^/]+)\/(join|send|poll|kick)$/.exec(url.pathname);
     if (!match) return json({ error: "not-found" }, 404);
     const code = normalize(decodeURIComponent(match[1]!));
     if (!CODE.test(code)) return json({ error: "bad-code" }, 400);

@@ -15,7 +15,7 @@ Use English for replies, issues, pull requests, commits and docs.
 ## Commands
 
 - `pnpm check`: lint, format check, types, Vitest, rustfmt, clippy (`-D warnings`), cargo tests.
-- `pnpm test:e2e`: Playwright on Chromium and WebKit (includes axe scans). CI runs it as two jobs, `pnpm test:e2e:smoke` (core flows) and `pnpm test:e2e:additional` (the `tour*.spec.ts` guided-tour tests, `ai-install.spec.ts` and the stem-separation specs); new specs go in smoke unless they belong to one of those (groups: `playwright.config.ts`).
+- `pnpm test:e2e`: Playwright on Chromium and WebKit (includes axe scans). CI runs it as two jobs, `pnpm test:e2e:smoke` (core flows) and `pnpm test:e2e:additional` (the `tour*.spec.ts` guided-tour tests, `ai-install.spec.ts`, the stem-separation specs and the `practice-together*.spec.ts` specs); new specs go in smoke unless they belong to one of those (groups: `playwright.config.ts`).
 - `pnpm licenses:check`: licence policy (npm and cargo-deny). Disallowed licences fail CI.
 - `pnpm tauri build`: macOS bundle.
 

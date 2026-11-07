@@ -307,9 +307,11 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
             address: "192.168.1.5:50123",
           };
         case "practice_join":
+        case "practice_kick":
         case "practice_leave":
         case "practice_signal_join":
         case "practice_signal_send":
+        case "practice_signal_kick":
         case "practice_signal_leave":
           return null;
         case "practice_send":

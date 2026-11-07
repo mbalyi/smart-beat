@@ -123,10 +123,18 @@ declare global {
     /** Practice together (#158): the simulated other player (see e2e/tauri-mock.js). */
     __practiceTogether: {
       sent: { type: string; [key: string]: unknown }[];
+      /** The connection each sent frame went to. */
+      sentTo: number[];
+      /** The guests the host kicked (`ban`: also turned their address away). */
+      kicked: { conn: number; ban: boolean }[];
       auto: boolean;
-      frame: (msg: Record<string, unknown>) => number;
-      state: (state: "connecting" | "open" | "reconnecting" | "closed", detail?: string) => number;
-      sentOf: (type: string) => { type: string; [key: string]: unknown }[];
+      frame: (msg: Record<string, unknown>, conn?: number) => number;
+      state: (
+        state: "connecting" | "open" | "reconnecting" | "closed",
+        detail?: string,
+        conn?: number,
+      ) => number;
+      sentOf: (type: string, conn?: number) => { type: string; [key: string]: unknown }[];
     };
     __emitMenuAction: (action: MenuAction) => number;
     __emitTauriEvent: (event: string, payload: unknown) => number;

@@ -268,6 +268,8 @@ describe("event details", () => {
       ["practice_together_host", "192.168.1.20"],
       ["practice_together_join", "ABCD-EFGH-JKMN-PQRS-TVWX"],
       ["practice_together_setup_failed", "wifi"],
+      ["practice_together_rejoin", "ABCD-EFGH"],
+      ["practice_together_remove", "Johnny"],
       ["practice_together_sync", "Johnny"],
       ["practice_together_preset", "fast"],
       ["practice_together_play", "My Song"],

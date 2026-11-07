@@ -154,6 +154,10 @@ pub enum Event {
     PracticeTogetherJoin,
     /// Hosting or joining could not be set up (#158); detail: same network or internet.
     PracticeTogetherSetupFailed,
+    /// A guest came back to a session it was in (#158); detail: same network or internet.
+    PracticeTogetherRejoin,
+    /// The host removed a player (#158); detail: `kick` (it may come back) or `ban`.
+    PracticeTogetherRemove,
     /// A session got its first synchronized clock (#158); detail: the sync-quality word.
     PracticeTogetherSync,
     /// The audio quality was chosen in a session (#158); detail: the choice.
@@ -228,10 +232,12 @@ impl Event {
             Self::PracticeTogetherOpen => &["menu", "toolbar", "start"],
             Self::PracticeTogetherHost
             | Self::PracticeTogetherJoin
-            | Self::PracticeTogetherSetupFailed => &["lan", "internet"],
+            | Self::PracticeTogetherSetupFailed
+            | Self::PracticeTogetherRejoin => &["lan", "internet"],
+            Self::PracticeTogetherRemove => &["kick", "ban"],
             Self::PracticeTogetherSync => &["excellent", "good", "unstable"],
             Self::PracticeTogetherPreset => &["auto", "tight", "balanced", "safe"],
-            Self::PracticeTogetherEnd => &["left", "peer_left", "dropped", "failed"],
+            Self::PracticeTogetherEnd => &["left", "peer_left", "dropped", "failed", "removed"],
             Self::PracticeTogetherLength => &["under_1m", "1_5m", "5_15m", "15_60m", "over_60m"],
             Self::PracticeTogetherProblem => &[
                 "score", "version", "declined", "busy", "dropped", "poor", "late", "woke", "tab",
@@ -1027,6 +1033,8 @@ mod tests {
             "practice_together_host",
             "practice_together_join",
             "practice_together_setup_failed",
+            "practice_together_rejoin",
+            "practice_together_remove",
             "practice_together_sync",
             "practice_together_preset",
             "practice_together_play",
@@ -1704,6 +1712,8 @@ mod tests {
             ("practice_together_host", vec!["lan", "internet"]),
             ("practice_together_join", vec!["lan", "internet"]),
             ("practice_together_setup_failed", vec!["lan", "internet"]),
+            ("practice_together_rejoin", vec!["lan", "internet"]),
+            ("practice_together_remove", vec!["kick", "ban"]),
             (
                 "practice_together_sync",
                 vec!["excellent", "good", "unstable"],
@@ -1715,7 +1725,7 @@ mod tests {
             ("practice_together_play", vec![]),
             (
                 "practice_together_end",
-                vec!["left", "peer_left", "dropped", "failed"],
+                vec!["left", "peer_left", "dropped", "failed", "removed"],
             ),
             (
                 "practice_together_length",

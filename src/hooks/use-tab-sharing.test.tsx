@@ -1,9 +1,10 @@
 import { act, renderHook } from "@testing-library/react";
 
 import { useTabSharing, type ReceivedScore } from "@/hooks/use-tab-sharing";
-import { useScoreDocuments } from "@/hooks/use-score-document";
+import { isUntouchedBlank, useScoreDocuments } from "@/hooks/use-score-document";
 import { scoreFingerprint } from "@/lib/practice-together/fingerprint";
 import { loadSong } from "@/lib/import";
+import { writeAlphaTex } from "@/lib/export/alphatex";
 import { mixFromScore } from "@/lib/score/mixer";
 import { fixtureBytes } from "@/test/score";
 
@@ -141,5 +142,81 @@ describe("opening a received tab", () => {
       ),
     );
     expect(result.current.songs).toHaveLength(1);
+  });
+});
+
+describe("two tabs with the same name and different content", () => {
+  /** The same song, named the same, with one note changed (the copy in the cloud library). */
+  async function editedCopy() {
+    const score = await practiceSong();
+    const beat = score.tracks[0]!.staves[0]!.bars.flatMap((bar) => bar.voices[0]!.beats).find(
+      (b) => b.notes.length > 0,
+    )!;
+    beat.notes[0]!.fret += 2;
+    return score;
+  }
+
+  it("gives the guest the host's version, not the one it has open under the same name", async () => {
+    const hostScore = await practiceSong();
+    const guestScore = await editedCopy();
+    expect(writeAlphaTex(hostScore)).not.toBe(writeAlphaTex(guestScore));
+    // Different content, so a different fingerprint: the guest does not say it already has it.
+    expect((await scoreFingerprint(hostScore)).key).not.toBe(
+      (await scoreFingerprint(guestScore)).key,
+    );
+
+    const host = setup(hostScore);
+    const offer = await host.hook.result.current.hooks.offer!();
+    const docs = renderHook(() => useScoreDocuments());
+    await act(() => docs.result.current.openScore(guestScore, "Practice song"));
+    const guest = setup(guestScore);
+    guest.receiveRef.current = (tab) => void docs.result.current.openReceived(tab);
+
+    expect(await guest.hook.result.current.hooks.receive!({ ...offer!, from: "Mark" })).toBeNull();
+    await act(async () => guest.hook.result.current.hooks.opened!());
+
+    // Next to its own tab: the host's version is shown, and its notes are the host's.
+    await vi.waitFor(() => expect(docs.result.current.songs).toHaveLength(2));
+    const shown = docs.result.current.song!;
+    expect(shown.received).toEqual({ from: "Mark", key: offer!.key });
+    expect(shown.name).toBe("Practice song (from Mark)");
+    expect((await scoreFingerprint(shown.score)).key).not.toBe(
+      (await scoreFingerprint(guestScore)).key,
+    );
+    expect(docs.result.current.songs[0]!.score).toBe(guestScore);
+  });
+});
+
+describe("a blank tab and a received tab", () => {
+  it("recognises only an untouched blank tab", async () => {
+    const { result } = renderHook(() => useScoreDocuments());
+    await act(() => result.current.newSong());
+    const blank = result.current.song!;
+    expect(isUntouchedBlank(blank, false)).toBe(true);
+    // Edited, saved, opened from a file or received: all of these are somebody's work.
+    expect(isUntouchedBlank(blank, true)).toBe(false);
+    expect(isUntouchedBlank({ ...blank, isNew: false, fileKey: "k", path: "/a.gp" }, false)).toBe(
+      false,
+    );
+    expect(isUntouchedBlank({ ...blank, unsaved: true }, false)).toBe(false);
+    expect(isUntouchedBlank({ ...blank, received: { from: "Mark", key: "k" } }, false)).toBe(false);
+  });
+
+  it("takes the blank tab's place when told to, and keeps other tabs", async () => {
+    const score = await practiceSong();
+    const { result } = renderHook(() => useScoreDocuments());
+    await act(() => result.current.newSong());
+    const blankId = result.current.song!.id;
+    await act(() =>
+      result.current.openReceived(
+        { score, name: "Riff", key: "k1", from: "Mark" },
+        { replaceId: blankId },
+      ),
+    );
+    expect(result.current.songs.map((s) => s.name)).toEqual(["Riff (from Mark)"]);
+
+    // Without a blank tab to replace, the received one is added next to the others.
+    await act(() => result.current.openReceived({ score, name: "Riff", key: "k2", from: "Mark" }));
+    expect(result.current.songs).toHaveLength(2);
   });
 });

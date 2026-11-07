@@ -7,7 +7,13 @@ import { storeQualityChoice } from "@/lib/practice-together/quality-presets";
 import { hostOverInternet, joinOverInternet, rtcSupported } from "@/lib/practice-together/rtc";
 import type { Command } from "@/lib/practice-together/protocol";
 import { Session, type SessionHooks } from "@/lib/practice-together/session";
-import { memoryPair, openPair, type PeerTransport } from "@/lib/practice-together/transport";
+import {
+  memoryAcceptor,
+  memoryPair,
+  openPair,
+  type GuestLink,
+  type PeerTransport,
+} from "@/lib/practice-together/transport";
 import type { Score } from "@/lib/score/model";
 import { initialPractice, type PracticeState } from "@/lib/score/practice";
 import { isTauri, practiceSignalAvailable } from "@/lib/tauri";
@@ -54,6 +60,16 @@ function fakePlayer() {
     getTick: vi.fn(() => 960),
     barStartTick: vi.fn((index: number) => index * 3840),
   } satisfies TogetherPlayer;
+}
+
+/** The app listens on the local network; `arrive` lets a pair's host end connect as a guest. */
+function listening(
+  pair: [PeerTransport, PeerTransport],
+  info = { code: CODE, link: "l", address: "a" },
+) {
+  const room = memoryAcceptor();
+  vi.mocked(hostOnLan).mockResolvedValue({ acceptor: room.acceptor, info });
+  return { ...room, connect: () => room.arrive(pair[0] as GuestLink) };
 }
 
 /** The other computer: a real session on the far end of the pipe, recording what it is asked. */
@@ -114,9 +130,10 @@ type Setup = ReturnType<typeof setup>;
 /** The app hosts on the local network and `guest` joins; both are synchronized when this returns. */
 async function hosting(): Promise<Setup & { guest: ReturnType<typeof peer> }> {
   const pair = memoryPair({ up: 1, down: 1 });
-  vi.mocked(hostOnLan).mockResolvedValue({
-    transport: pair[0],
-    info: { code: CODE, link: `smartbeat://join/${CODE}`, address: "10.0.0.2:5000" },
+  const room = listening(pair, {
+    code: CODE,
+    link: `smartbeat://join/${CODE}`,
+    address: "10.0.0.2:5000",
   });
   const context = setup();
   await act(async () => {
@@ -124,6 +141,7 @@ async function hosting(): Promise<Setup & { guest: ReturnType<typeof peer> }> {
   });
   const guest = peer("guest", pair[1], "Bass laptop");
   openPair(pair);
+  room.connect();
   await waitFor(() => expect(context.result.current.approval).not.toBeNull());
   act(() => context.result.current.approval!.answer(true));
   await waitFor(() => expect(context.result.current.state?.phase).toBe("synchronized"), {
@@ -168,10 +186,7 @@ beforeEach(() => {
 describe("usePracticeTogether: hosting", () => {
   it("exposes the room code and waits for a guest", async () => {
     const pair = memoryPair();
-    vi.mocked(hostOnLan).mockResolvedValue({
-      transport: pair[0],
-      info: { code: CODE, link: `smartbeat://join/${CODE}`, address: "10.0.0.2:5000" },
-    });
+    listening(pair, { code: CODE, link: `smartbeat://join/${CODE}`, address: "10.0.0.2:5000" });
     const { result } = setup();
     expect(result.current.state).toBeNull();
     await act(async () => {
@@ -184,8 +199,10 @@ describe("usePracticeTogether: hosting", () => {
   });
 
   it("hosts over the internet with the short code", async () => {
-    const pair = memoryPair();
-    vi.mocked(hostOverInternet).mockResolvedValue({ transport: pair[0], code: "ABCD-EFGH" });
+    vi.mocked(hostOverInternet).mockResolvedValue({
+      acceptor: memoryAcceptor().acceptor,
+      code: "ABCD-EFGH",
+    });
     const { result } = setup();
     await act(async () => {
       await result.current.host("internet");
@@ -203,16 +220,14 @@ describe("usePracticeTogether: hosting", () => {
 
   it("keeps a guest out on no", async () => {
     const pair = memoryPair({ up: 1, down: 1 });
-    vi.mocked(hostOnLan).mockResolvedValue({
-      transport: pair[0],
-      info: { code: CODE, link: "l", address: "a" },
-    });
+    const room = listening(pair);
     const { result } = setup();
     await act(async () => {
       await result.current.host("lan");
     });
     const guest = peer("guest", pair[1], "Stranger");
     openPair(pair);
+    room.connect();
     await waitFor(() => expect(result.current.approval?.name).toBe("Stranger"));
     expect(result.current.state?.phase).toBe("approving");
     act(() => result.current.approval!.answer(false));
@@ -263,7 +278,11 @@ describe("usePracticeTogether: joining", () => {
     await act(async () => {
       await result.current.join("internet", "ABCD-EFGH");
     });
-    expect(joinOverInternet).toHaveBeenCalledWith("ABCD-EFGH");
+    expect(joinOverInternet).toHaveBeenCalledWith(
+      "ABCD-EFGH",
+      undefined,
+      expect.stringMatching(/^[0-9a-f]{16}$/),
+    );
     expect(result.current.state?.role).toBe("guest");
     expect(result.current.state?.phase).toBe("syncing");
   });
@@ -307,10 +326,7 @@ describe("usePracticeTogether: the host's transport", () => {
 
   it("is not handled while a host is still waiting for a guest", async () => {
     const pair = memoryPair();
-    vi.mocked(hostOnLan).mockResolvedValue({
-      transport: pair[0],
-      info: { code: CODE, link: "l", address: "a" },
-    });
+    listening(pair);
     const { result } = setup();
     await act(async () => {
       await result.current.host("lan");
@@ -431,6 +447,43 @@ describe("usePracticeTogether: the host's transport", () => {
     expect(guest.log.scheduled[0]).toMatchObject({ action: "seek", tick: 7680 });
   });
 
+  it("starts again, stops and moves after the song has played to its end", async () => {
+    const { result, player, guest } = await hosting();
+    // The song plays, reaches its end and stops by itself.
+    player.isPlaying.mockReturnValue(true);
+    player.isPlaying.mockReturnValue(false);
+    player.getTick.mockReturnValue(0);
+    act(() => void result.current.intercept({ kind: "playPause" }));
+    await waitFor(() => expect(guest.log.scheduled[0]?.action).toBe("play"), { timeout: 3000 });
+    await waitFor(() => expect(player.playPause).toHaveBeenCalledTimes(1), { timeout: 3000 });
+    act(() => void result.current.intercept({ kind: "stop" }));
+    await waitFor(() => expect(guest.log.scheduled[1]?.action).toBe("stop"), { timeout: 3000 });
+    await waitFor(() => expect(player.stop).toHaveBeenCalledTimes(1), { timeout: 3000 });
+    act(() => void result.current.intercept({ kind: "seekBar", bar: 2 }));
+    await waitFor(() => expect(guest.log.scheduled[2]?.action).toBe("seek"), { timeout: 3000 });
+    await waitFor(() => expect(player.seekToTick).toHaveBeenCalledWith(2 * 3840), {
+      timeout: 3000,
+    });
+  });
+
+  it("says so when a start cannot happen, instead of doing nothing", async () => {
+    const { result, guest } = await hosting();
+    // The guest has another version of the tab: a start is refused.
+    act(() => void guest.session.setScore({ key: "score-b", bars: 8 }));
+    await waitFor(() => expect(result.current.state?.problem?.kind).toBe("score"), {
+      timeout: 3000,
+    });
+    vi.mocked(toast.info).mockClear();
+    act(() => void result.current.intercept({ kind: "playPause" }));
+    await waitFor(() =>
+      expect(toast.info).toHaveBeenCalledWith(
+        "The other computer has a different version of this tab yet. Wait for the tab to arrive.",
+        { id: "together-start" },
+      ),
+    );
+    expect(guest.log.scheduled).toEqual([]);
+  });
+
   it("gets its sound ready when the click that hosts arrives", async () => {
     const { player } = await hosting();
     expect(player.warmUpAudio).toHaveBeenCalled();
@@ -528,6 +581,23 @@ describe("usePracticeTogether: the guest", () => {
     expect(player.seekToTick).not.toHaveBeenCalled();
   });
 
+  it("asks the host again after the song has played to its end", async () => {
+    const { result, player, host } = await joining();
+    player.isPlaying.mockReturnValue(true);
+    player.isPlaying.mockReturnValue(false);
+    act(() => {
+      result.current.intercept({ kind: "playPause" });
+      result.current.intercept({ kind: "stop" });
+      result.current.intercept({ kind: "seekBar", bar: 1 });
+    });
+    await waitFor(() => expect(host.log.requested).toHaveLength(3), { timeout: 3000 });
+    expect(host.log.requested).toEqual([
+      ["play", undefined],
+      ["stop", 0],
+      ["seek", 3840],
+    ]);
+  });
+
   it("gets its sound ready when the click that joins arrives", async () => {
     const { player } = await joining();
     expect(player.warmUpAudio).toHaveBeenCalled();
@@ -591,10 +661,7 @@ describe("usePracticeTogether: ending and remembering", () => {
   it("starting again ends the session before", async () => {
     const { result, guest } = await hosting();
     const pair = memoryPair();
-    vi.mocked(hostOnLan).mockResolvedValue({
-      transport: pair[0],
-      info: { code: "ZZZZ", link: "l", address: "a" },
-    });
+    listening(pair, { code: "ZZZZ", link: "l", address: "a" });
     await act(async () => {
       await result.current.host("lan");
     });

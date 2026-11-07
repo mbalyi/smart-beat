@@ -12,7 +12,7 @@ import hero from "@/assets/features/practice-together.png";
 import logo from "@/assets/practice-together/logo.webp";
 
 /** The frame of the dialogs: the neon ring and a height that stays put between steps. */
-const FRAME = `${DIALOG_NEON} h-[min(40rem,calc(100dvh-2rem))] sm:max-w-3xl`;
+const FRAME = `${DIALOG_NEON} h-[min(46rem,calc(100dvh-2rem))] sm:max-w-3xl`;
 
 /**
  * The window of Practice together, shared by the dialog of an open tab and the one of the start

@@ -1400,26 +1400,44 @@ export const practiceHost = () => call<PracticeHostInfo>("practice_host");
 /** Joins a host by its room code. */
 export const practiceJoin = (code: string) => call<void>("practice_join", { code });
 
-/** Sends one frame to the other app. False when there is no connection right now. */
-export const practiceSend = (text: string) => call<boolean>("practice_send", { text });
+/**
+ * Sends one frame to the other app. A host names the guest's connection (`conn`, as it heard
+ * it in `onPracticeFrame`). False when there is no connection right now.
+ */
+export const practiceSend = (text: string, conn?: number) =>
+  call<boolean>("practice_send", { text, conn: conn ?? null });
+
+/** The host ends one guest's connection. With `ban`, that guest's address is turned away too. */
+export const practiceKick = (conn: number, ban: boolean) =>
+  call<void>("practice_kick", { conn, ban });
 
 /** Ends the session. */
 export const practiceLeave = () => call<void>("practice_leave");
 
-/** Frames from the other app. Resolves to an unsubscribe function. */
-export async function onPracticeFrame(handler: (text: string) => void): Promise<UnlistenFn> {
-  if (!isTauri()) return () => {};
-  return listen<string>(PRACTICE_FRAME_EVENT, (event) => handler(event.payload));
-}
-
-/** The link going up or down. Resolves to an unsubscribe function. */
-export async function onPracticeState(
-  handler: (state: PracticeLinkState, detail?: string) => void,
+/**
+ * Frames from the other app. `conn` says which connection it came on: a host has one per guest,
+ * a guest one. Resolves to an unsubscribe function.
+ */
+export async function onPracticeFrame(
+  handler: (text: string, conn: number) => void,
 ): Promise<UnlistenFn> {
   if (!isTauri()) return () => {};
-  return listen<{ state: PracticeLinkState; detail: string | null }>(
+  return listen<{ conn: number; text: string }>(PRACTICE_FRAME_EVENT, (event) =>
+    handler(event.payload.text, event.payload.conn),
+  );
+}
+
+/**
+ * A connection going up or down (`conn` 0 is the link itself). A host's new connection says
+ * where the guest is in `detail`. Resolves to an unsubscribe function.
+ */
+export async function onPracticeState(
+  handler: (state: PracticeLinkState, detail: string | undefined, conn: number) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<{ conn: number; state: PracticeLinkState; detail: string | null }>(
     PRACTICE_STATE_EVENT,
-    (event) => handler(event.payload.state, event.payload.detail ?? undefined),
+    (event) => handler(event.payload.state, event.payload.detail ?? undefined, event.payload.conn),
   );
 }
 
@@ -1433,19 +1451,38 @@ export const practiceSignalAvailable = () =>
 /** Makes a meeting room for Practice together over the internet. Returns its code. */
 export const practiceSignalCreate = () => call<string>("practice_signal_create");
 
-/** Joins a meeting room by its code. */
-export const practiceSignalJoin = (code: string) => call<void>("practice_signal_join", { code });
+/**
+ * Joins a meeting room by its code. `guest` is this app's stable id: with it the app takes its
+ * old place after it dropped out, and the host can ban it.
+ */
+export const practiceSignalJoin = (code: string, guest?: string) =>
+  call<void>("practice_signal_join", { code, guest: guest ?? null });
 
-/** Hands a setup message (a WebRTC offer, answer or candidate) to the other app. */
-export const practiceSignalSend = (text: string) => call<void>("practice_signal_send", { text });
+/**
+ * Hands a setup message (a WebRTC offer, answer or candidate) to the other app. A host names
+ * the guest (`to`, as it heard it in `onPracticeSignal`).
+ */
+export const practiceSignalSend = (text: string, to?: string) =>
+  call<void>("practice_signal_send", { text, to: to ?? null });
+
+/** The host removes a guest from the meeting room; with `ban`, its id can never come back. */
+export const practiceSignalKick = (peer: string, ban: boolean) =>
+  call<void>("practice_signal_kick", { peer, ban });
 
 /** Leaves the meeting room. */
 export const practiceSignalLeave = () => call<void>("practice_signal_leave");
 
-/** Setup messages from the other app. Resolves to an unsubscribe function. */
-export async function onPracticeSignal(handler: (text: string) => void): Promise<UnlistenFn> {
+/**
+ * Setup messages from the other app. A host hears which guest wrote it (`from`). Resolves to an
+ * unsubscribe function.
+ */
+export async function onPracticeSignal(
+  handler: (text: string, from?: string) => void,
+): Promise<UnlistenFn> {
   if (!isTauri()) return () => {};
-  return listen<string>(PRACTICE_SIGNAL_EVENT, (event) => handler(event.payload));
+  return listen<{ from: string | null; text: string }>(PRACTICE_SIGNAL_EVENT, (event) =>
+    handler(event.payload.text, event.payload.from ?? undefined),
+  );
 }
 
 /** The meeting room closed or could not be reached. Resolves to an unsubscribe function. */

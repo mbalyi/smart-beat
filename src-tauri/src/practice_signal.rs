@@ -1,9 +1,10 @@
 //! Practice together over the internet (#158): the page's end of the signaling Worker.
 //!
-//! Two apps that are not on the same network need a place to meet before they can open a direct
-//! WebRTC connection. The Worker (`signaling/`) is that place: a room with two mailboxes that
-//! carries a few short setup messages (offer, answer, network candidates) and nothing else. The
-//! tab, the playback commands and the clock exchange never pass through it.
+//! Apps that are not on the same network need a place to meet before they can open a direct
+//! WebRTC connection. The Worker (`signaling/`) is that place: a room with a mailbox for the host
+//! and one for each guest (up to nine) that carries a few short setup messages (offer, answer,
+//! network candidates) and nothing else. The tab, the playback commands and the clock exchange
+//! never pass through it. The host tells its guests apart by the address the room gives each.
 //!
 //! The requests are made from here, not from the page, so the page's content security policy
 //! stays closed to every other address. The page hands over the setup messages with
@@ -14,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::error::{CommandError, ErrorKind};
@@ -34,8 +35,10 @@ const POLL_FAILURES: u32 = 6;
 pub enum SignalError {
     /// The room does not exist (a wrong or an old code).
     NotFound,
-    /// The room already has its guest.
+    /// The room already has all its guests.
     Full,
+    /// The host has banned this app from the room.
+    Banned,
     /// The Worker could not be reached or answered something unexpected.
     Network(String),
 }
@@ -44,7 +47,8 @@ impl std::fmt::Display for SignalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound => f.write_str("There is no room with that code. It may have expired."),
-            Self::Full => f.write_str("That room already has two players."),
+            Self::Full => f.write_str("That session is full (ten players)."),
+            Self::Banned => f.write_str("The host has blocked you from this session."),
             Self::Network(why) => write!(f, "Could not reach the meeting service ({why})."),
         }
     }
@@ -55,6 +59,7 @@ impl From<ureq::Error> for SignalError {
         match error {
             ureq::Error::StatusCode(404) => Self::NotFound,
             ureq::Error::StatusCode(409) => Self::Full,
+            ureq::Error::StatusCode(403) => Self::Banned,
             other => Self::Network(other.to_string()),
         }
     }
@@ -63,7 +68,11 @@ impl From<ureq::Error> for SignalError {
 /// What the room says to the page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SignalEvent {
-    Message(String),
+    /// A setup message. A host hears which guest (`from`, its address in the room) wrote it.
+    Message {
+        from: Option<String>,
+        text: String,
+    },
     Failed(String),
 }
 
@@ -84,6 +93,9 @@ struct Joined {
 struct Polled {
     #[serde(default)]
     messages: Vec<String>,
+    /// Who each message is from (a guest's address in the room, or `host`).
+    #[serde(default)]
+    from: Vec<String>,
     #[serde(default)]
     next: u64,
 }
@@ -131,13 +143,23 @@ impl Signal {
         Ok(signal)
     }
 
-    /// Joins a room by its code (any case, with or without a dash).
-    pub fn join(base: &str, code: &str, sink: SignalSink) -> Result<Arc<Self>, SignalError> {
+    /// Joins a room by its code (any case, with or without a dash). `guest` is this app's stable
+    /// id: it lets the app take its old place again after it dropped out, and lets the host ban it.
+    pub fn join(
+        base: &str,
+        code: &str,
+        guest: Option<&str>,
+        sink: SignalSink,
+    ) -> Result<Arc<Self>, SignalError> {
         let code = normalize(code);
         let url = format!("{}/v1/rooms/{code}/join", base.trim_end_matches('/'));
+        let body = match guest {
+            Some(id) => serde_json::json!({ "guest": id }),
+            None => serde_json::json!({}),
+        };
         let joined: Joined = agent()
             .post(&url)
-            .send_empty()?
+            .send_json(body)?
             .body_mut()
             .read_json()
             .map_err(|e| SignalError::Network(e.to_string()))?;
@@ -181,8 +203,9 @@ impl Signal {
                     Ok(polled) => {
                         failures = 0;
                         after = polled.next.max(after);
-                        for message in polled.messages {
-                            sink(SignalEvent::Message(message));
+                        for (i, text) in polled.messages.into_iter().enumerate() {
+                            let from = polled.from.get(i).cloned().filter(|f| f != "host");
+                            sink(SignalEvent::Message { from, text });
                         }
                     }
                     Err(SignalError::NotFound) => {
@@ -202,13 +225,29 @@ impl Signal {
         });
     }
 
-    /// Hands one setup message to the other app.
-    pub fn send(&self, text: &str) -> Result<(), SignalError> {
+    /// Hands one setup message to the other app. A host names the guest (`to`, as it heard it
+    /// in `from`); a guest leaves it out.
+    pub fn send(&self, text: &str, to: Option<&str>) -> Result<(), SignalError> {
         let url = format!("{}/v1/rooms/{}/send", self.base, self.code);
-        self.agent.post(&url).send_json(serde_json::json!({
+        let mut body = serde_json::json!({
             "role": self.role,
             "token": self.token,
             "msg": text,
+        });
+        if let Some(to) = to {
+            body["to"] = serde_json::Value::String(to.to_owned());
+        }
+        self.agent.post(&url).send_json(body)?;
+        Ok(())
+    }
+
+    /// The host removes a guest from the room; with `ban`, the room never lets its id back in.
+    pub fn kick(&self, peer: &str, ban: bool) -> Result<(), SignalError> {
+        let url = format!("{}/v1/rooms/{}/kick", self.base, self.code);
+        self.agent.post(&url).send_json(serde_json::json!({
+            "token": self.token,
+            "peer": peer,
+            "ban": ban,
         }))?;
         Ok(())
     }
@@ -258,10 +297,16 @@ impl SignalState {
     }
 }
 
+#[derive(Serialize, Clone)]
+struct MessagePayload {
+    from: Option<String>,
+    text: String,
+}
+
 fn emitter<R: Runtime>(app: AppHandle<R>) -> SignalSink {
     Arc::new(move |event| match event {
-        SignalEvent::Message(text) => {
-            let _ = app.emit(SIGNAL_EVENT, text);
+        SignalEvent::Message { from, text } => {
+            let _ = app.emit(SIGNAL_EVENT, MessagePayload { from, text });
         }
         SignalEvent::Failed(why) => {
             let _ = app.emit(SIGNAL_FAILED_EVENT, why);
@@ -281,7 +326,7 @@ fn base() -> Result<&'static str, CommandError> {
 fn failure(error: SignalError) -> CommandError {
     let kind = match error {
         SignalError::NotFound => ErrorKind::InvalidCode,
-        SignalError::Full | SignalError::Network(_) => ErrorKind::Network,
+        SignalError::Full | SignalError::Banned | SignalError::Network(_) => ErrorKind::Network,
     };
     CommandError::new(kind, error.to_string())
 }
@@ -304,28 +349,43 @@ pub fn practice_signal_create<R: Runtime>(
     Ok(code)
 }
 
-/// Joins a room by its code.
+/// Joins a room by its code. `guest` is this app's stable id (see [`Signal::join`]).
 #[tauri::command(async)]
 pub fn practice_signal_join<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, SignalState>,
     code: String,
+    guest: Option<String>,
 ) -> Result<(), CommandError> {
-    let signal = Signal::join(base()?, &code, emitter(app)).map_err(failure)?;
+    let signal = Signal::join(base()?, &code, guest.as_deref(), emitter(app)).map_err(failure)?;
     state.set(Some(signal));
     Ok(())
 }
 
-/// Sends a setup message to the other app.
+/// Sends a setup message to the other app. A host names the guest (`to`).
 #[tauri::command(async)]
 pub fn practice_signal_send(
     state: State<'_, SignalState>,
     text: String,
+    to: Option<String>,
 ) -> Result<(), CommandError> {
     let signal = state
         .get()
         .ok_or_else(|| CommandError::new(ErrorKind::Network, "There is no room."))?;
-    signal.send(&text).map_err(failure)
+    signal.send(&text, to.as_deref()).map_err(failure)
+}
+
+/// The host removes a guest from the room (and bans its id with `ban`).
+#[tauri::command(async)]
+pub fn practice_signal_kick(
+    state: State<'_, SignalState>,
+    peer: String,
+    ban: bool,
+) -> Result<(), CommandError> {
+    let signal = state
+        .get()
+        .ok_or_else(|| CommandError::new(ErrorKind::Network, "There is no room."))?;
+    signal.kick(&peer, ban).map_err(failure)
 }
 
 /// Leaves the room.
@@ -416,19 +476,29 @@ mod tests {
         let (base, seen) = fake_worker(vec![
             ("/v1/rooms", 200, r#"{"code":"ABCDEFGH","token":"tok"}"#),
             ("/send", 200, r#"{"ok":true}"#),
-            ("/poll", 200, r#"{"messages":["answer","cand"],"next":2}"#),
+            (
+                "/poll",
+                200,
+                r#"{"messages":["answer","cand"],"from":["g2","g3"],"next":2}"#,
+            ),
         ]);
         let (sink, rx) = collect();
         let signal = Signal::create(&base, sink).unwrap();
         assert_eq!(signal.code(), "ABCD-EFGH");
-        signal.send("offer \"quoted\"").unwrap();
+        signal.send("offer \"quoted\"", Some("g2")).unwrap();
         assert_eq!(
             rx.recv_timeout(WAIT).unwrap(),
-            SignalEvent::Message("answer".into())
+            SignalEvent::Message {
+                from: Some("g2".into()),
+                text: "answer".into()
+            }
         );
         assert_eq!(
             rx.recv_timeout(WAIT).unwrap(),
-            SignalEvent::Message("cand".into())
+            SignalEvent::Message {
+                from: Some("g3".into()),
+                text: "cand".into()
+            }
         );
         signal.leave();
         let seen = seen.lock().unwrap();
@@ -437,6 +507,7 @@ mod tests {
         assert_eq!(body["role"], "host");
         assert_eq!(body["token"], "tok");
         assert_eq!(body["msg"], "offer \"quoted\"");
+        assert_eq!(body["to"], "g2");
         assert!(
             seen.iter()
                 .any(|(p, _)| p.contains("/poll?role=host&token=tok&after=0"))
@@ -447,32 +518,81 @@ mod tests {
     fn a_guest_joins_with_a_typed_code_and_hears_the_room_close() {
         let (base, seen) = fake_worker(vec![("/join", 200, r#"{"token":"gt"}"#)]);
         let (sink, rx) = collect();
-        let signal = Signal::join(&base, "abcd-efgh", sink).unwrap();
+        let signal = Signal::join(&base, "abcd-efgh", Some("00ff00ff"), sink).unwrap();
         assert_eq!(signal.code(), "ABCD-EFGH");
         // The fake has no poll answer, so it says 404: the room has closed.
         assert_eq!(
             rx.recv_timeout(WAIT).unwrap(),
             SignalEvent::Failed("The room has closed.".into())
         );
-        assert!(
-            seen.lock()
-                .unwrap()
-                .iter()
-                .any(|(p, _)| p == "/v1/rooms/ABCDEFGH/join")
+        let seen = seen.lock().unwrap();
+        let joined = seen
+            .iter()
+            .find(|(p, _)| p == "/v1/rooms/ABCDEFGH/join")
+            .expect("a join request");
+        let body: serde_json::Value = serde_json::from_str(&joined.1).unwrap();
+        assert_eq!(body["guest"], "00ff00ff", "the app's own id goes with it");
+    }
+
+    #[test]
+    fn a_guest_hears_the_host_without_a_sender() {
+        let (base, _) = fake_worker(vec![
+            ("/join", 200, r#"{"token":"gt","peer":"g1"}"#),
+            (
+                "/poll",
+                200,
+                r#"{"messages":["offer"],"from":["host"],"next":1}"#,
+            ),
+        ]);
+        let (sink, rx) = collect();
+        let signal = Signal::join(&base, "ABCDEFGH", None, sink).unwrap();
+        assert_eq!(
+            rx.recv_timeout(WAIT).unwrap(),
+            SignalEvent::Message {
+                from: None,
+                text: "offer".into()
+            }
         );
+        signal.leave();
+    }
+
+    #[test]
+    fn the_host_can_remove_and_ban_a_guest() {
+        let (base, seen) = fake_worker(vec![
+            ("/v1/rooms", 200, r#"{"code":"ABCDEFGH","token":"tok"}"#),
+            ("/kick", 200, r#"{"ok":true}"#),
+        ]);
+        let (sink, _rx) = collect();
+        let signal = Signal::create(&base, sink).unwrap();
+        signal.kick("g4", true).unwrap();
+        signal.leave();
+        let seen = seen.lock().unwrap();
+        let kick = seen.iter().find(|(p, _)| p.ends_with("/kick")).unwrap();
+        let body: serde_json::Value = serde_json::from_str(&kick.1).unwrap();
+        assert_eq!(body["token"], "tok");
+        assert_eq!(body["peer"], "g4");
+        assert_eq!(body["ban"], true);
     }
 
     #[test]
     fn joining_explains_a_missing_or_full_room() {
-        let (base, _) = fake_worker(vec![("/join", 404, "{}"), ("/join", 409, "{}")]);
+        let (base, _) = fake_worker(vec![
+            ("/join", 404, "{}"),
+            ("/join", 409, "{}"),
+            ("/join", 403, "{}"),
+        ]);
         let (sink, _rx) = collect();
         assert_eq!(
-            Signal::join(&base, "ABCDEFGH", Arc::clone(&sink)).err(),
+            Signal::join(&base, "ABCDEFGH", None, Arc::clone(&sink)).err(),
             Some(SignalError::NotFound)
         );
         assert_eq!(
-            Signal::join(&base, "ABCDEFGH", sink).err(),
+            Signal::join(&base, "ABCDEFGH", None, Arc::clone(&sink)).err(),
             Some(SignalError::Full)
+        );
+        assert_eq!(
+            Signal::join(&base, "ABCDEFGH", None, sink).err(),
+            Some(SignalError::Banned)
         );
     }
 

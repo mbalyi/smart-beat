@@ -1,18 +1,26 @@
 /**
- * Practice together over the internet. The two apps meet through a tiny signaling room
+ * Practice together over the internet. The apps meet through a tiny signaling room
  * (`signaling/`, reached from Rust so the page's CSP stays closed), swap a WebRTC offer and
  * answer, and then talk directly over a data channel. Nothing but those setup messages passes
- * through the room.
+ * through the room. A host makes one connection (and one data channel) for each guest.
  */
 import {
   onPracticeSignal,
   onPracticeSignalFailed,
   practiceSignalCreate,
   practiceSignalJoin,
+  practiceSignalKick,
   practiceSignalLeave,
   practiceSignalSend,
 } from "@/lib/tauri";
-import type { LinkState, PeerTransport } from "@/lib/practice-together/transport";
+import type {
+  Block,
+  GuestAcceptor,
+  GuestInfo,
+  GuestLink,
+  LinkState,
+  PeerTransport,
+} from "@/lib/practice-together/transport";
 
 /** The public STUN server used to find this computer's address from outside (no TURN relay). */
 export const STUN_URL = "stun:stun.cloudflare.com:3478";
@@ -22,10 +30,15 @@ export const CONNECT_TIMEOUT_MS = 25_000;
 /** How the page talks to the signaling room. The default goes through Rust. */
 export interface SignalApi {
   create(): Promise<string>;
-  join(code: string): Promise<void>;
-  send(text: string): Promise<void>;
+  /** `guest`: this app's stable id (to come back to its place, and for the host to ban it). */
+  join(code: string, guest?: string): Promise<void>;
+  /** A host names the guest (`to`, as it heard it in `onMessage`). */
+  send(text: string, to?: string): Promise<void>;
+  /** The host removes a guest from the room; with `ban`, its id can never come back. */
+  kick(peer: string, ban: boolean): Promise<void>;
   leave(): Promise<void>;
-  onMessage(listener: (text: string) => void): Promise<() => void>;
+  /** A host hears which guest wrote each message (`from`). */
+  onMessage(listener: (text: string, from?: string) => void): Promise<() => void>;
   onFailed(listener: (why: string) => void): Promise<() => void>;
 }
 
@@ -33,6 +46,7 @@ export const tauriSignal: SignalApi = {
   create: practiceSignalCreate,
   join: practiceSignalJoin,
   send: practiceSignalSend,
+  kick: practiceSignalKick,
   leave: practiceSignalLeave,
   onMessage: onPracticeSignal,
   onFailed: onPracticeSignalFailed,
@@ -70,7 +84,16 @@ function parseSetup(text: string): Setup | null {
   return null;
 }
 
-class RtcTransport implements PeerTransport {
+/** How one connection talks to the room. */
+interface Wire {
+  send(text: string): Promise<void>;
+  /** The connection ends: a guest leaves the room, a host frees the guest's place. */
+  leave(): void;
+}
+
+class RtcTransport implements GuestLink {
+  /** Where the link stands: a host reads it when the first frame of a guest comes. */
+  state: LinkState = "connecting";
   private readonly frames = new Set<(text: string) => void>();
   private readonly states = new Set<(state: LinkState, detail?: string) => void>();
   private readonly stops: (() => void)[] = [];
@@ -84,15 +107,18 @@ class RtcTransport implements PeerTransport {
 
   private readonly env: RtcEnv;
   private readonly host: boolean;
+  private readonly room: Wire;
 
-  constructor(env: RtcEnv, host: boolean) {
+  constructor(env: RtcEnv, host: boolean, wire: Wire) {
     this.env = env;
     this.host = host;
+    this.room = wire;
     this.pc = env.createPeer({ iceServers: [{ urls: STUN_URL }] });
     this.wire();
   }
 
   private emit(state: LinkState, detail?: string) {
+    this.state = state;
     for (const listener of [...this.states]) listener(state, detail);
   }
 
@@ -133,15 +159,17 @@ class RtcTransport implements PeerTransport {
     };
   }
 
-  /** Starts listening to the room. Must run before the room is made or joined. */
+  /** A guest starts listening to the room. Must run before the room is joined. */
   async listen() {
     this.stops.push(
       await this.env.signal.onMessage((text) => void this.receive(text)),
-      await this.env.signal.onFailed((why) => {
-        // Once the channel is open the room is no longer needed.
-        if (!this.opened) this.fail(why);
-      }),
+      await this.env.signal.onFailed((why) => this.roomFailed(why)),
     );
+  }
+
+  /** The room is gone or unreachable. Once the channel is open it is no longer needed. */
+  roomFailed(why: string) {
+    if (!this.opened) this.fail(why);
   }
 
   /** The host's first step: the offer. Also the way to restart a failed connection. */
@@ -170,14 +198,15 @@ class RtcTransport implements PeerTransport {
   private async setup(message: Setup) {
     if (this.ended) return;
     try {
-      await this.env.signal.send(JSON.stringify(message));
+      await this.room.send(JSON.stringify(message));
     } catch (error) {
       if (!this.opened)
         this.fail(error instanceof Error ? error.message : "Could not reach the meeting service.");
     }
   }
 
-  private async receive(text: string) {
+  /** A setup message from the other end. */
+  async receive(text: string) {
     const message = parseSetup(text);
     if (!message || this.ended) return;
     try {
@@ -216,7 +245,7 @@ class RtcTransport implements PeerTransport {
     } catch {
       // Already closed.
     }
-    void this.env.signal.leave().catch(() => {});
+    this.room.leave();
   }
 
   send(text: string) {
@@ -240,32 +269,127 @@ class RtcTransport implements PeerTransport {
   }
 }
 
-/** Makes a room and waits in it. Returns the transport (it opens when the guest arrives) and the code. */
+/** The host's room: a connection for every guest that joins it. */
+class RtcHost implements GuestAcceptor {
+  private readonly peers = new Map<string, RtcTransport>();
+  private readonly arrivals = new Set<(link: GuestLink, info: GuestInfo) => void>();
+  private readonly listening = new Set<(listening: boolean, detail?: string) => void>();
+  private early: GuestLink[] = [];
+  private readonly stops: (() => void)[] = [];
+  private closed = false;
+
+  private readonly env: RtcEnv;
+
+  constructor(env: RtcEnv) {
+    this.env = env;
+  }
+
+  /** Starts listening to the room. Must run before the room is made. */
+  async listen() {
+    this.stops.push(
+      await this.env.signal.onMessage((text, from) => this.route(text, from)),
+      await this.env.signal.onFailed((why) => this.lost(why)),
+    );
+  }
+
+  private route(text: string, from?: string) {
+    if (!from || this.closed) return;
+    try {
+      const value = JSON.parse(text) as { k?: unknown };
+      if (value && value.k === "joined") return this.arrived(from);
+    } catch {
+      // Not ours.
+    }
+    void this.peers.get(from)?.receive(text);
+  }
+
+  /** A guest joined the room: start a connection to it. */
+  private arrived(peer: string) {
+    const transport = new RtcTransport(this.env, true, {
+      send: (text) => this.env.signal.send(text, peer),
+      // The connection ended: free the guest's place in the room.
+      leave: () => {
+        // (A guest the host removed has been freed, or banned, already.)
+        if (this.peers.get(peer) !== transport) return;
+        this.peers.delete(peer);
+        if (!this.closed) void this.env.signal.kick(peer, false).catch(() => {});
+      },
+    });
+    this.peers.set(peer, transport);
+    if (this.arrivals.size === 0) this.early.push(transport);
+    for (const listener of [...this.arrivals]) listener(transport, {});
+    transport.expect();
+    void transport.offer();
+  }
+
+  /** The room is gone: guests that are not connected yet cannot be; the connected ones stay. */
+  private lost(why: string) {
+    for (const transport of this.peers.values()) transport.roomFailed(why);
+    for (const listener of [...this.listening]) listener(false, why);
+  }
+
+  onGuest(listener: (link: GuestLink, info: GuestInfo) => void) {
+    this.arrivals.add(listener);
+    for (const link of this.early.splice(0)) listener(link, {});
+    return () => this.arrivals.delete(listener);
+  }
+
+  onListening(listener: (listening: boolean, detail?: string) => void) {
+    this.listening.add(listener);
+    return () => this.listening.delete(listener);
+  }
+
+  remove(link: GuestLink, block?: Block) {
+    for (const [peer, transport] of this.peers) {
+      if (transport !== link) continue;
+      this.peers.delete(peer);
+      // The room turns this guest's id away from now on (a ban), or just frees its place.
+      void this.env.signal.kick(peer, block !== undefined).catch(() => {});
+    }
+    link.close();
+  }
+
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    for (const stop of this.stops.splice(0)) stop();
+    for (const transport of [...this.peers.values()]) transport.close();
+    this.peers.clear();
+    void this.env.signal.leave().catch(() => {});
+  }
+}
+
+/**
+ * Makes a room and waits in it. Returns the acceptor (a connection for each guest that joins) and
+ * the code to hand out.
+ */
 export async function hostOverInternet(
   env: RtcEnv = defaultEnv,
-): Promise<{ transport: PeerTransport; code: string }> {
-  const transport = new RtcTransport(env, true);
-  await transport.listen();
+): Promise<{ acceptor: GuestAcceptor; code: string }> {
+  const acceptor = new RtcHost(env);
+  await acceptor.listen();
   try {
     const code = await env.signal.create();
-    transport.expect();
-    await transport.offer();
-    return { transport, code };
+    return { acceptor, code };
   } catch (error) {
-    transport.close();
+    acceptor.close();
     throw error;
   }
 }
 
-/** Joins a room by its code. */
+/** Joins a room by its code. `guest` is this app's stable id. */
 export async function joinOverInternet(
   code: string,
   env: RtcEnv = defaultEnv,
+  guest?: string,
 ): Promise<PeerTransport> {
-  const transport = new RtcTransport(env, false);
+  const transport = new RtcTransport(env, false, {
+    send: (text) => env.signal.send(text),
+    leave: () => void env.signal.leave().catch(() => {}),
+  });
   await transport.listen();
   try {
-    await env.signal.join(code);
+    await env.signal.join(code, guest);
     transport.expect();
     return transport;
   } catch (error) {

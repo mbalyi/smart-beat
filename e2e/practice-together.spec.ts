@@ -227,9 +227,7 @@ test.describe("Practice together", () => {
     await hostWithGuest(app);
     await letIn(app);
     await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
-    await app.evaluate(() =>
-      window.__practiceTogether.state("reconnecting", "the guest disconnected"),
-    );
+    await app.evaluate(() => window.__practiceTogether.state("closed", "the guest disconnected"));
     await expect(chip(app)).toHaveAttribute("data-phase", "reconnecting");
     await expect(app.getByRole("dialog").getByRole("alert")).toContainText(
       "The connection dropped",
@@ -446,4 +444,267 @@ test.describe("Practice together: direct connection help", () => {
       });
     }
   }
+});
+
+/** Whether the body of the dialog needs a scrollbar. */
+const scrolls = (dialog: ReturnType<typeof launcher>) =>
+  dialog
+    .locator("[data-slot=dialog-body]")
+    .first()
+    .evaluate((e) => e.scrollHeight - e.clientHeight);
+
+/** The guest `name` connects on connection `conn` and says hello with the host's score. */
+async function connectGuest(app: Page, conn: number, name: string, score: object) {
+  await app.evaluate(
+    ([n, who, s]) => {
+      window.__practiceTogether.state("open", "192.168.1.2" + n, n as number);
+      window.__practiceTogether.frame(
+        {
+          type: "hello",
+          name: who,
+          role: "guest",
+          caps: ["transport"],
+          score: s,
+          guest: `${who.toLowerCase()}0000000000000000`.slice(0, 16),
+        },
+        n as number,
+      );
+    },
+    [conn, name, score] as const,
+  );
+}
+
+test.describe("Practice together: the code row and the size of the dialog", () => {
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 375, height: 812 },
+  ]) {
+    test(`the Copy button sits right beside the code at ${viewport.width} px`, async ({ app }) => {
+      await app.setViewportSize(viewport);
+      const dialog = await openDialog(app);
+      await dialog.getByRole("button", { name: "Start a session" }).click();
+      const code = dialog.getByTestId("room-code");
+      await expect(code).toHaveText("ABCD-EFGH-JKMN-PQRS-TVWX");
+      const copy = dialog.getByRole("button", { name: "Copy" });
+      await waitForAnimations(app);
+      const [a, b] = [await code.boundingBox(), await copy.boundingBox()];
+      expect(a && b).toBeTruthy();
+      // On the same row (their middles line up), the button to the right of the code.
+      expect(Math.abs(a!.y + a!.height / 2 - (b!.y + b!.height / 2))).toBeLessThanOrEqual(
+        a!.height / 2,
+      );
+      expect(b!.x).toBeGreaterThanOrEqual(a!.x + a!.width - 1);
+      // Nothing is pushed out of the dialog.
+      const box = (await dialog.boundingBox())!;
+      expect(b!.x + b!.width).toBeLessThanOrEqual(box.x + box.width);
+      expect(await dialog.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0);
+      // It copies, and says so (the page has no clipboard permission here, so a stand-in).
+      await app.evaluate(() => {
+        Object.defineProperty(navigator, "clipboard", {
+          value: { writeText: async () => {} },
+          configurable: true,
+        });
+      });
+      await copy.click();
+      await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible();
+    });
+  }
+
+  test("the first step needs no scrollbar at a normal window height", async ({ app }) => {
+    await app.setViewportSize({ width: 1440, height: 900 });
+    const dialog = await openDialog(app);
+    await waitForAnimations(app);
+    expect(await scrolls(dialog)).toBeLessThanOrEqual(0);
+    // Nor does the connect step with the code and the host's question.
+    await dialog.getByRole("button", { name: "Start a session" }).click();
+    await expect(dialog.getByTestId("room-code")).toBeVisible();
+    expect(await scrolls(dialog)).toBeLessThanOrEqual(0);
+  });
+
+  test("still scrolls instead of clipping at a small window height", async ({ app }) => {
+    await app.setViewportSize({ width: 1280, height: 500 });
+    const dialog = await openDialog(app);
+    await waitForAnimations(app);
+    const box = (await dialog.boundingBox())!;
+    expect(box.height).toBeLessThanOrEqual(500);
+    expect(await scrolls(dialog)).toBeGreaterThan(0);
+    await expect(dialog.getByRole("button", { name: "Start a session" })).toBeVisible();
+  });
+});
+
+test.describe("Practice together: several players", () => {
+  test("lets guests in one by one, shows each, and removes one with a kick", async ({ app }) => {
+    const dialog = await openDialog(app);
+    await dialog.getByRole("button", { name: "Start a session" }).click();
+    await expect(dialog.getByTestId("room-code")).toBeVisible();
+    const score = await fingerprint(app);
+    await connectGuest(app, 1, "Ann", score);
+    await connectGuest(app, 2, "Bob", score);
+    const card = app.getByRole("alertdialog", { name: "Let this player in?" });
+    await expect(card).toContainText("Ann");
+    await expect(card).toContainText("1 more is waiting");
+    await card.getByRole("button", { name: "Let in" }).click();
+    await expect(card).toContainText("Bob");
+    await card.getByRole("button", { name: "Let in" }).click();
+
+    // Both are welcomed and measured on their own connections.
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("welcome", 1).length))
+      .toBe(1);
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("welcome", 2).length))
+      .toBe(1);
+    await expect(dialog.getByTestId("peer-other")).toHaveCount(2, { timeout: 15_000 });
+    await expect(dialog.getByText("3 of 10 players")).toBeVisible();
+    await expect(dialog.getByTestId("peer-other").first()).toContainText("Excellent", {
+      timeout: 15_000,
+    });
+
+    // Kick: asks first, then ends only Bob's connection.
+    await dialog.getByRole("button", { name: "Kick Bob" }).click();
+    const sure = dialog.getByRole("alertdialog", { name: "Kick Bob?" });
+    await expect(sure).toContainText("They can join again with the code.");
+    expect(await app.evaluate(() => window.__practiceTogether.kicked)).toEqual([]);
+    await sure.getByRole("button", { name: "Kick Bob" }).click();
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.kicked))
+      .toEqual([{ conn: 2, ban: false }]);
+    expect(await app.evaluate(() => window.__practiceTogether.sentOf("bye", 2))).toEqual([
+      { type: "bye", reason: "kicked" },
+    ]);
+    await expect(dialog.getByTestId("peer-other")).toHaveCount(1);
+    await expect(dialog.getByTestId("peer-other")).toContainText("Ann");
+  });
+
+  test("bans a guest after asking, and turns the same guest away when it comes back", async ({
+    app,
+  }) => {
+    const dialog = await openDialog(app);
+    await dialog.getByRole("button", { name: "Start a session" }).click();
+    const score = await fingerprint(app);
+    await connectGuest(app, 1, "Ann", score);
+    await letIn(app);
+    await expect(dialog.getByTestId("peer-other")).toContainText("Ann", { timeout: 15_000 });
+    await dialog.getByRole("button", { name: "Ban Ann" }).click();
+    const sure = dialog.getByRole("alertdialog", { name: "Ban Ann?" });
+    await expect(sure).toContainText("cannot join again");
+    await sure.getByRole("button", { name: "Ban Ann" }).click();
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.kicked))
+      .toEqual([{ conn: 1, ban: true }]);
+    expect(await app.evaluate(() => window.__practiceTogether.sentOf("bye", 1))).toEqual([
+      { type: "bye", reason: "banned" },
+    ]);
+    // The same guest connects again (a new connection): it is told, and never asked about.
+    await connectGuest(app, 3, "Ann", score);
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("bye", 3)))
+      .toEqual([{ type: "bye", reason: "banned" }]);
+    await expect(app.getByRole("alertdialog", { name: "Let this player in?" })).toHaveCount(0);
+  });
+
+  test("keeps a dropped guest's place and welcomes it back without asking again", async ({
+    app,
+  }) => {
+    const dialog = await openDialog(app);
+    await dialog.getByRole("button", { name: "Start a session" }).click();
+    const score = await fingerprint(app);
+    await connectGuest(app, 1, "Ann", score);
+    await letIn(app);
+    await expect(dialog.getByTestId("peer-other")).toContainText("Excellent", { timeout: 15_000 });
+    // Her connection goes (the laptop ran out of battery).
+    await app.evaluate(() =>
+      window.__practiceTogether.state("closed", "the guest disconnected", 1),
+    );
+    await expect(dialog.getByTestId("peer-other")).toContainText("Connection lost: can rejoin");
+    // She comes back on a new connection, with the same guest id.
+    await connectGuest(app, 4, "Ann", score);
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("welcome", 4).length))
+      .toBe(1);
+    await expect(app.getByRole("alertdialog", { name: "Let this player in?" })).toHaveCount(0);
+    await expect(dialog.getByTestId("peer-other")).toHaveCount(1);
+    await expect(dialog.getByTestId("peer-other")).toContainText("Excellent", { timeout: 15_000 });
+  });
+
+  test("has no WCAG violations with two guests and a kick question open", async ({ app }) => {
+    test.slow();
+    const dialog = await openDialog(app);
+    await dialog.getByRole("button", { name: "Start a session" }).click();
+    const score = await fingerprint(app);
+    await connectGuest(app, 1, "Ann", score);
+    await connectGuest(app, 2, "Bob", score);
+    await letIn(app);
+    await letIn(app);
+    await expect(dialog.getByTestId("peer-other")).toHaveCount(2, { timeout: 15_000 });
+    await dialog.getByRole("button", { name: "Kick Bob" }).click();
+    await waitForAnimations(app);
+    await expectNoA11yViolations(app, { popup: "[role=dialog]" });
+  });
+});
+
+test.describe("Practice together: coming back as a guest", () => {
+  async function joinAndWelcome(app: Page) {
+    const dialog = await openDialog(app);
+    await dialog.getByRole("radio", { name: "Join an existing session" }).click();
+    await dialog.getByLabel("Room code").fill("ABCD-EFGH-JKMN-PQRS-TVWX");
+    await dialog.getByRole("button", { name: "Join the session" }).click();
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("hello").length))
+      .toBe(1);
+    await app.evaluate(() =>
+      window.__practiceTogether.frame({ type: "welcome", session: "s1", version: 1, name: "Host" }),
+    );
+    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+    return dialog;
+  }
+
+  test("says its own id in hello, the same each time", async ({ app }) => {
+    await joinAndWelcome(app);
+    const [hello] = await app.evaluate(() => window.__practiceTogether.sentOf("hello"));
+    expect(hello!.guest).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  test("offers Rejoin after the connection was lost for good, and joins the same code again", async ({
+    app,
+  }) => {
+    const dialog = await joinAndWelcome(app);
+    await app.evaluate(() =>
+      window.__practiceTogether.state("closed", "the host did not come back", 0),
+    );
+    await expect(dialog.getByRole("alert")).toContainText("The connection dropped");
+    const rejoin = dialog.getByTestId("rejoin");
+    await expect(rejoin).toBeVisible();
+    await rejoin.getByRole("button", { name: "Rejoin" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          window.__ipcCalls.filter((c) => c.cmd === "practice_join").map((c) => c.args),
+        ),
+      )
+      .toEqual([{ code: "ABCD-EFGH-JKMN-PQRS-TVWX" }, { code: "ABCD-EFGH-JKMN-PQRS-TVWX" }]);
+  });
+
+  test("tells a kicked guest it may come back, and a banned one that it may not", async ({
+    app,
+  }) => {
+    const dialog = await joinAndWelcome(app);
+    await app.evaluate(() => window.__practiceTogether.frame({ type: "bye", reason: "kicked" }));
+    await expect(dialog.getByRole("alert")).toContainText("You can join again with the code");
+    await expect(dialog.getByRole("button", { name: "Rejoin" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Rejoin" }).click();
+    await expect(chip(app)).toBeVisible();
+    await app.evaluate(() => window.__practiceTogether.frame({ type: "bye", reason: "banned" }));
+    await expect(dialog.getByRole("alert")).toContainText("blocked you from this session");
+    await expect(dialog.getByRole("button", { name: "Rejoin" })).toHaveCount(0);
+  });
+
+  test("does not offer Rejoin after the host ended the session, or after leaving on purpose", async ({
+    app,
+  }) => {
+    const dialog = await joinAndWelcome(app);
+    await app.evaluate(() => window.__practiceTogether.frame({ type: "bye", reason: "left" }));
+    await expect(dialog.getByRole("alert")).toContainText("The other player left the session");
+    await expect(dialog.getByTestId("rejoin")).toHaveCount(0);
+  });
 });

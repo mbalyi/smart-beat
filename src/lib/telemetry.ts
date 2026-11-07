@@ -97,6 +97,8 @@ export type TrackedEvent =
   | "practice_together_host"
   | "practice_together_join"
   | "practice_together_setup_failed"
+  | "practice_together_rejoin"
+  | "practice_together_remove"
   | "practice_together_sync"
   | "practice_together_preset"
   | "practice_together_play"
@@ -215,9 +217,11 @@ const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
   practice_together_host: CONNECTIONS,
   practice_together_join: CONNECTIONS,
   practice_together_setup_failed: CONNECTIONS,
+  practice_together_rejoin: CONNECTIONS,
+  practice_together_remove: ["kick", "ban"],
   practice_together_sync: ["excellent", "good", "unstable"],
   practice_together_preset: ["auto", "tight", "balanced", "safe"],
-  practice_together_end: ["left", "peer_left", "dropped", "failed"],
+  practice_together_end: ["left", "peer_left", "dropped", "failed", "removed"],
   practice_together_length: ["under_1m", "1_5m", "5_15m", "15_60m", "over_60m"],
   practice_together_problem: [
     "score",

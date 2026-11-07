@@ -1,17 +1,21 @@
-//! Practice together (#158): the link between two Smart Beat apps on the same network.
+//! Practice together (#158): the link between Smart Beat apps on the same network.
 //!
 //! This module only moves frames (short JSON texts). The session logic, the shared clock and
 //! the playback all live in the page (`src/lib/practice-together`), so everything is timed on
-//! one clock. The host listens on a TCP port; the guest connects with a room code that holds
-//! the host's address and a secret token. The first frame a guest sends is the token; a wrong
-//! one is refused and counted. Who may stay is then decided in the page: the host approves
-//! each guest by name before any playback command is accepted.
+//! one clock. The host listens on a TCP port and keeps one connection per guest; a guest
+//! connects with a room code that holds the host's address and a secret token. The first frame
+//! a guest sends is the token; a wrong one is refused and counted. Who may stay is then decided
+//! in the page: the host approves each guest by name before any playback command is accepted,
+//! and may drop or ban one (a ban turns the guest's address away here as well).
 //!
 //! Frames are a 4-byte big-endian length and the UTF-8 text. A length of 0 is a keep-alive that
 //! is never passed on, so a Wi-Fi drop without a goodbye is noticed within seconds.
 
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
+use std::net::{
+    IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket,
+};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -31,6 +35,9 @@ const DEAD_AFTER: Duration = Duration::from_secs(8);
 pub const RECONNECT_FOR: Duration = Duration::from_secs(20);
 /// Wrong tokens tolerated before the host stops listening.
 const MAX_FAILURES: u32 = 20;
+/// Connections a host keeps at once. The page allows fewer guests; this bounds what a stranger
+/// with the code can hold open.
+pub const MAX_CONNECTIONS: usize = 16;
 
 const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -44,13 +51,16 @@ pub enum LinkState {
     Closed,
 }
 
-/// What the link tells the page.
+/// What the link tells the page. `conn` is the connection it is about: a host's guests are
+/// told apart by it, and 0 is the link itself (listening, or gone for good).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     /// One frame from the other app.
-    Frame(String),
+    Frame { conn: u64, text: String },
     State {
+        conn: u64,
         state: LinkState,
+        /// For a host's new connection: the guest's address.
         detail: Option<String>,
     },
 }
@@ -67,6 +77,10 @@ pub enum JoinError {
     Unreachable(String),
     /// The host does not know this code (wrong, or from an earlier session).
     Denied,
+    /// The host has banned this computer from the session.
+    Banned,
+    /// The host has no room for another player.
+    Full,
 }
 
 impl std::fmt::Display for JoinError {
@@ -75,6 +89,8 @@ impl std::fmt::Display for JoinError {
             Self::BadCode => f.write_str("That is not a room code."),
             Self::Unreachable(why) => write!(f, "Could not reach the host ({why})."),
             Self::Denied => f.write_str("The host did not accept this code."),
+            Self::Banned => f.write_str("The host has blocked you from this session."),
+            Self::Full => f.write_str("The session is full."),
         }
     }
 }
@@ -214,6 +230,8 @@ struct Conn {
     id: u64,
     write: Mutex<TcpStream>,
     shut: AtomicBool,
+    /// Where the other end connected from (a host knows its guests' addresses).
+    peer: Option<IpAddr>,
 }
 
 impl Conn {
@@ -225,14 +243,19 @@ impl Conn {
     }
 }
 
-/// A host listening for a guest, or a guest connected to a host.
+/// A host listening for guests, or a guest connected to a host.
+///
+/// A host keeps one connection per guest (up to [`MAX_CONNECTIONS`]); a guest has one. Every
+/// event says which connection it is about; 0 is the link itself.
 pub struct Link {
     sink: Sink,
     stop: AtomicBool,
     next_id: AtomicU64,
-    current: Mutex<Option<Arc<Conn>>>,
+    conns: Mutex<HashMap<u64, Arc<Conn>>>,
     failures: AtomicU32,
     room: Room,
+    /// Addresses a host turns away (a banned guest).
+    banned: Mutex<HashSet<IpAddr>>,
 }
 
 impl Link {
@@ -241,14 +264,16 @@ impl Link {
             sink,
             stop: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
-            current: Mutex::new(None),
+            conns: Mutex::new(HashMap::new()),
             failures: AtomicU32::new(0),
             room,
+            banned: Mutex::new(HashSet::new()),
         })
     }
 
-    fn emit_state(&self, state: LinkState, detail: Option<&str>) {
+    fn emit_state(&self, conn: u64, state: LinkState, detail: Option<&str>) {
         (self.sink)(Event::State {
+            conn,
             state,
             detail: detail.map(str::to_owned),
         });
@@ -264,13 +289,13 @@ impl Link {
             token: random_token(),
         };
         let link = Self::new(sink, room);
-        link.emit_state(LinkState::Connecting, None);
+        link.emit_state(0, LinkState::Connecting, None);
         let accept = Arc::clone(&link);
         thread::spawn(move || accept.accept_loop(listener));
         Ok(link)
     }
 
-    /// The room code to give to the guest.
+    /// The room code to give to the guests.
     pub fn code(&self) -> String {
         self.room.code()
     }
@@ -283,7 +308,7 @@ impl Link {
     pub fn join(code: &str, sink: Sink) -> Result<Arc<Self>, JoinError> {
         let room = Room::parse(code).ok_or(JoinError::BadCode)?;
         let link = Self::new(sink, room);
-        link.emit_state(LinkState::Connecting, None);
+        link.emit_state(0, LinkState::Connecting, None);
         let stream = establish(&room)?;
         let (conn, read) = link.install(stream);
         let reader = Arc::clone(&link);
@@ -309,11 +334,16 @@ impl Link {
         }
     }
 
+    fn connection_count(&self) -> usize {
+        self.conns.lock().map(|c| c.len()).unwrap_or(0)
+    }
+
     /// The host checks the first frame of a new connection.
     fn admit(self: Arc<Self>, mut stream: TcpStream) {
         let _ = stream.set_nonblocking(false);
         let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
         let _ = stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT));
+        let peer = stream.peer_addr().ok().map(|a| a.ip());
         let Ok(token) = read_frame(&mut stream) else {
             return;
         };
@@ -322,31 +352,43 @@ impl Link {
             let _ = write_frame(&mut stream, b"denied");
             return;
         }
-        if write_frame(&mut stream, b"ok").is_err() {
+        let blocked = peer.is_some_and(|ip| {
+            self.banned
+                .lock()
+                .map(|set| set.contains(&ip))
+                .unwrap_or(false)
+        });
+        if blocked {
+            let _ = write_frame(&mut stream, b"banned");
             return;
         }
-        // The right code always wins over an older connection: the guest is coming back.
-        if let Some(old) = self.current.lock().ok().and_then(|mut c| c.take()) {
-            old.shutdown();
+        if self.connection_count() >= MAX_CONNECTIONS {
+            let _ = write_frame(&mut stream, b"full");
+            return;
+        }
+        if write_frame(&mut stream, b"ok").is_err() {
+            return;
         }
         let (conn, read) = self.install(stream);
         let reader = Arc::clone(&self);
         thread::spawn(move || reader.host_loop(conn, read));
     }
 
-    /// Makes `stream` the current connection. Returns it with a handle to read from.
+    /// Makes `stream` a connection of this link. Returns it with a handle to read from.
     fn install(&self, stream: TcpStream) -> (Arc<Conn>, TcpStream) {
         let _ = stream.set_nodelay(true);
         let _ = stream.set_read_timeout(Some(DEAD_AFTER));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        let peer = stream.peer_addr().ok().map(|a| a.ip());
         let read = stream.try_clone().expect("clone the stream");
         let conn = Arc::new(Conn {
             id: self.next_id.fetch_add(1, Ordering::SeqCst),
             write: Mutex::new(stream),
             shut: AtomicBool::new(false),
+            peer,
         });
-        if let Ok(mut current) = self.current.lock() {
-            *current = Some(Arc::clone(&conn));
+        if let Ok(mut conns) = self.conns.lock() {
+            conns.insert(conn.id, Arc::clone(&conn));
         }
         let keep = Arc::clone(&conn);
         thread::spawn(move || {
@@ -362,38 +404,37 @@ impl Link {
                 }
             }
         });
-        self.emit_state(LinkState::Open, None);
+        // A host tells the page where the guest is (to show and to ban); a guest has no use for it.
+        let detail = peer.map(|ip| ip.to_string());
+        self.emit_state(conn.id, LinkState::Open, detail.as_deref());
         (conn, read)
     }
 
-    /// Reads frames until the connection ends; true if this connection was still the current one.
+    /// Reads frames until the connection ends; true if this connection was still registered.
     fn pump(&self, conn: &Arc<Conn>, mut read: TcpStream) -> bool {
         loop {
             match read_frame(&mut read) {
                 Ok(body) if body.is_empty() => {}
                 Ok(body) => match String::from_utf8(body) {
-                    Ok(text) => (self.sink)(Event::Frame(text)),
+                    Ok(text) => (self.sink)(Event::Frame {
+                        conn: conn.id,
+                        text,
+                    }),
                     Err(_) => break,
                 },
                 Err(_) => break,
             }
         }
         conn.shutdown();
-        let mut current = match self.current.lock() {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
-        if current.as_ref().is_some_and(|c| c.id == conn.id) {
-            *current = None;
-            true
-        } else {
-            false
-        }
+        self.conns
+            .lock()
+            .map(|mut conns| conns.remove(&conn.id).is_some())
+            .unwrap_or(false)
     }
 
     fn host_loop(self: Arc<Self>, conn: Arc<Conn>, read: TcpStream) {
         if self.pump(&conn, read) && !self.stop.load(Ordering::SeqCst) {
-            self.emit_state(LinkState::Reconnecting, Some("the guest disconnected"));
+            self.emit_state(conn.id, LinkState::Closed, Some("the guest disconnected"));
         }
     }
 
@@ -402,7 +443,7 @@ impl Link {
             if !self.pump(&conn, read) || self.stop.load(Ordering::SeqCst) {
                 return;
             }
-            self.emit_state(LinkState::Reconnecting, Some("the connection dropped"));
+            self.emit_state(0, LinkState::Reconnecting, Some("the connection dropped"));
             let started = Instant::now();
             let mut wait = Duration::from_millis(250);
             let stream = loop {
@@ -418,6 +459,14 @@ impl Link {
                         self.close(Some("the host no longer knows this session"));
                         return;
                     }
+                    Err(JoinError::Banned) => {
+                        self.close(Some("the host has blocked you from this session"));
+                        return;
+                    }
+                    Err(JoinError::Full) => {
+                        self.close(Some("the session is full"));
+                        return;
+                    }
                     Err(_) => {}
                 }
             };
@@ -425,9 +474,14 @@ impl Link {
         }
     }
 
-    /// Sends one frame. False when there is no connection right now.
-    pub fn send(&self, text: &str) -> bool {
-        let Some(conn) = self.current.lock().ok().and_then(|c| c.clone()) else {
+    /// Sends one frame to connection `to` (a guest sends to its only one: pass `None`; a host
+    /// names the guest). False when there is no such connection right now.
+    pub fn send(&self, to: Option<u64>, text: &str) -> bool {
+        let conn = self.conns.lock().ok().and_then(|conns| match to {
+            Some(id) => conns.get(&id).cloned(),
+            None => conns.values().next().cloned(),
+        });
+        let Some(conn) = conn else {
             return false;
         };
         let ok = conn
@@ -441,6 +495,34 @@ impl Link {
         ok
     }
 
+    /// A host ends one guest's connection (the guest may come back with the code).
+    pub fn drop_connection(&self, id: u64) {
+        let conn = self
+            .conns
+            .lock()
+            .ok()
+            .and_then(|conns| conns.get(&id).cloned());
+        if let Some(conn) = conn {
+            conn.shutdown();
+        }
+    }
+
+    /// The address a host's connection came from.
+    pub fn address_of(&self, id: u64) -> Option<IpAddr> {
+        self.conns
+            .lock()
+            .ok()
+            .and_then(|conns| conns.get(&id).and_then(|c| c.peer))
+    }
+
+    /// A host turns this address away from now on (new connections only; end the live one
+    /// with [`Link::drop_connection`]).
+    pub fn ban_address(&self, ip: IpAddr) {
+        if let Ok(mut banned) = self.banned.lock() {
+            banned.insert(ip);
+        }
+    }
+
     /// Ends the link for good.
     pub fn leave(&self) {
         self.close(None);
@@ -450,10 +532,15 @@ impl Link {
         if self.stop.swap(true, Ordering::SeqCst) {
             return;
         }
-        if let Some(conn) = self.current.lock().ok().and_then(|mut c| c.take()) {
+        let all: Vec<Arc<Conn>> = self
+            .conns
+            .lock()
+            .map(|mut conns| conns.drain().map(|(_, c)| c).collect())
+            .unwrap_or_default();
+        for conn in all {
             conn.shutdown();
         }
-        self.emit_state(LinkState::Closed, detail);
+        self.emit_state(0, LinkState::Closed, detail);
     }
 }
 
@@ -472,6 +559,8 @@ fn establish(room: &Room) -> Result<TcpStream, JoinError> {
     write_frame(&mut stream, &room.token).map_err(|e| JoinError::Unreachable(e.to_string()))?;
     match read_frame(&mut stream) {
         Ok(answer) if answer == b"ok" => Ok(stream),
+        Ok(answer) if answer == b"banned" => Err(JoinError::Banned),
+        Ok(answer) if answer == b"full" => Err(JoinError::Full),
         Ok(_) => Err(JoinError::Denied),
         Err(e) => Err(JoinError::Unreachable(e.to_string())),
     }
@@ -515,17 +604,35 @@ impl PracticeState {
 
 #[derive(Serialize, Clone)]
 struct StatePayload {
+    conn: u64,
     state: LinkState,
     detail: Option<String>,
 }
 
+#[derive(Serialize, Clone)]
+struct FramePayload {
+    conn: u64,
+    text: String,
+}
+
 fn emitter<R: Runtime>(app: AppHandle<R>) -> Sink {
     Arc::new(move |event| match event {
-        Event::Frame(text) => {
-            let _ = app.emit(FRAME_EVENT, text);
+        Event::Frame { conn, text } => {
+            let _ = app.emit(FRAME_EVENT, FramePayload { conn, text });
         }
-        Event::State { state, detail } => {
-            let _ = app.emit(STATE_EVENT, StatePayload { state, detail });
+        Event::State {
+            conn,
+            state,
+            detail,
+        } => {
+            let _ = app.emit(
+                STATE_EVENT,
+                StatePayload {
+                    conn,
+                    state,
+                    detail,
+                },
+            );
         }
     })
 }
@@ -565,7 +672,9 @@ pub fn practice_join<R: Runtime>(
     let link = Link::join(&code, emitter(app)).map_err(|e| {
         let kind = match e {
             JoinError::BadCode => ErrorKind::InvalidCode,
-            JoinError::Unreachable(_) | JoinError::Denied => ErrorKind::Network,
+            JoinError::Unreachable(_) | JoinError::Denied | JoinError::Banned | JoinError::Full => {
+                ErrorKind::Network
+            }
         };
         CommandError::new(kind, e.to_string())
     })?;
@@ -573,9 +682,22 @@ pub fn practice_join<R: Runtime>(
     Ok(())
 }
 
+/// Sends one frame. A host names the guest's connection (`conn`); a guest leaves it out.
 #[tauri::command]
-pub fn practice_send(state: State<'_, PracticeState>, text: String) -> bool {
-    state.get().is_some_and(|link| link.send(&text))
+pub fn practice_send(state: State<'_, PracticeState>, text: String, conn: Option<u64>) -> bool {
+    state.get().is_some_and(|link| link.send(conn, &text))
+}
+
+/// The host ends one guest's connection (kick). With `ban`, the guest's address is also turned
+/// away from then on.
+#[tauri::command]
+pub fn practice_kick(state: State<'_, PracticeState>, conn: u64, ban: bool) {
+    if let Some(link) = state.get() {
+        if ban && let Some(ip) = link.address_of(conn) {
+            link.ban_address(ip);
+        }
+        link.drop_connection(conn);
+    }
 }
 
 #[tauri::command]

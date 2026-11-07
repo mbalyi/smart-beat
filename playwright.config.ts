@@ -8,8 +8,8 @@ const isCI = Boolean(process.env.CI);
 /**
  * CI runs two jobs per browser so neither hits a timeout (one serial run of everything took
  * over an hour in WebKit): "smoke" is the core flows, "additional" the guided-tour tests, the AI
- * installer and model dialogs, Record to tab, Import from Audio, stem separation and cloud storage
- * (the smoke group had grown past its limit in WebKit).
+ * installer and model dialogs, Record to tab, Import from Audio, stem separation, cloud storage and
+ * Practice together (the smoke group had grown past its limit in WebKit).
  * `E2E_GROUP` picks one; unset runs everything (local `pnpm test:e2e`).
  */
 const ADDITIONAL_SPECS = [
@@ -21,6 +21,7 @@ const ADDITIONAL_SPECS = [
   "**/record-to-tab.spec.ts",
   "**/audio-transcription.spec.ts",
   "**/model-dialogs.spec.ts",
+  "**/practice-together*.spec.ts",
 ];
 const group = process.env.E2E_GROUP || undefined;
 if (group !== undefined && group !== "smoke" && group !== "additional") {

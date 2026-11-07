@@ -14,11 +14,21 @@ import { putHandoff, takeHandoff } from "@/lib/practice-together/handoff";
 import {
   hosted,
   joined,
+  playerRemoved,
   presetChosen,
+  rejoined,
   sessionAnalytics,
   setupFailed,
   sharedStart,
 } from "@/lib/practice-together/analytics";
+import { HostRoom } from "@/lib/practice-together/host-room";
+import {
+  forgetSession,
+  guestId,
+  readLastSession,
+  rememberSession,
+  type LastSession,
+} from "@/lib/practice-together/identity";
 import { hostOnLan, joinOnLan } from "@/lib/practice-together/lan";
 import { actionsFor, commandOf, sameSettings } from "@/lib/practice-together/practice-sync";
 import {
@@ -31,7 +41,7 @@ import { Session, type SessionState } from "@/lib/practice-together/session";
 import { SharedTransport, type TransportPlayer } from "@/lib/practice-together/shared-transport";
 import type { RequestAction, ScoreFingerprint } from "@/lib/practice-together/protocol";
 import type { TabProgress } from "@/lib/practice-together/tab-transfer";
-import type { PeerTransport } from "@/lib/practice-together/transport";
+import type { GuestAcceptor, PeerTransport } from "@/lib/practice-together/transport";
 import type { Score } from "@/lib/score/model";
 import type { PracticeAction, PracticeState } from "@/lib/score/practice";
 import { isTauri, practiceSignalAvailable } from "@/lib/tauri";
@@ -59,8 +69,12 @@ export interface PracticeTogether {
   state: SessionState | null;
   /** The code the host gives the guest. */
   hostCode: { kind: ConnectionKind; code: string; address?: string } | null;
-  /** A guest waiting for the host's yes. */
+  /** A guest waiting for the host's yes (the first of those waiting). */
   approval: { name: string; answer: (ok: boolean) => void } | null;
+  /** More guests waiting for the host's yes behind `approval`. */
+  approvalsWaiting: number;
+  /** The session this app was last in as a guest, when it can be tried again (null: none). */
+  lastSession: LastSession | null;
   quality: QualityChoice;
   name: string;
   /** Hosting or joining is being set up. */
@@ -76,7 +90,13 @@ export interface PracticeTogether {
   setQuality(choice: QualityChoice): void;
   host(kind: ConnectionKind): Promise<void>;
   join(kind: ConnectionKind, code: string): Promise<void>;
+  /** Joins the session this app was last in again (after a drop, or when its battery ran out). */
+  rejoin(): Promise<void>;
   leave(): void;
+  /** The host removes a guest; it can join again with the code. */
+  kick(id: string): void;
+  /** The host removes a guest for good: it cannot join this session again. */
+  ban(id: string): void;
   /**
    * Routes a transport request through the session. True when it was handled: the host starts it
    * for both, a guest asks the host, and a move of the position while the song plays is refused.
@@ -101,12 +121,21 @@ interface Options {
 
 const NAME_KEY = "smart-beat:practice-together:name";
 
+/** Ends after which the session is not offered again: it is over, or this guest is not welcome. */
+const FORGET_KINDS = new Set(["peer-left", "banned", "declined", "version"]);
+
 function readName(): string {
   try {
     return localStorage.getItem(NAME_KEY) || "Player";
   } catch {
     return "Player";
   }
+}
+
+/** A guest waiting for the host's yes. */
+interface ApprovalEntry {
+  name: string;
+  resolve: (ok: boolean) => void;
 }
 
 /** A ref that always holds the latest value, for callbacks that outlive a render. */
@@ -139,14 +168,18 @@ export function usePracticeTogether({
 }: Options): PracticeTogether {
   const [state, setState] = useState<SessionState | null>(null);
   const [hostCode, setHostCode] = useState<PracticeTogether["hostCode"]>(null);
-  const [approval, setApproval] = useState<PracticeTogether["approval"]>(null);
+  /** The guests waiting for the host's yes, oldest first (what the screen shows). */
+  const [waiting, setWaiting] = useState<ApprovalEntry[]>([]);
+  const [lastSession, setLastSession] = useState<LastSession | null>(readLastSession);
   const [quality, setQualityState] = useState<QualityChoice>(readQualityChoice);
   const [name, setNameState] = useState(readName);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [internetAvailable, setInternetAvailable] = useState(false);
 
-  const sessionRef = useRef<Session | null>(null);
+  const sessionRef = useRef<Session | HostRoom | null>(null);
+  /** Guests waiting for the host's yes, oldest first. */
+  const approvals = useRef<ApprovalEntry[]>([]);
   const sharedRef = useRef<SharedTransport | null>(null);
   const practiceRef = useLatest(practice);
   const dispatchRef = useLatest(dispatchPractice);
@@ -170,6 +203,34 @@ export function usePracticeTogether({
     };
   }, []);
 
+  /** The host answers a guest, or the guest goes away: it leaves the queue. */
+  const settle = useCallback((entry: ApprovalEntry, ok: boolean) => {
+    const at = approvals.current.indexOf(entry);
+    if (at < 0) return;
+    approvals.current.splice(at, 1);
+    setWaiting([...approvals.current]);
+    entry.resolve(ok);
+  }, []);
+
+  /** A guest asks to join: it waits behind the ones before it. */
+  const enqueue = useCallback((entry: ApprovalEntry) => {
+    approvals.current.push(entry);
+    setWaiting([...approvals.current]);
+  }, []);
+
+  /** Withdraws every question to the host (the session is over). */
+  const clearApprovals = useCallback(() => {
+    for (const entry of approvals.current.splice(0)) entry.resolve(false);
+    setWaiting([]);
+  }, []);
+
+  const head = waiting[0];
+  const approval = useMemo<PracticeTogether["approval"]>(
+    () => (head ? { name: head.name, answer: (ok: boolean) => settle(head, ok) } : null),
+    [head, settle],
+  );
+  const approvalsWaiting = Math.max(0, waiting.length - 1);
+
   const end = useCallback(() => {
     sessionRef.current?.leave();
     sessionRef.current = null;
@@ -177,8 +238,8 @@ export function usePracticeTogether({
     sharedRef.current = null;
     setState(null);
     setHostCode(null);
-    setApproval(null);
-  }, []);
+    clearApprovals();
+  }, [clearApprovals]);
 
   // A session ends with its song.
   useEffect(() => end, [end]);
@@ -187,7 +248,8 @@ export function usePracticeTogether({
   const detach = useCallback(
     (key: string) => {
       const session = sessionRef.current;
-      if (!session) return;
+      // Only a guest moves along with the tab it received.
+      if (!(session instanceof Session)) return;
       const { transport, session: id, peerName } = session.release();
       sessionRef.current = null;
       sharedRef.current?.release();
@@ -195,9 +257,9 @@ export function usePracticeTogether({
       putHandoff({ transport, session: id, peerName, key, quality: qualityRef.current });
       setState(null);
       setHostCode(null);
-      setApproval(null);
+      clearApprovals();
     },
-    [qualityRef],
+    [qualityRef, clearApprovals],
   );
   useEffect(() => {
     detachRef.current = detach;
@@ -207,8 +269,19 @@ export function usePracticeTogether({
   const startFor = useCallback(
     (action: RequestAction, tick: number) => {
       const session = sessionRef.current;
-      if (session?.role === "host")
-        void session.command(commandOf(action, tick, practiceRef.current));
+      if (session?.role !== "host") return;
+      void session.command(commandOf(action, tick, practiceRef.current)).then((result) => {
+        // A start that did not happen must say so: "late" and the clocks are told by the session's
+        // own problem, a different tab version is not (the button would just do nothing).
+        if (result === "score" || result === "not-synchronized") {
+          toast.info(
+            result === "score"
+              ? "The other computer has a different version of this tab yet. Wait for the tab to arrive."
+              : "Wait a moment: the two computers are still syncing their clocks.",
+            { id: "together-start" },
+          );
+        }
+      });
     },
     [practiceRef],
   );
@@ -238,14 +311,41 @@ export function usePracticeTogether({
     [playerRef, startFor],
   );
 
-  /** Builds the session around a transport. `link`: the state the transport is already in. */
+  /**
+   * The session a guest was in is remembered while it can be tried again, and forgotten when the
+   * host ended it or turned the guest away (a drop, or being kicked, can be answered by rejoining).
+   */
+  const keepLast = useCallback((next: SessionState) => {
+    const kind = next.problem?.kind;
+    if ((next.phase === "closed" || next.phase === "failed") && kind && FORGET_KINDS.has(kind)) {
+      forgetSession();
+      setLastSession(null);
+      return;
+    }
+    const host = next.phase === "synchronized" ? next.peerName : null;
+    const last = readLastSession();
+    if (host && last && last.host !== host) {
+      const updated = { ...last, host };
+      rememberSession(updated);
+      setLastSession(updated);
+    }
+  }, []);
+
+  /**
+   * Builds the session. A host listens for guests (`acceptor`) and keeps a room; a guest talks
+   * over `transport` (`link`: the state it is already in).
+   */
   const open = useCallback(
     async (
-      role: "host" | "guest",
-      transport: PeerTransport,
-      link: "connecting" | "open",
-      /** A guest taking over a live connection: the session it was welcomed to, and its tab. */
-      takeOver?: { resume?: string; fingerprint: ScoreFingerprint },
+      target:
+        | { role: "host"; acceptor: GuestAcceptor }
+        | {
+            role: "guest";
+            transport: PeerTransport;
+            link: "connecting" | "open";
+            /** A guest taking over a live connection: the session it was welcomed to, and its tab. */
+            takeOver?: { resume?: string; fingerprint: ScoreFingerprint };
+          },
     ) => {
       const shared = new SharedTransport({
         player: () => playerRef.current,
@@ -253,43 +353,67 @@ export function usePracticeTogether({
           for (const action of actionsFor(practiceRef.current, cmd)) dispatchRef.current(action);
         },
       });
-      const session = new Session({
-        role,
-        transport,
-        name: nameRef.current,
-        score:
-          takeOver?.fingerprint ?? (await tabs.fingerprint(scoreRef.current, revisionRef.current)),
-        resume: takeOver?.resume,
-        quality: qualityRef.current,
-        hooks: {
-          ...shared.hooks,
-          schedule: (cmd, localAt) => {
-            if (cmd.action === "play") sharedStart();
-            return shared.hooks.schedule(cmd, localAt);
-          },
-          tab: tabs.hooks,
-          request: answer,
-          approve: (guest) =>
-            new Promise<boolean>((resolve) =>
-              setApproval({
-                name: guest,
-                answer: (ok) => {
-                  setApproval(null);
-                  resolve(ok);
-                },
-              }),
-            ),
+      const takeOver = target.role === "guest" ? target.takeOver : undefined;
+      const hooks = {
+        ...shared.hooks,
+        schedule: (cmd: Parameters<typeof shared.hooks.schedule>[0], localAt: number) => {
+          if (cmd.action === "play") sharedStart();
+          return shared.hooks.schedule(cmd, localAt);
         },
-      });
+        tab: tabs.hooks,
+        request: answer,
+        approve: (guest: string, signal?: AbortSignal) =>
+          new Promise<boolean>((resolve) => {
+            const entry = { name: guest, resolve };
+            enqueue(entry);
+            // The guest went away before the host answered: take the question back.
+            signal?.addEventListener("abort", () => settle(entry, false), { once: true });
+          }),
+      };
+      const score =
+        takeOver?.fingerprint ?? (await tabs.fingerprint(scoreRef.current, revisionRef.current));
+      const session =
+        target.role === "host"
+          ? new HostRoom({
+              acceptor: target.acceptor,
+              name: nameRef.current,
+              score,
+              quality: qualityRef.current,
+              hooks,
+            })
+          : new Session({
+              role: "guest",
+              transport: target.transport,
+              name: nameRef.current,
+              score,
+              resume: takeOver?.resume,
+              guest: guestId(),
+              quality: qualityRef.current,
+              hooks,
+            });
       sessionRef.current = session;
       sharedRef.current = shared;
       session.subscribe(setState);
+      if (target.role === "guest") session.subscribe(keepLast);
       const stats = sessionAnalytics(Boolean(takeOver));
       session.subscribe((next) => stats.observe(next));
       setState(session.snapshot);
-      session.start(link);
+      if (target.role === "guest") (session as Session).start(target.link);
     },
-    [playerRef, practiceRef, dispatchRef, scoreRef, qualityRef, nameRef, answer, tabs, revisionRef],
+    [
+      playerRef,
+      practiceRef,
+      dispatchRef,
+      scoreRef,
+      qualityRef,
+      nameRef,
+      answer,
+      tabs,
+      revisionRef,
+      enqueue,
+      settle,
+      keepLast,
+    ],
   );
 
   const host = useCallback(
@@ -301,14 +425,14 @@ export function usePracticeTogether({
       setStarting(true);
       try {
         if (kind === "lan") {
-          const { transport, info } = await hostOnLan();
+          const { acceptor, info } = await hostOnLan();
           setHostCode({ kind, code: info.code, address: info.address });
-          await open("host", transport, "connecting");
+          await open({ role: "host", acceptor });
           hosted(kind);
         } else {
-          const { transport, code } = await hostOverInternet();
+          const { acceptor, code } = await hostOverInternet();
           setHostCode({ kind, code });
-          await open("host", transport, "connecting");
+          await open({ role: "host", acceptor });
           hosted(kind);
         }
       } catch (e) {
@@ -323,16 +447,25 @@ export function usePracticeTogether({
   );
 
   const join = useCallback(
-    async (kind: ConnectionKind, code: string) => {
+    async (kind: ConnectionKind, code: string, again = false) => {
       end();
       // This click is what lets the page start sound later, when the other computer says Play.
       void playerRef.current?.warmUpAudio().catch(() => {});
       setError(null);
       setStarting(true);
       try {
-        if (kind === "lan") await open("guest", await joinOnLan(code), "open");
-        else await open("guest", await joinOverInternet(code), "connecting");
-        joined(kind);
+        if (kind === "lan") {
+          await open({ role: "guest", transport: await joinOnLan(code), link: "open" });
+        } else {
+          const transport = await joinOverInternet(code, undefined, guestId());
+          await open({ role: "guest", transport, link: "connecting" });
+        }
+        // Remembered so that a drop (or a dead battery) can be answered with one click.
+        const last: LastSession = { kind, code, at: Date.now() };
+        rememberSession(last);
+        setLastSession(last);
+        if (again) rejoined(kind);
+        else joined(kind);
       } catch (e) {
         end();
         setupFailed(kind);
@@ -344,6 +477,39 @@ export function usePracticeTogether({
     [end, open, playerRef],
   );
 
+  /** Joins the session this app was last in again. */
+  const rejoin = useCallback(async () => {
+    const last = readLastSession();
+    if (!last) {
+      setLastSession(null);
+      return;
+    }
+    await join(last.kind, last.code, true);
+  }, [join]);
+
+  /** Leaves on purpose: there is nothing to come back to. */
+  const leave = useCallback(() => {
+    forgetSession();
+    setLastSession(null);
+    end();
+  }, [end]);
+
+  const kick = useCallback((id: string) => {
+    const session = sessionRef.current;
+    if (session instanceof HostRoom) {
+      session.kick(id);
+      playerRemoved("kick");
+    }
+  }, []);
+
+  const ban = useCallback((id: string) => {
+    const session = sessionRef.current;
+    if (session instanceof HostRoom) {
+      session.ban(id);
+      playerRemoved("ban");
+    }
+  }, []);
+
   // This tab is the host's, just received: the connection that brought it moves here.
   const receivedKey = received?.key;
   useEffect(() => {
@@ -354,9 +520,11 @@ export function usePracticeTogether({
       if (!handoff) return;
       tabs.trust(receivedKey, revisionRef.current);
       const fingerprint = { key: receivedKey, bars: scoreRef.current.masterBars.length };
-      void open("guest", handoff.transport, "open", {
-        resume: handoff.session ?? undefined,
-        fingerprint,
+      void open({
+        role: "guest",
+        transport: handoff.transport,
+        link: "open",
+        takeOver: { resume: handoff.session ?? undefined, fingerprint },
       }).catch(() => handoff.transport.close());
     }, 0);
     return () => clearTimeout(timer);
@@ -455,7 +623,12 @@ export function usePracticeTogether({
           break;
       }
       if (isHost) startFor(action, tick ?? player.getTick());
-      else session.request(action, tick);
+      else if (!session.request(action, tick)) {
+        // The clocks are being synced again: the host would not act on it.
+        toast.info("Wait a moment: the two computers are still syncing their clocks.", {
+          id: "together-start",
+        });
+      }
       return true;
     },
     [playerRef, startFor],
@@ -466,6 +639,8 @@ export function usePracticeTogether({
       state,
       hostCode,
       approval,
+      approvalsWaiting,
+      lastSession,
       quality,
       name,
       starting,
@@ -488,14 +663,19 @@ export function usePracticeTogether({
         sessionRef.current?.setQuality(choice);
       },
       host,
-      join,
-      leave: end,
+      join: (kind: ConnectionKind, code: string) => join(kind, code),
+      rejoin,
+      leave,
+      kick,
+      ban,
       intercept,
     }),
     [
       state,
       hostCode,
       approval,
+      approvalsWaiting,
+      lastSession,
       quality,
       name,
       starting,
@@ -503,7 +683,10 @@ export function usePracticeTogether({
       internetAvailable,
       host,
       join,
-      end,
+      rejoin,
+      leave,
+      kick,
+      ban,
       intercept,
     ],
   );

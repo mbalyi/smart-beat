@@ -59,6 +59,11 @@ export type Message =
       session?: string;
       /** A guest moving the live connection to the tab it just received: welcome it again. */
       resume?: boolean;
+      /**
+       * A guest's own id, the same every time this app joins. The host recognises a guest that
+       * comes back by it (and turns a banned one away). Never leaves the two apps.
+       */
+      guest?: string;
     }
   | { type: "welcome"; session: string; version: number; name: string }
   | { type: "refuse"; reason: RefuseReason }
@@ -94,7 +99,13 @@ export type Message =
   /** Either side stops offer `id`. */
   | { type: "tab-abort"; id: number; reason: string };
 
-export type RefuseReason = "version" | "score" | "declined" | "busy";
+export type RefuseReason = "version" | "score" | "declined" | "busy" | "full" | "banned";
+
+/** What a host says in its goodbye when it removes a guest. */
+export type DismissReason = "kicked" | "banned";
+
+/** How many players a session holds, the host included. */
+export const MAX_PLAYERS = 10;
 
 export interface Envelope {
   v: number;
@@ -147,7 +158,8 @@ function validMessage(m: unknown): m is Message {
         isString(score.key) &&
         isNumber(score.bars) &&
         (m.session === undefined || isString(m.session)) &&
-        (m.resume === undefined || typeof m.resume === "boolean")
+        (m.resume === undefined || typeof m.resume === "boolean") &&
+        (m.guest === undefined || (isString(m.guest) && m.guest.length <= 64))
       );
     }
     case "welcome":

@@ -40,7 +40,14 @@ import { useExternalOpen } from "@/hooks/use-external-open";
 import { useRecentFiles } from "@/hooks/use-recent-files";
 import { useStemBundleOpened } from "@/hooks/use-stem-bundle-opened";
 import { initLayoutPrefs, readLayoutPrefs } from "@/lib/score/layout";
-import { firstScoreFile, songTitle, useScoreDocuments } from "@/hooks/use-score-document";
+import {
+  firstScoreFile,
+  isUntouchedBlank,
+  songTitle,
+  useScoreDocuments,
+} from "@/hooks/use-score-document";
+import type { ReceivedScore } from "@/hooks/use-tab-sharing";
+import type { MixerSettings } from "@/lib/tauri";
 import { useTheme } from "@/hooks/use-theme";
 import { useUpdater } from "@/hooks/use-updater";
 import type { HelpAction } from "@/components/help-menu";
@@ -140,6 +147,16 @@ export function App() {
     else edited.current.delete(id);
     setEditedIds(new Set(edited.current));
   }, []);
+  /**
+   * Practice together: the host's tab arrived. When the only open tab is an untouched blank one
+   * (the guest joined from the start screen), the host's tab takes its place; any other tab,
+   * and a blank one that was edited, stays.
+   */
+  const receiveTab = (tab: ReceivedScore, options: { replaceId?: number; mix?: MixerSettings }) => {
+    const only = songs.length === 1 ? songs[0] : undefined;
+    const blank = only && isUntouchedBlank(only, edited.current.has(only.id)) ? only.id : undefined;
+    void openReceived(tab, { ...options, replaceId: options.replaceId ?? blank });
+  };
   /** The song the user is asked about: closing it would lose changes. */
   const [pendingClose, setPendingClose] = useState<number | null>(null);
 
@@ -660,7 +677,7 @@ export function App() {
                     onOpen={open}
                     onSetUpCloud={setUpCloud}
                     onOpenScore={(score, name) => void openScore(score, name)}
-                    onReceiveTab={(tab, options) => void openReceived(tab, options)}
+                    onReceiveTab={receiveTab}
                     onEditedChange={(value) => setEdited(s.id, value)}
                     onSaved={(saved) => markSaved(s.id, saved)}
                     onReopenWithEncoding={(choice) => reopenWithEncoding(s.id, choice)}

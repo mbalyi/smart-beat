@@ -70,8 +70,13 @@ function together(): PracticeTogether {
     setQuality: vi.fn(),
     host: vi.fn(async () => {}),
     join: vi.fn(async () => {}),
+    rejoin: vi.fn(async () => {}),
     leave: vi.fn(),
+    kick: vi.fn(),
+    ban: vi.fn(),
     intercept: vi.fn(() => false),
+    approvalsWaiting: 0,
+    lastSession: null,
   };
 }
 

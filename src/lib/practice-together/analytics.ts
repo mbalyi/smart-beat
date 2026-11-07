@@ -43,6 +43,10 @@ export const hosted = (connection: Connection) => track("practice_together_host"
 export const joined = (connection: Connection) => track("practice_together_join", connection);
 export const setupFailed = (connection: Connection) =>
   track("practice_together_setup_failed", connection);
+/** A guest came back to a session it was in. */
+export const rejoined = (connection: Connection) => track("practice_together_rejoin", connection);
+/** The host removed a player (`kick`: it can come back; `ban`: it cannot). */
+export const playerRemoved = (how: "kick" | "ban") => track("practice_together_remove", how);
 /** The audio quality choice: Auto, Tight, Balanced or Safe. */
 export const presetChosen = (choice: string) => track("practice_together_preset", choice);
 /** A shared start ran on this computer. */
@@ -101,7 +105,9 @@ export class SessionAnalytics {
             ? "peer_left"
             : this.lastSeen === "dropped"
               ? "dropped"
-              : "left";
+              : this.lastSeen === "kicked" || this.lastSeen === "banned"
+                ? "removed"
+                : "left";
       track("practice_together_end", why);
       if (this.synchronizedAt !== null) {
         track("practice_together_length", lengthRange((this.now() - this.synchronizedAt) / 1000));

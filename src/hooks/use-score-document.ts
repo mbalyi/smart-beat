@@ -91,6 +91,21 @@ export function songTitle(song: ScoreDocument): string {
 /** Name of a song created with File › New. */
 export const NEW_SONG_NAME = "Untitled";
 
+/**
+ * The tab File › New (or the start screen) opened and nobody touched: no file, no loaded song and
+ * no edit. A tab received from a Practice together host takes its place (#158).
+ */
+export function isUntouchedBlank(song: ScoreDocument, edited: boolean): boolean {
+  return (
+    song.isNew === true &&
+    !edited &&
+    !song.unsaved &&
+    !song.received &&
+    song.path === null &&
+    song.fileKey === null
+  );
+}
+
 /** What changes about a song when it is saved. */
 export interface SavedAs {
   name: string;
