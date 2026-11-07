@@ -22,6 +22,7 @@ import {
 import type { Score } from "@/lib/score/model";
 import { initialPractice } from "@/lib/score/practice";
 import { track } from "@/lib/telemetry";
+import { toast } from "sonner";
 
 /** Practice together across tabs: one session that moves between the open tabs of the app. */
 
@@ -336,59 +337,99 @@ describe("closing the tab that holds the session", () => {
   });
 });
 
+/**
+ * A guest that joined with tab 1 (song A) and has tab 2 (song B) open as well; the host then moves
+ * to song B, so the session moves to tab 2 and tab 1 stays in it without holding it.
+ */
+async function guestSessionMovedToSecondTab() {
+  const shown: number[] = [];
+  setLiveShower((id) => shown.push(id));
+  const pair = memoryPair({ up: 1, down: 1 });
+  const hostSession = new Session({
+    role: "host",
+    transport: pair[0],
+    name: "Drummer",
+    score: { key: "score-A", bars: 8 },
+    hooks: {
+      prepare: async () => true,
+      schedule: () => () => {},
+      approve: async () => true,
+      tab: {
+        offer: async () => ({
+          name: "Song B",
+          bytes: new Uint8Array([1, 2, 3]),
+          key: "score-B",
+          bars: 8,
+        }),
+      },
+    },
+    quality: "tight",
+  });
+  const first = tab(1, "A");
+  const second = tab(2, "B", false);
+  const { joinOnLan } = await import("@/lib/practice-together/lan");
+  vi.mocked(joinOnLan).mockResolvedValue(pair[1]);
+  hostSession.start();
+  openPair(pair);
+  await act(async () => {
+    await first.result.current.join("lan", "ABCD");
+  });
+  await waitFor(() => expect(first.result.current.state?.phase).toBe("synchronized"), {
+    timeout: 4000,
+  });
+  // Tab 2 is known to the app (its fingerprint is published while a session is live).
+  await waitFor(() => expect(liveSnapshot().live).toBe(true));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
+
+  // The host moves to its song B: the guest has it in tab 2.
+  hostSession.setScore({ key: "score-B", bars: 8 });
+  await waitFor(() => expect(shown).toContain(2), { timeout: 4000 });
+  act(() => second.rerender({ active: true }));
+  await waitFor(() => expect(liveOwner()?.id).toBe(2), { timeout: 4000 });
+  return { first, second, hostSession };
+}
+
 describe("a guest that has the tab the host moves to", () => {
   it("shows that tab instead of receiving a copy, and the session moves there", async () => {
-    // The guest joins with tab 1 (song A); tab 2 (song B) is open as well.
-    const shown: number[] = [];
-    setLiveShower((id) => shown.push(id));
-    const pair = memoryPair({ up: 1, down: 1 });
-    const hostSession = new Session({
-      role: "host",
-      transport: pair[0],
-      name: "Drummer",
-      score: { key: "score-A", bars: 8 },
-      hooks: {
-        prepare: async () => true,
-        schedule: () => () => {},
-        approve: async () => true,
-        tab: {
-          offer: async () => ({
-            name: "Song B",
-            bytes: new Uint8Array([1, 2, 3]),
-            key: "score-B",
-            bars: 8,
-          }),
-        },
-      },
-      quality: "tight",
-    });
-    const first = tab(1, "A");
-    const second = tab(2, "B", false);
-    const { joinOnLan } = await import("@/lib/practice-together/lan");
-    vi.mocked(joinOnLan).mockResolvedValue(pair[1]);
-    hostSession.start();
-    openPair(pair);
-    await act(async () => {
-      await first.result.current.join("lan", "ABCD");
-    });
-    await waitFor(() => expect(first.result.current.state?.phase).toBe("synchronized"), {
-      timeout: 4000,
-    });
-    // Tab 2 is known to the app (its fingerprint is published while a session is live).
-    await waitFor(() => expect(liveSnapshot().live).toBe(true));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    });
-
-    // The host moves to its song B: the guest has it in tab 2.
-    hostSession.setScore({ key: "score-B", bars: 8 });
-    await waitFor(() => expect(shown).toContain(2), { timeout: 4000 });
-    act(() => second.rerender({ active: true }));
-    await waitFor(() => expect(liveOwner()?.id).toBe(2), { timeout: 4000 });
+    const { first, second } = await guestSessionMovedToSecondTab();
     expect(second.result.current.state?.phase).toBeDefined();
     expect(first.result.current.state).toBeNull();
     // Both tabs are read-only while the session lasts (a guest's tabs follow the host).
     expect(first.result.current.readOnly).toBe(true);
     expect(second.result.current.readOnly).toBe(true);
+  });
+
+  it("does not play a tab of the session that is not the one in play, on its own", async () => {
+    const { first, second } = await guestSessionMovedToSecondTab();
+    first.rerender({ active: true });
+    // Tab 1 is in the session but the host plays song B in tab 2: Play here must not start
+    // a local-only playback, and says why.
+    let handled = false;
+    act(() => {
+      handled = first.result.current.intercept({ kind: "playPause" });
+    });
+    expect(handled).toBe(true);
+    expect(first.player.playPause).not.toHaveBeenCalled();
+    expect(toast.info).toHaveBeenCalledWith(
+      "This tab is not the one in play.",
+      expect.objectContaining({ id: "together-not-in-play" }),
+    );
+    // The tab that holds the session still routes the request through it.
+    act(() => {
+      second.result.current.intercept({ kind: "playPause" });
+    });
+    expect(toast.info).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a tab that is not in the session alone", async () => {
+    await guestSessionMovedToSecondTab();
+    const outside = tab(3, "C", false);
+    let handled = true;
+    act(() => {
+      handled = outside.result.current.intercept({ kind: "playPause" });
+    });
+    expect(handled).toBe(false);
   });
 });

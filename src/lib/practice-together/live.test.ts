@@ -87,6 +87,28 @@ describe("the live session", () => {
     expect(liveTabWithKey("a")).toBe(3);
   });
 
+  it("tells two tabs of the same song apart by which of the host's tabs they are", () => {
+    liveStart(session("guest"), owner(1), "song", 10);
+    liveSetOwner(owner(2), "song", undefined, 20);
+    // The one in play (2) is not the host's tab 10, so 10 finds tab 1 and 20 finds tab 2.
+    expect(liveTabWithKey("song", 10)).toBe(1);
+    expect(liveTabWithKey("song", 20)).toBe(2);
+    // A tab of the host's that is not open here is not found, whatever the song.
+    expect(liveTabWithKey("song", 30)).toBeNull();
+    // Without an origin (an older host) the song is all there is: the shown tab first.
+    expect(liveTabWithKey("song")).toBe(2);
+  });
+
+  it("matches a tab opened from a file by song alone, but prefers the exact tab", () => {
+    liveStart(session("guest"), owner(1), "song");
+    liveSetKey(3, "song", 20);
+    expect(liveTabWithKey("song", 20)).toBe(3);
+    expect(liveTabWithKey("song", 99)).toBe(1);
+    // The tab closes: what it was is forgotten with it.
+    liveTabClosed(3);
+    expect(liveTabWithKey("song", 20)).toBe(1);
+  });
+
   it("asks for a tab to be shown and moved to", () => {
     const shown = vi.fn();
     setLiveShower(shown);

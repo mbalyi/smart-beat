@@ -173,9 +173,9 @@ export interface TabHooks {
    * The guest only: whether a tab with this fingerprint is already open here (a tab of the same
    * session, or the same file). The host's offer of it is then answered with "have", no transfer.
    */
-  have?(key: string): boolean;
+  have?(key: string, origin?: number): boolean;
   /** The guest only: show the open tab with this fingerprint and move the session to it. */
-  show?(key: string): void;
+  show?(key: string, origin?: number): void;
 }
 
 export interface SessionOptions {
@@ -292,6 +292,14 @@ export function problem(kind: ProblemKind): Problem {
   return { kind, message: describe(kind), fatal: fatalKinds.includes(kind) };
 }
 
+/**
+ * Whether two tabs of the same song are the same tab: a tab that does not say which of the host's
+ * tabs it is (one the guest opened itself, or an older app) matches any.
+ */
+export function sameOrigin(a: number | undefined, b: number | undefined): boolean {
+  return a === undefined || b === undefined || a === b;
+}
+
 export class Session {
   readonly role: SessionRole;
   private readonly transport: PeerTransport;
@@ -311,6 +319,8 @@ export class Session {
   private cmdId = 0;
   private version = PROTOCOL_VERSION;
   private peerKey: string | null = null;
+  /** Which of the host's tabs the other app has open (see `ScoreFingerprint.origin`). */
+  private peerOrigin: number | undefined;
   private link: LinkState = "connecting";
   private wasWelcomed = false;
   private pingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -401,7 +411,13 @@ export class Session {
   /** The open score changed: tell the other app, which checks it against its own. */
   setScore(score: ScoreFingerprint) {
     // The same version again (the app checks now and then) is not news: no chatter.
-    if (score.key === this.score.key && score.bars === this.score.bars) return;
+    if (
+      score.key === this.score.key &&
+      score.bars === this.score.bars &&
+      score.origin === this.score.origin
+    ) {
+      return;
+    }
     this.score = score;
     // A guest tells the host which tab it has; the host answers a difference with its own tab.
     if (this.wasWelcomed && this.role === "guest") this.sendHello();
@@ -686,6 +702,7 @@ export class Session {
 
   private async onHello(msg: Extract<Message, { type: "hello" }>, version: number) {
     this.peerKey = msg.score.key;
+    this.peerOrigin = msg.score.origin;
     const knownGuest = msg.guest !== undefined && msg.guest === this.peerGuest;
     this.peerGuest ??= msg.guest;
     if (this.role === "guest") return this.checkScore();
@@ -912,7 +929,7 @@ export class Session {
    */
   private checkScore(delay = OFFER_DEBOUNCE_MS) {
     if (this.peerKey === null) return;
-    const same = this.peerKey === this.score.key;
+    const same = this.peerKey === this.score.key && sameOrigin(this.peerOrigin, this.score.origin);
     if (!same) {
       this.setProblem(problem("score"));
       this.offerSoon(delay);
@@ -965,13 +982,21 @@ export class Session {
       const payload = await offer();
       // The app moved to another tab meanwhile: this is the old tab's file.
       if (epoch !== this.hookEpoch) return;
-      if (!payload || !this.wasWelcomed || (payload.key === this.peerKey && !force)) return;
+      if (
+        !payload ||
+        !this.wasWelcomed ||
+        (payload.key === this.peerKey && sameOrigin(payload.origin, this.peerOrigin) && !force)
+      ) {
+        return;
+      }
       if (payload.bytes.length > MAX_TAB_BYTES) {
         return this.setProblem({ kind: "tab", message: tabFailureText("too-big"), fatal: false });
       }
-      const tries = this.attempts.get(payload.key) ?? 0;
+      // Two tabs of the same song are tried separately.
+      const tried = `${payload.key}:${payload.origin ?? ""}`;
+      const tries = this.attempts.get(tried) ?? 0;
       if (tries >= MAX_OFFER_TRIES) return;
-      this.attempts.set(payload.key, tries + 1);
+      this.attempts.set(tried, tries + 1);
       const sha = await fileKey(payload.bytes);
       if (!this.wasWelcomed || this.sender || epoch !== this.hookEpoch) return;
       this.sender = new TabSender((this.offerId += 1), payload, sha, {
@@ -1002,6 +1027,7 @@ export class Session {
     // The guest has this version; it says so again when it moves to it (and an edit made
     // meanwhile is offered next).
     this.peerKey = sender.key;
+    this.peerOrigin = sender.origin;
     this.checkScore();
   }
 
@@ -1026,14 +1052,14 @@ export class Session {
       return this.send({ type: "tab-abort", id: offer.id, reason: "unsupported" });
     }
     // Already the same tab: nothing to send.
-    if (offer.key === this.score.key) {
+    if (offer.key === this.score.key && sameOrigin(offer.origin, this.score.origin)) {
       return this.send({ type: "tab-done", id: offer.id, ok: true, reason: "have" });
     }
     // Another open tab is the host's (the host moved the session to a tab this app has too):
     // nothing to send either; the app shows it and the session moves there.
-    if (this.hooks.tab?.have?.(offer.key)) {
+    if (this.hooks.tab?.have?.(offer.key, offer.origin)) {
       this.send({ type: "tab-done", id: offer.id, ok: true, reason: "have" });
-      return this.hooks.tab.show?.(offer.key);
+      return this.hooks.tab.show?.(offer.key, offer.origin);
     }
     const bad = checkOffer(offer);
     if (bad) {
@@ -1062,6 +1088,7 @@ export class Session {
       bytes: result.bytes,
       key: offer.key,
       bars: offer.bars,
+      origin: offer.origin,
       from: this.state.peerName ?? "the host",
     };
     const epoch = this.hookEpoch;
@@ -1123,6 +1150,7 @@ export class Session {
     this.cancels.clear();
     this.wasWelcomed = false;
     this.peerKey = null;
+    this.peerOrigin = undefined;
     this.clock.reset();
     this.latency.reset();
     this.patch({

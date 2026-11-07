@@ -1663,10 +1663,15 @@ export function ScoreWorkspace({
     onReceiveTab:
       onReceiveTab &&
       ((tab) =>
-        // A new version of the host's tab replaces this one; the host's other tab is added next to it.
+        // A new version of the host's tab replaces this one; the host's other tab is added next to it
+        // (also when it is the same song: another tab of the host's is a tab of its own).
         onReceiveTab(
           tab,
-          song.received && song.name === `${tab.name} (from ${tab.from})`
+          song.received &&
+            song.name === `${tab.name} (from ${tab.from})` &&
+            (song.received.origin === undefined ||
+              tab.origin === undefined ||
+              song.received.origin === tab.origin)
             ? { replaceId: song.id, mix: mixRef.current }
             : {},
         )),

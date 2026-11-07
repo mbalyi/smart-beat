@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HostRoom } from "@/lib/practice-together/host-room";
-import { TAB_CHUNK_BYTES, type Command } from "@/lib/practice-together/protocol";
+import {
+  TAB_CHUNK_BYTES,
+  type Command,
+  type ScoreFingerprint,
+} from "@/lib/practice-together/protocol";
 import { Session, type SessionHooks, type TabHooks } from "@/lib/practice-together/session";
 import type { ReceivedTab, TabPayload } from "@/lib/practice-together/tab-transfer";
 import {
@@ -27,15 +31,16 @@ const cmd = (): Omit<Command, "id" | "at"> => ({
   countInBeats: 4,
 });
 
-const payload = (key: string): TabPayload => ({
+const payload = (key: string, origin?: number): TabPayload => ({
   name: `Song ${key}`,
   bytes: Uint8Array.from({ length: TAB_CHUNK_BYTES + 5 }, (_, i) => (i * 7 + key.length) % 256),
   key,
   bars: 8,
+  origin,
 });
 
 /** The host's hooks for one tab, with what they were asked. */
-function hostHooks(tabKey: string, extra: Partial<SessionHooks> = {}) {
+function hostHooks(tabKey: string, extra: Partial<SessionHooks> = {}, origin?: number) {
   const log = {
     prepared: [] as Command[],
     scheduled: [] as Command[],
@@ -62,7 +67,7 @@ function hostHooks(tabKey: string, extra: Partial<SessionHooks> = {}) {
     tab: {
       offer: async () => {
         log.offers += 1;
-        return payload(tabKey);
+        return payload(tabKey, origin);
       },
     },
     ...extra,
@@ -80,7 +85,11 @@ interface Guest {
   has: Set<string>;
 }
 
-function guestOn(pair: ReturnType<typeof memoryPair>, name: string): Guest {
+function guestOn(
+  pair: ReturnType<typeof memoryPair>,
+  name: string,
+  score: ScoreFingerprint = TAB_A,
+): Guest {
   const guest: Guest = {
     session: undefined as unknown as Session,
     received: [],
@@ -95,14 +104,15 @@ function guestOn(pair: ReturnType<typeof memoryPair>, name: string): Guest {
       return null;
     },
     opened: () => {},
-    have: (key) => guest.has.has(key),
-    show: (key) => guest.shown.push(key),
+    // A tab of one of the host's tabs is written `key#origin`.
+    have: (key, origin) => guest.has.has(origin === undefined ? key : `${key}#${origin}`),
+    show: (key, origin) => guest.shown.push(origin === undefined ? key : `${key}#${origin}`),
   };
   guest.session = new Session({
     role: "guest",
     transport: pair[1],
     name,
-    score: TAB_A,
+    score,
     guest: name.toLowerCase().padEnd(16, "0").slice(0, 16),
     now: () => performance.now() + 5_000,
     hooks: {
@@ -127,15 +137,19 @@ async function settle(ms: number) {
   }
 }
 
-function makeRoom(hooks: SessionHooks) {
+function makeRoom(hooks: SessionHooks, score: ScoreFingerprint = TAB_A) {
   const acceptor = memoryAcceptor();
-  const room = new HostRoom({ acceptor: acceptor.acceptor, name: "Host", score: TAB_A, hooks });
+  const room = new HostRoom({ acceptor: acceptor.acceptor, name: "Host", score, hooks });
   return { room, acceptor };
 }
 
-async function join(acceptor: ReturnType<typeof memoryAcceptor>, name: string) {
+async function join(
+  acceptor: ReturnType<typeof memoryAcceptor>,
+  name: string,
+  score: ScoreFingerprint = TAB_A,
+) {
   const pair = memoryPair({ up: 2, down: 2 });
-  const guest = guestOn(pair, name);
+  const guest = guestOn(pair, name, score);
   guest.session.start();
   openPair(pair);
   acceptor.arrive(pair[0] as GuestLink, { address: `10.0.0.${name.length}` });
@@ -313,5 +327,56 @@ describe("a single session whose app moves to another tab", () => {
     expect(result).toBe("started");
     expect(b.log.scheduled).toHaveLength(1);
     expect(a.log.scheduled).toHaveLength(0);
+  });
+});
+
+describe("two tabs of the same song on the host", () => {
+  const SONG = { key: "song", bars: 8 };
+
+  it("sends the second tab to a guest that only has the first, instead of staying on it", async () => {
+    const first = hostHooks("song", {}, 1);
+    const { room, acceptor } = makeRoom(first.hooks, { ...SONG, origin: 1 });
+    // The guest's copy of the host's first tab.
+    const { guest } = await join(acceptor, "Ann", { ...SONG, origin: 1 });
+    expect(first.log.offers).toBe(0);
+
+    const second = hostHooks("song", {}, 2);
+    room.rebind(second.hooks);
+    room.setScore({ ...SONG, origin: 2 });
+    await settle(3_000);
+
+    expect(guest.received).toHaveLength(1);
+    expect(guest.received[0]).toMatchObject({ key: "song", origin: 2 });
+    expect(guest.shown).toEqual([]);
+  });
+
+  it("shows the guest's copy of the second tab, not the first one it matches by song", async () => {
+    const first = hostHooks("song", {}, 1);
+    const { room, acceptor } = makeRoom(first.hooks, { ...SONG, origin: 1 });
+    const { guest } = await join(acceptor, "Ann", { ...SONG, origin: 1 });
+    guest.has.add("song#2");
+
+    const second = hostHooks("song", {}, 2);
+    room.rebind(second.hooks);
+    room.setScore({ ...SONG, origin: 2 });
+    await settle(3_000);
+
+    expect(guest.received).toHaveLength(0);
+    expect(guest.shown).toEqual(["song#2"]);
+  });
+
+  it("does not send a tab the guest opened itself: it is the same song", async () => {
+    const first = hostHooks("song", {}, 1);
+    const { room, acceptor } = makeRoom(first.hooks, { ...SONG, origin: 1 });
+    // Opened from the same file on the guest: it does not say which of the host's tabs it is.
+    const { guest } = await join(acceptor, "Ann", SONG);
+
+    const second = hostHooks("song", {}, 2);
+    room.rebind(second.hooks);
+    room.setScore({ ...SONG, origin: 2 });
+    await settle(3_000);
+
+    expect(second.log.offers).toBe(0);
+    expect(guest.received).toHaveLength(0);
   });
 });

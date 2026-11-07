@@ -12,12 +12,16 @@ export interface ReceivedScore {
   name: string;
   /** The score fingerprint of this version: the host's, whatever this app would compute. */
   key: string;
+  /** Which of the host's tabs it is (see `ScoreFingerprint.origin`). */
+  origin?: number;
   /** The host's name. */
   from: string;
 }
 
 interface Options {
   scoreRef: RefObject<Score>;
+  /** This tab's id: what the host's offer says which of its tabs it is. */
+  idRef?: RefObject<number>;
   /** The open song's name, shown to the guest. */
   titleRef: RefObject<string>;
   /** Changes with every edit of the score. */
@@ -27,9 +31,9 @@ interface Options {
   /** Opens a received tab. Without it, a tab is not accepted. */
   receiveRef: RefObject<((tab: ReceivedScore) => void) | undefined>;
   /** Whether another open tab of this app has the song with this fingerprint key. */
-  haveRef?: RefObject<((key: string) => boolean) | undefined>;
+  haveRef?: RefObject<((key: string, origin?: number) => boolean) | undefined>;
   /** Shows the open tab with this key and moves the session to it. */
-  showRef?: RefObject<((key: string) => void) | undefined>;
+  showRef?: RefObject<((key: string, origin?: number) => void) | undefined>;
 }
 
 /**
@@ -39,6 +43,7 @@ interface Options {
  * agree even when saving and reading changed how the score is written out.
  */
 export function useTabSharing({
+  idRef,
   scoreRef,
   titleRef,
   revisionRef,
@@ -52,12 +57,13 @@ export function useTabSharing({
 
   /** The fingerprint of the score as it is now (`revision`: which edit it is). */
   const fingerprint = useCallback(
-    async (score: Score, revision: number): Promise<ScoreFingerprint> => {
+    async (score: Score, revision: number, origin?: number): Promise<ScoreFingerprint> => {
       const known = trusted.current;
-      if (known && known.revision === revision) {
-        return { key: known.key, bars: score.masterBars.length };
-      }
-      return scoreFingerprint(score);
+      const base =
+        known && known.revision === revision
+          ? { key: known.key, bars: score.masterBars.length }
+          : await scoreFingerprint(score);
+      return origin === undefined ? base : { ...base, origin };
     },
     [],
   );
@@ -75,15 +81,22 @@ export function useTabSharing({
         const score = scoreRef.current;
         // The file and the fingerprint must describe the same edit: read both in this step.
         const bytes = writeGp7(score);
-        const { key, bars } = await fingerprint(score, revisionRef.current);
-        return { name: titleRef.current, bytes, key, bars };
+        const origin = idRef?.current;
+        const { key, bars } = await fingerprint(score, revisionRef.current, origin);
+        return { name: titleRef.current, bytes, key, bars, origin };
       },
       receive: async (tab) => {
         if (!receiveRef.current) return "unsupported";
         try {
           const { loadSong } = await import("@/lib/import");
           const { score } = await loadSong(tab.bytes, "shared.gp");
-          pending.current = { score, name: tab.name, key: tab.key, from: tab.from };
+          pending.current = {
+            score,
+            name: tab.name,
+            key: tab.key,
+            origin: tab.origin,
+            from: tab.from,
+          };
           return null;
         } catch {
           return "unreadable";
@@ -97,10 +110,10 @@ export function useTabSharing({
         detachRef.current(tab.key);
         receive(tab);
       },
-      have: (key) => haveRef?.current?.(key) ?? false,
-      show: (key) => showRef?.current?.(key),
+      have: (key, origin) => haveRef?.current?.(key, origin) ?? false,
+      show: (key, origin) => showRef?.current?.(key, origin),
     }),
-    [scoreRef, titleRef, revisionRef, detachRef, receiveRef, haveRef, showRef, fingerprint],
+    [idRef, scoreRef, titleRef, revisionRef, detachRef, receiveRef, haveRef, showRef, fingerprint],
   );
 
   // One object for as long as its parts stand: the effects that list it do not run on every render.

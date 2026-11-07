@@ -117,10 +117,11 @@ async function sendHostTab(
     id,
     path = PRACTICE_SONG,
     name = "Riff",
-  }: { key: string; id: number; path?: string; name?: string },
+    origin,
+  }: { key: string; id: number; path?: string; name?: string; origin?: number },
 ) {
   await app.evaluate(
-    async ([file, offerKey, offerId, offerName]) => {
+    async ([file, offerKey, offerId, offerName, offerOrigin]) => {
       const internals = (window as unknown as { __TAURI_INTERNALS__: unknown })
         .__TAURI_INTERNALS__ as {
         invoke: (cmd: string, args: unknown) => Promise<ArrayBuffer>;
@@ -146,6 +147,7 @@ async function sendHostTab(
         sha: await fileKey(bytes),
         key: offerKey,
         bars: score.masterBars.length,
+        ...(offerOrigin === undefined ? {} : { origin: offerOrigin }),
       });
       for (let i = 0; i < chunks; i += 1) {
         let text = "";
@@ -154,7 +156,7 @@ async function sendHostTab(
         frame({ type: "tab-chunk", id: offerId, i, data: btoa(text) });
       }
     },
-    [path, key, id, name] as const,
+    [path, key, id, name, origin] as const,
   );
 }
 
@@ -373,6 +375,77 @@ test.describe("Practice together: several tabs in one session (guest)", () => {
     );
     await welcomeAgain(app, hellos);
     await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+  });
+});
+
+test.describe("Practice together: several tabs, edge cases (guest)", () => {
+  test("two tabs of the same song from the host are two tabs, and each is found again by its own", async ({
+    app,
+  }) => {
+    await openSong(app);
+    const dialog = await openTogether(app);
+    await joinAsGuest(app, dialog);
+
+    // The host has the same song open twice (its tabs 1 and 2).
+    await sendHostTab(app, { key: "host-song", id: 7, origin: 1 });
+    await expect.poll(() => sentCount(app, "tab-done")).toBe(1);
+    await welcomeAgain(app, 1);
+    await sendHostTab(app, { key: "host-song", id: 8, origin: 2 });
+    await expect.poll(() => sentCount(app, "tab-done")).toBe(2);
+    await welcomeAgain(app, 2);
+    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+    // The second is a tab of its own: not the first one replaced by it.
+    await expect(tabBar(app).getByRole("listitem")).toHaveCount(3);
+    const hellos = await sentCount(app, "hello");
+
+    // The host goes back to its first tab: the guest shows its copy of that one, no new copy.
+    await app.evaluate(() =>
+      window.__practiceTogether.frame({
+        type: "tab-offer",
+        id: 9,
+        name: "Riff",
+        size: 10,
+        chunks: 1,
+        sha: "0".repeat(64),
+        key: "host-song",
+        bars: 4,
+        origin: 1,
+      }),
+    );
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("tab-done").slice(2)))
+      .toEqual([{ type: "tab-done", id: 9, ok: true, reason: "have" }]);
+    await expect(tabBar(app).getByRole("listitem")).toHaveCount(3);
+    await welcomeAgain(app, hellos);
+    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+  });
+
+  test("Play in a tab of the session that is not the one in play does not start it alone", async ({
+    app,
+  }) => {
+    await openSong(app);
+    const dialog = await openTogether(app);
+    await joinAsGuest(app, dialog);
+    await sendHostTab(app, { key: "host-tab-one", id: 7 });
+    await expect.poll(() => sentCount(app, "tab-done")).toBe(1);
+    await welcomeAgain(app, 1);
+    await sendHostTab(app, { key: "host-tab-two", id: 8, path: STRUCTURE_SONG, name: "Structure" });
+    await expect.poll(() => sentCount(app, "tab-done")).toBe(2);
+    await welcomeAgain(app, 2);
+    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+
+    await closeDialog(dialog);
+    // Look at the first received tab: it is in the session, but the host plays the second.
+    await tabButton(app, "Practice Song (from Host)").click();
+    await expect(tabButton(app, "Practice Song (from Host)")).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(app.getByText("This tab is not the one in play.")).toBeVisible();
+    // It neither plays here nor asks the host for anything.
+    await expect(app.getByRole("button", { name: "Play" })).toBeVisible();
+    expect(await sentCount(app, "request")).toBe(0);
   });
 });
 

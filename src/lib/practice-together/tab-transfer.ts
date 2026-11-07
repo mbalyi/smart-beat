@@ -19,6 +19,8 @@ export interface TabPayload {
   /** The score fingerprint of this version (what both apps compare). */
   key: string;
   bars: number;
+  /** Which of the host's tabs this is (see `ScoreFingerprint.origin`). */
+  origin?: number;
 }
 
 /** A tab the guest received whole and checked. */
@@ -99,6 +101,11 @@ export class TabSender {
     return this.payload.key;
   }
 
+  /** Which of the host's tabs is being sent. */
+  get origin(): number | undefined {
+    return this.payload.origin;
+  }
+
   start() {
     this.io.send({
       type: "tab-offer",
@@ -109,6 +116,7 @@ export class TabSender {
       sha: this.sha,
       key: this.payload.key,
       bars: this.payload.bars,
+      ...(this.payload.origin === undefined ? {} : { origin: this.payload.origin }),
     });
     this.report();
     this.pump();

@@ -23,6 +23,12 @@ export interface ScoreFingerprint {
   /** SHA-256 of the file, or of the exported tab when it has unsaved edits. */
   key: string;
   bars: number;
+  /**
+   * Which tab of the host's this is (the host's tab id; a guest's copy of a host tab keeps it). It
+   * tells two tabs of the same song apart. A tab the guest opened itself has none, and matches
+   * any tab of the same song.
+   */
+  origin?: number;
 }
 
 export type TransportAction = "play" | "pause" | "stop" | "seek" | "settings";
@@ -89,6 +95,8 @@ export type Message =
       sha: string;
       key: string;
       bars: number;
+      /** Which of the host's tabs this is (see `ScoreFingerprint.origin`). */
+      origin?: number;
     }
   /** Piece `i` (from 0) of offer `id`, as base64. */
   | { type: "tab-chunk"; id: number; i: number; data: string }
@@ -157,6 +165,7 @@ function validMessage(m: unknown): m is Message {
         isObject(score) &&
         isString(score.key) &&
         isNumber(score.bars) &&
+        (score.origin === undefined || isNumber(score.origin)) &&
         (m.session === undefined || isString(m.session)) &&
         (m.resume === undefined || typeof m.resume === "boolean") &&
         (m.guest === undefined || (isString(m.guest) && m.guest.length <= 64))
@@ -196,7 +205,8 @@ function validMessage(m: unknown): m is Message {
         isNumber(m.chunks) &&
         isString(m.sha) &&
         isString(m.key) &&
-        isNumber(m.bars)
+        isNumber(m.bars) &&
+        (m.origin === undefined || isNumber(m.origin))
       );
     case "tab-chunk":
       return isNumber(m.id) && isNumber(m.i) && isString(m.data);

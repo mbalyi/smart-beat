@@ -45,6 +45,8 @@ interface LiveState {
   included: Set<number>;
   /** The fingerprint key of the song in each open tab (only kept while a session is live). */
   keys: Map<number, string>;
+  /** Which of the host's tabs each tab is (see `ScoreFingerprint.origin`); none when it is not one. */
+  origins: Map<number, number>;
   /** A tab the session should move to (a guest's host changed tab, or the owner tab closed). */
   wanted: number | null;
   /** The session is moving from one tab to another. */
@@ -107,15 +109,18 @@ export const liveIncludes = (id: number): boolean => state?.included.has(id) ?? 
 export const liveCarry = (): LiveCarry | null => state?.carry ?? null;
 
 /** A session starts in a tab. Any session that was live before is not touched here (end it first). */
-export function liveStart(session: LiveSession, owner: LiveOwner, key: string) {
+export function liveStart(session: LiveSession, owner: LiveOwner, key: string, origin?: number) {
   const keys = new Map(state?.keys ?? []);
   keys.set(owner.id, key);
+  const origins = new Map(state?.origins ?? []);
+  setOrigin(origins, owner.id, origin);
   state = {
     session,
     owner,
     role: session.role,
     included: new Set([owner.id]),
     keys,
+    origins,
     wanted: null,
     claiming: false,
     carry: null,
@@ -127,13 +132,14 @@ export function liveStart(session: LiveSession, owner: LiveOwner, key: string) {
  * The connection of a guest moved to a tab it opened (a received tab): a new session object takes
  * over, and the tabs that were in the session stay in it. Starts afresh when nothing was live.
  */
-export function liveResume(session: LiveSession, owner: LiveOwner, key: string) {
-  if (!state) return liveStart(session, owner, key);
+export function liveResume(session: LiveSession, owner: LiveOwner, key: string, origin?: number) {
+  if (!state) return liveStart(session, owner, key, origin);
   state.session = session;
   state.owner = owner;
   state.role = session.role;
   state.included.add(owner.id);
   state.keys.set(owner.id, key);
+  setOrigin(state.origins, owner.id, origin);
   state.wanted = null;
   state.claiming = false;
   state.carry = null;
@@ -164,12 +170,18 @@ export function liveAbortClaim() {
 }
 
 /** The tab `owner` shows and plays the session now (it takes part from here on). */
-export function liveSetOwner(owner: LiveOwner, key: string, session?: LiveSession) {
+export function liveSetOwner(
+  owner: LiveOwner,
+  key: string,
+  session?: LiveSession,
+  origin?: number,
+) {
   if (!state) return;
   if (session) state.session = session;
   state.owner = owner;
   state.included.add(owner.id);
   state.keys.set(owner.id, key);
+  setOrigin(state.origins, owner.id, origin);
   state.claiming = false;
   state.wanted = null;
   state.carry = null;
@@ -185,19 +197,39 @@ export function liveDisown(carry: LiveCarry) {
 }
 
 /** The song in tab `id` has this fingerprint now (only while a session is live). */
-export function liveSetKey(id: number, key: string) {
+export function liveSetKey(id: number, key: string, origin?: number) {
   if (!state) return;
-  if (state.keys.get(id) === key) return;
+  if (state.keys.get(id) === key && state.origins.get(id) === origin) return;
   state.keys.set(id, key);
+  setOrigin(state.origins, id, origin);
   publish();
 }
 
-/** The tab with this fingerprint key, if one is open (the first one, the shown one first). */
-export function liveTabWithKey(key: string): number | null {
+function setOrigin(origins: Map<number, number>, id: number, origin: number | undefined) {
+  if (origin === undefined) origins.delete(id);
+  else origins.set(id, origin);
+}
+
+/**
+ * The tab with this fingerprint key, if one is open (the shown one first). With `origin` (which of
+ * the host's tabs it is), a tab that is another one of the host's does not count, so two tabs of
+ * the same song stay apart; a tab the guest opened itself (no origin) matches any.
+ */
+export function liveTabWithKey(key: string, origin?: number): number | null {
   if (!state) return null;
+  const { keys, origins } = state;
+  const fits = (id: number) => {
+    if (keys.get(id) !== key) return false;
+    const mine = origins.get(id);
+    return origin === undefined || mine === undefined || mine === origin;
+  };
   const owner = state.owner?.id;
-  if (owner !== undefined && state.keys.get(owner) === key) return owner;
-  for (const [id, k] of state.keys) if (k === key) return id;
+  // The exact tab first, then one that only has the same song (the shown one before the rest).
+  if (origin !== undefined) {
+    for (const id of keys.keys()) if (fits(id) && origins.get(id) === origin) return id;
+  }
+  if (owner !== undefined && fits(owner)) return owner;
+  for (const id of keys.keys()) if (fits(id)) return id;
   return null;
 }
 
@@ -205,6 +237,7 @@ export function liveTabWithKey(key: string): number | null {
 export function liveTabClosed(id: number): number | null {
   if (!state) return null;
   state.keys.delete(id);
+  state.origins.delete(id);
   state.included.delete(id);
   if (state.wanted === id) state.wanted = null;
   const next = state.owner?.id === id ? ([...state.included].at(-1) ?? null) : null;
