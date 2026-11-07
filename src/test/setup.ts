@@ -1,14 +1,10 @@
 import "@testing-library/jest-dom/vitest";
 import { clearMocks } from "@tauri-apps/api/mocks";
-import { cleanup, configure } from "@testing-library/react";
+import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach } from "vitest";
 
 import { installMatchMedia } from "@/test/match-media";
 import { removeMediaDevices } from "@/test/media-devices";
-
-// findBy and waitFor wait 1 s by default. On a CI runner with coverage on, a dialog that loads its
-// data from a mocked command can take longer, which failed a share dialog test there but not here.
-configure({ asyncUtilTimeout: 5000 });
 
 // jsdom gaps that Radix UI relies on.
 class ResizeObserverStub {

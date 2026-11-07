@@ -291,7 +291,7 @@ describe("ShareDialog: a file on this computer", () => {
 
     expect(
       await within(dialog).findByRole("button", {
-        name: /Upload to Google Drive, not available in this build/,
+        name: "Upload to Google Drive, Not available in this build",
       }),
     ).toBeDisabled();
   });
