@@ -343,6 +343,50 @@ describe("PracticeTogetherDialog: playing together", () => {
   });
 });
 
+describe("PracticeTogetherDialog: a session in another tab", () => {
+  it("offers the host to add this tab, and counts the tabs in the session", async () => {
+    const addToSession = vi.fn(async () => {});
+    const { user } = renderDialog(
+      together({ elsewhere: { role: "host", tabs: 2, here: false }, addToSession }),
+    );
+    const card = screen.getByTestId("live-elsewhere");
+    expect(card).toHaveTextContent("A session is running in another tab");
+    expect(card).toHaveTextContent("2 tabs in it");
+    await user.click(screen.getByRole("button", { name: "Add this tab to the session" }));
+    expect(addToSession).toHaveBeenCalledTimes(1);
+    // Starting a new one is still possible (it ends the running one).
+    expect(screen.getByRole("button", { name: "Start a session" })).toBeEnabled();
+  });
+
+  it("only tells a guest, who follows the host without asking", () => {
+    renderDialog(together({ elsewhere: { role: "guest", tabs: 1, here: true } }));
+    expect(screen.getByTestId("live-elsewhere")).toHaveTextContent(
+      "You are in a session in another tab",
+    );
+    expect(screen.queryByRole("button", { name: "Add this tab to the session" })).toBeNull();
+  });
+
+  it("shows nothing about other tabs when there is no session elsewhere", () => {
+    renderDialog(together({ elsewhere: null }));
+    expect(screen.queryByTestId("live-elsewhere")).toBeNull();
+  });
+
+  it("says how many tabs are in the session on the session page", () => {
+    renderDialog(together({ state: session(), tabsInSession: 3 }));
+    expect(screen.getByTestId("tabs-in-session")).toHaveTextContent("3 tabs are in this session");
+  });
+
+  it("does not say so for a session of one tab", () => {
+    renderDialog(together({ state: session(), tabsInSession: 1 }));
+    expect(screen.queryByTestId("tabs-in-session")).toBeNull();
+  });
+
+  it("has no accessibility violations with the card", async () => {
+    renderDialog(together({ elsewhere: { role: "host", tabs: 2, here: false } }));
+    await expectNoA11yViolations(screen.getByRole("dialog"));
+  });
+});
+
 describe("PracticeTogetherDialog: several players", () => {
   const crowd = () =>
     session({

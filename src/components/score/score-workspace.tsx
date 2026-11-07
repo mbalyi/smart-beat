@@ -1657,11 +1657,19 @@ export function ScoreWorkspace({
     score,
     revision,
     title: song.name,
+    id: song.id,
+    active,
     received: song.received,
     onReceiveTab:
       onReceiveTab &&
       ((tab) =>
-        onReceiveTab(tab, song.received ? { replaceId: song.id, mix: mixRef.current } : {})),
+        // A new version of the host's tab replaces this one; the host's other tab is added next to it.
+        onReceiveTab(
+          tab,
+          song.received && song.name === `${tab.name} (from ${tab.from})`
+            ? { replaceId: song.id, mix: mixRef.current }
+            : {},
+        )),
   });
   useEffect(() => {
     practiceLocked.current = (action) => {

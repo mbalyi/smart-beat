@@ -91,7 +91,7 @@ export const FEATURES: readonly Feature[] = [
     badge: "Available",
     status: "available",
     description:
-      "Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound.",
+      "Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound. Bring more tabs into the same session without leaving it.",
   },
   {
     title: "Audio tracks & editing",
