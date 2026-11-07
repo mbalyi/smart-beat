@@ -60,6 +60,11 @@ jobs:
     # playwright.config.ts).
     name: E2E smoke tests (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    # The official Playwright image has the browsers and their system libraries, so nothing is
+    # installed from the Ubuntu mirror (which once stalled for an hour). Keep the tag equal to the
+    # exact @playwright/test version in package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
     timeout-minutes: 70
     strategy:
       fail-fast: false
@@ -77,9 +82,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
-
       - name: Browser integration tests (Playwright + axe)
         run: pnpm test:e2e:smoke --project=${{ matrix.browser }}
 
@@ -96,6 +98,11 @@ jobs:
     # stays short (the groups are defined in playwright.config.ts).
     name: E2E additional functions (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    # The official Playwright image has the browsers and their system libraries, so nothing is
+    # installed from the Ubuntu mirror (which once stalled for an hour). Keep the tag equal to the
+    # exact @playwright/test version in package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
     timeout-minutes: 65
     strategy:
       fail-fast: false
@@ -112,9 +119,6 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
 
       - name: Browser integration tests (Playwright + axe)
         run: pnpm test:e2e:additional --project=${{ matrix.browser }}
