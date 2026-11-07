@@ -26,6 +26,10 @@ interface Options {
   detachRef: RefObject<(key: string) => void>;
   /** Opens a received tab. Without it, a tab is not accepted. */
   receiveRef: RefObject<((tab: ReceivedScore) => void) | undefined>;
+  /** Whether another open tab of this app has the song with this fingerprint key. */
+  haveRef?: RefObject<((key: string) => boolean) | undefined>;
+  /** Shows the open tab with this key and moves the session to it. */
+  showRef?: RefObject<((key: string) => void) | undefined>;
 }
 
 /**
@@ -34,7 +38,15 @@ interface Options {
  * A tab read from the host keeps the host's fingerprint until it is edited, so the two apps
  * agree even when saving and reading changed how the score is written out.
  */
-export function useTabSharing({ scoreRef, titleRef, revisionRef, detachRef, receiveRef }: Options) {
+export function useTabSharing({
+  scoreRef,
+  titleRef,
+  revisionRef,
+  detachRef,
+  receiveRef,
+  haveRef,
+  showRef,
+}: Options) {
   const pending = useRef<ReceivedScore | null>(null);
   const trusted = useRef<{ key: string; revision: number } | null>(null);
 
@@ -85,8 +97,10 @@ export function useTabSharing({ scoreRef, titleRef, revisionRef, detachRef, rece
         detachRef.current(tab.key);
         receive(tab);
       },
+      have: (key) => haveRef?.current?.(key) ?? false,
+      show: (key) => showRef?.current?.(key),
     }),
-    [scoreRef, titleRef, revisionRef, detachRef, receiveRef, fingerprint],
+    [scoreRef, titleRef, revisionRef, detachRef, receiveRef, haveRef, showRef, fingerprint],
   );
 
   // One object for as long as its parts stand: the effects that list it do not run on every render.

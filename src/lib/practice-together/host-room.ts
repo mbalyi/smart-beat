@@ -169,7 +169,9 @@ export class HostRoom {
   readonly role = "host" as const;
   private readonly acceptor: GuestAcceptor;
   private readonly hostName: string;
-  private readonly hooks: SessionHooks;
+  private hooks: SessionHooks;
+  /** Counts `rebind`s: a start prepared with the old hooks is dropped when this changed. */
+  private hookEpoch = 0;
   private readonly now: () => number;
   private readonly sessionId: string;
   private readonly holdMs: number;
@@ -319,9 +321,15 @@ export class HostRoom {
     if (targets.length === 0) return "score";
     const leadMs = Math.max(...targets.map((seat) => seat.session.snapshot.leadMs));
     const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() + leadMs };
+    const epoch = this.hookEpoch;
     const answers = targets.map((seat) => seat.session.dispatch(cmd));
     const mine = this.hooks.prepare(cmd).catch(() => false);
     const [mineOk, ...ready] = await Promise.all([mine, ...answers]);
+    // The app moved the session to another tab while this was getting ready: nothing starts.
+    if (epoch !== this.hookEpoch) {
+      for (const seat of targets) seat.session.callOff(cmd.id, "host-late");
+      return "late";
+    }
     const anyReady = ready.some(Boolean);
     targets.forEach((seat, i) => {
       if (!mineOk || !ready[i]) seat.session.callOff(cmd.id, mineOk ? "peer-late" : "host-late");
@@ -401,15 +409,7 @@ export class HostRoom {
       now: this.now,
       session: this.sessionId,
       reconnectMs: this.holdMs,
-      hooks: {
-        // A start is made for everyone by the room: a guest's session only carries it.
-        prepare: () => Promise.resolve(false),
-        schedule: () => () => {},
-        position: this.hooks.position,
-        request: this.hooks.request,
-        tab: this.hooks.tab,
-        approve: (name) => this.approve(seat, name),
-      },
+      hooks: this.seatHooks(() => seat),
     });
     const seat: Seat = {
       id,
@@ -431,6 +431,36 @@ export class HostRoom {
     session.start("open");
     transport.deliver(firstFrame);
     this.recompute();
+  }
+
+  /**
+   * What a guest's session does with the host's app: a start is made for everyone by the room (a
+   * guest's session only carries it), the rest is the host's hooks as they are now.
+   */
+  private seatHooks(seat: () => Seat): SessionHooks {
+    return {
+      prepare: () => Promise.resolve(false),
+      schedule: () => () => {},
+      position: this.hooks.position,
+      request: this.hooks.request,
+      tab: this.hooks.tab,
+      approve: (name) => this.approve(seat(), name),
+    };
+  }
+
+  /**
+   * The app moves the session to another tab: the host's hooks are replaced, for every guest in
+   * and for those who join later. Nobody is asked again or told, nobody has to sync again; starts
+   * that were being prepared or waiting for their moment, and a tab on its way, are called off.
+   * Follow it with `setScore` for the new tab: a guest that does not have it is sent it.
+   */
+  rebind(hooks: SessionHooks): void {
+    if (this.ended) return;
+    this.hookEpoch += 1;
+    for (const cancel of this.cancels.values()) cancel();
+    this.cancels.clear();
+    this.hooks = hooks;
+    for (const seat of this.seats.values()) seat.session.rebind(this.seatHooks(() => seat));
   }
 
   /** Asks the host whether to let the guest in; no answer is needed once the guest has gone. */

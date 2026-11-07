@@ -4,6 +4,7 @@ import {
   CopyIcon,
   GlobeIcon,
   LogOutIcon,
+  PlusIcon,
   RefreshCwIcon,
   RotateCcwIcon,
   UserCheckIcon,
@@ -173,6 +174,7 @@ function ChooseStep({
             </p>
           )}
           {together.lastSession && <RejoinRow together={together} />}
+          {together.elsewhere && <ElsewhereCard together={together} />}
           <div className={cn(CARD, "flex flex-col gap-4")}>
             <div className="flex flex-col gap-1.5">
               <label htmlFor={nameId} className="text-sm font-semibold">
@@ -430,6 +432,51 @@ function ApprovalCard({ together }: { together: PracticeTogether }) {
   );
 }
 
+/**
+ * A session is running in another tab of this app. The host can bring this tab into it (everybody
+ * follows to it, and they still play one tab at a time); a guest follows the host without asking.
+ */
+function ElsewhereCard({ together }: { together: PracticeTogether }) {
+  const elsewhere = together.elsewhere!;
+  const tabs = `${elsewhere.tabs} ${elsewhere.tabs === 1 ? "tab" : "tabs"}`;
+  const [adding, setAdding] = useState(false);
+  if (elsewhere.role === "guest") {
+    return (
+      <div className={cn(CARD, "flex flex-col gap-1.5")} data-testid="live-elsewhere">
+        <p className="text-sm font-semibold">You are in a session in another tab</p>
+        <p className="text-sm text-muted-foreground">
+          {tabs} in it. The host's tab comes to you; joining or starting a session here ends it.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className={cn(CARD, "flex flex-col gap-3")} data-testid="live-elsewhere">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-sm font-semibold">A session is running in another tab</p>
+        <p className="text-sm text-muted-foreground">
+          {tabs} in it. Add this tab and everybody follows to it when you show it; you play one tab
+          at a time, as usual. Starting a new session below ends the running one.
+        </p>
+      </div>
+      <div>
+        <Button
+          type="button"
+          size="lg"
+          disabled={adding}
+          onClick={() => {
+            setAdding(true);
+            void Promise.resolve(together.addToSession?.()).finally(() => setAdding(false));
+          }}
+        >
+          <PlusIcon aria-hidden="true" />
+          {adding ? "Adding…" : "Add this tab to the session"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** A guest that dropped out (or was removed) can try the session it was in again. */
 function RejoinRow({ together }: { together: PracticeTogether }) {
   const last = together.lastSession!;
@@ -577,6 +624,12 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
               />
             </dl>
             <TransferLine transfer={together.transfer} />
+            {(together.tabsInSession ?? 0) > 1 && (
+              <p className="text-sm text-muted-foreground" data-testid="tabs-in-session">
+                {together.tabsInSession} tabs are in this session: the one you show is the one that
+                plays.
+              </p>
+            )}
             {isHost && peers.length > 0 && (
               <div className="flex flex-wrap items-center gap-3">
                 <Button

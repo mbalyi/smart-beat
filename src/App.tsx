@@ -12,6 +12,7 @@ import { CloudOpenDialog } from "@/components/cloud-open-dialog";
 import { SaveTargetDialog } from "@/components/save-target-dialog";
 import { listCloudAccounts, type CloudProvider } from "@/lib/cloud";
 import { opened as countTogetherOpened } from "@/lib/practice-together/analytics";
+import { setLiveShower } from "@/lib/practice-together/live";
 import { ShareProvider } from "@/providers/share-provider";
 import { toCloudDrives, type CloudDrive } from "@/lib/cloud-items";
 import { AppFooter } from "@/components/app-footer";
@@ -132,6 +133,16 @@ export function App() {
     reloadFromDisk,
     recentsVersion,
   } = useScoreDocuments();
+  // Practice together moves between tabs: it can bring a tab to the front (a guest's host changed
+  // tab, or the tab that held the session closed).
+  const activateRef = useRef(activate);
+  useEffect(() => {
+    activateRef.current = activate;
+  });
+  useEffect(() => {
+    setLiveShower((id) => activateRef.current(id));
+    return () => setLiveShower(null);
+  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Where an open song puts its main controls (the app header's centre). */
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);

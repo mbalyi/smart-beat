@@ -169,6 +169,13 @@ export interface TabHooks {
   receive?(tab: ReceivedTab): Promise<string | null>;
   /** The guest only: the answer went out, so the app may now open the tab and move the session. */
   opened?(): void;
+  /**
+   * The guest only: whether a tab with this fingerprint is already open here (a tab of the same
+   * session, or the same file). The host's offer of it is then answered with "have", no transfer.
+   */
+  have?(key: string): boolean;
+  /** The guest only: show the open tab with this fingerprint and move the session to it. */
+  show?(key: string): void;
 }
 
 export interface SessionOptions {
@@ -288,7 +295,9 @@ export function problem(kind: ProblemKind): Problem {
 export class Session {
   readonly role: SessionRole;
   private readonly transport: PeerTransport;
-  private readonly hooks: SessionHooks;
+  private hooks: SessionHooks;
+  /** Counts `rebind`s: work that started with the old hooks is dropped when this changed. */
+  private hookEpoch = 0;
   private readonly now: () => number;
   private readonly name: string;
   private readonly clock = new ClockEstimator();
@@ -400,6 +409,20 @@ export class Session {
   }
 
   /**
+   * The app moves this session to another tab: its hooks are replaced and the session goes on
+   * (the connection, the clock and the roster stay; nobody is asked again or told). Starts that
+   * were being prepared or waiting for their moment with the old hooks are called off, and a tab
+   * on its way is stopped. The host follows this with `setScore` for the new tab.
+   */
+  rebind(hooks: SessionHooks): void {
+    this.hookEpoch += 1;
+    for (const cancel of this.cancels.values()) cancel();
+    this.cancels.clear();
+    this.dropTransfers();
+    this.hooks = hooks;
+  }
+
+  /**
    * Hands the live connection to another session (the guest moved to the tab it received).
    * Nothing is said to the other app and the transport stays open.
    */
@@ -462,9 +485,15 @@ export class Session {
       return "not-synchronized";
     }
     const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() + this.state.leadMs };
+    const epoch = this.hookEpoch;
     const peer = this.dispatch(cmd);
     const mine = this.hooks.prepare(cmd).catch(() => false);
     const [mineOk, peerOk] = await Promise.all([mine, peer]);
+    // The app moved to another tab while this was getting ready: it does not start there.
+    if (epoch !== this.hookEpoch) {
+      this.callOff(cmd.id, "host-late");
+      return "late";
+    }
     if (!mineOk || !peerOk) {
       this.callOff(cmd.id, mineOk ? "peer-late" : "host-late");
       return "late";
@@ -744,11 +773,13 @@ export class Session {
     if (!this.clock.ready || localAt - this.now() < MIN_PREPARE_MS) {
       return this.send({ type: "ready", id: cmd.id, ok: false, reason: "late" });
     }
+    const epoch = this.hookEpoch;
     const ok = await this.hooks.prepare(cmd).catch(() => false);
     // "Ready" must still reach the host before its deadline: it takes one way and a margin.
     const oneWay = this.latency.stats().p50 / 2;
     if (
       !ok ||
+      epoch !== this.hookEpoch ||
       this.aborted.has(cmd.id) ||
       this.localTimeOf(cmd.at) - this.now() < oneWay + READY_MARGIN_MS
     ) {
@@ -929,8 +960,11 @@ export class Session {
     this.offering = true;
     const force = this.forceOffer;
     this.forceOffer = false;
+    const epoch = this.hookEpoch;
     try {
       const payload = await offer();
+      // The app moved to another tab meanwhile: this is the old tab's file.
+      if (epoch !== this.hookEpoch) return;
       if (!payload || !this.wasWelcomed || (payload.key === this.peerKey && !force)) return;
       if (payload.bytes.length > MAX_TAB_BYTES) {
         return this.setProblem({ kind: "tab", message: tabFailureText("too-big"), fatal: false });
@@ -939,7 +973,7 @@ export class Session {
       if (tries >= MAX_OFFER_TRIES) return;
       this.attempts.set(payload.key, tries + 1);
       const sha = await fileKey(payload.bytes);
-      if (!this.wasWelcomed || this.sender) return;
+      if (!this.wasWelcomed || this.sender || epoch !== this.hookEpoch) return;
       this.sender = new TabSender((this.offerId += 1), payload, sha, {
         send: (msg) => this.send(msg),
         progress: (transfer) => this.patch({ transfer }),
@@ -995,6 +1029,12 @@ export class Session {
     if (offer.key === this.score.key) {
       return this.send({ type: "tab-done", id: offer.id, ok: true, reason: "have" });
     }
+    // Another open tab is the host's (the host moved the session to a tab this app has too):
+    // nothing to send either; the app shows it and the session moves there.
+    if (this.hooks.tab?.have?.(offer.key)) {
+      this.send({ type: "tab-done", id: offer.id, ok: true, reason: "have" });
+      return this.hooks.tab.show?.(offer.key);
+    }
     const bad = checkOffer(offer);
     if (bad) {
       this.send({ type: "tab-abort", id: offer.id, reason: bad });
@@ -1024,8 +1064,10 @@ export class Session {
       bars: offer.bars,
       from: this.state.peerName ?? "the host",
     };
+    const epoch = this.hookEpoch;
     const reason = await this.hooks.tab?.receive?.(tab).catch(() => "unreadable");
     if (this.state.phase === "closed" || this.state.phase === "failed") return;
+    if (epoch !== this.hookEpoch) return;
     if (reason) return this.failReceiving(receiver, reason, "done");
     this.send({ type: "tab-done", id: offer.id, ok: true });
     this.patch({ transfer: null });
