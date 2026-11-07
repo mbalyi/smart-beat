@@ -1439,6 +1439,56 @@ fn unknown_usage_events_and_formats_are_refused_over_ipc() {
 }
 
 #[test]
+fn error_and_panic_counters_take_only_their_fixed_details_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    // The server is unreachable: the urgent upload fails quietly and the counters stay queued.
+    let app = app_with_telemetry(dir.path(), Some("http://127.0.0.1:1/v1/batch"));
+    let window = main_window(&app);
+
+    for (event, format) in [
+        ("error", "audio:io"),
+        ("error", "cloud:auth-expired"),
+        ("error", "other:unknown"),
+        ("panic", "stems"),
+    ] {
+        invoke_with(
+            &window,
+            "track_event",
+            json!({ "event": event, "format": format }),
+        )
+        .unwrap();
+    }
+    let stored = std::fs::read_to_string(dir.path().join("usage.json")).unwrap();
+    assert!(stored.contains("error|audio:io"), "{stored}");
+    assert!(stored.contains("error|cloud:auth-expired"), "{stored}");
+    assert!(stored.contains("panic|stems"), "{stored}");
+
+    for (event, format) in [
+        ("error", "/Users/me/My Song.gp5"),
+        ("error", "disk on fire"),
+        ("error", "audio"),
+        ("error", "audio:nope"),
+        ("panic", "audio:io"),
+        ("panic", "thread 'main' panicked at src/audio/engine.rs:12"),
+    ] {
+        assert!(
+            invoke_with(
+                &window,
+                "track_event",
+                json!({ "event": event, "format": format })
+            )
+            .is_err(),
+            "{event} {format}"
+        );
+    }
+    let after = std::fs::read_to_string(dir.path().join("usage.json")).unwrap();
+    assert_eq!(
+        after, stored,
+        "refused details leave the counters untouched"
+    );
+}
+
+#[test]
 fn builds_without_an_endpoint_count_and_send_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let app = app_with_telemetry(dir.path(), None);

@@ -107,6 +107,26 @@ describe("track", () => {
     ]);
   });
 
+  it("takes the fixed details of the error and panic counters only", () => {
+    const calls = mockTauri();
+    track("error", "audio:io");
+    track("error", "CLOUD:Network");
+    track("panic", "stems");
+    track("error", "audio");
+    track("error", "/Users/jane/My Song.gp5");
+    track("panic", "audio:io");
+    track("panic", "thread 'main' panicked at src/audio/engine.rs:1");
+    expect(tracked(calls)).toEqual([
+      { event: "error", format: "audio:io" },
+      { event: "error", format: "cloud:network" },
+      { event: "panic", format: "stems" },
+      { event: "error", format: null },
+      { event: "error", format: null },
+      { event: "panic", format: null },
+      { event: "panic", format: null },
+    ]);
+  });
+
   it("names a sound set by its fixed id, and an imported file only as custom", () => {
     expect(soundFontCounterId({ id: "sonivox" })).toBe("sonivox");
     expect(soundFontCounterId({ id: "fluidr3" })).toBe("fluidr3");

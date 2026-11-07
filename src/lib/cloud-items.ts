@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/invoke";
 
 import type { CloudAccount, CloudProvider } from "@/lib/cloud";
 import { isCommandError, isTauri, type MixerSettings } from "@/lib/tauri";

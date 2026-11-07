@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
-import { EVENTS, EVENT_DETAILS } from "../src/events";
+import { ERROR_AREAS, ERROR_KINDS, EVENTS, EVENT_DETAILS } from "../src/events";
 import worker from "../src/index";
 import { cleanup, MAX_ENTRIES, type Env } from "../src/logic";
 import { fakeD1 } from "./d1";
@@ -250,8 +251,61 @@ describe("event details", () => {
       ["tour_finish", "My tour"],
       ["drum_normalize", "pdf"],
       ["practice_speed", "75"],
+      ["error", "audio"],
+      ["error", "audio:"],
+      ["error", "foo:io"],
+      ["error", "audio:foo"],
+      ["error", "audio:io:extra"],
+      ["error", "/Users/jane/My Song.gp5"],
+      ["error", "Disk on fire"],
+      ["panic", "audio:io"],
+      ["panic", "thread 'main' panicked at src/audio/engine.rs:12"],
+      ["panic", "/Users/jane"],
+      ["play", "audio:io"],
+      ["export", "audio"],
     ]) {
       expect((await post(batch([{ day: today, event, format, count: 1 }]))).status).toBe(400);
     }
+  });
+});
+
+describe("error and panic counters", () => {
+  it("stores an error per area and kind and a panic per area, nothing else", async () => {
+    const response = await post(
+      batch([
+        { day: today, event: "error", format: "audio:not-found", count: 3 },
+        { day: today, event: "error", format: "cloud:unknown", count: 1 },
+        { day: today, event: "panic", format: "stems", count: 2 },
+        { day: today, event: "panic", count: 1 },
+      ]),
+    );
+    expect(response.status).toBe(200);
+    const stored = sqlite
+      .prepare("SELECT event, format, count FROM daily_counts ORDER BY event, format")
+      .all();
+    expect(stored.map((r) => ({ ...r }))).toEqual([
+      { event: "error", format: "audio:not-found", count: 3 },
+      { event: "error", format: "cloud:unknown", count: 1 },
+      { event: "panic", format: "", count: 1 },
+      { event: "panic", format: "stems", count: 2 },
+    ]);
+  });
+  it("has 10 areas and 14 kinds, and error takes each combination once", () => {
+    expect(ERROR_AREAS).toHaveLength(10);
+    expect(ERROR_KINDS).toHaveLength(14);
+    expect(EVENT_DETAILS.error).toHaveLength(140);
+    expect(new Set(EVENT_DETAILS.error).size).toBe(140);
+    expect(EVENT_DETAILS.panic).toEqual([...ERROR_AREAS]);
+  });
+  it("lists the same areas and kinds as the app", () => {
+    // The app refuses what the Worker would refuse and the other way round: keep them equal.
+    const rust = readFileSync(new URL("../../src-tauri/src/telemetry.rs", import.meta.url), "utf8");
+    const listed = (name: string) => {
+      const body = new RegExp(`pub const ${name}: \\[&str; \\d+\\] = \\[([^\\]]*)\\]`).exec(rust);
+      expect(body, name).not.toBeNull();
+      return [...body![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    };
+    expect(listed("ERROR_AREAS")).toEqual([...ERROR_AREAS]);
+    expect(listed("ERROR_KINDS")).toEqual([...ERROR_KINDS]);
   });
 });
