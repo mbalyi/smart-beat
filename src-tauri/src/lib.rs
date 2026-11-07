@@ -15,6 +15,8 @@ pub mod menu_state;
 pub mod mixer;
 pub mod open_file;
 pub mod pdf;
+pub mod practice;
+pub mod practice_signal;
 pub mod project;
 pub mod recent;
 pub mod recording;
@@ -50,6 +52,8 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(open_file::PendingBundles::default())
         .manage(recording::muscriptor_model::DownloadRun::default())
         .manage(recording::RecordingRun::default())
+        .manage(practice::PracticeState::default())
+        .manage(practice_signal::SignalState::default())
         .manage(stems::StemsRun::default())
         .manage(stems::umx_model::DownloadRun::default())
         .setup(|app| {
@@ -127,6 +131,17 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::set_cloud_folder,
             commands::detect_cloud_folders,
             commands::list_cloud_scores,
+            practice::practice_host,
+            practice::practice_join,
+            practice::practice_send,
+            practice::practice_kick,
+            practice::practice_leave,
+            practice_signal::practice_signal_available,
+            practice_signal::practice_signal_create,
+            practice_signal::practice_signal_join,
+            practice_signal::practice_signal_send,
+            practice_signal::practice_signal_kick,
+            practice_signal::practice_signal_leave,
             commands::list_cloud_stems,
             commands::stems_cloud_save_path,
             cloud_commands::cloud_accounts,
@@ -292,6 +307,13 @@ pub fn run() {
 
 /// Sends the unsent usage counters once, ignoring the hourly pause. At most the upload timeout.
 fn flush_on_quit<R: Runtime>(app: &tauri::AppHandle<R>) {
+    // A Practice together session ends with the app, so the other side is not left hanging.
+    if let Some(p) = app.try_state::<practice::PracticeState>() {
+        p.leave();
+    }
+    if let Some(p) = app.try_state::<practice_signal::SignalState>() {
+        p.leave();
+    }
     if let Some(t) = app.try_state::<std::sync::Arc<telemetry::Telemetry>>() {
         t.flush_final();
     }

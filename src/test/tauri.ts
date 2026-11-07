@@ -299,6 +299,27 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         }
         case "export_pdf":
           return null;
+        // Practice together (#158): no other player in unit tests.
+        case "practice_host":
+          return {
+            code: "ABCD-EFGH-JKMN-PQRS-TVWX",
+            link: "smartbeat://join/ABCD-EFGH-JKMN-PQRS-TVWX",
+            address: "192.168.1.5:50123",
+          };
+        case "practice_join":
+        case "practice_kick":
+        case "practice_leave":
+        case "practice_signal_join":
+        case "practice_signal_send":
+        case "practice_signal_kick":
+        case "practice_signal_leave":
+          return null;
+        case "practice_send":
+          return true;
+        case "practice_signal_available":
+          return false;
+        case "practice_signal_create":
+          return "ABCD-EFGH";
         case "track_event":
           return null;
         // No folder linked and none detected; no cloud accounts or pending uploads (#187).

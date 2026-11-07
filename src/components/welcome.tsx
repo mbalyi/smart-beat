@@ -9,6 +9,7 @@ import {
   LayersIcon,
   CompassIcon,
   PackageOpenIcon,
+  UsersIcon,
 } from "lucide-react";
 import { useId, useState } from "react";
 
@@ -56,6 +57,7 @@ export function Welcome({
   onSeparateStems,
   onOpenStemSong,
   onOpenStemBundle,
+  onPracticeTogether,
   onNewSong,
   onShowShortcuts,
   recent = [],
@@ -75,6 +77,8 @@ export function Welcome({
   onOpenStemSong?: (song: StemSong) => void;
   /** Open saved stems: asks for a `.sbstems` file and opens it; the button is left out without it. */
   onOpenStemBundle?: () => void;
+  /** Practice together: start a session on a tab or join one; the button is left out without it. */
+  onPracticeTogether?: () => void;
   onNewSong: () => void;
   onShowShortcuts: () => void;
   /** Recently opened songs (paths), most recent first. */
@@ -140,6 +144,18 @@ export function Welcome({
             <Button size="lg" variant="outline" className={HERO_BUTTON} onClick={onOpenStemBundle}>
               <PackageOpenIcon data-icon="inline-start" />
               Open saved stems
+            </Button>
+          )}
+          {onPracticeTogether && (
+            <Button
+              size="lg"
+              variant="outline"
+              className={HERO_BUTTON}
+              onClick={onPracticeTogether}
+              data-testid="welcome-practice-together"
+            >
+              <UsersIcon data-icon="inline-start" />
+              Practice together
             </Button>
           )}
           {onImportAudio && (

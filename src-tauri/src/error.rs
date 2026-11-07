@@ -32,6 +32,8 @@ pub enum ErrorKind {
     Network,
     /// The cloud sign-in expired or was revoked: connect the account again (#187).
     AuthExpired,
+    /// A Practice together room code that is not valid (#158).
+    InvalidCode,
     /// Any other I/O failure.
     Io,
 }

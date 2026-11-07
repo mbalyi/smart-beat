@@ -17,6 +17,7 @@ export default defineConfig([
     "src-tauri/gen",
     // Own package with its own checks (`pnpm --dir analytics test`).
     "analytics",
+    "signaling",
   ]),
   {
     files: ["**/*.{ts,tsx}"],

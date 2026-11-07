@@ -519,6 +519,35 @@
         if (window.__pdfFail) throw { kind: "io", message: window.__pdfFail };
         return null;
       }
+      // Practice together (#158): the link to the other app is simulated. Tests drive the guest
+      // through `window.__practiceTogether` (see below) and read what the app sent.
+      case "practice_host":
+        return {
+          code: "ABCD-EFGH-JKMN-PQRS-TVWX",
+          link: "smartbeat://join/ABCD-EFGH-JKMN-PQRS-TVWX",
+          address: "192.168.1.5:50123",
+        };
+      case "practice_join":
+        return null;
+      case "practice_send": {
+        window.__practiceTogether.receive(args.text, args.conn ?? 1);
+        return true;
+      }
+      case "practice_kick":
+        window.__practiceTogether.kicked.push({ conn: args.conn, ban: args.ban });
+        window.__practiceTogether.state("closed", "the guest disconnected", args.conn);
+        return null;
+      case "practice_leave":
+        return null;
+      case "practice_signal_available":
+        return false;
+      case "practice_signal_create":
+        return "ABCD-EFGH";
+      case "practice_signal_join":
+      case "practice_signal_send":
+      case "practice_signal_kick":
+      case "practice_signal_leave":
+        return null;
       // Usage counters (#99): tests read `window.__ipcCalls` for `track_event` and set
       // `window.__usage` ({ enabled, available, noticeSeen }) to simulate a release build.
       case "track_event":
@@ -1388,6 +1417,61 @@
       callbacks.delete(id);
     },
   };
+
+  /**
+   * Practice together (#158): the other players. A host's guests are told apart by connection
+   * number (`conn`, 1 unless a test says otherwise; 0 is the link itself). `sent` holds every frame
+   * the app sent (decoded; `sentTo` has the connection of each). With `auto` on, a guest behaves
+   * like a healthy one: it answers pings with pongs (a 2 ms wire), reports its own sync quality
+   * and says ready to every command.
+   */
+  const together = (window.__practiceTogether = {
+    sent: [],
+    sentTo: [],
+    kicked: [],
+    auto: true,
+    n: 0,
+    /** Called by `practice_send`: records the frame and answers it. */
+    receive(text, conn = 1) {
+      let frame;
+      try {
+        frame = JSON.parse(text);
+      } catch {
+        return;
+      }
+      together.sent.push(frame.msg);
+      together.sentTo.push(conn);
+      if (!together.auto) return;
+      const msg = frame.msg;
+      if (msg.type === "ping") {
+        setTimeout(() => {
+          const t1 = performance.now();
+          together.frame({ type: "pong", id: msg.id, t0: msg.t0, t1, t2: t1 }, conn);
+          together.frame({ type: "report", errorMs: 2, rtt: 3, driftMs: 0 }, conn);
+        }, 1);
+      } else if (msg.type === "cmd") {
+        setTimeout(() => together.frame({ type: "ready", id: msg.cmd.id, ok: true }, conn), 1);
+      }
+    },
+    /** A frame arriving from the other player on connection `conn`. */
+    frame(msg, conn = 1) {
+      together.n += 1;
+      return window.__emitTauriEvent("practice-frame", {
+        conn,
+        text: JSON.stringify({ v: 1, n: together.n, msg }),
+      });
+    },
+    /** A connection changing state (a guest arriving or leaving, the link ending). */
+    state(state, detail, conn = 1) {
+      return window.__emitTauriEvent("practice-state", { conn, state, detail: detail ?? null });
+    },
+    /** The frames of one type that the app sent (to one connection, when `conn` is given). */
+    sentOf(type, conn) {
+      return together.sent.filter(
+        (m, i) => m.type === type && (conn === undefined || together.sentTo[i] === conn),
+      );
+    },
+  });
 
   /** Test hook: emit a Tauri event. Returns how many listeners received it. */
   window.__emitTauriEvent = (event, payload) => {

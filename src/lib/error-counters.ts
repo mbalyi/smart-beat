@@ -15,6 +15,7 @@ export const ERROR_AREAS = [
   "ai",
   "stems",
   "cloud",
+  "practice",
   "settings",
   "other",
 ] as const;
@@ -37,6 +38,7 @@ export const ERROR_KINDS = [
   "download-timeout",
   "network",
   "auth-expired",
+  "invalid-code",
   "io",
   "unknown",
 ] as const;
@@ -57,6 +59,7 @@ const AREA_RULES: ReadonlyArray<readonly [ErrorArea, RegExp]> = [
   ["export", /^export_/],
   ["cloud", /^(cloud_|list_cloud_|stems_cloud_)|cloud_folder/],
   ["stems", /^(stems_|umx_model_|stem_model_)/],
+  ["practice", /^practice_/],
   ["import", /^(transcribe_audio|cancel_transcription|read_transcription_audio)$/],
   [
     "ai",

@@ -254,7 +254,9 @@ fn imported_sounds_stay_on_this_computer() {
     // (src/audio/soundfonts.rs), and the cloud drive connectors the user links themselves in
     // Settings (src/cloud/: sign-in, and open/save of tabs in their own Google Drive, OneDrive or
     // Dropbox, and the large stems files of Stem separation, #186; nothing is sent until an
-    // account is connected). Transcription runs on this
+    // account is connected), and the Practice together meeting service (src/practice_signal.rs:
+    // setup messages for a session over the internet; nothing is sent until the user starts one).
+    // Transcription runs on this
     // computer and sends nothing.
     // No other client, no fs/http/shell permission, no remote host in the CSP. The updater
     // plugin makes its own request from Rust.
@@ -282,6 +284,7 @@ fn imported_sounds_stay_on_this_computer() {
             "cloud/google_drive.rs",
             "cloud/onedrive.rs",
             "cloud/dropbox.rs",
+            "practice_signal.rs",
         ];
         assert!(
             owners.iter().any(|owner| file == src.join(owner)) || !source.contains(client),

@@ -26,6 +26,7 @@ vi.mock(import("@coderline/alphatab"), async (importOriginal) => ({
 vi.mock(import("@/lib/audio/count-in-clicks"), () => ({
   playCountInClicks: vi.fn(() => ({ cancel: vi.fn() })),
   playClick: vi.fn(),
+  primeClickAudio: vi.fn(async () => {}),
 }));
 
 vi.mock(import("@/lib/tauri"), async (importOriginal) => ({
@@ -106,6 +107,7 @@ async function setup(overrides: Partial<ScorePlayerOptions> = {}) {
     onRendered: vi.fn<Callback<"onRendered">>(),
     onRangeSelect: vi.fn<Callback<"onRangeSelect">>(),
     onLoopRestart: vi.fn<Callback<"onLoopRestart">>(),
+    onSeekBlocked: vi.fn<Callback<"onSeekBlocked">>(),
   } satisfies ScorePlayerCallbacks;
   const mix = mixFromScore(summary);
   const player = new ScorePlayer(
@@ -1687,5 +1689,153 @@ describe("ScorePlayer.setTheme (#83)", () => {
     expect(hex(api.settings.display.resources.mainGlyphColor)).toBe("#000000");
     restore();
     expect(hex(api.settings.display.resources.mainGlyphColor)).toBe("#ececee");
+  });
+});
+
+describe("ScorePlayer: Practice together (#158)", () => {
+  const position = (api: FakeAlphaTabApi, currentTime: number) =>
+    api.playerPositionChanged.trigger({
+      currentTime,
+      endTime: 12_000,
+      originalTempo: 60,
+      modifiedTempo: 60,
+    });
+
+  afterEach(() => {
+    delete window.__smartBeatOutputLatencyMs;
+    vi.useRealTimers();
+  });
+
+  it("reads the position in ticks and whether it plays", async () => {
+    const { player, api, setPlaying } = await readySetup();
+    api.tickPosition = 1234;
+    expect(player.getTick()).toBe(1234);
+    expect(player.isPlaying()).toBe(false);
+    player.playPause();
+    expect(player.isPlaying()).toBe(true);
+    setPlaying(true);
+    expect(player.isPlaying()).toBe(true);
+  });
+
+  it("knows where a bar starts", async () => {
+    const { player } = await readySetup();
+    expect(player.barStartTick(0)).toBe(0);
+    expect(player.barStartTick(3)).toBe(3 * 3840);
+    expect(player.barStartTick(9999)).toBe(0);
+  });
+
+  it("moves to a tick, shows its bar, and does not stop playback", async () => {
+    const { player, api, callbacks, setPlaying } = await readySetup();
+    setPlaying(true);
+    player.seekToTick(2 * 3840 + 480);
+    expect(api.tickPosition).toBe(2 * 3840 + 480);
+    expect(callbacks.onBarChange).toHaveBeenLastCalledWith(2);
+    expect(player.isPlaying()).toBe(true);
+    expect(api.pause).not.toHaveBeenCalled();
+
+    player.seekToTick(0);
+    expect(api.tickPosition).toBe(0);
+    expect(callbacks.onBarChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("sets the speed as chosen, with no correction on top (Practice together never nudges)", async () => {
+    const { player, api } = await readySetup();
+    player.setSpeed(80);
+    expect(api.playbackSpeed).toBeCloseTo(0.8);
+    expect("nudgeSpeed" in player).toBe(false);
+  });
+
+  it("says whether the song is loaded, so a start would play", async () => {
+    const { player, becomeReady } = await setup();
+    expect(player.isReady()).toBe(false);
+    becomeReady();
+    expect(player.isReady()).toBe(true);
+  });
+
+  describe("the seek lock of a session", () => {
+    it("lets a click move the cursor while stopped, and not while the song plays", async () => {
+      const { player, api, setPlaying } = await readySetup();
+      player.setSeekLock(true);
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+      setPlaying(true);
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+      setPlaying(false);
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+      player.setSeekLock(false);
+      setPlaying(true);
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+    });
+
+    it("locks as soon as Play is pressed, also during the count-in", async () => {
+      const { player, api } = await readySetup();
+      player.setSeekLock(true);
+      player.playPause();
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+      player.playPause();
+      expect(api.settings.player.enableUserInteraction).toBe(true);
+    });
+
+    it("ignores a click on a beat while playing, and says so; edit mode still selects", async () => {
+      const { player, api, score, callbacks, setPlaying } = await readySetup();
+      const beat = score.tracks[0]!.staves[0]!.bars[1]!.voices[0]!.beats[2]!;
+      player.setSeekLock(true);
+      player.setEditing(true);
+      setPlaying(true);
+      api.beatMouseDown.trigger(beat);
+      await Promise.resolve();
+      expect(api.tickPosition).toBe(0);
+      expect(callbacks.onSeekBlocked).toHaveBeenCalledOnce();
+      expect(callbacks.onBeatClick).toHaveBeenCalled();
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+
+      setPlaying(false);
+      api.beatMouseDown.trigger(beat);
+      expect(api.tickPosition).toBe(3840 + 2 * 960);
+      expect(callbacks.onSeekBlocked).toHaveBeenCalledOnce();
+    });
+
+    it("keeps edit mode's own handling when the lock goes", async () => {
+      const { player, api, setPlaying } = await readySetup();
+      player.setEditing(true);
+      player.setSeekLock(true);
+      setPlaying(false);
+      player.setSeekLock(false);
+      expect(api.settings.player.enableUserInteraction).toBe(false);
+    });
+  });
+
+  it("gets the sound ready for a start nobody clicked", async () => {
+    const { primeClickAudio } = await import("@/lib/audio/count-in-clicks");
+    const { player } = await readySetup();
+    await player.warmUpAudio();
+    expect(primeClickAudio).toHaveBeenCalled();
+  });
+
+  it("has no heard position before anything played", async () => {
+    const { player } = await readySetup();
+    expect(player.heardTimeMs()).toBeNull();
+  });
+
+  it("holds the heard position while paused and moves it on while playing, at the speed", async () => {
+    const { player, api, setPlaying } = await readySetup();
+    vi.useFakeTimers();
+    position(api, 1_000);
+    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(100);
+    expect(player.heardTimeMs()).toBe(1_000); // paused: stays
+
+    setPlaying(true);
+    position(api, 2_000);
+    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(100);
+    expect(player.heardTimeMs()).toBeCloseTo(2_100, 0);
+    api.playbackSpeed = 0.5;
+    expect(player.heardTimeMs()).toBeCloseTo(2_050, 0);
+  });
+
+  it("reports the output latency in milliseconds", async () => {
+    window.__smartBeatOutputLatencyMs = 150;
+    const { player } = await readySetup();
+    expect(player.outputLatencyMs()).toBe(150);
   });
 });

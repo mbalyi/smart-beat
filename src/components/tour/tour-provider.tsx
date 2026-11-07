@@ -286,7 +286,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
         if (!state || state.hints[id] || run) return;
         update((s) => ({ ...s, hints: { ...s.hints, [id]: true } }));
         toast(message, {
-          action: { label: "Show me", onClick: () => start(tour) },
+          action: tour ? { label: "Show me", onClick: () => start(tour) } : undefined,
           duration: 10000,
         });
       },

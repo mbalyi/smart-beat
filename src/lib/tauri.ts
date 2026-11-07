@@ -80,6 +80,7 @@ export type MenuAction =
   | "scale-tool"
   | "toggle-loop"
   | "speed-trainer"
+  | "practice-together"
   | "toggle-metronome"
   | "toggle-count-in"
   | "shortcuts"
@@ -182,6 +183,7 @@ export type CommandErrorKind =
   | "download-timeout"
   | "network"
   | "auth-expired"
+  | "invalid-code"
   | "io";
 
 /** Mirrors `CommandError` in `src-tauri/src/error.rs`: how commands fail. */
@@ -1373,6 +1375,121 @@ export const savePluginState = (track: number | "monitor" | null, sound: number,
 /** Live status of every plugin block of a chain. */
 export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
   call<PluginSlotInfo[]>("audio_plugin_info", { track, sound });
+
+// --- Practice together -------------------------------------------------------
+
+/** Mirrors `LinkState` in `src-tauri/src/practice.rs`. */
+export type PracticeLinkState = "connecting" | "open" | "reconnecting" | "closed";
+
+/** Mirrors `HostInfo` in `src-tauri/src/practice.rs`: what the host shows its guest. */
+export interface PracticeHostInfo {
+  /** The room code to read out, like `ABCD-EFGH-JKMN-PQRS-TVWX`. */
+  code: string;
+  /** The same code as a `smartbeat://join/…` link. Reserved: no such link is registered or opened yet. */
+  link: string;
+  /** The address the code stands for (shown so a firewall problem can be found). */
+  address: string;
+}
+
+const PRACTICE_FRAME_EVENT = "practice-frame";
+const PRACTICE_STATE_EVENT = "practice-state";
+
+/** Starts listening for a guest on the local network. */
+export const practiceHost = () => call<PracticeHostInfo>("practice_host");
+
+/** Joins a host by its room code. */
+export const practiceJoin = (code: string) => call<void>("practice_join", { code });
+
+/**
+ * Sends one frame to the other app. A host names the guest's connection (`conn`, as it heard
+ * it in `onPracticeFrame`). False when there is no connection right now.
+ */
+export const practiceSend = (text: string, conn?: number) =>
+  call<boolean>("practice_send", { text, conn: conn ?? null });
+
+/** The host ends one guest's connection. With `ban`, that guest's address is turned away too. */
+export const practiceKick = (conn: number, ban: boolean) =>
+  call<void>("practice_kick", { conn, ban });
+
+/** Ends the session. */
+export const practiceLeave = () => call<void>("practice_leave");
+
+/**
+ * Frames from the other app. `conn` says which connection it came on: a host has one per guest,
+ * a guest one. Resolves to an unsubscribe function.
+ */
+export async function onPracticeFrame(
+  handler: (text: string, conn: number) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<{ conn: number; text: string }>(PRACTICE_FRAME_EVENT, (event) =>
+    handler(event.payload.text, event.payload.conn),
+  );
+}
+
+/**
+ * A connection going up or down (`conn` 0 is the link itself). A host's new connection says
+ * where the guest is in `detail`. Resolves to an unsubscribe function.
+ */
+export async function onPracticeState(
+  handler: (state: PracticeLinkState, detail: string | undefined, conn: number) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<{ conn: number; state: PracticeLinkState; detail: string | null }>(
+    PRACTICE_STATE_EVENT,
+    (event) => handler(event.payload.state, event.payload.detail ?? undefined, event.payload.conn),
+  );
+}
+
+const PRACTICE_SIGNAL_EVENT = "practice-signal";
+const PRACTICE_SIGNAL_FAILED_EVENT = "practice-signal-failed";
+
+/** Whether this build can meet another player over the internet (it knows a signaling Worker). */
+export const practiceSignalAvailable = () =>
+  isTauri() ? call<boolean>("practice_signal_available") : Promise.resolve(false);
+
+/** Makes a meeting room for Practice together over the internet. Returns its code. */
+export const practiceSignalCreate = () => call<string>("practice_signal_create");
+
+/**
+ * Joins a meeting room by its code. `guest` is this app's stable id: with it the app takes its
+ * old place after it dropped out, and the host can ban it.
+ */
+export const practiceSignalJoin = (code: string, guest?: string) =>
+  call<void>("practice_signal_join", { code, guest: guest ?? null });
+
+/**
+ * Hands a setup message (a WebRTC offer, answer or candidate) to the other app. A host names
+ * the guest (`to`, as it heard it in `onPracticeSignal`).
+ */
+export const practiceSignalSend = (text: string, to?: string) =>
+  call<void>("practice_signal_send", { text, to: to ?? null });
+
+/** The host removes a guest from the meeting room; with `ban`, its id can never come back. */
+export const practiceSignalKick = (peer: string, ban: boolean) =>
+  call<void>("practice_signal_kick", { peer, ban });
+
+/** Leaves the meeting room. */
+export const practiceSignalLeave = () => call<void>("practice_signal_leave");
+
+/**
+ * Setup messages from the other app. A host hears which guest wrote it (`from`). Resolves to an
+ * unsubscribe function.
+ */
+export async function onPracticeSignal(
+  handler: (text: string, from?: string) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<{ from: string | null; text: string }>(PRACTICE_SIGNAL_EVENT, (event) =>
+    handler(event.payload.text, event.payload.from ?? undefined),
+  );
+}
+
+/** The meeting room closed or could not be reached. Resolves to an unsubscribe function. */
+export async function onPracticeSignalFailed(handler: (why: string) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<string>(PRACTICE_SIGNAL_FAILED_EVENT, (event) => handler(event.payload));
+}
 
 // --- Stem separation (#186) --------------------------------------------------
 

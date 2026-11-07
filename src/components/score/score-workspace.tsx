@@ -51,6 +51,11 @@ import { RecordBar } from "@/components/score/record-bar";
 import { RecordDialog, type DroppedTake } from "@/components/score/record-dialog";
 import { onTourPanels as subscribeTourPanels, type TourBusMessage } from "@/lib/tour/tour-bus";
 import { useTour } from "@/hooks/use-tour";
+import {
+  PracticeTogetherDialog,
+  type TogetherMode,
+} from "@/components/practice-together/practice-together-dialog";
+import { TogetherButton } from "@/components/practice-together/sync-quality";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
@@ -75,6 +80,10 @@ import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { usePianoModel } from "@/hooks/use-piano-model";
 import { onInstallerReturn } from "@/lib/ai/ai-store";
 import { recordTargets, useRecordToTab } from "@/hooks/use-record-to-tab";
+import { usePracticeTogether } from "@/hooks/use-practice-together";
+import { opened as countTogetherOpened, type OpenedFrom } from "@/lib/practice-together/analytics";
+import { useSessionEngine } from "@/hooks/use-session-engine";
+import type { ReceivedScore } from "@/hooks/use-tab-sharing";
 import { useSpaceToPlay } from "@/hooks/use-space-to-play";
 import {
   MAX_MASTER_EFFECTS,
@@ -302,6 +311,16 @@ function readInstrumentView(): boolean {
 
 /** How long a note entered while editing sounds (ms). */
 const EDIT_NOTE_MS = 700;
+/** The practice settings a Practice together guest takes from the host. */
+const GUEST_LOCKED_ACTIONS: ReadonlySet<string> = new Set([
+  "speed",
+  "loop",
+  "range",
+  "metronome",
+  "count-in",
+  "count-in-beats",
+  "start-trainer",
+]);
 
 export const AUDITION_STORAGE_KEY = "smart-beat:audition-notes";
 
@@ -416,12 +435,15 @@ export function ScoreWorkspace({
   headerSlot,
   onOpen,
   onOpenScore,
+  onReceiveTab,
   onEditedChange,
   onSaved,
   onReopenWithEncoding,
   onReloadFromDisk,
   startEditing = false,
   droppedAudio = null,
+  togetherIntent = null,
+  onTogetherIntentHandled,
   onOpenSettings,
   onSetUpCloud,
 }: {
@@ -435,6 +457,12 @@ export function ScoreWorkspace({
   onOpen: () => void;
   /** Free-mode Record to Tab: opens the take as a new song that exists only in memory. */
   onOpenScore?: (score: Score, name: string) => void;
+  /**
+   * Practice together: the host's tab arrived. Open it as a tab of its own; `replaceId` is this
+   * tab when it is itself the host's tab (a new version replaces it), and `mix` keeps the
+   * guest's own mute, solo and volume.
+   */
+  onReceiveTab?: (tab: ReceivedScore, options: { replaceId?: number; mix?: MixerSettings }) => void;
   /** Called after the song was saved (Save or Save As): its new name, path and content key. */
   onSaved?: (saved: SavedAs) => void;
   /** Guitar Pro 3–5 songs: read the file again with another text encoding (#53). */
@@ -447,6 +475,13 @@ export function ScoreWorkspace({
   startEditing?: boolean;
   /** An audio file dropped on the window while this song is shown (`nonce` changes per drop). */
   droppedAudio?: { path: string; nonce: number } | null;
+  /**
+   * Practice together was started from the start screen (this tab is the one to share, or a blank
+   * tab to join with): the dialog opens when the tab is shown.
+   */
+  togetherIntent?: TogetherMode | null;
+  /** The intent was taken up. */
+  onTogetherIntentHandled?: () => void;
   /** Opens the app's Settings (the tuner's audio input); focus comes back to `from`. */
   onOpenSettings?: (from: HTMLElement) => void;
   /** "Set up cloud storage" in the Save As chooser: opens Settings on the cloud section. */
@@ -657,8 +692,19 @@ export function ScoreWorkspace({
   const [practice, dispatchPracticeAction] = useReducer(practiceReducer, undefined, () =>
     initialPractice(readPracticePrefs()),
   );
+  /**
+   * Set while a Practice together guest follows the host: speed, loop, metronome and count-in are
+   * the host's (the session sets them on this side through `dispatchShared`).
+   */
+  const practiceLocked = useRef<(action: PracticeAction) => boolean>(() => false);
+  /** What the session uses to apply the host's settings here: nothing blocks it. */
+  const dispatchShared = useCallback(
+    (action: PracticeAction) => dispatchPracticeAction(action),
+    [],
+  );
   /** Every practice change goes through here so switching a tool on is counted once. */
   const dispatchPractice = useCallback((action: PracticeAction) => {
+    if (practiceLocked.current(action)) return;
     if (action.type === "loop" && action.value) trackUsage("loop_on");
     else if (action.type === "metronome" && action.value) trackUsage("metronome_on");
     else if (action.type === "count-in" && action.value) trackUsage("count_in_on");
@@ -896,6 +942,10 @@ export function ScoreWorkspace({
         onMeters: (m) => meters.set(m),
         onOccurrences: setPlayedBars,
         onMonitorStatus: setMonitorStatus,
+        onSeekBlocked: () =>
+          toast.info("Pause or stop first to move to another bar in a Practice together session.", {
+            id: "together-seek",
+          }),
       },
     );
     playerRef.current = player;
@@ -913,9 +963,12 @@ export function ScoreWorkspace({
     };
   }, [song.score, audioEngine, dispatchPractice, playhead]);
 
+  // Says whether this tab owns a Practice together session (set below, once it is known). The
+  // shared playback is then stopped for everyone, not just here.
+  const hiddenSessionRef = useRef<() => boolean>(() => false);
   // A song in a hidden tab does not keep playing.
   useEffect(() => {
-    if (!active) playerRef.current?.pause();
+    if (!active && !hiddenSessionRef.current()) playerRef.current?.pause();
   }, [active]);
 
   // Practice settings go to the player whenever they change.
@@ -1212,13 +1265,18 @@ export function ScoreWorkspace({
     focusScore();
   };
 
+  /** Practice together: a guest's copy is the host's, so it is read-only (set below). */
+  const editingBlocked = useRef<() => boolean>(() => false);
+
   /** Switches to edit mode (leaving Practice View) from any entry point. */
   const toggleEditingOn = () => {
+    if (editingBlocked.current()) return;
     if (practiceView) leavePracticeView();
     setEditing(true);
   };
 
   const toggleEditing = () => {
+    if (!editing && editingBlocked.current()) return;
     // Editing ends Practice View.
     if (practiceView) {
       leavePracticeView();
@@ -1533,6 +1591,25 @@ export function ScoreWorkspace({
   useEffect(() => onInstallerReturn("record", () => reopenRecord.current()), []);
   const recordBusy = recording.phase.kind !== "idle";
 
+  const [togetherOpen, setTogetherOpen] = useState(false);
+  /** What the dialog's first choice starts on (join when it was opened from the start screen). */
+  const [togetherMode, setTogetherMode] = useState<TogetherMode>("host");
+  const openTogether = (mode: TogetherMode = "host", from?: OpenedFrom) => {
+    if (from) countTogetherOpened(from);
+    setTogetherMode(mode);
+    setTogetherOpen(true);
+  };
+  const takeUpTogether = useEffectEvent(() => {
+    if (togetherIntent === null) return;
+    openTogether(togetherIntent);
+    onTogetherIntentHandled?.();
+  });
+  useEffect(() => {
+    // The start screen asked for this tab's dialog: opening it is the response to that request.
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    if (active) takeUpTogether();
+  }, [active, togetherIntent]);
+
   // One-time tips the first time an advanced area is opened (#84).
   const tour = useTour();
   const showTip = useEffectEvent(tour.hint);
@@ -1554,10 +1631,96 @@ export function ScoreWorkspace({
         "record-to-tab",
         "First time recording to tab? A short tour explains it.",
       );
-  }, [active, editing, practiceView, trainerOpen, pedalboard.open, recording.dialogOpen]);
+    if (togetherOpen) {
+      showTip(
+        "practice-together",
+        null,
+        "Practice together: the host starts and stops for both of you, and each of you hears your own sound.",
+      );
+    }
+  }, [
+    active,
+    editing,
+    practiceView,
+    trainerOpen,
+    pedalboard.open,
+    recording.dialogOpen,
+    togetherOpen,
+  ]);
   const [recordDrop, setRecordDrop] = useState<DroppedTake | null>(null);
 
+  // Practice together (#158): with a session the host's transport is shared, a guest's is the host's.
+  const together = usePracticeTogether({
+    playerRef,
+    practice,
+    dispatchPractice: dispatchShared,
+    score,
+    revision,
+    title: song.name,
+    received: song.received,
+    onReceiveTab:
+      onReceiveTab &&
+      ((tab) =>
+        onReceiveTab(tab, song.received ? { replaceId: song.id, mix: mixRef.current } : {})),
+  });
+  useEffect(() => {
+    practiceLocked.current = (action) => {
+      if (!together.readOnly) return false;
+      if (!GUEST_LOCKED_ACTIONS.has(action.type)) return false;
+      toast.info("The host sets the speed, loop, metronome and count-in.", {
+        description: "They follow the host while you are in the session.",
+        id: "together-settings",
+      });
+      return true;
+    };
+  }, [together.readOnly]);
+  // A guest follows the host's tab, so it is not edited here (the host's edits come over).
+  const [wasReadOnly, setWasReadOnly] = useState(false);
+  if (!!together.readOnly !== wasReadOnly) {
+    setWasReadOnly(!!together.readOnly);
+    if (together.readOnly) setEditing(false);
+  }
+  useEffect(() => {
+    editingBlocked.current = () => {
+      if (!together.readOnly) return false;
+      toast.info("You follow the host's tab, so it is read-only.", {
+        description: "Leave the Practice together session to edit your own copy.",
+        id: "together-readonly",
+      });
+      return true;
+    };
+    // Every change of the music goes through the editor: a guest's copy refuses all of them.
+    editor.blocked = () => editingBlocked.current();
+    return () => {
+      editor.blocked = null;
+    };
+  }, [together.readOnly, editor]);
+  // A session plays with the SoundFonts, and nobody moves the cursor with a click while its song
+  // plays (the two computers would be at different places).
+  useEffect(() => {
+    hiddenSessionRef.current = () => {
+      const state = together.state;
+      if (!state || state.phase === "closed" || state.phase === "failed") return false;
+      // The host's tab switch pauses every player; a guest's tab is the host's to start and stop.
+      if (state.role === "host" && playing) together.intercept({ kind: "playPause" });
+      return true;
+    };
+  });
+  // (A session that ended by itself, because the host left or the guest was removed, is over:
+  // the engine and the bar clicks come back.)
+  const sessionOn =
+    together.state !== null &&
+    together.state.phase !== "closed" &&
+    together.state.phase !== "failed";
+  useSessionEngine(sessionOn, audioEngine, setAudioEngine);
+  useEffect(() => playerRef.current?.setSeekLock(sessionOn), [sessionOn, playerEpoch]);
+  // The player is rebuilt when the session switches the engine to the SoundFonts: the one that
+  // plays now gets its audio ready too, not only the one that was there at the click.
+  useEffect(() => {
+    if (sessionOn) void playerRef.current?.warmUpAudio().catch(() => {});
+  }, [sessionOn, playerEpoch]);
   const playPause = () => {
+    if (together.intercept({ kind: "playPause" })) return;
     trackUsage(playing ? "pause" : "play");
     // Which sounds people actually listen with, not only which they picked.
     if (!playing) {
@@ -2249,6 +2412,7 @@ export function ScoreWorkspace({
   const scoreMenuActions: ScoreMenuActions = {
     onPlayFrom: (at) => {
       editor.setCursorTo({ bar: at, beat: 0, voice: 0 });
+      if (together.intercept({ kind: "playFromBar", bar: at })) return;
       playerRef.current?.seekToBar(at);
       if (!playing && ready) playPause();
     },
@@ -2291,6 +2455,7 @@ export function ScoreWorkspace({
       const range = selectedBars();
       if (!range) return;
       trackUsage("play_selection");
+      if (together.intercept({ kind: "playFromBar", bar: range.start })) return;
       playerRef.current?.seekToBar(range.start);
       if (!playing && ready) playPause();
     },
@@ -2347,6 +2512,9 @@ export function ScoreWorkspace({
         break;
       case "speed-trainer":
         setTrainerOpen(true);
+        break;
+      case "practice-together":
+        openTogether("host", "menu");
         break;
       case "toggle-metronome":
         dispatchPractice({ type: "metronome", value: !practice.metronome });
@@ -2581,12 +2749,20 @@ export function ScoreWorkspace({
         barCount={score.masterBars.length}
         onPlayPause={playPause}
         onStop={() => {
+          if (together.intercept({ kind: "stop" })) return;
           trackUsage("stop");
           if (playerRef.current?.stop()) trackUsage("restart_on_stop_used");
         }}
         onTempo={() => setTempoOpen(true)}
         tempo={{ songBpm: tempoAt(score, bar), speed: practice.speed }}
-        onSeekBar={(index) => playerRef.current?.seekToBar(index)}
+        onSeekBar={(index) => {
+          if (!together.intercept({ kind: "seekBar", bar: index })) {
+            playerRef.current?.seekToBar(index);
+          }
+        }}
+        together={
+          <TogetherButton state={together.state} onOpen={() => openTogether("host", "toolbar")} />
+        }
         practice={
           <PracticeControls
             practice={practice}
@@ -2856,7 +3032,11 @@ export function ScoreWorkspace({
           onReset={resetMix}
           actions={trackActions}
           bar={bar}
-          onSeekBar={(index) => playerRef.current?.seekToBar(index)}
+          onSeekBar={(index) => {
+            if (!together.intercept({ kind: "seekBar", bar: index })) {
+              playerRef.current?.seekToBar(index);
+            }
+          }}
           saved={saved}
           playing={playing}
           playhead={playhead}
@@ -2910,6 +3090,12 @@ export function ScoreWorkspace({
           playing={playing}
         />
       )}
+      <PracticeTogetherDialog
+        open={togetherOpen}
+        onOpenChange={setTogetherOpen}
+        together={together}
+        initialMode={togetherMode}
+      />
       {recordEnabled && (
         <>
           <RecordDialog

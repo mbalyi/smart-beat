@@ -73,8 +73,8 @@ The macOS and Windows buttons start the download of the newest release's install
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/practice-together.png" alt="Practice together" width="100%">
-      <p><b>🟣 Coming soon</b></p>
-      <p>Practice with other musicians online. Share your metronome, loops and practice mode, and jam together in real time — no matter where you are.</p>
+      <p><b>🟢 Available</b></p>
+      <p>Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound.</p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/audio-tracks-editing.png" alt="Audio tracks &amp; editing" width="100%">
@@ -236,7 +236,7 @@ pnpm tauri dev      # desktop app with hot reload
 | `pnpm typecheck`                                         | TypeScript project check                                                                                                                              |
 | `pnpm test` / `pnpm test:watch` / `pnpm test:coverage`   | Vitest unit and integration tests (UI)                                                                                                                |
 | `pnpm test:e2e`                                          | Playwright browser integration tests (Chromium and WebKit, a11y and responsive checks). Run `pnpm exec playwright install chromium webkit` once first |
-| `pnpm test:e2e:smoke` / `pnpm test:e2e:additional`       | The two CI groups of `pnpm test:e2e`: core flows, and the guided-tour tests (the `tour*.spec.ts` files)                                               |
+| `pnpm test:e2e:smoke` / `pnpm test:e2e:additional`       | The two CI groups of `pnpm test:e2e`: core flows, and the guided-tour and Practice together tests                                                     |
 | `pnpm rust:test` / `pnpm rust:lint` / `pnpm rust:fmt`    | Rust tests, clippy (`-D warnings`), rustfmt check                                                                                                     |
 | `pnpm licenses:check`                                    | Enforce the license policy for npm packages and Rust crates                                                                                           |
 | `pnpm licenses:generate`                                 | Regenerate `public/third-party-licenses.txt` (runs automatically before `tauri build`)                                                                |
@@ -318,7 +318,7 @@ docs/                Licensing, code signing, releases and updates, ADRs
 
 - **[CI](.github/workflows/ci.yml)** runs on every PR and every push to `main`:
   - lint, format, types and Vitest with coverage;
-  - Playwright, in two groups so neither is too slow: **E2E smoke tests** (the core flows) and **E2E additional functions** (the guided tour), each with one job per browser (Chromium and WebKit);
+  - Playwright, in two groups so neither is too slow: **E2E smoke tests** (the core flows) and **E2E additional functions** (the guided tour, Practice together and the other feature dialogs), each with one job per browser (Chromium and WebKit);
   - Rust fmt, clippy and tests, plus an app compile on **macOS, Windows and Linux**;
   - the license policy (npm and cargo-deny, including advisories);
   - a secret scan of the files and the full git history ([gitleaks](https://github.com/gitleaks/gitleaks), settings in [`.gitleaks.toml`](.gitleaks.toml)).

@@ -85,6 +85,19 @@ export const EVENTS = [
   "tour_close",
   "error",
   "panic",
+  "practice_together_open",
+  "practice_together_host",
+  "practice_together_join",
+  "practice_together_setup_failed",
+  "practice_together_rejoin",
+  "practice_together_remove",
+  "practice_together_sync",
+  "practice_together_preset",
+  "practice_together_play",
+  "practice_together_end",
+  "practice_together_length",
+  "practice_together_problem",
+  "practice_together_tab",
 ] as const;
 
 // The recommended SoundFont banks (soundfonts.rs) and the sound sets counted by name; any file the
@@ -98,6 +111,7 @@ const CATALOGUE_SOUNDFONTS = [
 ] as const;
 const SOUNDFONT_IDS = ["sonivox", "fluidr3", ...CATALOGUE_SOUNDFONTS, "custom"] as const;
 const TOURS = ["main", "editing", "speed-trainer", "effects", "record-to-tab"] as const;
+const CONNECTIONS = ["lan", "internet"] as const;
 
 // File formats that may accompany open_file and export (FORMATS in telemetry.rs).
 export const FORMATS = [
@@ -130,6 +144,7 @@ export const ERROR_AREAS = [
   "ai",
   "stems",
   "cloud",
+  "practice",
   "settings",
   "other",
 ] as const;
@@ -146,6 +161,7 @@ export const ERROR_KINDS = [
   "download-timeout",
   "network",
   "auth-expired",
+  "invalid-code",
   "io",
   "unknown",
 ] as const;
@@ -225,4 +241,26 @@ export const EVENT_DETAILS: Partial<Record<(typeof EVENTS)[number], readonly str
   tour_close: TOURS,
   error: ERROR_DETAILS,
   panic: ERROR_AREAS,
+  practice_together_open: ["menu", "toolbar", "start"],
+  practice_together_host: CONNECTIONS,
+  practice_together_join: CONNECTIONS,
+  practice_together_setup_failed: CONNECTIONS,
+  practice_together_rejoin: CONNECTIONS,
+  practice_together_remove: ["kick", "ban"],
+  practice_together_sync: ["excellent", "good", "unstable"],
+  practice_together_preset: ["auto", "tight", "balanced", "safe"],
+  practice_together_end: ["left", "peer_left", "dropped", "failed", "removed"],
+  practice_together_length: ["under_1m", "1_5m", "5_15m", "15_60m", "over_60m"],
+  practice_together_problem: [
+    "score",
+    "version",
+    "declined",
+    "busy",
+    "dropped",
+    "poor",
+    "late",
+    "woke",
+    "tab",
+  ],
+  practice_together_tab: ["sent", "received", "failed"],
 };

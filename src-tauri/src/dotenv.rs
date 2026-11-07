@@ -11,11 +11,13 @@
 use std::path::{Component, Path, PathBuf};
 
 /// Names the build takes from `.env`. Anything else in the file is ignored.
-pub const KEYS: [&str; 4] = [
+pub const KEYS: [&str; 5] = [
     "SMARTBEAT_GOOGLE_CLIENT_ID",
     "SMARTBEAT_GOOGLE_CLIENT_SECRET",
     "SMARTBEAT_MICROSOFT_CLIENT_ID",
     "SMARTBEAT_DROPBOX_CLIENT_ID",
+    // The Practice together signaling Worker (#158); without it "Over the internet" is off.
+    "SMART_BEAT_SIGNALING_URL",
 ];
 
 /// The `KEY=value` pairs of the known [`KEYS`] in `text`, skipping blank values. Supports
@@ -209,6 +211,17 @@ mod tests {
                 ("SMARTBEAT_DROPBOX_CLIENT_ID".to_owned(), "def".to_owned()),
                 ("SMARTBEAT_MICROSOFT_CLIENT_ID".to_owned(), "ghi".to_owned()),
             ]
+        );
+    }
+
+    #[test]
+    fn the_signaling_worker_address_is_read_too() {
+        assert_eq!(
+            parse("SMART_BEAT_SIGNALING_URL=https://signal.example.workers.dev"),
+            [(
+                "SMART_BEAT_SIGNALING_URL".to_owned(),
+                "https://signal.example.workers.dev".to_owned()
+            )]
         );
     }
 

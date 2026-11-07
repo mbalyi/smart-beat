@@ -84,6 +84,19 @@ agree, do not install or use the Software.
    off at any time in Help > Settings. Details: docs/analytics.md in the
    source repository.
 
+   Practice together never sends your tab or audio to Licensor. The host's
+   computer sends the tab straight to the other computers (up to ten
+   players in all), as a Guitar Pro file, and no audio is sent: each
+   computer makes its own sound. Room codes are not counted. Over the
+   internet, the Software contacts a meeting service operated by Licensor.
+   It sees a room code and a random guest id (made by the app, so a guest
+   that comes back is recognised), passes on short setup messages, and
+   deletes the room ten minutes after the host was last heard, and at the
+   latest after twelve hours. The Software also contacts a public STUN
+   server (Cloudflare) to find your public address. The other players can
+   see that address. Details: docs/practice-together.md in the source
+   repository.
+
 7. UPDATES
    The Software checks for a new version at most once a day, and when you
    choose Help > Check for Updates. It downloads and installs an update
