@@ -3,6 +3,7 @@ import { CloudOffIcon, FileMusicIcon, Loader2Icon, RefreshCwIcon } from "lucide-
 import { useCallback, useEffect, useState } from "react";
 
 import { DIALOG_NEON } from "@/components/ai/dialog-art";
+import { ShareButton } from "@/components/share-button";
 import { TargetArt } from "@/components/target-cards";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { tabShareTarget } from "@/lib/cloud-share";
 import { errorText } from "@/lib/errors";
 import {
   cloudErrorText,
@@ -146,10 +148,10 @@ function OpenContent({
         {state.status === "ready" && state.items.length > 0 && (
           <ul className="flex flex-col gap-2" aria-label={`Tabs in ${label}`}>
             {state.items.map((item, index) => (
-              <li key={item.id} className="min-w-0">
+              <li key={item.id} className="relative min-w-0">
                 <button
                   type="button"
-                  className="group flex min-h-[64px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-xl border bg-card/85 px-4 py-3 text-left transition-[border-color,background-color] duration-150 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none dark:bg-card/80"
+                  className="group flex min-h-[64px] w-full min-w-0 items-center gap-3.5 overflow-hidden rounded-xl border bg-card/85 py-3 pr-14 pl-4 text-left transition-[border-color,background-color] duration-150 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none dark:bg-card/80"
                   onClick={() => {
                     rememberCloudName(item.id, item.name);
                     onPick(item.id);
@@ -174,6 +176,10 @@ function OpenContent({
                     </span>
                   </span>
                 </button>
+                <ShareButton
+                  target={tabShareTarget(item.id, item.name)}
+                  className="absolute top-1/2 right-2 -translate-y-1/2"
+                />
               </li>
             ))}
           </ul>

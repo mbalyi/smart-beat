@@ -31,7 +31,7 @@ test.describe("recent songs (#31)", () => {
     await expect(section).toBeVisible();
     await expectNoA11yViolations(app);
 
-    await app.getByRole("button", { name: /structure-song\.gp/ }).click();
+    await app.getByRole("button", { name: /^structure-song\.gp/ }).click();
     await waitForScore(app);
     await expect(app.getByRole("heading", { level: 1, name: "Structure Song" })).toBeVisible();
     expect(await app.evaluate(() => window.__recent)).toEqual([STRUCTURE_SONG]);
@@ -64,7 +64,7 @@ test.describe("recent songs (#31)", () => {
   test("forgets a song that cannot be found any more", async ({ app }) => {
     const gone = "/Users/me/Music/gone.gp";
     await app.evaluate((p) => window.__emitTauriEvent("recent-changed", [p]), gone);
-    await app.getByRole("button", { name: /gone\.gp/ }).click();
+    await app.getByRole("button", { name: /^gone\.gp/ }).click();
     await expect(app.getByText(/could not be found/).first()).toBeVisible();
     expect(await app.evaluate(() => window.__recent)).toEqual([]);
     await expect(app.getByRole("heading", { name: "Recent songs" })).toBeHidden();

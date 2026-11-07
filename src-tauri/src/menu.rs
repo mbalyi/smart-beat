@@ -31,6 +31,7 @@ pub enum MenuAction {
     NewSong,
     Open,
     OpenCloud,
+    CloudLibrary,
     RecordModels,
     StemModels,
     ImportAudio,
@@ -114,10 +115,11 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 80] = [
+    pub const ALL: [Self; 81] = [
         Self::NewSong,
         Self::Open,
         Self::OpenCloud,
+        Self::CloudLibrary,
         Self::RecordModels,
         Self::StemModels,
         Self::ImportAudio,
@@ -203,6 +205,7 @@ impl MenuAction {
             Self::NewSong => "file.new",
             Self::Open => "file.open",
             Self::OpenCloud => "file.open-cloud",
+            Self::CloudLibrary => "file.cloud-library",
             Self::RecordModels => "ai.record-models",
             Self::StemModels => "ai.stem-models",
             Self::ImportAudio => "ai.import-audio",
@@ -293,6 +296,7 @@ impl MenuAction {
             Self::NewSong
             | Self::Open
             | Self::OpenCloud
+            | Self::CloudLibrary
             | Self::ClearRecent
             | Self::Save
             | Self::SaveAs
@@ -372,6 +376,7 @@ impl MenuAction {
             Self::NewSong => "New",
             Self::Open => "Open",
             Self::OpenCloud => "Open from Cloud",
+            Self::CloudLibrary => "Cloud Library",
             Self::RecordModels => "Record to Tab Models",
             Self::StemModels => "Stem Separation Models",
             Self::ImportAudio => "Import from Audio",
@@ -538,6 +543,7 @@ impl MenuAction {
             | Self::ResetTips
             | Self::CloudSettings
             | Self::OpenCloud
+            | Self::CloudLibrary
             | Self::About => None,
         }
     }
@@ -789,12 +795,14 @@ fn file_menu<'a, R: Runtime>(
     new_song: &MenuItem<R>,
     open: &MenuItem<R>,
     open_cloud: &MenuItem<R>,
+    cloud_library: &MenuItem<R>,
     recent: &Submenu<R>,
 ) -> SubmenuBuilder<'a, R, AppHandle<R>> {
     SubmenuBuilder::new(app, "File")
         .item(new_song)
         .item(open)
         .item(open_cloud)
+        .item(cloud_library)
         .item(recent)
 }
 
@@ -846,6 +854,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let new_song = item(app, NewSong)?;
     let open = item(app, Open)?;
     let open_cloud = item(app, OpenCloud)?;
+    let cloud_library = item(app, CloudLibrary)?;
     let toggle_theme = item(app, ToggleTheme)?;
     let zoom_in = item(app, ZoomIn)?;
     let zoom_out = item(app, ZoomOut)?;
@@ -916,7 +925,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .build()?;
         menu = menu.item(&app_menu);
 
-        file_menu(app, &new_song, &open, &open_cloud, &recent)
+        file_menu(app, &new_song, &open, &open_cloud, &cloud_library, &recent)
             .separator()
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
@@ -926,7 +935,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .close_window()
             .build()?
     } else {
-        file_menu(app, &new_song, &open, &open_cloud, &recent)
+        file_menu(app, &new_song, &open, &open_cloud, &cloud_library, &recent)
             .separator()
             .item(&item(app, Save)?)
             .item(&item(app, SaveAs)?)
@@ -1584,6 +1593,19 @@ mod tests {
             format_accelerator("CmdOrCtrl+,", "windows").1,
             "Control+Comma"
         );
+    }
+
+    #[test]
+    fn cloud_library_is_a_file_item_right_after_open_from_cloud() {
+        let action = MenuAction::CloudLibrary;
+        assert_eq!(action.id(), "file.cloud-library");
+        assert_eq!(action.label(), "Cloud Library");
+        assert_eq!(action.menu(), "File");
+        assert_eq!(serde_json::to_string(&action).unwrap(), "\"cloud-library\"");
+        assert_eq!(MenuAction::from_id("file.cloud-library"), Some(action));
+        let all = MenuAction::ALL;
+        let at = |a| all.iter().position(|x| *x == a).unwrap();
+        assert_eq!(at(MenuAction::CloudLibrary), at(MenuAction::OpenCloud) + 1);
     }
 
     #[test]

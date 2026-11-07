@@ -8,7 +8,9 @@ use serde::Deserialize;
 
 use super::oauth::OAuthConfig;
 use super::transfer::{self, Reply, Sent, Source};
-use super::{Provider, ProviderKind, RemoteFile, agent, encode, http_error};
+use super::{
+    Provider, ProviderKind, RemoteFile, ShareLevel, agent, encode, http_error, share_http_error,
+};
 use crate::error::{CommandError, ErrorKind};
 use crate::score_file::{MAX_SIZE, ScoreFormat, has_supported_extension};
 
@@ -73,6 +75,12 @@ struct DriveFile {
     size: Option<String>,
     modified_time: Option<String>,
     head_revision_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SharedFile {
+    web_view_link: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -496,6 +504,28 @@ impl Provider for GoogleDrive {
         Ok(())
     }
 
+    fn share_link(&self, token: &str, id: &str, level: ShareLevel) -> Result<String, CommandError> {
+        let role = match level {
+            ShareLevel::View => "reader",
+            ShareLevel::Edit => "writer",
+        };
+        // "Anyone with the link" on a file the app made (`drive.file` is enough for these).
+        let body = serde_json::json!({ "type": "anyone", "role": role }).to_string();
+        agent()
+            .post(&format!("{}/permissions?fields=id", self.file_url(id)))
+            .header("Authorization", bearer(token))
+            .header("Content-Type", "application/json")
+            .send(body.as_bytes())
+            .map_err(|e| share_http_error(e, "The file"))?;
+        let file: SharedFile = self.get_json(
+            token,
+            &format!("{}?fields=webViewLink", self.file_url(id)),
+            "The file",
+        )?;
+        file.web_view_link
+            .ok_or_else(|| parse_error("no link for the file"))
+    }
+
     fn upload_file(
         &self,
         token: &str,
@@ -748,6 +778,73 @@ mod tests {
         let body = String::from_utf8_lossy(&requests[0].body);
         assert!(body.contains(r#"{"name":"new.gp5"}"#));
         assert!(contains(&requests[0].body, GP5));
+    }
+
+    #[test]
+    fn shares_with_anyone_who_has_the_link_for_viewing() {
+        let m = mock(vec![
+            (200, br#"{"id":"anyoneWithLink"}"#.to_vec()),
+            (
+                200,
+                br#"{"webViewLink":"https://drive.google.com/file/d/f1/view"}"#.to_vec(),
+            ),
+        ]);
+        let link = GoogleDrive::with_base(&m.base)
+            .share_link("tok", "f1", ShareLevel::View)
+            .unwrap();
+        let requests = m.finish();
+        assert_eq!(link, "https://drive.google.com/file/d/f1/view");
+        assert!(
+            requests[0]
+                .head
+                .starts_with("POST /drive/v3/files/f1/permissions")
+        );
+        let body = String::from_utf8_lossy(&requests[0].body);
+        assert!(body.contains(r#""type":"anyone""#) && body.contains(r#""role":"reader""#));
+        assert!(
+            requests[1]
+                .head
+                .starts_with("GET /drive/v3/files/f1?fields=webViewLink")
+        );
+    }
+
+    #[test]
+    fn an_edit_link_gives_the_writer_role() {
+        let m = mock(vec![
+            (200, br#"{"id":"anyoneWithLink"}"#.to_vec()),
+            (
+                200,
+                br#"{"webViewLink":"https://drive.google.com/x"}"#.to_vec(),
+            ),
+        ]);
+        GoogleDrive::with_base(&m.base)
+            .share_link("tok", "f1", ShareLevel::Edit)
+            .unwrap();
+        let requests = m.finish();
+        assert!(String::from_utf8_lossy(&requests[0].body).contains(r#""role":"writer""#));
+    }
+
+    #[test]
+    fn a_file_without_a_link_or_a_refused_share_is_an_error() {
+        let m = mock(vec![(200, b"{}".to_vec()), (200, b"{}".to_vec())]);
+        let error = GoogleDrive::with_base(&m.base)
+            .share_link("tok", "f1", ShareLevel::View)
+            .unwrap_err();
+        m.finish();
+        assert_eq!(error.kind, ErrorKind::Network);
+
+        let m = mock(vec![(403, b"{}".to_vec())]);
+        let error = GoogleDrive::with_base(&m.base)
+            .share_link("tok", "f1", ShareLevel::View)
+            .unwrap_err();
+        m.finish();
+        assert_eq!(error.kind, ErrorKind::Io);
+        let m = mock(vec![(401, b"{}".to_vec())]);
+        let error = GoogleDrive::with_base(&m.base)
+            .share_link("tok", "f1", ShareLevel::View)
+            .unwrap_err();
+        m.finish();
+        assert_eq!(error.kind, ErrorKind::AuthExpired);
     }
 
     #[test]

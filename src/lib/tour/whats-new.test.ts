@@ -77,3 +77,15 @@ describe("stem separation in the registry (#186)", () => {
     expect(pendingFeatures("1.2.0", "1.2.0", FEATURE_REGISTRY)).toEqual([]);
   });
 });
+
+describe("sharing in the registry (#201)", () => {
+  it("is announced in 1.2.0, without a tour", () => {
+    const entry = FEATURE_REGISTRY.find((x) => x.id === "cloud-share");
+    expect(entry).toMatchObject({ since: "1.2.0" });
+    expect(entry?.tour).toBeUndefined();
+    expect(pendingFeatures("1.1.0", "1.2.0", FEATURE_REGISTRY).map((x) => x.id)).toContain(
+      "cloud-share",
+    );
+    expect(pendingFeatures("1.2.0", "1.2.0", FEATURE_REGISTRY)).toEqual([]);
+  });
+});

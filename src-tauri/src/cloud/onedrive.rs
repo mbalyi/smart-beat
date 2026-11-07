@@ -12,7 +12,9 @@ use serde::Deserialize;
 
 use super::oauth::OAuthConfig;
 use super::transfer::{self, Sent, Source};
-use super::{Provider, ProviderKind, RemoteFile, agent, encode, http_error};
+use super::{
+    Provider, ProviderKind, RemoteFile, ShareLevel, agent, encode, http_error, share_http_error,
+};
 use crate::error::{CommandError, ErrorKind};
 use crate::score_file::{MAX_SIZE, ScoreFormat, has_supported_extension};
 
@@ -306,6 +308,17 @@ struct UploadSession {
 }
 
 /// The first byte an upload session still wants, from `nextExpectedRanges` (`["26-"]`).
+#[derive(Deserialize)]
+struct CreatedLink {
+    link: Option<LinkInfo>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkInfo {
+    web_url: Option<String>,
+}
+
 fn next_expected(body: &[u8]) -> u64 {
     serde_json::from_slice::<serde_json::Value>(body)
         .ok()
@@ -551,6 +564,29 @@ impl Provider for OneDrive {
     /// account.microsoft.com. Nothing to do here.
     fn revoke(&self, _token: &str) -> Result<(), CommandError> {
         Ok(())
+    }
+
+    fn share_link(&self, token: &str, id: &str, level: ShareLevel) -> Result<String, CommandError> {
+        let kind = match level {
+            ShareLevel::View => "view",
+            ShareLevel::Edit => "edit",
+        };
+        let body = serde_json::json!({ "type": kind, "scope": "anonymous" }).to_string();
+        let created: CreatedLink = agent()
+            .post(&self.url(&format!("/me/drive/items/{}/createLink", encode(id))))
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .send(body.as_bytes())
+            .map_err(|e| share_http_error(e, "The file"))?
+            .body_mut()
+            .read_json()
+            .map_err(|e| http_error(e, "The file"))?;
+        created.link.and_then(|link| link.web_url).ok_or_else(|| {
+            CommandError::new(
+                ErrorKind::Network,
+                "Unexpected answer from OneDrive: no link for the file",
+            )
+        })
     }
 
     fn upload_file(
@@ -839,6 +875,40 @@ mod tests {
         assert_eq!(err.kind, ErrorKind::NotFound);
         assert!(err.message.contains("Smart Beat folder"), "{}", err.message);
         assert_eq!(log.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn creates_an_anonymous_link_of_the_asked_level() {
+        let (base, log) = serve(|_, _| {
+            (
+                201,
+                r#"{"link":{"type":"edit","webUrl":"https://1drv.ms/u/s!abc"}}"#.into(),
+            )
+        });
+        let provider = OneDrive::with_base(base);
+        let link = provider.share_link("t", "i1", ShareLevel::Edit).unwrap();
+        assert_eq!(link, "https://1drv.ms/u/s!abc");
+        provider.share_link("t", "i1", ShareLevel::View).unwrap();
+        let log = log.lock().unwrap();
+        assert_eq!(log[0].method, "POST");
+        assert_eq!(log[0].path, "/v1.0/me/drive/items/i1/createLink");
+        let body = String::from_utf8_lossy(&log[0].body).into_owned();
+        assert!(body.contains(r#""type":"edit""#) && body.contains(r#""scope":"anonymous""#));
+        assert!(String::from_utf8_lossy(&log[1].body).contains(r#""type":"view""#));
+    }
+
+    #[test]
+    fn a_tenant_that_blocks_links_and_a_missing_link_are_errors() {
+        let (base, _) = serve(|_, _| (403, r#"{"error":{"code":"accessDenied"}}"#.into()));
+        let error = OneDrive::with_base(base)
+            .share_link("t", "i1", ShareLevel::View)
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Io);
+        let (base, _) = serve(|_, _| (200, "{}".into()));
+        let error = OneDrive::with_base(base)
+            .share_link("t", "i1", ShareLevel::View)
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Network);
     }
 
     #[test]

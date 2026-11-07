@@ -132,6 +132,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             cloud_commands::cloud_disconnect,
             cloud_commands::cloud_list,
             cloud_commands::cloud_list_stems,
+            cloud_commands::cloud_share,
             cloud_commands::cloud_read,
             cloud_commands::cloud_item_name,
             cloud_commands::cloud_save,

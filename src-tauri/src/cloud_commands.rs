@@ -19,7 +19,9 @@ use crate::audio::AudioState;
 use crate::cloud::keychain::{CachedStore, Keychain, TokenStore};
 use crate::cloud::oauth::{self, OAuthConfig, Session};
 use crate::cloud::pending::{PendingStore, PendingUpload};
-use crate::cloud::{self, Provider, ProviderKind, RemoteFile, dropbox, google_drive, onedrive};
+use crate::cloud::{
+    self, Provider, ProviderKind, RemoteFile, ShareLevel, dropbox, google_drive, onedrive,
+};
 use crate::error::{CommandError, ErrorKind};
 use crate::mixer::MixerSettings;
 use crate::score_file::MAX_SIZE;
@@ -167,6 +169,9 @@ pub struct CloudAccount {
     pub configured: bool,
     /// The signed-in account, if any.
     pub account: Option<String>,
+    /// The kinds of share link the service can make (#201).
+    #[serde(rename = "shareLevels")]
+    pub share_levels: Vec<ShareLevel>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -218,6 +223,7 @@ pub fn accounts(state: &CloudState) -> Vec<CloudAccount> {
             label: kind.label().to_owned(),
             configured: client_id(kind).is_some(),
             account: state.linked.get(kind),
+            share_levels: kind.share_levels().to_vec(),
         })
         .collect()
 }
@@ -412,6 +418,29 @@ pub fn create(
     let file = (state.make)(kind).create(&token, name, bytes)?;
     state.remember(kind, &file);
     Ok(cloud::item_id(kind, &file.id))
+}
+
+/// A link that anyone who has it can open, to a file or a saved stems file of a connected
+/// account (#201). The link is a secret like a token: it is returned to the page and nowhere
+/// else (no log, no error text, no usage statistics).
+pub fn share(state: &CloudState, item: &str, level: ShareLevel) -> Result<String, CommandError> {
+    let (kind, id) = parse_item(item)?;
+    if !kind.share_levels().contains(&level) {
+        return Err(CommandError::new(
+            ErrorKind::Io,
+            format!("{} cannot make that kind of link.", kind.label()),
+        ));
+    }
+    let token = state.token(kind)?;
+    let link = (state.make)(kind).share_link(&token, id, level)?;
+    if cloud::is_share_link(&link) {
+        Ok(link)
+    } else {
+        Err(CommandError::new(
+            ErrorKind::Network,
+            "The cloud service did not give a usable link.",
+        ))
+    }
 }
 
 pub fn flush(state: &CloudState) -> Result<Vec<FlushResult>, CommandError> {
@@ -868,6 +897,16 @@ pub fn cloud_create(
     create(&state, kind, &name, body(&request)?)
 }
 
+/// Makes (or finds) the share link of a cloud file. Returns the link.
+#[tauri::command(async)]
+pub fn cloud_share(
+    state: tauri::State<'_, CloudState>,
+    item: String,
+    level: ShareLevel,
+) -> Result<String, CommandError> {
+    share(&state, &item, level)
+}
+
 #[tauri::command(async)]
 pub fn cloud_pending(state: tauri::State<'_, CloudState>) -> Vec<PendingUpload> {
     state.pending.list()
@@ -1070,6 +1109,149 @@ mod tests {
             list_stems(&s, ProviderKind::Drive).unwrap_err().kind,
             ErrorKind::AuthExpired
         );
+    }
+
+    /// A provider that makes share links: `bad` gets something that is not a web address,
+    /// `refuse` an error.
+    struct Sharer;
+
+    impl Provider for Sharer {
+        fn kind(&self) -> ProviderKind {
+            ProviderKind::Drive
+        }
+        fn account_name(&self, _: &str) -> Result<String, CommandError> {
+            Ok("me".into())
+        }
+        fn list(&self, _: &str) -> Result<Vec<RemoteFile>, CommandError> {
+            Ok(vec![])
+        }
+        fn metadata(&self, _: &str, _: &str) -> Result<RemoteFile, CommandError> {
+            Err(CommandError::new(ErrorKind::NotFound, "unused"))
+        }
+        fn read(&self, _: &str, _: &str) -> Result<(Vec<u8>, RemoteFile), CommandError> {
+            Err(CommandError::new(ErrorKind::NotFound, "unused"))
+        }
+        fn write_if_revision(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &[u8],
+        ) -> Result<RemoteFile, CommandError> {
+            Err(CommandError::new(ErrorKind::NotFound, "unused"))
+        }
+        fn create(&self, _: &str, _: &str, _: &[u8]) -> Result<RemoteFile, CommandError> {
+            Err(CommandError::new(ErrorKind::NotFound, "unused"))
+        }
+        fn revoke(&self, _: &str) -> Result<(), CommandError> {
+            Ok(())
+        }
+        fn share_link(
+            &self,
+            token: &str,
+            id: &str,
+            level: ShareLevel,
+        ) -> Result<String, CommandError> {
+            assert_eq!(token, "at");
+            match id {
+                "bad" => Ok("ftp://example.com/secret-link".into()),
+                "refuse" => Err(CommandError::new(ErrorKind::Io, "No links here.")),
+                _ => Ok(format!("https://example.com/s/{id}?as={level:?}")),
+            }
+        }
+    }
+
+    fn sharer_state(dir: &Path) -> CloudState {
+        let store = MemoryStore::default();
+        store
+            .save(
+                ProviderKind::Drive,
+                &Tokens {
+                    access_token: "at".into(),
+                    refresh_token: None,
+                    expires_at: 0,
+                    account: "me".into(),
+                },
+            )
+            .unwrap();
+        CloudState::with_parts(Box::new(store), dir.join("pending"), |_| Box::new(Sharer))
+    }
+
+    #[test]
+    fn a_cloud_item_is_shared_with_the_link_the_provider_makes() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = sharer_state(dir.path());
+        assert_eq!(
+            share(&s, "drive:f1", ShareLevel::Edit).unwrap(),
+            "https://example.com/s/f1?as=Edit"
+        );
+        assert_eq!(
+            share(&s, "drive:riff.sbstems-id", ShareLevel::View).unwrap(),
+            "https://example.com/s/riff.sbstems-id?as=View"
+        );
+    }
+
+    #[test]
+    fn an_unusable_link_or_a_refusal_is_an_error_that_never_shows_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = sharer_state(dir.path());
+        let error = share(&s, "drive:bad", ShareLevel::View).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Network);
+        assert!(!error.message.contains("secret-link") && !error.message.contains("ftp"));
+        assert_eq!(
+            share(&s, "drive:refuse", ShareLevel::View)
+                .unwrap_err()
+                .message,
+            "No links here."
+        );
+    }
+
+    #[test]
+    fn sharing_needs_a_cloud_item_and_a_sign_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = sharer_state(dir.path());
+        assert_eq!(
+            share(&s, "/home/me/a.gp", ShareLevel::View)
+                .unwrap_err()
+                .kind,
+            ErrorKind::NotFound
+        );
+        let signed_out = CloudState::with_parts(
+            Box::new(MemoryStore::default()),
+            dir.path().join("none"),
+            |_| Box::new(Sharer),
+        );
+        assert_eq!(
+            share(&signed_out, "drive:f1", ShareLevel::View)
+                .unwrap_err()
+                .kind,
+            ErrorKind::AuthExpired
+        );
+    }
+
+    #[test]
+    fn accounts_say_which_link_levels_each_service_makes() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = sharer_state(dir.path());
+        let accounts = accounts(&s);
+        let levels = |kind: ProviderKind| {
+            accounts
+                .iter()
+                .find(|a| a.provider == kind)
+                .unwrap()
+                .share_levels
+                .clone()
+        };
+        assert_eq!(
+            levels(ProviderKind::Drive),
+            [ShareLevel::View, ShareLevel::Edit]
+        );
+        assert_eq!(
+            levels(ProviderKind::Dropbox),
+            [ShareLevel::View, ShareLevel::Edit]
+        );
+        let json = serde_json::to_value(&accounts[0]).unwrap();
+        assert_eq!(json["shareLevels"], serde_json::json!(["view", "edit"]));
     }
 
     #[test]
