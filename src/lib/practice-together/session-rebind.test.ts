@@ -380,3 +380,135 @@ describe("two tabs of the same song on the host", () => {
     expect(guest.received).toHaveLength(0);
   });
 });
+
+describe("a guest whose app moves to another tab", () => {
+  /** A tab that needs more pieces than the window, so it is still on its way for a while. */
+  const bigPayload = (key: string, origin?: number): TabPayload => ({
+    name: `Song ${key}`,
+    bytes: Uint8Array.from({ length: TAB_CHUNK_BYTES * 40 }, (_, i) => (i * 5) % 256),
+    key,
+    bars: 8,
+    origin,
+  });
+
+  async function joinSlow(room: ReturnType<typeof makeRoom>, name: string) {
+    const pair = memoryPair({ up: 150, down: 150 });
+    const guest = guestOn(pair, name);
+    guest.session.start();
+    openPair(pair);
+    room.acceptor.arrive(pair[0] as GuestLink, { address: "10.0.0.9" });
+    // The host's tab is another song: it is offered as soon as the guest is in.
+    for (let i = 0; i < 400 && guest.session.snapshot.transfer?.direction !== "receive"; i += 1) {
+      await settle(50);
+    }
+    return guest;
+  }
+
+  it("tells the host when it drops the tab on its way, so the host is not left waiting", async () => {
+    const hooks = hostHooks("tab-b").hooks;
+    hooks.tab = { offer: async () => bigPayload("tab-b") };
+    const room = makeRoom(hooks, TAB_B);
+    const guest = await joinSlow(room, "Ann");
+    expect(guest.session.snapshot.transfer?.direction).toBe("receive");
+    expect(room.room.snapshot.transfer).not.toBeNull();
+
+    // The guest's app moves the session to another tab while the tab is still coming.
+    guest.session.rebind({ prepare: async () => true, schedule: () => () => {} });
+    // ... and that tab has the host's song (it says so once it is there).
+    guest.session.setScore(TAB_B);
+    await settle(2_000);
+
+    expect(guest.session.snapshot.transfer).toBeNull();
+    // The host stopped sending and shows nothing as failed: it was told it was replaced. (It was
+    // not told before: its sender waited for the guest for good and no later offer could go out.)
+    expect(room.room.snapshot.transfer).toBeNull();
+    expect(room.room.snapshot.problem?.kind ?? null).not.toBe("tab");
+  });
+
+  it("is told by the host when the host moves to another tab while it is sending", async () => {
+    const hooks = hostHooks("tab-b").hooks;
+    hooks.tab = { offer: async () => bigPayload("tab-b") };
+    const room = makeRoom(hooks, TAB_B);
+    const guest = await joinSlow(room, "Ann");
+    expect(guest.session.snapshot.transfer?.direction).toBe("receive");
+
+    room.room.rebind(hostHooks("tab-b").hooks);
+    await settle(1_000);
+
+    // The guest does not keep a half-done transfer and progress bar of the old tab.
+    expect(guest.session.snapshot.transfer).toBeNull();
+    expect(guest.session.snapshot.problem?.kind ?? null).not.toBe("tab");
+  });
+
+  it("does not start the host's start with the old tab's hooks (a start prepared before the move)", async () => {
+    const a = hostHooks("tab-a");
+    const { room, acceptor } = makeRoom(a.hooks);
+    const { guest } = await join(acceptor, "Ann");
+    const prepared: number[] = [];
+    let release: (ok: boolean) => void = () => {};
+    guest.session.rebind({
+      prepare: (c) => {
+        prepared.push(c.id);
+        return new Promise<boolean>((resolve) => (release = resolve));
+      },
+      schedule: (c) => {
+        guest.scheduled.push(c);
+        return () => {};
+      },
+      tab: undefined,
+    });
+    void room.command(cmd());
+    await settle(500);
+    expect(prepared).toHaveLength(1);
+    // The guest moves to yet another tab while that start is being prepared: it does not take part.
+    guest.session.rebind({ prepare: async () => true, schedule: () => () => {} });
+    release(true);
+    await settle(1_000);
+    expect(guest.scheduled).toHaveLength(0);
+  });
+});
+
+describe("a guest that answers that it has the tab and will move to it", () => {
+  const SONG = { key: "song", bars: 8 };
+
+  it("is not counted as having it until it says so, and the host does not send it", async () => {
+    const first = hostHooks("song", {}, 1);
+    const { room, acceptor } = makeRoom(first.hooks, { ...SONG, origin: 1 });
+    const { guest } = await join(acceptor, "Ann", { ...SONG, origin: 1 });
+    guest.has.add("song#2");
+
+    const second = hostHooks("song", {}, 2);
+    room.rebind(second.hooks);
+    room.setScore({ ...SONG, origin: 2 });
+    await settle(3_000);
+
+    expect(guest.received).toHaveLength(0);
+    expect(guest.shown).toEqual(["song#2"]);
+    // The guest has not moved yet (its app does that a moment later): the host still sees a
+    // different tab there, so a start would be refused rather than played with the wrong song.
+    expect(room.snapshot.problem?.kind).toBe("score");
+
+    // The app moved the session to that tab and says so: the host sees the same tab.
+    guest.session.setScore({ ...SONG, origin: 2 });
+    await settle(1_000);
+    expect(room.snapshot.problem?.kind ?? null).not.toBe("score");
+  });
+
+  it("holds the pieces back from a guest that has the tab: not one is sent", async () => {
+    const first = hostHooks("song", {}, 1);
+    const { room, acceptor } = makeRoom(first.hooks, { ...SONG, origin: 1 });
+    const pieces: string[] = [];
+    const { guest, pair } = await join(acceptor, "Ann", { ...SONG, origin: 1 });
+    guest.has.add("song#2");
+    // What the host sends to the guest from now on.
+    pair[1].onFrame((data) => pieces.push(data));
+
+    const second = hostHooks("song", {}, 2);
+    room.rebind(second.hooks);
+    room.setScore({ ...SONG, origin: 2 });
+    await settle(3_000);
+
+    expect(guest.received).toHaveLength(0);
+    expect(pieces.filter((data) => data.includes('"tab-chunk"'))).toHaveLength(0);
+  });
+});

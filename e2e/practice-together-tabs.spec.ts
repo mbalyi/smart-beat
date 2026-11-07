@@ -44,6 +44,16 @@ async function fingerprintOf(app: Page, path: string): Promise<{ key: string; ba
   }, path);
 }
 
+/**
+ * Opens a second song as a tab of its own and waits until it is the one that is shown. The menu
+ * action goes to the shown tab's workspace, so Practice together opened before that would open in
+ * the first tab (where the session already runs and there is nothing to add).
+ */
+async function openSecondTab(app: Page, path: string, name: string) {
+  await openSong(app, path);
+  await expect(tabButton(app, name)).toHaveAttribute("aria-current", "true");
+}
+
 async function openTogether(app: Page) {
   await emitMenuAction(app, "practice-together");
   const dialog = app.getByRole("dialog", { name: "Practice together" });
@@ -183,11 +193,13 @@ test.describe("Practice together: several tabs in one session (host)", () => {
   test("offers to add the shown tab to the running session, and the guest gets it without leaving", async ({
     app,
   }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await hostWithGuestInTabOne(app);
     expect(await sentCount(app, "bye")).toBe(0);
 
     // A second tab: the session keeps running in the first one.
-    await openSong(app, STRUCTURE_SONG);
+    await openSecondTab(app, STRUCTURE_SONG, "Structure Song");
     await expect(tabButton(app, "Structure Song")).toHaveAttribute("aria-current", "true");
     const dialog = await openTogether(app);
     const add = dialog.getByRole("button", { name: ADD });
@@ -209,8 +221,10 @@ test.describe("Practice together: several tabs in one session (host)", () => {
   test("moves the session back with the tab, and the guest that has that tab is not sent it again", async ({
     app,
   }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await hostWithGuestInTabOne(app);
-    await openSong(app, STRUCTURE_SONG);
+    await openSecondTab(app, STRUCTURE_SONG, "Structure Song");
     const dialog = await openTogether(app);
     await dialog.getByRole("button", { name: ADD }).click();
     await guestTakesTheOffer(app);
@@ -224,17 +238,21 @@ test.describe("Practice together: several tabs in one session (host)", () => {
     await expect(tabButton(app, "Practice Song")).toHaveAttribute("aria-current", "true");
     await expect(chip(app)).toBeVisible();
     await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
-    // If the host asks again, the guest says it has it ("have"): the pieces are never sent twice.
-    if ((await sentCount(app, "tab-offer")) > offersSent) {
-      const again = await app.evaluate(
-        (n) => window.__practiceTogether.sentOf("tab-offer")[n] as Record<string, unknown>,
-        offersSent,
-      );
-      await app.evaluate(
-        (id) => window.__practiceTogether.frame({ type: "tab-done", id, ok: true, reason: "have" }),
-        again.id as number,
-      );
-    }
+    // The host offers the first tab again a moment after the move (the guest is on the second one
+    // as far as it knows). The offer alone goes out: the pieces wait for the guest's answer.
+    await expect.poll(() => sentCount(app, "tab-offer")).toBe(offersSent + 1);
+    const again = await app.evaluate(
+      (n) => window.__practiceTogether.sentOf("tab-offer")[n] as Record<string, unknown>,
+      offersSent,
+    );
+    expect(await sentCount(app, "tab-chunk")).toBe(chunksSent);
+    // The guest has that tab: it says so, and no piece is sent, not even after the host's wait
+    // for an answer (1.5 s) has passed.
+    await app.evaluate(
+      (id) => window.__practiceTogether.frame({ type: "tab-done", id, ok: true, reason: "have" }),
+      again.id as number,
+    );
+    await app.waitForTimeout(2_000);
     expect(await sentCount(app, "tab-chunk")).toBe(chunksSent);
     expect(await sentCount(app, "bye")).toBe(0);
   });
@@ -242,8 +260,10 @@ test.describe("Practice together: several tabs in one session (host)", () => {
   test("only one tab plays: switching tabs while it plays stops it for everyone", async ({
     app,
   }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await hostWithGuestInTabOne(app);
-    await openSong(app, STRUCTURE_SONG);
+    await openSecondTab(app, STRUCTURE_SONG, "Structure Song");
     const dialog = await openTogether(app);
     await dialog.getByRole("button", { name: ADD }).click();
     await guestTakesTheOffer(app);
@@ -271,8 +291,10 @@ test.describe("Practice together: several tabs in one session (host)", () => {
   });
 
   test("Leave ends the session for every tab", async ({ app }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await hostWithGuestInTabOne(app);
-    await openSong(app, STRUCTURE_SONG);
+    await openSecondTab(app, STRUCTURE_SONG, "Structure Song");
     const dialog = await openTogether(app);
     await dialog.getByRole("button", { name: ADD }).click();
     await guestTakesTheOffer(app);
@@ -294,7 +316,7 @@ test.describe("Practice together: several tabs in one session (host)", () => {
 
   test("offers nothing to add when no session is running", async ({ app }) => {
     await openSong(app);
-    await openSong(app, STRUCTURE_SONG);
+    await openSecondTab(app, STRUCTURE_SONG, "Structure Song");
     const dialog = await openTogether(app);
     await expect(dialog.getByRole("button", { name: "Start a session" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: ADD })).toHaveCount(0);
@@ -305,6 +327,8 @@ test.describe("Practice together: several tabs in one session (guest)", () => {
   test("a second tab from the host opens next to the first, and the session goes with it", async ({
     app,
   }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await openSong(app);
     const dialog = await openTogether(app);
     await joinAsGuest(app, dialog);
@@ -336,6 +360,8 @@ test.describe("Practice together: several tabs in one session (guest)", () => {
   });
 
   test("a tab the guest already has is shown, not received again", async ({ app }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await openSong(app);
     const dialog = await openTogether(app);
     await joinAsGuest(app, dialog);
@@ -366,7 +392,7 @@ test.describe("Practice together: several tabs in one session (guest)", () => {
     );
     await expect
       .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("tab-done").slice(2)))
-      .toEqual([{ type: "tab-done", id: 9, ok: true, reason: "have" }]);
+      .toEqual([{ type: "tab-done", id: 9, ok: true, reason: "moving" }]);
     // No third copy; the first received tab is the one shown, and the session is in it.
     await expect(tabBar(app).getByRole("listitem")).toHaveCount(3);
     await expect(tabButton(app, "Practice Song (from Host)")).toHaveAttribute(
@@ -382,6 +408,8 @@ test.describe("Practice together: several tabs, edge cases (guest)", () => {
   test("two tabs of the same song from the host are two tabs, and each is found again by its own", async ({
     app,
   }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await openSong(app);
     const dialog = await openTogether(app);
     await joinAsGuest(app, dialog);
@@ -414,15 +442,39 @@ test.describe("Practice together: several tabs, edge cases (guest)", () => {
     );
     await expect
       .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("tab-done").slice(2)))
-      .toEqual([{ type: "tab-done", id: 9, ok: true, reason: "have" }]);
+      .toEqual([{ type: "tab-done", id: 9, ok: true, reason: "moving" }]);
     await expect(tabBar(app).getByRole("listitem")).toHaveCount(3);
     await welcomeAgain(app, hellos);
     await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
   });
 
+  test("a new version of the host's tab, saved under another name, replaces the copy", async ({
+    app,
+  }) => {
+    test.slow();
+    await openSong(app);
+    const dialog = await openTogether(app);
+    await joinAsGuest(app, dialog);
+    await sendHostTab(app, { key: "host-v1", id: 7, name: "Untitled", origin: 3 });
+    await expect.poll(() => sentCount(app, "tab-done")).toBe(1);
+    await welcomeAgain(app, 1);
+    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+    await expect(tabBar(app).getByRole("listitem")).toHaveCount(2);
+
+    // The host saved its tab as "Riff": the same tab of the host's (same origin), a new name.
+    await sendHostTab(app, { key: "host-v2", id: 8, name: "Riff", origin: 3 });
+    await expect.poll(() => sentCount(app, "tab-done")).toBe(2);
+    await welcomeAgain(app, 2);
+    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+    // Not a third tab beside the stale "Untitled" one: it took its place.
+    await expect(tabBar(app).getByRole("listitem")).toHaveCount(2);
+  });
+
   test("Play in a tab of the session that is not the one in play does not start it alone", async ({
     app,
   }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await openSong(app);
     const dialog = await openTogether(app);
     await joinAsGuest(app, dialog);
@@ -451,6 +503,8 @@ test.describe("Practice together: several tabs, edge cases (guest)", () => {
 
 test.describe("Practice together: Sync tab", () => {
   test("sends the tab again with progress, and waits while it is on its way", async ({ app }) => {
+    // Two songs and a session load slowly while other tests run next to it.
+    test.slow();
     await hostWithGuestInTabOne(app);
     expect(await sentCount(app, "tab-offer")).toBe(0);
     const dialog = await openTogether(app);
@@ -485,7 +539,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       test.slow();
       await app.emulateMedia({ colorScheme });
       await hostWithGuestInTabOne(app);
-      await openSong(app, STRUCTURE_SONG);
+      await openSecondTab(app, STRUCTURE_SONG, "Structure Song");
       const dialog = await openTogether(app);
       await expect(dialog.getByRole("button", { name: ADD })).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[role=dialog]" });

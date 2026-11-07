@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { usePracticeTogether, type TogetherPlayer } from "@/hooks/use-practice-together";
 import { hostOnLan } from "@/lib/practice-together/lan";
 import {
+  liveIncludes,
   liveOwner,
   liveSession,
   liveSnapshot,
@@ -230,6 +231,72 @@ describe("a host's session moves to another tab", () => {
   });
 });
 
+describe("moving the session between tabs of the host", () => {
+  it("does not move it to a tab that closed while the move was on its way", async () => {
+    const first = tab(1, "A");
+    await hostingWithGuest(first);
+    const second = tab(2, "B", false);
+    await act(async () => {
+      const adding = second.result.current.addToSession?.();
+      second.unmount();
+      await expect(adding).rejects.toThrow(/could not be added/);
+    });
+    expect(liveOwner()?.id).toBe(1);
+    expect(liveIncludes(2)).toBe(false);
+    expect(first.result.current.state?.phase).toBe("synchronized");
+    expect(liveSnapshot().claiming).toBe(false);
+  });
+
+  it("moves it once at a time: two tabs asking at once, one gets it", async () => {
+    const first = tab(1, "A");
+    await hostingWithGuest(first);
+    const second = tab(2, "B", false);
+    const third = tab(3, "C", false);
+    let results: PromiseSettledResult<void>[] = [];
+    await act(async () => {
+      results = await Promise.allSettled([
+        second.result.current.addToSession!(),
+        third.result.current.addToSession!(),
+      ]);
+    });
+    expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const winner = liveOwner()?.id;
+    expect([2, 3]).toContain(winner);
+    // Only the tab that holds it shows it: the other one has nothing left over.
+    const holders = [first, second, third].filter((t) => t.result.current.state !== null);
+    expect(holders.map((t) => t.id)).toEqual([winner]);
+  });
+
+  it("goes to the tab that is shown last when two are shown one after the other", async () => {
+    const first = tab(1, "A");
+    await hostingWithGuest(first);
+    const second = tab(2, "B", false);
+    const third = tab(3, "C", false);
+    act(() => first.rerender({ active: false }));
+    await act(async () => {
+      await second.result.current.addToSession?.();
+    });
+    act(() => second.rerender({ active: false }));
+    await act(async () => {
+      await third.result.current.addToSession?.();
+    });
+    expect(liveOwner()?.id).toBe(3);
+
+    // The host clicks tab 2 and, before the session got there, tab 1.
+    act(() => {
+      third.rerender({ active: false });
+      second.rerender({ active: true });
+    });
+    act(() => {
+      second.rerender({ active: false });
+      first.rerender({ active: true });
+    });
+    await waitFor(() => expect(liveOwner()?.id).toBe(1), { timeout: 4000 });
+    expect(first.result.current.state?.phase).toBe("synchronized");
+    expect(liveSnapshot().claiming).toBe(false);
+  });
+});
+
 describe("a host that switches tab while the song plays", () => {
   /** Tab 2 holds the session and plays; the host then shows tab 1. */
   async function playingInSecondTab() {
@@ -320,6 +387,45 @@ describe("closing the tab that holds the session", () => {
     await waitFor(() => expect(guest.snapshot.phase).toBe("closed"));
     expect(liveSession()).toBeNull();
     expect(liveSnapshot().live).toBe(false);
+  });
+
+  it("stops the guests when the tab that plays is closed, as it could not pause them itself", async () => {
+    const asked: Command[] = [];
+    const first = tab(1, "A");
+    const { guest } = await hostingWithGuest(first, asked);
+    const second = tab(2, "B");
+    act(() => first.rerender({ active: false }));
+    await act(async () => {
+      await second.result.current.addToSession?.();
+    });
+    guest.setScore({ key: "score-B", bars: 8 });
+    await waitFor(() => expect(second.result.current.state?.problem).toBeNull(), { timeout: 4000 });
+    asked.length = 0;
+    // The song plays in tab 2, and the tab is closed (its player is gone with it).
+    second.player.isPlaying.mockReturnValue(true);
+    second.unmount();
+    await waitFor(() => expect(liveOwner()?.id).toBe(1));
+    await waitFor(() => expect(asked.map((c) => c.action)).toContain("pause"), { timeout: 4000 });
+  });
+
+  it("does not stop the guests when the tab that is closed was not playing", async () => {
+    const asked: Command[] = [];
+    const first = tab(1, "A");
+    const { guest } = await hostingWithGuest(first, asked);
+    const second = tab(2, "B");
+    act(() => first.rerender({ active: false }));
+    await act(async () => {
+      await second.result.current.addToSession?.();
+    });
+    guest.setScore({ key: "score-B", bars: 8 });
+    await waitFor(() => expect(second.result.current.state?.problem).toBeNull(), { timeout: 4000 });
+    asked.length = 0;
+    second.unmount();
+    await waitFor(() => expect(liveOwner()?.id).toBe(1));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    expect(asked).toHaveLength(0);
   });
 
   it("leaving ends the whole session, wherever it is shown", async () => {
@@ -421,6 +527,22 @@ describe("a guest that has the tab the host moves to", () => {
       second.result.current.intercept({ kind: "playPause" });
     });
     expect(toast.info).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes the tabs ordinary again when the host ends the session", async () => {
+    const { first, second, hostSession } = await guestSessionMovedToSecondTab();
+    first.rerender({ active: true });
+    expect(first.result.current.readOnly).toBe(true);
+    hostSession.leave();
+    await waitFor(() => expect(liveSnapshot().live).toBe(false), { timeout: 4000 });
+    // No host any more: editing is allowed again, and Play is not answered with "not in play".
+    expect(first.result.current.readOnly).toBe(false);
+    expect(second.result.current.readOnly).toBe(false);
+    let handled = true;
+    act(() => {
+      handled = first.result.current.intercept({ kind: "playPause" });
+    });
+    expect(handled).toBe(false);
   });
 
   it("leaves a tab that is not in the session alone", async () => {

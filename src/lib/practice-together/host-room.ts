@@ -339,6 +339,21 @@ export class HostRoom {
     return "started";
   }
 
+  /**
+   * Everybody stops, as the host's tab that played has gone: every guest in sync gets the command
+   * without waiting for the answers or for the same score, since the host has nothing to prepare.
+   */
+  stopAll(partial: Omit<Command, "id" | "at">): void {
+    if (this.ended) return;
+    const synced = [...this.seats.values()].filter(
+      (seat) => seat.session.snapshot.phase === "synchronized",
+    );
+    if (synced.length === 0) return;
+    const leadMs = Math.max(...synced.map((seat) => seat.session.snapshot.leadMs));
+    const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() + leadMs };
+    for (const seat of synced) void seat.session.dispatch(cmd);
+  }
+
   // ----- guests ----------------------------------------------------------------------------
 
   /** A connection arrived. Nothing is decided until it says who it is. */

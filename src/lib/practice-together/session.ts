@@ -434,8 +434,19 @@ export class Session {
     this.hookEpoch += 1;
     for (const cancel of this.cancels.values()) cancel();
     this.cancels.clear();
+    // A tab on its way is stopped on both sides, so the host is not left waiting for a guest
+    // that dropped it (which would block every later offer).
+    this.tellTransfersStopped();
     this.dropTransfers();
     this.hooks = hooks;
+  }
+
+  /** Tells the other app that the tab being sent or received is not wanted any more. */
+  private tellTransfersStopped() {
+    const { phase } = this.state;
+    if (phase === "closed" || phase === "failed") return;
+    if (this.sender) this.send({ type: "tab-abort", id: this.sender.id, reason: "replaced" });
+    if (this.receiver) this.send({ type: "tab-abort", id: this.receiver.id, reason: "replaced" });
   }
 
   /**
@@ -1018,12 +1029,20 @@ export class Session {
   private onTabDone(msg: Extract<Message, { type: "tab-done" }>) {
     const sender = this.sender;
     if (this.role !== "host" || !sender || sender.id !== msg.id) return;
+    // Whatever the answer, the offer is over: no piece is sent after it.
+    sender.stop();
     this.sender = null;
     this.patch({ transfer: null });
     if (!msg.ok) {
+      // The guest dropped it because its app moved to another tab: not a failure; the guest says
+      // which tab it has now, and the offer is made again when that is not the host's.
+      if (msg.reason === "replaced") return this.checkScore();
       this.setProblem({ kind: "tab", message: tabFailureText(msg.reason ?? ""), fatal: false });
       return;
     }
+    // The guest has the tab but has not moved to it yet: it says so (hello) when it has, and
+    // until then the host does not count it as having this version.
+    if (msg.reason === "moving") return;
     // The guest has this version; it says so again when it moves to it (and an edit made
     // meanwhile is offered next).
     this.peerKey = sender.key;
@@ -1036,10 +1055,13 @@ export class Session {
       this.sender.stop();
       this.sender = null;
       this.patch({ transfer: null });
+      // "replaced": the other app moved to another tab; it will say which one it has now.
+      if (msg.reason === "replaced") return this.checkScore();
       this.setProblem({ kind: "tab", message: tabFailureText(msg.reason), fatal: false });
     } else if (this.receiver?.id === msg.id) {
       this.receiver = null;
       this.patch({ transfer: null });
+      if (msg.reason === "replaced") return;
       this.setProblem({ kind: "tab", message: tabFailureText(msg.reason), fatal: false });
     }
   }
@@ -1058,7 +1080,9 @@ export class Session {
     // Another open tab is the host's (the host moved the session to a tab this app has too):
     // nothing to send either; the app shows it and the session moves there.
     if (this.hooks.tab?.have?.(offer.key, offer.origin)) {
-      this.send({ type: "tab-done", id: offer.id, ok: true, reason: "have" });
+      // "moving": the app moves the session to that tab in a moment, so the host waits for the
+      // hello from it before counting this guest as having the tab.
+      this.send({ type: "tab-done", id: offer.id, ok: true, reason: "moving" });
       return this.hooks.tab.show?.(offer.key, offer.origin);
     }
     const bad = checkOffer(offer);
@@ -1070,6 +1094,8 @@ export class Session {
       send: (msg) => this.send(msg),
       progress: (transfer) => this.patch({ transfer }),
     });
+    // The host holds the pieces back until the guest says it needs them (it may have the tab).
+    this.send({ type: "tab-ack", id: offer.id, n: 0 });
   }
 
   private async onTabChunk(msg: Extract<Message, { type: "tab-chunk" }>) {
@@ -1094,7 +1120,10 @@ export class Session {
     const epoch = this.hookEpoch;
     const reason = await this.hooks.tab?.receive?.(tab).catch(() => "unreadable");
     if (this.state.phase === "closed" || this.state.phase === "failed") return;
-    if (epoch !== this.hookEpoch) return;
+    if (epoch !== this.hookEpoch) {
+      // The app moved to another tab meanwhile: the host is told, so it does not wait for this.
+      return this.send({ type: "tab-done", id: offer.id, ok: false, reason: "replaced" });
+    }
     if (reason) return this.failReceiving(receiver, reason, "done");
     this.send({ type: "tab-done", id: offer.id, ok: true });
     this.patch({ transfer: null });

@@ -6,6 +6,7 @@ import {
   liveCarry,
   liveClearWanted,
   liveDisown,
+  liveDrop,
   liveEnd,
   liveIncludes,
   liveOwner,
@@ -153,8 +154,48 @@ describe("the live session", () => {
     const next = session("guest");
     liveResume(next, owner(2), "b");
     expect(liveSession()).toBe(next);
-    // The tabs of the session stay in it.
-    expect(liveSnapshot()).toMatchObject({ live: true, ownerId: 2, ids: [1, 2] });
+    // The tab it joined with has another song than the host's: it is an ordinary tab again.
+    expect(liveSnapshot()).toMatchObject({ live: true, ownerId: 2, ids: [2] });
+  });
+
+  it("keeps the tab a guest joined with in the session when it has the host's song", () => {
+    liveStart(session("guest"), owner(1), "a");
+    liveSuspend();
+    liveResume(session("guest"), owner(2), "a", 7);
+    expect(liveSnapshot()).toMatchObject({ ownerId: 2, ids: [1, 2] });
+  });
+
+  it("keeps the tabs a guest received, whatever their songs", () => {
+    liveStart(session("guest"), owner(1), "a");
+    liveSuspend();
+    liveResume(session("guest"), owner(2), "b", 1);
+    liveSuspend();
+    liveResume(session("guest"), owner(3), "c", 2);
+    expect(liveSnapshot()).toMatchObject({ ownerId: 3, ids: [2, 3] });
+  });
+
+  it("forgets a session that finished on its own, but only that one", () => {
+    const old = session("guest");
+    liveStart(old, owner(1), "a");
+    liveDrop(session("guest"));
+    expect(liveSnapshot().live).toBe(true);
+    liveDrop(old);
+    expect(liveSnapshot()).toMatchObject({ live: false, ids: [] });
+  });
+
+  it("moves on when the tab the session was asked to go to closes before it got there", () => {
+    liveStart(session(), owner(1), "a");
+    liveSetOwner(owner(2), "b");
+    liveSetOwner(owner(3), "c");
+    // The owner (3) closes: the session is without an owner and wants tab 2 ...
+    expect(liveTabClosed(3)).toBe(2);
+    liveDisown({ hostCode: null, approvals: [] });
+    liveWant(2);
+    // ... and tab 2 closes before it takes it: the session goes to the next one left.
+    expect(liveTabClosed(2)).toBe(1);
+    // Nothing is left: no tab to go to.
+    liveWant(1);
+    expect(liveTabClosed(1)).toBeNull();
   });
 
   it("ends: the session leaves, the owner is told, nothing is left", () => {

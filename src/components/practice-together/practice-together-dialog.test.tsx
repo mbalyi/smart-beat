@@ -381,6 +381,60 @@ describe("PracticeTogetherDialog: a session in another tab", () => {
     expect(screen.queryByTestId("tabs-in-session")).toBeNull();
   });
 
+  it("does not offer to rejoin while the guest is still in a session in another tab", () => {
+    const last = { kind: "lan" as const, code: "ABCD-EFGH-JKMN-PQRS-TVWX", host: "Drummer", at: 1 };
+    renderDialog(
+      together({ lastSession: last, elsewhere: { role: "guest", tabs: 2, here: false } }),
+    );
+    expect(screen.queryByTestId("rejoin")).toBeNull();
+  });
+
+  it("asks before it ends the running session, also when Enter is pressed in the name field", async () => {
+    const t = together({ elsewhere: { role: "host", tabs: 2, here: false } });
+    const { user } = renderDialog(t);
+    await user.type(screen.getByLabelText("Your name"), "{Enter}");
+    expect(t.host).not.toHaveBeenCalled();
+    expect(screen.getByTestId("confirm-end")).toHaveTextContent("ends the session");
+    await user.click(screen.getByRole("button", { name: "End the running session and continue" }));
+    expect(t.host).toHaveBeenCalledOnce();
+  });
+
+  it("does not ask when no session is running elsewhere", async () => {
+    const t = together({ elsewhere: null });
+    const { user } = renderDialog(t);
+    await user.click(screen.getByRole("button", { name: "Start a session" }));
+    expect(t.host).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("confirm-end")).toBeNull();
+  });
+
+  it("says why adding the tab failed, and keeps the button where the focus is", async () => {
+    const addToSession = vi.fn(async () => {
+      throw new Error("This tab could not be added to the session. Try again in a moment.");
+    });
+    const { user } = renderDialog(
+      together({ elsewhere: { role: "host", tabs: 2, here: false }, addToSession }),
+    );
+    const add = screen.getByRole("button", { name: "Add this tab to the session" });
+    await user.click(add);
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be added");
+    expect(add).toBeEnabled();
+  });
+
+  it("has only one primary action: adding the tab is not it", () => {
+    renderDialog(together({ elsewhere: { role: "host", tabs: 2, here: false } }));
+    const add = screen.getByRole("button", { name: "Add this tab to the session" });
+    expect(add.className).toContain("border");
+    expect(screen.getByRole("button", { name: "Start a session" }).className).toContain(
+      "bg-primary",
+    );
+  });
+
+  it("tells a guest that the host chooses which tab plays", () => {
+    renderDialog(together({ state: session({ role: "guest" }), tabsInSession: 2 }));
+    expect(screen.getByTestId("tabs-in-session")).toHaveTextContent("The host chooses which one");
+    expect(screen.getByTestId("tabs-in-session")).not.toHaveTextContent("The one you show");
+  });
+
   it("has no accessibility violations with the card", async () => {
     renderDialog(together({ elsewhere: { role: "host", tabs: 2, here: false } }));
     await expectNoA11yViolations(screen.getByRole("dialog"));

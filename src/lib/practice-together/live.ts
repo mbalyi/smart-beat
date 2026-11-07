@@ -21,6 +21,11 @@ export interface WaitingGuest {
 export interface LiveCarry {
   hostCode: HostCodeInfo | null;
   approvals: WaitingGuest[];
+  /**
+   * The host's tab was playing when it let go and could not stop the guests itself (it was
+   * closed): the next owner stops them.
+   */
+  stopGuests?: boolean;
 }
 
 /** The tab that shows and plays the session now. */
@@ -47,6 +52,8 @@ interface LiveState {
   keys: Map<number, string>;
   /** Which of the host's tabs each tab is (see `ScoreFingerprint.origin`); none when it is not one. */
   origins: Map<number, number>;
+  /** The tab the guest joined with, until it is known whether it is in the session (see `liveResume`). */
+  joined: number | null;
   /** A tab the session should move to (a guest's host changed tab, or the owner tab closed). */
   wanted: number | null;
   /** The session is moving from one tab to another. */
@@ -121,6 +128,7 @@ export function liveStart(session: LiveSession, owner: LiveOwner, key: string, o
     included: new Set([owner.id]),
     keys,
     origins,
+    joined: session.role === "guest" ? owner.id : null,
     wanted: null,
     claiming: false,
     carry: null,
@@ -140,6 +148,13 @@ export function liveResume(session: LiveSession, owner: LiveOwner, key: string, 
   state.included.add(owner.id);
   state.keys.set(owner.id, key);
   setOrigin(state.origins, owner.id, origin);
+  // The tab the guest joined with is in the session only when it has the host's song: another
+  // song of the guest's own is an ordinary tab, not locked and not counted.
+  const { joined } = state;
+  if (joined !== null && joined !== owner.id && state.keys.get(joined) !== key) {
+    state.included.delete(joined);
+  }
+  state.joined = null;
   state.wanted = null;
   state.claiming = false;
   state.carry = null;
@@ -233,16 +248,28 @@ export function liveTabWithKey(key: string, origin?: number): number | null {
   return null;
 }
 
-/** A tab was closed. Returns another included tab the session can move to (when this one owned it). */
+/**
+ * A tab was closed. Returns another included tab the session can move to when this one owned it,
+ * or was the one the session was about to move to (it has no owner meanwhile).
+ */
 export function liveTabClosed(id: number): number | null {
   if (!state) return null;
+  const orphaned = state.owner === null && state.session !== null && state.wanted === id;
   state.keys.delete(id);
   state.origins.delete(id);
   state.included.delete(id);
+  if (state.joined === id) state.joined = null;
   if (state.wanted === id) state.wanted = null;
-  const next = state.owner?.id === id ? ([...state.included].at(-1) ?? null) : null;
+  const next = state.owner?.id === id || orphaned ? ([...state.included].at(-1) ?? null) : null;
   publish();
   return next;
+}
+
+/** The live session finished on its own (the host ended it, a kick, a ban, a lost link): forget it. */
+export function liveDrop(session: LiveSession) {
+  if (!state || state.session !== session) return;
+  state = null;
+  publish();
 }
 
 /** Asks for the session to move to tab `id` (it does when that tab's hook sees this). */
