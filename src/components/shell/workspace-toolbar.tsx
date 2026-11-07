@@ -155,7 +155,7 @@ export function WorkspaceToolbar({
   const inHeader = headerSlot !== null && headerSlot !== undefined && active;
   const mainControls = (
     <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1 2xl:gap-1.5">
         <Button variant="outline" size="sm" onClick={onOpen} title="Open">
           <FolderOpenIcon data-icon="inline-start" />
           <span className="max-2xl:sr-only">Open</span>
@@ -184,8 +184,11 @@ export function WorkspaceToolbar({
           </Button>
         </div>
         {edited && (
-          <Badge variant="secondary" className="shrink-0">
-            Edited
+          <Badge variant="secondary" className="shrink-0 max-2xl:px-1.5">
+            {/* Narrower than 2xl a dot says it: the tab's own dot says the same, and the toolbar
+                must not wrap onto a second row when the first edit makes this appear. */}
+            <span className="max-2xl:sr-only">Edited</span>
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-current 2xl:hidden" />
           </Badge>
         )}
         {record}
