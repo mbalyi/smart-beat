@@ -299,7 +299,7 @@ describe("error and panic counters", () => {
   });
   it("lists the same areas and kinds as the app", () => {
     // The app refuses what the Worker would refuse and the other way round: keep them equal.
-    const rust = readFileSync(new URL("../../src-tauri/src/telemetry.rs", import.meta.url), "utf8");
+    const rust = readFileSync("../src-tauri/src/telemetry.rs", "utf8");
     const listed = (name: string) => {
       const body = new RegExp(`pub const ${name}: \\[&str; \\d+\\] = \\[([^\\]]*)\\]`).exec(rust);
       expect(body, name).not.toBeNull();
