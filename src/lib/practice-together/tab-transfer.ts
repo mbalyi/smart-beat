@@ -11,6 +11,9 @@ import {
   type Message,
 } from "@/lib/practice-together/protocol";
 
+/** How long the host holds the pieces back, waiting for the guest's answer to the offer. */
+export const OFFER_WAIT_MS = 1500;
+
 /** What the host shares: the open score as a Guitar Pro file, and the fingerprint it matches. */
 export interface TabPayload {
   /** The song's name, shown to the guest. */
@@ -19,6 +22,8 @@ export interface TabPayload {
   /** The score fingerprint of this version (what both apps compare). */
   key: string;
   bars: number;
+  /** Which of the host's tabs this is (see `ScoreFingerprint.origin`). */
+  origin?: number;
 }
 
 /** A tab the guest received whole and checked. */
@@ -85,6 +90,9 @@ export class TabSender {
   private next = 0;
   private acked = 0;
   private ended = false;
+  /** The pieces go out once the guest has answered the offer (or after `OFFER_WAIT_MS`). */
+  private started = false;
+  private waitTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(id: number, payload: TabPayload, sha: string, io: Io) {
     this.id = id;
@@ -99,6 +107,11 @@ export class TabSender {
     return this.payload.key;
   }
 
+  /** Which of the host's tabs is being sent. */
+  get origin(): number | undefined {
+    return this.payload.origin;
+  }
+
   start() {
     this.io.send({
       type: "tab-offer",
@@ -109,14 +122,25 @@ export class TabSender {
       sha: this.sha,
       key: this.payload.key,
       bars: this.payload.bars,
+      ...(this.payload.origin === undefined ? {} : { origin: this.payload.origin }),
     });
     this.report();
+    // A guest that already has the tab says so before any piece is sent; one that needs it asks
+    // with its first answer. An older guest never asks: the pieces go out after a short wait.
+    this.waitTimer = setTimeout(() => this.go(), OFFER_WAIT_MS);
+  }
+
+  private go() {
+    clearTimeout(this.waitTimer);
+    this.started = true;
     this.pump();
   }
 
-  /** The guest has the first `n` pieces. */
+  /** The guest has the first `n` pieces (0: it is ready for them). */
   ack(n: number) {
     if (this.ended) return;
+    this.started = true;
+    clearTimeout(this.waitTimer);
     this.acked = Math.max(this.acked, Math.min(n, this.total));
     this.report();
     this.pump();
@@ -124,10 +148,16 @@ export class TabSender {
 
   stop() {
     this.ended = true;
+    clearTimeout(this.waitTimer);
   }
 
   private pump() {
-    while (!this.ended && this.next < this.total && this.next - this.acked < TAB_WINDOW) {
+    while (
+      this.started &&
+      !this.ended &&
+      this.next < this.total &&
+      this.next - this.acked < TAB_WINDOW
+    ) {
       const from = this.next * TAB_CHUNK_BYTES;
       const part = this.payload.bytes.subarray(from, from + TAB_CHUNK_BYTES);
       this.io.send({ type: "tab-chunk", id: this.id, i: this.next, data: toBase64(part) });

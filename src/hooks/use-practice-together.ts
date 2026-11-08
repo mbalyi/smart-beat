@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type RefObject,
 } from "react";
 import { toast } from "sonner";
@@ -31,6 +32,31 @@ import {
   type LastSession,
 } from "@/lib/practice-together/identity";
 import { hostOnLan, joinOnLan } from "@/lib/practice-together/lan";
+import {
+  liveAbortClaim,
+  liveBeginClaim,
+  liveCarry,
+  liveDisown,
+  liveEnd,
+  liveOwner,
+  liveResume,
+  liveSession,
+  liveSetKey,
+  liveSetOwner,
+  liveSnapshot,
+  liveStart,
+  liveSuspend,
+  liveTabClosed,
+  liveDrop,
+  liveTabWithKey,
+  liveWant,
+  liveClearWanted,
+  subscribeLive,
+  type HostCodeInfo,
+  type LiveCarry,
+  type LiveOwner,
+  type WaitingGuest,
+} from "@/lib/practice-together/live";
 import { actionsFor, commandOf, sameSettings } from "@/lib/practice-together/practice-sync";
 import {
   readQualityChoice,
@@ -73,7 +99,7 @@ export interface PracticeTogether {
   /** The session, once hosting or joining has started. */
   state: SessionState | null;
   /** The code the host gives the guest. */
-  hostCode: { kind: ConnectionKind; code: string; address?: string } | null;
+  hostCode: HostCodeInfo | null;
   /** A guest waiting for the host's yes (the first of those waiting). */
   approval: { name: string; answer: (ok: boolean) => void } | null;
   /** More guests waiting for the host's yes behind `approval`. */
@@ -91,6 +117,15 @@ export interface PracticeTogether {
   transfer?: TabProgress | null;
   /** A guest follows the host's tab: it is not edited here until the session ends. */
   readOnly?: boolean;
+  /**
+   * A session is live in another tab of this app and this tab is not showing it (null: none, or
+   * it is here). `tabs` counts the tabs in it, `here` says whether this tab is one of them.
+   */
+  elsewhere?: { role: "host" | "guest"; tabs: number; here: boolean } | null;
+  /** How many tabs are in the live session (0 when there is none). */
+  tabsInSession?: number;
+  /** The host brings this tab into the live session from another tab (it plays from here). */
+  addToSession?(): Promise<void>;
   setName(name: string): void;
   setQuality(choice: QualityChoice): void;
   host(kind: ConnectionKind): Promise<void>;
@@ -120,8 +155,12 @@ interface Options {
   revision: number;
   /** The open song's name, shown to a guest that gets the tab from this host. */
   title?: string;
+  /** This tab's id (the song's), to tell the tabs of one session apart. */
+  id?: number;
+  /** This tab is the one shown. */
+  active?: boolean;
   /** This song is the host's tab, received in a session: its fingerprint and who sent it. */
-  received?: { key: string; from: string };
+  received?: { key: string; from: string; origin?: number };
   /** A guest got the host's tab: open it as a tab of its own (the session moves along). */
   onReceiveTab?: (tab: ReceivedScore) => void;
 }
@@ -139,11 +178,7 @@ function readName(): string {
   }
 }
 
-/** A guest waiting for the host's yes. */
-interface ApprovalEntry {
-  name: string;
-  resolve: (ok: boolean) => void;
-}
+type ApprovalEntry = WaitingGuest;
 
 /** A ref that always holds the latest value, for callbacks that outlive a render. */
 function useLatest<T>(value: T) {
@@ -169,6 +204,9 @@ const TOAST_KINDS = new Set([
   "banned",
 ]);
 
+/** A Play that went out counts as about to play for this long (the start is a moment ahead). */
+const PLAY_PENDING_MS = 4000;
+
 /** A burst of edits is fingerprinted once, this long after the last one. */
 const FINGERPRINT_DEBOUNCE_MS = 200;
 
@@ -179,6 +217,8 @@ export function usePracticeTogether({
   score,
   revision,
   title = "Song",
+  id = 0,
+  active = true,
   received,
   onReceiveTab,
 }: Options): PracticeTogether {
@@ -193,6 +233,13 @@ export function usePracticeTogether({
   const [error, setError] = useState<string | null>(null);
   const [internetAvailable, setInternetAvailable] = useState(false);
 
+  const idRef = useLatest(id);
+  const receivedOriginRef = useLatest(received?.origin);
+  /** Which of the host's tabs this tab is: the host's own tab id, or the one a received tab came from. */
+  const originFor = useCallback(
+    (role: "host" | "guest") => (role === "host" ? idRef.current : receivedOriginRef.current),
+    [idRef, receivedOriginRef],
+  );
   const sessionRef = useRef<Session | HostRoom | null>(null);
   /** Guests waiting for the host's yes, oldest first. */
   const approvals = useRef<ApprovalEntry[]>([]);
@@ -206,7 +253,26 @@ export function usePracticeTogether({
   const revisionRef = useLatest(revision);
   const receiveRef = useLatest(onReceiveTab);
   const detachRef = useRef<(key: string) => void>(() => {});
-  const tabs = useTabSharing({ scoreRef, titleRef, revisionRef, detachRef, receiveRef });
+  // The host offered a tab this app has open in another tab: show that one (the session moves).
+  const haveRef = useRef<(key: string, origin?: number) => boolean>((key, origin) => {
+    const found = liveTabWithKey(key, origin);
+    return found !== null && found !== idRef.current;
+  });
+  const showRef = useRef<(key: string, origin?: number) => void>((key, origin) => {
+    const found = liveTabWithKey(key, origin);
+    if (found !== null) liveWant(found);
+  });
+  const tabs = useTabSharing({
+    idRef,
+    scoreRef,
+    titleRef,
+    revisionRef,
+    detachRef,
+    receiveRef,
+    haveRef,
+    showRef,
+  });
+  const live = useSyncExternalStore(subscribeLive, liveSnapshot);
 
   useEffect(() => {
     if (!isTauri() || !rtcSupported()) return;
@@ -260,9 +326,19 @@ export function usePracticeTogether({
   /** Counts the sessions started and ended: a host or join still connecting when it changes is stale. */
   const attemptRef = useRef(0);
 
-  const end = useCallback(() => {
-    attemptRef.current += 1;
-    sessionRef.current?.leave();
+  /** The host's last command to the guests, while it is still going out. */
+  const inFlight = useRef<Promise<unknown> | null>(null);
+  /** The host's last command and when it went out (a Play is "about to play" for a moment). */
+  const lastCommand = useRef<{ action: RequestAction; at: number } | null>(null);
+
+  /** What this tab shows and keeps of the session: its subscriptions, the transport, the state. */
+  const detachSubs = useRef<(() => void) | null>(null);
+  const hostCodeRef = useLatest(hostCode);
+
+  /** Stops showing the session in this tab (without leaving it). */
+  const clearLocal = useCallback(() => {
+    detachSubs.current?.();
+    detachSubs.current = null;
     sessionRef.current = null;
     sharedRef.current?.release();
     sharedRef.current = null;
@@ -271,8 +347,85 @@ export function usePracticeTogether({
     clearApprovals();
   }, [clearApprovals]);
 
-  // A session ends with its song.
-  useEffect(() => end, [end]);
+  const end = useCallback(() => {
+    attemptRef.current += 1;
+    // The live session (it may be shown in another tab) leaves, and its tab is told.
+    if (liveSession() !== null || liveOwner() !== null) liveEnd();
+    else sessionRef.current?.leave();
+    clearLocal();
+  }, [clearLocal]);
+
+  /** This tab as the session's owner: what the registry can ask of it. */
+  const owner = useMemo<LiveOwner>(
+    () => ({
+      id,
+      pause: async () => {
+        const session = sessionRef.current;
+        const player = playerRef.current;
+        // The host's tab stops everybody before the session moves away from it. A pause that was
+        // already sent (the tab was hidden first) must reach the guests before the session moves:
+        // moving it would call that command off.
+        if (inFlight.current) await inFlight.current.catch(() => {});
+        if (!player) return;
+        // Playing, or a Play just sent that starts in a moment (the guests were told already).
+        const last = lastCommand.current;
+        const startingSoon = last?.action === "play" && Date.now() - last.at < PLAY_PENDING_MS;
+        if (!player.isPlaying() && !startingSoon) return;
+        if (session?.role === "host" && session.snapshot.phase === "synchronized") {
+          lastCommand.current = { action: "pause", at: Date.now() };
+          await session
+            .command(commandOf("pause", player.getTick(), practiceRef.current))
+            .catch(() => {});
+        }
+        if (player.isPlaying()) player.pause();
+      },
+      release: (): LiveCarry => {
+        // A host that lets go while its song plays (its tab closed, so it could not pause the
+        // guests first) leaves it to the next tab to stop them.
+        const last = lastCommand.current;
+        const playing = playerRef.current?.isPlaying() === true || last?.action === "play";
+        const carry: LiveCarry = {
+          hostCode: hostCodeRef.current,
+          approvals: approvals.current.splice(0),
+          stopGuests: sessionRef.current?.role === "host" && playing,
+        };
+        detachSubs.current?.();
+        detachSubs.current = null;
+        sessionRef.current = null;
+        sharedRef.current?.release();
+        sharedRef.current = null;
+        setWaiting([]);
+        setState(null);
+        setHostCode(null);
+        return carry;
+      },
+      ended: clearLocal,
+    }),
+    [id, clearLocal, playerRef, practiceRef, hostCodeRef],
+  );
+  const ownerRef = useLatest(owner);
+
+  // A tab that closes: the session moves to another tab of it, or ends with the last one.
+  useEffect(
+    () => () => {
+      attemptRef.current += 1;
+      const owned = liveOwner()?.id === id;
+      // The tab the session was about to move to closed first: the session has no owner meanwhile.
+      const orphaned = !liveOwner() && liveSession() !== null && liveSnapshot().wanted === id;
+      if (owned || orphaned) {
+        const next = liveTabClosed(id);
+        if (next !== null && liveSession()) {
+          if (owned) liveDisown(ownerRef.current.release());
+          liveWant(next);
+          return;
+        }
+        end();
+      } else {
+        liveTabClosed(id);
+      }
+    },
+    [end, id, ownerRef],
+  );
 
   /** A guest got the host's tab: the connection moves to the workspace that opens it. */
   const detach = useCallback(
@@ -281,16 +434,15 @@ export function usePracticeTogether({
       // Only a guest moves along with the tab it received.
       if (!(session instanceof Session)) return;
       handOverSessionAnalytics();
-      const { transport, session: id, peerName } = session.release();
-      sessionRef.current = null;
-      sharedRef.current?.release();
-      sharedRef.current = null;
-      putHandoff({ transport, session: id, peerName, key, quality: qualityRef.current });
-      setState(null);
-      setHostCode(null);
-      clearApprovals();
+      // Letting go of the connection is not the session ending: do not tell the registry.
+      detachSubs.current?.();
+      detachSubs.current = null;
+      const { transport, session: sessionId, peerName } = session.release();
+      liveSuspend({ hostCode: null, approvals: [] });
+      putHandoff({ transport, session: sessionId, peerName, key, quality: qualityRef.current });
+      clearLocal();
     },
-    [qualityRef, clearApprovals],
+    [qualityRef, clearLocal],
   );
   useEffect(() => {
     detachRef.current = detach;
@@ -301,7 +453,14 @@ export function usePracticeTogether({
     (action: RequestAction, tick: number) => {
       const session = sessionRef.current;
       if (session?.role !== "host") return;
-      void session.command(commandOf(action, tick, practiceRef.current)).then((result) => {
+      lastCommand.current = { action, at: Date.now() };
+      const sent = session.command(commandOf(action, tick, practiceRef.current));
+      // A session that moves to another tab waits for this to go out first (see `owner.pause`).
+      inFlight.current = sent;
+      void sent.finally(() => {
+        if (inFlight.current === sent) inFlight.current = null;
+      });
+      void sent.then((result) => {
         // A start that did not happen must say so: "late" and the clocks are told by the session's
         // own problem, a different tab version is not (the button would just do nothing).
         if (result === "score" || result === "not-synchronized") {
@@ -362,6 +521,59 @@ export function usePracticeTogether({
     }
   }, []);
 
+  /** This tab shows `session` from now on: its state, and (for a guest) the session to rejoin. */
+  const attach = useCallback(
+    (session: Session | HostRoom, shared: SharedTransport) => {
+      detachSubs.current?.();
+      sessionRef.current = session;
+      sharedRef.current = shared;
+      const stops = [session.subscribe(setState)];
+      if (session.role === "guest") stops.push(session.subscribe(keepLast));
+      // The session finished on its own (the host ended it, a kick, a ban): the tabs of it are
+      // ordinary tabs again, whichever of them shows it.
+      stops.push(
+        session.subscribe((next) => {
+          if (next.phase === "closed" || next.phase === "failed") liveDrop(session);
+        }),
+      );
+      detachSubs.current = () => {
+        for (const stop of stops) stop();
+      };
+    },
+    [keepLast],
+  );
+
+  /** What the session does in this tab: its player, its practice settings, its tab and its guests. */
+  const makeHooks = useCallback(() => {
+    const shared = new SharedTransport({
+      player: () => playerRef.current,
+      applySettings: (cmd) => {
+        // The host's loop is kept inside this score's bars.
+        const loop = clampLoop(cmd.loop, scoreRef.current.masterBars.length);
+        for (const action of actionsFor(practiceRef.current, { ...cmd, loop })) {
+          dispatchRef.current(action);
+        }
+      },
+    });
+    const hooks = {
+      ...shared.hooks,
+      schedule: (cmd: Parameters<typeof shared.hooks.schedule>[0], localAt: number) => {
+        if (cmd.action === "play") sharedStart();
+        return shared.hooks.schedule(cmd, localAt);
+      },
+      tab: tabs.hooks,
+      request: answer,
+      approve: (guest: string, signal?: AbortSignal) =>
+        new Promise<boolean>((resolve) => {
+          const entry = { name: guest, resolve };
+          enqueue(entry);
+          // The guest went away before the host answered: take the question back.
+          signal?.addEventListener("abort", () => settle(entry, false), { once: true });
+        }),
+    };
+    return { shared, hooks };
+  }, [playerRef, scoreRef, practiceRef, dispatchRef, tabs, answer, enqueue, settle]);
+
   /**
    * Builds the session. A host listens for guests (`acceptor`) and keeps a room; a guest talks
    * over `transport` (`link`: the state it is already in).
@@ -378,35 +590,11 @@ export function usePracticeTogether({
             takeOver?: { resume?: string; fingerprint: ScoreFingerprint };
           },
     ) => {
-      const shared = new SharedTransport({
-        player: () => playerRef.current,
-        applySettings: (cmd) => {
-          // The host's loop is kept inside this score's bars.
-          const loop = clampLoop(cmd.loop, scoreRef.current.masterBars.length);
-          for (const action of actionsFor(practiceRef.current, { ...cmd, loop })) {
-            dispatchRef.current(action);
-          }
-        },
-      });
       const takeOver = target.role === "guest" ? target.takeOver : undefined;
-      const hooks = {
-        ...shared.hooks,
-        schedule: (cmd: Parameters<typeof shared.hooks.schedule>[0], localAt: number) => {
-          if (cmd.action === "play") sharedStart();
-          return shared.hooks.schedule(cmd, localAt);
-        },
-        tab: tabs.hooks,
-        request: answer,
-        approve: (guest: string, signal?: AbortSignal) =>
-          new Promise<boolean>((resolve) => {
-            const entry = { name: guest, resolve };
-            enqueue(entry);
-            // The guest went away before the host answered: take the question back.
-            signal?.addEventListener("abort", () => settle(entry, false), { once: true });
-          }),
-      };
+      const { shared, hooks } = makeHooks();
       const score =
-        takeOver?.fingerprint ?? (await tabs.fingerprint(scoreRef.current, revisionRef.current));
+        takeOver?.fingerprint ??
+        (await tabs.fingerprint(scoreRef.current, revisionRef.current, originFor(target.role)));
       const session =
         target.role === "host"
           ? new HostRoom({
@@ -426,30 +614,132 @@ export function usePracticeTogether({
               quality: qualityRef.current,
               hooks,
             });
-      sessionRef.current = session;
-      sharedRef.current = shared;
-      session.subscribe(setState);
-      if (target.role === "guest") session.subscribe(keepLast);
+      attach(session, shared);
+      if (takeOver) liveResume(session, ownerRef.current, score.key, score.origin);
+      else liveStart(session, ownerRef.current, score.key, score.origin);
+      // The count of the session is kept as long as the session lives, in whichever tab.
       const stats = sessionAnalytics(Boolean(takeOver));
       session.subscribe((next) => stats.observe(next));
       setState(session.snapshot);
       if (target.role === "guest") (session as Session).start(target.link);
     },
-    [
-      playerRef,
-      practiceRef,
-      dispatchRef,
-      scoreRef,
-      qualityRef,
-      nameRef,
-      answer,
-      tabs,
-      revisionRef,
-      enqueue,
-      settle,
-      keepLast,
-    ],
+    [makeHooks, attach, scoreRef, revisionRef, nameRef, qualityRef, tabs, ownerRef, originFor],
   );
+
+  /** Claims the live session for this tab (the session moves here, nothing is left or asked again). */
+  const claiming = useRef(false);
+  /** A claim that failed: not tried again until this tab is shown again. */
+  const claimFailed = useRef(false);
+  /** Moves the session here; true when it is here now, false when it was not moved. */
+  const claim = useCallback(async (): Promise<boolean> => {
+    const session = liveSession();
+    const current = liveOwner();
+    if (current?.id === id) return true;
+    // One move at a time in the whole app: a second tab waits for this one to finish.
+    if (!session || claiming.current || liveSnapshot().claiming) return false;
+    claiming.current = true;
+    liveBeginClaim();
+    const attempt = attemptRef.current;
+    // The tab closed or the session was left while this waited: nothing is moved.
+    const stale = () => attemptRef.current !== attempt || liveSession() !== session;
+    const abandon = () => {
+      liveAbortClaim();
+      return false;
+    };
+    try {
+      // The new tab's fingerprint is read first, so the session is without an owner only briefly.
+      const fingerprint = await tabs.fingerprint(
+        scoreRef.current,
+        revisionRef.current,
+        originFor(session.role),
+      );
+      if (stale()) return abandon();
+      // The host's tab pauses everybody before the session leaves it.
+      await current?.pause();
+      if (stale()) return abandon();
+      const carry = current
+        ? current.release()
+        : (liveCarry() ?? { hostCode: null, approvals: [] });
+      const { shared, hooks } = makeHooks();
+      session.rebind(hooks);
+      attach(session, shared);
+      liveSetOwner(ownerRef.current, fingerprint.key, session, fingerprint.origin);
+      setHostCode(carry.hostCode);
+      for (const entry of carry.approvals) enqueue(entry);
+      setState(session.snapshot);
+      // A guest that does not have this tab is sent it; one that does, shows it.
+      session.setScore(fingerprint);
+      // The tab that played was closed and could not stop the guests: they stop now.
+      if (carry.stopGuests && session instanceof HostRoom) {
+        session.stopAll(commandOf("pause", playerRef.current?.getTick() ?? 0, practiceRef.current));
+      }
+      claimFailed.current = false;
+      void playerRef.current?.warmUpAudio().catch(() => {});
+      return true;
+    } catch {
+      claimFailed.current = true;
+      return abandon();
+    } finally {
+      claiming.current = false;
+    }
+  }, [
+    id,
+    tabs,
+    scoreRef,
+    revisionRef,
+    makeHooks,
+    attach,
+    ownerRef,
+    enqueue,
+    playerRef,
+    practiceRef,
+    originFor,
+  ]);
+
+  // The session was asked to move here (the host showed a tab this app has, or the owner closed).
+  // While another tab is moving it, this waits and goes next, so the last request is the one kept.
+  useEffect(() => {
+    if (live.wanted !== id || live.ownerId === id || live.claiming) return;
+    // Not in the effect itself: the move sets state in this tab and in the one it leaves.
+    const timer = setTimeout(() => {
+      liveClearWanted(id);
+      void claim();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [live.wanted, live.ownerId, live.claiming, id, claim]);
+
+  // A host that shows a tab that is in the session takes the session along: while this tab is
+  // shown, is in the session and does not hold it, it claims it (once the move in progress, if
+  // any, is done). A failed move is not tried again until the tab is shown again.
+  const includedHere = live.ids.includes(id);
+  const owns = live.ownerId === id;
+  const isHost = live.role === "host";
+  useEffect(() => {
+    if (!active) claimFailed.current = false;
+    if (!active || !isHost || !includedHere || owns || live.claiming || claimFailed.current) return;
+    const timer = setTimeout(() => void claim(), 0);
+    return () => clearTimeout(timer);
+  }, [active, isHost, includedHere, owns, live.claiming, claim]);
+
+  // While a session is live, each tab's fingerprint is known, so the other app's offer can be
+  // answered ("I have that tab") and the tab found.
+  const liveOn = live.live;
+  const liveRole = live.role;
+  useEffect(() => {
+    if (!liveOn || !liveRole) return;
+    let current = true;
+    const timer = setTimeout(
+      () =>
+        void tabs
+          .fingerprint(score, revision, originFor(liveRole))
+          .then((fingerprint) => current && liveSetKey(id, fingerprint.key, fingerprint.origin)),
+      FINGERPRINT_DEBOUNCE_MS,
+    );
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [liveOn, liveRole, score, revision, tabs, id, originFor]);
 
   const host = useCallback(
     async (kind: ConnectionKind) => {
@@ -567,7 +857,11 @@ export function usePracticeTogether({
       const handoff = takeHandoff(receivedKey);
       if (!handoff) return;
       tabs.trust(receivedKey, revisionRef.current);
-      const fingerprint = { key: receivedKey, bars: scoreRef.current.masterBars.length };
+      const fingerprint = {
+        key: receivedKey,
+        bars: scoreRef.current.masterBars.length,
+        origin: receivedOriginRef.current,
+      };
       void open({
         role: "guest",
         transport: handoff.transport,
@@ -576,7 +870,7 @@ export function usePracticeTogether({
       }).catch(() => handoff.transport.close());
     }, 0);
     return () => clearTimeout(timer);
-  }, [receivedKey, open, tabs, revisionRef, scoreRef]);
+  }, [receivedKey, open, tabs, revisionRef, scoreRef, receivedOriginRef]);
 
   // A different score, or an edit: the other app checks it against its own.
   const connected = state !== null;
@@ -587,7 +881,7 @@ export function usePracticeTogether({
     const timer = setTimeout(
       () =>
         void tabs
-          .fingerprint(score, revision)
+          .fingerprint(score, revision, originFor(session.role))
           .then((fingerprint) => current && session.setScore(fingerprint)),
       FINGERPRINT_DEBOUNCE_MS,
     );
@@ -595,7 +889,7 @@ export function usePracticeTogether({
       current = false;
       clearTimeout(timer);
     };
-  }, [score, revision, connected, tabs]);
+  }, [score, revision, connected, tabs, originFor]);
 
   // The host's speed, loop, metronome and count-in follow to the guest.
   const lastShared = useRef<PracticeState | null>(null);
@@ -631,6 +925,28 @@ export function usePracticeTogether({
 
   const intercept = useCallback(
     (request: TogetherRequest): boolean => {
+      // The session is on its way to this tab: nothing plays on its own meanwhile.
+      // (The tab that holds the session still acts: the host's pause as its tab goes to the back
+      // is what stops the guests before the session moves.)
+      const moving = liveSnapshot();
+      if (moving.claiming && moving.ownerId !== id && moving.ids.includes(id)) return true;
+      // A tab of the session that is not the one in play does not play on its own: the one that
+      // plays is the host's tab, and a guest's other tabs stay quiet until the host moves to them.
+      if (moving.live && moving.ownerId !== id && moving.ids.includes(id) && !sessionRef.current) {
+        toast.info(
+          moving.role === "guest"
+            ? "This tab is not the one in play."
+            : "This tab is not the one in play yet.",
+          {
+            description:
+              moving.role === "guest"
+                ? "The host chooses which tab plays: it moves here when the host shows this tab."
+                : "Show this tab to play it in the session, or use Add this tab to the session.",
+            id: "together-not-in-play",
+          },
+        );
+        return true;
+      }
       const session = sessionRef.current;
       const current = session?.snapshot.phase;
       if (!session || (current !== "syncing" && current !== "synchronized")) return false;
@@ -679,8 +995,22 @@ export function usePracticeTogether({
       }
       return true;
     },
-    [playerRef, startFor],
+    [playerRef, startFor, id],
   );
+
+  const elsewhere = useMemo(
+    () =>
+      live.live && !owns && live.role
+        ? { role: live.role, tabs: live.ids.length, here: includedHere }
+        : null,
+    [live.live, live.role, live.ids.length, owns, includedHere],
+  );
+  const addToSession = useCallback(async () => {
+    if (liveSnapshot().role !== "host") return;
+    if (!(await claim())) {
+      throw new Error("This tab could not be added to the session. Try again in a moment.");
+    }
+  }, [claim]);
 
   return useMemo(
     () => ({
@@ -695,7 +1025,13 @@ export function usePracticeTogether({
       error,
       internetAvailable,
       transfer: state?.transfer ?? null,
-      readOnly: state?.role === "guest" && state.phase !== "closed" && state.phase !== "failed",
+      // A guest's tabs of the session follow the host's: none of them is edited until it ends.
+      readOnly:
+        (state?.role === "guest" && state.phase !== "closed" && state.phase !== "failed") ||
+        (live.live && live.role === "guest" && includedHere),
+      elsewhere,
+      tabsInSession: live.live ? live.ids.length : 0,
+      addToSession,
       setName: (next: string) => {
         setNameState(next);
         try {
@@ -738,6 +1074,12 @@ export function usePracticeTogether({
       kick,
       ban,
       intercept,
+      live.live,
+      live.role,
+      live.ids.length,
+      includedHere,
+      elsewhere,
+      addToSession,
     ],
   );
 }

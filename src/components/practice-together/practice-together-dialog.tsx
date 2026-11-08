@@ -4,6 +4,7 @@ import {
   CopyIcon,
   GlobeIcon,
   LogOutIcon,
+  PlusIcon,
   RefreshCwIcon,
   RotateCcwIcon,
   UserCheckIcon,
@@ -137,8 +138,15 @@ function ChooseStep({
   const noInternetId = useId();
   const problem = ended ? together.state?.problem : null;
 
+  // Starting or joining here ends the session that runs in another tab, for everybody in it: it is
+  // asked once, so a stray Enter (in the name field, say) does not drop the guests.
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (together.elsewhere && !confirmEnd) {
+      setConfirmEnd(true);
+      return;
+    }
     if (mode === "host") void together.host(kind);
     else void together.join(kind, code);
   };
@@ -172,7 +180,8 @@ function ChooseStep({
               {together.error ?? problem?.message}
             </p>
           )}
-          {together.lastSession && <RejoinRow together={together} />}
+          {together.lastSession && !together.elsewhere && <RejoinRow together={together} />}
+          {together.elsewhere && <ElsewhereCard together={together} />}
           <div className={cn(CARD, "flex flex-col gap-4")}>
             <div className="flex flex-col gap-1.5">
               <label htmlFor={nameId} className="text-sm font-semibold">
@@ -273,6 +282,12 @@ function ChooseStep({
         </TogetherContent>
       </DialogBody>
       <Footer onClose={onClose}>
+        {confirmEnd && together.elsewhere && (
+          <p role="alert" className="basis-full text-sm text-destructive" data-testid="confirm-end">
+            This ends the session that is running in another tab, for everybody in it. Choose again
+            to confirm.
+          </p>
+        )}
         <Button
           type="submit"
           size="lg"
@@ -281,9 +296,11 @@ function ChooseStep({
         >
           {together.starting
             ? "Connecting…"
-            : mode === "host"
-              ? "Start a session"
-              : "Join the session"}
+            : confirmEnd
+              ? "End the running session and continue"
+              : mode === "host"
+                ? "Start a session"
+                : "Join the session"}
         </Button>
       </Footer>
     </form>
@@ -425,6 +442,66 @@ function ApprovalCard({ together }: { together: PracticeTogether }) {
         >
           Decline
         </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A session is running in another tab of this app. The host can bring this tab into it (everybody
+ * follows to it, and they still play one tab at a time); a guest follows the host without asking.
+ */
+function ElsewhereCard({ together }: { together: PracticeTogether }) {
+  const elsewhere = together.elsewhere!;
+  const tabs = `${elsewhere.tabs} ${elsewhere.tabs === 1 ? "tab" : "tabs"}`;
+  const [adding, setAdding] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  if (elsewhere.role === "guest") {
+    return (
+      <div className={cn(CARD, "flex flex-col gap-1.5")} data-testid="live-elsewhere">
+        <p className="text-sm font-semibold">You are in a session in another tab</p>
+        <p className="text-sm text-muted-foreground">
+          {tabs} in it. The host's tab comes to you; joining or starting a session here ends it.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className={cn(CARD, "flex flex-col gap-3")} data-testid="live-elsewhere">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-sm font-semibold">A session is running in another tab</p>
+        <p className="text-sm text-muted-foreground">
+          {tabs} in it. Add this tab and everybody follows to it when you show it; you play one tab
+          at a time, as usual. Starting a new session below ends the running one.
+        </p>
+      </div>
+      <div>
+        {/* Not disabled while it works, so the focus stays on the button. The primary action of
+            the dialog is the one in the footer. */}
+        <Button
+          type="button"
+          size="lg"
+          variant="outline"
+          aria-disabled={adding}
+          onClick={() => {
+            if (adding) return;
+            setAdding(true);
+            setFailed(null);
+            Promise.resolve(together.addToSession?.())
+              .catch((e: unknown) =>
+                setFailed(e instanceof Error ? e.message : "This tab could not be added."),
+              )
+              .finally(() => setAdding(false));
+          }}
+        >
+          <PlusIcon aria-hidden="true" />
+          {adding ? "Adding…" : "Add this tab to the session"}
+        </Button>
+        {failed && (
+          <p role="alert" className="mt-2 text-sm text-destructive">
+            {failed}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -577,6 +654,14 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
               />
             </dl>
             <TransferLine transfer={together.transfer} />
+            {(together.tabsInSession ?? 0) > 1 && (
+              <p className="text-sm text-muted-foreground" data-testid="tabs-in-session">
+                {together.tabsInSession} tabs are in this session.{" "}
+                {isHost
+                  ? "The one you show is the one that plays."
+                  : "The host chooses which one plays."}
+              </p>
+            )}
             {isHost && peers.length > 0 && (
               <div className="flex flex-wrap items-center gap-3">
                 <Button

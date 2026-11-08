@@ -74,7 +74,7 @@ The macOS and Windows buttons start the download of the newest release's install
     <td valign="top" width="33%">
       <img src="src/assets/features/practice-together.png" alt="Practice together" width="100%">
       <p><b>🟢 Available</b></p>
-      <p>Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound.</p>
+      <p>Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound. Bring more tabs into the same session without leaving it.</p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/audio-tracks-editing.png" alt="Audio tracks &amp; editing" width="100%">

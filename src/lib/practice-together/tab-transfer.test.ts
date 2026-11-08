@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_TAB_BYTES, TAB_CHUNK_BYTES, TAB_WINDOW, type Message } from "./protocol";
 import {
+  OFFER_WAIT_MS,
   TabReceiver,
   TabSender,
   checkOffer,
@@ -87,6 +88,7 @@ describe("sending and receiving", () => {
   it("delivers the same bytes, in pieces, with progress on both ends", () => {
     const { bytes, sender, toGuest, sent } = wire(TAB_CHUNK_BYTES * 2 + 100);
     sender.start();
+    sender.ack(0);
     const offer = offerOf(toGuest);
     expect(offer).toMatchObject({ type: "tab-offer", size: bytes.length, chunks: 3, key: "k" });
 
@@ -110,6 +112,9 @@ describe("sending and receiving", () => {
     const pieces = TAB_WINDOW * 2 + 3;
     const { sender, toGuest } = wire(TAB_CHUNK_BYTES * pieces);
     sender.start();
+    // Nothing but the offer until the guest answers it.
+    expect(chunksOf(toGuest)).toHaveLength(0);
+    sender.ack(0);
     expect(chunksOf(toGuest)).toHaveLength(TAB_WINDOW);
     sender.ack(4);
     expect(chunksOf(toGuest)).toHaveLength(TAB_WINDOW + 4);
@@ -130,6 +135,7 @@ describe("sending and receiving", () => {
   it("refuses a piece out of order, of the wrong size or that is not base64", () => {
     const { sender, toGuest } = wire(TAB_CHUNK_BYTES * 2 + 5);
     sender.start();
+    sender.ack(0);
     const offer = offerOf(toGuest);
     const [first, second] = chunksOf(toGuest);
     const fresh = () => new TabReceiver(offer, { send: () => {}, progress: () => {} });
@@ -148,6 +154,7 @@ describe("sending and receiving", () => {
   it("does not answer every piece", () => {
     const { sender, toGuest } = wire(TAB_CHUNK_BYTES * 8);
     sender.start();
+    sender.ack(0);
     const acks: Message[] = [];
     const receiver = new TabReceiver(offerOf(toGuest), {
       send: (m) => acks.push(m),
@@ -155,5 +162,32 @@ describe("sending and receiving", () => {
     });
     for (const chunk of chunksOf(toGuest)) receiver.accept(chunk);
     expect(acks.map((a) => (a as { n: number }).n)).toEqual([4, 8]);
+  });
+});
+
+describe("holding the pieces back", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("sends nothing but the offer to a guest that says it has the tab", () => {
+    const { sender, toGuest } = wire(TAB_CHUNK_BYTES * 4);
+    sender.start();
+    // The guest answers "have" instead of asking: the host stops, no piece went out.
+    sender.stop();
+    vi.advanceTimersByTime(OFFER_WAIT_MS * 2);
+    expect(toGuest.map((m) => m.type)).toEqual(["tab-offer"]);
+  });
+
+  it("sends the pieces after a short wait to a guest that never answers the offer", () => {
+    const { sender, toGuest } = wire(TAB_CHUNK_BYTES * 4);
+    sender.start();
+    vi.advanceTimersByTime(OFFER_WAIT_MS - 1);
+    expect(chunksOf(toGuest)).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(chunksOf(toGuest)).toHaveLength(4);
   });
 });

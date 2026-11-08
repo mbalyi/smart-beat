@@ -62,3 +62,42 @@ describe("sharing the tab: messages", () => {
     expect(decode(text)).toBeNull();
   });
 });
+
+describe("which of the host's tabs a tab is (origin)", () => {
+  const offer = {
+    type: "tab-offer",
+    id: 3,
+    name: "Song",
+    size: 20_000,
+    chunks: 3,
+    sha: "abc",
+    key: "def",
+    bars: 12,
+  };
+  const hello = (score: unknown) => ({
+    type: "hello",
+    name: "G",
+    role: "guest",
+    caps: ["tab"],
+    score,
+  });
+  const decoded = (msg: unknown) => decode(encode(msg as Message, 1))?.msg;
+
+  it("is optional: an older app that does not say it is understood", () => {
+    expect(decoded(offer)).toEqual(offer);
+    expect(decoded(hello({ key: "k", bars: 1 }))).toEqual(hello({ key: "k", bars: 1 }));
+  });
+
+  it("travels with the offer and the hello", () => {
+    expect(decoded({ ...offer, origin: 4 })).toEqual({ ...offer, origin: 4 });
+    expect(decoded(hello({ key: "k", bars: 1, origin: 4 }))).toEqual(
+      hello({ key: "k", bars: 1, origin: 4 }),
+    );
+  });
+
+  it("is refused when it is not a number", () => {
+    expect(decoded({ ...offer, origin: "4" })).toBeUndefined();
+    expect(decoded(hello({ key: "k", bars: 1, origin: "4" }))).toBeUndefined();
+    expect(decoded(hello({ key: "k", bars: 1, origin: null }))).toBeUndefined();
+  });
+});
