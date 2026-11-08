@@ -3,7 +3,6 @@ import { model } from "@coderline/alphatab";
 
 import { NestedTupletDialog } from "@/components/score/nested-tuplet-dialog";
 import { CellVisual, PaletteCell, VariantCell } from "@/components/score/palette-cell";
-import { trackPointer } from "@/components/score/palette-style";
 import { TimeSignatureControl } from "@/components/score/time-signature-control";
 import { Switch } from "@/components/ui/switch";
 import type { BeatInfo, EffectsInfo, ToggleState } from "@/lib/score/editor";
@@ -466,8 +465,7 @@ export function EditPalette({
       <div
         role="toolbar"
         aria-label={name}
-        onPointerMove={trackPointer}
-        className="palette-mesh flex flex-col border-b border-sidebar-border px-4 py-1"
+        className="flex flex-col border-b border-sidebar-border px-4 py-1"
       >
         {own.map(renderSection)}
       </div>

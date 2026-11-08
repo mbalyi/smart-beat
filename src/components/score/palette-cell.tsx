@@ -178,7 +178,7 @@ export function CellVisual({ visual }: { visual: PaletteVisual }) {
 }
 
 const CELL =
-  "palette-cell inline-flex shrink-0 items-center justify-center rounded-md border border-transparent bg-transparent p-0 text-sidebar-foreground outline-none disabled:pointer-events-none disabled:opacity-40";
+  "palette-cell inline-flex shrink-0 items-center justify-center rounded-none border border-transparent bg-transparent p-0 text-sidebar-foreground outline-none disabled:pointer-events-none disabled:opacity-40";
 
 /** The size of a cell in the palette (32px) and in a box (34px). */
 const SIZE = { cell: "size-8", box: "size-[34px]" } as const;
@@ -205,7 +205,7 @@ export interface PaletteCellProps {
 }
 
 /**
- * One icon-only button of the edit palette: 32px, rounded, transparent until the pointer or the
+ * One icon-only button of the edit palette: 32px, square, transparent until the pointer or the
  * keyboard reaches it (the hover and focus effect is `.palette-cell` in `index.css`). The name
  * shows in a tooltip on hover and focus and is the accessible name. A click does not take focus
  * from the score, so typing carries on there.
@@ -407,7 +407,7 @@ export function VariantCell({
         sideOffset={8}
         collisionPadding={8}
         className={cn(
-          "palette-box palette-mesh w-max max-w-[calc(100vw-1rem)] rounded-xl p-3 text-popover-foreground",
+          "palette-box w-max max-w-[calc(100vw-1rem)] rounded-xl p-3 text-popover-foreground",
           // Only a box taller than the window scrolls (the glyph boxes would show a scrollbar otherwise).
           scrolls && "max-h-(--radix-popover-content-available-height) overflow-y-auto",
         )}

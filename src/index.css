@@ -272,75 +272,66 @@
 }
 
 /*
- * Edit palette cells and boxes (#221). A cell is an icon-only button: transparent until the
- * pointer or the keyboard reaches it, then a gradient ring that follows the pointer (--mx and
- * --my are set by one onPointerMove), a soft spotlight, a glow of the brand colour and a small
- * lift. Pressed cells keep their own purple fill (see mixer-toggle-styles.ts). The palette and
- * its boxes always sit inside `.dark`, so --brand is #c537ef here.
+ * The hover of a palette cell: the cell itself turns purple from the inside (a tint and an inner
+ * shadow), and its own border lines reach past its corners, like an overhanging border, and wash
+ * out under the neighbouring cells. Nothing else moves or lights up. The lines are a layer of the
+ * hovered cell that reaches past its edges; the other cells sit above it (`z-index`), so they
+ * stay underneath their icons.
  */
 .palette-cell {
   --hv: var(--brand, #c537ef);
-  --hv2: #9a2ae6;
-  --hv-edge: #f5a6d3;
   position: relative;
   isolation: isolate;
+  z-index: 1;
   transition:
-    transform 0.18s cubic-bezier(0.22, 0.8, 0.3, 1),
     background-color 0.2s,
-    border-color 0.2s;
+    box-shadow 0.2s;
 }
-/* The ring: a 1px gradient border, cut out of a masked layer. */
 .palette-cell::before {
   content: "";
   position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s;
-  background: radial-gradient(
-    52px circle at var(--mx, 50%) var(--my, 50%),
-    var(--hv-edge),
-    var(--hv) 38%,
-    color-mix(in srgb, var(--hv2) 70%, transparent) 100%
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
-}
-/* The glow is its own layer, so it never replaces the inset ring of a pressed cell. */
-.palette-cell::after {
-  content: "";
-  position: absolute;
-  inset: 0;
+  inset: -26px;
   z-index: -1;
-  border-radius: inherit;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.25s;
-  box-shadow:
-    0 0 18px color-mix(in oklab, var(--hv) 45%, transparent),
-    0 6px 14px -8px color-mix(in oklab, var(--hv2) 70%, transparent);
-}
-.palette-cell:not(:disabled):hover::before,
-.palette-cell:not(:disabled):hover::after,
-.palette-cell:focus-visible::before,
-.palette-cell:focus-visible::after {
-  opacity: 1;
-}
-/* A soft tint under the pointer (not on a pressed cell: that one keeps its fill). */
-.palette-cell:not(:disabled):not([data-state="on"]):not([aria-pressed="mixed"]):hover,
-.palette-cell:not([data-state="on"]):not([aria-pressed="mixed"]):focus-visible {
-  background: color-mix(in srgb, var(--hv) 14%, transparent);
+  /* Four hairlines on the edges of the cell, reaching past its corners like an overhanging border. */
+  --edge: color-mix(in srgb, var(--hv) 75%, transparent);
+  background-image:
+    linear-gradient(
+      to right,
+      transparent 25px,
+      var(--edge) 25px 26px,
+      transparent 26px calc(100% - 26px),
+      var(--edge) calc(100% - 26px) calc(100% - 25px),
+      transparent calc(100% - 25px)
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 25px,
+      var(--edge) 25px 26px,
+      transparent 26px calc(100% - 26px),
+      var(--edge) calc(100% - 26px) calc(100% - 25px),
+      transparent calc(100% - 25px)
+    );
+  -webkit-mask-image: radial-gradient(circle at center, #000 0, #000 24px, transparent 46px);
+  mask-image: radial-gradient(circle at center, #000 0, #000 24px, transparent 46px);
 }
 .palette-cell:not(:disabled):hover,
 .palette-cell:focus-visible {
-  transform: translateY(-1px) scale(1.04);
+  z-index: 0;
+}
+.palette-cell:not(:disabled):hover::before,
+.palette-cell:focus-visible::before {
+  opacity: 1;
+}
+/* The tint and the inner shadow (a pressed cell keeps its own fill). */
+.palette-cell:not(:disabled):not([data-state="on"]):not([aria-pressed="mixed"]):hover,
+.palette-cell:not([data-state="on"]):not([aria-pressed="mixed"]):focus-visible {
+  background: color-mix(in srgb, var(--hv) 16%, transparent);
+  box-shadow:
+    inset 0 0 14px color-mix(in srgb, var(--hv) 60%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--hv) 70%, transparent);
 }
 .palette-cell:not(:disabled):active {
   transform: scale(0.97);
@@ -351,73 +342,11 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .palette-cell,
-  .palette-cell::before,
-  .palette-cell::after {
+  .palette-cell::before {
     transition: none;
   }
-  .palette-cell:not(:disabled):hover,
-  .palette-cell:focus-visible,
   .palette-cell:not(:disabled):active {
     transform: none;
-  }
-}
-
-/*
- * The mesh: a fine grid in the brand colour that appears around the pointer over a toolbar or a
- * box of the palette and washes out under the neighbouring cells. It is one layer behind the
- * cells (`--gx` and `--gy` come from `trackPointer`), so the icons stay on top of it.
- */
-.palette-mesh {
-  position: relative;
-  isolation: isolate;
-}
-.palette-mesh::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.25s;
-  background-image:
-    linear-gradient(
-      to right,
-      color-mix(in srgb, var(--brand) 50%, transparent) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--brand) 50%, transparent) 1px,
-      transparent 1px
-    ),
-    radial-gradient(
-      90px circle at var(--gx, 50%) var(--gy, 50%),
-      color-mix(in srgb, var(--brand) 16%, transparent),
-      transparent
-    );
-  background-size:
-    9px 9px,
-    9px 9px,
-    auto;
-  -webkit-mask-image: radial-gradient(
-    96px circle at var(--gx, 50%) var(--gy, 50%),
-    #000 0%,
-    rgb(0 0 0 / 0.55) 45%,
-    transparent 100%
-  );
-  mask-image: radial-gradient(
-    96px circle at var(--gx, 50%) var(--gy, 50%),
-    #000 0%,
-    rgb(0 0 0 / 0.55) 45%,
-    transparent 100%
-  );
-}
-.palette-mesh:hover::before {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: reduce) {
-  .palette-mesh::before {
-    transition: none;
   }
 }
 
