@@ -19,6 +19,13 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "edit-palette",
+    title: "A tidier edit palette",
+    summary:
+      "The edit palette is now a compact grid of small icons. Point at one to see its name and shortcut, and an icon with several choices (key, time signature, tempo, jumps, tuplet, slide, harmonic and more) opens a small box of them. The note you are editing gets a quiet outline instead of a big box, and the options you have switched on show in purple. Open it with Edit Mode (⌘E).",
+    since: "1.3.0",
+  },
+  {
     id: "practice-together",
     title: "Practice together",
     summary:

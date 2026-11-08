@@ -1,54 +1,65 @@
 import { useEffect, useRef, type Ref } from "react";
 import { LoaderCircleIcon } from "lucide-react";
 
-import type { Layout, Rect } from "@/lib/score/player";
+import type { Layout, NoteRect, Rect } from "@/lib/score/player";
 import { cn } from "@/lib/utils";
 
-/** Where the edit cursor, the note under it and the selection are drawn. */
+/**
+ * What the editor marks on the sheet: the note (or empty spot) under the cursor, each with the
+ * kind of staff it is drawn on, and the selected range (one rectangle per system row).
+ */
 export interface EditOverlay {
-  cursor: Rect | null;
-  notes: Rect[];
+  notes: NoteRect[];
   selection: Rect[];
 }
 
 const box = ({ x, y, w, h }: Rect) => ({ left: x, top: y, width: w, height: h });
 
 /**
- * Draws the edit cursor over the notation (alphaTab draws the playback
- * cursor itself). Scrolls it into view when it moves.
+ * Draws the editor's quiet marks over the notation (alphaTab draws the playback cursor
+ * itself): a rounded outline around the fret number or the empty spot under the cursor, a thin
+ * ring around its notehead on the standard staff, and a light rectangle for a range. Scrolls the
+ * cursor into view when it moves.
  */
 function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
-  const cursorRef = useRef<HTMLDivElement>(null);
-  const { cursor } = overlay;
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const { notes, selection } = overlay;
+  // The outline goes on the tab; a score-only staff gets the outline on its notehead instead.
+  const hasTab = notes.some((n) => n.staff === "tab");
+  const outlines = notes.filter((n) => !hasTab || n.staff === "tab");
+  const heads = hasTab ? notes.filter((n) => n.staff === "score") : [];
+  const anchor = notes[0]?.rect ?? selection[0];
 
   useEffect(() => {
-    cursorRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [cursor?.x, cursor?.y]);
+    anchorRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [anchor?.x, anchor?.y]);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10" aria-hidden="true">
-      {overlay.selection.map((rect, i) => (
+      {selection.map((rect, i) => (
         <div
           key={i}
+          ref={notes.length === 0 && i === 0 ? anchorRef : undefined}
           data-testid="edit-selection"
-          className="absolute bg-sky-500/20"
+          className="absolute rounded-sm border border-brand/40 bg-brand/15"
           style={box(rect)}
         />
       ))}
-      {cursor && (
-        <div
-          ref={cursorRef}
-          data-testid="edit-cursor"
-          className="absolute rounded-sm border-2 border-sky-600 bg-sky-500/10"
-          style={box(cursor)}
-        />
-      )}
-      {overlay.notes.map((rect, i) => (
+      {outlines.map(({ rect }, i) => (
         <div
           key={i}
+          ref={i === 0 ? anchorRef : undefined}
           data-testid="edit-cursor-note"
-          className="absolute rounded-sm bg-sky-600/35 ring-2 ring-sky-700"
-          style={box({ x: rect.x - 2, y: rect.y - 2, w: rect.w + 4, h: rect.h + 4 })}
+          className="absolute rounded-md border-2 border-brand bg-brand/10"
+          style={box({ x: rect.x - 2, y: rect.y - 1, w: rect.w + 4, h: rect.h + 2 })}
+        />
+      ))}
+      {heads.map(({ rect }, i) => (
+        <div
+          key={i}
+          data-testid="edit-cursor-head"
+          className="absolute rounded-md ring-1 ring-brand"
+          style={box({ x: rect.x - 1, y: rect.y - 1, w: rect.w + 2, h: rect.h + 2 })}
         />
       ))}
     </div>
@@ -66,6 +77,7 @@ export function ScoreView({
   layout,
   rendering,
   editing = false,
+  playing = false,
   overlay = null,
   problemRects = [],
   describedBy,
@@ -78,6 +90,11 @@ export function ScoreView({
   rendering: boolean;
   /** Edit mode: the region takes the editor's keys. */
   editing?: boolean;
+  /**
+   * The song is playing: while editing, alphaTab's own playback cursor is hidden unless it is
+   * (see src/index.css).
+   */
+  playing?: boolean;
   overlay?: EditOverlay | null;
   /** Bars with the wrong length, highlighted (also outside edit mode). */
   problemRects?: Rect[];
@@ -100,6 +117,7 @@ export function ScoreView({
         tabIndex={0}
         data-layout={layout}
         data-editing={editing || undefined}
+        data-playing={playing || undefined}
         className={cn(
           "absolute inset-0 overflow-auto bg-muted/40 p-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset sm:p-4",
           editing && "focus-visible:ring-sky-600/60",

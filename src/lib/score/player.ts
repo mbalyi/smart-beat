@@ -105,6 +105,39 @@ export interface Rect {
   h: number;
 }
 
+/** One note's mark on one staff: where it is drawn and which kind of staff it is on. */
+export interface NoteRect {
+  rect: Rect;
+  /** `tab`: the fret number (or the drum tab); `score`: the notehead on the standard staff. */
+  staff: "tab" | "score";
+}
+
+/** Bounds of a beat on each rendered staff: the standard notation or the tab. */
+interface StaffBounds<T> {
+  bounds: T;
+  staff: NoteRect["staff"];
+}
+
+/**
+ * Tells which kind of staff each of a beat's bounds belongs to. A model staff that shows both the
+ * notation and the tab is drawn as two staves, the notation above the tab.
+ */
+function withStaffKinds<T extends { barBounds: { visualBounds: { y: number } } }>(
+  beat: Beat,
+  found: T[],
+): StaffBounds<T>[] {
+  const staff = beat?.voice?.bar?.staff;
+  if (!staff?.showTablature) return found.map((bounds) => ({ bounds, staff: "score" }));
+  if (!staff.showStandardNotation || found.length < 2) {
+    return found.map((bounds) => ({ bounds, staff: "tab" }));
+  }
+  const top = Math.min(...found.map((b) => b.barBounds.visualBounds.y));
+  return found.map((bounds) => ({
+    bounds,
+    staff: bounds.barBounds.visualBounds.y === top ? "score" : "tab",
+  }));
+}
+
 export type Layout = "page" | "horizontal";
 
 export interface PlaybackPosition {
@@ -1267,16 +1300,38 @@ export class ScorePlayer {
       });
   }
 
-  /** Where a note's head (or fret number) is drawn, on each staff. */
-  noteRects(note: Note): Rect[] {
+  /**
+   * Where a note's head (or fret number) is drawn, on each staff, tagged with the kind of the
+   * staff: the tab (fret number, drum tab) or the standard notation (notehead).
+   */
+  noteRects(note: Note): NoteRect[] {
     const mirror = mirrorNoteOf(note);
     return [note, ...(mirror ? [mirror] : [])].flatMap((n) =>
-      (this.api.boundsLookup?.findBeats(n.beat) ?? []).flatMap((bounds) =>
-        (bounds.notes ?? [])
-          .filter((drawn) => drawn.note === n)
-          .map(({ noteHeadBounds: b }) => ({ x: b.x, y: b.y, w: b.w, h: b.h })),
+      withStaffKinds(n.beat, this.api.boundsLookup?.findBeats(n.beat) ?? []).flatMap(
+        ({ bounds, staff }) =>
+          (bounds.notes ?? [])
+            .filter((drawn) => drawn.note === n)
+            .map(({ noteHeadBounds: b }) => ({ rect: { x: b.x, y: b.y, w: b.w, h: b.h }, staff })),
       ),
     );
+  }
+
+  /**
+   * Where a string of the tab is drawn at a beat (1 = bottom line, `lines` = top), also when
+   * nothing is written on it: the band of that line inside the beat. Falls back to the beat's
+   * whole tab staff when the line is out of range. Null when the beat has no tab staff.
+   */
+  stringLineRect(beat: Beat, line: number, lines: number): Rect | null {
+    const tab = withStaffKinds(beat, this.api.boundsLookup?.findBeats(beat) ?? []).find(
+      (b) => b.staff === "tab",
+    );
+    if (!tab) return null;
+    const { bounds } = tab;
+    const bar = bounds.barBounds.visualBounds;
+    const { x, w } = bounds.realBounds;
+    if (lines < 2 || line < 1 || line > lines) return { x, y: bar.y, w, h: bar.h };
+    const spacing = bar.h / (lines - 1);
+    return { x, y: bar.y + (lines - line) * spacing - spacing / 2, w, h: spacing + 1 };
   }
 
   /**

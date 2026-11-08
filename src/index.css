@@ -226,6 +226,19 @@
   stroke: oklch(0.8 0.15 250);
 }
 
+/*
+ * While editing and not playing, the editor's own quiet marks (the outline around the note, the
+ * range rectangle) are the only highlight: alphaTab's playback cursor (the bar highlight and the
+ * vertical line) and its selection are hidden. Playing from edit mode and the practice view keep
+ * them. ScoreView sets data-editing and data-playing.
+ */
+[data-editing]:not([data-playing]) .at-cursor-bar,
+[data-editing]:not([data-playing]) .at-cursor-beat,
+[data-editing]:not([data-playing]) .at-selection {
+  /* alphaTab positions its cursor with inline styles. */
+  display: none !important;
+}
+
 /* Printing the score (see lib/print.ts): only the copy of the score in #print-root is printed. */
 #print-root {
   display: none;
@@ -256,4 +269,130 @@
 /* The dimming around a tour step does not take mouse wheel or clicks (WebKit would otherwise not scroll the note palette under it). */
 .react-joyride__spotlight path {
   pointer-events: none !important;
+}
+
+/*
+ * Edit palette cells and boxes (#221). A cell is an icon-only button: transparent until the
+ * pointer or the keyboard reaches it, then a gradient ring that follows the pointer (--mx and
+ * --my are set by one onPointerMove), a soft spotlight, a glow of the brand colour and a small
+ * lift. Pressed cells keep their own purple fill (see mixer-toggle-styles.ts). The palette and
+ * its boxes always sit inside `.dark`, so --brand is #c537ef here.
+ */
+.palette-cell {
+  --hv: var(--brand, #c537ef);
+  --hv2: #9a2ae6;
+  --hv-edge: #f5a6d3;
+  position: relative;
+  isolation: isolate;
+  transition:
+    transform 0.18s cubic-bezier(0.22, 0.8, 0.3, 1),
+    background-color 0.2s,
+    border-color 0.2s;
+}
+/* The ring: a 1px gradient border, cut out of a masked layer. */
+.palette-cell::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  background: radial-gradient(
+    52px circle at var(--mx, 50%) var(--my, 50%),
+    var(--hv-edge),
+    var(--hv) 38%,
+    color-mix(in srgb, var(--hv2) 70%, transparent) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+/* The glow is its own layer, so it never replaces the inset ring of a pressed cell. */
+.palette-cell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+  box-shadow:
+    0 0 18px color-mix(in oklab, var(--hv) 45%, transparent),
+    0 6px 14px -8px color-mix(in oklab, var(--hv2) 70%, transparent);
+}
+.palette-cell:not(:disabled):hover::before,
+.palette-cell:not(:disabled):hover::after,
+.palette-cell:focus-visible::before,
+.palette-cell:focus-visible::after {
+  opacity: 1;
+}
+/* The spotlight under the pointer (not on a pressed cell: that one keeps its fill). */
+.palette-cell:not(:disabled):not([data-state="on"]):not([aria-pressed="mixed"]):hover,
+.palette-cell:not([data-state="on"]):not([aria-pressed="mixed"]):focus-visible {
+  background:
+    radial-gradient(
+      44px circle at var(--mx, 50%) var(--my, 50%),
+      color-mix(in srgb, var(--hv) 30%, transparent),
+      color-mix(in srgb, var(--hv2) 10%, transparent) 65%,
+      transparent 85%
+    ),
+    rgb(255 255 255 / 0.04);
+}
+.palette-cell:not(:disabled):hover,
+.palette-cell:focus-visible {
+  transform: translateY(-1px) scale(1.04);
+}
+.palette-cell:not(:disabled):active {
+  transform: scale(0.97);
+}
+.palette-cell:focus-visible {
+  outline: 2px solid var(--hv);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .palette-cell,
+  .palette-cell::before,
+  .palette-cell::after {
+    transition: none;
+  }
+  .palette-cell:not(:disabled):hover,
+  .palette-cell:focus-visible,
+  .palette-cell:not(:disabled):active {
+    transform: none;
+  }
+}
+
+/* The box of variants: frosted glass tinted with the brand colour, its cells fade in one by one. */
+.palette-box {
+  background:
+    linear-gradient(
+      color-mix(in oklab, var(--brand) 7%, transparent),
+      color-mix(in oklab, var(--brand) 7%, transparent)
+    ),
+    color-mix(in oklab, var(--popover) 84%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid color-mix(in oklab, var(--brand) 42%, rgb(255 255 255 / 0.08));
+  border-radius: 14px;
+  box-shadow:
+    0 24px 48px -16px rgb(0 0 0 / 0.7),
+    0 0 26px -6px color-mix(in oklab, var(--brand) 40%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+.palette-box .palette-box-grid > * {
+  animation: palette-cell-in 0.22s cubic-bezier(0.2, 0.85, 0.3, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 14ms);
+}
+@keyframes palette-cell-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.9);
+  }
 }

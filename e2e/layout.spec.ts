@@ -38,6 +38,9 @@ test.describe("song layout (#35)", () => {
     expect(tracks!.y).toBeGreaterThanOrEqual(score!.y + score!.height - 1);
     // The score gets the room that is left.
     expect(score!.width).toBeGreaterThan(palette!.width + inspector!.width);
+    // Eight icon cells of 32px with their gaps, and the padding (about 19.5rem).
+    expect(palette!.width).toBeGreaterThanOrEqual(300);
+    expect(palette!.width).toBeLessThanOrEqual(330);
   });
 
   test("shows the palette only in edit mode, so the score gets the full width otherwise (#53)", async ({
@@ -274,7 +277,7 @@ test.describe("song layout (#35)", () => {
     // Tab strip → palette → score, in reading order.
     await app.getByRole("button", { name: "New song" }).focus();
     await app.keyboard.press(tab);
-    await expect(app.getByRole("radio", { name: "Voice 1" })).toBeFocused();
+    await expect(app.getByRole("button", { name: /^Key signature/ })).toBeFocused();
 
     // The track list rows are reachable and operable.
     await app.getByRole("button", { name: "Mute Guitar" }).focus();

@@ -6,10 +6,19 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
  * A tooltip for a control: shows on hover and on keyboard focus, and Escape
  * dismisses it. Used instead of the native `title`, which keyboard users never see.
  */
-export function Tip({ label, children }: { label: ReactNode; children: ReactElement }) {
+export function Tip({
+  label,
+  children,
+  suppress,
+}: {
+  label: ReactNode;
+  children: ReactElement;
+  /** Keeps the tooltip closed (for a control whose popup is open and would sit under it). */
+  suppress?: boolean;
+}) {
   return (
     <TooltipProvider delayDuration={400}>
-      <Tooltip>
+      <Tooltip open={suppress ? false : undefined}>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent>{label}</TooltipContent>
       </Tooltip>

@@ -209,8 +209,11 @@ test.describe("nested tuplets (#43)", () => {
     await app.getByRole("radio", { name: "Eighth" }).click();
     await app.keyboard.press("0");
 
-    await app.getByRole("combobox", { name: "Tuplet" }).click();
-    await app.getByRole("option", { name: "Nested" }).click();
+    await app.getByRole("button", { name: /^Tuplet/ }).click();
+    await app
+      .getByRole("group", { name: "Tuplet" })
+      .getByRole("button", { name: "Nested tuplet" })
+      .click();
     const dialog = app.getByRole("dialog", { name: "Nested tuplet" });
     await expect(dialog.getByTestId("nested-tuplet-result")).toContainText(
       "9 notes in the time of 4 (9:4)",
@@ -220,7 +223,7 @@ test.describe("nested tuplets (#43)", () => {
     await expect(dialog).toBeHidden();
     await expect(scoreRegion(app)).toBeFocused();
 
-    await expect(app.getByRole("combobox", { name: "Tuplet" })).toHaveText("9:4");
+    await expect(app.getByRole("button", { name: "Tuplet, 9:4 (on)" })).toBeVisible();
     await expectTab(app, ["0"]);
     // The score still draws and plays with the group in it.
     await expect.poll(() => app.getByRole("status").allTextContents()).toContain("Tuplet 9 in 4");
@@ -229,8 +232,8 @@ test.describe("nested tuplets (#43)", () => {
     await app.getByRole("button", { name: "Stop" }).click();
 
     // Back to plain notes.
-    await app.getByRole("combobox", { name: "Tuplet" }).click();
-    await app.getByRole("option", { name: "None" }).click();
-    await expect(app.getByRole("combobox", { name: "Tuplet" })).toHaveText("None");
+    await app.getByRole("button", { name: /^Tuplet/ }).click();
+    await app.getByRole("group", { name: "Tuplet" }).getByRole("button", { name: "None" }).click();
+    await expect(app.getByRole("button", { name: "Tuplet", exact: true })).toBeVisible();
   });
 });
