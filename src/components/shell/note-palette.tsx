@@ -45,8 +45,8 @@ export function NotePalette({
         if (!editing) setClosing(false);
       }}
       className={cn(
-        // Dark in both themes (the `dark` class scopes the dark tokens).
-        "dark flex min-h-0 w-[19.5rem] shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground",
+        // Light or dark with the app (the sidebar tokens follow the theme).
+        "flex min-h-0 w-[19.5rem] shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground",
         "duration-200 data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:animate-in data-[state=open]:slide-in-from-left",
         // In narrow windows the palette sits above the score (it never covers it).
         "max-lg:max-h-32 max-lg:w-full max-lg:border-r-0 max-lg:border-b max-lg:data-[state=closed]:slide-out-to-top max-lg:data-[state=open]:slide-in-from-top",

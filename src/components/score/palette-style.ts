@@ -25,13 +25,20 @@ export const PRESSED: Record<ToggleState, string> = {
 };
 
 /**
- * Keeps the pointer position of a cell in `--mx` and `--my` (the ring and the spotlight of
- * `.palette-cell` follow it). One handler on a toolbar covers all of its cells, and the cells of
- * a box too (React events bubble through the portal).
+ * Keeps the pointer position in custom properties: `--mx` and `--my` on the cell under it (its ring
+ * follows the pointer) and `--gx` and `--gy` on the toolbar or box around it (the mesh of
+ * `.palette-mesh` is drawn around the pointer). One handler on a toolbar covers all of its cells,
+ * and the cells of a box too (React events bubble through the portal).
  */
 export function trackPointer(event: PointerEvent) {
   const target = event.target;
   if (!(target instanceof Element)) return;
+  const mesh = target.closest<HTMLElement>(".palette-mesh");
+  if (mesh) {
+    const rect = mesh.getBoundingClientRect();
+    mesh.style.setProperty("--gx", `${event.clientX - rect.left}px`);
+    mesh.style.setProperty("--gy", `${event.clientY - rect.top}px`);
+  }
   const cell = target.closest<HTMLElement>(".palette-cell");
   if (!cell) return;
   const rect = cell.getBoundingClientRect();

@@ -407,7 +407,7 @@ export function VariantCell({
         sideOffset={8}
         collisionPadding={8}
         className={cn(
-          "dark palette-box w-max max-w-[calc(100vw-1rem)] p-3 text-popover-foreground",
+          "palette-box palette-mesh w-max max-w-[calc(100vw-1rem)] rounded-xl p-3 text-popover-foreground",
           // Only a box taller than the window scrolls (the glyph boxes would show a scrollbar otherwise).
           scrolls && "max-h-(--radix-popover-content-available-height) overflow-y-auto",
         )}

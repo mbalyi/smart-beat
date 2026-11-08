@@ -333,17 +333,10 @@
 .palette-cell:focus-visible::after {
   opacity: 1;
 }
-/* The spotlight under the pointer (not on a pressed cell: that one keeps its fill). */
+/* A soft tint under the pointer (not on a pressed cell: that one keeps its fill). */
 .palette-cell:not(:disabled):not([data-state="on"]):not([aria-pressed="mixed"]):hover,
 .palette-cell:not([data-state="on"]):not([aria-pressed="mixed"]):focus-visible {
-  background:
-    radial-gradient(
-      44px circle at var(--mx, 50%) var(--my, 50%),
-      color-mix(in srgb, var(--hv) 30%, transparent),
-      color-mix(in srgb, var(--hv2) 10%, transparent) 65%,
-      transparent 85%
-    ),
-    rgb(255 255 255 / 0.04);
+  background: color-mix(in srgb, var(--hv) 14%, transparent);
 }
 .palette-cell:not(:disabled):hover,
 .palette-cell:focus-visible {
@@ -369,23 +362,66 @@
   }
 }
 
-/* The box of variants: frosted glass tinted with the brand colour, its cells fade in one by one. */
-.palette-box {
-  background:
-    linear-gradient(
-      color-mix(in oklab, var(--brand) 7%, transparent),
-      color-mix(in oklab, var(--brand) 7%, transparent)
-    ),
-    color-mix(in oklab, var(--popover) 84%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
-  backdrop-filter: blur(16px) saturate(1.4);
-  border: 1px solid color-mix(in oklab, var(--brand) 42%, rgb(255 255 255 / 0.08));
-  border-radius: 14px;
-  box-shadow:
-    0 24px 48px -16px rgb(0 0 0 / 0.7),
-    0 0 26px -6px color-mix(in oklab, var(--brand) 40%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 0.07);
+/*
+ * The mesh: a fine grid in the brand colour that appears around the pointer over a toolbar or a
+ * box of the palette and washes out under the neighbouring cells. It is one layer behind the
+ * cells (`--gx` and `--gy` come from `trackPointer`), so the icons stay on top of it.
+ */
+.palette-mesh {
+  position: relative;
+  isolation: isolate;
 }
+.palette-mesh::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--brand) 50%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--brand) 50%, transparent) 1px,
+      transparent 1px
+    ),
+    radial-gradient(
+      90px circle at var(--gx, 50%) var(--gy, 50%),
+      color-mix(in srgb, var(--brand) 16%, transparent),
+      transparent
+    );
+  background-size:
+    9px 9px,
+    9px 9px,
+    auto;
+  -webkit-mask-image: radial-gradient(
+    96px circle at var(--gx, 50%) var(--gy, 50%),
+    #000 0%,
+    rgb(0 0 0 / 0.55) 45%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    96px circle at var(--gx, 50%) var(--gy, 50%),
+    #000 0%,
+    rgb(0 0 0 / 0.55) 45%,
+    transparent 100%
+  );
+}
+.palette-mesh:hover::before {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .palette-mesh::before {
+    transition: none;
+  }
+}
+
+/* The box of variants keeps the default popover look; its cells fade in one by one. */
 .palette-box .palette-box-grid > * {
   animation: palette-cell-in 0.22s cubic-bezier(0.2, 0.85, 0.3, 1) backwards;
   animation-delay: calc(var(--i, 0) * 14ms);

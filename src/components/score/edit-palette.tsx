@@ -467,7 +467,7 @@ export function EditPalette({
         role="toolbar"
         aria-label={name}
         onPointerMove={trackPointer}
-        className="flex flex-col border-b border-sidebar-border px-4 py-1"
+        className="palette-mesh flex flex-col border-b border-sidebar-border px-4 py-1"
       >
         {own.map(renderSection)}
       </div>
