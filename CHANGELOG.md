@@ -37,7 +37,6 @@ New in 1.2.0: split a song into its instruments, practice the same tab with up t
 - Share with a link: every tab and saved stems file has a share icon. Smart Beat copies a link to it; for a file on this computer it first puts a copy on the drive you pick. You choose whether people with the link can view or edit. Links open in the drive's own page. Stems get their own link, without the original song.
 - File › Cloud Library lists the tabs and stems in each connected drive.
 - Dropbox has to be connected again once, so that it can make links.
-- Working directly with Google Drive, OneDrive and Dropbox is new, and so far we have only tried it against stand-ins for these services, not the real ones. If something goes wrong with your drive, please tell us.
 
 ### AI menu
 
