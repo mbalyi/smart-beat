@@ -1,4 +1,11 @@
-import { useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   AlignJustifyIcon,
   BetweenVerticalStartIcon,
@@ -17,6 +24,7 @@ import {
 
 import { Glyph, MarkText } from "@/components/score/palette-button";
 import { markedName, PRESSED } from "@/components/score/palette-style";
+import { useInkCentring } from "@/components/score/use-ink-centring";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ACTIVE_BRAND } from "@/components/ui/mixer-toggle-styles";
 import { Tip } from "@/components/ui/tip";
@@ -28,7 +36,8 @@ import type {
   PaletteItem,
   PaletteVisual,
 } from "@/lib/score/palette-model";
-import { SMUFL } from "@/lib/score/smufl";
+import { SMUFL, type SmuflName } from "@/lib/score/smufl";
+import { inkCentring } from "@/lib/score/smufl-ink";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<PaletteIconName, LucideIcon> = {
@@ -48,6 +57,17 @@ const ICONS: Record<PaletteIconName, LucideIcon> = {
 
 const LABEL = "text-[0.78rem] leading-none font-semibold";
 
+/** Plain bold text in a cell (the "=120" of a tempo, "3:2"), its ink centred in the cell. */
+function LabelText({ children, className }: { children?: string; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useInkCentring(ref, children ?? "");
+  return (
+    <span ref={ref} aria-hidden="true" className={cn(LABEL, className)}>
+      {children}
+    </span>
+  );
+}
+
 /** A time signature drawn with Bravura's digits, one above the other. */
 function TimeDigits({ digits }: { digits: readonly [number, number] }) {
   return (
@@ -55,16 +75,21 @@ function TimeDigits({ digits }: { digits: readonly [number, number] }) {
       aria-hidden="true"
       className="pointer-events-none flex flex-col items-center gap-[0.08rem]"
     >
-      {digits.map((value, i) => (
-        <span key={i} className="relative block h-[0.58rem] min-w-[0.7rem]">
-          <span className="absolute inset-x-0 top-1/2 -mt-[0.5em] h-[1em] [translate:0_0.2em] text-center font-[Bravura] text-[1.1rem] leading-none whitespace-nowrap">
-            {String(value)
-              .split("")
-              .map((d) => String.fromCodePoint(SMUFL[`timeSig${d as "0"}`]))
-              .join("")}
+      {digits.map((value, i) => {
+        const names = String(value)
+          .split("")
+          .map((d) => `timeSig${d}` as SmuflName);
+        return (
+          <span key={i} className="relative block h-[0.58rem] min-w-[0.7rem]">
+            <span
+              style={{ translate: `0 ${inkCentring(names)}em` }}
+              className="absolute inset-x-0 top-1/2 -mt-[0.5em] h-[1em] text-center font-[Bravura] text-[1.1rem] leading-none whitespace-nowrap"
+            >
+              {names.map((n) => String.fromCodePoint(SMUFL[n])).join("")}
+            </span>
           </span>
-        </span>
-      ))}
+        );
+      })}
     </span>
   );
 }
@@ -114,14 +139,23 @@ export function CellVisual({ visual }: { visual: PaletteVisual }) {
   if (visual.mark !== undefined && visual.sub) {
     // Two lines: the mark, and what it jumps to.
     return (
-      <span aria-hidden="true" className="pointer-events-none flex flex-col items-center gap-0.5">
-        <MarkText className="text-[0.7rem] leading-none font-bold">{visual.mark}</MarkText>
+      <span
+        aria-hidden="true"
+        // The two lines (a mark and "al Fine", or a mark and a coda sign) sit a little high: nudge them.
+        className={cn(
+          "pointer-events-none flex flex-col items-center gap-0.5",
+          visual.sub.glyph ? "translate-y-[1.8px]" : "translate-y-[1.5px]",
+        )}
+      >
+        <MarkText centre={false} className="text-[0.7rem] leading-none font-bold">
+          {visual.mark}
+        </MarkText>
         <span className="inline-flex items-center gap-0.5 font-serif text-[0.58rem] leading-none font-semibold whitespace-nowrap italic">
           {visual.sub.text}
           {visual.sub.glyph && (
             <Glyph
               name={visual.sub.glyph}
-              className="[translate:none] text-[0.72rem] font-normal not-italic"
+              className="[translate:none] text-[0.72rem] [font-weight:400] [font-style:normal]"
             />
           )}
         </span>
@@ -135,20 +169,12 @@ export function CellVisual({ visual }: { visual: PaletteVisual }) {
           name={visual.glyph}
           className={cn(visual.small && "text-[0.95rem]", visual.glyphClass)}
         />
-        {visual.text && (
-          <span aria-hidden="true" className={LABEL}>
-            {visual.text}
-          </span>
-        )}
+        {visual.text && <LabelText>{visual.text}</LabelText>}
       </span>
     );
   }
   if (visual.mark !== undefined) return <MarkText>{visual.mark}</MarkText>;
-  return (
-    <span aria-hidden="true" className={cn(LABEL, "pointer-events-none")}>
-      {visual.text}
-    </span>
-  );
+  return <LabelText className="pointer-events-none">{visual.text}</LabelText>;
 }
 
 const CELL =
@@ -264,6 +290,7 @@ export function VariantCell({
   // leaving the box is left to Radix (Escape returns to the cell).
   const [closing, setClosing] = useState<"score" | "dialog" | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
 
   const items = groups.flatMap((g) => g.items);
   const active = items.find((item) => !item.neutral && stateOf(item) !== "off");
@@ -282,6 +309,22 @@ export function VariantCell({
     visual,
   );
   const tip = box.setting && current ? `${box.label}: ${current}` : box.label;
+
+  // A box scrolls only when its content is taller than the room the window leaves it. The size of
+  // the content is measured from its two blocks: the glyph boxes inside are taller than they look.
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!open || !el?.firstElementChild || !el.lastElementChild) return;
+    const room = parseFloat(
+      getComputedStyle(el).getPropertyValue("--radix-popover-content-available-height"),
+    );
+    const content =
+      (el.firstElementChild as HTMLElement).offsetHeight +
+      8 +
+      (el.lastElementChild as HTMLElement).offsetHeight +
+      24;
+    setScrolls(Number.isFinite(room) && content > room);
+  }, [open]);
 
   const close = () => setOpen(false);
   /** For the controls under the grid: closes the box and hands focus to the score. */
@@ -363,7 +406,11 @@ export function VariantCell({
         align="start"
         sideOffset={8}
         collisionPadding={8}
-        className="dark palette-box max-h-(--radix-popover-content-available-height) w-max max-w-[calc(100vw-1rem)] overflow-y-auto p-3 text-popover-foreground"
+        className={cn(
+          "dark palette-box w-max max-w-[calc(100vw-1rem)] p-3 text-popover-foreground",
+          // Only a box taller than the window scrolls (the glyph boxes would show a scrollbar otherwise).
+          scrolls && "max-h-(--radix-popover-content-available-height) overflow-y-auto",
+        )}
         onKeyDown={move}
         onOpenAutoFocus={(event) => {
           // Into the box: on the variant that is on, else the first.

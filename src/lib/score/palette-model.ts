@@ -167,6 +167,8 @@ export interface PaletteBox {
 export type PaletteEntry = { cell: PaletteItem } | { box: PaletteBox };
 
 export interface PaletteRow {
+  /** A small header over this row and the rows after it, until the next header. */
+  heading?: string;
   entries: PaletteEntry[];
   /** The cells of the row are the choices of one radio group of this name (note values). */
   radioLabel?: string;
@@ -248,9 +250,9 @@ const plain = (
   o: Options = {},
 ): PaletteItem => ({ id, label, visual, action, ...o });
 
-/** Articulations are small glyphs drawn above the note: bigger, and moved down to the middle. */
-const ARTIC = "text-[2.2rem] [translate:0_0.27em]";
-const DOT = "[translate:0_-0.05em] text-[2.2rem]";
+/** Articulations and dots are tiny glyphs: drawn bigger (the palette centres the ink itself). */
+const ARTIC = "text-[2.2rem]";
+const DOT = "text-[2.2rem]";
 const SMALL = "text-base";
 
 // --- bar level boxes ----------------------------------------------------------------------------
@@ -844,10 +846,7 @@ const durationCells = NOTE_VALUES.map(({ duration, label }, i) =>
     id: `duration:${duration}`,
     label,
     shortcut: String(i + 1),
-    visual: glyph(
-      NOTE_GLYPHS[duration] ?? "noteQuarterUp",
-      duration === 1 ? "[translate:0_-0.05em]" : undefined,
-    ),
+    visual: glyph(NOTE_GLYPHS[duration] ?? "noteQuarterUp"),
     action: { type: "duration", duration },
   }),
 );
@@ -859,6 +858,7 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
     toolbar: "Edit",
     rows: [
       {
+        heading: "Bar",
         entries: [
           box(KEY_BOX),
           box(TIME_BOX),
@@ -893,8 +893,9 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
     label: "Notes and rhythm",
     toolbar: "Edit",
     rows: [
-      { entries: durationCells, radioLabel: "Note value" },
+      { heading: "Notes", entries: durationCells, radioLabel: "Note value" },
       {
+        heading: "Rhythm",
         entries: [
           cell(
             plain(
@@ -912,6 +913,14 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
             }),
           ),
           cell(plain("rest", "Rest", glyph("restQuarter"), { type: "rest" }, { shortcut: "R" })),
+          cell(plain("tie", "Tie", { icon: "tie" }, { type: "tie" }, { shortcut: "T" })),
+          box(TUPLET_BOX),
+          box(VOICE_BOX),
+        ],
+      },
+      {
+        heading: "Beats",
+        entries: [
           cell(
             plain(
               "fillRests",
@@ -921,9 +930,6 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
               { shortcut: "Shift+R" },
             ),
           ),
-          cell(plain("tie", "Tie", { icon: "tie" }, { type: "tie" }, { shortcut: "T" })),
-          box(TUPLET_BOX),
-          box(VOICE_BOX),
           cell(
             plain(
               "insertBeat",
@@ -933,10 +939,6 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
               { shortcut: "I" },
             ),
           ),
-        ],
-      },
-      {
-        entries: [
           cell(
             plain(
               "deleteBeat",
@@ -946,10 +948,13 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
               { shortcut: "Shift+Delete" },
             ),
           ),
-          ...ACCIDENTALS.map(([value, name]) =>
-            cell(noteItem("accidental", glyph(name), { value })),
-          ),
         ],
+      },
+      {
+        heading: "Accidentals",
+        entries: ACCIDENTALS.map(([value, name]) =>
+          cell(noteItem("accidental", glyph(name), { value })),
+        ),
       },
     ],
   },
@@ -959,6 +964,7 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
     toolbar: "Effects",
     rows: [
       {
+        heading: "Dynamics",
         entries: DYNAMICS.map(([value, name]) =>
           cell(beatItem("dynamics", glyph(name), { value })),
         ),
@@ -977,10 +983,15 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
               label: "Decrescendo",
             }),
           ),
+        ],
+      },
+      {
+        heading: "Marks",
+        entries: [
           box(ARTICULATION_BOX),
           cell(plain("fermata", "Fermata", glyph("fermataAbove"), { type: "fermata" })),
           cell(
-            noteItem("dead", glyph("noteheadXBlack", "text-2xl [translate:0_0.05em]"), {
+            noteItem("dead", glyph("noteheadXBlack", "text-2xl"), {
               shortcut: "X",
             }),
           ),
@@ -989,7 +1000,7 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
               "ghost",
               glyph(
                 ["noteheadParenthesisLeft", "noteheadBlack", "noteheadParenthesisRight"],
-                "text-2xl [translate:0_0.05em]",
+                "text-2xl",
               ),
               { shortcut: "O" },
             ),
@@ -1006,6 +1017,7 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
     toolbar: "Effects",
     rows: [
       {
+        heading: "Techniques",
         entries: [
           cell(noteItem("hammerPull", { mark: "H/P" }, { shortcut: "H", mark: "H/P" })),
           cell(noteItem("palmMute", { mark: "P.M." }, { shortcut: "P", mark: "P.M." })),
@@ -1018,6 +1030,7 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
         ],
       },
       {
+        heading: "Picking",
         entries: [
           cell(beatItem("tap", { mark: "T" }, { label: "Tapping", mark: "T" })),
           cell(beatItem("slap", { mark: "S" }, { mark: "S" })),
@@ -1038,6 +1051,7 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
     toolbar: "Effects",
     rows: [
       {
+        heading: "Text and help",
         entries: [
           cell(plain("chord", "Chord", { icon: "chord" }, { type: "chord" })),
           cell(plain("text", "Text", { icon: "text" }, { type: "text" })),

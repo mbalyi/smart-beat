@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent } from "react";
+import { Fragment, useId, useState, type KeyboardEvent } from "react";
 import { model } from "@coderline/alphatab";
 
 import { NestedTupletDialog } from "@/components/score/nested-tuplet-dialog";
@@ -87,6 +87,9 @@ export interface PaletteState {
 
 const SECTION = "flex flex-col gap-[3px] border-t border-sidebar-border py-2.5 first:border-t-0";
 const ROW = "grid grid-cols-[repeat(8,2rem)] justify-start gap-[3px]";
+/** A small header over a category of cells (decoration: the section group has the name). */
+const HEADING =
+  "pt-1.5 pb-0.5 text-[0.62rem] leading-none font-semibold tracking-[0.1em] text-sidebar-foreground/60 uppercase first:pt-0";
 
 const onOff = (on: boolean): ToggleState => (on ? "on" : "off");
 
@@ -430,14 +433,22 @@ export function EditPalette({
         </PaletteCell>
       );
     });
-    return radio ? (
-      <div key={key} role="radiogroup" aria-label={row.radioLabel} className={ROW}>
+    const cellRow = radio ? (
+      <div role="radiogroup" aria-label={row.radioLabel} className={ROW}>
         {cells}
       </div>
     ) : (
-      <div key={key} className={ROW}>
-        {cells}
-      </div>
+      <div className={ROW}>{cells}</div>
+    );
+    return (
+      <Fragment key={key}>
+        {row.heading && (
+          <div aria-hidden="true" data-palette-heading className={HEADING}>
+            {row.heading}
+          </div>
+        )}
+        {cellRow}
+      </Fragment>
     );
   };
 
