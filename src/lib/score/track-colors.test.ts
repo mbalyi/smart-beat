@@ -1,4 +1,4 @@
-import { TRACK_PALETTE, hexToOklch, isTrackColor, trackColor } from "@/lib/score/track-colors";
+import { TRACK_PALETTE, hexToOklch, isTrackColor, laneColor, trackColor } from "@/lib/score/track-colors";
 
 describe("trackColor", () => {
   it("cycles through the eight default colours by position", () => {
@@ -29,5 +29,23 @@ describe("TRACK_PALETTE", () => {
     expect(new Set(TRACK_PALETTE.map((c) => c.hex)).size).toBe(TRACK_PALETTE.length);
     expect(new Set(TRACK_PALETTE.map((c) => c.name)).size).toBe(TRACK_PALETTE.length);
     for (const { hex } of TRACK_PALETTE) expect(isTrackColor(hex)).toBe(true);
+  });
+});
+
+describe("laneColor", () => {
+  it("cycles through the stem colours by position", () => {
+    expect(laneColor(0)).toBe("var(--stem-guitar)");
+    expect(laneColor(1)).toBe("var(--stem-drums)");
+    expect(laneColor(2)).toBe("var(--stem-bass)");
+    expect(laneColor(3)).toBe("var(--stem-vocals)");
+    expect(laneColor(7)).toBe("var(--stem-guitar)");
+  });
+
+  it("keeps a chosen colour inside the theme's lightness range", () => {
+    expect(laneColor(0, "#ffd21a")).toMatch(/^oklch\(clamp\(var\(--track-l-min\)/);
+  });
+
+  it("ignores a colour that is not #rrggbb", () => {
+    expect(laneColor(2, "yellow")).toBe("var(--stem-bass)");
   });
 });

@@ -26,6 +26,13 @@
   --color-track-6: var(--track-6);
   --color-track-7: var(--track-7);
   --color-track-8: var(--track-8);
+  --color-stem-guitar: var(--stem-guitar);
+  --color-stem-drums: var(--stem-drums);
+  --color-stem-bass: var(--stem-bass);
+  --color-stem-vocals: var(--stem-vocals);
+  --color-stem-piano: var(--stem-piano);
+  --color-stem-panned: var(--stem-panned);
+  --color-stem-other: var(--stem-other);
   --color-lcd: var(--lcd);
   --color-lcd-foreground: var(--lcd-foreground);
   --color-lcd-muted: var(--lcd-muted);
@@ -117,6 +124,14 @@
   /* The lightness a colour chosen for a track is held to (bar grid and strip on the card). */
   --track-l-min: 0.3;
   --track-l-max: 0.8;
+  /* Stem colours (the stem separation art): stem waveforms and the default audio lane colours. */
+  --stem-guitar: oklch(0.55 0.25 303);
+  --stem-drums: oklch(0.6 0.24 355);
+  --stem-bass: oklch(0.6 0.15 237);
+  --stem-vocals: oklch(0.7 0.16 88);
+  --stem-piano: oklch(0.5 0.22 282);
+  --stem-panned: oklch(0.65 0.18 50);
+  --stem-other: oklch(0.62 0.12 180);
   --lcd: oklch(0.2 0.01 250);
   --lcd-foreground: oklch(0.95 0.02 160);
   --lcd-muted: oklch(0.74 0.02 250);
@@ -166,6 +181,13 @@
   --track-8: oklch(0.68 0.14 350);
   --track-l-min: 0.55;
   --track-l-max: 0.9;
+  --stem-guitar: #a43bff;
+  --stem-drums: #ff2fa0;
+  --stem-bass: #19b6ff;
+  --stem-vocals: #ffd21a;
+  --stem-piano: #7b5cff;
+  --stem-panned: #ff8a1f;
+  --stem-other: #2dd4bf;
   --lcd: oklch(0.12 0.01 250);
 }
 

@@ -281,6 +281,12 @@ describe("Stem page: the transport", () => {
     expect(player.seek).toHaveBeenLastCalledWith(215);
   });
 
+  it("draws each stem's waveform in its own stem colour", () => {
+    setup();
+    expect(screen.getByTestId("waveform-path-bass")).toHaveStyle({ color: "var(--stem-bass)" });
+    expect(screen.getByTestId("waveform-path-drums")).toHaveStyle({ color: "var(--stem-drums)" });
+  });
+
   it("seeks when a waveform is clicked", () => {
     const { player } = setup();
     const wave = screen.getByTestId("waveform-bass");
