@@ -2,19 +2,19 @@
 
 What Smart Beat opens, saves and exports, and what each format cannot hold.
 
-| Format              | Extensions                | Open                                     | Save / export                                                   |
-| ------------------- | ------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
-| Guitar Pro 7/8      | `.gp`                     | Yes                                      | **Native format**: File › Save, Save As                         |
-| Guitar Pro 5        | `.gp5`                    | Yes                                      | File › Save, Save As (limits below)                             |
-| Guitar Pro 4        | `.gp4`                    | Yes                                      | File › Save As (limits below)                                   |
-| Guitar Pro 3        | `.gp3`                    | Yes                                      | File › Save As (limits below)                                   |
-| Guitar Pro 6        | `.gpx`                    | Yes                                      | No (see [below](#guitar-pro-6-gpx-open-only))                   |
-| MuseScore 3 / 4     | `.mscz` `.mscx`           | Yes (own importer)                       | File › Save As (limits below)                                   |
-| MusicXML (partwise) | `.musicxml` `.xml` `.mxl` | Yes (via alphaTab)                       | File › Export › MusicXML (type `.mxl` for the compressed form)  |
-| Standard MIDI       | `.mid` `.midi`            | Yes (own importer)                       | File › Export › MIDI                                            |
-| alphaTex            | `.atex`                   | Yes (via alphaTab)                       | File › Export › alphaTex                                        |
-| ASCII tab           | `.txt`                    | Yes (own importer)                       | File › Export › ASCII tab                                       |
-| Smart Beat stems    | `.sbstems`                | Yes (Open saved stems, double-click)     | Save stems on the stem page (see [below](#saved-stems-sbstems)) |
+| Format              | Extensions                | Open                                          | Save / export                                                   |
+| ------------------- | ------------------------- | --------------------------------------------- | --------------------------------------------------------------- |
+| Guitar Pro 7/8      | `.gp`                     | Yes                                           | **Native format**: File › Save, Save As                         |
+| Guitar Pro 5        | `.gp5`                    | Yes                                           | File › Save, Save As (limits below)                             |
+| Guitar Pro 4        | `.gp4`                    | Yes                                           | File › Save As (limits below)                                   |
+| Guitar Pro 3        | `.gp3`                    | Yes                                           | File › Save As (limits below)                                   |
+| Guitar Pro 6        | `.gpx`                    | Yes                                           | No (see [below](#guitar-pro-6-gpx-open-only))                   |
+| MuseScore 3 / 4     | `.mscz` `.mscx`           | Yes (own importer)                            | File › Save As (limits below)                                   |
+| MusicXML (partwise) | `.musicxml` `.xml` `.mxl` | Yes (via alphaTab)                            | File › Export › MusicXML (type `.mxl` for the compressed form)  |
+| Standard MIDI       | `.mid` `.midi`            | Yes (own importer)                            | File › Export › MIDI                                            |
+| alphaTex            | `.atex`                   | Yes (via alphaTab)                            | File › Export › alphaTex                                        |
+| ASCII tab           | `.txt`                    | Yes (own importer)                            | File › Export › ASCII tab                                       |
+| Smart Beat stems    | `.sbstems`                | Yes (Open saved stems, double-click)          | Save stems on the stem page (see [below](#saved-stems-sbstems)) |
 | Audio               | `.wav` `.m4a`             | (audio lanes: mp3, m4a, wav, flac, ogg, aiff) | File › Export › Audio (WAV), Audio (M4A, macOS only)            |
 
 **Save** writes back into the file the song came from only for `.gp` and `.gp5`. A `.gp3`, `.gp4`, `.mscz` or `.mscx` file opened from disk is never overwritten by Save: it asks for a new file, and Save As offers every format above. The writers for these are checked by reading the files back with alphaTab and with Smart Beat's own importer, not in Guitar Pro 3/4 or MuseScore themselves (see [manual-checks.md](manual-checks.md)), so they should not replace an original unasked.

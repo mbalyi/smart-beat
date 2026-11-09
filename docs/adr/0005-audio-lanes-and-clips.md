@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-09
 - **Issue:** [#185](https://github.com/mbalyi/smart-beat/issues/185)
-- **Replaces:** the "audio track" parts of [ADR 0003](0003-audio-engine.md) (its *Consequences*). The rest of ADR 0003 stays.
+- **Replaces:** the "audio track" parts of [ADR 0003](0003-audio-engine.md) (its _Consequences_). The rest of ADR 0003 stays.
 
 ## Context
 
