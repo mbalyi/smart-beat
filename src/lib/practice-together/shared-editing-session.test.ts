@@ -21,6 +21,10 @@ import { ScoreEditor } from "@/lib/score/editor";
 import { parseScore } from "@/lib/score/score";
 import { practiceSong } from "@/test/shared-edit";
 
+// Real timers, kept for waiting on work fake timers cannot advance (hashing and file writing take
+// real time, and a slow machine takes longer).
+const realSetTimeout = globalThis.setTimeout;
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -29,6 +33,27 @@ afterEach(() => {
 });
 
 const key = async (editor: ScoreEditor) => (await scoreFingerprint(editor.score)).key;
+
+/** Lets session time pass, and real time too, until `done` (at most about a minute of session time). */
+async function until(done: () => boolean | Promise<boolean>) {
+  for (let i = 0; i < 240 && !(await done()); i += 1) {
+    await vi.advanceTimersByTimeAsync(250);
+    await new Promise<void>((resolve) => realSetTimeout(resolve, 5));
+  }
+  expect(await done()).toBe(true);
+}
+
+/** Lets session time and some real time pass (for something that must NOT happen). */
+async function pass(ms: number) {
+  for (let spent = 0; spent < ms; spent += 250) {
+    await vi.advanceTimersByTimeAsync(250);
+    await new Promise<void>((resolve) => realSetTimeout(resolve, 5));
+  }
+}
+
+/** Until the two tabs are the same. */
+const untilSame = (a: ScoreEditor, b: ScoreEditor) =>
+  until(async () => (await key(a)) === (await key(b)));
 
 /** A host with shared editing and a room, over in-memory links. */
 async function makeHost() {
@@ -118,7 +143,7 @@ async function joinGuest(
   session.start();
   openPair(pair);
   h.acceptor.arrive(pair[0] as GuestLink, { address: "10.0.0.1" });
-  await vi.advanceTimersByTimeAsync(3_000);
+  await until(() => state.edit?.live === true);
   return {
     ...state,
     session,
@@ -145,8 +170,7 @@ describe("shared editing over a real session", () => {
     h.editor.setFret(2);
     g.editor.setCursorTo({ bar: 1, beat: 0 });
     g.editor.setFret(9);
-    await vi.advanceTimersByTimeAsync(300);
-    expect(await key(g.editor)).toBe(await key(h.editor));
+    await untilSame(g.editor, h.editor);
     expect(
       h.editor.score.tracks[0]!.staves[0]!.bars[1]!.voices[0]!.beats[0]!.notes.some(
         (n) => n.fret === 9,
@@ -168,8 +192,8 @@ describe("shared editing over a real session", () => {
       await vi.advanceTimersByTimeAsync(800);
     }
     await vi.advanceTimersByTimeAsync(1_500);
+    await untilSame(g.editor, h.editor);
     expect(offers).toBe(0);
-    expect(await key(g.editor)).toBe(await key(h.editor));
   });
 
   it("a guest that drops and comes back gets what it missed", async () => {
@@ -180,29 +204,26 @@ describe("shared editing over a real session", () => {
     h.editor.insertBar("after");
     await vi.advanceTimersByTimeAsync(300);
     openPair(g.pair);
-    await vi.advanceTimersByTimeAsync(3_000);
-    expect(g.edit.live).toBe(true);
-    expect(await key(g.editor)).toBe(await key(h.editor));
+    await until(() => g.edit.live);
+    await untilSame(g.editor, h.editor);
   });
 
   it("the host's switch stops a guest's edits, and turning it back on lets them in again", async () => {
     const h = await makeHost();
     const g = await joinGuest(h, "ann");
     h.host.setGuestsCanEdit(false);
-    await vi.advanceTimersByTimeAsync(300);
-    expect(g.edit.editable).toBe(false);
+    await until(() => !g.edit.editable);
     h.host.setGuestsCanEdit(true);
-    await vi.advanceTimersByTimeAsync(300);
-    expect(g.edit.editable).toBe(true);
+    await until(() => g.edit.editable);
   });
 
   it("a kicked guest cannot edit any more", async () => {
     const h = await makeHost();
     const g = await joinGuest(h, "ann");
     h.room.kick("ann".padEnd(16, "0"));
-    await vi.advanceTimersByTimeAsync(500);
+    await pass(500);
     g.editor.setFret(12);
-    await vi.advanceTimersByTimeAsync(500);
+    await pass(2_000);
     expect(await key(g.editor)).not.toBe(await key(h.editor));
   });
 
@@ -216,9 +237,8 @@ describe("shared editing over a real session", () => {
     a.editor.setFret(3);
     b.editor.setFret(5);
     h.editor.setFret(7);
-    await vi.advanceTimersByTimeAsync(500);
-    const k = await key(h.editor);
-    expect(await key(a.editor)).toBe(k);
-    expect(await key(b.editor)).toBe(k);
+    await untilSame(a.editor, h.editor);
+    await untilSame(b.editor, h.editor);
+    await untilSame(a.editor, b.editor);
   });
 });
