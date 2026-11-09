@@ -27,8 +27,10 @@ use super::dsp::biquad::{Biquad, Coefficients, FilterKind};
 use super::dsp::eq::Eq;
 use super::mixing::{TrackEq, mix_into, pan_gains};
 
-/// File types the audio track opens. Mirrored by `AUDIO_EXTENSIONS` in `src/lib/tauri.ts`.
-pub const AUDIO_EXTENSIONS: [&str; 7] = ["mp3", "wav", "flac", "ogg", "oga", "aif", "aiff"];
+/// File types the audio lanes open. Mirrored by `AUDIO_EXTENSIONS` in `src/lib/tauri.ts`.
+pub const AUDIO_EXTENSIONS: [&str; 9] = [
+    "mp3", "m4a", "mp4", "wav", "flac", "ogg", "oga", "aif", "aiff",
+];
 /// Longest recording accepted (memory: about 10 MB per stereo minute at 44.1 kHz).
 pub const MAX_SECONDS: f64 = 30.0 * 60.0;
 /// Largest encoded file accepted.
@@ -777,6 +779,20 @@ mod tests {
         assert_eq!(mono.left, mono.right);
         assert_eq!(mono.peaks().len(), 50);
         assert!(mono.peaks().iter().all(|p| *p > 0.2 && *p <= 1.0));
+    }
+
+    #[test]
+    fn decodes_the_m4a_fixture() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../e2e/fixtures/lane-a440.m4a");
+        let audio = decode(std::fs::read(path).unwrap(), Some("m4a")).unwrap();
+        assert!(
+            (audio.duration() - 2.0).abs() < 0.15,
+            "{}",
+            audio.duration()
+        );
+        let middle = &audio.left[audio.rate as usize / 2..audio.rate as usize];
+        let f = frequency(middle, audio.rate as f64);
+        assert!((f - 440.0).abs() < 5.0, "{f} Hz");
     }
 
     #[test]

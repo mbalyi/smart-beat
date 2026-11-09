@@ -149,8 +149,8 @@ export const SCORE_EXTENSIONS = [
   "txt",
 ] as const;
 
-/** Mirrors `AUDIO_EXTENSIONS` in `src-tauri/src/audio/backing.rs`: audio track files. */
-export const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "oga", "aif", "aiff"] as const;
+/** Mirrors `AUDIO_EXTENSIONS` in `src-tauri/src/audio/backing.rs`: audio lane files. */
+export const AUDIO_EXTENSIONS = ["mp3", "m4a", "mp4", "wav", "flac", "ogg", "oga", "aif", "aiff"] as const;
 
 /** Mirrors `WRITE_EXTENSIONS` in `src-tauri/src/score_write.rs`. */
 export const SAVE_EXTENSIONS = [
