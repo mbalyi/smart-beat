@@ -358,7 +358,7 @@ function normalizeSounds(value: TrackSounds | null): TrackSounds | null {
   return { sounds, switches };
 }
 
-function normalizeEq(eq: TrackEq): TrackEq {
+export function normalizeEq(eq: TrackEq): TrackEq {
   const gain = (g: number) => clamp(Number.isFinite(g) ? g : 0, -15, 15);
   const next: TrackEq = {
     lowDb: gain(eq.lowDb),

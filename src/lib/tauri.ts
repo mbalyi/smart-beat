@@ -212,7 +212,7 @@ export interface TrackMix {
 }
 
 /** Mirrors `mixer::VERSION` in `src-tauri/src/mixer.rs`. */
-export const MIXER_SETTINGS_VERSION = 2;
+export const MIXER_SETTINGS_VERSION = 3;
 /** Mirrors `mixer::MIN_VERSION`: older settings files that still load. */
 export const MIXER_SETTINGS_MIN_VERSION = 1;
 
@@ -276,7 +276,17 @@ export interface DrumMixer {
 }
 
 /** Mirrors `BackingFilter` in `src-tauri/src/audio/backing.rs`. */
-export type BackingFilter = "off" | "bassIsolate" | "guitarBand" | "centreCut";
+export type BackingFilter =
+  | "off"
+  | "bassIsolate"
+  | "guitarBand"
+  | "centreCut"
+  | "bassBoost"
+  | "bassCut"
+  | "midBoost"
+  | "midCut"
+  | "highBoost"
+  | "highCut";
 
 /** Mirrors `BackingParams`: how the audio track plays. */
 export interface BackingParams {
@@ -295,6 +305,144 @@ export interface BackingParams {
 export interface SyncPoint {
   bar: number;
   ms: number;
+  /** The beat in the bar (0-based) the point is on; missing: the bar's first beat. */
+  beat?: number;
+}
+
+/** Mirrors `FadeShape` in `src-tauri/src/mixer.rs`: the curve of a clip fade. */
+export type FadeShape = "linear" | "equalPower" | "sCurve";
+
+/** A clip fade: its length and curve. */
+export interface ClipFade {
+  ms: number;
+  shape: FadeShape;
+}
+
+/** A point of a clip's gain envelope: `at` 0…1 along the clip, gain in dB. */
+export interface GainPoint {
+  at: number;
+  db: number;
+}
+
+/** A stretch marker: source time `sourceMs` plays at `clipMs` into the clip. */
+export interface StretchMarker {
+  sourceMs: number;
+  clipMs: number;
+}
+
+/** One recorded pass of a clip (take lanes and comping). */
+export interface AudioTake {
+  name: string;
+  sourceId: string;
+  /** Where the take starts in its source, in ms. */
+  offsetMs: number;
+}
+
+/**
+ * Mirrors `AudioClip`: a piece of a source on a lane. Positions are on the audio timeline, which
+ * the song's sync points map onto the score (so clips follow the speed trainer and stay on the
+ * bar grid).
+ */
+export interface AudioClip {
+  id: string;
+  /** Takes of the clip; `take` is the one heard. A plain clip has one take. */
+  takes: AudioTake[];
+  take: number;
+  /** Where the clip starts on the audio timeline, in ms. */
+  startMs: number;
+  /** How long the clip plays, in ms of source time at playrate 1. */
+  lengthMs: number;
+  gainDb: number;
+  mute: boolean;
+  locked: boolean;
+  reversed: boolean;
+  semitones: number;
+  cents: number;
+  /** Playback speed of the clip (1 = as recorded). */
+  playrate: number;
+  /** A playrate other than 1 keeps the pitch. */
+  preservePitch: boolean;
+  fadeIn: ClipFade;
+  fadeOut: ClipFade;
+  envelope: GainPoint[];
+  stretch: StretchMarker[];
+}
+
+/** Mirrors `AudioSource`: an audio file that clips play. */
+export interface AudioSource {
+  /** The SHA-256 of the file's bytes (hex). */
+  id: string;
+  name: string;
+  /** The file extension, lower case, without the dot. */
+  ext: string;
+  /** Where the file is on disk (when it is not embedded). */
+  path?: string;
+  /** Stored inside the song file, under `SmartBeat/audio/<id>.<ext>`. */
+  embedded: boolean;
+  /** The entry name an old single audio track used (`SmartBeat/audio/<name>`), read until the next save. */
+  legacyEntry?: string;
+}
+
+/** Mirrors `EffectAutomation`: one effect parameter changed along the song. */
+export interface EffectAutomation {
+  /** The effect's place in the lane chain. */
+  slot: number;
+  param: string;
+  points: { tick: number; value: number }[];
+}
+
+/** Mirrors `LaneSend`: part of a lane sent to a bus. */
+export interface LaneSend {
+  bus: string;
+  /** 0 … 1. */
+  level: number;
+}
+
+/** Mirrors `AudioLane`: a lane of audio clips next to the tab tracks. */
+export interface AudioLane extends BackingParams {
+  id: string;
+  name: string;
+  /** A colour chosen by the user, `#rrggbb` (null: the stem colour by position). */
+  color: string | null;
+  /** Clip pitch also follows the song's transposition. */
+  followTransposition: boolean;
+  effects: EffectSlot[];
+  /** Effects stop while the lane is silent. */
+  autoBypass: boolean;
+  automation: EffectAutomation[];
+  sends: LaneSend[];
+  /** The folder lane this lane sits in. */
+  parent?: string;
+  /** A folder lane: no clips of its own; its volume, mute and solo apply to its children. */
+  folder: boolean;
+  collapsed: boolean;
+  /** Edit group: lanes in one group move, split and trim together (0: none). */
+  group: number;
+  clips: AudioClip[];
+}
+
+/** Mirrors `AudioBus`: a bus that lane sends feed (a reverb or delay return). */
+export interface AudioBus {
+  id: string;
+  name: string;
+  volume: number;
+  mute: boolean;
+  effects: EffectSlot[];
+}
+
+/** Ripple editing: moving or deleting a clip moves the later ones. */
+export type RippleMode = "off" | "lane" | "all";
+
+/** The audio side of a song (settings version 3). */
+export interface AudioLanesSettings {
+  lanes: AudioLane[];
+  sources: AudioSource[];
+  buses: AudioBus[];
+  /** Song-wide sync points: bar (0-based) to audio timeline ms. */
+  sync: SyncPoint[];
+  /** The play zone brackets, in bars (end null: the end of the song). */
+  zone: { start: number; end: number | null };
+  ripple: RippleMode;
 }
 
 /** Mirrors `AudioTrack` in `src-tauri/src/mixer.rs`. */
@@ -370,7 +518,10 @@ export interface MixerSettings {
   drumKits?: (string | null)[];
   /** A colour chosen for each track, `#rrggbb` (null: the default one; #83). */
   trackColors?: (string | null)[];
+  /** The old single audio track (settings version 1 and 2): read once and turned into a lane. */
   audioTrack?: AudioTrackSettings;
+  /** Audio lanes, clips and sources (settings version 3). */
+  audio?: AudioLanesSettings;
   /** The monitor track: the audio input, played live. */
   monitor?: MonitorTrackSettings;
   /** Effect chain presets saved with the song. */
