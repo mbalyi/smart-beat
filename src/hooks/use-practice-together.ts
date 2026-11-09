@@ -612,6 +612,8 @@ export function usePracticeTogether({
           },
     ) => {
       const takeOver = target.role === "guest" ? target.takeOver : undefined;
+      // A new session starts: nothing said in an earlier one is kept.
+      inbox.clear();
       const { shared, hooks } = makeHooks();
       const score =
         takeOver?.fingerprint ??
@@ -644,7 +646,18 @@ export function usePracticeTogether({
       setState(session.snapshot);
       if (target.role === "guest") (session as Session).start(target.link);
     },
-    [makeHooks, attach, scoreRef, revisionRef, nameRef, qualityRef, tabs, ownerRef, originFor],
+    [
+      makeHooks,
+      attach,
+      scoreRef,
+      revisionRef,
+      nameRef,
+      qualityRef,
+      tabs,
+      ownerRef,
+      originFor,
+      inbox,
+    ],
   );
 
   /** Claims the live session for this tab (the session moves here, nothing is left or asked again). */

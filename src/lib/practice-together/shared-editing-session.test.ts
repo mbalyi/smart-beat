@@ -220,11 +220,60 @@ describe("shared editing over a real session", () => {
   it("a kicked guest cannot edit any more", async () => {
     const h = await makeHost();
     const g = await joinGuest(h, "ann");
+    const before = await key(h.editor);
     h.room.kick("ann".padEnd(16, "0"));
     await pass(500);
     g.editor.setFret(12);
     await pass(2_000);
-    expect(await key(g.editor)).not.toBe(await key(h.editor));
+    // The host's tab did not change, and it published nothing to anyone.
+    expect(await key(h.editor)).toBe(before);
+    expect(h.host.seq).toBe(0);
+  });
+
+  it("a guest whose app cannot edit together stays out of it and read-only", async () => {
+    const h = await makeHost();
+    const pair = memoryPair({ up: 2, down: 2 });
+    const heard: string[] = [];
+    const old = new Session({
+      role: "guest",
+      transport: pair[1],
+      name: "Old",
+      score: { key: await key(h.editor), bars: h.editor.score.masterBars.length },
+      guest: "old".padEnd(16, "0"),
+      now: () => performance.now() + 5_000,
+      hooks: {
+        prepare: async () => true,
+        schedule: () => () => {},
+        edit: { receive: (body) => void heard.push(body.k) },
+        tab: { receive: async () => null, opened: () => {} },
+      },
+    });
+    // An older app does not say it can edit.
+    (old as unknown as { sendHello(): void }).sendHello = function () {
+      (this as unknown as { send(m: unknown): void }).send({
+        type: "hello",
+        name: "Old",
+        role: "guest",
+        caps: ["transport", "tab"],
+        score: { key: "k", bars: 1 },
+        guest: "old".padEnd(16, "0"),
+      });
+    };
+    old.start();
+    openPair(pair);
+    h.acceptor.arrive(pair[0] as GuestLink, { address: "10.0.0.9" });
+    await pass(3_000);
+    expect(h.room.editSeats()).toEqual([]);
+    expect(heard).toEqual([]);
+    expect(h.host.editors()).toEqual([]);
+    // Its edit messages (it has none to send, but a modified one might) are not heard.
+    const before = await key(h.editor);
+    old.sendEdit({
+      k: "ops",
+      ops: [{ t: "del", u: "m0:t0.s0.v0.b0" }],
+    });
+    await pass(500);
+    expect(await key(h.editor)).toBe(before);
   });
 
   it("holds several guests that all edit", async () => {

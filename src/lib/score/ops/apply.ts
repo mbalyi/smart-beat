@@ -9,7 +9,7 @@
  */
 import { model } from "@coderline/alphatab";
 
-import { assignProps } from "@/lib/score/ops/codec";
+import { assignProps, checkProps } from "@/lib/score/ops/codec";
 import type { IdRegistry, Part } from "@/lib/score/ops/ids";
 import type { Node, Op } from "@/lib/score/ops/types";
 import { newBar, newVoice, placeholderBeats, type Score } from "@/lib/score/model";
@@ -81,11 +81,22 @@ function build(ids: IdRegistry, node: Node): Part {
   return part;
 }
 
-/** Index to insert after the element `anchor` in `list` (0 when `anchor` is null, the end when it is gone). */
-function slotAfter<T>(list: T[], anchor: T | undefined, anchorGiven: boolean): number {
-  if (!anchorGiven) return 0;
-  const at = anchor === undefined ? -1 : list.indexOf(anchor);
-  return at < 0 ? list.length : at + 1;
+/**
+ * Where an insert goes: right after the neighbour `after` (first when the operation names none).
+ * When that neighbour is gone (another player deleted it), right before the neighbour `before`
+ * that was behind it, and at the end when both are gone.
+ */
+function slotAfter<T>(
+  list: T[],
+  after: T | undefined,
+  afterGiven: boolean,
+  before?: T | undefined,
+): number {
+  if (!afterGiven) return 0;
+  const at = after === undefined ? -1 : list.indexOf(after);
+  if (at >= 0) return at + 1;
+  const next = before === undefined ? -1 : list.indexOf(before);
+  return next >= 0 ? next : list.length;
 }
 
 function removeFrom<T>(list: T[], item: T): number {
@@ -94,10 +105,22 @@ function removeFrom<T>(list: T[], item: T): number {
   return at;
 }
 
-/** An empty bar for a staff that has none at this bar line (see `insertBar`). */
-function placeholderBar(masterBar: model.MasterBar, staff: model.Staff): model.Bar {
+/**
+ * An empty bar for a staff that has none at this bar line. Every computer makes it, so its parts
+ * get ids from the bar's id: an edit inside it must name the same beat on all of them.
+ */
+function placeholderBar(
+  ids: IdRegistry,
+  masterBar: model.MasterBar,
+  staff: model.Staff,
+  barId: string,
+): model.Bar {
   const bar = newBar(staff.bars[0] ?? new model.Bar(), masterBar);
   if (bar.voices.length === 0) bar.addVoice(newVoice(placeholderBeats(masterBar, 0)));
+  ids.adopt(bar, barId);
+  bar.voices.forEach((voice, v) =>
+    voice.beats.forEach((beat, i) => ids.adopt(beat, `${barId}.v${v}.b${i}`)),
+  );
   return bar;
 }
 
@@ -106,17 +129,23 @@ function insertBarLine(ids: IdRegistry, score: Score, op: Extract<Op, { t: "ins"
   if (existing instanceof model.MasterBar) deleteBarLine(ids, score, existing);
   const masterBar = build(ids, op.d) as model.MasterBar;
   const anchor = ids.get(op.a);
-  const at = slotAfter(score.masterBars, anchor as model.MasterBar | undefined, op.a !== null);
+  const at = slotAfter(
+    score.masterBars,
+    anchor as model.MasterBar | undefined,
+    op.a !== null,
+    ids.get(op.b) as model.MasterBar | undefined,
+  );
   score.masterBars.splice(at, 0, masterBar);
   masterBar.score = score;
   const bars = new Map((op.d.c ?? []).map((node) => [node.x ?? "", build(ids, node) as model.Bar]));
   for (const track of score.tracks) {
     for (const staff of track.staves) {
       const staffId = ids.uid(staff) ?? "";
-      const bar = bars.get(staffId) ?? placeholderBar(masterBar, staff);
+      const barId = `${op.d.u}:${staffId}`;
+      const bar = bars.get(staffId) ?? placeholderBar(ids, masterBar, staff, barId);
       bar.staff = staff;
       staff.bars.splice(at, 0, bar);
-      ids.adopt(bar, `${op.d.u}:${staffId}`);
+      ids.adopt(bar, barId);
     }
   }
 }
@@ -144,7 +173,7 @@ function insertTrack(ids: IdRegistry, score: Score, op: Extract<Op, { t: "ins" }
     const given = new Map(staff.bars.map((bar) => [ids.uid(bar), bar]));
     staff.bars = score.masterBars.map((masterBar) => {
       const barId = `${ids.uid(masterBar)}:${staffId}`;
-      const bar = given.get(barId) ?? placeholderBar(masterBar, staff);
+      const bar = given.get(barId) ?? placeholderBar(ids, masterBar, staff, barId);
       ids.adopt(bar, barId);
       bar.staff = staff;
       return bar;
@@ -152,7 +181,12 @@ function insertTrack(ids: IdRegistry, score: Score, op: Extract<Op, { t: "ins" }
   }
   const anchor = ids.get(op.a);
   score.tracks.splice(
-    slotAfter(score.tracks, anchor as model.Track | undefined, op.a !== null),
+    slotAfter(
+      score.tracks,
+      anchor as model.Track | undefined,
+      op.a !== null,
+      ids.get(op.b) as model.Track | undefined,
+    ),
     0,
     track,
   );
@@ -162,8 +196,21 @@ function deleteTrack(ids: IdRegistry, score: Score, track: model.Track) {
   if (removeFrom(score.tracks, track) >= 0) ids.forget(track);
 }
 
-/** Applies `ops`; `reset` when one says the tab must be taken again. */
+/** Throws when some property in the node (or inside it) cannot be written. */
+function checkNode(node: Node): void {
+  checkProps(node.p);
+  for (const child of node.c ?? []) checkNode(child);
+}
+
+/**
+ * Applies `ops`; `reset` when one says the tab must be taken again. Throws, before changing
+ * anything, when an operation cannot be applied (malformed data from another computer).
+ */
 export function applyOps(ids: IdRegistry, score: Score, ops: readonly Op[]): ApplyResult {
+  for (const op of ops) {
+    if (op.t === "set") checkProps(op.d);
+    else if (op.t === "ins") checkNode(op.d);
+  }
   for (const op of ops) {
     if (op.t === "reset") return "reset";
     if (op.t === "set") {
@@ -211,10 +258,9 @@ function keepOneBar(ids: IdRegistry, score: Score) {
   score.masterBars.push(masterBar);
   for (const track of score.tracks) {
     for (const staff of track.staves) {
-      const bar = placeholderBar(masterBar, staff);
+      const bar = placeholderBar(ids, masterBar, staff, `m-empty:${ids.uid(staff) ?? ""}`);
       bar.staff = staff;
       staff.bars.push(bar);
-      ids.adopt(bar, `m-empty:${ids.uid(staff) ?? ""}`);
     }
   }
 }
@@ -239,21 +285,36 @@ function insertInner(ids: IdRegistry, op: Extract<Op, { t: "ins" }>) {
   if (op.k === "voice" && parent instanceof model.Bar) {
     (part as model.Voice).bar = parent;
     parent.voices.splice(
-      slotAfter(parent.voices, anchor as model.Voice | undefined, op.a !== null),
+      slotAfter(
+        parent.voices,
+        anchor as model.Voice | undefined,
+        op.a !== null,
+        ids.get(op.b) as model.Voice | undefined,
+      ),
       0,
       part as model.Voice,
     );
   } else if (op.k === "beat" && parent instanceof model.Voice) {
     (part as model.Beat).voice = parent;
     parent.beats.splice(
-      slotAfter(parent.beats, anchor as model.Beat | undefined, op.a !== null),
+      slotAfter(
+        parent.beats,
+        anchor as model.Beat | undefined,
+        op.a !== null,
+        ids.get(op.b) as model.Beat | undefined,
+      ),
       0,
       part as model.Beat,
     );
   } else if (op.k === "note" && parent instanceof model.Beat) {
     (part as model.Note).beat = parent;
     parent.notes.splice(
-      slotAfter(parent.notes, anchor as model.Note | undefined, op.a !== null),
+      slotAfter(
+        parent.notes,
+        anchor as model.Note | undefined,
+        op.a !== null,
+        ids.get(op.b) as model.Note | undefined,
+      ),
       0,
       part as model.Note,
     );

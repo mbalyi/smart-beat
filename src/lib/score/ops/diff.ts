@@ -7,9 +7,11 @@
  * inserted, parts that are gone are deleted, and parts that stayed have their changed properties
  * set. Comparing in both directions also gives the operations that take the edit back.
  *
- * When an edit cannot be described (tracks and bar lines changed together, parts were reordered,
- * a bar the edit changed was not declared), the result is a single `reset`: everyone takes the
- * whole tab again, as they did before shared editing.
+ * When an edit cannot be described (tracks and bar lines changed together, parts were reordered),
+ * the result is a single `reset`: everyone takes the whole tab again, as they did before shared
+ * editing. A bar the edit changed without declaring it among its targets cannot be seen (there
+ * is nothing to compare it with); the editor declares what each command changes for undo, which
+ * this relies on, and the host sending the tab again when copies differ for a while is the net.
  */
 import { model } from "@coderline/alphatab";
 
@@ -130,7 +132,14 @@ function diffList(parent: string, kind: Kind, before: Node[], after: Node[], ops
     // Moved parts: the simplest correct description is to take the old ones out and put the new in.
     for (const node of before) ops.push({ t: "del", u: node.u });
     after.forEach((node, i) =>
-      ops.push({ t: "ins", k: kind, p: parent, a: after[i - 1]?.u ?? null, d: node }),
+      ops.push({
+        t: "ins",
+        k: kind,
+        p: parent,
+        a: after[i - 1]?.u ?? null,
+        b: after[i + 1]?.u ?? null,
+        d: node,
+      }),
     );
     return;
   }
@@ -139,7 +148,14 @@ function diffList(parent: string, kind: Kind, before: Node[], after: Node[], ops
   for (const node of before) if (!inAfter.has(node.u)) ops.push({ t: "del", u: node.u });
   after.forEach((node, i) => {
     if (!inBefore.has(node.u)) {
-      ops.push({ t: "ins", k: kind, p: parent, a: after[i - 1]?.u ?? null, d: node });
+      ops.push({
+        t: "ins",
+        k: kind,
+        p: parent,
+        a: after[i - 1]?.u ?? null,
+        b: after[i + 1]?.u ?? null,
+        d: node,
+      });
     }
   });
   const previous = new Map(before.map((node) => [node.u, node]));
@@ -208,7 +224,14 @@ export function diff(before: State, after: State): Op[] {
       if (inBefore.has(uid)) continue;
       const node = trackNode(after, uid);
       if (!node) return reset;
-      ops.push({ t: "ins", k: "track", p: null, a: after.tracks[i - 1] ?? null, d: node });
+      ops.push({
+        t: "ins",
+        k: "track",
+        p: null,
+        a: after.tracks[i - 1] ?? null,
+        b: after.tracks[i + 1] ?? null,
+        d: node,
+      });
     }
   }
   if (barsChanged) {
@@ -219,7 +242,14 @@ export function diff(before: State, after: State): Op[] {
       if (inBefore.has(uid)) continue;
       const node = barLineNode(after, uid);
       if (!node) return reset;
-      ops.push({ t: "ins", k: "mbar", p: null, a: after.masterBars[i - 1] ?? null, d: node });
+      ops.push({
+        t: "ins",
+        k: "mbar",
+        p: null,
+        a: after.masterBars[i - 1] ?? null,
+        b: after.masterBars[i + 1] ?? null,
+        d: node,
+      });
     }
   }
 

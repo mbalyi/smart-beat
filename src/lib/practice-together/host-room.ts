@@ -502,8 +502,13 @@ export class HostRoom {
       tab: this.hooks.tab,
       approve: (name) => this.approve(seat(), name),
       edit: {
-        receive: (body) => this.editHooks?.receive(seat().id, body),
-        welcomed: () => this.editHooks?.welcomed(seat().id),
+        // Only a guest whose app can edit together is part of it; an older one stays read-only.
+        receive: (body) => {
+          if (seat().session.peerEdits) this.editHooks?.receive(seat().id, body);
+        },
+        welcomed: () => {
+          if (seat().session.peerEdits) this.editHooks?.welcomed(seat().id);
+        },
       },
     };
   }

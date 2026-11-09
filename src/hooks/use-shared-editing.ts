@@ -153,6 +153,8 @@ export function useSharedEditing({
       cancelled = true;
       stopPresence();
       inbox.listen(null);
+      // What this session said is of no use to the next one.
+      inbox.clear();
       editing?.end();
       setGuest(null);
     };

@@ -46,6 +46,7 @@ import {
   type NoteEffectId,
 } from "@/lib/score/effects";
 import { History } from "@/lib/score/history";
+import { Snapshot } from "@/lib/score/snapshot";
 import { keyAlteration } from "@/lib/score/keys";
 import {
   appendMasterBar,
@@ -459,9 +460,12 @@ export class ScoreEditor {
   readonly score: Score;
   private readonly history = new History<HistoryExtra>();
   /** Set while a shared editing session is live: see {@link EditObserver}. */
-  observer: EditObserver | null = null;
-  /** Other players changed the music since it was last saved. */
-  private remoteDirty = false;
+  private _observer: EditObserver | null = null;
+  /** The music changed in a way the history does not show (other players' edits, a session's edits). */
+  private dirty = false;
+  /** In a session: the player's own edits not taken back, and how many there were when saved. */
+  private sharedEdits = 0;
+  private savedShared = 0;
   /**
    * The history state that is on disk (null: the state the song was opened in; undefined:
    * never saved, see `markUnsaved`).
@@ -522,19 +526,19 @@ export class ScoreEditor {
   }
 
   get canUndo() {
-    return this.observer ? this.observer.canUndo : this.history.canUndo;
+    return this._observer ? this._observer.canUndo : this.history.canUndo;
   }
 
   get canRedo() {
-    return this.observer ? this.observer.canRedo : this.history.canRedo;
+    return this._observer ? this._observer.canRedo : this.history.canRedo;
   }
 
   get undoLabel() {
-    return this.observer ? this.observer.undoLabel : this.history.undoLabel;
+    return this._observer ? this._observer.undoLabel : this.history.undoLabel;
   }
 
   get redoLabel() {
-    return this.observer ? this.observer.redoLabel : this.history.redoLabel;
+    return this._observer ? this._observer.redoLabel : this.history.redoLabel;
   }
 
   /**
@@ -542,13 +546,37 @@ export class ScoreEditor {
    * back to that state makes it false again; undoing past a save makes it true.
    */
   get edited(): boolean {
-    return this.history.top !== this.savedAt || this.remoteDirty;
+    return this.history.top !== this.savedAt || this.dirty || this.sharedEdits !== this.savedShared;
   }
 
   /** Marks the current music as saved: `edited` is false until the next change. */
   markSaved() {
     this.savedAt = this.history.top;
-    this.remoteDirty = false;
+    this.savedShared = this.sharedEdits;
+    this.dirty = false;
+    this.emit("cursor");
+  }
+
+  /** Whether a shared editing session is watching this editor. */
+  get observer(): EditObserver | null {
+    return this._observer;
+  }
+
+  /**
+   * A shared editing session starts or stops watching the editor. Undo then works on the
+   * session's own history (or the ordinary one again), so the snapshots recorded before cannot be
+   * restored any more: they would rewind other players' edits. Whether the music has unsaved
+   * changes is kept.
+   */
+  setObserver(observer: EditObserver | null) {
+    if (observer === this._observer) return;
+    const wasEdited = this.edited;
+    this._observer = observer;
+    this.history.clear();
+    this.savedAt = null;
+    this.sharedEdits = 0;
+    this.savedShared = 0;
+    this.dirty = wasEdited;
     this.emit("cursor");
   }
 
@@ -1086,7 +1114,29 @@ export class ScoreEditor {
       cursor: { ...this._cursor },
       selection: this._selection ? { ...this._selection } : null,
     };
-    const token = this.observer?.begin(targets());
+    const observer = this._observer;
+    if (observer) {
+      // In a session the observer keeps the undo history (of this player's edits only): the
+      // snapshots of the ordinary history would rewind other players' edits.
+      const token = observer.begin(targets());
+      const snapshot = Snapshot.of(targets());
+      try {
+        apply();
+      } catch (error) {
+        snapshot.restore();
+        throw error;
+      }
+      this.sharedEdits += 1;
+      this.changed(message);
+      observer.end(token, targets(), label, {
+        before,
+        after: {
+          cursor: { ...this._cursor },
+          selection: this._selection ? { ...this._selection } : null,
+        },
+      });
+      return;
+    }
     this.history.record(label, targets, apply, {
       before,
       after: () => ({
@@ -1095,13 +1145,6 @@ export class ScoreEditor {
       }),
     });
     this.changed(message);
-    this.observer?.end(token, targets(), label, {
-      before,
-      after: {
-        cursor: { ...this._cursor },
-        selection: this._selection ? { ...this._selection } : null,
-      },
-    });
   }
 
   /**
@@ -1109,7 +1152,7 @@ export class ScoreEditor {
    * cursor and selection on the beats they were on, wherever those moved.
    */
   applyRemote(apply: () => void) {
-    const observer = this.observer;
+    const observer = this._observer;
     const ids = (positions: BeatPosition[]) =>
       positions.map((p) => {
         const beat = this.beatAt(p);
@@ -1123,7 +1166,8 @@ export class ScoreEditor {
     apply();
     refinish(this.score);
     this._revision++;
-    this.remoteDirty = true;
+    // Edits replayed to a guest that is still joining are not the guest's unsaved changes.
+    if (observer) this.dirty = true;
     this.pendingDigit = null;
     this.pendingDrum = null;
     const track = trackId ? (observer?.find(trackId) as Track | undefined) : undefined;
@@ -1159,7 +1203,7 @@ export class ScoreEditor {
 
   undo() {
     if (this.blocked?.()) return;
-    if (this.observer) return this.undoShared(this.observer.undo(), "Undo");
+    if (this._observer) return this.undoShared(this._observer.undo(), "Undo");
     const entry = this.history.undo();
     if (!entry) return;
     track("undo");
@@ -1172,7 +1216,7 @@ export class ScoreEditor {
 
   redo() {
     if (this.blocked?.()) return;
-    if (this.observer) return this.undoShared(this.observer.redo(), "Redo");
+    if (this._observer) return this.undoShared(this._observer.redo(), "Redo");
     const entry = this.history.redo();
     if (!entry) return;
     track("redo");
@@ -1186,6 +1230,7 @@ export class ScoreEditor {
   /** The editor's part of an undo or redo done by the shared session (it has changed the model). */
   private undoShared(result: { label: string; view: HistoryExtra } | null, verb: "Undo" | "Redo") {
     if (!result) return;
+    this.sharedEdits += verb === "Undo" ? -1 : 1;
     track(verb === "Undo" ? "undo" : "redo");
     this.pendingDigit = null;
     this.pendingDrum = null;
@@ -1249,8 +1294,9 @@ export class ScoreEditor {
         : null;
     if (fret !== null && fret <= MAX_FRET) {
       // Replace the first digit's edit with the combined fret: one undo step.
-      if (this.observer) this.observer.undo();
-      else this.history.undo();
+      if (this._observer) {
+        if (this._observer.undo()) this.sharedEdits -= 1;
+      } else this.history.undo();
       this.pendingDigit = null;
       this.pendingDrum = null;
       this.setFret(fret);

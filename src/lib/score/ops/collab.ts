@@ -64,11 +64,11 @@ export class EditSync implements EditObserver {
 
   /** Starts watching the editor. */
   attach(): void {
-    this.editor.observer = this;
+    this.editor.setObserver(this);
   }
 
   detach(): void {
-    if (this.editor.observer === this) this.editor.observer = null;
+    if (this.editor.observer === this) this.editor.setObserver(null);
   }
 
   private get score(): Score {

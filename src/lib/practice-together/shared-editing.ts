@@ -22,6 +22,7 @@ import type { RoomEditHooks } from "@/lib/practice-together/host-room";
 import type { ScoreEditor } from "@/lib/score/editor";
 import { EditSync } from "@/lib/score/ops/collab";
 import { explode } from "@/lib/score/ops/explode";
+import { validOps } from "@/lib/score/ops/validate";
 import type { Beat, Track } from "@/lib/score/model";
 import type { Op } from "@/lib/score/ops/types";
 
@@ -60,20 +61,59 @@ export function splitOps(batch: readonly EditOp[]): EditOp[][] | null {
   return parts;
 }
 
-/** Puts the parts of a batch back together as they arrive (they follow each other). */
+/** The most operations held while the parts of one batch arrive. */
+const MAX_PENDING_OPS = 20_000;
+
+/** What `Reassembler.add` found. */
+type Reassembled =
+  /** The whole batch (a batch that came in one piece, or its last piece). */
+  | { status: "done"; ops: EditOp[] }
+  /** More pieces are on their way. */
+  | { status: "more" }
+  /** A piece is missing or out of order, or too much arrived: the batch is dropped. */
+  | { status: "broken" };
+
+/** Puts the parts of a batch back together as they arrive (they follow each other, in order). */
 class Reassembler {
   private parts: EditOp[] = [];
+  /** The index of the piece expected next; -1 when no batch is being received. */
+  private next = -1;
+  private total = 0;
 
-  /** The whole batch once its last part arrived; null while parts are missing. */
-  add(ops: EditOp[], part: [number, number] | undefined): EditOp[] | null {
-    if (!part || part[1] <= 1) return ops;
+  add(ops: EditOp[], part: [number, number] | undefined): Reassembled {
+    if (!part || part[1] <= 1) {
+      // A single piece in the middle of a batch means pieces were lost.
+      const lost = this.next !== -1;
+      this.reset();
+      return lost ? { status: "broken" } : { status: "done", ops };
+    }
     const [index, total] = part;
-    if (index === 0) this.parts = [];
+    if (index >= total || (index === 0 ? false : index !== this.next || total !== this.total)) {
+      this.reset();
+      return { status: "broken" };
+    }
+    if (index === 0) {
+      this.parts = [];
+      this.total = total;
+    }
     this.parts.push(...ops);
-    if (index < total - 1) return null;
+    if (this.parts.length > MAX_PENDING_OPS) {
+      this.reset();
+      return { status: "broken" };
+    }
+    if (index < total - 1) {
+      this.next = index + 1;
+      return { status: "more" };
+    }
     const whole = this.parts;
+    this.reset();
+    return { status: "done", ops: whole };
+  }
+
+  reset() {
     this.parts = [];
-    return whole;
+    this.next = -1;
+    this.total = 0;
   }
 }
 
@@ -197,6 +237,8 @@ export class HostEditing implements RoomEditHooks {
     clearTimeout(this.presenceTimer);
     this.sync.detach();
     for (const { id } of this.link.seats()) this.link.setLive(id, false);
+    // A guest being served right now must not be told it is live by an instance that has ended.
+    this.seats.clear();
   }
 
   /** Whether guests may edit (on unless the host turned it off). */
@@ -206,6 +248,7 @@ export class HostEditing implements RoomEditHooks {
 
   /** The host turns editing for guests on or off. A guest that may not edit follows the host's tab. */
   setGuestsCanEdit(on: boolean): void {
+    if (on === this.canEditByDefault) return;
     this.canEditByDefault = on;
     for (const [id, seat] of this.seats) {
       seat.canEdit = on;
@@ -248,7 +291,7 @@ export class HostEditing implements RoomEditHooks {
     };
     this.seats.set(id, seat);
     this.link.setLive(id, false);
-    this.link.send(id, { k: "rights", canEdit: seat.canEdit });
+    this.link.send(id, { k: "rights", canEdit: seat.canEdit, hello: true });
     this.options.changed?.();
   }
 
@@ -276,16 +319,28 @@ export class HostEditing implements RoomEditHooks {
   }
 
   private onOps(id: string, seat: Seat, body: Extract<EditBody, { k: "ops" }>) {
-    const ops = seat.incoming.add(body.ops, body.part);
-    if (!ops) return;
-    // A guest that may not edit (the host turned it off, or it has not got the tab yet) is told.
+    // A guest that may not edit (the host turned it off, or it has not got the tab yet) is told,
+    // and what it already did is undone for it: it gets the tab again.
     if (!seat.live || !seat.canEdit) {
+      seat.incoming.reset();
       this.link.send(id, { k: "rights", canEdit: seat.canEdit });
-      if (!seat.live) this.resyncSeat(id, seat);
-      return;
+      return this.resyncSeat(id, seat);
     }
-    if (this.sync.receive(ops as Op[], false) === "reset") return this.resyncAll();
-    this.publish(id, ops);
+    const found = seat.incoming.add(body.ops, body.part);
+    if (found.status === "more") return;
+    if (found.status === "broken") return this.resyncSeat(id, seat);
+    // What a guest sends is checked before it touches the host's tab: a modified app could send
+    // anything, and an edit that fails half way would leave the host's tab changed and unshared.
+    const ops = validOps(found.ops);
+    if (!ops) return this.resyncSeat(id, seat);
+    let result: ReturnType<EditSync["receive"]>;
+    try {
+      result = this.sync.receive(ops, false);
+    } catch {
+      return this.resyncAll();
+    }
+    if (result === "reset") return this.resyncAll();
+    this.publish(id, ops as EditOp[]);
   }
 
   private onPresence(id: string, seat: Seat, cur: Presence | null) {
@@ -356,14 +411,15 @@ export class HostEditing implements RoomEditHooks {
       // A guest that already had this tab (no file was sent): it must be the tab as it is now.
       const seqNow = this.seq;
       const key = await this.options.currentKey();
-      if (key === since.key && seqNow === this.seq && this.seats.get(id) === seat) {
+      if (!this.ended && key === since.key && seqNow === this.seq && this.seats.get(id) === seat) {
         pairs = this.sync.ids.differences(this.editor.score);
         from = this.seq;
       }
     }
-    if (!pairs || !this.covers(from) || this.seats.get(id) !== seat) {
-      return this.resyncSeat(id, seat);
-    }
+    // This instance ended (the host moved to another tab) while the guest was being served: the
+    // new instance serves it.
+    if (this.ended || this.seats.get(id) !== seat) return;
+    if (!pairs || !this.covers(from)) return this.resyncSeat(id, seat);
     for (let i = 0; i < pairs.length; i += PAIRS_PER_MESSAGE) {
       this.link.send(id, {
         k: "uids",
@@ -457,6 +513,8 @@ export class GuestEditing {
   private _canEdit = false;
   /** The host's first word is its rights: that is the cue to say what this guest has. */
   private awaiting = true;
+  /** The line dropped and this guest asked for what it missed: edits ahead of the gap wait for it. */
+  private resuming = false;
   private lastSeq: number;
   private readonly incoming = new Reassembler();
   private sentId = 0;
@@ -543,16 +601,14 @@ export class GuestEditing {
     if (this.ended) return;
     switch (body.k) {
       case "rights": {
-        const was = this._canEdit;
         this._canEdit = body.canEdit;
         if (this.awaiting) {
           this.awaiting = false;
           this.link.send({ k: "since", seq: this.options.seq, key: this.options.key });
-          this.notify();
-          return;
+        } else if (this._live && body.hello) {
+          // The host says hello again when this guest comes back: what was missed is asked for.
+          this.comeBack();
         }
-        // The host says it again when this guest comes back: what was missed is asked for.
-        if (this._live && was === body.canEdit) this.comeBack();
         this.notify();
         return;
       }
@@ -560,16 +616,25 @@ export class GuestEditing {
         this.sync.ids.rename(this.editor.score, body.pairs);
         return;
       case "ops": {
-        const ops = this.incoming.add(body.ops, body.part);
-        if (!ops) return;
-        if (body.seq !== undefined) this.lastSeq = body.seq;
+        const found = this.incoming.add(body.ops, body.part);
+        if (found.status === "more") return;
+        // A piece went missing: ask for what was missed.
+        if (found.status === "broken") return this.comeBack();
+        // The host numbers its edits one by one: one already applied is skipped, and a gap means
+        // a frame was lost, so what came after it waits until the gap is filled.
+        if (body.seq !== undefined) {
+          if (body.seq <= this.lastSeq) return;
+          if (body.seq > this.lastSeq + 1) return this.comeBack();
+          this.lastSeq = body.seq;
+        }
         // The host's order is final: the echo of this guest's own edit puts it back in place.
-        const result = this.sync.receive(ops as Op[], body.from === this.options.guest);
+        const result = this.sync.receive(found.ops as Op[], body.from === this.options.guest);
         if (result === "reset") this.link.send({ k: "resync" });
         return;
       }
       case "live":
         this.lastSeq = body.seq;
+        this.resuming = false;
         if (!this._live) {
           this.sync.attach();
           this._live = true;
@@ -594,10 +659,15 @@ export class GuestEditing {
     }
   }
 
-  /** The line dropped and came back: ask for the edits missed while it was down. */
+  /** The line dropped and came back, or an edit went missing: ask for what was missed. */
   private comeBack() {
+    // Asked already: the answer replays everything after the gap, once.
+    if (this.resuming) return;
+    this.resuming = true;
     this._live = false;
+    this.incoming.reset();
     this.link.send({ k: "since", seq: this.lastSeq, resume: true });
+    this.notify();
   }
 
   /** This guest's own cursor moved (call on every change; it is sent a few times a second). */

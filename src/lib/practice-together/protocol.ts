@@ -129,7 +129,12 @@ export type EditBody =
       part?: [number, number];
     }
   /** Host to guest: whether this guest may edit. */
-  | { k: "rights"; canEdit: boolean }
+  | {
+      k: "rights";
+      canEdit: boolean;
+      /** Said when the guest is let in or comes back (not when the host flips the switch). */
+      hello?: boolean;
+    }
   /** Guest to host: "I have the tab as of edit `seq`; send me what came after." */
   | { k: "since"; seq: number; key?: string; resume?: boolean }
   /** Host to guest: the ids of parts that differ from the ones the file gives (see `IdRegistry`). */
@@ -224,7 +229,9 @@ function validEdit(b: unknown): b is EditBody {
             b.part.every((n) => isNumber(n) && Number.isInteger(n) && n >= 0 && n <= 1000)))
       );
     case "rights":
-      return typeof b.canEdit === "boolean";
+      return (
+        typeof b.canEdit === "boolean" && (b.hello === undefined || typeof b.hello === "boolean")
+      );
     case "since":
       return (
         isNumber(b.seq) &&

@@ -6,7 +6,7 @@ Release notes for every version. The release workflow publishes the section that
 
 ### New: edit the tab together (Practice together)
 
-- Everyone in a Practice together session can edit the same tab at the same time, and each change shows up on the other computers within a moment, in both directions. Two people can edit the same bar, even the same beat, without losing anything.
+- Everyone in a Practice together session can edit the same tab at the same time, and each change shows up on the other computers within a moment, in both directions. Two people can edit the same bar, and two people changing different notes of the same beat both keep their change.
 - You see where the others are: each player's cursor and selection on the tab, with their name and colour.
 - Undo and Redo only take back your own edits, not the other players'.
 - Playback is not disturbed: an edit during playback does not move the shared clock or restart the song, and the host's metronome, count-in and speed stay as they are.

@@ -32,8 +32,11 @@ export interface Node {
 }
 
 export type Op =
-  /** Inserts `d` into the list `k` of the parent `p`, right after the sibling `a` (null: first). */
-  | { t: "ins"; k: Kind; p: string | null; a: string | null; d: Node }
+  /**
+   * Inserts `d` into the list `k` of the parent `p`, right after the sibling `a` (null: first).
+   * When `a` is gone by then, right before the sibling `b` that followed it (null: at the end).
+   */
+  | { t: "ins"; k: Kind; p: string | null; a: string | null; b?: string | null; d: Node }
   /** Deletes an element and everything inside it. */
   | { t: "del"; u: string }
   /** Sets some of an element's properties. */

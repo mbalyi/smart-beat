@@ -88,7 +88,7 @@ The score fingerprint is the SHA-256 of the alphaTex text of the open score, edi
 
 ## Sharing the tab
 
-Both players play the same tab, so the host sends its own to a guest that has another version (or none), and again after every edit.
+Everyone in the session plays the same tab, so the host sends its own to a guest that has another version (or none). While players edit together (see "Editing together") it is not sent again after every edit; for a guest that cannot edit together it is, a moment after the last edit.
 
 - **What travels.** The open score as a Guitar Pro file (the format Smart Beat saves), cut into 8 KiB pieces and sent as base64 in `tab-chunk` frames. Gzip would shrink it, but a tab is some tens of kilobytes and the pieces fit any transport, so it is not worth the code. Over 12 MiB the host refuses to send it and says so.
 - **Pace.** The host sends 12 pieces, then one more for every piece the guest has acknowledged. The guest acknowledges every fourth piece and the last. `Session.state.transfer` carries the progress for the dialog ("Getting the tab from the host…" on the guest, "Sending the tab…" on the host).
@@ -257,4 +257,4 @@ Everyone in the session can edit the tab in play at the same time. A change show
 
 **Playback.** Edits from other players go through the same path as the player's own: the sound is rebuilt after playback stops (the player already defers it), and nothing touches the shared clock, the position or the practice settings. Messages are split to fit a frame (16 K characters); a big paste is cut into small operations first.
 
-**Limits.** Live editing is for the tab in play. Other tabs in the session are sent when the host moves to them. Moving or reordering tracks, and an edit that changes tracks and bar lines at once, send the whole tab again. Two players who set the same value at the same moment: the host's order wins, so one of the two changes is replaced.
+**Limits.** Live editing is for the tab in play. Other tabs in the session are sent when the host moves to them. Moving or reordering tracks, and an edit that changes tracks and bar lines at once, send the whole tab again. Two players who set the same value at the same moment: the host's order wins, so one of the two changes is replaced. Some edits change other bars as a side effect (deleting the first bar moves the instrument change to the next one); in a long run of random edits by three players, a few in a hundred ended with a difference of that kind. The check for copies that differ for six seconds sends the tab again then (at most three times).

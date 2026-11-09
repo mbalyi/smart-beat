@@ -76,6 +76,8 @@ function setup() {
   }
 
   return {
+    /** What the guests said that the host has not heard yet. */
+    takeUpstream: () => toHost.splice(0),
     host,
     hostEditor,
     guests,
@@ -194,10 +196,26 @@ describe("shared editing: rights", () => {
     const t = setup();
     const g = t.join("g1");
     await t.settle();
+    const before = (await scoreFingerprint(t.hostEditor.score)).key;
     t.host.left("g1");
     g.editor.setFret(6);
     await t.settle();
-    expect(dumpOf(t.hostEditor, t.host.sync.ids)).not.toContain('"fret":6');
+    // The host's tab is what it was, and nothing was published to anyone.
+    expect((await scoreFingerprint(t.hostEditor.score)).key).toBe(before);
+    expect(t.host.seq).toBe(0);
+  });
+
+  it("an edit already on its way when the guest is kicked is not applied", async () => {
+    const t = setup();
+    const g = t.join("g1");
+    await t.settle();
+    const before = (await scoreFingerprint(t.hostEditor.score)).key;
+    g.editor.setFret(6);
+    // The host removes the guest before the edit reaches it.
+    t.host.left("g1");
+    await t.settle();
+    expect((await scoreFingerprint(t.hostEditor.score)).key).toBe(before);
+    expect(t.host.seq).toBe(0);
   });
 });
 
@@ -288,5 +306,181 @@ describe("shared editing: big batches and the inbox", () => {
     inbox.listen((body) => heard.push(body.k));
     inbox.push({ k: "resync" });
     expect(heard).toEqual(["live", "rights", "resync"]);
+  });
+});
+
+describe("shared editing: what the host does not trust", () => {
+  it("ignores operations that are not well formed, and gives the guest the tab again", async () => {
+    const t = setup();
+    const g = t.join("g1");
+    await t.settle();
+    const before = (await scoreFingerprint(t.hostEditor.score)).key;
+    const hostile: EditBody[] = [
+      { k: "ops", ops: [{ t: "ins", k: "beat", p: "m0:t0.s0.v0", a: null }] },
+      { k: "ops", ops: [{ t: "set", u: "m0:t0.s0.v0.b0" }] },
+      {
+        k: "ops",
+        ops: [JSON.parse('{"t":"set","u":"m0:t0.s0.v0.b0.n0","d":{"__proto__":{"x":1}}}')],
+      },
+      {
+        k: "ops",
+        ops: [
+          {
+            t: "ins",
+            k: "track",
+            p: null,
+            a: null,
+            d: { u: "t9", k: "track", p: {}, c: [{ u: "b", k: "beat", p: {} }] },
+          },
+        ],
+      },
+    ];
+    for (const body of hostile) {
+      t.reshared.length = 0;
+      expect(() => t.host.receive("g1", body)).not.toThrow();
+      expect(t.reshared).toContain("g1");
+      // The guest takes the tab again, as it would from the app.
+      t.host.receive("g1", { k: "since", seq: t.host.snapshot().seq, key: "k" });
+      await t.settle();
+      expect(g.edit.live).toBe(true);
+    }
+    expect((await scoreFingerprint(t.hostEditor.score)).key).toBe(before);
+    expect(({} as Record<string, unknown>).x).toBeUndefined();
+    expect(t.host.seq).toBe(0);
+  });
+
+  it("an operation that fails while it is applied leaves the others with a fresh tab, not half an edit", async () => {
+    const t = setup();
+    const g = t.join("g1");
+    await t.settle();
+    t.reshared.length = 0;
+    // Well formed, but its property cannot be written (a part of the score as a nested object).
+    t.host.receive("g1", {
+      k: "ops",
+      ops: [{ t: "set", u: "m0:t0.s0.v0.b0", d: { duration: { $c: "Track", p: {} } } }],
+    });
+    expect(t.reshared).toContain("g1");
+    expect(t.host.seq).toBe(0);
+    void g;
+  });
+
+  it("a guest that sends parts out of order or without a start is given the tab again", async () => {
+    const t = setup();
+    t.join("g1");
+    await t.settle();
+    const op = { t: "del", u: "nothing" };
+    t.reshared.length = 0;
+    t.host.receive("g1", { k: "ops", ops: [op], part: [1, 3] });
+    expect(t.reshared).toContain("g1");
+    await t.settle();
+    t.reshared.length = 0;
+    t.host.receive("g1", { k: "ops", ops: [op], part: [5, 3] });
+    expect(t.reshared).toContain("g1");
+  });
+
+  it("does not hold on to parts without end", async () => {
+    const t = setup();
+    const g = t.join("g1");
+    await t.settle();
+    const many = Array.from({ length: 4000 }, () => ({ t: "del", u: "nothing" }));
+    t.reshared.length = 0;
+    t.host.receive("g1", { k: "ops", ops: many, part: [0, 100] });
+    for (let i = 1; i < 10 && t.reshared.length === 0; i += 1) {
+      t.host.receive("g1", { k: "ops", ops: many, part: [i, 100] });
+    }
+    expect(t.reshared).toContain("g1");
+    void g;
+  });
+
+  it("a guest whose rights are taken away while its edit is on its way gets the host's tab", async () => {
+    const t = setup();
+    const g = t.join("g1");
+    await t.settle();
+    const before = (await scoreFingerprint(t.hostEditor.score)).key;
+    // The guest edits; before that reaches the host, the host turns editing off.
+    g.editor.setFret(11);
+    t.host.setGuestsCanEdit(false);
+    t.reshared.length = 0;
+    await t.settle();
+    expect((await scoreFingerprint(t.hostEditor.score)).key).toBe(before);
+    expect(t.reshared).toContain("g1");
+  });
+
+  it("an ended host editing does not serve a guest that was being served", async () => {
+    const t = setup();
+    t.setKey("slow");
+    const first = t.join("g1", { file: false, key: "slow" });
+    // The guest's "since" is being served (it awaits the host's key) when the host moves to
+    // another tab.
+    for (const item of t.takeUpstream()) t.host.receive(item.id, item.body);
+    t.host.end();
+    await t.settle();
+    expect(first.edit.live).toBe(false);
+    expect(t.lives.get("g1")).not.toBe(true);
+  });
+});
+
+describe("shared editing: the order of the host's edits", () => {
+  it("skips an edit it already applied and asks for what it missed after a gap", async () => {
+    const t = setup();
+    const g = t.join("g1");
+    await t.settle();
+    const sent: EditBody[] = [];
+    const original = t.host.sync;
+    void original;
+    t.hostEditor.setFret(2);
+    t.hostEditor.setFret(3);
+    const queued = t.toGuest.get("g1")!.filter((b) => b.k === "ops");
+    expect(queued.length).toBe(2);
+    // The second arrives first (the first was lost): a gap, so the guest asks for the missed ones.
+    const [first, second] = queued as Extract<EditBody, { k: "ops" }>[];
+    t.toGuest.get("g1")!.length = 0;
+    g.edit.receive(second!);
+    const asked = t.takeUpstream();
+    expect(
+      asked.some((item) => item.body.k === "since" && (item.body as { resume?: boolean }).resume),
+    ).toBe(true);
+    for (const item of asked) t.host.receive(item.id, item.body);
+    await t.settle();
+    await sameTab(t.hostEditor, g.editor);
+    // The same edit again (a replay) changes nothing.
+    const before = (await scoreFingerprint(g.editor.score)).key;
+    g.edit.receive(first!);
+    g.edit.receive(second!);
+    expect((await scoreFingerprint(g.editor.score)).key).toBe(before);
+    void sent;
+  });
+
+  it("does not take a switch on or off for a come-back", async () => {
+    const t = setup();
+    const g = t.join("g1");
+    await t.settle();
+    t.host.setGuestsCanEdit(false);
+    await t.settle();
+    t.host.setGuestsCanEdit(false);
+    t.host.setGuestsCanEdit(true);
+    const upstream = t.takeUpstream();
+    expect(upstream.some((item) => item.body.k === "since")).toBe(false);
+    await t.settle();
+    expect(g.edit.editable).toBe(true);
+  });
+
+  it("a guest more than the log behind gets the tab, not the edits", async () => {
+    const t = setup();
+    const g = t.join("g1");
+    await t.settle();
+    // The guest is away for more edits than the host keeps.
+    t.toGuest.get("g1")!.length = 0;
+    for (let i = 0; i < 405; i += 1) {
+      t.hostEditor.setCursorTo({ bar: i % 4, beat: 0 });
+      t.hostEditor.setFret((i % 20) + 1);
+    }
+    t.toGuest.get("g1")!.length = 0;
+    t.reshared.length = 0;
+    t.host.welcomed("g1");
+    await t.settle();
+    expect(t.reshared).toContain("g1");
+    // It waits for the tab; it is not live on edits it cannot be brought up to date with.
+    expect(g.edit.live).toBe(false);
   });
 });

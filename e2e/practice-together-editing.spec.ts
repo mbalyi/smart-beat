@@ -100,6 +100,18 @@ async function hostWithEditingGuest(app: Page): Promise<{ dialog: Locator }> {
   return { dialog };
 }
 
+/**
+ * Waits until everything the page was sent before has been handled and drawn, by making an edit
+ * of the host's own and waiting for it: so that "this did not change the tab" is checked after
+ * the frames had every chance to, not after a guess of how long that takes.
+ */
+async function afterEverythingSent(app: Page) {
+  await emitMenuAction(app, "toggle-edit-mode");
+  await expect(scoreRegion(app)).toBeFocused();
+  await app.keyboard.press("Delete");
+  await expect(app.getByRole("button", { name: "Undo" })).toBeEnabled();
+}
+
 const closeDialog = (app: Page) =>
   app.getByRole("button", { name: "Close", exact: true }).last().click();
 
@@ -131,7 +143,8 @@ test.describe("Practice together: editing the tab together", () => {
     await expect.poll(async () => (await edits(app)).filter((e) => e.k === "ops").length).toBe(1);
     const ops = (await edits(app)).find((e) => e.k === "ops")!;
     expect(ops).toMatchObject({ from: "host", seq: 1 });
-    // Editing does not send the tab again.
+    // Editing does not send the tab again: the tab is sent a moment (600 ms) after an edit when
+    // the two tabs differ, so this waits past that.
     await app.waitForTimeout(1500);
     expect(await app.evaluate(() => window.__practiceTogether.sentOf("tab-offer").length)).toBe(0);
   });
@@ -183,9 +196,12 @@ test.describe("Practice together: editing the tab together", () => {
 
     await closeDialog(app);
     await guestSays(app, noteOp(11));
-    await app.waitForTimeout(500);
+    await afterEverythingSent(app);
     expect(await tabNumbers(app)).not.toContain("11");
-    expect((await edits(app)).filter((e) => e.k === "ops")).toHaveLength(0);
+    // The host did not publish the guest's edit. (Its own Delete goes to nobody: the guest is
+    // being sent the tab again instead.)
+    expect((await edits(app)).filter((e) => e.k === "ops" && e.from === GUEST)).toHaveLength(0);
+    expect(await app.evaluate(() => window.__practiceTogether.sentOf("tab-offer").length)).toBe(1);
   });
 
   test("a guest that is removed has no edit access any more", async ({ app }) => {
@@ -198,7 +214,7 @@ test.describe("Practice together: editing the tab together", () => {
     await expect.poll(() => app.evaluate(() => window.__practiceTogether.kicked.length)).toBe(1);
     await closeDialog(app);
     await guestSays(app, noteOp(10));
-    await app.waitForTimeout(500);
+    await afterEverythingSent(app);
     expect(await tabNumbers(app)).not.toContain("10");
   });
 

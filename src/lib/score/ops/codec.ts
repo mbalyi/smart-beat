@@ -9,6 +9,7 @@
 import { model } from "@coderline/alphatab";
 
 import { PERSONAL, type Json, type Props } from "@/lib/score/ops/types";
+import { FORBIDDEN_KEYS } from "@/lib/score/ops/validate";
 
 const MODEL_TYPES: (new (...args: never[]) => object)[] = [
   model.Score,
@@ -106,28 +107,83 @@ function encode(value: unknown, path: Set<object>): Json | typeof SKIP {
   }
 }
 
-function decode(value: Json): unknown {
+/** An operation that cannot be a real one: it is refused as a whole (see `validOps`). */
+class BadEdit extends Error {}
+
+/** Properties a peer may not set: links between parts, lists of parts and what alphaTab derives. */
+const NOT_SETTABLE: ReadonlySet<string> = new Set([
+  ...FORBIDDEN_KEYS,
+  ...DERIVED,
+  "score",
+  "masterBar",
+  "track",
+  "staff",
+  "bar",
+  "voice",
+  "beat",
+  "note",
+  "staves",
+  "bars",
+  "voices",
+  "beats",
+  "notes",
+  "previousBeat",
+  "nextBeat",
+  "previousBar",
+  "nextBar",
+  "previousMasterBar",
+  "nextMasterBar",
+  "tupletGroup",
+  "graceGroup",
+]);
+
+/** Classes that are parts of the score: only a part's own data travels, never a part. */
+const PART_CLASS_NAMES: ReadonlySet<string> = new Set(
+  MODEL_TYPES.map((Type) => CLASS_NAMES.get(Type) ?? ""),
+);
+
+const MAX_DEPTH = 40;
+
+function decode(value: Json, depth = 0): unknown {
   if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(decode);
+  if (depth > MAX_DEPTH) throw new BadEdit();
+  if (Array.isArray(value)) return value.map((item) => decode(item, depth + 1));
   const tagged = value as {
     $u?: 1;
     $n?: string;
-    $m?: [unknown, Json][];
-    $s?: Json[];
+    $m?: unknown;
+    $s?: unknown;
     $c?: string;
     p?: Props;
   };
   if (tagged.$u) return undefined;
   if (tagged.$n !== undefined) return Number(tagged.$n);
-  if (tagged.$m) return new Map(tagged.$m.map(([key, item]) => [key, decode(item as Json)]));
-  if (tagged.$s) return new Set(tagged.$s.map(decode));
+  if (tagged.$m !== undefined) {
+    if (!Array.isArray(tagged.$m)) throw new BadEdit();
+    return new Map(
+      tagged.$m.map((entry) => {
+        if (!Array.isArray(entry) || entry.length !== 2) throw new BadEdit();
+        return [entry[0], decode(entry[1] as Json, depth + 1)];
+      }),
+    );
+  }
+  if (tagged.$s !== undefined) {
+    if (!Array.isArray(tagged.$s)) throw new BadEdit();
+    return new Set(tagged.$s.map((item) => decode(item as Json, depth + 1)));
+  }
   if (tagged.$c === undefined) return value;
+  const known =
+    tagged.$c === "Object" || (CLASSES.has(tagged.$c) && !PART_CLASS_NAMES.has(tagged.$c));
+  if (!known || (tagged.p !== undefined && (typeof tagged.p !== "object" || tagged.p === null))) {
+    throw new BadEdit();
+  }
   const target =
     tagged.$c === "Object"
       ? {}
       : Object.create(CLASSES.get(tagged.$c)?.prototype ?? Object.prototype);
   for (const [key, item] of Object.entries(tagged.p ?? {})) {
-    (target as Record<string, unknown>)[key] = decode(item);
+    if (FORBIDDEN_KEYS.has(key)) throw new BadEdit();
+    (target as Record<string, unknown>)[key] = decode(item, depth + 1);
   }
   return target;
 }
@@ -164,10 +220,19 @@ export function encodeProps(element: object): Props {
   return props;
 }
 
+/** Throws when `props` cannot be written onto an element (so nothing is changed half way). */
+export function checkProps(props: Props): void {
+  for (const [key, encoded] of Object.entries(props)) {
+    if (!NOT_SETTABLE.has(key)) decode(encoded);
+  }
+}
+
 /** Writes encoded properties onto an element. Nested objects of the same class are updated in place. */
 export function assignProps(element: object, props: Props): void {
   const record = element as Record<string, unknown>;
   for (const [key, encoded] of Object.entries(props)) {
+    // Links, lists of parts and derived values are never taken from another computer.
+    if (NOT_SETTABLE.has(key)) continue;
     const value = decode(encoded);
     const current = record[key];
     if (
@@ -191,8 +256,9 @@ export function assignProps(element: object, props: Props): void {
 export function changedProps(before: Props, after: Props): Props | null {
   const changed: Props = {};
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    const a = JSON.stringify(before[key] ?? UNDEFINED);
-    const b = JSON.stringify(after[key] ?? UNDEFINED);
+    // A property that is `null` is not the same as one that is not there.
+    const a = JSON.stringify(key in before ? before[key] : UNDEFINED);
+    const b = JSON.stringify(key in after ? after[key] : UNDEFINED);
     if (a !== b) changed[key] = key in after ? after[key] : UNDEFINED;
   }
   return Object.keys(changed).length > 0 ? changed : null;
