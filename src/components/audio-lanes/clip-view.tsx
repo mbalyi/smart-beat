@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
+import { clipPeaks } from "@/lib/audio-lanes/peaks";
 import { waveformPath } from "@/lib/stems/waveform";
 import type { AudioClip, SourceInfo } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -9,21 +10,6 @@ import { cn } from "@/lib/utils";
 const DRAG_PX = 3;
 /** Width of the trim handles at each edge of a clip. */
 const EDGE_PX = 6;
-
-/** The peaks of the part of a source a clip plays (reversed for a reversed clip). */
-export function clipPeaks(clip: AudioClip, info: SourceInfo | undefined): number[] {
-  if (!info) return [];
-  const take = activeTake(clip);
-  const per = info.peaksPerSecond / 1000;
-  const total = info.peaks.length;
-  const from = Math.max(0, Math.floor(take.offsetMs * per));
-  const to = Math.min(total, Math.ceil((take.offsetMs + clip.lengthMs) * per));
-  const slice = clip.reversed
-    ? info.peaks.slice(Math.max(0, total - to), Math.max(0, total - from)).reverse()
-    : info.peaks.slice(from, to);
-  const gain = 10 ** (clip.gainDb / 20);
-  return gain === 1 ? slice : slice.map((p) => Math.min(1, p * gain));
-}
 
 export type ClipDrag =
   | { kind: "move"; clipId: string; startMs: number; laneId: string | null }

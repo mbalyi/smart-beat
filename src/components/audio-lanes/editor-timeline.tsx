@@ -232,6 +232,7 @@ export function EditorTimeline({
       </div>
       {/* Clips over the beat grid. Cmd-drag on empty space slides the audio (padding). */}
       <div
+        role="presentation"
         className="relative h-28"
         data-lane-id={lane.id}
         data-ms-per-px={1000 / pxPerSecond}

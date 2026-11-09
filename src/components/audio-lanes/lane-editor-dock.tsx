@@ -9,7 +9,7 @@ import {
   ZoomInIcon,
   ZoomOutIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { EditorTimeline } from "@/components/audio-lanes/editor-timeline";
 import { EqPopover } from "@/components/audio/eq-popover";
@@ -101,10 +101,12 @@ export function LaneEditorDock({
   const zoomBy = (factor: number) =>
     setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * factor)));
 
-  // Follows the playhead while playing, until the user scrolls by hand.
-  useEffect(() => {
+  // Follows the playhead while playing, until the user scrolls by hand; a new play follows again.
+  const [wasPlaying, setWasPlaying] = useState(playing);
+  if (wasPlaying !== playing) {
+    setWasPlaying(playing);
     if (!playing) setByHand(false);
-  }, [playing]);
+  }
 
   return (
     <section
@@ -119,15 +121,10 @@ export function LaneEditorDock({
         }
       }}
     >
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize the lane editor"
-        aria-valuenow={height}
-        aria-valuemin={MIN_HEIGHT}
-        aria-valuemax={MAX_HEIGHT}
-        tabIndex={0}
-        className="h-1.5 cursor-ns-resize bg-muted outline-none focus-visible:bg-primary/40"
+      <button
+        type="button"
+        aria-label={`Resize the lane editor (${height} px): drag, or use the up and down arrows`}
+        className="h-1.5 w-full shrink-0 cursor-ns-resize bg-muted outline-none focus-visible:bg-primary/40"
         onPointerDown={(e) => {
           const startY = e.clientY;
           const startH = height;

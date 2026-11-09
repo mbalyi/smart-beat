@@ -230,12 +230,12 @@ function RecordAudioForm({
           )}
         </fieldset>
         <section className="grid gap-3 sm:grid-cols-2">
-          <label className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3 text-sm font-semibold">
+          <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3 text-sm font-semibold">
             <span className="flex items-center gap-2">
               <TimerIcon className="size-4" aria-hidden="true" /> Count-in
             </span>
             <Switch checked={countIn} onCheckedChange={setCountIn} aria-label="Count-in" />
-          </label>
+          </div>
           <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3 text-sm font-semibold">
             <span id="pre-roll-label">Pre-roll</span>
             <ToggleGroup

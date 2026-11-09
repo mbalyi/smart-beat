@@ -28,7 +28,6 @@ export function SpectrogramView({ clip }: { clip: AudioClip }) {
     let cancelled = false;
     const from = take.offsetMs;
     const to = take.offsetMs + clip.lengthMs;
-    setError(null);
     void audioSpectrogram(take.sourceId, from, to, COLUMNS, BINS)
       .then((columns) => {
         const ctx = canvas.current?.getContext("2d");
@@ -61,14 +60,19 @@ export function SpectrogramView({ clip }: { clip: AudioClip }) {
           The spectrogram could not be drawn: {error}
         </p>
       ) : (
-        <canvas
-          ref={canvas}
-          width={COLUMNS}
-          height={BINS}
+        <div
           role="img"
           aria-label={`Spectrogram of ${take.name}`}
-          className="h-full min-w-0 flex-1 rounded [image-rendering:pixelated]"
-        />
+          className="h-full min-w-0 flex-1"
+        >
+          <canvas
+            ref={canvas}
+            width={COLUMNS}
+            height={BINS}
+            aria-hidden="true"
+            className="size-full rounded [image-rendering:pixelated]"
+          />
+        </div>
       )}
       <dl
         className="grid w-44 shrink-0 grid-cols-[auto_1fr] content-start gap-x-2 gap-y-1 text-sm"

@@ -1,4 +1,4 @@
-import { clipPeaks } from "@/components/audio-lanes/clip-view";
+import { clipPeaks, normalizeGainDb } from "@/lib/audio-lanes/peaks";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -20,16 +20,6 @@ const SHAPES: { value: FadeShape; label: string }[] = [
   { value: "equalPower", label: "Equal power" },
   { value: "sCurve", label: "S-curve" },
 ];
-
-/** The gain that brings a clip's loudest peak to 0 dB (normalize), in dB. */
-export function normalizeGainDb(peaks: readonly number[], currentDb: number): number {
-  const loudest = peaks.reduce((m, p) => Math.max(m, p), 0) / 10 ** (currentDb / 20);
-  if (loudest <= 0) return currentDb;
-  return Math.min(
-    MAX_GAIN_DB,
-    Math.max(MIN_GAIN_DB, Math.round(-20 * Math.log10(loudest) * 10) / 10),
-  );
-}
 
 function NumberField({
   label,
@@ -160,14 +150,14 @@ export function ClipProperties({ lanes, clip }: { lanes: AudioLanesController; c
         unit="×"
         onChange={(playrate) => set({ playrate })}
       />
-      <label className="flex items-center justify-between text-sm">
+      <div className="flex items-center justify-between text-sm">
         <span className="text-muted-foreground">Keep the pitch</span>
         <Switch
           checked={clip.preservePitch}
           onCheckedChange={(preservePitch) => set({ preservePitch })}
           aria-label="Keep the pitch when the playrate changes"
         />
-      </label>
+      </div>
       <FadeField label="Fade in" fade={clip.fadeIn} onChange={(fadeIn) => set({ fadeIn })} />
       <FadeField label="Fade out" fade={clip.fadeOut} onChange={(fadeOut) => set({ fadeOut })} />
       <div className="grid grid-cols-3 gap-1.5">

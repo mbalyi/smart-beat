@@ -1,8 +1,8 @@
 import { act, fireEvent, screen, within } from "@testing-library/react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { normalizeGainDb } from "@/components/audio-lanes/clip-properties";
+import { normalizeGainDb } from "@/lib/audio-lanes/peaks";
 import { LaneColorPopover } from "@/components/audio-lanes/lane-color-popover";
 import { LaneEditorDock, type LaneEditorActions } from "@/components/audio-lanes/lane-editor-dock";
 import { LaneRow } from "@/components/audio-lanes/lane-row";
@@ -56,7 +56,9 @@ function Lanes({
     grid,
     ensureEngine: () => true,
   });
-  latest.lanes = lanes;
+  useEffect(() => {
+    latest.lanes = lanes;
+  });
   return <>{children(lanes)}</>;
 }
 const latest: { lanes: AudioLanesController | null } = { lanes: null };

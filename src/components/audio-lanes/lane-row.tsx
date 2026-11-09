@@ -103,6 +103,7 @@ export function LaneRow({
   return (
     <li className="flex border-b" data-testid={`lane-row-${lane.id}`}>
       <div
+        role="presentation"
         className={cn(
           "sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r bg-card px-2 py-1",
           lane.parent && "pl-5",
@@ -133,7 +134,7 @@ export function LaneRow({
               <input
                 aria-label={`Name of the ${label}`}
                 defaultValue={lane.name}
-                autoFocus
+                ref={(el) => el?.focus()}
                 maxLength={200}
                 className="h-6 min-w-0 flex-1 rounded border bg-background px-1 text-sm"
                 onBlur={(event) => {
@@ -241,6 +242,7 @@ export function LaneRow({
         </div>
       </div>
       <div
+        role="presentation"
         data-lane-id={lane.folder ? undefined : lane.id}
         data-px-per-bar={barWidth}
         className="relative h-[3.25rem] shrink-0"

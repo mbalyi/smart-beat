@@ -117,7 +117,9 @@ export function useAudioLanes(options: AudioLanesOptions) {
   const { mix, changeMix, loader, canLoad, epoch, songPath, grid, ensureEngine } = options;
   const audio = useMemo(() => lanesOf(mix), [mix.audio, mix.audioTrack]); // eslint-disable-line react-hooks/exhaustive-deps
   const audioRef = useRef(audio);
-  audioRef.current = audio;
+  useEffect(() => {
+    audioRef.current = audio;
+  }, [audio]);
 
   const [infos, setInfos] = useState<ReadonlyMap<string, SourceInfo>>(new Map());
   const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
@@ -128,6 +130,12 @@ export function useAudioLanes(options: AudioLanesOptions) {
     past: [],
     future: [],
   });
+  /** How many undo and redo steps there are (state, so the buttons follow). */
+  const [steps, setSteps] = useState({ undo: 0, redo: 0 });
+  const remember = (next: { past: AudioLanesSettings[]; future: AudioLanesSettings[] }) => {
+    history.current = next;
+    setSteps({ undo: next.past.length, redo: next.future.length });
+  };
   const [lastEditAt, setLastEditAt] = useState(0);
   const clipboard = useRef<AudioClip[]>([]);
   const loading = useRef(new Set<string>());
@@ -144,7 +152,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
       const before = audioRef.current;
       const next = edit(before);
       if (next === before) return;
-      history.current = { past: [...history.current.past, before].slice(-HISTORY), future: [] };
+      remember({ past: [...history.current.past, before].slice(-HISTORY), future: [] });
       setLastEditAt(Date.now());
       audioRef.current = next;
       commit(next);
@@ -154,10 +162,10 @@ export function useAudioLanes(options: AudioLanesOptions) {
 
   /** Starts a drag that changes the lanes many times: undo takes it back in one step. */
   const beginGesture = useCallback(() => {
-    history.current = {
+    remember({
       past: [...history.current.past, audioRef.current].slice(-HISTORY),
       future: [],
-    };
+    });
     setLastEditAt(Date.now());
   }, []);
 
@@ -176,7 +184,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const { past, future } = history.current;
     const previous = past[past.length - 1];
     if (!previous) return false;
-    history.current = { past: past.slice(0, -1), future: [audioRef.current, ...future] };
+    remember({ past: past.slice(0, -1), future: [audioRef.current, ...future] });
     audioRef.current = previous;
     commit(previous);
     setLastEditAt(Date.now());
@@ -187,7 +195,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const { past, future } = history.current;
     const next = future[0];
     if (!next) return false;
-    history.current = { past: [...past, audioRef.current], future: future.slice(1) };
+    remember({ past: [...past, audioRef.current], future: future.slice(1) });
     audioRef.current = next;
     commit(next);
     setLastEditAt(Date.now());
@@ -230,9 +238,11 @@ export function useAudioLanes(options: AudioLanesOptions) {
   }, [audio.sources, canLoad, epoch, infos, loader, songPath, commit]);
 
   // A new player starts with no files: load them all again.
-  useEffect(() => {
+  const [loadedFor, setLoadedFor] = useState(epoch);
+  if (loadedFor !== epoch) {
+    setLoadedFor(epoch);
     setInfos(new Map());
-  }, [epoch]);
+  }
 
   const snapTo = useCallback(
     (ms: number) =>
@@ -361,8 +371,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
     beginGesture,
     undo,
     redo,
-    canUndo: history.current.past.length > 0,
-    canRedo: history.current.future.length > 0,
+    canUndo: steps.undo > 0,
+    canRedo: steps.redo > 0,
     lastEditAt,
     importFiles,
     commands,

@@ -540,6 +540,7 @@ function StudioLane({
       </div>
       {!lane.folder && (
         <div
+          role="presentation"
           className="relative flex-1"
           data-lane-id={lane.id}
           onPointerDown={(e) => {

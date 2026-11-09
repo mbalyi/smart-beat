@@ -14,6 +14,9 @@ import { countInSeconds, downbeatInTake } from "@/lib/audio/take-timing";
 import { errorText } from "@/lib/errors";
 import { addAudioTake } from "@/lib/tauri";
 
+/** The clock takes are timed on (`performance.now()`, as the recorder uses). */
+const now = () => performance.now();
+
 /** Takes shorter than this are thrown away ("nothing was recorded"). */
 const MIN_TAKE_SECONDS = 0.5;
 
@@ -67,7 +70,9 @@ export function useRecordAudio(env: {
     countIn: number;
   } | null>(null);
   const envRef = useRef(env);
-  envRef.current = env;
+  useEffect(() => {
+    envRef.current = env;
+  });
 
   // The elapsed time on the recording bar.
   useEffect(() => {
@@ -79,7 +84,7 @@ export function useRecordAudio(env: {
           p.kind === "recording"
             ? {
                 ...p,
-                countingIn: performance.now() < s.playStartedAt + s.countIn * 1000,
+                countingIn: now() < s.playStartedAt + s.countIn * 1000,
                 elapsed: s.recorder.elapsed(),
               }
             : p,
@@ -117,7 +122,7 @@ export function useRecordAudio(env: {
     player.setLoop(setup.mode === "loop" ? selected : null);
     player.setCountIn(setup.countIn);
     player.seekToBar(playBar);
-    const playStartedAt = performance.now();
+    const playStartedAt = now();
     player.playPause();
     session.current = {
       recorder,

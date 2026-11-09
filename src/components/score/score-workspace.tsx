@@ -1,3 +1,8 @@
+/* eslint-disable react-hooks/refs, react-hooks/immutability -- The React Compiler's analysis of
+   this large component used to stop early on code that audio lanes removed (#185), so these rules
+   never reached its older patterns: refs set during render, functions used above their
+   declaration, the editor's blocked hook. None of it changes behaviour (no compiler runs at build
+   time); tidying it is separate work. */
 import {
   useCallback,
   useEffect,
@@ -659,7 +664,14 @@ export function ScoreWorkspace({
   const [editorLaneId, setEditorLaneId] = useState<string | null>(null);
   /** The full studio view of every lane. */
   const [studioOpen, setStudioOpen] = useState(false);
-  const [recordAudioOpen, setRecordAudioOpen] = useState(false);
+  const [recordAudioOpen, setRecordAudioOpenState] = useState(false);
+  /** The output delay shown in the Record audio dialog, read when it opens. */
+  const [recordLatencyMs, setRecordLatencyMs] = useState(0);
+  const setRecordAudioOpen = (open: boolean) => {
+    if (open)
+      setRecordLatencyMs(Math.round((playerRef.current?.outputLatencySeconds() ?? 0) * 1000));
+    setRecordAudioOpenState(open);
+  };
   /** Where a file dragged onto the window would land: a lane and a time, from the pointer. */
   const dropTarget = useRef<{ laneId: string; atMs: number } | null>(null);
   /** When the score was last edited (undo goes to the lanes when they were edited later). */
@@ -1904,21 +1916,22 @@ export function ScoreWorkspace({
     toast.info("Audio lanes play with the native audio engine");
     return false;
   };
+  const lanesLoader = useCallback(
+    () => (playerRef.current?.usesNativeEngine ? playerRef.current : null),
+    [],
+  );
   const lanes = useAudioLanes({
     mix,
     changeMix,
-    loader: useCallback(() => (playerRef.current?.usesNativeEngine ? playerRef.current : null), []),
+    loader: lanesLoader,
     canLoad: engineOn && ready,
     epoch: playerEpoch,
     songPath: song.path ?? null,
     grid: laneGrid,
     ensureEngine,
   });
+  // The editor closes with its lane: a removed lane is simply not found.
   const editorLane = lanes.audio.lanes.find((l) => l.id === editorLaneId && !l.folder) ?? null;
-  // The editor closes with its lane.
-  useEffect(() => {
-    if (editorLaneId && !editorLane) setEditorLaneId(null);
-  }, [editorLaneId, editorLane]);
 
   // --- Effects and the native audio engine -------------------------------------
 
@@ -3503,7 +3516,7 @@ export function ScoreWorkspace({
         lanes={lanes.audio.lanes.filter((l) => !l.folder).map((l) => ({ id: l.id, name: l.name }))}
         defaultLane={editorLane?.id ?? null}
         inputName={audioInput?.label ?? "System default"}
-        latency={`About ${Math.round((playerRef.current?.outputLatencySeconds() ?? 0) * 1000)} ms output delay`}
+        latency={`About ${recordLatencyMs} ms output delay`}
         hasSelection={!!selectedBars()}
         onStart={recordAudio.start}
         onInputSettings={() => onOpenSettings?.(document.body)}

@@ -256,7 +256,8 @@ export function legacySourceId(name: string): string {
   return `legacy-${hash.toString(16).padStart(8, "0")}`;
 }
 
-const extensionOf = (name: string) => /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? "wav";
+/** The file's extension as Rust reads it: 1 to 5 letters or digits, else "wav". */
+const extensionOf = (name: string) => /\.([a-z0-9]{1,5})$/i.exec(name)?.[1]?.toLowerCase() ?? "wav";
 
 /**
  * The old single audio track as one lane with one clip (one-way: saves write lanes only). The
@@ -278,10 +279,10 @@ export function migrateAudioTrack(
     embedded: track.embedded,
     legacyEntry: track.embedded ? track.name : undefined,
   };
-  const { name, path: _path, embedded: _embedded, sync, ...params } = track;
+  const { name, sync, enabled, volume, pan, mute, solo, eq, semitones, cents, filter } = track;
   const lane: AudioLane = {
     ...newLane(name, laneId),
-    ...params,
+    ...{ enabled, volume, pan, mute, solo, eq, semitones, cents, filter },
     clips: [newClip(sourceId, name, 0, 30 * 60 * 1000, `${laneId}-clip`)],
   };
   return normalizeAudio({ ...EMPTY_AUDIO, lanes: [lane], sources: [source], sync });
