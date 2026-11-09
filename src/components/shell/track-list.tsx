@@ -657,7 +657,7 @@ export function TrackList({
               <EyeIcon className="size-3.5" />
             </Toggle>
             <div className={cn(CONTROLS, "text-xs text-muted-foreground")}>
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1 [&>button]:shrink-0">
                 <Button
                   variant="ghost"
                   size="icon-xs"

@@ -109,9 +109,10 @@ describe("LaneRow clips", () => {
 
   it("splits a clip at the edit cursor, glues it back and undoes", async () => {
     const { user } = renderRow();
-    act(() => lanesNow().setEditCursorMs(3000));
     const clip = screen.getByRole("button", { name: /take\.wav on Vocals/ });
     await user.click(clip);
+    // A click puts the edit cursor where it lands; then the cursor is moved to 3 s.
+    act(() => lanesNow().setEditCursorMs(3000));
     await user.keyboard("s");
     await vi.waitFor(() => expect(lanesNow().audio.lanes[0]!.clips).toHaveLength(2));
     const [left, right] = lanesNow().audio.lanes[0]!.clips;

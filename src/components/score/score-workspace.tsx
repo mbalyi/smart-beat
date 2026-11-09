@@ -3460,7 +3460,7 @@ export function ScoreWorkspace({
           }
         />
       )}
-      {editorLane && (
+      {editorLane && !studioOpen && (
         <LaneEditorDock
           lanes={lanes}
           lane={editorLane}

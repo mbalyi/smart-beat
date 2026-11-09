@@ -12,7 +12,6 @@ import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneColorPopover } from "@/components/audio-lanes/lane-color-popover";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
-import { EqPopover } from "@/components/audio/eq-popover";
 import { LevelMeter } from "@/components/audio/level-meter";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { PanControl } from "@/components/pan-control";
@@ -213,7 +212,6 @@ export function LaneRow({
           <div className="flex items-center justify-end gap-0.5">
             {!lane.folder && (
               <>
-                <EqPopover name={lane.name} eq={lane.eq} onChange={(eq) => update({ eq })} />
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -272,6 +270,7 @@ export function LaneRow({
                 handleClipKey(event, lanes, clip.id, lane.id, () => onOpenEditor(lane.id))
               }
               onOpen={() => onOpenEditor(lane.id)}
+              onCursor={lanes.setEditCursorMs}
             />
           ))}
         <span

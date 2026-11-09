@@ -20,6 +20,7 @@ import type { AudioLanesController, SnapMode } from "@/components/audio-lanes/us
 import { gridStepMs } from "@/components/audio-lanes/use-audio-lanes";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
@@ -102,326 +103,328 @@ export function StudioView({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Studio"
-      data-testid="studio"
-      className="fixed inset-0 z-50 flex flex-col bg-background"
-    >
-      <header className="flex flex-wrap items-center gap-2 border-b bg-card px-4 py-2">
-        <Button variant="outline" size="sm" onClick={actions.close}>
-          <ArrowLeftIcon /> Back to score
-        </Button>
-        <h2 className="ml-2 text-base font-semibold">Studio</h2>
-        <span className="flex-1" />
-        <Button
-          size="icon"
-          className="rounded-full"
-          aria-label={playing ? "Pause" : "Play"}
-          onClick={actions.playPause}
-        >
-          {playing ? <PauseIcon /> : <PlayIcon />}
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="rounded-full text-red-600"
-          aria-label="Record audio"
-          onClick={actions.record}
-        >
-          <CircleIcon className="fill-current" />
-        </Button>
-        <span className="min-w-36 px-2 text-sm tabular-nums" aria-label="Position">
-          {position}
-        </span>
-        <span className="flex-1" />
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          Snap
-          <select
-            value={lanes.snap}
-            onChange={(e) => lanes.setSnap(e.target.value as SnapMode)}
-            className="h-8 rounded-md border bg-background px-1.5 text-foreground"
+    <Dialog open onOpenChange={(open) => !open && actions.close()}>
+      <DialogContent
+        size="full"
+        showCloseButton={false}
+        aria-describedby={undefined}
+        data-testid="studio"
+        className="h-[calc(100dvh-1rem)] max-h-none max-w-[calc(100%-1rem)] gap-0 bg-background p-0 sm:max-w-[calc(100%-1rem)]"
+      >
+        <header className="flex flex-wrap items-center gap-2 border-b bg-card px-4 py-2">
+          <Button variant="outline" size="sm" onClick={actions.close}>
+            <ArrowLeftIcon /> Back to score
+          </Button>
+          <DialogTitle className="ml-2 text-base font-semibold">Studio</DialogTitle>
+          <span className="flex-1" />
+          <Button
+            size="icon"
+            className="rounded-full"
+            aria-label={playing ? "Pause" : "Play"}
+            onClick={actions.playPause}
           >
-            <option value="bar">Bar</option>
-            <option value="beat">Beat</option>
-            <option value="off">Off</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          Ripple
-          <select
-            value={audio.ripple}
-            onChange={(e) => apply((a) => ({ ...a, ripple: e.target.value as RippleMode }))}
-            className="h-8 rounded-md border bg-background px-1.5 text-foreground"
+            {playing ? <PauseIcon /> : <PlayIcon />}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-full text-red-600"
+            aria-label="Record audio"
+            onClick={actions.record}
           >
-            <option value="off">Off</option>
-            <option value="lane">This lane</option>
-            <option value="all">All lanes</option>
-          </select>
-        </label>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Undo"
-          disabled={!lanes.canUndo}
-          onClick={lanes.undo}
-        >
-          <Undo2Icon />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Redo"
-          disabled={!lanes.canRedo}
-          onClick={lanes.redo}
-        >
-          <Redo2Icon />
-        </Button>
-        <Button variant="outline" size="sm" onClick={lanes.commands.addLane}>
-          <PlusIcon /> Lane
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={audio.buses.length >= MAX_BUSES}
-          onClick={() =>
-            apply((a) => ({
-              ...a,
-              buses: [
-                ...a.buses,
-                {
-                  id: newId(),
-                  name: `Bus ${a.buses.length + 1}`,
-                  volume: 0.8,
-                  mute: false,
-                  effects: [],
-                },
-              ],
-            }))
-          }
-        >
-          <PlusIcon /> Bus
-        </Button>
-        <Button
-          variant={spectrogram ? "default" : "outline"}
-          size="sm"
-          aria-pressed={spectrogram}
-          onClick={() => setSpectrogram((s) => !s)}
-        >
-          <AudioWaveformIcon /> Spectrogram
-        </Button>
-        <Button variant="outline" size="sm" onClick={actions.renderLanes}>
-          <DownloadIcon /> Render lanes
-        </Button>
-        <ShortcutsPopover />
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          Zoom
-          <input
-            type="range"
-            min={10}
-            max={300}
-            value={pps}
-            onChange={(e) => setPps(e.currentTarget.valueAsNumber)}
-            aria-label="Zoom"
-            className="w-24"
-          />
-        </label>
-      </header>
-      {range && (
-        <div
-          className="flex flex-wrap items-center gap-2 border-b bg-muted/50 px-4 py-1.5 text-sm"
-          data-testid="range-bar"
-        >
-          <span className="tabular-nums">
-            Range {(range.startMs / 1000).toFixed(2)} s – {(range.endMs / 1000).toFixed(2)} s on{" "}
-            {inRange.length} lanes
+            <CircleIcon className="fill-current" />
+          </Button>
+          <span className="min-w-36 px-2 text-sm tabular-nums" aria-label="Position">
+            {position}
           </span>
+          <span className="flex-1" />
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            Snap
+            <select
+              value={lanes.snap}
+              onChange={(e) => lanes.setSnap(e.target.value as SnapMode)}
+              className="h-8 rounded-md border bg-background px-1.5 text-foreground"
+            >
+              <option value="bar">Bar</option>
+              <option value="beat">Beat</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            Ripple
+            <select
+              value={audio.ripple}
+              onChange={(e) => apply((a) => ({ ...a, ripple: e.target.value as RippleMode }))}
+              className="h-8 rounded-md border bg-background px-1.5 text-foreground"
+            >
+              <option value="off">Off</option>
+              <option value="lane">This lane</option>
+              <option value="all">All lanes</option>
+            </select>
+          </label>
           <Button
-            variant="outline"
-            size="sm"
-            onClick={() => apply((a) => splitRange(a, inRange, range.startMs, range.endMs))}
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Undo"
+            disabled={!lanes.canUndo}
+            onClick={lanes.undo}
           >
-            Split at the edges
+            <Undo2Icon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Redo"
+            disabled={!lanes.canRedo}
+            onClick={lanes.redo}
+          >
+            <Redo2Icon />
+          </Button>
+          <Button variant="outline" size="sm" onClick={lanes.commands.addLane}>
+            <PlusIcon /> Lane
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => apply((a) => deleteRange(a, inRange, range.startMs, range.endMs))}
+            disabled={audio.buses.length >= MAX_BUSES}
+            onClick={() =>
+              apply((a) => ({
+                ...a,
+                buses: [
+                  ...a.buses,
+                  {
+                    id: newId(),
+                    name: `Bus ${a.buses.length + 1}`,
+                    volume: 0.8,
+                    mute: false,
+                    effects: [],
+                  },
+                ],
+              }))
+            }
           >
-            Delete range
+            <PlusIcon /> Bus
           </Button>
-          {([-1, 1] as const).map((d) => (
+          <Button
+            variant={spectrogram ? "default" : "outline"}
+            size="sm"
+            aria-pressed={spectrogram}
+            onClick={() => setSpectrogram((s) => !s)}
+          >
+            <AudioWaveformIcon /> Spectrogram
+          </Button>
+          <Button variant="outline" size="sm" onClick={actions.renderLanes}>
+            <DownloadIcon /> Render lanes
+          </Button>
+          <ShortcutsPopover />
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            Zoom
+            <input
+              type="range"
+              min={10}
+              max={300}
+              value={pps}
+              onChange={(e) => setPps(e.currentTarget.valueAsNumber)}
+              aria-label="Zoom"
+              className="w-24"
+            />
+          </label>
+        </header>
+        {range && (
+          <div
+            className="flex flex-wrap items-center gap-2 border-b bg-muted/50 px-4 py-1.5 text-sm"
+            data-testid="range-bar"
+          >
+            <span className="tabular-nums">
+              Range {(range.startMs / 1000).toFixed(2)} s – {(range.endMs / 1000).toFixed(2)} s on{" "}
+              {inRange.length} lanes
+            </span>
             <Button
-              key={d}
               variant="outline"
               size="sm"
-              onClick={() => {
-                const step = d * gridStepMs(grid, range.startMs, false);
-                apply((a) => moveRange(a, inRange, range.startMs, range.endMs, step));
-                setRange({ startMs: range.startMs + step, endMs: range.endMs + step });
-              }}
+              onClick={() => apply((a) => splitRange(a, inRange, range.startMs, range.endMs))}
             >
-              Move {d < 0 ? "earlier" : "later"} a beat
+              Split at the edges
             </Button>
-          ))}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => actions.renderRange(range.startMs, range.endMs)}
-          >
-            Render range
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setRange(null)}>
-            Clear
-          </Button>
-        </div>
-      )}
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-auto">
-          <div className="relative" style={{ width: HEADER_PX + toX(end) }}>
-            <div className="sticky top-0 z-30 flex h-10 border-b bg-card">
-              <div
-                className="sticky left-0 z-10 shrink-0 border-r bg-card"
-                style={{ width: HEADER_PX }}
-              />
-              <div
-                className="relative flex-1 cursor-text"
-                data-testid="studio-ruler"
-                onPointerDown={(e) => {
-                  rulerDrag.current = rulerMs(e);
-                  setRange(null);
-                  e.currentTarget.setPointerCapture?.(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  if (rulerDrag.current === null) return;
-                  const at = rulerMs(e);
-                  if (Math.abs(at - rulerDrag.current) > 1)
-                    setRange({
-                      startMs: Math.min(at, rulerDrag.current),
-                      endMs: Math.max(at, rulerDrag.current),
-                    });
-                }}
-                onPointerUp={(e) => {
-                  if (rulerDrag.current !== null && !range) lanes.setEditCursorMs(rulerMs(e));
-                  rulerDrag.current = null;
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => apply((a) => deleteRange(a, inRange, range.startMs, range.endMs))}
+            >
+              Delete range
+            </Button>
+            {([-1, 1] as const).map((d) => (
+              <Button
+                key={d}
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const step = d * gridStepMs(grid, range.startMs, false);
+                  apply((a) => moveRange(a, inRange, range.startMs, range.endMs, step));
+                  setRange({ startMs: range.startMs + step, endMs: range.endMs + step });
                 }}
               >
-                {markers.map((m) => (
-                  <span
-                    key={`${m.ms}-${m.name}`}
-                    className="absolute top-1 rounded bg-muted px-1.5 text-xs"
-                    style={{ left: toX(m.ms) }}
-                  >
-                    {m.name}
-                  </span>
-                ))}
-                {grid.barTimes.map((_, b) => (
-                  <span
-                    key={b}
-                    aria-hidden="true"
-                    className="absolute bottom-0 h-3 border-l text-[10px] text-muted-foreground"
-                    style={{ left: toX(timelineMsAtBar(audio, grid, b)) }}
-                  >
-                    {b % 4 === 0 ? b + 1 : ""}
-                  </span>
-                ))}
-                {range && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute inset-x-0 bottom-0 h-3 bg-primary/50"
-                    style={{ left: toX(range.startMs), width: toX(range.endMs - range.startMs) }}
-                  />
-                )}
-              </div>
-            </div>
-            {shown.map((lane) => (
-              <StudioLane
-                key={lane.id}
-                lanes={lanes}
-                lane={lane}
-                index={audio.lanes.indexOf(lane)}
-                toX={toX}
-                toMs={toMs}
-                inRange={inRange.includes(lane.id)}
-                onRangeToggle={() =>
-                  setRangeLanes((current) => {
-                    const list = current ?? playable;
-                    return list.includes(lane.id)
-                      ? list.filter((id) => id !== lane.id)
-                      : [...list, lane.id];
-                  })
-                }
-                onEffects={actions.effects}
-                onDrop={drop}
-                range={range}
-              />
+                Move {d < 0 ? "earlier" : "later"} a beat
+              </Button>
             ))}
-            {audio.buses.map((bus) => (
-              <div
-                key={bus.id}
-                className="flex h-12 border-b bg-muted/30"
-                data-testid={`bus-${bus.id}`}
-              >
-                <div
-                  className="sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r bg-card px-3"
-                  style={{ width: HEADER_PX }}
-                >
-                  <span className="truncate text-sm font-medium">{bus.name}</span>
-                  <Toggle
-                    size="sm"
-                    variant="outline"
-                    pressed={bus.mute}
-                    onPressedChange={(mute) =>
-                      apply((a) => ({
-                        ...a,
-                        buses: a.buses.map((b) => (b.id === bus.id ? { ...b, mute } : b)),
-                      }))
-                    }
-                    aria-label={`Mute ${bus.name}`}
-                    className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
-                  >
-                    M
-                  </Toggle>
-                  <LabeledSlider
-                    label={`Volume, ${bus.name}`}
-                    valueText={`${Math.round(bus.volume * 100)}%`}
-                    value={bus.volume}
-                    onValueChange={(volume) =>
-                      apply((a) => ({
-                        ...a,
-                        buses: a.buses.map((b) => (b.id === bus.id ? { ...b, volume } : b)),
-                      }))
-                    }
-                  />
-                </div>
-                <p className="self-center px-3 text-xs text-muted-foreground">
-                  Lanes send to this bus from their Sends button.
-                </p>
-              </div>
-            ))}
-            {playhead && (
-              <StudioPlayhead
-                store={playhead}
-                toX={(bar) => HEADER_PX + toX(timelineMsAtBar(audio, grid, bar))}
-              />
-            )}
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute top-10 bottom-0 z-20 border-l border-dashed border-primary"
-              style={{ left: HEADER_PX + toX(lanes.editCursorMs) }}
-            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => actions.renderRange(range.startMs, range.endMs)}
+            >
+              Render range
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setRange(null)}>
+              Clear
+            </Button>
           </div>
+        )}
+        <div className="flex min-h-0 flex-1">
+          <div className="min-w-0 flex-1 overflow-auto">
+            <div className="relative" style={{ width: HEADER_PX + toX(end) }}>
+              <div className="sticky top-0 z-30 flex h-10 border-b bg-card">
+                <div
+                  className="sticky left-0 z-10 shrink-0 border-r bg-card"
+                  style={{ width: HEADER_PX }}
+                />
+                <div
+                  className="relative flex-1 cursor-text"
+                  data-testid="studio-ruler"
+                  onPointerDown={(e) => {
+                    rulerDrag.current = rulerMs(e);
+                    setRange(null);
+                    e.currentTarget.setPointerCapture?.(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    if (rulerDrag.current === null) return;
+                    const at = rulerMs(e);
+                    if (Math.abs(at - rulerDrag.current) > 1)
+                      setRange({
+                        startMs: Math.min(at, rulerDrag.current),
+                        endMs: Math.max(at, rulerDrag.current),
+                      });
+                  }}
+                  onPointerUp={(e) => {
+                    if (rulerDrag.current !== null && !range) lanes.setEditCursorMs(rulerMs(e));
+                    rulerDrag.current = null;
+                  }}
+                >
+                  {markers.map((m) => (
+                    <span
+                      key={`${m.ms}-${m.name}`}
+                      className="absolute top-1 rounded bg-muted px-1.5 text-xs"
+                      style={{ left: toX(m.ms) }}
+                    >
+                      {m.name}
+                    </span>
+                  ))}
+                  {grid.barTimes.map((_, b) => (
+                    <span
+                      key={b}
+                      aria-hidden="true"
+                      className="absolute bottom-0 h-3 border-l text-[10px] text-muted-foreground"
+                      style={{ left: toX(timelineMsAtBar(audio, grid, b)) }}
+                    >
+                      {b % 4 === 0 ? b + 1 : ""}
+                    </span>
+                  ))}
+                  {range && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-x-0 bottom-0 h-3 bg-primary/50"
+                      style={{ left: toX(range.startMs), width: toX(range.endMs - range.startMs) }}
+                    />
+                  )}
+                </div>
+              </div>
+              {shown.map((lane) => (
+                <StudioLane
+                  key={lane.id}
+                  lanes={lanes}
+                  lane={lane}
+                  index={audio.lanes.indexOf(lane)}
+                  toX={toX}
+                  toMs={toMs}
+                  inRange={inRange.includes(lane.id)}
+                  onRangeToggle={() =>
+                    setRangeLanes((current) => {
+                      const list = current ?? playable;
+                      return list.includes(lane.id)
+                        ? list.filter((id) => id !== lane.id)
+                        : [...list, lane.id];
+                    })
+                  }
+                  onEffects={actions.effects}
+                  onDrop={drop}
+                  range={range}
+                />
+              ))}
+              {audio.buses.map((bus) => (
+                <div
+                  key={bus.id}
+                  className="flex h-12 border-b bg-muted/30"
+                  data-testid={`bus-${bus.id}`}
+                >
+                  <div
+                    className="sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r bg-card px-3"
+                    style={{ width: HEADER_PX }}
+                  >
+                    <span className="truncate text-sm font-medium">{bus.name}</span>
+                    <Toggle
+                      size="sm"
+                      variant="outline"
+                      pressed={bus.mute}
+                      onPressedChange={(mute) =>
+                        apply((a) => ({
+                          ...a,
+                          buses: a.buses.map((b) => (b.id === bus.id ? { ...b, mute } : b)),
+                        }))
+                      }
+                      aria-label={`Mute ${bus.name}`}
+                      className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
+                    >
+                      M
+                    </Toggle>
+                    <LabeledSlider
+                      label={`Volume, ${bus.name}`}
+                      valueText={`${Math.round(bus.volume * 100)}%`}
+                      value={bus.volume}
+                      onValueChange={(volume) =>
+                        apply((a) => ({
+                          ...a,
+                          buses: a.buses.map((b) => (b.id === bus.id ? { ...b, volume } : b)),
+                        }))
+                      }
+                    />
+                  </div>
+                  <p className="self-center px-3 text-xs text-muted-foreground">
+                    Lanes send to this bus from their Sends button.
+                  </p>
+                </div>
+              ))}
+              {playhead && (
+                <StudioPlayhead
+                  store={playhead}
+                  toX={(bar) => HEADER_PX + toX(timelineMsAtBar(audio, grid, bar))}
+                />
+              )}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute top-10 bottom-0 z-20 border-l border-dashed border-primary"
+                style={{ left: HEADER_PX + toX(lanes.editCursorMs) }}
+              />
+            </div>
+          </div>
+          {selected && <ClipProperties lanes={lanes} clip={selected.clip} />}
         </div>
-        {selected && <ClipProperties lanes={lanes} clip={selected.clip} />}
-      </div>
-      {spectrogram && selected && <SpectrogramView clip={selected.clip} />}
-      {spectrogram && !selected && (
-        <p className="border-t p-3 text-sm text-muted-foreground">
-          Select one clip to see its spectrogram and loudness.
-        </p>
-      )}
-    </div>
+        {spectrogram && selected && <SpectrogramView clip={selected.clip} />}
+        {spectrogram && !selected && (
+          <p className="border-t p-3 text-sm text-muted-foreground">
+            Select one clip to see its spectrogram and loudness.
+          </p>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -515,7 +518,7 @@ function StudioLane({
                 variant="outline"
                 pressed={inRange}
                 onPressedChange={onRangeToggle}
-                aria-label={`${lane.name} in range edits`}
+                aria-label={`Range: ${lane.name} in range edits`}
                 className="h-6 px-1.5 text-[10px]"
               >
                 Range
@@ -525,7 +528,7 @@ function StudioLane({
                 variant="outline"
                 pressed={lane.autoBypass}
                 onPressedChange={(autoBypass) => update({ autoBypass })}
-                aria-label={`Bypass the effects of ${lane.name} while silent`}
+                aria-label={`Auto bypass: effects of ${lane.name} stop while silent`}
                 title="Effects stop while the lane is silent"
                 className="h-6 px-1.5 text-[10px]"
               >
@@ -572,6 +575,7 @@ function StudioLane({
               onDrop={onDrop}
               onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
               onOpen={() => lanes.select([clip.id])}
+              onCursor={lanes.setEditCursorMs}
             />
           ))}
           {lane.clips.some((c) => c.takes.length > 1) && (

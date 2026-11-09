@@ -343,7 +343,6 @@
   };
   /** Settings stored inside saved `.gp` files, by path. */
   window.__projectSettings = {};
-  window.__embeddedAudio = false;
   /** What the native engine was told besides chains and the mix. */
   window.__engineConfig = { sounds: {}, automation: {}, eq: {}, drums: {}, kits: {} };
   /** Imported drum kits (#40). */
@@ -405,13 +404,15 @@
       bytes: 155405818,
     },
   ];
-  window.__engineBacking = null;
+  /** The lanes as the engine was last told, and the audio files it loaded (by id). */
+  window.__engineLanes = null;
+  window.__engineSources = {};
   /** Levels the engine reports while playing. */
   window.__meters = {
     tracks: [0.5, 0.5, 0.5, 0.5],
     master: 0.7,
     drums: [],
-    backing: 0.4,
+    lanes: [],
     // Gain reduction (dB) per pedalboard slot (#39).
     reduction: { tracks: [[4.5], [], [3, 3, 3, 3, 3, 3], []], master: [0, 2.5, 1.5] },
   };
@@ -799,7 +800,6 @@
         return window.__projectSettings[args.path] ?? null;
       case "write_project_settings":
         window.__projectSettings[args.path] = args.settings;
-        window.__embeddedAudio = args.embedAudio;
         return null;
       case "audio_set_sounds":
         engine.chains[args.track] = args.sounds[0];
@@ -815,20 +815,27 @@
       case "audio_set_drum_mix":
         window.__engineConfig.drums[args.track] = args.drums;
         return null;
-      case "audio_load_backing": {
-        const source = args.source;
-        const path = source.type === "file" ? source.path : source.name;
+      case "audio_load_source": {
+        const location = args.location;
+        const path = location.type === "file" ? location.path : location.entry;
         if (path.includes("missing")) {
           throw { kind: "not-found", message: `“${path}” does not exist.` };
         }
+        const name = path.split(/[\\/]/).pop();
+        // A stable fake content id per name (the real one is the SHA-256 of the file).
+        let hash = 7;
+        for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
+        const id = hash.toString(16).padStart(8, "0").repeat(8);
+        window.__engineSources[id] = location;
         // A 4 s recording whose level swells and fades once per second.
         const peaks = Array.from(
           { length: 400 },
           (_, i) => 0.2 + 0.7 * Math.abs(Math.sin((i * Math.PI) / 100)),
         );
-        window.__engineBacking = { source, params: null, sync: [] };
         return {
-          name: path.split(/[\\/]/).pop(),
+          id,
+          name,
+          ext: name.split(".").pop().toLowerCase(),
           durationMs: 4000,
           sampleRate: 44100,
           channels: 2,
@@ -836,17 +843,44 @@
           peaksPerSecond: 100,
         };
       }
-      case "audio_set_backing":
-        if (!window.__engineBacking) throw { kind: "audio", message: "No audio track is loaded" };
-        window.__engineBacking = {
-          ...window.__engineBacking,
-          params: args.params,
-          sync: args.sync,
+      case "audio_add_take": {
+        // A recorded take arrives as WAV bytes with its name in a header.
+        const name = options?.headers?.["x-name"] ?? "Take.wav";
+        const id = "e".repeat(64);
+        window.__engineSources[id] = { type: "take", bytes: new Uint8Array(args).length };
+        return {
+          id,
+          name,
+          ext: "wav",
+          durationMs: 4000,
+          sampleRate: 48000,
+          channels: 1,
+          peaks: [0.5, 0.6],
+          peaksPerSecond: 1,
         };
+      }
+      case "audio_set_lanes":
+        window.__engineLanes = args.lanes;
+        // Each lane sounds while the song plays.
+        window.__meters.lanes = (args.lanes?.audio.lanes ?? [])
+          .filter((l) => !l.folder)
+          .map((l) => [l.id, 0.4]);
         return null;
-      case "audio_clear_backing":
-        window.__engineBacking = null;
+      case "audio_forget_sources":
         return null;
+      case "audio_zero_crossing":
+        return args.ms;
+      case "audio_extract_source":
+        window.__extracted = { source: args.source, path: args.path, asWav: args.asWav };
+        return null;
+      case "audio_spectrogram":
+        return Array.from({ length: args.columns }, (_, c) =>
+          Array.from({ length: args.bins }, (_, b) => -90 + ((c + b) % 60)),
+        );
+      case "audio_loudness":
+        return { integrated: -14.2, shortTermMax: -11.8, peakDb: -1.3 };
+      case "audio_detect_beats":
+        return { bpm: 120, beats: Array.from({ length: 64 }, (_, i) => i * 500) };
       case "audio_start":
       case "audio_state":
         return {

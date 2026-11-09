@@ -50,6 +50,7 @@ export function ClipView({
   onDrop,
   onKey,
   onOpen,
+  onCursor,
 }: {
   clip: AudioClip;
   laneName: string;
@@ -66,11 +67,16 @@ export function ClipView({
   onDrop: (drag: ClipDrag) => void;
   onKey: (event: KeyboardEvent<HTMLButtonElement>) => void;
   onOpen: () => void;
+  /** A click (not a drag) on the clip puts the edit cursor there. */
+  onCursor?: (ms: number) => void;
 }) {
   const [preview, setPreview] = useState<ClipDrag | null>(null);
-  const press = useRef<{ x: number; mode: "move" | "start" | "end"; dragging: boolean } | null>(
-    null,
-  );
+  const press = useRef<{
+    x: number;
+    y: number;
+    mode: "move" | "start" | "end";
+    dragging: boolean;
+  } | null>(null);
   const left = toX(
     preview?.kind === "move"
       ? preview.startMs
@@ -83,7 +89,8 @@ export function ClipView({
       ? preview.atMs
       : clipEndMs(clip) + (preview?.kind === "move" ? preview.startMs - clip.startMs : 0),
   );
-  const width = Math.max(4, right - left);
+  // A short clip stays big enough to grab and to reach by touch (24 px).
+  const width = Math.max(24, right - left);
   const peaks = useMemo(() => clipPeaks(clip, info), [clip, info]);
   const path = useMemo(() => (peaks.length ? waveformPath(peaks) : ""), [peaks]);
   const name = activeTake(clip).name;
@@ -110,7 +117,7 @@ export function ClipView({
         : offset > box.width - EDGE_PX
           ? "end"
           : "move";
-    press.current = { x: event.clientX, mode, dragging: false };
+    press.current = { x: event.clientX, y: event.clientY, mode, dragging: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
     onSelect(event.shiftKey || event.metaKey);
   };
@@ -118,7 +125,7 @@ export function ClipView({
     const p = press.current;
     if (!p || clip.locked) return;
     const dx = event.clientX - p.x;
-    if (!p.dragging && Math.abs(dx) < DRAG_PX) return;
+    if (!p.dragging && Math.hypot(dx, event.clientY - p.y) < DRAG_PX) return;
     p.dragging = true;
     if (p.mode === "move") {
       const target = document
@@ -141,11 +148,19 @@ export function ClipView({
       });
     }
   };
-  const onPointerUp = () => {
+  const onPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
     const done = preview;
+    const p = press.current;
     press.current = null;
     setPreview(null);
+    // WebKit (the macOS app) does not focus a button it was clicked on, and takes the focus away
+    // after the press: focus the clip at the end of the click, so its keys work.
+    event.currentTarget.focus({ preventScroll: true });
     if (done) onDrop(done);
+    else if (p && !p.dragging && onCursor) {
+      const x = event.clientX - event.currentTarget.getBoundingClientRect().left;
+      onCursor(snap(toMs(left + x)));
+    }
   };
 
   return (

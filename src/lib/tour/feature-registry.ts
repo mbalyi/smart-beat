@@ -4,7 +4,8 @@
  * has one, the tour that shows it. Add an entry whenever a feature is added or changed in a way
  * the user should be shown: the `implement-issues` skill asks for it.
  */
-export type TourId = "main" | "editing" | "speed-trainer" | "effects" | "record-to-tab";
+export type TourId =
+  "main" | "editing" | "speed-trainer" | "effects" | "record-to-tab" | "audio-lanes";
 
 export interface FeatureEntry {
   id: string;
@@ -24,6 +25,14 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     summary:
       "In a Practice together session everyone can now edit the same tab at the same time: a change shows up on the other computers within a moment, you see each player's cursor with their name and colour, and Undo only takes back your own edits. The host can turn editing off for guests in the session dialog. Playback and the shared clock are not disturbed by edits.",
     since: "1.3.0",
+  },
+  {
+    id: "audio-lanes",
+    title: "Audio lanes",
+    summary:
+      "Put several audio files on lanes next to your tracks, each in its own colour (the stem colours by default), with its own mix and effects. Move, trim, split, glue and fade clips, give each its own pitch, sync the audio to the score, record plain audio takes, and open the studio for every lane at once. Old songs with a backing file open with it on a lane.",
+    since: "1.3.0",
+    tour: "audio-lanes",
   },
   {
     id: "edit-palette",

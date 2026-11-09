@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { EditorTimeline } from "@/components/audio-lanes/editor-timeline";
+import { EqPopover } from "@/components/audio/eq-popover";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { Button } from "@/components/ui/button";
 import {
@@ -216,6 +217,7 @@ export function LaneEditorDock({
           size="sm"
           onValueChange={(cents) => update({ cents: Math.round(cents) })}
         />
+        <EqPopover name={lane.name} eq={lane.eq} onChange={(eq) => update({ eq })} />
         <Button
           variant="outline"
           size="icon-sm"

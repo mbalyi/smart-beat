@@ -113,12 +113,12 @@ export function EditorTimeline({
   return (
     <div className="relative min-w-full select-none" style={{ width: end }}>
       {/* Bar numbers: click plays from the bar, Shift loops the selection. */}
-      <div className="relative h-5 border-b text-[11px] font-semibold">
+      <div className="relative h-6 border-b text-[11px] font-semibold">
         {barX.slice(0, bars).map((x, b) => (
           <button
             key={b}
             type="button"
-            className="absolute top-0 h-5 rounded px-1 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="absolute top-0 h-6 min-w-6 rounded px-1 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
             style={{ left: x }}
             aria-label={`Play from bar ${b + 1}`}
             title="Play from here (Shift: loop the selection)"
@@ -129,7 +129,7 @@ export function EditorTimeline({
         ))}
       </div>
       {/* Play zone, BPM labels and sync points. */}
-      <div className="relative h-6 border-b text-[11px]" data-testid="sync-row">
+      <div className="relative h-14 border-b text-[11px]" data-testid="sync-row">
         <span
           className="absolute inset-y-0 bg-primary/10"
           style={{ left: barX[zoneStart], width: (barX[zoneEnd] ?? end) - (barX[zoneStart] ?? 0) }}
@@ -137,8 +137,8 @@ export function EditorTimeline({
         <button
           type="button"
           aria-label={`Play zone start, bar ${zoneStart + 1}`}
-          className="absolute top-0 z-10 h-6 w-3 cursor-ew-resize font-bold text-emerald-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-emerald-400"
-          style={{ left: (barX[zoneStart] ?? 0) - 4 }}
+          className="absolute top-1 z-10 h-6 w-6 cursor-ew-resize text-center font-bold text-emerald-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-emerald-400"
+          style={{ left: barX[zoneStart] ?? 0 }}
           onPointerDown={dragBracket("start")}
           onKeyDown={(e) => {
             if (e.key === "ArrowLeft" || e.key === "ArrowRight")
@@ -150,8 +150,8 @@ export function EditorTimeline({
         <button
           type="button"
           aria-label={`Play zone end, bar ${zoneEnd}`}
-          className="absolute top-0 z-10 h-6 w-3 cursor-ew-resize font-bold text-red-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-red-400"
-          style={{ left: (barX[zoneEnd] ?? end) - 8 }}
+          className="absolute top-1 z-10 h-6 w-6 cursor-ew-resize text-center font-bold text-red-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-red-400"
+          style={{ left: (barX[zoneEnd] ?? end) - 24 }}
           onPointerDown={dragBracket("end")}
           onKeyDown={(e) => {
             if (e.key === "ArrowLeft" || e.key === "ArrowRight")
@@ -163,7 +163,7 @@ export function EditorTimeline({
         {bpms.map((s) => (
           <span
             key={`${s.bar}:${s.beat}`}
-            className="absolute top-1 text-muted-foreground"
+            className="absolute top-2 text-foreground"
             style={{ left: toX(timelineMsAt(audio, grid, s.bar, s.beat)) + 10 }}
           >
             {s.bpm.toFixed(1)} bpm
@@ -181,10 +181,7 @@ export function EditorTimeline({
               title={
                 on ? "Drag to move; double-click to remove" : "Double-click to add a sync point"
               }
-              className={cn(
-                "absolute bottom-0 z-10 size-3 -translate-x-1/2 outline-none [clip-path:polygon(0_0,100%_0,50%_100%)] focus-visible:ring-2 focus-visible:ring-ring/50",
-                on ? "bg-foreground" : "bg-muted-foreground/40",
-              )}
+              className="absolute bottom-0 z-10 flex size-6 -translate-x-1/2 items-end justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               style={{ left: x }}
               onDoubleClick={() => apply((a) => toggleSyncPoint(a, grid, bar))}
               onPointerDown={on ? dragPoint(bar, 0) : undefined}
@@ -203,7 +200,15 @@ export function EditorTimeline({
                 }
                 if (on && e.key === "Delete") apply((a) => toggleSyncPoint(a, grid, bar));
               }}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "size-3 [clip-path:polygon(0_0,100%_0,50%_100%)]",
+                  on ? "bg-foreground" : "bg-muted-foreground/60",
+                )}
+              />
+            </button>
           );
         })}
         {audio.sync
@@ -213,11 +218,16 @@ export function EditorTimeline({
               key={`${p.bar}:${p.beat}`}
               type="button"
               aria-label={`Sync point at bar ${p.bar + 1}, beat ${(p.beat ?? 0) + 1}`}
-              className="absolute bottom-0 z-10 size-3 -translate-x-1/2 bg-foreground outline-none [clip-path:polygon(0_0,100%_0,50%_100%)]"
+              className="absolute bottom-0 z-10 flex size-6 -translate-x-1/2 items-end justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               style={{ left: toX(p.ms) }}
               onDoubleClick={() => apply((a) => toggleSyncPoint(a, grid, p.bar, p.beat))}
               onPointerDown={dragPoint(p.bar, p.beat ?? 0)}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className="size-3 bg-foreground [clip-path:polygon(0_0,100%_0,50%_100%)]"
+              />
+            </button>
           ))}
       </div>
       {/* Clips over the beat grid. Cmd-drag on empty space slides the audio (padding). */}
@@ -305,6 +315,7 @@ export function EditorTimeline({
             onDrop={drop}
             onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
             onOpen={() => undefined}
+            onCursor={lanes.setEditCursorMs}
           />
         ))}
         <span

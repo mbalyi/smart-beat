@@ -38,7 +38,7 @@ type MenuAction =
   | "toggle-inspector"
   | "toggle-practice-view"
   | "add-track"
-  | "add-audio-track"
+  | "add-audio-lane"
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
@@ -152,13 +152,27 @@ declare global {
       /** The imported drum kit of each track (#40). */
       kits: Record<string, string | null>;
     };
-    __engineBacking: {
-      source: { type: string; path?: string };
-      params: { semitones: number; filter: string } | null;
+    __engineLanes: {
+      audio: {
+        lanes: {
+          id: string;
+          name: string;
+          mute: boolean;
+          filter: string;
+          semitones: number;
+          clips: { startMs: number }[];
+        }[];
+        sources: { id: string; name: string; embedded: boolean }[];
+        sync: { bar: number; ms: number }[];
+      };
       sync: { tick: number; ms: number }[];
     } | null;
-    __projectSettings: Record<string, { audioTrack?: { name: string; sync: unknown[] } }>;
-    __embeddedAudio: boolean;
+    __engineSources: Record<string, { type: string; path?: string; entry?: string }>;
+    __extracted?: { source: string; path: string; asWav: boolean };
+    __projectSettings: Record<
+      string,
+      { version?: number; audio?: { lanes: { name: string }[]; sources: { embedded: boolean }[] } }
+    >;
     __engineMonitor?: {
       params: { enabled: boolean };
       device: string | null;

@@ -99,7 +99,7 @@ export const FEATURES: readonly Feature[] = [
     badge: "Coming soon",
     status: "soon",
     description:
-      "Import, manage and edit audio tracks. Trim, loop, adjust volume, and align them with your score. Create the perfect backing track for practice or performance.",
+      "Put audio files on lanes next to your tracks: move, trim, split and fade clips, give each its own pitch and effects, sync them to the score and record plain takes.",
   },
   {
     title: "Speech to tab",
