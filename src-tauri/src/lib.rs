@@ -234,6 +234,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::audio_extract_source,
             audio::audio_spectrogram,
             audio::audio_detect_beats,
+            audio::audio_loudness,
             audio::audio_set_monitor,
             audio::audio_set_monitor_chain,
             audio::audio_input_channels,

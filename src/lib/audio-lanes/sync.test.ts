@@ -11,8 +11,10 @@ import {
   shiftPadding,
   snapMs,
   songMsAt,
+  syncFromDetectedBeats,
   tempoChangesFromSync,
   timelineMsAt,
+  timelineMsAtBar,
   toggleSyncPoint,
   type SongGrid,
 } from "@/lib/audio-lanes/sync";
@@ -113,5 +115,27 @@ describe("tempo from sync", () => {
       { bar: 0, bpm: 160 },
       { bar: 2, bpm: 120 },
     ]);
+  });
+});
+
+describe("timelineMsAtBar", () => {
+  it("is the inverse of barAtTimelineMs inside the song", () => {
+    for (const ms of [0, 1500, 7300, 13000]) {
+      expect(
+        timelineMsAtBar(EMPTY_AUDIO, grid, barAtTimelineMs(EMPTY_AUDIO, grid, ms)),
+      ).toBeCloseTo(ms);
+    }
+  });
+});
+
+describe("syncFromDetectedBeats", () => {
+  it("puts a sync point on every bar at the detected downbeats", () => {
+    // Beats every 600 ms from 1 s into the file; the clip starts at 2 s on the timeline.
+    const beats = Array.from({ length: 40 }, (_, i) => 1000 + i * 600);
+    const clip = { startMs: 2000, playrate: 1, takes: [{ offsetMs: 0 }], take: 0 };
+    const points = syncFromDetectedBeats(beats, grid, clip);
+    expect(points[0]).toEqual({ bar: 0, ms: 3000 });
+    expect(points[1]).toEqual({ bar: 1, ms: 3000 + 4 * 600 });
+    expect(points).toHaveLength(8);
   });
 });

@@ -87,6 +87,7 @@ import {
   matchingDynamicsPreset,
 } from "@/lib/audio/dynamics-presets";
 import type {
+  ChainTarget,
   AssetKind,
   BlockProblem,
   EngineMeters,
@@ -342,8 +343,8 @@ function PedalControls({
 }
 
 export interface PedalboardTarget {
-  /** Track index, "monitor" for the monitor track, or null for the master bus. */
-  track: number | "monitor" | null;
+  /** Track index, "monitor" for the monitor track, an audio lane, or null for the master bus. */
+  track: ChainTarget;
   /** "Rhythm guitar", "Master". */
   name: string;
   presetTarget: PresetTarget;
@@ -885,9 +886,11 @@ export function PedalboardDialog({
             Up to {limit} effects, played from left to right.{" "}
             {target.track === null
               ? "The mastering chain processes the whole mix. Drag effects from the library onto the board, or use their Add buttons."
-              : target.track === "monitor"
-                ? "Your audio input plays live through these effects. Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."
-                : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
+              : typeof target.track === "object"
+                ? "This audio lane's clips play through these effects. Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."
+                : target.track === "monitor"
+                  ? "Your audio input plays live through these effects. Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."
+                  : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -1384,7 +1387,9 @@ export function PedalboardDialog({
                               ? m.reduction?.master[i]
                               : target.track === "monitor"
                                 ? m.reduction?.monitor?.[i]
-                                : m.reduction?.tracks[target.track]?.[i]) ?? 0
+                                : typeof target.track === "number"
+                                  ? m.reduction?.tracks[target.track]?.[i]
+                                  : 0) ?? 0
                           }
                           library={library}
                           onChange={(next) => onChange(replaceEffect(chain, i, next))}

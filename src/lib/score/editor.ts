@@ -1049,6 +1049,20 @@ export class ScoreEditor {
     this.moved(`Selected the whole track, ${this.staff.bars.length} bars`);
   }
 
+  /** Selects whole bars `start` to `end` (from the audio editor's time ruler). */
+  selectBars(start: number, end: number) {
+    const last = this.staff.bars.length - 1;
+    const from = Math.min(Math.max(0, start), last);
+    const to = Math.min(Math.max(from, end), last);
+    this._selection = {
+      anchor: { bar: from, beat: 0 },
+      head: { bar: to, beat: this.beatCount(to) - 1 },
+    };
+    this._cursor.bar = from;
+    this._cursor.beat = 0;
+    this.moved(from === to ? `Selected bar ${from + 1}` : `Selected bars ${from + 1} to ${to + 1}`);
+  }
+
   clearSelection() {
     if (!this._selection) return;
     this._selection = null;

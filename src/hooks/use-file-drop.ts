@@ -13,7 +13,7 @@ export function useFileDrop({
   onDropPaths,
   onDropFiles,
 }: {
-  onDropPaths: (paths: string[]) => void;
+  onDropPaths: (paths: string[], position?: { x: number; y: number }) => void;
   onDropFiles: (files: File[]) => void;
 }): boolean {
   const [dragging, setDragging] = useState(false);
@@ -26,7 +26,7 @@ export function useFileDrop({
     let disposed = false;
     onFileDrag((event) => {
       setDragging(event.type === "enter");
-      if (event.type === "drop" && event.paths.length > 0) dropPaths(event.paths);
+      if (event.type === "drop" && event.paths.length > 0) dropPaths(event.paths, event.position);
     })
       .then((stop) => {
         if (disposed) stop();

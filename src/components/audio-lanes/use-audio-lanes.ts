@@ -13,7 +13,14 @@ import {
   removeClips,
   splitClip,
 } from "@/lib/audio-lanes/edits";
-import { EMPTY_AUDIO, MAX_LANES, activeTake, clipEndMs, newClip, newLane } from "@/lib/audio-lanes/model";
+import {
+  EMPTY_AUDIO,
+  MAX_LANES,
+  activeTake,
+  clipEndMs,
+  newClip,
+  newLane,
+} from "@/lib/audio-lanes/model";
 import { snapMs, type SongGrid } from "@/lib/audio-lanes/sync";
 import { errorText } from "@/lib/errors";
 import type { MixerAction } from "@/lib/score/mixer";
@@ -66,26 +73,36 @@ export function sourceLocations(source: AudioSource, songPath: string | null): S
   if (source.path) locations.push({ type: "file", path: source.path });
   if (source.embedded && songPath?.toLowerCase().endsWith(".gp")) {
     locations.push({ type: "embedded", scorePath: songPath, entry: `${source.id}.${source.ext}` });
-    if (source.legacyEntry) locations.push({ type: "embedded", scorePath: songPath, entry: source.legacyEntry });
+    if (source.legacyEntry)
+      locations.push({ type: "embedded", scorePath: songPath, entry: source.legacyEntry });
   }
   return locations;
 }
 
 /** Every reference to source `from` (the source and the takes that play it) pointed at `to`. */
-export function renameSource(audio: AudioLanesSettings, from: string, to: SourceInfo): AudioLanesSettings {
+export function renameSource(
+  audio: AudioLanesSettings,
+  from: string,
+  to: SourceInfo,
+): AudioLanesSettings {
   const exists = audio.sources.some((s) => s.id === to.id);
   return {
     ...audio,
     sources: exists
       ? audio.sources.filter((s) => s.id !== from)
-      : audio.sources.map((s) => (s.id === from ? { ...s, id: to.id, ext: to.ext, legacyEntry: undefined } : s)),
+      : audio.sources.map((s) =>
+          s.id === from ? { ...s, id: to.id, ext: to.ext, legacyEntry: undefined } : s,
+        ),
     lanes: audio.lanes.map((l) => ({
       ...l,
       clips: l.clips.map((c) => ({
         ...c,
         takes: c.takes.map((t) => (t.sourceId === from ? { ...t, sourceId: to.id } : t)),
         // An old track's clip was as long as any file could be: now its real length is known.
-        lengthMs: c.takes[c.take]?.sourceId === from ? Math.min(c.lengthMs, to.durationMs - activeTake(c).offsetMs) : c.lengthMs,
+        lengthMs:
+          c.takes[c.take]?.sourceId === from
+            ? Math.min(c.lengthMs, to.durationMs - activeTake(c).offsetMs)
+            : c.lengthMs,
       })),
     })),
   };
@@ -107,13 +124,17 @@ export function useAudioLanes(options: AudioLanesOptions) {
   const [selection, setSelection] = useState<readonly string[]>([]);
   const [editCursorMs, setEditCursorMs] = useState(0);
   const [snap, setSnap] = useState<SnapMode>("beat");
-  const history = useRef<{ past: AudioLanesSettings[]; future: AudioLanesSettings[] }>({ past: [], future: [] });
+  const history = useRef<{ past: AudioLanesSettings[]; future: AudioLanesSettings[] }>({
+    past: [],
+    future: [],
+  });
   const [lastEditAt, setLastEditAt] = useState(0);
   const clipboard = useRef<AudioClip[]>([]);
   const loading = useRef(new Set<string>());
 
   const commit = useCallback(
-    (next: AudioLanesSettings) => changeMix({ type: "audio", value: next.lanes.length ? next : null }),
+    (next: AudioLanesSettings) =>
+      changeMix({ type: "audio", value: next.lanes.length ? next : null }),
     [changeMix],
   );
 
@@ -125,6 +146,26 @@ export function useAudioLanes(options: AudioLanesOptions) {
       if (next === before) return;
       history.current = { past: [...history.current.past, before].slice(-HISTORY), future: [] };
       setLastEditAt(Date.now());
+      audioRef.current = next;
+      commit(next);
+    },
+    [commit],
+  );
+
+  /** Starts a drag that changes the lanes many times: undo takes it back in one step. */
+  const beginGesture = useCallback(() => {
+    history.current = {
+      past: [...history.current.past, audioRef.current].slice(-HISTORY),
+      future: [],
+    };
+    setLastEditAt(Date.now());
+  }, []);
+
+  /** An edit inside a gesture (no undo step of its own). */
+  const applyQuiet = useCallback(
+    (edit: (audio: AudioLanesSettings) => AudioLanesSettings) => {
+      const next = edit(audioRef.current);
+      if (next === audioRef.current) return;
       audioRef.current = next;
       commit(next);
     },
@@ -181,7 +222,9 @@ export function useAudioLanes(options: AudioLanesOptions) {
           }
         }
         setMissing((m) => new Set(m).add(source.id));
-        toast.error(`Couldn't open the audio file “${source.name}”`, { description: errorText(lastError) });
+        toast.error(`Couldn't open the audio file “${source.name}”`, {
+          description: errorText(lastError),
+        });
       })();
     }
   }, [audio.sources, canLoad, epoch, infos, loader, songPath, commit]);
@@ -192,7 +235,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
   }, [epoch]);
 
   const snapTo = useCallback(
-    (ms: number) => (snap === "off" ? Math.max(0, ms) : Math.max(0, snapMs(audioRef.current, grid, ms, snap))),
+    (ms: number) =>
+      snap === "off" ? Math.max(0, ms) : Math.max(0, snapMs(audioRef.current, grid, ms, snap)),
     [grid, snap],
   );
 
@@ -250,7 +294,12 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const at = editCursorMs;
     const targets = a.lanes
       .flatMap((l) => l.clips)
-      .filter((c) => (selection.length === 0 || selection.includes(c.id)) && c.startMs < at && clipEndMs(c) > at);
+      .filter(
+        (c) =>
+          (selection.length === 0 || selection.includes(c.id)) &&
+          c.startMs < at &&
+          clipEndMs(c) > at,
+      );
     const cuts = await Promise.all(
       targets.map(async (c) => {
         const take = activeTake(c);
@@ -273,16 +322,22 @@ export function useAudioLanes(options: AudioLanesOptions) {
         setSelection([]);
       },
       copy: () => {
-        clipboard.current = audioRef.current.lanes.flatMap((l) => l.clips.filter((c) => selection.includes(c.id)));
+        clipboard.current = audioRef.current.lanes.flatMap((l) =>
+          l.clips.filter((c) => selection.includes(c.id)),
+        );
       },
-      paste: (laneId: string) => apply((a) => pasteClips(a, laneId, clipboard.current, editCursorMs)),
+      paste: (laneId: string) =>
+        apply((a) => pasteClips(a, laneId, clipboard.current, editCursorMs)),
       /** Moves the selected clips by one beat (a bar with `big`; 10 ms with snap off). */
       nudge: (direction: -1 | 1, big: boolean) =>
         apply((a) =>
           selection.reduce((next, id) => {
             const found = findClip(next, id);
             if (!found) return next;
-            const step = snap === "off" && !big ? 10 : gridStepMs(grid, found.clip.startMs, big || snap === "bar");
+            const step =
+              snap === "off" && !big
+                ? 10
+                : gridStepMs(grid, found.clip.startMs, big || snap === "bar");
             return moveClip(next, id, found.clip.startMs + direction * step);
           }, a),
         ),
@@ -302,6 +357,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
     setSnap,
     snapTo,
     apply,
+    applyQuiet,
+    beginGesture,
     undo,
     redo,
     canUndo: history.current.past.length > 0,

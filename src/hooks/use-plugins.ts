@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { track } from "@/lib/telemetry";
 import type { EffectSlot } from "@/lib/audio/effects";
 import {
+  type ChainTarget,
   getPluginsEnabled,
   isCommandError,
   isTauri,
@@ -48,7 +49,7 @@ export interface UsePlugins {
 }
 
 export function usePlugins(
-  target: { track: number | "monitor" | null },
+  target: { track: ChainTarget },
   sound: number,
   chain: readonly EffectSlot[],
 ): UsePlugins {

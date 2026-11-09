@@ -1505,6 +1505,25 @@ pub fn audio_spectrogram(
     ))
 }
 
+/// The loudness (LUFS) and peak of part of a source.
+#[tauri::command(async)]
+pub fn audio_loudness(
+    source: String,
+    start_ms: f64,
+    end_ms: f64,
+    state: State<'_, AudioState>,
+) -> Result<analysis::Loudness, CommandError> {
+    let audio = state
+        .inner
+        .lock()
+        .unwrap()
+        .sources
+        .get(&source)
+        .map(|s| s.audio.clone())
+        .ok_or_else(|| audio_error("The audio file is not loaded"))?;
+    Ok(analysis::loudness(&audio, start_ms, end_ms))
+}
+
 /// The tempo of a source and where its beats fall (ms), from its onsets.
 #[tauri::command(async)]
 pub fn audio_detect_beats(

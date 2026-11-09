@@ -184,3 +184,38 @@ export function tempoChangesFromSync(
     .filter((s) => s.beat === 0)
     .map((s) => ({ bar: s.bar, bpm: Math.round(s.bpm * 10) / 10 }));
 }
+
+/** The timeline point at a fractional bar (between the bar's start and the next one's). */
+export function timelineMsAtBar(audio: AudioLanesSettings, grid: SongGrid, bar: number): number {
+  const whole = Math.max(0, Math.floor(bar));
+  const start = timelineMsAt(audio, grid, whole);
+  if (whole + 1 >= grid.barTimes.length) {
+    const previous = whole > 0 ? timelineMsAt(audio, grid, whole - 1) : start - 2000;
+    return start + (bar - whole) * (start - previous);
+  }
+  return start + (bar - whole) * (timelineMsAt(audio, grid, whole + 1) - start);
+}
+
+/**
+ * Sync points on every bar of the play zone from beats found in a clip's file: bar `b` of the
+ * zone starts on the detected beat `b × beats-per-bar` (file ms, placed on the timeline where
+ * the clip plays it).
+ */
+export function syncFromDetectedBeats(
+  beats: readonly number[],
+  grid: SongGrid,
+  clip: { startMs: number; playrate: number; takes: readonly { offsetMs: number }[]; take: number },
+  zoneStart = 0,
+): SyncPoint[] {
+  const offset = clip.takes[clip.take]?.offsetMs ?? 0;
+  const points: SyncPoint[] = [];
+  let beat = beats.findIndex((ms) => ms >= offset);
+  if (beat < 0) return points;
+  for (let bar = zoneStart; bar < grid.barTimes.length; bar++) {
+    const ms = beats[beat];
+    if (ms === undefined) break;
+    points.push({ bar, ms: clip.startMs + (ms - offset) / clip.playrate });
+    beat += grid.beats[bar] ?? 4;
+  }
+  return normalizeSync(points);
+}

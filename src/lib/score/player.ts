@@ -1770,8 +1770,9 @@ export class ScorePlayer {
       throw new Error("The instrument sounds are still loading. Try again in a moment.");
     this.pause();
     if (this.engine) {
-      // Rendered by the engine, with the effect chains.
+      // Rendered by the engine, with the effect chains, once the latest mix has reached it.
       onProgress?.(0);
+      await this.engine.settled();
       const samples = await renderEngineAudio(EXPORT_SAMPLE_RATE);
       onProgress?.(1);
       return { samples, sampleRate: EXPORT_SAMPLE_RATE, channels: 2 };

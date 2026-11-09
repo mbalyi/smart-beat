@@ -519,9 +519,13 @@ export function App() {
     else tour.resetHints();
   };
 
-  const [droppedAudio, setDroppedAudio] = useState<{ path: string; nonce: number } | null>(null);
+  const [droppedAudio, setDroppedAudio] = useState<{
+    path: string;
+    nonce: number;
+    position?: { x: number; y: number };
+  } | null>(null);
   const dragging = useFileDrop({
-    onDropPaths: (paths) => {
+    onDropPaths: (paths, position) => {
       if (dialog === "stem-separation") {
         const dropped = paths[0];
         if (dropped)
@@ -538,11 +542,12 @@ export function App() {
         void openPath(score);
         return;
       }
-      // An mp3, wav… dropped on an open song becomes its audio track; an amp
+      // An mp3, wav… dropped on an open song goes on an audio lane (the one under the pointer, or a
+      // new one); an amp
       // capture (.nam) goes to the sound library (the workspace decides).
       const sound = song ? paths.find((p) => isAudioFile(p) || /\.nam$/i.test(p)) : undefined;
       if (sound) {
-        setDroppedAudio((d) => ({ path: sound, nonce: (d?.nonce ?? 0) + 1 }));
+        setDroppedAudio((d) => ({ path: sound, nonce: (d?.nonce ?? 0) + 1, position }));
         return;
       }
       // Anything else: opening it reports why it is not a song.

@@ -54,7 +54,7 @@ export type MenuAction =
   | "zoom-reset"
   | "toggle-fullscreen"
   | "add-track"
-  | "add-audio-track"
+  | "add-audio-lane"
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
@@ -150,7 +150,17 @@ export const SCORE_EXTENSIONS = [
 ] as const;
 
 /** Mirrors `AUDIO_EXTENSIONS` in `src-tauri/src/audio/backing.rs`: audio lane files. */
-export const AUDIO_EXTENSIONS = ["mp3", "m4a", "mp4", "wav", "flac", "ogg", "oga", "aif", "aiff"] as const;
+export const AUDIO_EXTENSIONS = [
+  "mp3",
+  "m4a",
+  "mp4",
+  "wav",
+  "flac",
+  "ogg",
+  "oga",
+  "aif",
+  "aiff",
+] as const;
 
 /** Mirrors `WRITE_EXTENSIONS` in `src-tauri/src/score_write.rs`. */
 export const SAVE_EXTENSIONS = [
@@ -858,7 +868,10 @@ export async function updateMenuState(state: MenuState): Promise<void> {
 }
 
 export type FileDragEvent =
-  { type: "enter" } | { type: "leave" } | { type: "drop"; paths: string[] };
+  | { type: "enter" }
+  | { type: "leave" }
+  /** `position`: where the files were dropped, in CSS pixels of the window. */
+  | { type: "drop"; paths: string[]; position?: { x: number; y: number } };
 
 /**
  * Subscribes to files being dragged onto the window. The desktop app handles
@@ -870,7 +883,14 @@ export async function onFileDrag(handler: (event: FileDragEvent) => void): Promi
   return getCurrentWebview().onDragDropEvent(({ payload }) => {
     if (payload.type === "enter") handler({ type: "enter" });
     else if (payload.type === "leave") handler({ type: "leave" });
-    else if (payload.type === "drop") handler({ type: "drop", paths: payload.paths });
+    else if (payload.type === "drop") {
+      const scale = window.devicePixelRatio || 1;
+      handler({
+        type: "drop",
+        paths: payload.paths,
+        position: { x: payload.position.x / scale, y: payload.position.y / scale },
+      });
+    }
   });
 }
 
@@ -1146,6 +1166,17 @@ export const audioSpectrogram = (
   columns: number,
   bins: number,
 ) => call<number[][]>("audio_spectrogram", { source, startMs, endMs, columns, bins });
+
+/** Mirrors `Loudness`: integrated and short-term LUFS and the sample peak (−70: silence). */
+export interface Loudness {
+  integrated: number;
+  shortTermMax: number;
+  peakDb: number;
+}
+
+/** The loudness of part of a loaded file. */
+export const audioLoudness = (source: string, startMs: number, endMs: number) =>
+  call<Loudness>("audio_loudness", { source, startMs, endMs });
 
 /** The tempo of a file and where its beats fall. */
 export const detectAudioBeats = (source: string) =>
@@ -1552,22 +1583,25 @@ export const setPluginsEnabled = (enabled: boolean) =>
 
 export const getPluginsEnabled = () => call<boolean>("plugins_enabled");
 
+/** Whose effect chain: a track index, the monitor track, an audio lane, or (null) the master bus. */
+export type ChainTarget = number | "monitor" | { lane: number } | null;
+
 /**
  * Opens the plugin's own editor window (owned by the helper process).
  * Resolves to the editor size in pixels.
  */
-export const openPluginEditor = (track: number | "monitor" | null, sound: number, index: number) =>
+export const openPluginEditor = (track: ChainTarget, sound: number, index: number) =>
   call<[number, number]>("plugin_open_editor", { track, sound, index });
 
-export const closePluginEditor = (track: number | "monitor" | null, sound: number, index: number) =>
+export const closePluginEditor = (track: ChainTarget, sound: number, index: number) =>
   call<void>("plugin_close_editor", { track, sound, index });
 
 /** Saves the plugin's current settings as base64 (stored in the block). */
-export const savePluginState = (track: number | "monitor" | null, sound: number, index: number) =>
+export const savePluginState = (track: ChainTarget, sound: number, index: number) =>
   call<string>("plugin_save_state", { track, sound, index });
 
 /** Live status of every plugin block of a chain. */
-export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
+export const pluginInfo = (track: ChainTarget, sound: number) =>
   call<PluginSlotInfo[]>("audio_plugin_info", { track, sound });
 
 // --- Practice together -------------------------------------------------------

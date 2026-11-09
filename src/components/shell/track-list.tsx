@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  AudioLinesIcon,
+  MicIcon,
   CableIcon,
   CopyIcon,
   CopyPlusIcon,
@@ -27,7 +27,9 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 
-import { AudioWaveform } from "@/components/audio/audio-track-panel";
+import { LaneRow } from "@/components/audio-lanes/lane-row";
+import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
+import type { SongGrid } from "@/lib/audio-lanes/sync";
 import { Playhead } from "@/components/playhead";
 import { AutomationLane, LaneKindSelect } from "@/components/audio/automation-lane";
 import { EqPopover } from "@/components/audio/eq-popover";
@@ -68,13 +70,13 @@ import { trackColor } from "@/lib/score/track-colors";
 import { describeLatency, MONITOR_NAME } from "@/lib/audio/monitor";
 import type {
   AutomationLaneKind,
-  BackingInfo,
   MixerSettings,
   MonitorStatus,
   MonitorTrackSettings,
 } from "@/lib/tauri";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { cn } from "@/lib/utils";
+import { CONTROLS } from "@/components/shell/track-row-layout";
 
 export interface TrackActions {
   onShow: (index: number) => void;
@@ -127,8 +129,6 @@ function storeNotesShown(shown: boolean) {
 }
 
 /** Width of the controls next to the bar grid. */
-const CONTROLS =
-  "grid grid-cols-[minmax(7rem,1fr)_var(--eye-col,2rem)_3.5rem_minmax(5rem,1.5fr)_minmax(3.5rem,1fr)_4.5rem] items-center gap-x-2";
 
 function TrackIcon({ track }: { track: TrackSummary }) {
   const Icon =
@@ -558,15 +558,14 @@ export function TrackList({
   onMasterEffects?: () => void;
   /** The monitor track row (missing: none and none can be added here). */
   monitor?: MonitorRowProps;
-  /** The audio track row (missing: none and none can be added here). */
+  /** The audio lanes (missing: none and none can be added here). */
   audio?: {
-    info: BackingInfo | null;
-    /** Song ms at each bar start, plus the end. */
-    barTimes: readonly number[];
+    lanes: AudioLanesController;
+    grid: SongGrid;
     onAdd: () => void;
-    onEdit: () => void;
-    /** Removes the audio track from the song. */
-    onRemove: () => void;
+    onRecord: () => void;
+    onEffects: (laneIndex: number) => void;
+    onOpenEditor: (laneId: string) => void;
   };
 }) {
   const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
@@ -669,15 +668,28 @@ export function TrackList({
                 >
                   <PlusIcon />
                 </Button>
-                {audio && !mix.audioTrack && (
+                {audio && (
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="Add audio track"
-                    title="Add audio track (mp3, wav…)"
+                    aria-label="Add audio lane"
+                    title="Add audio lane (mp3, m4a, wav…)"
                     onClick={audio.onAdd}
+                    data-tour="add-audio-lane"
                   >
                     <FileMusicIcon />
+                  </Button>
+                )}
+                {audio && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Record audio"
+                    title="Record audio to a lane (no tab)"
+                    onClick={audio.onRecord}
+                    data-tour="record-audio"
+                  >
+                    <MicIcon />
                   </Button>
                 )}
                 {monitor && !mix.monitor && (
@@ -1085,132 +1097,28 @@ export function TrackList({
               </li>
             );
           })}
-          {audio && mix.audioTrack && (
-            <li className="flex border-b" data-testid="audio-track-row">
-              <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center border-r bg-card px-2 py-1">
-                <div className={cn(CONTROLS, "w-full")}>
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <span
-                      aria-hidden="true"
-                      className="h-5 w-1 shrink-0 rounded-full bg-amber-500"
-                    />
-                    <AudioLinesIcon className="size-4 shrink-0" aria-hidden="true" />
-                    <button
-                      type="button"
-                      onClick={audio.onEdit}
-                      title={mix.audioTrack.path ?? mix.audioTrack.name}
-                      aria-label={`Edit the audio track ${mix.audioTrack.name}`}
-                      className="min-w-0 truncate rounded text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                    >
-                      {mix.audioTrack.name}
-                    </button>
-                  </div>
-                  <div className="flex items-center">
-                    <Switch
-                      checked={mix.audioTrack.enabled}
-                      onCheckedChange={(enabled) =>
-                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, enabled } })
-                      }
-                      aria-label="Audio track on"
-                    />
-                  </div>
-                  <div className="flex gap-0.5">
-                    <Toggle
-                      size="sm"
-                      variant="outline"
-                      pressed={mix.audioTrack.mute}
-                      onPressedChange={(mute) =>
-                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, mute } })
-                      }
-                      aria-label="Mute the audio track"
-                      className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
-                    >
-                      M
-                    </Toggle>
-                    <Toggle
-                      size="sm"
-                      variant="outline"
-                      pressed={mix.audioTrack.solo}
-                      onPressedChange={(solo) =>
-                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, solo } })
-                      }
-                      aria-label="Solo the audio track"
-                      className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
-                    >
-                      S
-                    </Toggle>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <LabeledSlider
-                      label="Volume, audio track"
-                      valueText={describeVolume(mix.audioTrack.volume)}
-                      value={mix.audioTrack.volume}
-                      onValueChange={(volume) =>
-                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, volume } })
-                      }
-                    />
-                    <LevelMeter label="Level, audio track" select={(m) => m.backing ?? 0} />
-                  </div>
-                  <PanControl
-                    label="Pan, audio track"
-                    value={mix.audioTrack.pan}
-                    onValueChange={(pan) =>
-                      onChange({ type: "audio-track", value: { ...mix.audioTrack!, pan } })
-                    }
-                  />
-                  <div className="flex items-center justify-end gap-0.5">
-                    <EqPopover
-                      name="audio track"
-                      eq={mix.audioTrack.eq}
-                      onChange={(eq) =>
-                        onChange({ type: "audio-track", value: { ...mix.audioTrack!, eq } })
-                      }
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={audio.onEdit}
-                      aria-label="Audio track settings and sync points"
-                      title="Settings and sync points"
-                    >
-                      <Settings2Icon />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={audio.onRemove}
-                      aria-label="Remove the audio track"
-                      title="Remove the audio track"
-                    >
-                      <Trash2Icon />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                tabIndex={-1}
-                aria-hidden="true"
-                onClick={audio.onEdit}
-                className="relative flex items-center overflow-hidden"
-              >
-                {audio.info ? (
-                  <AudioWaveform
-                    info={audio.info}
-                    sync={mix.audioTrack.sync}
-                    barTimes={audio.barTimes}
-                    barWidth={BAR_PX}
-                    className="h-6!"
-                  />
-                ) : (
-                  <span className="px-2 text-xs text-muted-foreground">Recording not loaded</span>
-                )}
-                {audio.info && playhead && (
-                  <Playhead store={playhead} barWidth={BAR_PX} playing={playing} />
-                )}
-              </button>
-            </li>
-          )}
+          {audio &&
+            audio.lanes.audio.lanes.map((lane, index) => {
+              const folder = lane.parent
+                ? audio.lanes.audio.lanes.find((l) => l.id === lane.parent)
+                : undefined;
+              if (folder?.collapsed) return null;
+              return (
+                <LaneRow
+                  key={lane.id}
+                  lanes={audio.lanes}
+                  lane={lane}
+                  index={index}
+                  barWidth={BAR_PX}
+                  barCount={barCount}
+                  grid={audio.grid}
+                  playhead={playhead}
+                  playing={playing}
+                  onEffects={audio.onEffects}
+                  onOpenEditor={audio.onOpenEditor}
+                />
+              );
+            })}
           {monitor && mix.monitor && (
             <MonitorRow
               monitor={mix.monitor}

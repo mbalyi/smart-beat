@@ -15,7 +15,21 @@ import { toast } from "sonner";
 import { isEnabled } from "@/lib/features";
 import { soundFontCounterId, track as trackUsage } from "@/lib/telemetry";
 
-import { AudioTrackPanel } from "@/components/audio/audio-track-panel";
+import { LaneEditorDock, type LaneEditorActions } from "@/components/audio-lanes/lane-editor-dock";
+import { RecordAudioDialog } from "@/components/audio-lanes/record-audio-dialog";
+import { StudioView } from "@/components/audio-lanes/studio-view";
+import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
+import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
+import { encodeWav } from "@/lib/export/wav";
+import { addSource, updateLane } from "@/lib/audio-lanes/edits";
+import {
+  barAtTimelineMs,
+  syncFromDetectedBeats,
+  tempoChangesFromSync,
+  timelineMsAt,
+  timelineMsAtBar,
+  type SongGrid,
+} from "@/lib/audio-lanes/sync";
 import { DrumMixerDialog } from "@/components/audio/drum-mixer-dialog";
 import {
   PedalboardDialog,
@@ -256,18 +270,17 @@ import {
 } from "@/lib/score/visible-tracks";
 import { canNormalizeDrums, normalizeDrumNotation } from "@/lib/score/drum-normalize";
 import {
-  AUDIO_EXTENSIONS,
-  isCommandError,
+  detectAudioBeats,
+  extractAudioSource,
   isTauri,
   MIXER_SETTINGS_VERSION,
   pickAudioFile,
   pickSavePath,
+  writeScoreFile,
   readDroppedAudio,
   saveMixerSettings,
   writePdfFile,
-  type AudioTrackSettings,
-  type BackingInfo,
-  type BackingSource,
+  type ChainTarget,
   type FocusMode,
   type MenuAction,
   type MixerSettings,
@@ -508,7 +521,7 @@ export function ScoreWorkspace({
   /** Open in edit mode (new songs). */
   startEditing?: boolean;
   /** An audio file dropped on the window while this song is shown (`nonce` changes per drop). */
-  droppedAudio?: { path: string; nonce: number } | null;
+  droppedAudio?: { path: string; nonce: number; position?: { x: number; y: number } } | null;
   /**
    * Practice together was started from the start screen (this tab is the one to share, or a blank
    * tab to join with): the dialog opens when the tab is shown.
@@ -625,13 +638,13 @@ export function ScoreWorkspace({
   });
   const [pedalboard, setPedalboard] = useState<{
     open: boolean;
-    /** A track, the monitor track, or null for the master. */
-    track: number | "monitor" | null;
+    /** A track, the monitor track, an audio lane, or null for the master. */
+    track: ChainTarget;
     /**
      * The track it was opened for (none: the master). The dialog's Track / Mastering switch
      * goes back to it, whatever track is highlighted in the mixer by then.
      */
-    opened: number | "monitor" | null;
+    opened: ChainTarget;
     focus?: EffectType;
     /** The sound of the track being edited. */
     sound: number;
@@ -642,14 +655,17 @@ export function ScoreWorkspace({
     open: false,
     track: 0,
   });
-  /** The loaded recording of the audio track (waveform), or null. */
-  const [backingInfo, setBackingInfo] = useState<BackingInfo | null>(null);
-  const [audioEditorOpen, setAudioEditorOpen] = useState(false);
-  const [audioZoom, setAudioZoom] = useState(40);
+  /** The audio lane open in the docked editor (null: closed). */
+  const [editorLaneId, setEditorLaneId] = useState<string | null>(null);
+  /** The full studio view of every lane. */
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [recordAudioOpen, setRecordAudioOpen] = useState(false);
+  /** Where a file dragged onto the window would land: a lane and a time, from the pointer. */
+  const dropTarget = useRef<{ laneId: string; atMs: number } | null>(null);
+  /** When the score was last edited (undo goes to the lanes when they were edited later). */
+  const scoreEditedAt = useRef(0);
   // Bars in playback order (repeats included), as the engine plays them.
   const [playedBars, setPlayedBars] = useState<BarOccurrence[] | null>(null);
-  /** Which recording is loaded in the engine ("" for none). */
-  const loadedAudio = useRef("");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const library = useSoundLibrary();
   const drumKits = useDrumKits();
@@ -711,7 +727,7 @@ export function ScoreWorkspace({
   const [presetBrowser, setPresetBrowser] = useState<{
     open: boolean;
     target: PresetTarget;
-    track: number | "monitor" | null;
+    track: ChainTarget;
     sound: number;
     targets?: PresetTarget[];
   }>({ open: false, target: "guitar", track: null, sound: 0 });
@@ -1054,9 +1070,6 @@ export function ScoreWorkspace({
     return () => {
       player.destroy();
       playerRef.current = null;
-      // The next player (engine switched) has no recording loaded yet.
-      loadedAudio.current = "";
-      setBackingInfo(null);
       setPlayedBars(null);
       setMonitorStatus(null);
     };
@@ -1133,6 +1146,7 @@ export function ScoreWorkspace({
 
   /** After every change to the music: new mix order, re-render, new MIDI. */
   const onModelChange = useEffectEvent(() => {
+    scoreEditedAt.current = Date.now();
     const states = score.tracks.map((t) => {
       const known = stateByTrack.current.get(t);
       if (known) return known;
@@ -1866,6 +1880,46 @@ export function ScoreWorkspace({
   };
   useSpaceToPlay(playPause, ready && active && !recordBusy);
 
+  // --- Audio lanes ---------------------------------------------------------------
+
+  const occurrences = useMemo(() => {
+    void revision;
+    return playedBars ?? barOccurrences(score, null);
+  }, [score, revision, playedBars]);
+  const barTimes = useMemo(() => barTimeline(score, occurrences), [score, occurrences]);
+  const engineOn = audioEngine === "native";
+  /** The score's grid as the audio lanes see it: bar starts in song ms, beats per bar. */
+  const laneGrid = useMemo<SongGrid>(
+    () => ({ barTimes, beats: score.masterBars.map((m) => m.timeSignatureNumerator || 4) }),
+    [barTimes, score.masterBars],
+  );
+  /** Asks for the native engine (the lanes play there); false when it cannot be used. */
+  const ensureEngine = () => {
+    if (engineOn) return true;
+    if (nativeEngineAvailable()) {
+      changeAudioEngine("native");
+      toast.info("Switched to effects playback for the audio lanes");
+      return false;
+    }
+    toast.info("Audio lanes play with the native audio engine");
+    return false;
+  };
+  const lanes = useAudioLanes({
+    mix,
+    changeMix,
+    loader: useCallback(() => (playerRef.current?.usesNativeEngine ? playerRef.current : null), []),
+    canLoad: engineOn && ready,
+    epoch: playerEpoch,
+    songPath: song.path ?? null,
+    grid: laneGrid,
+    ensureEngine,
+  });
+  const editorLane = lanes.audio.lanes.find((l) => l.id === editorLaneId && !l.folder) ?? null;
+  // The editor closes with its lane.
+  useEffect(() => {
+    if (editorLaneId && !editorLane) setEditorLaneId(null);
+  }, [editorLaneId, editorLane]);
+
   // --- Effects and the native audio engine -------------------------------------
 
   /** `remember` is false when the app switches by itself: only the user's own pick is kept. */
@@ -1874,7 +1928,7 @@ export function ScoreWorkspace({
     setEffectProblems({ tracks: [], master: [] });
     setAudioEngine(kind);
   };
-  const openPedalboard = (track: number | "monitor" | null, focus?: EffectType) => {
+  const openPedalboard = (track: ChainTarget, focus?: EffectType) => {
     if (focus && typeof track === "number") {
       // The EQ button: the track gets an EQ if it has none (and there is room).
       const current = trackEffects(mixRef.current, track);
@@ -1895,16 +1949,27 @@ export function ScoreWorkspace({
   };
   /** The track the pedalboard edits, or would edit when switched back from the master. */
   const pedalboardTrack = pedalboard.track ?? pedalboard.opened ?? trackIndex;
+  /** The audio lane the pedalboard edits (when it edits one). */
+  const pedalboardLane =
+    typeof pedalboard.track === "object" && pedalboard.track !== null
+      ? (lanes.audio.lanes[pedalboard.track.lane] ?? null)
+      : null;
   const pedalboardTarget: PedalboardTarget =
     pedalboard.track === null
       ? { track: null, name: "Master", presetTarget: "master" }
-      : pedalboard.track === "monitor"
-        ? { track: "monitor", name: MONITOR_NAME, presetTarget: "guitar" }
-        : {
+      : typeof pedalboard.track === "object"
+        ? {
             track: pedalboard.track,
-            name: summary.tracks[pedalboard.track]?.name ?? "Track",
-            presetTarget: presetTargetOf(summary.tracks[pedalboard.track] ?? track),
-          };
+            name: pedalboardLane?.name ?? "Audio lane",
+            presetTarget: "guitar",
+          }
+        : pedalboard.track === "monitor"
+          ? { track: "monitor", name: MONITOR_NAME, presetTarget: "guitar" }
+          : {
+              track: pedalboard.track,
+              name: summary.tracks[pedalboard.track]?.name ?? "Track",
+              presetTarget: presetTargetOf(summary.tracks[pedalboard.track] ?? track),
+            };
   const drumKitEntries = useMemo(
     () => kitEntries(track.kind === "drums" ? ownDrumKit(trackObject) : []),
     // The kit changes with the track (and its articulations with edits).
@@ -1924,6 +1989,12 @@ export function ScoreWorkspace({
       changeMix({ type: "master-effects", slots: chainOf(preset).slice(0, MAX_MASTER_EFFECTS) });
     } else if (track === "monitor") {
       changeMonitorEffects(chainOf(preset).slice(0, MAX_TRACK_EFFECTS));
+    } else if (typeof track === "object") {
+      const lane = lanes.audio.lanes[track.lane];
+      if (lane)
+        lanes.apply((a) =>
+          updateLane(a, lane.id, { effects: chainOf(preset).slice(0, MAX_TRACK_EFFECTS) }),
+        );
     } else {
       changeMix({
         type: "sound-effects",
@@ -1943,12 +2014,19 @@ export function ScoreWorkspace({
   const pedalboardChain =
     pedalboard.track === null
       ? (mix.masterEffects ?? [])
-      : pedalboard.track === "monitor"
-        ? (mix.monitor?.effects ?? [])
-        : soundEffects(mix, pedalboard.track, pedalboard.sound);
+      : typeof pedalboard.track === "object"
+        ? (pedalboardLane?.effects ?? [])
+        : pedalboard.track === "monitor"
+          ? (mix.monitor?.effects ?? [])
+          : soundEffects(mix, pedalboard.track, pedalboard.sound);
   const changePedalboardChain = (slots: EffectSlot[]) => {
     if (pedalboard.track === "monitor") {
       changeMonitorEffects(slots);
+      return;
+    }
+    if (typeof pedalboard.track === "object" && pedalboard.track !== null) {
+      const lane = pedalboardLane;
+      if (lane) lanes.apply((a) => updateLane(a, lane.id, { effects: slots }));
       return;
     }
     changeMix(
@@ -1959,8 +2037,8 @@ export function ScoreWorkspace({
   };
   const pedalboardSounds: PedalboardSounds | undefined = (() => {
     const t = pedalboard.track;
-    // The monitor track has one sound: it plays live, not along the song's bars.
-    if (t === null || t === "monitor") return undefined;
+    // The monitor track and the lanes have one sound each.
+    if (t === null || t === "monitor" || typeof t === "object") return undefined;
     const own = trackSoundsOf(mix, t);
     const select = (sound: number) => setPedalboard((p) => ({ ...p, sound }));
     return {
@@ -2007,79 +2085,132 @@ export function ScoreWorkspace({
     };
   })();
 
-  // --- Audio track ---------------------------------------------------------------
+  // --- Audio lanes: files, editor, replace and extract -------------------------
 
-  const occurrences = useMemo(() => {
-    void revision;
-    return playedBars ?? barOccurrences(score, null);
-  }, [score, revision, playedBars]);
-  const barTimes = useMemo(() => barTimeline(score, occurrences), [score, occurrences]);
-  const audio = mix.audioTrack;
-  const engineOn = audioEngine === "native";
-  const audioKey = audio ? `${audio.name}\n${audio.path ?? ""}` : "";
-
-  const newAudioTrack = (name: string, path: string): AudioTrackSettings => ({
-    name,
-    path,
-    embedded: false,
-    enabled: true,
-    volume: 0.8,
-    pan: 0,
-    mute: false,
-    solo: false,
-    eq: { ...FLAT_EQ },
-    semitones: 0,
-    cents: 0,
-    filter: "off",
-    sync: [],
-  });
-
-  /** Loads the recording into the engine: from its file, or from the song file. */
-  const loadRecording = async (settings: AudioTrackSettings) => {
+  /** The mix with only `laneId` heard (tracks muted): for rendering one lane. */
+  const soloLaneMix = (laneId: string): MixerSettings => {
+    const current = mixRef.current;
+    return {
+      ...current,
+      tracks: current.tracks.map((t) => ({ ...t, mute: true, solo: false })),
+      ...(current.audio && {
+        audio: {
+          ...current.audio,
+          lanes: current.audio.lanes.map((l) =>
+            l.id === laneId
+              ? { ...l, mute: false, solo: true, enabled: true }
+              : { ...l, solo: false },
+          ),
+        },
+      }),
+    };
+  };
+  /** Renders each lane to its own WAV file, next to the one the user names. */
+  const renderLaneFiles = async () => {
+    const player = playerRef.current;
+    const playable = lanes.audio.lanes.filter((l) => !l.folder && l.clips.length);
+    if (!player?.usesNativeEngine || !playable.length) return;
+    const songStem = (song.name || "Song").replace(/\.[^.]+$/, "");
+    const first = await pickSavePath(
+      `${songStem} - ${playable[0]!.name}.wav`,
+      [{ name: "WAV audio", extensions: ["wav"] }],
+      "Render lanes",
+    );
+    if (!first) return;
+    const dir = first.match(/^(.*[\\/])/)?.[1] ?? "";
+    const toastId = toast.loading("Rendering the lanes…");
+    try {
+      for (const [i, lane] of playable.entries()) {
+        toast.loading(`Rendering “${lane.name}” (${i + 1} of ${playable.length})…`, {
+          id: toastId,
+        });
+        player.setMix(soloLaneMix(lane.id));
+        const audio = await player.renderAudio();
+        const path =
+          i === 0 ? first : `${dir}${songStem} - ${lane.name.replace(/[\\/:*?"<>|]/g, "_")}.wav`;
+        await writeScoreFile(path, encodeWav(audio));
+      }
+      toast.success(`Rendered ${playable.length} lanes`, { id: toastId });
+    } catch (error) {
+      toast.error("Couldn't render the lanes", { id: toastId, description: errorText(error) });
+    } finally {
+      player.setMix(mixRef.current);
+    }
+  };
+  /** Song ms at a point of the audio timeline (the inverse of the sync map, by bars). */
+  const songMsAtTimeline = (ms: number) => {
+    const bar = barAtTimelineMs(lanes.audio, laneGrid, ms);
+    const whole = Math.floor(bar);
+    const start = barTimes[whole] ?? 0;
+    const next = barTimes[whole + 1] ?? start;
+    return start + (bar - whole) * (next - start);
+  };
+  /** Renders the mix between two timeline points to a WAV file. */
+  const renderLaneRange = async (startMs: number, endMs: number) => {
     const player = playerRef.current;
     if (!player?.usesNativeEngine) return;
-    const key = `${settings.name}\n${settings.path ?? ""}`;
-    // The track was removed or replaced while the file loaded: that result is not wanted.
-    const stale = () => {
-      const now = mixRef.current.audioTrack;
-      return !now || `${now.name}\n${now.path ?? ""}` !== key || playerRef.current !== player;
-    };
-    const sources: BackingSource[] = [];
-    if (settings.path) sources.push({ type: "file", path: settings.path });
-    if (settings.embedded && song.path?.toLowerCase().endsWith(".gp")) {
-      sources.push({ type: "embedded", scorePath: song.path, name: settings.name });
+    const path = await pickSavePath(
+      `${(song.name || "Song").replace(/\.[^.]+$/, "")} - range.wav`,
+      [{ name: "WAV audio", extensions: ["wav"] }],
+      "Render range",
+    );
+    if (!path) return;
+    const toastId = toast.loading("Rendering the range…");
+    try {
+      const audio = await player.renderAudio();
+      const frame = (ms: number) =>
+        Math.round((songMsAtTimeline(ms) / 1000) * audio.sampleRate) * audio.channels;
+      const samples = audio.samples.slice(
+        Math.max(0, frame(startMs)),
+        Math.min(audio.samples.length, frame(endMs)),
+      );
+      await writeScoreFile(path, encodeWav({ ...audio, samples }));
+      toast.success(`Saved “${baseName(path)}”`, { id: toastId });
+    } catch (error) {
+      toast.error("Couldn't render the range", { id: toastId, description: errorText(error) });
     }
-    let lastError: unknown = new Error(`“${settings.name}” has no file to load.`);
-    for (const source of sources) {
-      try {
-        const info = await player.loadBacking(source);
-        if (stale()) return;
-        loadedAudio.current = key;
-        setBackingInfo(info);
-        return;
-      } catch (error) {
-        if (stale()) return;
-        lastError = error;
-        if (!isCommandError(error) || error.kind !== "not-found") break;
-      }
-    }
-    if (stale()) return;
-    setBackingInfo(null);
-    toast.error(`Couldn't open the recording “${settings.name}”`, {
-      description: errorText(lastError),
-    });
   };
 
-  // Loads the recording when the song opens, the engine starts or the file changes.
-  useEffect(() => {
-    if (!audio || !engineOn || !ready) return;
-    if (loadedAudio.current === audioKey) return;
-    void loadRecording(audio);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioKey, engineOn, ready, playerEpoch]);
+  const recordAudio = useRecordAudio({
+    lanes,
+    grid: laneGrid,
+    transport: () => playerRef.current,
+    startBar: () => Math.max(0, Math.floor(playhead.get())),
+    range: () => selectedBars(),
+    beatAt: (bar) => {
+      const master = score.masterBars[bar];
+      return {
+        seconds: (60 / tempoAt(score, bar)) * (4 / (master?.timeSignatureDenominator ?? 4)),
+        beats: master?.timeSignatureNumerator ?? 4,
+      };
+    },
+    speed: () => practice.speed / 100,
+    ensureEngine,
+  });
+  /** Section markers for the studio ruler. */
+  const studioMarkers = useMemo(
+    () =>
+      score.masterBars.flatMap((m) =>
+        m.section?.text
+          ? [{ ms: timelineMsAt(lanes.audio, laneGrid, m.index), name: m.section.text }]
+          : [],
+      ),
+    [score.masterBars, lanes.audio, laneGrid],
+  );
 
-  /** Opens a recording as the audio track (replacing the current one). */
-  const addAudioTrack = async (path?: string) => {
+  /**
+   * Undo and redo go to whichever was edited last: the score or the audio lanes (they keep
+   * their own history, as the mixer is not part of the score's).
+   */
+  const undoOrRedo = (action: "undo" | "redo") => {
+    const lanesFirst = lanes.lastEditAt > scoreEditedAt.current;
+    if (lanesFirst && (action === "undo" ? lanes.undo() : lanes.redo())) return;
+    if (action === "undo") editor.undo();
+    else editor.redo();
+  };
+
+  /** Opens audio files as lanes (the file chooser when no path is given). */
+  const addAudioLane = async (path?: string, laneId?: string, atMs?: number) => {
     let file = path ?? null;
     if (!file) {
       try {
@@ -2090,39 +2221,10 @@ export function ScoreWorkspace({
       }
     }
     if (!file) return;
-    const name = file.split(/[\\/]/).pop() ?? file;
-    const ext = name.split(".").pop()?.toLowerCase() ?? "";
-    if (!(AUDIO_EXTENSIONS as readonly string[]).includes(ext)) {
-      toast.error(`“${name}” is not an audio file Smart Beat opens`, {
-        description: "Use an mp3, wav, flac, ogg or aiff file.",
-      });
-      return;
-    }
-    const settings = newAudioTrack(name, file);
-    changeMix({ type: "audio-track", value: settings });
-    setAudioEditorOpen(true);
-    if (!engineOn) {
-      if (nativeEngineAvailable()) {
-        // The audio track needs the native engine: switch to it, and the recording loads into
-        // the new player (see the effect above).
-        changeAudioEngine("native", false);
-        toast.info("Switched to effects playback for the audio track");
-      } else {
-        toast.info("The audio track plays with the native audio engine");
-      }
-      return;
-    }
-    await loadRecording(settings);
+    await lanes.importFiles([file], laneId, atMs);
   };
-  const removeAudioTrack = () => {
-    changeMix({ type: "audio-track", value: null });
-    loadedAudio.current = "";
-    setBackingInfo(null);
-    setAudioEditorOpen(false);
-    void playerRef.current?.clearBacking();
-  };
-  const locateRecording = async () => {
-    if (!audio) return;
+  /** Points every clip of a lane at another file (the lane keeps its timing). */
+  const replaceLaneFile = async (laneId: string) => {
     let file: string | null;
     try {
       file = await pickAudioFile();
@@ -2130,12 +2232,102 @@ export function ScoreWorkspace({
       toast.error("Couldn't show the Open dialog", { description: errorText(error) });
       return;
     }
-    if (!file) return;
-    const name = file.split(/[\\/]/).pop() ?? file;
-    const next = { ...audio, name, path: file };
-    changeMix({ type: "audio-track", value: next });
-    await loadRecording(next);
+    const player = playerRef.current;
+    if (!file || !player?.usesNativeEngine) return;
+    try {
+      const info = await player.loadSource({ type: "file", path: file });
+      const name = baseName(file);
+      lanes.apply((a) => {
+        const withSource = addSource(a, {
+          id: info.id,
+          name,
+          ext: info.ext,
+          path: file,
+          embedded: true,
+        });
+        return {
+          ...withSource,
+          lanes: withSource.lanes.map((l) =>
+            l.id !== laneId
+              ? l
+              : {
+                  ...l,
+                  clips: l.clips.map((c) => ({
+                    ...c,
+                    takes: c.takes.map((t, i) =>
+                      i === c.take ? { ...t, name, sourceId: info.id } : t,
+                    ),
+                  })),
+                },
+          ),
+        };
+      });
+    } catch (error) {
+      toast.error(`Couldn't open “${baseName(file)}”`, { description: errorText(error) });
+    }
   };
+  const extractLaneFile = async (sourceId: string, asWav: boolean) => {
+    const source = lanes.audio.sources.find((s) => s.id === sourceId);
+    if (!source) return;
+    const stemName = source.name.replace(/\.[^.]+$/, "");
+    const ext = asWav ? "wav" : source.ext;
+    try {
+      const target = await pickSavePath(
+        `${stemName}.${ext}`,
+        [{ name: "Audio", extensions: [ext] }],
+        "Extract audio file",
+      );
+      if (!target) return;
+      await extractAudioSource(sourceId, target, asWav);
+      toast.success(`Saved “${baseName(target)}”`);
+    } catch (error) {
+      toast.error("Couldn't extract the audio file", { description: errorText(error) });
+    }
+  };
+  const syncFromBeats = async (laneId: string) => {
+    const clip = lanes.audio.lanes.find((l) => l.id === laneId)?.clips[0];
+    if (!clip) return;
+    try {
+      const beats = await detectAudioBeats(clip.takes[clip.take]!.sourceId);
+      if (!beats.beats.length) {
+        toast.info("No steady beat was found in this file");
+        return;
+      }
+      lanes.apply((a) => ({ ...a, sync: syncFromDetectedBeats(beats.beats, laneGrid, clip) }));
+      toast.success(`Found ${beats.bpm.toFixed(1)} BPM: sync points set on every bar`);
+    } catch (error) {
+      toast.error("Couldn't find the beats", { description: errorText(error) });
+    }
+  };
+  const laneEditorActions: LaneEditorActions = {
+    syncFromScoreTempo: (mode) =>
+      syncPointsFromTempo(score, mode === "add" ? lanes.audio.sync : [], barTimes),
+    tempoFromSync: () => {
+      const changes = tempoChangesFromSync(lanes.audio, laneGrid, (bar) => tempoAt(score, bar));
+      if (!changes.length) {
+        toast.info("Add two sync points or more first");
+        return;
+      }
+      editor.editBars(
+        "Tempo from the audio",
+        { from: 0, to: score.masterBars.length - 1 },
+        () => {
+          for (const c of changes)
+            applyTempo(score, { scope: "from", bar: c.bar, beat: 0, bpm: c.bpm });
+          return { from: 0, to: score.masterBars.length - 1 };
+        },
+        `${changes.length} tempo changes from the audio`,
+      );
+    },
+    syncFromBeats: (laneId) => void syncFromBeats(laneId),
+    replaceFile: (laneId) => void replaceLaneFile(laneId),
+    extract: (sourceId, asWav) => void extractLaneFile(sourceId, asWav),
+    addBar: () => editor.insertBar("after", score.masterBars.length - 1),
+    effects: (laneIndex) => openPedalboard({ lane: laneIndex }),
+    openStudio: () => setStudioOpen(true),
+    close: () => setEditorLaneId(null),
+  };
+
   /**
    * A file dropped on the window: a capture is always for the sound library; a
    * WAV is a cabinet while the library is open, and the song's audio track
@@ -2156,12 +2348,30 @@ export function ScoreWorkspace({
     }
     if (/\.nam$/i.test(path)) void library.importPath(path, "amp");
     else if (libraryOpen && /\.wav$/i.test(path)) void library.importPath(path, "cab");
-    else void addAudioTrack(path);
+    else void addAudioLane(path, dropTarget.current?.laneId, dropTarget.current?.atMs);
+  };
+  /** The lane and time under a point of the window (a file dropped there lands there). */
+  const laneDropTarget = (point: {
+    x: number;
+    y: number;
+  }): { laneId: string; atMs: number } | null => {
+    const lane = document
+      .elementFromPoint?.(point.x, point.y)
+      ?.closest<HTMLElement>("[data-lane-id]");
+    const laneId = lane?.dataset.laneId;
+    if (!lane || !laneId) return null;
+    const x = point.x - lane.getBoundingClientRect().left;
+    const perBar = Number(lane.dataset.pxPerBar);
+    const perPx = Number(lane.dataset.msPerPx);
+    const atMs =
+      perBar > 0 ? timelineMsAtBar(lanes.audio, laneGrid, x / perBar) : perPx > 0 ? x * perPx : 0;
+    return { laneId, atMs };
   };
   const lastDrop = useRef<number | null>(null);
   useEffect(() => {
     if (!droppedAudio || droppedAudio.nonce === lastDrop.current) return;
     lastDrop.current = droppedAudio.nonce;
+    dropTarget.current = droppedAudio.position ? laneDropTarget(droppedAudio.position) : null;
     routeDroppedFile(droppedAudio.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [droppedAudio]);
@@ -2649,8 +2859,7 @@ export function ScoreWorkspace({
       case "redo":
         // A focused text field gets its own undo, as with the standard menu item.
         if (isTextField(document.activeElement)) document.execCommand(action);
-        else if (action === "undo") editor.undo();
-        else editor.redo();
+        else undoOrRedo(action);
         break;
       case "toggle-edit-mode":
         toggleEditing();
@@ -2670,8 +2879,8 @@ export function ScoreWorkspace({
       case "add-track":
         setTrackDialog({ mode: "add" });
         break;
-      case "add-audio-track":
-        void addAudioTrack();
+      case "add-audio-lane":
+        void addAudioLane();
         break;
       case "duplicate-track":
         trackActions.onDuplicate(trackIndex);
@@ -2911,11 +3120,11 @@ export function ScoreWorkspace({
         undoLabel={editor.undoLabel}
         redoLabel={editor.redoLabel}
         onUndo={() => {
-          editor.undo();
+          undoOrRedo("undo");
           if (editing) focusScore();
         }}
         onRedo={() => {
-          editor.redo();
+          undoOrRedo("redo");
           if (editing) focusScore();
         }}
         ready={ready}
@@ -3226,11 +3435,12 @@ export function ScoreWorkspace({
           audio={
             isTauri()
               ? {
-                  info: backingInfo,
-                  barTimes,
-                  onAdd: () => void addAudioTrack(),
-                  onEdit: () => setAudioEditorOpen((open) => !open),
-                  onRemove: removeAudioTrack,
+                  lanes,
+                  grid: laneGrid,
+                  onAdd: () => void addAudioLane(),
+                  onRecord: () => setRecordAudioOpen(true),
+                  onEffects: (laneIndex) => openPedalboard({ lane: laneIndex }),
+                  onOpenEditor: (laneId) => setEditorLaneId(laneId),
                 }
               : undefined
           }
@@ -3250,28 +3460,60 @@ export function ScoreWorkspace({
           }
         />
       )}
-      {showMixer && audio && audioEditorOpen && (
-        <AudioTrackPanel
-          audio={audio}
-          info={backingInfo}
-          barTimes={barTimes}
-          barWidth={audioZoom}
-          onBarWidthChange={setAudioZoom}
-          onChange={(value) => changeMix({ type: "audio-track", value })}
-          onRemove={removeAudioTrack}
-          onLocate={() => void locateRecording()}
-          onImportTempo={() =>
-            changeMix({
-              type: "audio-track",
-              value: { ...audio, sync: syncPointsFromTempo(score, audio.sync, barTimes) },
-            })
-          }
-          onClose={() => setAudioEditorOpen(false)}
-          canEmbed={isTauri()}
+      {editorLane && (
+        <LaneEditorDock
+          lanes={lanes}
+          lane={editorLane}
+          index={lanes.audio.lanes.indexOf(editorLane)}
+          grid={laneGrid}
+          scoreBpmAt={(bar) => tempoAt(score, bar)}
           playhead={playhead}
           playing={playing}
+          selectedBars={selectedBars()}
+          onSelectBars={(start, end) => editor.selectBars(start, end)}
+          onSeekBar={(bar, loop) => {
+            const range = selectedBars();
+            if (loop && range) loopBars(range.start, range.end);
+            else playerRef.current?.seekToBar(bar);
+          }}
+          actions={laneEditorActions}
         />
       )}
+      {studioOpen && (
+        <StudioView
+          lanes={lanes}
+          grid={laneGrid}
+          markers={studioMarkers}
+          playhead={playhead}
+          playing={playing}
+          position={`${bar + 1}`}
+          actions={{
+            playPause,
+            record: () => setRecordAudioOpen(true),
+            effects: (laneIndex) => openPedalboard({ lane: laneIndex }),
+            renderLanes: () => void renderLaneFiles(),
+            renderRange: (startMs, endMs) => void renderLaneRange(startMs, endMs),
+            close: () => setStudioOpen(false),
+          }}
+        />
+      )}
+      <RecordAudioDialog
+        open={recordAudioOpen}
+        onOpenChange={setRecordAudioOpen}
+        lanes={lanes.audio.lanes.filter((l) => !l.folder).map((l) => ({ id: l.id, name: l.name }))}
+        defaultLane={editorLane?.id ?? null}
+        inputName={audioInput?.label ?? "System default"}
+        latency={`About ${Math.round((playerRef.current?.outputLatencySeconds() ?? 0) * 1000)} ms output delay`}
+        hasSelection={!!selectedBars()}
+        onStart={recordAudio.start}
+        onInputSettings={() => onOpenSettings?.(document.body)}
+      />
+      <RecordBar
+        phase={recordAudio.phase}
+        level={recordAudio.level}
+        onStop={recordAudio.stop}
+        onCancel={recordAudio.discard}
+      />
       <PracticeTogetherDialog
         open={togetherOpen}
         onOpenChange={setTogetherOpen}
@@ -3337,14 +3579,18 @@ export function ScoreWorkspace({
             ? []
             : pedalboard.track === null
               ? effectProblems.master
-              : pedalboard.track === "monitor"
-                ? (effectProblems.monitor ?? [])
-                : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
+              : typeof pedalboard.track === "object"
+                ? []
+                : pedalboard.track === "monitor"
+                  ? (effectProblems.monitor ?? [])
+                  : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
         }
         trackName={
           pedalboardTrack === "monitor"
             ? MONITOR_NAME
-            : (summary.tracks[pedalboardTrack]?.name ?? track.name)
+            : typeof pedalboardTrack === "object"
+              ? (pedalboardLane?.name ?? "Audio lane")
+              : (summary.tracks[pedalboardTrack]?.name ?? track.name)
         }
         onTargetChange={(mastering) =>
           setPedalboard((p) => ({

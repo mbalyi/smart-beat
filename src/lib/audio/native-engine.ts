@@ -250,6 +250,11 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     return next;
   }
 
+  /** Resolves once every request sent so far has reached the engine (before a render). */
+  settled(): Promise<void> {
+    return this.enqueue(async () => undefined);
+  }
+
   private send(command: TransportCommand) {
     this.enqueue(() => engineTransport(command)).catch((error) =>
       this.callbacks.onError?.(asError(error)),

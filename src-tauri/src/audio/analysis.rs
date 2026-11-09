@@ -1,5 +1,5 @@
 //! Looking at the audio files of the lanes: zero crossings for clean cuts, a WAV copy for
-//! "Extract audio file", a spectrogram, and tempo and beat detection from onsets.
+//! "Extract audio file", a spectrogram, loudness (LUFS), and tempo and beat detection.
 
 use realfft::RealFftPlanner;
 use serde::Serialize;
@@ -185,6 +185,132 @@ pub fn detect_beats(audio: &DecodedAudio) -> BeatInfo {
     }
 }
 
+/// Loudness of part of a file: integrated (gated, LUFS), the loudest 3-second window (short-term
+/// LUFS) and the sample peak (dBFS). −70 stands for silence.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Loudness {
+    pub integrated: f64,
+    pub short_term_max: f64,
+    pub peak_db: f64,
+}
+
+/// One biquad stage of the K-weighting filter (ITU-R BS.1770), designed for `rate`.
+fn k_weighting(rate: f64) -> [[f64; 5]; 2] {
+    // High shelf (+4 dB above ~1.5 kHz), then the RLB high-pass at ~38 Hz.
+    let shelf = {
+        let (f0, g, q) = (
+            1681.974_450_955_533,
+            3.999_843_853_973_347,
+            0.707_175_236_955_419_6,
+        );
+        let k = (std::f64::consts::PI * f0 / rate).tan();
+        let vh = 10f64.powf(g / 20.0);
+        let vb = vh.powf(0.499_666_774_154_541_6);
+        let a0 = 1.0 + k / q + k * k;
+        [
+            (vh + vb * k / q + k * k) / a0,
+            2.0 * (k * k - vh) / a0,
+            (vh - vb * k / q + k * k) / a0,
+            2.0 * (k * k - 1.0) / a0,
+            (1.0 - k / q + k * k) / a0,
+        ]
+    };
+    let high_pass = {
+        let (f0, q) = (38.135_470_876_024_44, 0.500_327_037_323_877_3);
+        let k = (std::f64::consts::PI * f0 / rate).tan();
+        let a0 = 1.0 + k / q + k * k;
+        [
+            1.0,
+            -2.0,
+            1.0,
+            2.0 * (k * k - 1.0) / a0,
+            (1.0 - k / q + k * k) / a0,
+        ]
+    };
+    [shelf, high_pass]
+}
+
+/// Integrated, short-term and peak loudness of `[start_ms, end_ms)` of a file.
+pub fn loudness(audio: &DecodedAudio, start_ms: f64, end_ms: f64) -> Loudness {
+    let rate = audio.rate.max(1) as f64;
+    let start = ((start_ms.max(0.0) / 1000.0) * rate) as usize;
+    let end = ((end_ms / 1000.0 * rate) as usize).min(audio.frames());
+    let silent = Loudness {
+        integrated: -70.0,
+        short_term_max: -70.0,
+        peak_db: -70.0,
+    };
+    if end <= start + (rate * 0.4) as usize {
+        return silent;
+    }
+    let stages = k_weighting(rate);
+    let mut weighted = [
+        Vec::with_capacity(end - start),
+        Vec::with_capacity(end - start),
+    ];
+    let mut peak = 0f32;
+    for (channel, samples) in [&audio.left, &audio.right].into_iter().enumerate() {
+        let mut state = [[0.0f64; 4]; 2];
+        for &x in &samples[start..end] {
+            peak = peak.max(x.abs());
+            let mut v = x as f64;
+            for (stage, s) in stages.iter().zip(state.iter_mut()) {
+                let y = stage[0] * v + stage[1] * s[0] + stage[2] * s[1]
+                    - stage[3] * s[2]
+                    - stage[4] * s[3];
+                *s = [v, s[0], y, s[2]];
+                v = y;
+            }
+            weighted[channel].push(v * v);
+        }
+    }
+    // 400 ms blocks every 100 ms (75 % overlap), summed over both channels.
+    let block = (rate * 0.4) as usize;
+    let hop = (rate * 0.1) as usize;
+    let powers: Vec<f64> = (0..=(weighted[0].len() - block) / hop)
+        .map(|i| {
+            let r = i * hop..i * hop + block;
+            (weighted[0][r.clone()].iter().sum::<f64>() + weighted[1][r].iter().sum::<f64>())
+                / block as f64
+        })
+        .collect();
+    let lufs = |p: f64| {
+        if p <= 0.0 {
+            -70.0
+        } else {
+            -0.691 + 10.0 * p.log10()
+        }
+    };
+    let absolute: Vec<f64> = powers
+        .iter()
+        .copied()
+        .filter(|p| lufs(*p) > -70.0)
+        .collect();
+    if absolute.is_empty() {
+        return Loudness {
+            peak_db: 20.0 * (peak.max(1e-6) as f64).log10(),
+            ..silent
+        };
+    }
+    let relative_gate = lufs(absolute.iter().sum::<f64>() / absolute.len() as f64) - 10.0;
+    let gated: Vec<f64> = absolute
+        .into_iter()
+        .filter(|p| lufs(*p) > relative_gate)
+        .collect();
+    let integrated = lufs(gated.iter().sum::<f64>() / gated.len().max(1) as f64);
+    // Short-term: 3 s windows (30 blocks of 100 ms hops).
+    let short_term_max = powers
+        .windows(27.min(powers.len()))
+        .map(|w| lufs(w.iter().sum::<f64>() / w.len() as f64))
+        .fold(-70.0f64, f64::max);
+    Loudness {
+        integrated,
+        short_term_max,
+        peak_db: 20.0 * (peak.max(1e-6) as f64).log10(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +375,25 @@ mod tests {
             .0;
         // 6 kHz of 24 kHz across 64 bands: band 16.
         assert!((15..=17).contains(&loudest), "band {loudest}");
+    }
+
+    #[test]
+    fn measures_the_loudness_of_a_sine() {
+        // A full-scale 1 kHz sine reads −3 LUFS per channel; both channels sum to about 0 LUFS.
+        let full = audio(
+            (0..RATE as usize * 4)
+                .map(|i| (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / RATE as f32).sin())
+                .collect(),
+        );
+        let l = loudness(&full, 0.0, 4_000.0);
+        assert!(l.integrated.abs() < 0.3, "{} LUFS", l.integrated);
+        assert!(l.peak_db.abs() < 0.1);
+        let quieter = audio(full.left.iter().map(|s| s * 0.1).collect());
+        assert!((loudness(&quieter, 0.0, 4_000.0).integrated - (l.integrated - 20.0)).abs() < 0.5);
+        assert_eq!(
+            loudness(&audio(vec![0.0; RATE as usize * 2]), 0.0, 2_000.0).integrated,
+            -70.0
+        );
     }
 
     #[test]
