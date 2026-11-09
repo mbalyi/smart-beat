@@ -139,3 +139,25 @@ describe("syncFromDetectedBeats", () => {
     expect(points).toHaveLength(8);
   });
 });
+
+describe("review regressions (sync)", () => {
+  it("does not snap a point before the first bar to a made-up grid", () => {
+    const padded = { ...EMPTY_AUDIO, sync: [{ bar: 0, ms: 1200 }] };
+    expect(snapMs(padded, grid, 500, "beat")).toBe(500);
+    expect(snapMs(padded, grid, 500, "bar")).toBe(500);
+  });
+
+  it("slides every sync point together and keeps their gaps at the start", () => {
+    const audio = {
+      ...EMPTY_AUDIO,
+      sync: [
+        { bar: 0, ms: 300 },
+        { bar: 2, ms: 4300 },
+      ],
+    };
+    expect(shiftPadding(audio, grid, -1000).sync).toEqual([
+      { bar: 0, ms: 0 },
+      { bar: 2, ms: 4000 },
+    ]);
+  });
+});

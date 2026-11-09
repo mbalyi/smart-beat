@@ -138,6 +138,8 @@ impl ClipPlan {
 
 /// A clip playing: its plan, its source and its own stretcher.
 pub struct ClipVoice {
+    /// The clip this voice plays (an edit keeps the running voice of an unchanged clip).
+    pub clip_id: String,
     pub plan: ClipPlan,
     audio: Arc<DecodedAudio>,
     stretcher: Stretcher,
@@ -150,6 +152,7 @@ impl ClipVoice {
     /// `audio` is the source, already reversed when the clip plays backwards. Allocates: build it
     /// off the audio thread.
     pub fn new(
+        clip_id: String,
         plan: ClipPlan,
         audio: Arc<DecodedAudio>,
         output_rate: f32,
@@ -162,6 +165,7 @@ impl ClipVoice {
         };
         let step = plan.pitch * speed * audio.rate as f64 / output_rate as f64;
         Self {
+            clip_id,
             plan,
             stretcher: Stretcher::new(output_rate, step),
             audio,
@@ -211,6 +215,19 @@ impl ClipVoice {
     pub fn reset(&mut self) {
         self.stretcher.reset();
         self.active = false;
+    }
+
+    /// Whether the voice is mid-clip (its stretcher holds what it was playing).
+    #[cfg(test)]
+    pub(crate) fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Whether `other` plays the same thing from the same file (so this one can keep running).
+    pub fn same_as(&self, other: &ClipVoice) -> bool {
+        self.clip_id == other.clip_id
+            && self.plan == other.plan
+            && Arc::ptr_eq(&self.audio, &other.audio)
     }
 
     /// Source position (in source seconds) for a point `t` seconds into the clip.

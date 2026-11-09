@@ -28,7 +28,7 @@ import {
   newClip,
   newLane,
 } from "@/lib/audio-lanes/model";
-import type { AudioLanesSettings } from "@/lib/tauri";
+import type { AudioClip, AudioLanesSettings } from "@/lib/tauri";
 
 const src = { id: "s", name: "a.wav", ext: "wav", embedded: true };
 
@@ -113,8 +113,8 @@ describe("move, trim and ripple", () => {
 
   it("crossfades clips that overlap after a move", () => {
     const moved = moveClip(song(["x", 0, 1000], ["y", 2000, 1000]), "y", 800);
-    expect(clip(moved, "y").fadeIn).toEqual({ ms: 200, shape: "equalPower" });
-    expect(clip(moved, "x").fadeOut).toEqual({ ms: 200, shape: "equalPower" });
+    expect(clip(moved, "y").fadeIn).toEqual({ ms: 200, shape: "equalPower", auto: true });
+    expect(clip(moved, "x").fadeOut).toEqual({ ms: 200, shape: "equalPower", auto: true });
   });
 
   it("trims both edges inside the source", () => {
@@ -181,5 +181,96 @@ describe("copy, takes and ranges", () => {
   it("moves a range later", () => {
     const moved = moveRange(song(["c", 0, 3000]), ["a"], 1000, 2000, 5000);
     expect(moved.lanes[0]!.clips.map((c) => c.startMs)).toEqual([0, 2000, 6000]);
+  });
+});
+
+describe("review regressions", () => {
+  const one = (patch: Partial<AudioClip>) => {
+    const base = song(["c", 0, 10_000]);
+    return updateClip(base, "c", patch);
+  };
+
+  it("splits a reversed clip so each half plays the right part of the file", () => {
+    // A reversed clip plays file 0–10 s backwards: its first 4 s are file 6–10 s.
+    const audio = splitClip(one({ reversed: true }), "c", 4000, ["l", "r"]);
+    expect(clip(audio, "l").takes[0]!.offsetMs).toBe(6000);
+    expect(clip(audio, "l").lengthMs).toBe(4000);
+    expect(clip(audio, "r").takes[0]!.offsetMs).toBe(0);
+    expect(clip(audio, "r").lengthMs).toBe(6000);
+    // And glues back to the original.
+    const glued = glueClips(audio, ["l", "r"]).lanes[0]!.clips;
+    expect(glued).toHaveLength(1);
+    expect(glued[0]).toMatchObject({ lengthMs: 10_000, takes: [{ offsetMs: 0 }] });
+  });
+
+  it("trims the end of a reversed clip from its file's start", () => {
+    const audio = trimClip(one({ reversed: true }), "c", "end", 6000);
+    // Playing 10 s → 4 s backwards: the last 4 s of playback (file 0–4 s) are gone.
+    expect(clip(audio, "c")).toMatchObject({ lengthMs: 6000, takes: [{ offsetMs: 4000 }] });
+  });
+
+  it("keeps the envelope's value at the cut on both halves", () => {
+    const ramp = one({
+      envelope: [
+        { at: 0, db: -20 },
+        { at: 1, db: 0 },
+      ],
+    });
+    const audio = splitClip(ramp, "c", 2500, ["l", "r"]);
+    const left = clip(audio, "l").envelope;
+    const right = clip(audio, "r").envelope;
+    expect(left.at(-1)).toEqual({ at: 1, db: -15 });
+    expect(right[0]).toEqual({ at: 0, db: -15 });
+    expect(right.at(-1)).toEqual({ at: 1, db: 0 });
+  });
+
+  it("splits a stretched clip at its source position and keeps each half's timing", () => {
+    // 10 s on the timeline; the first 5 s play 8 s of source, the rest 2 s.
+    const stretched = one({ stretch: [{ clipMs: 5000, sourceMs: 8000 }] });
+    const audio = splitClip(stretched, "c", 5000, ["l", "r"]);
+    expect(clip(audio, "l")).toMatchObject({ lengthMs: 8000, startMs: 0 });
+    expect(clipEndMs(clip(audio, "l"))).toBeCloseTo(5000);
+    expect(clip(audio, "r")).toMatchObject({
+      lengthMs: 2000,
+      startMs: 5000,
+      takes: [{ offsetMs: 8000 }],
+    });
+    expect(clipEndMs(clip(audio, "r"))).toBeCloseTo(10_000);
+  });
+
+  it("drops envelope points a trim cuts off instead of squeezing them", () => {
+    const audio = trimClip(
+      one({
+        envelope: [
+          { at: 0.2, db: -6 },
+          { at: 0.8, db: -12 },
+        ],
+      }),
+      "c",
+      "end",
+      5000,
+    );
+    expect(clip(audio, "c").envelope.map((p) => p.at)).toEqual([0, 0.4, 1]);
+  });
+
+  it("takes an automatic crossfade away when the clips stop overlapping", () => {
+    const overlapping = moveClip(song(["x", 0, 1000], ["y", 2000, 1000]), "y", 800);
+    const apart = moveClip(overlapping, "y", 2000);
+    expect(clip(apart, "x").fadeOut.ms).toBe(0);
+    expect(clip(apart, "y").fadeIn.ms).toBe(0);
+  });
+
+  it("sizes a crossfade in source time for a clip played faster", () => {
+    const fast = updateClip(song(["x", 0, 2000], ["y", 3000, 1000]), "x", { playrate: 2 });
+    // x lasts 1 s on the timeline; y moved to 0.8 s overlaps it by 200 ms = 400 ms of x's source.
+    const moved = moveClip(fast, "y", 800);
+    expect(clip(moved, "x").fadeOut.ms).toBe(400);
+    expect(clip(moved, "y").fadeIn.ms).toBe(200);
+  });
+
+  it("does not glue clips whose mute differs", () => {
+    const split = splitClip(song(["c", 0, 4000]), "c", 2000, ["l", "r"]);
+    const muted = updateClip(split, "r", { mute: true });
+    expect(glueClips(muted, ["l", "r"]).lanes[0]!.clips).toHaveLength(2);
   });
 });

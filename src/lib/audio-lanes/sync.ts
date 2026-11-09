@@ -64,6 +64,8 @@ export function snapMs(
   step: "bar" | "beat",
 ): number {
   const at = barAtTimelineMs(audio, grid, ms);
+  // Before the first bar (in the padding) there is no grid to snap to.
+  if (at < 0) return ms;
   const bar = Math.floor(at);
   if (step === "bar") {
     const a = timelineMsAt(audio, grid, bar);
@@ -126,10 +128,9 @@ export function shiftPadding(
   const sync = audio.sync.length
     ? audio.sync
     : [{ bar: audio.zone.start, ms: timelineMsAt(audio, grid, audio.zone.start) }];
-  return {
-    ...audio,
-    sync: normalizeSync(sync.map((p) => ({ ...p, ms: Math.max(0, p.ms + deltaMs) }))),
-  };
+  // The whole map slides together: never past 0, so the gaps between points stay as they were.
+  const delta = Math.max(deltaMs, -Math.min(...sync.map((p) => p.ms)));
+  return { ...audio, sync: normalizeSync(sync.map((p) => ({ ...p, ms: p.ms + delta }))) };
 }
 
 /** Puts the zone start back on the start of the audio (tasks menu: Reset padding). */

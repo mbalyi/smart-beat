@@ -266,39 +266,45 @@ impl Inner {
             .unwrap_or_default()
     }
 
-    /// Makes the reversed copy of every source a clip plays backwards (once per source).
-    fn cache_reversed(&mut self) {
-        let Some(data) = &self.lanes else { return };
-        let wanted: Vec<String> = data
-            .audio
-            .lanes
-            .iter()
-            .flat_map(|l| &l.clips)
-            .filter(|c| c.reversed)
-            .map(|c| c.active_take().source_id.clone())
-            .collect();
-        for id in wanted {
-            if let Some(source) = self.sources.get_mut(&id)
-                && source.reversed.is_none()
-            {
-                source.reversed = Some(Arc::new(lanes::voice::reversed(&source.audio)));
-            }
-        }
-    }
-
     /// Builds the lanes for an engine at `rate` (allocates; without the engine lock).
     fn prepare_lanes(&self, state: &AudioState, rate: u32) -> Option<lanes::PreparedLanes> {
-        let data = self.lanes.as_ref()?;
-        let sources: HashMap<String, Arc<DecodedAudio>> = self
-            .sources
-            .iter()
-            .map(|(id, s)| (id.clone(), s.audio.clone()))
-            .collect();
-        let reversed: HashMap<String, Arc<DecodedAudio>> = self
-            .sources
-            .iter()
-            .filter_map(|(id, s)| Some((id.clone(), s.reversed.clone()?)))
-            .collect();
+        Some(self.lane_snapshot()?.build(state, rate))
+    }
+
+    /// What building the lanes needs, cloned (cheap: `Arc`s and settings), so the build can run
+    /// without holding this state's lock.
+    fn lane_snapshot(&self) -> Option<LaneSnapshot> {
+        let data = self.lanes.clone()?;
+        Some(LaneSnapshot {
+            sync: self.sync_map(&data.sync),
+            data,
+            sources: self
+                .sources
+                .iter()
+                .map(|(id, s)| (id.clone(), s.audio.clone()))
+                .collect(),
+            reversed: self
+                .sources
+                .iter()
+                .filter_map(|(id, s)| Some((id.clone(), s.reversed.clone()?)))
+                .collect(),
+            song: self.song.clone(),
+        })
+    }
+}
+
+/// The lanes and everything they play, apart from the engine state's lock.
+struct LaneSnapshot {
+    data: LanesData,
+    sync: SyncMap,
+    sources: HashMap<String, Arc<DecodedAudio>>,
+    reversed: HashMap<String, Arc<DecodedAudio>>,
+    song: Option<Arc<Song>>,
+}
+
+impl LaneSnapshot {
+    /// Builds the lanes for an engine at `rate` (allocates; chains may start plugin workers).
+    fn build(&self, state: &AudioState, rate: u32) -> lanes::PreparedLanes {
         let build = |lane: Option<usize>, slots: &[EffectSlot]| {
             let target = lane.map(|lane| plugin::PluginTarget::Lane(plugin::LaneTarget { lane }));
             build_chain(
@@ -310,19 +316,22 @@ impl Inner {
                 (target, 0),
             )
         };
-        let seconds_at = |tick: f64| self.seconds_at(tick.max(0.0) as u32);
-        let inputs = lanes::LaneInputs {
-            audio: &data.audio,
-            sources: &sources,
-            reversed: &reversed,
-            transpose: data.transpose,
-            sync: self.sync_map(&data.sync),
+        let song = self.song.clone();
+        let seconds_at = move |tick: f64| {
+            song.as_ref()
+                .map_or(0.0, |s| s.seconds_at(tick.max(0.0) as u32))
+        };
+        lanes::prepare(&lanes::LaneInputs {
+            audio: &self.data.audio,
+            sources: &self.sources,
+            reversed: &self.reversed,
+            transpose: self.data.transpose,
+            sync: self.sync.clone(),
             output_rate: rate as f32,
             max_block: BLOCK,
             build_chain: &build,
             seconds_at: &seconds_at,
-        };
-        Some(lanes::prepare(&inputs))
+        })
     }
 }
 
@@ -1422,16 +1431,55 @@ pub fn audio_set_lanes(
             return Err(audio_error("Invalid sync points"));
         }
     }
-    let mut inner = state.inner.lock().unwrap();
-    inner.lanes = lanes;
-    inner.cache_reversed();
-    let Some(engine) = inner.engine.clone() else {
+    // Reversed copies of files a clip plays backwards are made once, outside the lock.
+    let wanted: Vec<(String, Arc<DecodedAudio>)> = {
+        let mut inner = state.inner.lock().unwrap();
+        inner.lanes = lanes;
+        let Some(data) = &inner.lanes else {
+            let engine = inner.engine.clone();
+            drop(inner);
+            if let Some(engine) = engine {
+                drop(engine.lock().unwrap().set_lanes(None));
+            }
+            return Ok(());
+        };
+        let ids: std::collections::HashSet<String> = data
+            .audio
+            .lanes
+            .iter()
+            .flat_map(|l| &l.clips)
+            .filter(|c| c.reversed)
+            .map(|c| c.active_take().source_id.clone())
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| {
+                let source = inner.sources.get(&id)?;
+                source
+                    .reversed
+                    .is_none()
+                    .then(|| (id, source.audio.clone()))
+            })
+            .collect()
+    };
+    let made: Vec<(String, Arc<DecodedAudio>)> = wanted
+        .into_iter()
+        .map(|(id, audio)| (id, Arc::new(lanes::voice::reversed(&audio))))
+        .collect();
+    let (snapshot, engine) = {
+        let mut inner = state.inner.lock().unwrap();
+        for (id, copy) in made {
+            if let Some(source) = inner.sources.get_mut(&id) {
+                source.reversed.get_or_insert(copy);
+            }
+        }
+        (inner.lane_snapshot(), inner.engine.clone())
+    };
+    let (Some(snapshot), Some(engine)) = (snapshot, engine) else {
         return Ok(());
     };
     let rate = engine.lock().unwrap().sample_rate() as u32;
-    let prepared = inner.prepare_lanes(&state, rate);
-    drop(inner);
-    let old = engine.lock().unwrap().set_lanes(prepared);
+    let prepared = snapshot.build(&state, rate);
+    let old = engine.lock().unwrap().set_lanes(Some(prepared));
     drop(old);
     Ok(())
 }

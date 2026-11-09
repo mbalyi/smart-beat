@@ -52,6 +52,9 @@ impl FadeShape {
 pub struct ClipFade {
     pub ms: f64,
     pub shape: FadeShape,
+    /// Made by an overlap with a neighbour (a crossfade).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto: bool,
 }
 
 /// A point of a clip's gain envelope: `at` 0 … 1 along the clip, gain in dB.

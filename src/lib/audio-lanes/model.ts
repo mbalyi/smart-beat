@@ -151,6 +151,7 @@ function normalizeFade(fade: ClipFade | undefined, lengthMs: number): ClipFade {
   return {
     ms: clamp(fade.ms, 0, lengthMs),
     shape: FADE_SHAPES.includes(fade.shape) ? fade.shape : "linear",
+    ...(fade.auto && { auto: true }),
   };
 }
 

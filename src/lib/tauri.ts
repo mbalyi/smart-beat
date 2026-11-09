@@ -324,8 +324,11 @@ export type FadeShape = "linear" | "equalPower" | "sCurve";
 
 /** A clip fade: its length and curve. */
 export interface ClipFade {
+  /** Length in ms of source time. */
   ms: number;
   shape: FadeShape;
+  /** Made by an overlap with a neighbour (a crossfade): it goes when the overlap goes. */
+  auto?: boolean;
 }
 
 /** A point of a clip's gain envelope: `at` 0…1 along the clip, gain in dB. */

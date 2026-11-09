@@ -199,10 +199,12 @@ fn fades_start_and_end_silent() {
     c.fade_in = ClipFade {
         ms: 100.0,
         shape: FadeShape::EqualPower,
+        auto: false,
     };
     c.fade_out = ClipFade {
         ms: 100.0,
         shape: FadeShape::Linear,
+        auto: false,
     };
     let out = render(&song(vec![lane("a", vec![c])]), tone(2.0), 1.0);
     let peak = |r: std::ops::Range<usize>| out[r].iter().fold(0.0f32, |m, s| m.max(s.abs()));
@@ -273,7 +275,7 @@ fn a_reversed_clip_reads_its_range_backwards() {
     let source = Arc::new(ramp_audio(4.0));
     let plan = voice::ClipPlan::from_clip(&c, 0, 0);
     let rev = Arc::new(reversed(&source));
-    let v = voice::ClipVoice::new(plan, rev.clone(), RATE, BLOCK);
+    let v = voice::ClipVoice::new("c".into(), plan, rev.clone(), RATE, BLOCK);
     // At the clip start the reversed file is read where the original range ends (1.5 s).
     let at = v.source_at(0.0);
     let original = source.duration() - at;
@@ -327,4 +329,49 @@ fn effect_automation_sets_a_parameter_along_the_song() {
     assert_eq!(mix_at(0.0), 0.0);
     assert!((mix_at(0.5) - 0.5).abs() < 1e-6);
     assert_eq!(mix_at(2.0), 1.0);
+}
+
+#[test]
+fn an_edit_keeps_the_running_voice_of_an_unchanged_clip() {
+    // Regression: every lane update rebuilt every voice, restarting its stretcher mid-note.
+    let audio = song(vec![lane("a", vec![clip("c", 0.0, 0.0, 2_000.0)])]);
+    let source = Arc::new(tone(3.0));
+    let sources = HashMap::from([(ID.to_string(), source)]);
+    let reversed = HashMap::new();
+    let build = |_: Option<usize>, _: &[EffectSlot]| Chain::empty();
+    let seconds_at = |t: f64| t;
+    let prepare_with = |audio: &AudioLanes| {
+        prepare(&LaneInputs {
+            audio,
+            sources: &sources,
+            reversed: &reversed,
+            transpose: 0,
+            sync: SyncMap::default(),
+            output_rate: RATE,
+            max_block: BLOCK,
+            build_chain: &build,
+            seconds_at: &seconds_at,
+        })
+    };
+    let mut mixer = LaneMixer::new(prepare_with(&audio), RATE);
+    let (mut l, mut r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+    mixer.render(0.1, 1.0, true, true, false, (&mut l, &mut r));
+    let before = l.clone();
+    // A volume change: same clip, same file.
+    let mut louder = audio.clone();
+    louder.lanes[0].params.volume = 0.5;
+    assert!(mixer.lanes[0].voices[0].is_active());
+    let old = mixer.replace(prepare_with(&louder));
+    drop(old);
+    // The kept voice is still mid-clip; a rebuilt one would start idle.
+    assert!(
+        mixer.lanes[0].voices[0].is_active(),
+        "the running voice was kept"
+    );
+    // A real change to the clip (its gain) gets a new voice.
+    let mut quieter = louder.clone();
+    quieter.lanes[0].clips[0].gain_db = -6.0;
+    drop(mixer.replace(prepare_with(&quieter)));
+    assert!(!mixer.lanes[0].voices[0].is_active());
+    assert!(before.iter().any(|s| s.abs() > 0.1));
 }

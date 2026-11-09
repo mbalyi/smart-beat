@@ -313,6 +313,9 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const cuts = await Promise.all(
       targets.map(async (c) => {
         const take = activeTake(c);
+        // The file position under the cursor is simple to map back only for a plain clip; a
+        // reversed or stretched one is cut where the cursor is (its cut still gets a fade).
+        if (c.reversed || c.stretch.length) return { id: c.id, at };
         const sourceMs = take.offsetMs + (at - c.startMs) * c.playrate;
         const crossing = await audioZeroCrossing(take.sourceId, sourceMs).catch(() => sourceMs);
         return { id: c.id, at: c.startMs + (crossing - take.offsetMs) / c.playrate };

@@ -200,7 +200,7 @@ fn k_weighting(rate: f64) -> [[f64; 5]; 2] {
     // High shelf (+4 dB above ~1.5 kHz), then the RLB high-pass at ~38 Hz.
     let shelf = {
         let (f0, g, q) = (
-            1681.974_450_955_533,
+            1_681.974_450_955_533,
             3.999_843_853_973_347,
             0.707_175_236_955_419_6,
         );

@@ -135,6 +135,7 @@ fn lane_bus(inputs: &LaneInputs, index: usize, lane: &AudioLane, params: LaneMix
             }?;
             let plan = ClipPlan::from_clip(clip, extra_semitones, lane.params.cents);
             Some(ClipVoice::new(
+                clip.id.clone(),
                 plan,
                 audio.clone(),
                 inputs.output_rate,
@@ -202,6 +203,28 @@ pub fn prepare(inputs: &LaneInputs) -> PreparedLanes {
     }
 }
 
+/// Song seconds at which the last clip of `lanes` ends, through the sync map (0 without clips).
+fn end_of(lanes: &[LaneBus], sync: &SyncMap) -> f64 {
+    let end = lanes
+        .iter()
+        .flat_map(|l| l.voices.iter().map(|v| v.plan.end))
+        .fold(0.0f64, f64::max);
+    if end <= 0.0 {
+        return 0.0;
+    }
+    // The map is increasing: search the song time that reaches `end` on the timeline.
+    let (mut lo, mut hi) = (-3_600.0f64, 86_400.0f64);
+    for _ in 0..80 {
+        let mid = 0.5 * (lo + hi);
+        if sync.audio_at(mid) < end {
+            lo = mid
+        } else {
+            hi = mid
+        }
+    }
+    hi.max(0.0)
+}
+
 /// All lanes and buses of a song, as the engine plays them.
 pub struct LaneMixer {
     lanes: Vec<LaneBus>,
@@ -209,16 +232,20 @@ pub struct LaneMixer {
     sync: SyncMap,
     times: Vec<f64>,
     output_rate: f32,
+    /// Song seconds at which the last clip ends (worked out once per build).
+    end: f64,
 }
 
 impl LaneMixer {
     pub fn new(prepared: PreparedLanes, output_rate: f32) -> Self {
+        let end = end_of(&prepared.lanes, &prepared.sync);
         Self {
             times: vec![0.0; prepared.max_block],
             lanes: prepared.lanes,
             buses: prepared.buses,
             sync: prepared.sync,
             output_rate,
+            end,
         }
     }
 
@@ -233,6 +260,13 @@ impl LaneMixer {
             if let Some(mut was) = previous.remove(&lane.id) {
                 if was.chain.update(&lane.slots, MAX_TRACK_EFFECTS) {
                     std::mem::swap(&mut lane.chain, &mut was.chain);
+                }
+                // An unchanged clip keeps its running voice (its stretcher's state): a fader move
+                // or another clip's edit does not restart what is playing.
+                for voice in &mut lane.voices {
+                    if let Some(old) = was.voices.iter_mut().find(|v| v.same_as(voice)) {
+                        std::mem::swap(voice, old);
+                    }
                 }
                 lane.gains = was.gains;
                 old.push(Box::new(was));
@@ -251,6 +285,7 @@ impl LaneMixer {
         self.lanes = lanes;
         self.buses = prepared.buses;
         self.sync = prepared.sync;
+        self.end = end_of(&self.lanes, &self.sync);
         if self.times.len() < prepared.max_block {
             self.times = vec![0.0; prepared.max_block];
         }
@@ -259,25 +294,7 @@ impl LaneMixer {
 
     /// Song seconds at which the last clip ends (through the sync map; 0 without clips).
     pub fn end_song_seconds(&self) -> f64 {
-        let end = self
-            .lanes
-            .iter()
-            .flat_map(|l| l.voices.iter().map(|v| v.plan.end))
-            .fold(0.0f64, f64::max);
-        if end <= 0.0 {
-            return 0.0;
-        }
-        // The map is increasing: search the song time that reaches `end` on the timeline.
-        let (mut lo, mut hi) = (-3_600.0f64, 86_400.0f64);
-        for _ in 0..80 {
-            let mid = 0.5 * (lo + hi);
-            if self.sync.audio_at(mid) < end {
-                lo = mid
-            } else {
-                hi = mid
-            }
-        }
-        hi.max(0.0)
+        self.end
     }
 
     /// A lane is soloed (it takes part in the engine's solo logic).

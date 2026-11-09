@@ -93,7 +93,30 @@ export function useRecordAudio(env: {
     return () => clearInterval(id);
   }, [phase.kind]);
 
+  // Leaving (another song, a closed tab) mid-take lets go of the input.
+  useEffect(
+    () => () => {
+      const s = session.current;
+      session.current = null;
+      s?.recorder.cancel();
+    },
+    [],
+  );
+
+  /** A take is starting (the input is opening): a second press does nothing. */
+  const starting = useRef(false);
+
   const start = async (setup: RecordAudioSetup) => {
+    if (starting.current || session.current) return;
+    starting.current = true;
+    try {
+      await begin(setup);
+    } finally {
+      starting.current = false;
+    }
+  };
+
+  const begin = async (setup: RecordAudioSetup) => {
     const { transport, startBar, range, beatAt, speed, ensureEngine } = envRef.current;
     if (!ensureEngine()) return;
     const player = transport();
@@ -176,12 +199,20 @@ export function useRecordAudio(env: {
       return;
     }
     const name = `Take ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.wav`;
+    // The take needs a lane: the chosen one (not a folder), or room for a new one.
+    const chosen = lanes.audio.lanes.find((l) => l.id === s.setup.laneId && !l.folder);
+    if (!chosen && lanes.audio.lanes.length >= MAX_LANES) {
+      toast.error("The take was not kept", {
+        description: `A song can have ${MAX_LANES} audio lanes: pick one of them in Record audio.`,
+      });
+      return;
+    }
     try {
       const info = await addAudioTake(name, monoWav(take.samples, take.sampleRate));
       lanes.apply((a) => {
         let next = addSource(a, { id: info.id, name, ext: "wav", embedded: true });
-        let laneId = s.setup.laneId;
-        if (!laneId || !next.lanes.some((l) => l.id === laneId)) {
+        let laneId = chosen?.id;
+        if (!laneId || !next.lanes.some((l) => l.id === laneId && !l.folder)) {
           if (next.lanes.length >= MAX_LANES) return a;
           const lane = newLane("Recording");
           next = addLane(next, lane);
