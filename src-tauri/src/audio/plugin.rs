@@ -460,6 +460,14 @@ pub struct PluginWorker {
 pub enum PluginTarget {
     Track(usize),
     Bus(PluginBus),
+    /// An audio lane, by its place among the song's lanes.
+    Lane(LaneTarget),
+}
+
+/// An audio lane as a plugin destination: `{ "lane": 2 }` over IPC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct LaneTarget {
+    pub lane: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

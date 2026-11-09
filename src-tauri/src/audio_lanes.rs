@@ -396,14 +396,13 @@ impl AudioLanes {
         }
         for lane in &self.lanes {
             lane.validate(&self.sources, &self.buses)?;
-            if let Some(parent) = &lane.parent {
-                if !self
+            if let Some(parent) = &lane.parent
+                && !self
                     .lanes
                     .iter()
                     .any(|l| &l.id == parent && l.folder && l.id != lane.id)
-                {
-                    return Err("a lane sits in a missing folder".into());
-                }
+            {
+                return Err("a lane sits in a missing folder".into());
             }
         }
         Ok(())

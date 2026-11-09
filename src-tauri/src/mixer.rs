@@ -301,10 +301,10 @@ impl MixerSettings {
     /// Turns an old single audio track into one lane with one clip (one way) and marks the
     /// settings as the current version. Lanes already present win over a stale old field.
     pub fn migrate(mut self) -> Self {
-        if let Some(track) = self.audio_track.take() {
-            if self.audio.is_none() {
-                self.audio = Some(migrate_audio_track(&track));
-            }
+        if let Some(track) = self.audio_track.take()
+            && self.audio.is_none()
+        {
+            self.audio = Some(migrate_audio_track(&track));
         }
         self.version = VERSION;
         self

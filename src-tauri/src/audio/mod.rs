@@ -4,12 +4,14 @@
 //! The UI keeps alphaTab for notation and timing; when the native engine is
 //! switched on, alphaTab follows this engine's clock (external media mode).
 
+pub mod analysis;
 pub mod backing;
 pub mod chain;
 pub mod dsp;
 pub mod engine;
 pub mod input;
 pub mod kits;
+pub mod lanes;
 pub mod library;
 pub mod mixing;
 pub mod monitor;
@@ -57,7 +59,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::error::{CommandError, ErrorKind};
-use backing::{Backing, BackingParams, DecodedAudio, PEAKS_PER_SECOND, SyncMap};
+use backing::{DecodedAudio, PEAKS_PER_SECOND, SyncMap};
 use chain::{BlockProblem, Chain, EffectSlot, MAX_MASTER_EFFECTS, MAX_TRACK_EFFECTS};
 use engine::{BLOCK, BusMix, ClickSound, DrumSplit, Engine, MAX_DRUM_ELEMENTS, MAX_SOUNDS, Meters};
 use input::Input;
@@ -123,22 +125,25 @@ pub struct SyncPointData {
     pub ms: f64,
 }
 
-/// Where the audio track comes from.
+/// Where an audio file for a lane comes from.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-pub enum BackingSource {
+pub enum SourceLocation {
     /// A file on disk.
     File { path: PathBuf },
-    /// Embedded in a saved song file.
+    /// Embedded in a saved song file, under `SmartBeat/audio/<entry>`.
     #[serde(rename_all = "camelCase")]
-    Embedded { score_path: PathBuf, name: String },
+    Embedded { score_path: PathBuf, entry: String },
 }
 
-/// What the UI learns about a loaded recording.
+/// What the UI learns about a loaded audio file.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BackingInfo {
+pub struct SourceInfo {
+    /// SHA-256 of the file (hex): the id clips use.
+    pub id: String,
     pub name: String,
+    pub ext: String,
     pub duration_ms: f64,
     pub sample_rate: u32,
     pub channels: usize,
@@ -147,13 +152,25 @@ pub struct BackingInfo {
     pub peaks_per_second: u32,
 }
 
-struct LoadedBacking {
-    name: String,
-    /// The encoded file, kept to embed it in the song file on save.
+/// An audio file the lanes play: its bytes (to embed on save), decoded, and reversed once a
+/// clip plays it backwards.
+struct LoadedSource {
     bytes: Arc<Vec<u8>>,
     audio: Arc<DecodedAudio>,
-    params: BackingParams,
-    sync: Vec<SyncPointData>,
+    reversed: Option<Arc<DecodedAudio>>,
+}
+
+/// The lanes as the UI sets them. Mirrored by the argument of `setEngineLanes` in
+/// `src/lib/tauri.ts`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanesData {
+    pub audio: crate::audio_lanes::AudioLanes,
+    /// The song's sync points as score ticks (the same conversion as the old track).
+    pub sync: Vec<SyncPointData>,
+    /// Song transposition in semitones (lanes that follow it).
+    #[serde(default)]
+    pub transpose: i32,
 }
 
 /// The monitor track as the UI sets it. Mirrored by the argument of
@@ -215,7 +232,10 @@ struct Inner {
     drums: HashMap<usize, DrumMixData>,
     /// The imported drum kit each track plays (#40), by kit id.
     track_kits: HashMap<usize, String>,
-    backing: Option<LoadedBacking>,
+    /// Audio files the lanes' clips play, decoded once, by source id.
+    sources: HashMap<String, LoadedSource>,
+    /// The lanes as the UI last set them, with the song transposition.
+    lanes: Option<LanesData>,
     /// The monitor track, kept across songs: it belongs to the player.
     monitor: Option<MonitorState>,
     /// The monitor track's effect chain.
@@ -246,11 +266,63 @@ impl Inner {
             .unwrap_or_default()
     }
 
-    /// The bytes of the loaded recording, if `name` is the one loaded.
-    pub fn backing_bytes(&self) -> Option<(String, Arc<Vec<u8>>)> {
-        self.backing
-            .as_ref()
-            .map(|b| (b.name.clone(), b.bytes.clone()))
+    /// Makes the reversed copy of every source a clip plays backwards (once per source).
+    fn cache_reversed(&mut self) {
+        let Some(data) = &self.lanes else { return };
+        let wanted: Vec<String> = data
+            .audio
+            .lanes
+            .iter()
+            .flat_map(|l| &l.clips)
+            .filter(|c| c.reversed)
+            .map(|c| c.active_take().source_id.clone())
+            .collect();
+        for id in wanted {
+            if let Some(source) = self.sources.get_mut(&id)
+                && source.reversed.is_none()
+            {
+                source.reversed = Some(Arc::new(lanes::voice::reversed(&source.audio)));
+            }
+        }
+    }
+
+    /// Builds the lanes for an engine at `rate` (allocates; without the engine lock).
+    fn prepare_lanes(&self, state: &AudioState, rate: u32) -> Option<lanes::PreparedLanes> {
+        let data = self.lanes.as_ref()?;
+        let sources: HashMap<String, Arc<DecodedAudio>> = self
+            .sources
+            .iter()
+            .map(|(id, s)| (id.clone(), s.audio.clone()))
+            .collect();
+        let reversed: HashMap<String, Arc<DecodedAudio>> = self
+            .sources
+            .iter()
+            .filter_map(|(id, s)| Some((id.clone(), s.reversed.clone()?)))
+            .collect();
+        let build = |lane: Option<usize>, slots: &[EffectSlot]| {
+            let target = lane.map(|lane| plugin::PluginTarget::Lane(plugin::LaneTarget { lane }));
+            build_chain(
+                state,
+                &state.plugins,
+                rate,
+                slots,
+                MAX_TRACK_EFFECTS,
+                (target, 0),
+            )
+        };
+        let seconds_at = |tick: f64| self.seconds_at(tick.max(0.0) as u32);
+        let inputs = lanes::LaneInputs {
+            audio: &data.audio,
+            sources: &sources,
+            reversed: &reversed,
+            transpose: data.transpose,
+            sync: self.sync_map(&data.sync),
+            output_rate: rate as f32,
+            max_block: BLOCK,
+            build_chain: &build,
+            seconds_at: &seconds_at,
+        };
+        Some(lanes::prepare(&inputs))
     }
 }
 
@@ -283,8 +355,14 @@ impl AudioState {
     }
 
     /// The loaded recording's file name and encoded bytes (for embedding).
-    pub fn backing_bytes(&self) -> Option<(String, Arc<Vec<u8>>)> {
-        self.inner.lock().unwrap().backing_bytes()
+    /// The encoded bytes of every loaded audio file, by source id (to embed them on save).
+    pub fn source_files(&self) -> HashMap<String, Arc<Vec<u8>>> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .sources
+            .iter()
+            .map(|(id, s)| (id.clone(), s.bytes.clone()))
+            .collect()
     }
 }
 
@@ -410,7 +488,7 @@ struct Prepared {
     master: Chain,
     sounds: Vec<(usize, Vec<Chain>)>,
     drums: Vec<(usize, Option<DrumSplit>)>,
-    backing: Option<Backing>,
+    lanes: Option<lanes::PreparedLanes>,
 }
 
 fn prepare(
@@ -485,17 +563,13 @@ fn prepare(
             (track, split)
         })
         .collect();
-    let backing = inner.backing.as_ref().map(|b| {
-        let mut backing = Backing::new(b.audio.clone(), rate as f32, BLOCK);
-        backing.set(b.params.clone(), inner.sync_map(&b.sync));
-        backing
-    });
+    let lanes = inner.prepare_lanes(state, rate);
     Prepared {
         kits,
         master,
         sounds,
         drums,
-        backing,
+        lanes,
     }
 }
 
@@ -549,9 +623,7 @@ fn install(
     for (&track, d) in &inner.drums {
         engine.set_drum_mix(track, &d.mixes(), d.stereo);
     }
-    if let Some(b) = engine.set_backing(prepared.backing) {
-        old.push(Box::new(b));
-    }
+    old.extend(engine.set_lanes(prepared.lanes));
     old
 }
 
@@ -1198,22 +1270,19 @@ pub fn audio_set_drum_mix(
     Ok(())
 }
 
-fn read_backing_source(source: &BackingSource) -> Result<(String, Vec<u8>), CommandError> {
-    match source {
-        BackingSource::File { path } => {
+/// Reads an audio file for a lane, checking its type and size.
+fn read_source(location: &SourceLocation) -> Result<(String, Vec<u8>), CommandError> {
+    match location {
+        SourceLocation::File { path } => {
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .ok_or_else(|| audio_error("The audio file has no name"))?;
-            let ext = Path::new(&name)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(str::to_ascii_lowercase)
-                .unwrap_or_default();
+            let ext = extension_of(&name);
             if !backing::AUDIO_EXTENSIONS.contains(&ext.as_str()) {
                 return Err(CommandError::new(
                     ErrorKind::UnsupportedType,
-                    format!("“{name}” is not an mp3, wav, flac, ogg or aiff file."),
+                    format!("“{name}” is not an mp3, m4a, wav, flac, ogg or aiff file."),
                 ));
             }
             let size = std::fs::metadata(path)
@@ -1229,91 +1298,228 @@ fn read_backing_source(source: &BackingSource) -> Result<(String, Vec<u8>), Comm
                 .map_err(|e| audio_error(format!("“{name}” cannot be opened: {e}")))?;
             Ok((name, bytes))
         }
-        BackingSource::Embedded { score_path, name } => {
-            let bytes = crate::project::read_embedded_audio(score_path, name)?;
-            Ok((name.clone(), bytes))
+        SourceLocation::Embedded { score_path, entry } => {
+            let bytes = crate::project::read_embedded_audio(score_path, entry)?;
+            Ok((entry.clone(), bytes))
         }
     }
 }
 
-/// Opens a recording as the audio track (replacing any previous one).
-#[tauri::command(async)]
-pub fn audio_load_backing(
-    source: BackingSource,
-    state: State<'_, AudioState>,
-) -> Result<BackingInfo, CommandError> {
-    let (name, bytes) = read_backing_source(&source)?;
-    let ext = Path::new(&name)
+fn extension_of(name: &str) -> String {
+    Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase);
-    let audio = Arc::new(backing::decode(bytes.clone(), ext.as_deref()).map_err(audio_error)?);
-    let info = BackingInfo {
-        name: name.clone(),
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Decodes `bytes` (once per content) into the source pool and describes it.
+fn add_source(
+    state: &AudioState,
+    name: String,
+    bytes: Vec<u8>,
+) -> Result<SourceInfo, CommandError> {
+    let id = sha256_hex(&bytes);
+    let ext = extension_of(&name);
+    let existing = state
+        .inner
+        .lock()
+        .unwrap()
+        .sources
+        .get(&id)
+        .map(|s| s.audio.clone());
+    let audio = match existing {
+        Some(audio) => audio,
+        None => {
+            let audio =
+                Arc::new(backing::decode(bytes.clone(), Some(ext.as_str())).map_err(audio_error)?);
+            let source = LoadedSource {
+                bytes: Arc::new(bytes),
+                audio: audio.clone(),
+                reversed: None,
+            };
+            state
+                .inner
+                .lock()
+                .unwrap()
+                .sources
+                .insert(id.clone(), source);
+            audio
+        }
+    };
+    Ok(SourceInfo {
+        id,
+        name,
+        ext: if ext.is_empty() { "wav".into() } else { ext },
         duration_ms: audio.duration() * 1000.0,
         sample_rate: audio.rate,
         channels: audio.channels,
         peaks: audio.peaks(),
         peaks_per_second: PEAKS_PER_SECOND,
-    };
-    let mut inner = state.inner.lock().unwrap();
-    let (params, sync) = inner
-        .backing
-        .take()
-        .map(|b| (b.params, b.sync))
-        .unwrap_or_default();
-    inner.backing = Some(LoadedBacking {
-        name,
-        bytes: Arc::new(bytes),
-        audio: audio.clone(),
-        params: params.clone(),
-        sync: sync.clone(),
-    });
-    if let Some(engine) = inner.engine.clone() {
-        let rate = engine.lock().unwrap().sample_rate();
-        let mut backing = Backing::new(audio, rate, BLOCK);
-        backing.set(params, inner.sync_map(&sync));
-        let old = engine.lock().unwrap().set_backing(Some(backing));
-        drop(old);
-    }
-    Ok(info)
+    })
 }
 
-/// Settings and sync points of the audio track.
+/// Opens an audio file for the lanes (decoded once, kept by its content hash).
 #[tauri::command(async)]
-pub fn audio_set_backing(
-    params: BackingParams,
-    sync: Vec<SyncPointData>,
+pub fn audio_load_source(
+    location: SourceLocation,
+    state: State<'_, AudioState>,
+) -> Result<SourceInfo, CommandError> {
+    let (name, bytes) = read_source(&location)?;
+    add_source(&state, name, bytes)
+}
+
+/// Adds a recorded take (a WAV file made by the app) to the lanes' audio files.
+#[tauri::command(async)]
+pub fn audio_add_take(
+    request: tauri::ipc::Request<'_>,
+    state: State<'_, AudioState>,
+) -> Result<SourceInfo, CommandError> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(audio_error("The take must be sent as raw bytes"));
+    };
+    if bytes.len() > backing::MAX_FILE_BYTES {
+        return Err(CommandError::new(
+            ErrorKind::TooLarge,
+            "The take is too large.",
+        ));
+    }
+    let name = request
+        .headers()
+        .get("x-name")
+        .and_then(|v| v.to_str().ok())
+        .filter(|n| !n.is_empty() && n.len() <= 200 && !n.contains(['/', '\\']))
+        .unwrap_or("Take.wav")
+        .to_string();
+    add_source(&state, name, bytes.clone())
+}
+
+/// Lets go of every loaded audio file that `keep` does not list (a new song, or files no
+/// clip plays any more).
+#[tauri::command(async)]
+pub fn audio_forget_sources(keep: Vec<String>, state: State<'_, AudioState>) {
+    let mut inner = state.inner.lock().unwrap();
+    inner.sources.retain(|id, _| keep.contains(id));
+}
+
+/// Sets the song's audio lanes (`null`: none) and rebuilds them in the running engine.
+#[tauri::command(async)]
+pub fn audio_set_lanes(
+    lanes: Option<LanesData>,
     state: State<'_, AudioState>,
 ) -> Result<(), CommandError> {
-    params.validate().map_err(audio_error)?;
-    if sync.len() > 10_000 || sync.iter().any(|p| !p.ms.is_finite() || p.ms < 0.0) {
-        return Err(audio_error("Invalid sync points"));
+    if let Some(data) = &lanes {
+        data.audio.validate().map_err(audio_error)?;
+        if data.sync.len() > 10_000 || data.sync.iter().any(|p| !p.ms.is_finite() || p.ms < 0.0) {
+            return Err(audio_error("Invalid sync points"));
+        }
     }
     let mut inner = state.inner.lock().unwrap();
-    let map = inner.sync_map(&sync);
-    let Some(loaded) = inner.backing.as_mut() else {
-        return Err(audio_error("No audio track is loaded"));
+    inner.lanes = lanes;
+    inner.cache_reversed();
+    let Some(engine) = inner.engine.clone() else {
+        return Ok(());
     };
-    loaded.params = params.clone();
-    loaded.sync = sync;
-    if let Some(engine) = &inner.engine
-        && let Some(backing) = engine.lock().unwrap().backing_mut()
-    {
-        backing.set(params, map);
-    }
+    let rate = engine.lock().unwrap().sample_rate() as u32;
+    let prepared = inner.prepare_lanes(&state, rate);
+    drop(inner);
+    let old = engine.lock().unwrap().set_lanes(prepared);
+    drop(old);
     Ok(())
 }
 
-/// Removes the audio track.
+/// The nearest zero crossing to `ms` in a source (within 10 ms), so a split does not click.
 #[tauri::command(async)]
-pub fn audio_clear_backing(state: State<'_, AudioState>) {
-    let mut inner = state.inner.lock().unwrap();
-    inner.backing = None;
-    if let Some(engine) = &inner.engine {
-        let old = engine.lock().unwrap().set_backing(None);
-        drop(old);
-    }
+pub fn audio_zero_crossing(
+    source: String,
+    ms: f64,
+    state: State<'_, AudioState>,
+) -> Result<f64, CommandError> {
+    let audio = state
+        .inner
+        .lock()
+        .unwrap()
+        .sources
+        .get(&source)
+        .map(|s| s.audio.clone())
+        .ok_or_else(|| audio_error("The audio file is not loaded"))?;
+    Ok(analysis::nearest_zero_crossing(&audio, ms))
+}
+
+/// Saves a loaded audio file to `path`: its original bytes, or as a 16-bit WAV (`as_wav`).
+#[tauri::command(async)]
+pub fn audio_extract_source(
+    source: String,
+    path: PathBuf,
+    as_wav: bool,
+    state: State<'_, AudioState>,
+) -> Result<(), CommandError> {
+    let (bytes, audio) = {
+        let inner = state.inner.lock().unwrap();
+        let s = inner
+            .sources
+            .get(&source)
+            .ok_or_else(|| audio_error("The audio file is not loaded"))?;
+        (s.bytes.clone(), s.audio.clone())
+    };
+    let data = if as_wav {
+        analysis::wav_bytes(&audio)
+    } else {
+        bytes.as_ref().clone()
+    };
+    crate::score_write::write(&path, &data)
+}
+
+/// A spectrogram of part of a source: `columns` × `bins` magnitudes in dB (−100 … 0).
+#[tauri::command(async)]
+pub fn audio_spectrogram(
+    source: String,
+    start_ms: f64,
+    end_ms: f64,
+    columns: usize,
+    bins: usize,
+    state: State<'_, AudioState>,
+) -> Result<Vec<Vec<f32>>, CommandError> {
+    let audio = state
+        .inner
+        .lock()
+        .unwrap()
+        .sources
+        .get(&source)
+        .map(|s| s.audio.clone())
+        .ok_or_else(|| audio_error("The audio file is not loaded"))?;
+    Ok(analysis::spectrogram(
+        &audio,
+        start_ms,
+        end_ms,
+        columns.clamp(1, 2_000),
+        bins.clamp(8, 512),
+    ))
+}
+
+/// The tempo of a source and where its beats fall (ms), from its onsets.
+#[tauri::command(async)]
+pub fn audio_detect_beats(
+    source: String,
+    state: State<'_, AudioState>,
+) -> Result<analysis::BeatInfo, CommandError> {
+    let audio = state
+        .inner
+        .lock()
+        .unwrap()
+        .sources
+        .get(&source)
+        .map(|s| s.audio.clone())
+        .ok_or_else(|| audio_error("The audio file is not loaded"))?;
+    Ok(analysis::detect_beats(&audio))
 }
 
 /// Adds, changes or removes (`null`) the monitor track. The same input and
@@ -1802,6 +2008,12 @@ fn plugin_slot(
                 .ok_or_else(|| audio_error("No such sound"))?
         }
         Some(plugin::PluginTarget::Bus(plugin::PluginBus::Monitor)) => &inner.monitor_chain,
+        Some(plugin::PluginTarget::Lane(l)) => inner
+            .lanes
+            .as_ref()
+            .and_then(|d| d.audio.lanes.get(l.lane))
+            .map(|lane| &lane.effects)
+            .ok_or_else(|| audio_error("No such lane"))?,
         None => &inner.master_chain,
     };
     let slot = slots
@@ -1941,6 +2153,12 @@ pub fn audio_plugin_info(
         Some(plugin::PluginTarget::Bus(plugin::PluginBus::Monitor)) => {
             inner.monitor_chain.as_slice()
         }
+        Some(plugin::PluginTarget::Lane(l)) => inner
+            .lanes
+            .as_ref()
+            .and_then(|d| d.audio.lanes.get(l.lane))
+            .map(|lane| lane.effects.as_slice())
+            .unwrap_or_default(),
         None => inner.master_chain.as_slice(),
     };
     let mut out = Vec::new();

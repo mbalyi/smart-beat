@@ -377,8 +377,25 @@ impl Stretcher {
                 target
             }
             Some(natural) => self.best_start(audio, natural, target),
-            None => target,
+            None => {
+                // A fresh start (or after a seek): prime with the grain one hop earlier, so the
+                // first output already overlaps two windows and starts at full level. Without
+                // it, a clip that starts where another ends would fade in over one grain.
+                let early = target - self.hop as f64 * self.step;
+                self.overlap_grain(audio, early);
+                for a in &mut self.acc {
+                    a.copy_within(self.hop.., 0);
+                    a[self.hop..].fill(0.0);
+                }
+                target
+            }
         };
+        self.overlap_grain(audio, start);
+        self.prev_start = Some(start);
+        self.ready = self.hop;
+    }
+
+    fn overlap_grain(&mut self, audio: &DecodedAudio, start: f64) {
         for (channel, samples) in [&audio.left, &audio.right].into_iter().enumerate() {
             let acc = &mut self.acc[channel];
             for (i, w) in self.window.iter().enumerate() {
@@ -386,8 +403,6 @@ impl Stretcher {
                 acc[i] += w * self.interpolator.read(samples, pos);
             }
         }
-        self.prev_start = Some(start);
-        self.ready = self.hop;
     }
 
     /// The start near `target` whose first half looks most like `natural`'s
@@ -573,7 +588,7 @@ impl FilterBank {
         }
     }
 
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.filters.iter_mut().flatten().for_each(Biquad::reset);
     }
 }

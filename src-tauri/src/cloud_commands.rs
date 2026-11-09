@@ -829,25 +829,12 @@ pub fn embed_project(
     let dir = tempfile::tempdir().map_err(|e| CommandError::new(ErrorKind::Io, e.to_string()))?;
     let path = dir.path().join("song.gp");
     std::fs::write(&path, song).map_err(|e| CommandError::new(ErrorKind::Io, e.to_string()))?;
-    let recording = if embed_audio {
-        let wanted = settings.audio_track.as_ref().map(|t| t.name.clone());
-        match (audio.backing_bytes(), wanted) {
-            (Some((name, bytes)), Some(wanted)) if name == wanted => Some((name, bytes)),
-            _ => {
-                return Err(CommandError::new(
-                    ErrorKind::Audio,
-                    "The audio track is not loaded, so it cannot be embedded.",
-                ));
-            }
-        }
+    let files = if embed_audio {
+        audio.source_files()
     } else {
-        None
+        Default::default()
     };
-    crate::project::write_settings(
-        &path,
-        settings,
-        recording.as_ref().map(|(n, b)| (n.as_str(), b.as_slice())),
-    )?;
+    crate::project::write_settings(&path, settings, &files)?;
     std::fs::read(&path).map_err(|e| CommandError::new(ErrorKind::Io, e.to_string()))
 }
 
