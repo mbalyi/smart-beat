@@ -54,6 +54,7 @@ function NumberField({
       <span className="flex items-center gap-1">
         <input
           type="number"
+          aria-label={label}
           value={Number(value.toFixed(2))}
           min={min}
           max={max}

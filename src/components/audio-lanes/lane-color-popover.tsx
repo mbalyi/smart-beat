@@ -49,7 +49,7 @@ export function LaneColorPopover({
           />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80" align="end">
+      <PopoverContent className="w-80" align="end" aria-label={`Colour of ${laneName}`}>
         <div className="flex flex-col gap-3">
           <p className="text-sm font-medium">Lane colour</p>
           <p className="text-xs text-muted-foreground">Stem colours</p>

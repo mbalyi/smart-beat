@@ -611,7 +611,7 @@ function SendsPopover({ lanes, lane }: { lanes: AudioLanesController; lane: Audi
           Sends
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-64">
+      <PopoverContent className="w-64" aria-label={`Sends of ${lane.name}`}>
         <div className="flex flex-col gap-2">
           {audio.buses.map((bus) => (
             <LabeledSlider
@@ -636,7 +636,7 @@ function ShortcutsPopover() {
           <KeyboardIcon />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80">
+      <PopoverContent className="w-80" aria-label="Clip shortcuts">
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           {CLIP_SHORTCUTS.map((s) => (
             <div key={s.keys} className="contents">
