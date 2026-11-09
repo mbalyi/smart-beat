@@ -122,6 +122,9 @@ export function LaneEditorDock({
         role="separator"
         aria-orientation="horizontal"
         aria-label="Resize the lane editor"
+        aria-valuenow={height}
+        aria-valuemin={MIN_HEIGHT}
+        aria-valuemax={MAX_HEIGHT}
         tabIndex={0}
         className="h-1.5 cursor-ns-resize bg-muted outline-none focus-visible:bg-primary/40"
         onPointerDown={(e) => {

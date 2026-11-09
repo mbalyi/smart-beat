@@ -14,9 +14,9 @@ import {
   splitClip,
 } from "@/lib/audio-lanes/edits";
 import {
-  EMPTY_AUDIO,
   MAX_LANES,
   activeTake,
+  lanesOf,
   clipEndMs,
   newClip,
   newLane,
@@ -115,7 +115,7 @@ export function renameSource(
  */
 export function useAudioLanes(options: AudioLanesOptions) {
   const { mix, changeMix, loader, canLoad, epoch, songPath, grid, ensureEngine } = options;
-  const audio = mix.audio ?? EMPTY_AUDIO;
+  const audio = useMemo(() => lanesOf(mix), [mix.audio, mix.audioTrack]); // eslint-disable-line react-hooks/exhaustive-deps
   const audioRef = useRef(audio);
   audioRef.current = audio;
 

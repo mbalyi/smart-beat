@@ -609,9 +609,12 @@ export async function emitStemBundleOpened(path: string) {
 
 /** Simulates the OS dragging files onto the window (Tauri webview events). */
 export async function emitFileDrag(
-  event: { type: "enter"; paths: string[] } | { type: "leave" } | { type: "drop"; paths: string[] },
+  event:
+    | { type: "enter"; paths: string[] }
+    | { type: "leave" }
+    | { type: "drop"; paths: string[]; position?: { x: number; y: number } },
 ) {
-  const position = { x: 10, y: 10 };
+  const position = (event.type === "drop" && event.position) || { x: 10, y: 10 };
   if (event.type === "leave") await emit("tauri://drag-leave", null);
   else await emit(`tauri://drag-${event.type}`, { paths: event.paths, position });
 }

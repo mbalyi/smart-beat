@@ -7,6 +7,7 @@
  * than once: automation and sound switches apply on every pass (as in Guitar
  * Pro, where automation belongs to the bar), sync points to the first pass.
  */
+import { lanesOf } from "@/lib/audio-lanes/model";
 import { engineDrumMix } from "@/lib/audio/drum-elements";
 import { monitorParams } from "@/lib/audio/monitor";
 import type { EngineExtras, MonitorInputChoice } from "@/lib/audio/native-engine";
@@ -271,8 +272,8 @@ export function engineExtras(
     }),
     kits: mix.tracks.map((_, i) => mix.drumKits?.[i] ?? null),
     masterPan: mix.masterPan ?? 0,
-    lanes: mix.audio?.lanes.length
-      ? { audio: mix.audio, sync: syncTicks(mix.audio.sync, occurrences), transpose: 0 }
+    lanes: lanesOf(mix).lanes.length
+      ? { audio: lanesOf(mix), sync: syncTicks(lanesOf(mix).sync, occurrences), transpose: 0 }
       : null,
     monitor: mix.monitor
       ? { params: monitorParams(mix.monitor), effects: mix.monitor.effects, ...input }

@@ -267,7 +267,7 @@ const extensionOf = (name: string) => /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLower
  */
 export function migrateAudioTrack(
   track: AudioTrackSettings,
-  laneId: string = newId(),
+  laneId: string = `${legacySourceId(track.name)}-lane`,
 ): AudioLanesSettings {
   const sourceId = legacySourceId(track.name);
   const source: AudioSource = {
@@ -285,6 +285,12 @@ export function migrateAudioTrack(
     clips: [newClip(sourceId, name, 0, 30 * 60 * 1000, `${laneId}-clip`)],
   };
   return normalizeAudio({ ...EMPTY_AUDIO, lanes: [lane], sources: [source], sync });
+}
+
+/** The lanes of a mix: its lanes, or an old single audio track read as one lane (same ids as Rust). */
+export function lanesOf(mix: Pick<MixerSettings, "audio" | "audioTrack">): AudioLanesSettings {
+  if (mix.audio) return mix.audio;
+  return mix.audioTrack ? migrateAudioTrack(mix.audioTrack) : EMPTY_AUDIO;
 }
 
 /**

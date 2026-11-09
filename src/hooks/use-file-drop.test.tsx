@@ -32,7 +32,11 @@ describe("useFileDrop in the desktop app", () => {
     expect(result.current).toBe(false);
 
     await act(() => emitFileDrag({ type: "drop", paths: ["/a.gp5"] }));
-    expect(onDropPaths).toHaveBeenCalledWith(["/a.gp5"]);
+    // With where it was dropped (CSS pixels), so a file can land on an audio lane.
+    expect(onDropPaths).toHaveBeenCalledWith(
+      ["/a.gp5"],
+      expect.objectContaining({ x: expect.any(Number) }),
+    );
     expect(result.current).toBe(false);
   });
 

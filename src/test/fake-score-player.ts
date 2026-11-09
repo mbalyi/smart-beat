@@ -47,16 +47,27 @@ export class FakeScorePlayer {
   previewNote = vi.fn();
   /** Whether the native engine plays (as the real player: when it was asked for). */
   usesNativeEngine = false;
-  loadBacking = vi.fn(async (source: { type: string; path?: string; name?: string }) => ({
-    name: (source.path ?? source.name ?? "take.mp3").split("/").pop()!,
-    durationMs: 8000,
-    sampleRate: 44_100,
-    channels: 2,
-    peaks: Array.from({ length: 800 }, (_, i) => (i % 40) / 40),
-    peaksPerSecond: 100,
-  }));
-  clearBacking = vi.fn(async () => {});
+  loadSource = vi.fn(async (location: { type: string; path?: string; entry?: string }) => {
+    const name = (location.path ?? location.entry ?? "take.wav").split(/[\\/]/).pop()!;
+    // A stable fake content id per file name (the real one is a SHA-256 of the bytes).
+    const id = [...name]
+      .reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7)
+      .toString(16)
+      .padStart(8, "0")
+      .repeat(8);
+    return {
+      id,
+      name,
+      ext: name.split(".").pop() ?? "wav",
+      durationMs: 4000,
+      sampleRate: 44_100,
+      channels: 2,
+      peaks: [0.2, 0.6, 0.4, 0.8],
+      peaksPerSecond: 1,
+    };
+  });
   setMonitorInput = vi.fn();
+  outputLatencySeconds = vi.fn(() => 0);
   seekToBar = vi.fn();
   // Practice together (#158).
   isPlaying = vi.fn(() => false);

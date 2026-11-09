@@ -885,10 +885,11 @@ export async function onFileDrag(handler: (event: FileDragEvent) => void): Promi
     else if (payload.type === "leave") handler({ type: "leave" });
     else if (payload.type === "drop") {
       const scale = window.devicePixelRatio || 1;
+      const at = payload.position as { x: number; y: number } | undefined;
       handler({
         type: "drop",
         paths: payload.paths,
-        position: { x: payload.position.x / scale, y: payload.position.y / scale },
+        ...(at && { position: { x: at.x / scale, y: at.y / scale } }),
       });
     }
   });
