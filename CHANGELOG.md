@@ -4,6 +4,11 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### Improvements and fixes
+
+- Edit mode: the edit palette is now a compact grid of icons. Point at an icon to see its name and shortcut; an icon with several choices (key, time signature, tempo, jumps, tuplet, slide, harmonic and more) opens a small box of them and keeps your pick. The key, tempo, triplet feel, repeat endings and every jump can be set from the palette too, not only from the Bar dialog.
+- Edit mode: the note you are editing is shown with a quiet outline around its fret number instead of a big box and a vertical line, and a selection of beats is one light rectangle per line of music. Options you have switched on are shown in purple, and the palette is light or dark with the app. The icon under the pointer lights up in purple from the inside, and its border lines reach past its corners.
+
 ## [1.2.0]
 
 New in 1.2.0: split a song into its instruments, practice the same tab with up to ten players, and keep your tabs in the cloud.

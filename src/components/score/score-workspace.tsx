@@ -29,12 +29,12 @@ import { BarDialog } from "@/components/score/bar-dialog";
 import { BarProblems } from "@/components/score/bar-problems";
 import { BendDialog, type CurveKind } from "@/components/score/bend-dialog";
 import { ChordDialog } from "@/components/score/chord-dialog";
-import { EditToolbar, type EditActions } from "@/components/score/edit-toolbar";
 import {
-  EffectsToolbar,
+  EditPalette,
+  type EditActions,
   type EffectActions,
   type PaletteState,
-} from "@/components/score/effects-toolbar";
+} from "@/components/score/edit-palette";
 import { SaveConflictDialog } from "@/components/save-conflict-dialog";
 import { SaveTargetDialog } from "@/components/save-target-dialog";
 import { ExportDialog } from "@/components/score/export-dialog";
@@ -183,6 +183,7 @@ import {
   ScorePlayer,
   type Layout,
   type PlaybackPosition,
+  type NoteRect,
   type Rect,
   type ScorePlayerCallbacks,
 } from "@/lib/score/player";
@@ -201,7 +202,6 @@ import { summarizeScore, trackMix, type TrackView } from "@/lib/score/score";
 import {
   applyBarSettings,
   barSettingsOf,
-  timeSignatureAt,
   barSettingsRange,
   changedParts,
   sectionsOf,
@@ -382,6 +382,24 @@ function union(rects: Rect[]): Rect | null {
   return { x, y, w: right - x, h: bottom - y };
 }
 
+/**
+ * One rectangle per system row: the union of the rectangles that share a row (they overlap
+ * vertically; the rows of a selection run top to bottom).
+ */
+function rowRects(rects: Rect[]): Rect[] {
+  const rows: Rect[][] = [];
+  for (const rect of [...rects].sort((a, b) => a.y - b.y)) {
+    const row = rows.find((group) => {
+      const top = Math.min(...group.map((r) => r.y));
+      const bottom = Math.max(...group.map((r) => r.y + r.h));
+      return rect.y < bottom && rect.y + rect.h > top;
+    });
+    if (row) row.push(rect);
+    else rows.push([rect]);
+  }
+  return rows.map((row) => union(row)).filter((r): r is Rect => r !== null);
+}
+
 const isTextField = (element: Element | null) =>
   element instanceof HTMLInputElement ||
   element instanceof HTMLTextAreaElement ||
@@ -446,6 +464,7 @@ export function ScoreWorkspace({
   onTogetherIntentHandled,
   onOpenSettings,
   onSetUpCloud,
+  onShowShortcuts: onShortcuts,
 }: {
   song: ScoreDocument;
   /** The song's tab is shown. Other songs stay loaded (edits, undo, playback position) but hidden. */
@@ -486,6 +505,8 @@ export function ScoreWorkspace({
   onOpenSettings?: (from: HTMLElement) => void;
   /** "Set up cloud storage" in the Save As chooser: opens Settings on the cloud section. */
   onSetUpCloud?: () => void;
+  /** Opens the keyboard shortcuts (the palette's Shortcuts cell). */
+  onShowShortcuts?: () => void;
 }) {
   const score = song.score;
   // The track the song was left on, when several were stacked (#157): the saved stack only makes
@@ -780,25 +801,38 @@ export function ScoreWorkspace({
     },
   );
 
-  /** Where the edit cursor, its note and the selection are drawn now. */
+  /** Where the edit cursor's note (or empty spot) and the selection are drawn now. */
   const updateOverlay = useEffectEvent(() => {
     const player = playerRef.current;
     if (!player) return;
     // Outside edit mode only a range selected with Shift is drawn (#92).
     const beat = editing ? editor.cursorBeat() : null;
     const note = editing ? editor.cursorNote() : null;
+    let notes: NoteRect[] = [];
+    if (note) notes = player.noteRects(note);
+    else if (beat) {
+      // An empty spot: one outline on the cursor's line of the beat (#178), else on the beat.
+      const line =
+        editor.kind === "drums" && editor.cursor.line !== null
+          ? player.drumLineRect(beat, editor.cursor.line)
+          : editor.kind === "stringed"
+            ? player.stringLineRect(beat, editor.cursor.string, editor.stringCount)
+            : null;
+      if (line) notes = [{ rect: line, staff: "tab" }];
+      else {
+        const rect = player.beatRects(beat)[0];
+        if (rect) notes = [{ rect, staff: "score" }];
+      }
+    }
     setOverlay({
-      cursor: beat ? union(player.beatRects(beat)) : null,
-      notes: note
-        ? player.noteRects(note)
-        : // On an empty line of the drum tab the cursor is a frame on that line (#178).
-          beat && editor.cursor.line !== null && editor.kind === "drums"
-          ? [player.drumLineRect(beat, editor.cursor.line)].filter((r): r is Rect => r !== null)
-          : [],
-      selection: editor
-        .selectedBeatList()
-        .map((b) => union(player.beatRects(b)))
-        .filter((r): r is Rect => r !== null),
+      notes,
+      // Each beat's rectangle spans all its staves; the beats of a row then merge into one.
+      selection: rowRects(
+        editor
+          .selectedBeatList()
+          .map((b) => union(player.beatRects(b)))
+          .filter((r): r is Rect => r !== null),
+      ),
     });
   });
 
@@ -1206,7 +1240,6 @@ export function ScoreWorkspace({
     onText: () => setTextDialogOpen(true),
     onChord: () => setChordDialogOpen(true),
     onLyrics: () => openLyrics(trackObject),
-    onDone: () => focusScore(),
   };
   const paletteState: PaletteState = {
     effect: (scope, id, value) => editor.effectState(scope, id, value),
@@ -2652,8 +2685,9 @@ export function ScoreWorkspace({
     onDeleteBeat: () => editor.deleteBeats(),
     onVoice: (v) => editor.switchVoice(v),
     onBar: openBarDialog,
-    onTimeSignature: (timeSignature) =>
-      submitBar(cursorBar, { ...barSettingsOf(score, cursorBar), timeSignature }),
+    onBarSettings: (changes) =>
+      submitBar(cursorBar, { ...barSettingsOf(score, cursorBar), ...changes }),
+    onShortcuts,
     onDone: focusScore,
   };
 
@@ -2846,27 +2880,25 @@ export function ScoreWorkspace({
       {/* Palette | score | inspector; below 1024 px the palette stacks above the score. */}
       <div className="relative flex min-h-72 flex-1 max-lg:flex-col">
         <NotePalette editing={editing}>
-          <EditToolbar
+          <EditPalette
             beat={editor.beatInfo}
+            bar={barSettingsOf(score, cursorBar)}
             voice={editor.cursor.voice}
+            effects={effects}
+            state={paletteState}
+            kind={track.kind}
             dots={(count) => editor.beatsState((b) => b.dots === count)}
             tie={editor.beatsState((b) => b.notes.some((n) => n.isTieDestination))}
             status={editor.describeCursor()}
             message={editor.message}
-            actions={editActions}
             statusId={statusId}
-            time={timeSignatureAt(score, cursorBar)}
+            edit={editActions}
+            fx={effectActions}
             auditionNotes={auditionNotes}
             onAuditionNotesChange={(on) => {
               setAuditionNotes(on);
               storeAuditionNotes(on);
             }}
-          />
-          <EffectsToolbar
-            effects={effects}
-            state={paletteState}
-            kind={track.kind}
-            actions={effectActions}
           />
         </NotePalette>
         {/* Scrolls as a whole when the window is too short for all of it. */}
@@ -2889,6 +2921,7 @@ export function ScoreWorkspace({
               layout={layout}
               rendering={rendering}
               editing={editing}
+              playing={playing}
               overlay={overlay}
               problemRects={problemRects}
               describedBy={editing ? statusId : undefined}

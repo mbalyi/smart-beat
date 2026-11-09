@@ -19,6 +19,20 @@ describe("NotePalette", () => {
     await expectNoA11yViolations();
   });
 
+  it("is as wide as 8 icon cells and their gaps, and stacks above the score in narrow windows", () => {
+    renderWithProviders(
+      <NotePalette editing>
+        <button type="button">Quarter</button>
+      </NotePalette>,
+    );
+    const palette = screen.getByRole("complementary", { name: "Note palette" });
+    expect(palette).toHaveAttribute("data-tour", "note-palette");
+    expect(palette.className).toContain("w-[19.5rem]");
+    expect(palette.className).toContain("max-lg:w-full");
+    expect(palette.className).toContain("max-lg:max-h-32");
+    expect(palette.className).toContain("overflow-y-auto");
+  });
+
   it("is not rendered when edit mode is off", () => {
     renderWithProviders(
       <NotePalette editing={false}>

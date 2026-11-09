@@ -2,6 +2,7 @@
  * Integration tests for the song's structure, techniques, lyrics, chords and
  * the scale tool in the workspace, with a real score and a fake player.
  */
+import { model } from "@coderline/alphatab";
 import { act, screen, waitFor, within } from "@testing-library/react";
 
 import { ScoreWorkspace } from "@/components/score/score-workspace";
@@ -89,13 +90,20 @@ describe("ScoreWorkspace: song structure", () => {
     // Regression: the signature could only be reached through the Bar dialog.
     const { user, song, player } = await setup();
     const sidebar = screen.getByRole("toolbar", { name: "Edit" });
-    expect(within(sidebar).getByRole("spinbutton", { name: "Beats per bar" })).toHaveValue(4);
+    const openTimeBox = async (name: string) => {
+      await user.click(within(sidebar).getByRole("button", { name }));
+      return screen.findByRole("group", { name: "Time signature" });
+    };
+    let box = await openTimeBox("Time signature, 4/4");
+    expect(within(box).getByRole("spinbutton", { name: "Beats per bar" })).toHaveValue(4);
 
-    await user.click(within(sidebar).getByRole("combobox", { name: "Beat unit" }));
+    await user.click(within(box).getByRole("combobox", { name: "Beat unit" }));
     await user.click(await screen.findByRole("option", { name: "8" }));
     expect(song.score.masterBars.map((b) => b.timeSignatureDenominator)).toEqual([8, 8, 8, 8]);
 
-    const beats = within(sidebar).getByRole("spinbutton", { name: "Beats per bar" });
+    // The cell follows the bar, and the box shows it again.
+    box = await openTimeBox("Time signature, 4/8");
+    const beats = within(box).getByRole("spinbutton", { name: "Beats per bar" });
     await user.clear(beats);
     await user.type(beats, "7{Enter}");
     expect(song.score.masterBars.map((b) => `${b.timeSignatureNumerator}/8`)).toEqual([
@@ -105,12 +113,45 @@ describe("ScoreWorkspace: song structure", () => {
       "7/8",
     ]);
     expect(player.refresh).toHaveBeenCalled();
-    // The control follows the bar.
-    expect(within(sidebar).getByRole("spinbutton", { name: "Beats per bar" })).toHaveValue(7);
+    expect(
+      within(sidebar).getByRole("button", { name: "Time signature, 7/8" }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Undo Change time signature" }));
     expect(song.score.masterBars[0]!.timeSignatureNumerator).toBe(4);
     expect(song.score.masterBars[0]!.timeSignatureDenominator).toBe(8);
+  });
+
+  it("changes key, tempo, triplet feel and jumps of the bar from the palette boxes", async () => {
+    const { user, song } = await setup();
+    const sidebar = screen.getByRole("toolbar", { name: "Edit" });
+    const pick = async (cell: string | RegExp, family: string, item: string) => {
+      await user.click(within(sidebar).getByRole("button", { name: cell }));
+      const box = await screen.findByRole("group", { name: family });
+      await user.click(within(box).getByRole("button", { name: item }));
+    };
+
+    await pick(/^Key signature/, "Key signature", "G major, 1 sharp");
+    expect(song.score.tracks[0]!.staves[0]!.bars.map((b) => b.keySignature)).toEqual([1, 1, 1, 1]);
+
+    await pick(/^Time signature/, "Time signature", "3/4 time");
+    expect(song.score.masterBars.map((b) => b.timeSignatureNumerator)).toEqual([3, 3, 3, 3]);
+
+    await pick(/^Tempo/, "Tempo", "Allegro, 144 BPM");
+    expect(tempoAt(song.score, 0)).toBe(144);
+
+    await pick(/^Triplet feel/, "Triplet feel", "Triplet feel: Triplet 8th");
+    expect(song.score.masterBars[0]!.tripletFeel).toBe(model.TripletFeel.Triplet8th);
+
+    await pick(/^Jumps/, "Jumps", "Segno");
+    expect(song.score.masterBars[0]!.directions?.has(model.Direction.TargetSegno)).toBe(true);
+
+    await pick(/^Alternate endings/, "Alternate endings", "Ending 2");
+    expect(song.score.masterBars[0]!.alternateEndings).toBe(0b10);
+
+    // Undo goes back one change at a time.
+    await user.click(screen.getByRole("button", { name: /^Undo/ }));
+    expect(song.score.masterBars[0]!.alternateEndings).toBe(0);
   });
 
   it("closes the bar dialog without changes when nothing changed", async () => {

@@ -126,18 +126,27 @@ describe("ScoreWorkspace: editing", () => {
     await startEditing(user);
 
     player.emit("onRendered");
-    expect(screen.getByTestId("edit-cursor")).toHaveStyle({ left: "10px", top: "20px" });
-    // No note on the cursor's string (the top one) yet.
-    expect(screen.queryByTestId("edit-cursor-note")).not.toBeInTheDocument();
+    // No beat-wide box any more; no note on the cursor's string (the top one) yet: one
+    // outline on that string's band of the beat.
+    expect(screen.queryByTestId("edit-cursor")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("edit-cursor-note")).toHaveLength(1);
+    expect(screen.getByTestId("edit-cursor-note")).toHaveStyle({ left: "8px", top: "54px" });
+    expect(screen.queryByTestId("edit-cursor-head")).not.toBeInTheDocument();
 
     const beat = song.score.tracks[0]!.staves[0]!.bars[2]!.voices[0]!.beats[1]!;
     player.emit("onBeatClick", { beat, note: beat.notes[0]!, extend: false });
     expect(status()).toHaveTextContent(/^Bar 3, beat 2 of 4/);
-    expect(screen.getByTestId("edit-cursor-note")).toBeInTheDocument();
+    // On a note: one outline around the fret number and a thin ring around the notehead.
+    expect(screen.getAllByTestId("edit-cursor-note")).toHaveLength(1);
+    expect(screen.getAllByTestId("edit-cursor-head")).toHaveLength(1);
 
     const other = song.score.tracks[0]!.staves[0]!.bars[3]!.voices[0]!.beats[0]!;
     player.emit("onBeatDrag", other);
-    expect(player.beatRects).toHaveBeenCalledWith(beat);
+    expect(player.stringLineRect).toHaveBeenCalledWith(
+      other,
+      expect.any(Number),
+      expect.any(Number),
+    );
     expect(status()).toHaveTextContent(/^Bar 4, beat 1 of 4/);
 
     // Beats of other tracks (e.g. from alphaTab's multi-track view) are ignored.
@@ -151,7 +160,42 @@ describe("ScoreWorkspace: editing", () => {
     const beat = song.score.tracks[0]!.staves[0]!.bars[2]!.voices[0]!.beats[1]!;
     player.emit("onBeatClick", { beat, note: null, extend: false });
     expect(player.refresh).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("edit-cursor")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("edit-cursor-note")).not.toBeInTheDocument();
+  });
+
+  it("hides alphaTab's playback cursor while editing, unless the song plays", async () => {
+    const { user, player } = await setup();
+    const region = screen.getByRole("region", { name: /^Score:/ });
+    expect(region).not.toHaveAttribute("data-editing");
+    await startEditing(user);
+    expect(region).toHaveAttribute("data-editing");
+    expect(region).not.toHaveAttribute("data-playing");
+
+    act(() => player.emit("onPlayingChange", true));
+    expect(region).toHaveAttribute("data-playing");
+    act(() => player.emit("onPlayingChange", false));
+    expect(region).not.toHaveAttribute("data-playing");
+  });
+
+  it("draws a range as one rectangle per system row", async () => {
+    const { user, player, song } = await setup();
+    await startEditing(user);
+    const bars = song.score.tracks[0]!.staves[0]!.bars;
+    // Two beats on the first row, one on the second.
+    const rects = new Map([
+      [bars[0]!.voices[0]!.beats[0]!, [{ x: 10, y: 20, w: 30, h: 100 }]],
+      [bars[0]!.voices[0]!.beats[1]!, [{ x: 40, y: 20, w: 30, h: 100 }]],
+      [bars[1]!.voices[0]!.beats[0]!, [{ x: 10, y: 200, w: 30, h: 100 }]],
+    ]);
+    player.beatRects.mockImplementation((beat) => rects.get(beat as never) ?? []);
+    const first = bars[0]!.voices[0]!.beats[0]!;
+    player.emit("onBeatClick", { beat: first, note: null, extend: false });
+    player.emit("onBeatDrag", bars[1]!.voices[0]!.beats[0]!);
+
+    const selection = screen.getAllByTestId("edit-selection");
+    expect(selection).toHaveLength(2);
+    expect(selection[0]).toHaveStyle({ left: "10px", top: "20px", width: "60px", height: "100px" });
+    expect(selection[1]).toHaveStyle({ left: "10px", top: "200px" });
   });
 
   it("keeps editing the shown track when switching tracks", async () => {

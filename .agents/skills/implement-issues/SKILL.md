@@ -14,7 +14,10 @@ Implement the issue numbers or range provided by the user from mbalyi/smart-beat
    - UI: Vitest unit/integration and Playwright e2e (Chromium and WebKit), including axe accessibility scans in light and dark mode for new screens.
    - Rust: unit tests plus `src-tauri/tests` integration tests.
    - Every bug found while testing gets a regression test that fails without the fix.
-6. **Verify**: `source ~/.cargo/env && pnpm check`, `pnpm test:e2e`, `pnpm licenses:check`.
+6. **Verify**: `source ~/.cargo/env && pnpm check` and `pnpm licenses:check`, then the Playwright e2e tests locally in two phases, the same split CI uses:
+   1. `pnpm test:e2e:smoke` (the core flows). Fix every failure and run it again until it is green before going on.
+   2. `pnpm test:e2e:additional` (the `tour*.spec.ts` group and the other additional specs). Run it only after the smoke phase passes, and fix failures the same way. Do not skip this phase because the first one passed.
+      Both phases run on Chromium and WebKit. For a quick re-run of one failing spec use `pnpm exec playwright test e2e/<file>.spec.ts`, then repeat the whole phase at the end. Report both results separately.
 7. **Ship**: follow the `ship-pr` skill (one PR that closes all issues; move issues to **In review**).
 8. **Install**: follow the `install-mac-app` skill. Start it in the background as soon as verification passes, so PR work continues in parallel.
 9. **Report**: what was built per issue, test counts, limitations, anything needing the user's attention. No claims about CI until it has run on the latest commit.

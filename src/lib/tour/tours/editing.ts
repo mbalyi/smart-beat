@@ -17,7 +17,7 @@ export const editingTour: TourDefinition = {
       id: "palette",
       target: "note-palette",
       title: "Note palette",
-      body: "Note values, dots, ties and rests are at the top. The palette scrolls: more groups are below, like articulations, dynamics, techniques and picking.",
+      body: "Note values, dots, ties and rests are in the middle; articulations, dynamics and guitar techniques are below. Point at an icon to see its name. An icon with a small corner mark opens a box of variants, and keeps your pick.",
       needsSong: true,
       show: { editing: true },
       placement: "right",

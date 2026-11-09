@@ -1,7 +1,7 @@
 import { act } from "@testing-library/react";
 import { vi } from "vitest";
 
-import type { ScorePlayerCallbacks, ScorePlayerOptions } from "@/lib/score/player";
+import type { Rect, ScorePlayerCallbacks, ScorePlayerOptions } from "@/lib/score/player";
 
 /**
  * Stand-in for `ScorePlayer` (alphaTab needs a real browser). Records what the
@@ -78,8 +78,13 @@ export class FakeScorePlayer {
   /** The bar under a right click (#83): bar 3 by default. */
   barAt = vi.fn((): number | null => 2);
   /** Where beats and notes are "drawn": one fixed box each. */
-  beatRects = vi.fn(() => [{ x: 10, y: 20, w: 30, h: 100 }]);
-  noteRects = vi.fn(() => [{ x: 15, y: 60, w: 8, h: 10 }]);
+  beatRects = vi.fn((_beat?: unknown) => [{ x: 10, y: 20, w: 30, h: 100 }]);
+  /** A note is drawn on the tab (the fret number) and on the standard staff (the notehead). */
+  noteRects = vi.fn((): { rect: Rect; staff: "tab" | "score" }[] => [
+    { rect: { x: 15, y: 60, w: 8, h: 10 }, staff: "tab" },
+    { rect: { x: 15, y: 30, w: 8, h: 10 }, staff: "score" },
+  ]);
+  stringLineRect = vi.fn((): Rect | null => ({ x: 10, y: 55, w: 30, h: 12 }));
   drumLineRect = vi.fn(() => ({ x: 15, y: 60, w: 8, h: 10 }));
 
   constructor(options: ScorePlayerOptions, callbacks: ScorePlayerCallbacks) {

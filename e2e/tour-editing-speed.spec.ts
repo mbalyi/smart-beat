@@ -43,24 +43,9 @@ test.describe("the Editing tour", () => {
 
     await next(app);
     await expect(coachMark(app)).toContainText("Note palette");
-    await expect(coachMark(app)).toContainText("scrolls");
+    await expect(coachMark(app)).toContainText("box of variants");
     const palette = app.getByRole("complementary", { name: "Note palette" });
     await expect(palette).toBeVisible();
-    // The palette scrolls with the mouse wheel while the tour points at it (WebKit too).
-    await expect
-      .poll(async () => palette.evaluate((el) => el.scrollHeight > el.clientHeight))
-      .toBe(true);
-    const box = (await palette.boundingBox())!;
-    await app.mouse.move(box.x + box.width / 2, box.y + box.height * 0.75);
-    await expect
-      .poll(
-        async () => {
-          await app.mouse.wheel(0, 300);
-          return palette.evaluate((el) => el.scrollTop);
-        },
-        { timeout: 10_000 },
-      )
-      .toBeGreaterThan(0);
 
     await next(app);
     await expect(coachMark(app)).toContainText("Undo and redo");

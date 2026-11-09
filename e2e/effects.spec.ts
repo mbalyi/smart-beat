@@ -32,7 +32,10 @@ test.describe("guitar techniques (#12)", () => {
     await app.keyboard.press("ArrowRight");
     const effects = app.getByRole("toolbar", { name: "Effects" });
     await effects.getByRole("button", { name: "Harmonic" }).click();
-    await app.getByRole("menuitemradio", { name: "Natural harmonic" }).click();
+    await app
+      .getByRole("group", { name: "Harmonic" })
+      .getByRole("button", { name: "Natural harmonic" })
+      .click();
     await expect.poll(() => scoreText(app)).toContain("N.H.");
     await expect(scoreRegion(app)).toBeFocused();
 
@@ -85,9 +88,12 @@ test.describe("guitar techniques (#12)", () => {
     await app.keyboard.type("7");
     await app
       .getByRole("toolbar", { name: "Effects" })
-      .getByRole("button", { name: "More" })
+      .getByRole("button", { name: "Grace note" })
       .click();
-    await app.getByRole("menuitemradio", { name: "Grace note before the beat" }).click();
+    await app
+      .getByRole("group", { name: "Grace note" })
+      .getByRole("button", { name: "Grace note before the beat" })
+      .click();
     await expect(scoreRegion(app)).toBeFocused();
     await app.keyboard.type("5"); // the grace note's fret
     await expectTab(app, ["5", "7"]);

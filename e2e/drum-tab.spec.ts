@@ -74,7 +74,7 @@ test.describe("drum tab (#49)", () => {
     // alphaTab's drawing surface takes the pointer events for the text on it.
     await firstHit.click({ force: true });
     await expect.poll(() => editorStatus(app)).toMatch(/Bar 1/);
-    await expect(app.getByTestId("edit-cursor")).toBeVisible();
+    await expect(app.getByTestId("edit-cursor-note").first()).toBeVisible();
 
     await app.getByRole("button", { name: "Edit" }).click();
     await app.getByRole("button", { name: "Play" }).click();
@@ -95,11 +95,12 @@ test.describe("drum tab (#49)", () => {
       .filter({ hasText: DRUM_NUMBERS })
       .first();
     await firstHit.click({ force: true });
-    await expect(app.getByTestId("edit-cursor")).toBeVisible();
+    await expect(app.getByTestId("edit-cursor-note").first()).toBeVisible();
     // Up goes to the drum on the top line of the beat (WebKit's click does not pick the note).
     await app.keyboard.press("ArrowUp");
     await expect(app.getByTestId("edit-cursor-note").first()).toBeVisible();
-    const frame = () => app.getByTestId("edit-cursor-note").last();
+    // One quiet outline (a note also has a ring on the standard staff, a different test id).
+    const frame = () => app.getByTestId("edit-cursor-note").first();
     const before = (await frame().boundingBox())!;
 
     // Down through the lines, empty ones too: the frame always follows.

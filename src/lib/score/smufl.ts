@@ -1,6 +1,7 @@
 /**
  * SMuFL code points of the notation icons (Bravura). Checked against the
- * bundled font and alphaTab's MusicFontSymbol table.
+ * bundled font (`smufl.test.ts` looks every one up in Bravura.svg) and alphaTab's
+ * MusicFontSymbol table.
  */
 export const SMUFL = {
   noteWhole: 0xe1d2,
@@ -16,6 +17,18 @@ export const SMUFL = {
   accidentalFlat: 0xe260,
   accidentalNatural: 0xe261,
   accidentalSharp: 0xe262,
+  accidentalDoubleSharp: 0xe263,
+  accidentalDoubleFlat: 0xe264,
+  timeSig0: 0xe080,
+  timeSig1: 0xe081,
+  timeSig2: 0xe082,
+  timeSig3: 0xe083,
+  timeSig4: 0xe084,
+  timeSig5: 0xe085,
+  timeSig6: 0xe086,
+  timeSig7: 0xe087,
+  timeSig8: 0xe088,
+  timeSig9: 0xe089,
   dynamicPPP: 0xe52a,
   dynamicPP: 0xe52b,
   dynamicPiano: 0xe520,
@@ -37,8 +50,11 @@ export const SMUFL = {
   noteheadBlack: 0xe0a4,
   noteheadDiamondWhite: 0xe0dd,
   graceNoteAcciaccaturaStemUp: 0xe560,
+  graceNoteAppoggiaturaStemUp: 0xe562,
   ornamentTrill: 0xe566,
   wiggleTrill: 0xeaa4,
+  tremolo1: 0xe220,
+  tremolo2: 0xe221,
   tremolo3: 0xe222,
   stringsDownBow: 0xe610,
   stringsUpBow: 0xe612,
@@ -50,9 +66,19 @@ export const SMUFL = {
   quindicesimaBassaMb: 0xe51d,
   guitarFadeIn: 0xe843,
   guitarFadeOut: 0xe844,
+  guitarVolumeSwell: 0xe845,
+  guitarOpenPedal: 0xe83d,
+  guitarClosePedal: 0xe83f,
+  guitarStrumUp: 0xe846,
+  guitarStrumDown: 0xe847,
+  guitarVibratoStroke: 0xeab2,
+  guitarWideVibratoStroke: 0xeab3,
   repeatLeft: 0xe040,
   repeatRight: 0xe041,
   segno: 0xe047,
+  coda: 0xe048,
+  dalSegno: 0xe045,
+  daCapo: 0xe046,
 } as const;
 
 export type SmuflName = keyof typeof SMUFL;

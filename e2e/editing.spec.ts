@@ -82,9 +82,12 @@ test.describe("note entry and editing (#9)", () => {
     expect(await editorStatus(app)).toMatch(/Eighth$/);
     await expect(dot).toHaveAttribute("aria-pressed", "true");
 
-    await app.getByRole("combobox", { name: "Tuplet" }).click();
-    await app.getByRole("option", { name: "Triplet (3:2)" }).click();
-    await expect(app.getByRole("combobox", { name: "Tuplet" })).toHaveText("Triplet (3:2)");
+    await app.getByRole("button", { name: /^Tuplet/ }).click();
+    await app
+      .getByRole("group", { name: "Tuplet" })
+      .getByRole("button", { name: "Triplet (3:2)" })
+      .click();
+    await expect(app.getByRole("button", { name: "Tuplet, Triplet (3:2) (on)" })).toBeVisible();
 
     await app.getByRole("button", { name: "Rest", exact: true }).click();
     await expectTab(app, ["5"]);
@@ -110,7 +113,11 @@ test.describe("note entry and editing (#9)", () => {
   test("writes a second voice on the same staff", async ({ app }) => {
     await newSong(app);
     await app.keyboard.press("0");
-    await app.getByRole("radio", { name: "Voice 2" }).click();
+    await app.getByRole("button", { name: /^Voice/ }).click();
+    await app
+      .getByRole("group", { name: "Voice" })
+      .getByRole("button", { name: "Voice 2" })
+      .click();
     await expect(scoreRegion(app)).toBeFocused();
     await app.keyboard.press("ArrowDown");
     await app.keyboard.press("ArrowDown");
@@ -118,7 +125,7 @@ test.describe("note entry and editing (#9)", () => {
 
     // alphaTab draws voice 2 first.
     await expect.poll(async () => (await tabNumbers(app)).sort()).toEqual(["0", "2"]);
-    await expect(app.getByRole("radio", { name: "Voice 2" })).toBeChecked();
+    await expect(app.getByRole("button", { name: "Voice, Voice 2" })).toBeVisible();
   });
 
   test("places the cursor by clicking a note in the score", async ({ app }) => {
@@ -142,7 +149,43 @@ test.describe("note entry and editing (#9)", () => {
     // The tab is briefly empty while alphaTab redraws: wait for the 7 itself.
     await expect.poll(() => tabNumbers(app)).toContain("7");
     expect(await tabNumbers(app)).not.toEqual(before);
-    await expect(app.getByTestId("edit-cursor-note").first()).toBeVisible();
+    // One quiet outline around the fret number; no beat-wide box any more.
+    await expect(app.getByTestId("edit-cursor-note")).toHaveCount(1);
+    await expect(app.getByTestId("edit-cursor-note")).toBeVisible();
+    await expect(app.getByTestId("edit-cursor")).toHaveCount(0);
+  });
+
+  test("hides alphaTab's own cursor while editing, and shows it when the song plays", async ({
+    app,
+  }) => {
+    await openSong(app);
+    const score = scoreRegion(app);
+    // alphaTab's bar highlight and vertical line (and its selection) are display:none.
+    const shown = (selector: string) =>
+      score
+        .locator(selector)
+        .first()
+        .evaluate((el) => getComputedStyle(el).display !== "none");
+
+    await app.getByRole("button", { name: "Edit" }).click();
+    await waitForAnimations(app); // the palette slides in and moves the score
+    await expect(score).toHaveAttribute("data-editing", "true");
+    await expect(score).not.toHaveAttribute("data-playing");
+    await expect(score.locator(".at-cursor-bar")).not.toHaveCount(0);
+    expect(await shown(".at-cursor-bar")).toBe(false);
+    expect(await shown(".at-cursor-beat")).toBe(false);
+
+    // Playing from edit mode: the moving cursor is back.
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(score).toHaveAttribute("data-playing", "true");
+    await expect.poll(() => shown(".at-cursor-bar")).toBe(true);
+    await expect.poll(() => shown(".at-cursor-beat")).toBe(true);
+
+    await app.getByRole("button", { name: "Pause" }).click();
+    await expect(score).not.toHaveAttribute("data-playing");
+    await expect.poll(() => shown(".at-cursor-bar")).toBe(false);
+    await expect.poll(() => shown(".at-cursor-beat")).toBe(false);
   });
 
   test("asks before closing a song with changes", async ({ app }) => {

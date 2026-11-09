@@ -226,6 +226,19 @@
   stroke: oklch(0.8 0.15 250);
 }
 
+/*
+ * While editing and not playing, the editor's own quiet marks (the outline around the note, the
+ * range rectangle) are the only highlight: alphaTab's playback cursor (the bar highlight and the
+ * vertical line) and its selection are hidden. Playing from edit mode and the practice view keep
+ * them. ScoreView sets data-editing and data-playing.
+ */
+[data-editing]:not([data-playing]) .at-cursor-bar,
+[data-editing]:not([data-playing]) .at-cursor-beat,
+[data-editing]:not([data-playing]) .at-selection {
+  /* alphaTab positions its cursor with inline styles. */
+  display: none !important;
+}
+
 /* Printing the score (see lib/print.ts): only the copy of the score in #print-root is printed. */
 #print-root {
   display: none;
@@ -256,4 +269,95 @@
 /* The dimming around a tour step does not take mouse wheel or clicks (WebKit would otherwise not scroll the note palette under it). */
 .react-joyride__spotlight path {
   pointer-events: none !important;
+}
+
+/*
+ * The hover of a palette cell: the cell itself turns purple from the inside (a tint and an inner
+ * shadow), and its own border lines reach past its corners, like an overhanging border, and wash
+ * out under the neighbouring cells. Nothing else moves or lights up. The lines are a layer of the
+ * hovered cell that reaches past its edges; the other cells sit above it (`z-index`), so they
+ * stay underneath their icons.
+ */
+.palette-cell {
+  --hv: var(--brand, #c537ef);
+  position: relative;
+  isolation: isolate;
+  z-index: 1;
+  transition:
+    background-color 0.2s,
+    box-shadow 0.2s;
+}
+.palette-cell::before {
+  content: "";
+  position: absolute;
+  inset: -26px;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+  /* Four hairlines on the edges of the cell, reaching past its corners like an overhanging border. */
+  --edge: color-mix(in srgb, var(--hv) 75%, transparent);
+  background-image:
+    linear-gradient(
+      to right,
+      transparent 25px,
+      var(--edge) 25px 26px,
+      transparent 26px calc(100% - 26px),
+      var(--edge) calc(100% - 26px) calc(100% - 25px),
+      transparent calc(100% - 25px)
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 25px,
+      var(--edge) 25px 26px,
+      transparent 26px calc(100% - 26px),
+      var(--edge) calc(100% - 26px) calc(100% - 25px),
+      transparent calc(100% - 25px)
+    );
+  -webkit-mask-image: radial-gradient(circle at center, #000 0, #000 24px, transparent 46px);
+  mask-image: radial-gradient(circle at center, #000 0, #000 24px, transparent 46px);
+}
+.palette-cell:not(:disabled):hover,
+.palette-cell:focus-visible {
+  z-index: 0;
+}
+.palette-cell:not(:disabled):hover::before,
+.palette-cell:focus-visible::before {
+  opacity: 1;
+}
+/* The tint and the inner shadow (a pressed cell keeps its own fill). */
+.palette-cell:not(:disabled):not([data-state="on"]):not([aria-pressed="mixed"]):hover,
+.palette-cell:not([data-state="on"]):not([aria-pressed="mixed"]):focus-visible {
+  background: color-mix(in srgb, var(--hv) 16%, transparent);
+  box-shadow:
+    inset 0 0 14px color-mix(in srgb, var(--hv) 60%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--hv) 70%, transparent);
+}
+.palette-cell:not(:disabled):active {
+  transform: scale(0.97);
+}
+.palette-cell:focus-visible {
+  outline: 2px solid var(--hv);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .palette-cell,
+  .palette-cell::before {
+    transition: none;
+  }
+  .palette-cell:not(:disabled):active {
+    transform: none;
+  }
+}
+
+/* The box of variants keeps the default popover look; its cells fade in one by one. */
+.palette-box .palette-box-grid > * {
+  animation: palette-cell-in 0.22s cubic-bezier(0.2, 0.85, 0.3, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 14ms);
+}
+@keyframes palette-cell-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.9);
+  }
 }

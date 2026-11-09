@@ -1392,8 +1392,47 @@ describe("ScorePlayer", () => {
       };
 
       expect(player.beatRects(beat)).toEqual([{ x: 10, y: 40, w: 20, h: 80 }]);
-      expect(player.noteRects(note)).toEqual([{ x: 12, y: 60, w: 6, h: 8 }]);
+      // A staff without a tab: the notehead on the standard staff.
+      const staff = beat.voice.bar.staff;
+      staff.showTablature = false;
+      expect(player.noteRects(note)).toEqual([
+        { rect: { x: 12, y: 60, w: 6, h: 8 }, staff: "score" },
+      ]);
       expect(player.noteRects(cloneNote(note))).toEqual([]); // not drawn
+      expect(player.stringLineRect(beat, 1, 6)).toBeNull(); // no tab staff
+    });
+
+    it("tags what is drawn on the tab and the standard staff, and finds a string's band", async () => {
+      const { player, api, score } = await readySetup();
+      const beat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+      const note = beat.notes[0]!;
+      const staff = beat.voice.bar.staff;
+      staff.showTablature = true;
+      staff.showStandardNotation = true;
+      // The notation is drawn above the tab.
+      const tab = {
+        beat,
+        realBounds: { x: 10, y: 0, w: 20, h: 5 },
+        barBounds: { visualBounds: { x: 0, y: 100, w: 100, h: 50 } },
+        notes: [{ note, noteHeadBounds: { x: 12, y: 120, w: 6, h: 8 } }],
+      };
+      const notation = {
+        beat,
+        realBounds: { x: 10, y: 0, w: 20, h: 5 },
+        barBounds: { visualBounds: { x: 0, y: 20, w: 100, h: 40 } },
+        notes: [{ note, noteHeadBounds: { x: 12, y: 30, w: 7, h: 6 } }],
+      };
+      api.boundsLookup = { findBeats: vi.fn(() => [tab, notation]) };
+
+      expect(player.noteRects(note)).toEqual([
+        { rect: { x: 12, y: 120, w: 6, h: 8 }, staff: "tab" },
+        { rect: { x: 12, y: 30, w: 7, h: 6 }, staff: "score" },
+      ]);
+      // Six lines over 50px: 10px apart; line 1 is the bottom one, the band is centred on it.
+      expect(player.stringLineRect(beat, 1, 6)).toEqual({ x: 10, y: 145, w: 20, h: 11 });
+      expect(player.stringLineRect(beat, 6, 6)).toEqual({ x: 10, y: 95, w: 20, h: 11 });
+      // Out of range: the whole tab staff of the beat.
+      expect(player.stringLineRect(beat, 9, 6)).toEqual({ x: 10, y: 100, w: 20, h: 50 });
     });
 
     it("reports finished renders and keeps the loop highlighted in edit mode", async () => {

@@ -33,17 +33,28 @@ test.describe("song structure (#11)", () => {
     await newSong(app); // four empty 4/4 bars at 120 BPM: 8 seconds
     await expect(app.getByRole("timer")).toHaveText("0:00 / 0:08");
 
+    // The time signature cell of the palette opens a box: presets and the beats and unit inputs.
     const sidebar = app.getByRole("toolbar", { name: "Edit" });
-    await sidebar.getByRole("combobox", { name: "Beat unit" }).click();
+    await sidebar.getByRole("button", { name: /^Time signature/ }).click();
+    const box = app.getByRole("group", { name: "Time signature" });
+    await box.getByRole("combobox", { name: "Beat unit" }).click();
     await app.getByRole("option", { name: "8", exact: true }).click();
-    const beats = sidebar.getByRole("spinbutton", { name: "Beats per bar" });
+    await expect(sidebar.getByRole("button", { name: "Time signature, 4/8" })).toBeVisible();
+    await sidebar.getByRole("button", { name: /^Time signature/ }).click();
+    const beats = box.getByRole("spinbutton", { name: "Beats per bar" });
     await beats.fill("7");
     await beats.press("Enter");
 
     // Four bars of 7/8 at 120 BPM (a beat is an eighth here): 7 seconds.
     await expect(app.getByRole("timer")).toHaveText("0:00 / 0:07");
-    await expect(beats).toHaveValue("7");
+    await expect(sidebar.getByRole("button", { name: "Time signature, 7/8" })).toBeVisible();
     await expectNoA11yViolations(app);
+
+    // A preset does it in one click.
+    await sidebar.getByRole("button", { name: /^Time signature/ }).click();
+    await box.getByRole("button", { name: "3/4 time" }).click();
+    await expect(sidebar.getByRole("button", { name: "Time signature, 3/4" })).toBeVisible();
+    await expect(app.getByRole("timer")).toHaveText("0:00 / 0:06");
   });
 
   test("changes the time signature, tempo, section and repeats with the bar dialog", async ({

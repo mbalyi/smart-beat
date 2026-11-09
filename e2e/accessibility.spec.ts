@@ -95,7 +95,7 @@ test.describe("accessibility", () => {
       await app.emulateMedia({ colorScheme });
       await newSong(app);
       await app.keyboard.press("5");
-      await app.keyboard.press("p"); // palm mute: a pressed toggle in the effects toolbar
+      await app.keyboard.press("p"); // palm mute: a pressed cell in the effects toolbar
       await expect(app.getByRole("toolbar", { name: "Effects" })).toBeVisible();
       await expectNoA11yViolations(app);
 
@@ -103,9 +103,10 @@ test.describe("accessibility", () => {
         .getByRole("toolbar", { name: "Effects" })
         .getByRole("button", { name: "Slide" })
         .click();
-      await expect(app.getByRole("menu")).toBeVisible();
-      await expectNoA11yViolations(app, { popup: "[role='menu']" });
+      await expect(app.getByRole("group", { name: "Slide", exact: true })).toBeVisible();
+      await expectNoA11yViolations(app, { popup: "[data-slot='popover-content']" });
       await app.keyboard.press("Escape");
+      await expect(app.getByRole("group", { name: "Slide", exact: true })).toBeHidden();
 
       for (const [action, name] of [
         ["bar-settings", "Bar 1"],

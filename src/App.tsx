@@ -698,6 +698,7 @@ export function App() {
                     togetherIntent={s.id === song?.id ? togetherIntent : null}
                     onTogetherIntentHandled={() => setTogetherIntent(null)}
                     onOpenSettings={(from) => showDialog("settings", from)}
+                    onShowShortcuts={() => showDialog("shortcuts")}
                   />
                 ))}
               </div>

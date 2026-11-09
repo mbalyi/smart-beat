@@ -76,7 +76,16 @@ test.describe("drag selection (#53)", () => {
     // The same beats are selected for editing.
     await app.getByRole("button", { name: "Edit" }).click();
     await expect(app.getByTestId("edit-selection")).not.toHaveCount(0);
-    expect(await app.getByTestId("edit-selection").count()).toBeGreaterThanOrEqual(3);
+    // One rectangle per system row, not one per beat: none sits on top of another.
+    const rects = await app
+      .getByTestId("edit-selection")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect()));
+    expect(rects.length).toBeGreaterThanOrEqual(1);
+    expect(rects.length).toBeLessThanOrEqual(3);
+    const sorted = [...rects].sort((a, b) => a.y - b.y);
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i]!.y).toBeGreaterThanOrEqual(sorted[i - 1]!.y + sorted[i - 1]!.height - 1);
+    }
   });
 
   test("keeps a partial selection of a few notes, and Escape clears it", async ({ app }) => {
