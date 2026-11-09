@@ -11,6 +11,22 @@ import type { Score } from "@/lib/score/model";
 function withoutPersonalSettings<T>(score: Score, run: () => T): T {
   const saved: (() => void)[] = [];
   for (const track of score.tracks) {
+    // How a sharp or flat is written ("explicit") is not the music: a note typed in the editor and
+    // the same note read back from a Guitar Pro file differ in it, and must still match.
+    for (const staff of track.staves) {
+      for (const bar of staff.bars) {
+        for (const voice of bar.voices) {
+          for (const beat of voice.beats) {
+            for (const note of beat.notes) {
+              const mode = note.accidentalMode;
+              if (mode === 0) continue;
+              saved.push(() => (note.accidentalMode = mode));
+              note.accidentalMode = 0;
+            }
+          }
+        }
+      }
+    }
     const info = track.playbackInfo;
     const { volume, balance, isMute, isSolo } = info;
     saved.push(() => Object.assign(info, { volume, balance, isMute, isSolo }));

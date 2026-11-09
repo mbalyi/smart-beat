@@ -9,7 +9,7 @@ export const PROTOCOL_VERSION = 1;
 export const MAX_FRAME_CHARS = 16 * 1024;
 
 /** What this app can do, so a newer app can talk to an older one. */
-export const CAPABILITIES = ["transport", "metronome", "speed", "loop", "tab"] as const;
+export const CAPABILITIES = ["transport", "metronome", "speed", "loop", "tab", "edit"] as const;
 
 /** One piece of a shared tab is this many bytes (about 11 K characters as base64, under a frame). */
 export const TAB_CHUNK_BYTES = 8 * 1024;
@@ -97,6 +97,8 @@ export type Message =
       bars: number;
       /** Which of the host's tabs this is (see `ScoreFingerprint.origin`). */
       origin?: number;
+      /** Shared editing: the host's edit number when the file was written (see `EditBody`). */
+      seq?: number;
     }
   /** Piece `i` (from 0) of offer `id`, as base64. */
   | { type: "tab-chunk"; id: number; i: number; data: string }
@@ -105,7 +107,49 @@ export type Message =
   /** The guest has opened the whole tab (or could not). */
   | { type: "tab-done"; id: number; ok: boolean; reason?: string }
   /** Either side stops offer `id`. */
-  | { type: "tab-abort"; id: number; reason: string };
+  | { type: "tab-abort"; id: number; reason: string }
+  // ----- editing the tab together (both ways, see shared-editing.ts) -----
+  | { type: "edit"; body: EditBody };
+
+/** An operation of shared editing (see `Op` in score/ops/types.ts); checked loosely here. */
+export type EditOp = { t: string; [key: string]: unknown };
+
+/**
+ * What players say to each other while they edit the same tab. Operations travel through the
+ * host, which numbers them (`seq`) and sends them to everyone, the sender included.
+ */
+export type EditBody =
+  /** A guest's edit (to the host), or an edit in the host's order (from the host). */
+  | {
+      k: "ops";
+      ops: EditOp[];
+      from?: string;
+      seq?: number;
+      /** A batch too big for one frame comes in `n` parts, `i` counting from 0 (they follow each other). */
+      part?: [number, number];
+    }
+  /** Host to guest: whether this guest may edit. */
+  | { k: "rights"; canEdit: boolean }
+  /** Guest to host: "I have the tab as of edit `seq`; send me what came after." */
+  | { k: "since"; seq: number; key?: string; resume?: boolean }
+  /** Host to guest: the ids of parts that differ from the ones the file gives (see `IdRegistry`). */
+  | { k: "uids"; pairs: [string, string][]; seq: number }
+  /** Host to guest: everything since `since` was sent; edits from now on come live. */
+  | { k: "live"; seq: number }
+  /** Guest to host: take the tab again (an edit could not be described, or the copies differ). */
+  | { k: "resync" }
+  /** Where a player's cursor is (a guest to the host, and the host to the others with who). */
+  | { k: "presence"; cur: Presence | null; who?: string; name?: string; hue?: number };
+
+/** A player's cursor, by the ids of the parts it is on (so it survives bars moving). */
+export interface Presence {
+  track: string;
+  beat: string;
+  /** The ends of a selection (beats). */
+  sel?: [string, string];
+  /** The string, on a tab. */
+  string?: number;
+}
 
 export type RefuseReason = "version" | "score" | "declined" | "busy" | "full" | "banned";
 
@@ -150,6 +194,64 @@ function validCommand(c: unknown): c is Command {
     typeof c.countIn === "boolean" &&
     isNumber(c.countInBeats)
   );
+}
+
+const isOps = (ops: unknown): ops is EditOp[] =>
+  Array.isArray(ops) && ops.length <= 4000 && ops.every((op) => isObject(op) && isString(op.t));
+
+function validPresence(p: unknown): p is Presence {
+  if (!isObject(p)) return false;
+  return (
+    isString(p.track) &&
+    isString(p.beat) &&
+    (p.sel === undefined ||
+      (Array.isArray(p.sel) && p.sel.length === 2 && p.sel.every(isString))) &&
+    (p.string === undefined || isNumber(p.string))
+  );
+}
+
+function validEdit(b: unknown): b is EditBody {
+  if (!isObject(b) || !isString(b.k)) return false;
+  switch (b.k) {
+    case "ops":
+      return (
+        isOps(b.ops) &&
+        (b.from === undefined || (isString(b.from) && b.from.length <= 64)) &&
+        (b.seq === undefined || isNumber(b.seq)) &&
+        (b.part === undefined ||
+          (Array.isArray(b.part) &&
+            b.part.length === 2 &&
+            b.part.every((n) => isNumber(n) && Number.isInteger(n) && n >= 0 && n <= 1000)))
+      );
+    case "rights":
+      return typeof b.canEdit === "boolean";
+    case "since":
+      return (
+        isNumber(b.seq) &&
+        (b.key === undefined || isString(b.key)) &&
+        (b.resume === undefined || typeof b.resume === "boolean")
+      );
+    case "uids":
+      return (
+        isNumber(b.seq) &&
+        Array.isArray(b.pairs) &&
+        b.pairs.length <= 400 &&
+        b.pairs.every((pair) => Array.isArray(pair) && pair.length === 2 && pair.every(isString))
+      );
+    case "live":
+      return isNumber(b.seq);
+    case "resync":
+      return true;
+    case "presence":
+      return (
+        (b.cur === null || validPresence(b.cur)) &&
+        (b.who === undefined || (isString(b.who) && b.who.length <= 64)) &&
+        (b.name === undefined || (isString(b.name) && b.name.length <= 80)) &&
+        (b.hue === undefined || isNumber(b.hue))
+      );
+    default:
+      return false;
+  }
 }
 
 function validMessage(m: unknown): m is Message {
@@ -206,7 +308,8 @@ function validMessage(m: unknown): m is Message {
         isString(m.sha) &&
         isString(m.key) &&
         isNumber(m.bars) &&
-        (m.origin === undefined || isNumber(m.origin))
+        (m.origin === undefined || isNumber(m.origin)) &&
+        (m.seq === undefined || isNumber(m.seq))
       );
     case "tab-chunk":
       return isNumber(m.id) && isNumber(m.i) && isString(m.data);
@@ -220,6 +323,8 @@ function validMessage(m: unknown): m is Message {
       );
     case "tab-abort":
       return isNumber(m.id) && isString(m.reason);
+    case "edit":
+      return validEdit(m.body);
     default:
       return false;
   }

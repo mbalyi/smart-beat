@@ -4,6 +4,15 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### New: edit the tab together (Practice together)
+
+- Everyone in a Practice together session can edit the same tab at the same time, and each change shows up on the other computers within a moment, in both directions. Two people can edit the same bar, even the same beat, without losing anything.
+- You see where the others are: each player's cursor and selection on the tab, with their name and colour.
+- Undo and Redo only take back your own edits, not the other players'.
+- Playback is not disturbed: an edit during playback does not move the shared clock or restart the song, and the host's metronome, count-in and speed stay as they are.
+- The host can turn editing off for guests with "Guests can edit the tab" in the session dialog (on by default). A guest that is removed or banned loses edit access at once, and a guest that drops and comes back gets the edits it missed.
+- The host's tab is no longer sent again after every edit. It is only sent again when someone joins, when Sync tab is pressed, or when two copies differ for a while. An older Smart Beat as a guest still follows the host's tab read-only.
+
 ### Improvements and fixes
 
 - Edit mode: the edit palette is now a compact grid of icons. Point at an icon to see its name and shortcut; an icon with several choices (key, time signature, tempo, jumps, tuplet, slide, harmonic and more) opens a small box of them and keeps your pick. The key, tempo, triplet feel, repeat endings and every jump can be set from the palette too, not only from the Bar dialog.

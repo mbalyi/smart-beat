@@ -503,3 +503,64 @@ fn a_quiet_link_stays_open_thanks_to_keep_alives() {
     // Keep-alives are never passed on to the page.
     assert!(p.host_rx.try_recv().is_err());
 }
+
+/// Editing the tab together (#216): guests send bursts of small edit frames, the host sends them
+/// on to everyone, and every guest hears the host's frames in the order the host sent them.
+#[test]
+fn edit_bursts_from_several_guests_keep_their_order_and_reach_everyone() {
+    const GUESTS: usize = 4;
+    const EDITS: usize = 120;
+    let (host_sink, host_rx) = sink();
+    let host = Link::host(Ipv4Addr::LOCALHOST, host_sink).unwrap();
+    let mut guests = Vec::new();
+    let mut conns = Vec::new();
+    for _ in 0..GUESTS {
+        let (guest_sink, guest_rx) = sink();
+        guests.push((Link::join(&host.code(), guest_sink).unwrap(), guest_rx));
+        conns.push(opened(&host_rx).0);
+    }
+
+    // Every guest sends its edits at once, from its own thread.
+    let senders: Vec<_> = guests
+        .iter()
+        .enumerate()
+        .map(|(g, (link, _))| {
+            let link = Arc::clone(link);
+            std::thread::spawn(move || {
+                for n in 0..EDITS {
+                    // A frame near the size an edit takes, with its sender and number.
+                    let text = format!("{g}:{n}:{}", "x".repeat(9_000));
+                    assert!(link.send(None, &text));
+                }
+            })
+        })
+        .collect();
+    for sender in senders {
+        sender.join().unwrap();
+    }
+
+    // The host hears each guest's frames in that guest's order, and numbers them as it goes.
+    let mut next = [0usize; GUESTS];
+    let mut order = Vec::new();
+    for _ in 0..GUESTS * EDITS {
+        let (_, text) = frame_from(&host_rx);
+        let mut parts = text.splitn(3, ':');
+        let g: usize = parts.next().unwrap().parse().unwrap();
+        let n: usize = parts.next().unwrap().parse().unwrap();
+        assert_eq!(n, next[g], "guest {g}'s edits arrive in order");
+        next[g] += 1;
+        order.push((g, n));
+    }
+
+    // It sends them all on, in that order, to every guest.
+    for (seq, (g, n)) in order.iter().enumerate() {
+        for conn in &conns {
+            assert!(host.send(Some(*conn), &format!("{seq}:{g}:{n}")));
+        }
+    }
+    for (_, rx) in &guests {
+        for (seq, (g, n)) in order.iter().enumerate() {
+            assert_eq!(frame(rx), format!("{seq}:{g}:{n}"));
+        }
+    }
+}

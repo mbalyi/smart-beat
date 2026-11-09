@@ -18,6 +18,7 @@ import {
   decode,
   encode,
   type Command,
+  type EditBody,
   type Message,
   type ScoreFingerprint,
 } from "@/lib/practice-together/protocol";
@@ -149,6 +150,16 @@ interface Seat {
   block?: Block;
 }
 
+/** What the host's shared editing (see `shared-editing.ts`) hears from the guests' sessions. */
+export interface RoomEditHooks {
+  /** A guest said something about editing. */
+  receive(seat: string, body: EditBody): void;
+  /** A guest was let in, or came back after a drop. */
+  welcomed(seat: string): void;
+  /** A guest is gone (left, kicked, banned, or could not get back). */
+  left(seat: string): void;
+}
+
 export interface HostRoomOptions {
   acceptor: GuestAcceptor;
   name: string;
@@ -191,6 +202,7 @@ export class HostRoom {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private ended = false;
   private state: SessionState;
+  private editHooks: RoomEditHooks | null = null;
 
   constructor(options: HostRoomOptions) {
     this.acceptor = options.acceptor;
@@ -259,6 +271,35 @@ export class HostRoom {
       if (!seat.retiring && seat.session.shareTabAgain()) sent = true;
     }
     return sent;
+  }
+
+  // ----- editing together ------------------------------------------------------------------
+
+  /** Plugs in the host's shared editing (null: none). */
+  setEditHooks(hooks: RoomEditHooks | null): void {
+    this.editHooks = hooks;
+  }
+
+  /** The guests that are in the session and can edit together, by id. */
+  editSeats(): { id: string; name: string }[] {
+    return [...this.seats.values()]
+      .filter((seat) => !seat.retiring && seat.session.welcomed && seat.session.peerEdits)
+      .map((seat) => ({ id: seat.id, name: seat.session.snapshot.peerName ?? seat.name }));
+  }
+
+  /** Says something about editing to one guest. */
+  sendEdit(seat: string, body: EditBody): void {
+    this.seats.get(seat)?.session.sendEdit(body);
+  }
+
+  /** Tells a guest's session whether it is editing with the host (a lasting difference is a lost edit). */
+  setEditLive(seat: string, on: boolean): void {
+    this.seats.get(seat)?.session.setEditLive(on);
+  }
+
+  /** Sends the host's tab to one guest again. */
+  shareTabTo(seat: string): boolean {
+    return this.seats.get(seat)?.session.shareTabAgain() ?? false;
   }
 
   /** Leaves: every guest is told, and the room stops listening. */
@@ -460,6 +501,10 @@ export class HostRoom {
       request: this.hooks.request,
       tab: this.hooks.tab,
       approve: (name) => this.approve(seat(), name),
+      edit: {
+        receive: (body) => this.editHooks?.receive(seat().id, body),
+        welcomed: () => this.editHooks?.welcomed(seat().id),
+      },
     };
   }
 
@@ -493,7 +538,10 @@ export class HostRoom {
     if (peerName) seat.name = peerName;
     if (phase === "syncing" || phase === "synchronized") seat.wasIn = true;
     if (phase === "closed" || phase === "failed") {
-      if (this.seats.get(seat.id) === seat) this.seats.delete(seat.id);
+      if (this.seats.get(seat.id) === seat) {
+        this.seats.delete(seat.id);
+        this.editHooks?.left(seat.id);
+      }
       seat.abort.abort();
       if (seat.wasIn && !this.ended) {
         if (phase === "failed") {
@@ -520,6 +568,7 @@ export class HostRoom {
   private retire(seat: Seat) {
     if (seat.retiring) return;
     seat.retiring = true;
+    this.editHooks?.left(seat.id);
     seat.abort.abort();
     queueMicrotask(() => seat.session.leave("done"));
   }

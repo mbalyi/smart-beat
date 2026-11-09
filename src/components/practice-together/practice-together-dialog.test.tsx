@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 
+import { NO_SHARED_EDITING } from "@/hooks/use-shared-editing";
 import { PracticeTogetherDialog } from "@/components/practice-together/practice-together-dialog";
 import {
   SyncQualityBadge,
@@ -52,6 +53,7 @@ function together(over: Partial<PracticeTogether> = {}): PracticeTogether {
     internetAvailable: true,
     transfer: null,
     readOnly: false,
+    edit: NO_SHARED_EDITING,
     setName: vi.fn(),
     setQuality: vi.fn(),
     host: vi.fn(async () => {}),

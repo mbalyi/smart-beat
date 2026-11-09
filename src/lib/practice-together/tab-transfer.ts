@@ -24,6 +24,8 @@ export interface TabPayload {
   bars: number;
   /** Which of the host's tabs this is (see `ScoreFingerprint.origin`). */
   origin?: number;
+  /** Shared editing: the host's edit number when this file was written. */
+  seq?: number;
 }
 
 /** A tab the guest received whole and checked. */
@@ -123,6 +125,7 @@ export class TabSender {
       key: this.payload.key,
       bars: this.payload.bars,
       ...(this.payload.origin === undefined ? {} : { origin: this.payload.origin }),
+      ...(this.payload.seq === undefined ? {} : { seq: this.payload.seq }),
     });
     this.report();
     // A guest that already has the tab says so before any piece is sent; one that needs it asks

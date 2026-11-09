@@ -12,6 +12,18 @@ import { cn } from "@/lib/utils";
 export interface EditOverlay {
   notes: NoteRect[];
   selection: Rect[];
+  /** The other players' cursors, in Practice together (#216). */
+  remote?: RemoteMark[];
+}
+
+/** Where another player is: a name and colour, their beat and the range they selected. */
+export interface RemoteMark {
+  id: string;
+  name: string;
+  /** Hue in degrees: every player has their own. */
+  hue: number;
+  beat: Rect;
+  selection: Rect[];
 }
 
 const box = ({ x, y, w, h }: Rect) => ({ left: x, top: y, width: w, height: h });
@@ -50,7 +62,7 @@ function keepInView(element: HTMLElement, viewport: HTMLElement) {
  */
 function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
   const anchorRef = useRef<HTMLDivElement>(null);
-  const { notes, selection } = overlay;
+  const { notes, selection, remote = [] } = overlay;
   // The outline goes on the tab; a score-only staff gets the outline on its notehead instead.
   const hasTab = notes.some((n) => n.staff === "tab");
   const outlines = notes.filter((n) => !hasTab || n.staff === "tab");
@@ -90,6 +102,40 @@ function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
           style={box({ x: rect.x - 1, y: rect.y - 1, w: rect.w + 2, h: rect.h + 2 })}
         />
       ))}
+      {remote.map((mark) => {
+        // Each player's own colour; the flag is dark enough for white text in both themes.
+        const line = `hsl(${mark.hue} 70% 50%)`;
+        const flag = `hsl(${mark.hue} 60% 30%)`;
+        return (
+          <div key={mark.id} data-testid="remote-cursor" data-player={mark.name}>
+            {mark.selection.map((rect, i) => (
+              <div
+                key={i}
+                className="absolute rounded-sm"
+                style={{ ...box(rect), backgroundColor: `hsl(${mark.hue} 70% 50% / 0.14)` }}
+              />
+            ))}
+            <div
+              className="absolute rounded-md border-2"
+              style={{
+                ...box({
+                  x: mark.beat.x - 2,
+                  y: mark.beat.y - 1,
+                  w: mark.beat.w + 4,
+                  h: mark.beat.h + 2,
+                }),
+                borderColor: line,
+              }}
+            />
+            <div
+              className="absolute -translate-y-full rounded-t-md px-1.5 text-[10px] leading-4 font-semibold whitespace-nowrap text-white"
+              style={{ left: mark.beat.x - 2, top: mark.beat.y - 1, backgroundColor: flag }}
+            >
+              {mark.name}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

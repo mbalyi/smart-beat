@@ -25,6 +25,7 @@ import { SyncQualityBadge } from "@/components/practice-together/sync-quality";
 import { Button } from "@/components/ui/button";
 import { DialogBody, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tip } from "@/components/ui/tip";
 import {
   Select,
@@ -576,6 +577,7 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
   const state = together.state!;
   const isHost = state.role === "host";
   const selectId = useId();
+  const editId = useId();
   const [confirm, setConfirm] = useState<{ peer: PeerInfo; how: "kick" | "ban" } | null>(null);
   const peers = isHost ? (state.peers ?? []) : [];
   return (
@@ -678,6 +680,34 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
                   Sends your tab to everyone again.
                 </span>
               </div>
+            )}
+            {isHost && together.edit.live && (
+              <div className="flex items-start justify-between gap-4" data-testid="guests-can-edit">
+                <div className="flex flex-col gap-0.5">
+                  <label htmlFor={editId} className="text-sm font-semibold">
+                    Guests can edit the tab
+                  </label>
+                  <p id={`${editId}-hint`} className="text-sm text-muted-foreground">
+                    Everyone edits at the same time and sees where the others are. Turn it off and
+                    guests follow your tab.
+                  </p>
+                </div>
+                <Switch
+                  id={editId}
+                  aria-describedby={`${editId}-hint`}
+                  checked={together.edit.guestsCanEdit}
+                  onCheckedChange={together.edit.setGuestsCanEdit}
+                />
+              </div>
+            )}
+            {!isHost && (
+              <p className="text-sm text-muted-foreground" data-testid="guest-edit-status">
+                {together.edit.editable
+                  ? "You can edit the tab along with the host. Your undo only takes back your own edits."
+                  : together.edit.live
+                    ? "The host turned editing off: you follow the host's tab."
+                    : "You follow the host's tab."}
+              </p>
             )}
             <p className="text-sm text-muted-foreground">
               {isHost
