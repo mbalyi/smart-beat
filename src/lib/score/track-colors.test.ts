@@ -1,4 +1,10 @@
-import { TRACK_PALETTE, hexToOklch, isTrackColor, laneColor, trackColor } from "@/lib/score/track-colors";
+import {
+  TRACK_PALETTE,
+  hexToOklch,
+  isTrackColor,
+  laneColor,
+  trackColor,
+} from "@/lib/score/track-colors";
 
 describe("trackColor", () => {
   it("cycles through the eight default colours by position", () => {

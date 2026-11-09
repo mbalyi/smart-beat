@@ -37,6 +37,7 @@ import {
 import { DEFAULT_INTERPRETATION } from "@/lib/score/interpretation";
 import { MIXER_SETTINGS_VERSION, type MixerSettings } from "@/lib/tauri";
 import { SUMMARY } from "@/test/score";
+import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 
 const mix = (tracks: Partial<MixerSettings["tracks"][number]>[]): MixerSettings => ({
   version: MIXER_SETTINGS_VERSION,
@@ -336,36 +337,20 @@ describe("mixer v2 settings", () => {
     expect(m.masterPan).toBe(-1);
     m = mixerReducer(m, { type: "drums", track: 1, drums: { stereo: false, elements: [] } });
     expect(m.drums).toEqual([null, { stereo: false, elements: [] }]);
-    const audio = {
-      name: "take.mp3",
-      path: "/take.mp3",
-      embedded: false,
-      enabled: true,
-      volume: 2,
-      pan: 0,
-      mute: false,
+    const lane = {
+      ...newLane("Take", "lane"),
       solo: true,
-      eq: FLAT_EQ,
       semitones: 40,
-      cents: 7.6,
-      filter: "off" as const,
-      sync: [
-        { bar: 4, ms: 9000 },
-        { bar: 0, ms: 500 },
-        { bar: 2, ms: -1 },
-      ],
+      clips: [newClip("s", "take", 0, 1000, "c")],
     };
-    m = mixerReducer(m, { type: "audio-track", value: audio });
-    expect(m.audioTrack).toMatchObject({
-      volume: 1,
-      semitones: 24,
-      cents: 8,
-      sync: [
-        { bar: 0, ms: 500 },
-        { bar: 4, ms: 9000 },
-      ],
-    });
-    // A soloed audio track silences the score's tracks.
+    const audio = {
+      ...EMPTY_AUDIO,
+      sources: [{ id: "s", name: "take.mp3", ext: "mp3", embedded: false }],
+      lanes: [lane],
+    };
+    m = mixerReducer(m, { type: "audio", value: audio });
+    expect(m.audio!.lanes[0]).toMatchObject({ semitones: 24, solo: true });
+    // A soloed audio lane silences the score's tracks.
     expect(isAudible(m, 0)).toBe(false);
     m = mixerReducer(m, {
       type: "presets",
@@ -379,10 +364,32 @@ describe("mixer v2 settings", () => {
     );
     expect(reset.focus).toBeUndefined();
     expect(reset.masterPan).toBeUndefined();
-    expect(reset.audioTrack).toEqual(m.audioTrack);
+    expect(reset.audio).toEqual(m.audio);
     expect(reset.tracks[0]!.volume).toBe(0.2);
-    m = mixerReducer(m, { type: "audio-track", value: null });
-    expect(m.audioTrack).toBeUndefined();
+    m = mixerReducer(m, { type: "audio", value: null });
+    expect(m.audio).toBeUndefined();
+    // Saving lanes drops an old single audio track for good.
+    const migrated = mixerReducer(
+      {
+        ...m,
+        audioTrack: {
+          name: "x",
+          embedded: false,
+          sync: [],
+          enabled: true,
+          volume: 1,
+          pan: 0,
+          mute: false,
+          solo: false,
+          eq: FLAT_EQ,
+          semitones: 0,
+          cents: 0,
+          filter: "off",
+        },
+      },
+      { type: "audio", value: audio },
+    );
+    expect(migrated.audioTrack).toBeUndefined();
   });
 
   it("track states follow the tracks when they move", () => {
@@ -537,31 +544,17 @@ describe("practice mixes (#83)", () => {
     );
   });
 
-  it("silences the audio track too when practising alone", () => {
+  it("silences every audio lane too when practising alone", () => {
     const audio = {
-      name: "take.mp3",
-      embedded: false,
-      sync: [],
-      enabled: true,
-      volume: 1,
-      pan: 0,
-      mute: false,
-      solo: true,
-      eq: FLAT_EQ,
-      semitones: 0,
-      cents: 0,
-      filter: "off" as const,
+      ...EMPTY_AUDIO,
+      lanes: [
+        { ...newLane("A", "a"), solo: true },
+        { ...newLane("B", "b"), mute: false },
+      ],
     };
-    const m = mixerReducer(
-      { ...four(), audioTrack: audio },
-      {
-        type: "focus",
-        track: 0,
-        mode: "onlyMe",
-      },
-    );
-    expect(heardMix(m).audioTrack).toMatchObject({ mute: true, solo: false });
-    expect(m.audioTrack).toBe(audio);
+    const m = mixerReducer({ ...four(), audio }, { type: "focus", track: 0, mode: "onlyMe" });
+    expect(heardMix(m).audio!.lanes.every((l) => l.mute && !l.solo)).toBe(true);
+    expect(m.audio).toBe(audio);
   });
 
   it("leaves the normal mix and 'others turned down' as they are", () => {

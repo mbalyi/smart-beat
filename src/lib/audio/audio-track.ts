@@ -1,4 +1,4 @@
-/** Labels and formatting for the audio track. */
+/** Labels and formatting for the audio lanes. */
 import type { BackingFilter } from "@/lib/tauri";
 
 export const FILTER_LABELS: Record<BackingFilter, string> = {
@@ -6,6 +6,12 @@ export const FILTER_LABELS: Record<BackingFilter, string> = {
   bassIsolate: "Bass only",
   guitarBand: "Guitar range",
   centreCut: "Remove the centre (vocals)",
+  bassBoost: "Bass enhance",
+  bassCut: "Bass attenuate",
+  midBoost: "Mid enhance",
+  midCut: "Mid attenuate",
+  highBoost: "High enhance",
+  highCut: "High attenuate",
 };
 
 /** "1:02.50" */

@@ -11,15 +11,17 @@ import type { EffectSlot } from "@/lib/audio/effects";
 import type { ClickSoundId } from "@/lib/score/practice";
 import type { Score } from "@/lib/score/score";
 import {
+  loadAudioSource,
+  setEngineLanes,
+  type EngineLanes,
+  type SourceInfo,
+  type SourceLocation,
   activateStoredSoundFont,
-  clearEngineBacking,
   engineState,
   engineTransport,
-  loadEngineBacking,
   loadEngineSong,
   loadEngineSoundFont,
   setEngineAutomation,
-  setEngineBacking,
   setEngineChain,
   setEngineDrumMix,
   setEngineMix,
@@ -28,9 +30,6 @@ import {
   setEngineSounds,
   setEngineTrackEq,
   startEngine,
-  type BackingInfo,
-  type BackingParams,
-  type BackingSource,
   type BlockProblem,
   type BusMix,
   type EngineAutomation,
@@ -72,8 +71,8 @@ export interface EngineExtras {
   /** The imported drum kit of each track (#40; null: the SoundFont's kit). */
   kits?: (string | null)[];
   masterPan: number;
-  /** Audio track settings and sync points (null: none loaded). */
-  backing: { params: BackingParams; sync: { tick: number; ms: number }[] } | null;
+  /** The audio lanes with the song's sync points (null: none). */
+  lanes: EngineLanes | null;
   /** The monitor track (missing or null: none). */
   monitor?: EngineMonitor;
 }
@@ -215,7 +214,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
   private loop: { startTick: number; endTick: number } | null = null;
   private metronomeVolume: number | null = null;
   private clickSound: ClickSoundId | null = null;
-  private backing: BackingSource | null = null;
+  /** Where each audio file this song's lanes play came from, by source id (to load it again). */
+  private sources = new Map<string, SourceLocation>();
   /** The monitor track listens: the engine is read while paused too (its level meter). */
   private monitoring = false;
   /** Play was asked for, and the song has not stopped since. */
@@ -299,8 +299,9 @@ export class NativeEngine implements synth.IExternalMediaHandler {
       this.sent = null;
       // The engine has the other song's monitor track.
       this.monitorSent = undefined;
-      if (this.backing) await loadEngineBacking(this.backing);
-      else await clearEngineBacking();
+      for (const location of this.sources.values()) {
+        await loadAudioSource(location).catch(() => undefined);
+      }
       await this.sendExtras();
       await engineTransport({ type: "rate", value: this.rate });
       await engineTransport({ type: "masterVolume", value: this.volume });
@@ -460,8 +461,8 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     if ((prev?.masterPan ?? 0) !== next.masterPan) {
       await engineTransport({ type: "masterPan", value: next.masterPan });
     }
-    if (next.backing && !same(prev?.backing ?? null, next.backing)) {
-      await setEngineBacking(next.backing.params, next.backing.sync);
+    if (!same(prev?.lanes ?? null, next.lanes)) {
+      await setEngineLanes(next.lanes);
     }
     // Loading a song keeps the monitor track (and its open input): sent only when it changed.
     if (this.destroyed || !this.ownsOrFree) return this.problems;
@@ -483,24 +484,21 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     return problems;
   }
 
-  /** Opens a recording as the audio track; its settings follow with {@link configure}. */
-  loadBacking(source: BackingSource): Promise<BackingInfo> {
-    this.backing = source;
+  /** Opens an audio file for the lanes; the lanes that play it follow with {@link configure}. */
+  loadSource(location: SourceLocation): Promise<SourceInfo> {
     return this.enqueue(async () => {
-      const info = await loadEngineBacking(source);
-      // The engine starts it with default settings: send ours again.
-      if (this.sent) this.sent = { ...this.sent, backing: null };
+      const info = await loadAudioSource(location);
+      this.sources.set(info.id, location);
+      // The lanes were sent before the file was there: send them again.
+      if (this.sent) this.sent = { ...this.sent, lanes: null };
       await this.sendExtras();
       return info;
     });
   }
 
-  clearBacking(): Promise<void> {
-    this.backing = null;
-    return this.enqueue(async () => {
-      await clearEngineBacking();
-      if (this.sent) this.sent = { ...this.sent, backing: null };
-    });
+  /** Remembers a file added by the engine itself (a recorded take) for {@link claim}. */
+  rememberSource(id: string, location: SourceLocation) {
+    this.sources.set(id, location);
   }
 
   /** Tells the app about the monitor track's input when it changes. */

@@ -845,11 +845,11 @@ export const readProjectSettings = (path: string) =>
   call<MixerSettings | null>("read_project_settings", { path });
 
 /**
- * Stores mixer settings inside a `.gp` file that was just written. With
- * `embedAudio`, the loaded audio track's recording goes in too.
+ * Stores mixer settings inside a `.gp` file that was just written, with every embedded audio
+ * file a clip plays (files no clip plays any more are dropped).
  */
-export const writeProjectSettings = (path: string, settings: MixerSettings, embedAudio: boolean) =>
-  call<void>("write_project_settings", { path, settings, embedAudio });
+export const writeProjectSettings = (path: string, settings: MixerSettings) =>
+  call<void>("write_project_settings", { path, settings });
 
 /** Updates the native menu bar (labels, check marks, enabled items). No-op in a browser. */
 export async function updateMenuState(state: MenuState): Promise<void> {
@@ -926,8 +926,8 @@ export interface EngineMeters {
   master: number;
   /** Per track: the levels of its drum elements (empty unless split). */
   drums?: number[][];
-  /** The audio track. */
-  backing?: number;
+  /** Each audio lane after its fader: (lane id, level). */
+  lanes?: [string, number][];
   /** The monitor track, after its effects and fader. */
   monitor?: number;
   /** The audio input of the monitor track, before its effects. */
@@ -965,19 +965,28 @@ export interface EngineDrumMix {
   other: BusMix;
 }
 
-/** Mirrors `BackingSource`: where the audio track comes from. */
-export type BackingSource =
-  { type: "file"; path: string } | { type: "embedded"; scorePath: string; name: string };
+/** Mirrors `SourceLocation`: where an audio file for a lane comes from. */
+export type SourceLocation =
+  { type: "file"; path: string } | { type: "embedded"; scorePath: string; entry: string };
 
-/** Mirrors `BackingInfo`: what the engine learnt about a recording. */
-export interface BackingInfo {
+/** Mirrors `SourceInfo`: what the engine learnt about an audio file. */
+export interface SourceInfo {
+  /** SHA-256 of the file: the id clips use. */
+  id: string;
   name: string;
+  ext: string;
   durationMs: number;
   sampleRate: number;
   channels: number;
   /** Loudest sample per 1/`peaksPerSecond` s (0…1). */
   peaks: number[];
   peaksPerSecond: number;
+}
+
+/** Mirrors `BeatInfo`: a detected tempo and where its beats fall in the file (ms). */
+export interface BeatInfo {
+  bpm: number;
+  beats: number[];
 }
 
 /** Mirrors `EngineStatus` in `src-tauri/src/audio/mod.rs`. */
@@ -1098,15 +1107,49 @@ export const setEngineTrackEq = (track: number, eq: TrackEq) =>
 export const setEngineDrumMix = (track: number, drums: EngineDrumMix | null) =>
   call<void>("audio_set_drum_mix", { track, drums });
 
-/** Opens a recording as the audio track. */
-export const loadEngineBacking = (source: BackingSource) =>
-  call<BackingInfo>("audio_load_backing", { source });
+/** Opens an audio file for the lanes (decoded once, identified by its content hash). */
+export const loadAudioSource = (location: SourceLocation) =>
+  call<SourceInfo>("audio_load_source", { location });
 
-/** Audio track settings and sync points (`tick`: start of the synced bar). */
-export const setEngineBacking = (params: BackingParams, sync: { tick: number; ms: number }[]) =>
-  call<void>("audio_set_backing", { params, sync });
+/** Adds a recorded take (a WAV file) to the lanes' audio files. */
+export async function addAudioTake(name: string, wav: Uint8Array): Promise<SourceInfo> {
+  if (!isTauri()) throw new Error("Recording needs the desktop app");
+  return invoke<SourceInfo>("audio_add_take", wav, { headers: { "x-name": name } });
+}
 
-export const clearEngineBacking = () => call<void>("audio_clear_backing");
+/** Lets go of every loaded audio file not listed in `keep`. */
+export const forgetAudioSources = (keep: string[]) => call<void>("audio_forget_sources", { keep });
+
+/** The lanes as the engine plays them (`null`: none); `sync` in score ticks. */
+export interface EngineLanes {
+  audio: AudioLanesSettings;
+  sync: { tick: number; ms: number }[];
+  /** Song transposition in semitones. */
+  transpose: number;
+}
+export const setEngineLanes = (lanes: EngineLanes | null) =>
+  call<void>("audio_set_lanes", { lanes });
+
+/** The nearest zero crossing to `ms` in a loaded file (within 10 ms). */
+export const audioZeroCrossing = (source: string, ms: number) =>
+  call<number>("audio_zero_crossing", { source, ms });
+
+/** Saves a loaded audio file: its original bytes, or a 16-bit WAV. */
+export const extractAudioSource = (source: string, path: string, asWav: boolean) =>
+  call<void>("audio_extract_source", { source, path, asWav });
+
+/** A spectrogram of part of a file: `columns` × `bins` magnitudes in dB (−100 … 0). */
+export const audioSpectrogram = (
+  source: string,
+  startMs: number,
+  endMs: number,
+  columns: number,
+  bins: number,
+) => call<number[][]>("audio_spectrogram", { source, startMs, endMs, columns, bins });
+
+/** The tempo of a file and where its beats fall. */
+export const detectAudioBeats = (source: string) =>
+  call<BeatInfo>("audio_detect_beats", { source });
 
 /**
  * The monitor track (null removes it): its settings, and the input it plays. `device` is the

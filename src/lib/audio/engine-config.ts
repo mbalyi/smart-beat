@@ -13,9 +13,7 @@ import type { EngineExtras, MonitorInputChoice } from "@/lib/audio/native-engine
 import type { Score } from "@/lib/score/model";
 import { soundChains, trackAutomation, trackEq, trackSoundsOf } from "@/lib/score/mixer";
 import type {
-  AudioTrackSettings,
   AutomationPoint,
-  BackingParams,
   EngineAutomation,
   MixerSettings,
   SyncPoint,
@@ -200,7 +198,7 @@ export function barTimesMs(score: Score, occurrences: readonly BarOccurrence[]):
   return times.map((t) => (Number.isNaN(t) ? last : (last = t)));
 }
 
-/** Song ms → recording ms through the sync points (mirrors `SyncMap` in `backing.rs`). */
+/** Song ms → audio timeline ms through the sync points (mirrors `SyncMap` in `backing.rs`). */
 export function audioMsAt(
   points: readonly { songMs: number; ms: number }[],
   songMs: number,
@@ -253,21 +251,6 @@ export function syncPointsFromTempo(
   return [...byBar.values()].sort((a, b) => a.bar - b.bar);
 }
 
-/** The audio track's playback settings (without file and sync details). */
-export function backingParams(audio: AudioTrackSettings): BackingParams {
-  return {
-    enabled: audio.enabled,
-    volume: audio.volume,
-    pan: audio.pan,
-    mute: audio.mute,
-    solo: audio.solo,
-    eq: audio.eq,
-    semitones: audio.semitones,
-    cents: audio.cents,
-    filter: audio.filter,
-  };
-}
-
 /**
  * Everything the native engine plays besides the notes, for this mix. `input` is the audio input
  * the monitor track plays (Settings › Audio).
@@ -288,8 +271,8 @@ export function engineExtras(
     }),
     kits: mix.tracks.map((_, i) => mix.drumKits?.[i] ?? null),
     masterPan: mix.masterPan ?? 0,
-    backing: mix.audioTrack
-      ? { params: backingParams(mix.audioTrack), sync: syncTicks(mix.audioTrack.sync, occurrences) }
+    lanes: mix.audio?.lanes.length
+      ? { audio: mix.audio, sync: syncTicks(mix.audio.sync, occurrences), transpose: 0 }
       : null,
     monitor: mix.monitor
       ? { params: monitorParams(mix.monitor), effects: mix.monitor.effects, ...input }

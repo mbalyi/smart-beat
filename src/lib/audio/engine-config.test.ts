@@ -18,6 +18,7 @@ import { defaultEffect } from "@/lib/audio/effects";
 import type { Score } from "@/lib/score/model";
 import { MIXER_SETTINGS_VERSION, type MixerSettings } from "@/lib/tauri";
 import { texScore } from "@/test/playback";
+import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 
 const BAR = 3840; // 4/4 at 960 ticks per quarter
 
@@ -178,18 +179,10 @@ describe("engineExtras", () => {
       masterPan: 0.25,
       eq: [{ lowDb: 2, midDb: 0, midHz: 1000, highDb: 0 }],
       drums: [{ stereo: false, elements: [] }],
-      audioTrack: {
-        name: "a.mp3",
-        embedded: false,
-        enabled: true,
-        volume: 0.5,
-        pan: 0,
-        mute: false,
-        solo: false,
-        eq: { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 },
-        semitones: 1,
-        cents: 0,
-        filter: "off",
+      audio: {
+        ...EMPTY_AUDIO,
+        sources: [{ id: "s", name: "a.mp3", ext: "mp3", embedded: false }],
+        lanes: [{ ...newLane("A", "a"), semitones: 1, clips: [newClip("s", "a", 0, 1000, "c")] }],
         sync: [{ bar: 0, ms: 10 }],
       },
     });
@@ -200,10 +193,10 @@ describe("engineExtras", () => {
     expect(extras.eq[0]!.lowDb).toBe(2);
     expect(extras.drums[0]!.stereo).toBe(false);
     expect(extras.drums[0]!.elements.length).toBeGreaterThan(10);
-    expect(extras.backing!.params).not.toHaveProperty("name");
-    expect(extras.backing!.params.semitones).toBe(1);
-    expect(extras.backing!.sync).toEqual([{ tick: 0, ms: 10 }]);
-    expect(engineExtras(mix(), REPEATED).backing).toBeNull();
+    expect(extras.lanes!.audio.lanes[0]!.semitones).toBe(1);
+    expect(extras.lanes!.sync).toEqual([{ tick: 0, ms: 10 }]);
+    expect(extras.lanes!.transpose).toBe(0);
+    expect(engineExtras(mix(), REPEATED).lanes).toBeNull();
   });
 
   it("sends the monitor track with the input chosen in Settings", () => {

@@ -79,8 +79,8 @@ import {
 } from "@/lib/score/mixer";
 import {
   renderEngineAudio,
-  type BackingInfo,
-  type BackingSource,
+  type SourceInfo,
+  type SourceLocation,
   type EngineMeters,
   type MixerSettings,
   type MonitorStatus,
@@ -1322,15 +1322,10 @@ export class ScorePlayer {
   }
 
   /** Whether the native engine makes the sound. */
-  /** Opens a recording as the audio track (native engine only). */
-  loadBacking(source: BackingSource): Promise<BackingInfo> {
-    if (!this.engine)
-      return Promise.reject(new Error("The audio track needs the native audio engine."));
-    return this.engine.loadBacking(source);
-  }
-
-  clearBacking(): Promise<void> {
-    return this.engine?.clearBacking() ?? Promise.resolve();
+  /** Opens an audio file for the lanes (native engine only). */
+  loadSource(location: SourceLocation): Promise<SourceInfo> {
+    if (!this.engine) return Promise.reject(new Error("Audio lanes need the native audio engine."));
+    return this.engine.loadSource(location);
   }
 
   /** The audio input the monitor track plays (Settings › Audio). */

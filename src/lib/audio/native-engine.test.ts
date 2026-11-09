@@ -1,4 +1,5 @@
 import { midi, type synth } from "@coderline/alphatab";
+import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 
 import { defaultEffect } from "@/lib/audio/effects";
 import {
@@ -43,20 +44,21 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
     setEngineTrackEq: vi.fn(() => Promise.resolve()),
     setEngineDrumMix: vi.fn(() => Promise.resolve()),
     setEngineTrackKit: vi.fn(() => Promise.resolve()),
-    setEngineBacking: vi.fn(() => Promise.resolve()),
+    setEngineLanes: vi.fn(() => Promise.resolve()),
     setEngineMonitor: vi.fn(() => Promise.resolve(null)),
     setEngineMonitorChain: vi.fn(() => Promise.resolve([])),
-    loadEngineBacking: vi.fn(() =>
+    loadAudioSource: vi.fn(() =>
       Promise.resolve({
+        id: "a".repeat(64),
         name: "a.wav",
+        ext: "wav",
         durationMs: 1000,
-        sampleRate: 44100,
-        channels: 1,
+        sampleRate: 48000,
+        channels: 2,
         peaks: [],
         peaksPerSecond: 100,
       }),
     ),
-    clearEngineBacking: vi.fn(() => Promise.resolve()),
   };
 });
 
@@ -315,7 +317,7 @@ describe("NativeEngine", () => {
     eq: [],
     drums: [],
     masterPan: 0,
-    backing: null,
+    lanes: null,
     ...over,
   });
 
@@ -374,19 +376,14 @@ describe("NativeEngine", () => {
       elements: [],
       other: { volume: 1, pan: 0, mute: false, solo: false },
     };
-    const backing = {
-      params: {
-        enabled: true,
-        volume: 1,
-        pan: 0,
-        mute: false,
-        solo: false,
-        eq,
-        semitones: 0,
-        cents: 0,
-        filter: "off" as const,
+    const lanes = {
+      audio: {
+        ...EMPTY_AUDIO,
+        sources: [{ id: "s", name: "a.wav", ext: "wav", embedded: false }],
+        lanes: [{ ...newLane("A", "a"), clips: [newClip("s", "a", 0, 1000, "c")] }],
       },
       sync: [{ tick: 0, ms: 500 }],
+      transpose: 0,
     };
     await engine.configure(
       extras({
@@ -395,22 +392,20 @@ describe("NativeEngine", () => {
         eq: [eq],
         drums: [drums],
         masterPan: -0.5,
-        backing,
+        lanes,
       }),
     );
     expect(mocked.setEngineAutomation).toHaveBeenCalledWith(0, automation);
     expect(mocked.setEngineTrackEq).toHaveBeenCalledWith(0, eq);
     expect(mocked.setEngineDrumMix).toHaveBeenCalledWith(0, drums);
     expect(mocked.engineTransport).toHaveBeenCalledWith({ type: "masterPan", value: -0.5 });
-    expect(mocked.setEngineBacking).toHaveBeenCalledWith(backing.params, backing.sync);
+    expect(mocked.setEngineLanes).toHaveBeenCalledWith(lanes);
     expect(mocked.setEngineChain).not.toHaveBeenCalled();
-    // Loading a recording resends its settings (the engine starts it with defaults).
+    // Loading a file resends the lanes (they may play it now).
     vi.clearAllMocks();
-    const info = await engine.loadBacking({ type: "file", path: "/a.wav" });
+    const info = await engine.loadSource({ type: "file", path: "/a.wav" });
     expect(info.name).toBe("a.wav");
-    expect(mocked.setEngineBacking).toHaveBeenCalledTimes(1);
-    await engine.clearBacking();
-    expect(mocked.clearEngineBacking).toHaveBeenCalled();
+    expect(mocked.setEngineLanes).toHaveBeenCalledTimes(1);
   });
 
   describe("monitor track", () => {
