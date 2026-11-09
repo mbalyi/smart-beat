@@ -20,7 +20,10 @@ const mapLanes = (audio: Audio, fn: (lane: AudioLane) => AudioLane): Audio => ({
 const sortClips = (clips: AudioClip[]) => [...clips].sort((a, b) => a.startMs - b.startMs);
 
 /** The lane holding a clip, with the clip. */
-export function findClip(audio: Audio, clipId: string): { lane: AudioLane; clip: AudioClip } | null {
+export function findClip(
+  audio: Audio,
+  clipId: string,
+): { lane: AudioLane; clip: AudioClip } | null {
   for (const lane of audio.lanes) {
     const clip = lane.clips.find((c) => c.id === clipId);
     if (clip) return { lane, clip };
@@ -29,7 +32,10 @@ export function findClip(audio: Audio, clipId: string): { lane: AudioLane; clip:
 }
 
 /** Adds a lane at the end (or nothing past `MAX_LANES`). */
-export function addLane(audio: Audio, lane: AudioLane = newLane(`Audio ${audio.lanes.length + 1}`)): Audio {
+export function addLane(
+  audio: Audio,
+  lane: AudioLane = newLane(`Audio ${audio.lanes.length + 1}`),
+): Audio {
   if (audio.lanes.length >= MAX_LANES) return audio;
   return { ...audio, lanes: [...audio.lanes, lane] };
 }
@@ -67,7 +73,9 @@ export function addSource(audio: Audio, source: AudioSource): Audio {
 /** Puts a clip on a lane. */
 export function addClip(audio: Audio, laneId: string, clip: AudioClip): Audio {
   return mapLanes(audio, (l) =>
-    l.id === laneId && !l.folder ? withCrossfades({ ...l, clips: sortClips([...l.clips, normalizeClip(clip)]) }) : l,
+    l.id === laneId && !l.folder
+      ? withCrossfades({ ...l, clips: sortClips([...l.clips, normalizeClip(clip)]) })
+      : l,
   );
 }
 
@@ -75,7 +83,12 @@ export function addClip(audio: Audio, laneId: string, clip: AudioClip): Audio {
 export function updateClip(audio: Audio, clipId: string, patch: Partial<AudioClip>): Audio {
   return mapLanes(audio, (l) =>
     l.clips.some((c) => c.id === clipId)
-      ? { ...l, clips: sortClips(l.clips.map((c) => (c.id === clipId ? normalizeClip({ ...c, ...patch, id: c.id }) : c))) }
+      ? {
+          ...l,
+          clips: sortClips(
+            l.clips.map((c) => (c.id === clipId ? normalizeClip({ ...c, ...patch, id: c.id }) : c)),
+          ),
+        }
       : l,
   );
 }
@@ -88,14 +101,22 @@ function rippleLanes(audio: Audio, laneId: string): Set<string> {
 }
 
 /** Moves every unlocked clip on `lanes` that starts at or after `fromMs` by `deltaMs`. */
-function shiftAfter(audio: Audio, lanes: Set<string>, fromMs: number, deltaMs: number, skip: Set<string>): Audio {
+function shiftAfter(
+  audio: Audio,
+  lanes: Set<string>,
+  fromMs: number,
+  deltaMs: number,
+  skip: Set<string>,
+): Audio {
   if (lanes.size === 0 || deltaMs === 0) return audio;
   return mapLanes(audio, (l) =>
     lanes.has(l.id)
       ? {
           ...l,
           clips: l.clips.map((c) =>
-            !skip.has(c.id) && !c.locked && c.startMs >= fromMs ? { ...c, startMs: Math.max(0, c.startMs + deltaMs) } : c,
+            !skip.has(c.id) && !c.locked && c.startMs >= fromMs
+              ? { ...c, startMs: Math.max(0, c.startMs + deltaMs) }
+              : c,
           ),
         }
       : l,
@@ -106,9 +127,17 @@ function shiftAfter(audio: Audio, lanes: Set<string>, fromMs: number, deltaMs: n
 export function removeClips(audio: Audio, clipIds: readonly string[]): Audio {
   const ids = new Set(clipIds);
   let next = audio;
-  const removed = audio.lanes.flatMap((l) => l.clips.filter((c) => ids.has(c.id)).map((c) => ({ lane: l.id, c })));
+  const removed = audio.lanes.flatMap((l) =>
+    l.clips.filter((c) => ids.has(c.id)).map((c) => ({ lane: l.id, c })),
+  );
   for (const { lane, c } of [...removed].sort((a, b) => b.c.startMs - a.c.startMs)) {
-    next = shiftAfter(next, rippleLanes(next, lane), clipEndMs(c), -(clipEndMs(c) - c.startMs), ids);
+    next = shiftAfter(
+      next,
+      rippleLanes(next, lane),
+      clipEndMs(c),
+      -(clipEndMs(c) - c.startMs),
+      ids,
+    );
   }
   return mapLanes(next, (l) => ({ ...l, clips: l.clips.filter((c) => !ids.has(c.id)) }));
 }
@@ -121,15 +150,22 @@ export function moveClip(audio: Audio, clipId: string, startMs: number, laneId?:
   const found = findClip(audio, clipId);
   if (!found || found.clip.locked) return audio;
   const delta = Math.max(0, startMs) - found.clip.startMs;
-  const target = laneId && audio.lanes.some((l) => l.id === laneId && !l.folder) ? laneId : found.lane.id;
+  const target =
+    laneId && audio.lanes.some((l) => l.id === laneId && !l.folder) ? laneId : found.lane.id;
   const grouped = new Set(
-    found.lane.group > 0 ? audio.lanes.filter((l) => l.group === found.lane.group && l.id !== found.lane.id).map((l) => l.id) : [],
+    found.lane.group > 0
+      ? audio.lanes
+          .filter((l) => l.group === found.lane.group && l.id !== found.lane.id)
+          .map((l) => l.id)
+      : [],
   );
   const moved = { ...found.clip, startMs: found.clip.startMs + delta };
   const next = mapLanes(audio, (l) => {
     let clips = l.clips.filter((c) => c.id !== clipId);
     if (grouped.has(l.id) && target === found.lane.id) {
-      clips = clips.map((c) => (!c.locked && c.startMs === found.clip.startMs ? { ...c, startMs: c.startMs + delta } : c));
+      clips = clips.map((c) =>
+        !c.locked && c.startMs === found.clip.startMs ? { ...c, startMs: c.startMs + delta } : c,
+      );
     }
     if (l.id === target) clips = [...clips, moved];
     return withCrossfades({ ...l, clips: sortClips(clips) });
@@ -163,7 +199,12 @@ export function trimClip(audio: Audio, clipId: string, edge: "start" | "end", at
  * Each side of the cut gets a short fade so it does not click. The caller snaps `atMs` to a
  * zero crossing first (`nearestZeroCrossing` on the source peaks).
  */
-export function splitClip(audio: Audio, clipId: string, atMs: number, ids: [string, string] = [newId(), newId()]): Audio {
+export function splitClip(
+  audio: Audio,
+  clipId: string,
+  atMs: number,
+  ids: [string, string] = [newId(), newId()],
+): Audio {
   const found = findClip(audio, clipId);
   if (!found || found.clip.locked) return audio;
   const c = found.clip;
@@ -174,7 +215,9 @@ export function splitClip(audio: Audio, clipId: string, atMs: number, ids: [stri
     id: ids[0],
     lengthMs: cut,
     fadeOut: { ms: Math.min(CUT_FADE_MS, cut), shape: "equalPower" },
-    envelope: c.envelope.filter((p) => p.at * c.lengthMs <= cut).map((p) => ({ ...p, at: (p.at * c.lengthMs) / cut })),
+    envelope: c.envelope
+      .filter((p) => p.at * c.lengthMs <= cut)
+      .map((p) => ({ ...p, at: (p.at * c.lengthMs) / cut })),
   };
   const right: AudioClip = {
     ...c,
@@ -188,7 +231,9 @@ export function splitClip(audio: Audio, clipId: string, atMs: number, ids: [stri
       .map((p) => ({ ...p, at: (p.at * c.lengthMs - cut) / (c.lengthMs - cut) })),
   };
   return mapLanes(audio, (l) =>
-    l.id === found.lane.id ? { ...l, clips: sortClips([...l.clips.filter((x) => x.id !== clipId), left, right]) } : l,
+    l.id === found.lane.id
+      ? { ...l, clips: sortClips([...l.clips.filter((x) => x.id !== clipId), left, right]) }
+      : l,
   );
 }
 
@@ -221,7 +266,12 @@ export function glueClips(audio: Audio, clipIds: readonly string[]): Audio {
     for (const c of l.clips) {
       const last = clips[clips.length - 1];
       if (last && ids.has(c.id) && ids.has(last.id) && continues(last, c)) {
-        clips[clips.length - 1] = { ...last, lengthMs: last.lengthMs + c.lengthMs, fadeOut: c.fadeOut, envelope: [] };
+        clips[clips.length - 1] = {
+          ...last,
+          lengthMs: last.lengthMs + c.lengthMs,
+          fadeOut: c.fadeOut,
+          envelope: [],
+        };
       } else clips.push(c);
     }
     return clips.length === l.clips.length ? l : { ...l, clips };
@@ -237,17 +287,30 @@ export function duplicateClips(audio: Audio, clipIds: readonly string[], offsetM
   const last = Math.max(...chosen.map(clipEndMs));
   const delta = offsetMs ?? last - first;
   return mapLanes(audio, (l) => {
-    const copies = l.clips.filter((c) => ids.has(c.id)).map((c) => ({ ...c, id: newId(), startMs: c.startMs + delta, locked: false }));
+    const copies = l.clips
+      .filter((c) => ids.has(c.id))
+      .map((c) => ({ ...c, id: newId(), startMs: c.startMs + delta, locked: false }));
     return copies.length ? withCrossfades({ ...l, clips: sortClips([...l.clips, ...copies]) }) : l;
   });
 }
 
 /** Pastes copied clips on a lane, the first one at `atMs`. */
-export function pasteClips(audio: Audio, laneId: string, clips: readonly AudioClip[], atMs: number): Audio {
+export function pasteClips(
+  audio: Audio,
+  laneId: string,
+  clips: readonly AudioClip[],
+  atMs: number,
+): Audio {
   if (clips.length === 0) return audio;
   const first = Math.min(...clips.map((c) => c.startMs));
   return clips.reduce(
-    (next, c) => addClip(next, laneId, { ...c, id: newId(), startMs: atMs + c.startMs - first, locked: false }),
+    (next, c) =>
+      addClip(next, laneId, {
+        ...c,
+        id: newId(),
+        startMs: atMs + c.startMs - first,
+        locked: false,
+      }),
     audio,
   );
 }
@@ -284,7 +347,12 @@ export function chooseTake(audio: Audio, clipId: string, take: number): Audio {
 }
 
 /** Splits every clip on `laneIds` at both edges of a range, so the range can be edited alone. */
-export function splitRange(audio: Audio, laneIds: readonly string[], startMs: number, endMs: number): Audio {
+export function splitRange(
+  audio: Audio,
+  laneIds: readonly string[],
+  startMs: number,
+  endMs: number,
+): Audio {
   const lanes = new Set(laneIds);
   let next = audio;
   for (const at of [startMs, endMs]) {
@@ -297,35 +365,64 @@ export function splitRange(audio: Audio, laneIds: readonly string[], startMs: nu
 }
 
 /** The clips of `laneIds` inside a range (after `splitRange`). */
-export function clipsInRange(audio: Audio, laneIds: readonly string[], startMs: number, endMs: number): string[] {
+export function clipsInRange(
+  audio: Audio,
+  laneIds: readonly string[],
+  startMs: number,
+  endMs: number,
+): string[] {
   const lanes = new Set(laneIds);
   return audio.lanes
     .filter((l) => lanes.has(l.id))
-    .flatMap((l) => l.clips.filter((c) => c.startMs >= startMs - 0.01 && clipEndMs(c) <= endMs + 0.01).map((c) => c.id));
+    .flatMap((l) =>
+      l.clips
+        .filter((c) => c.startMs >= startMs - 0.01 && clipEndMs(c) <= endMs + 0.01)
+        .map((c) => c.id),
+    );
 }
 
 /** Range edit: deletes the part of every clip on `laneIds` between `startMs` and `endMs`. */
-export function deleteRange(audio: Audio, laneIds: readonly string[], startMs: number, endMs: number): Audio {
+export function deleteRange(
+  audio: Audio,
+  laneIds: readonly string[],
+  startMs: number,
+  endMs: number,
+): Audio {
   const split = splitRange(audio, laneIds, startMs, endMs);
   return removeClips(split, clipsInRange(split, laneIds, startMs, endMs));
 }
 
 /** Range edit: moves the part of every clip on `laneIds` between the edges by `deltaMs`. */
-export function moveRange(audio: Audio, laneIds: readonly string[], startMs: number, endMs: number, deltaMs: number): Audio {
+export function moveRange(
+  audio: Audio,
+  laneIds: readonly string[],
+  startMs: number,
+  endMs: number,
+  deltaMs: number,
+): Audio {
   const split = splitRange(audio, laneIds, startMs, endMs);
   const ids = new Set(clipsInRange(split, laneIds, startMs, endMs));
   return mapLanes(split, (l) =>
     l.clips.some((c) => ids.has(c.id))
       ? withCrossfades({
           ...l,
-          clips: sortClips(l.clips.map((c) => (ids.has(c.id) && !c.locked ? { ...c, startMs: Math.max(0, c.startMs + deltaMs) } : c))),
+          clips: sortClips(
+            l.clips.map((c) =>
+              ids.has(c.id) && !c.locked ? { ...c, startMs: Math.max(0, c.startMs + deltaMs) } : c,
+            ),
+          ),
         })
       : l,
   );
 }
 
 /** Makes a folder lane holding `laneIds` (their volume, mute and solo follow the folder). */
-export function makeFolder(audio: Audio, name: string, laneIds: readonly string[], id: string = newId()): Audio {
+export function makeFolder(
+  audio: Audio,
+  name: string,
+  laneIds: readonly string[],
+  id: string = newId(),
+): Audio {
   const withFolder = addLane(audio, { ...newLane(name, id), folder: true });
   if (withFolder === audio) return audio;
   const members = new Set(laneIds);

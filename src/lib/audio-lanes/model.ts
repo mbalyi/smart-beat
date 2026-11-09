@@ -135,7 +135,9 @@ export function normalizeSync(sync: readonly SyncPoint[]): SyncPoint[] {
     .filter((p) => p.bar >= 0 && Number.isFinite(p.ms) && p.ms >= 0)
     .map((p) => {
       const beat = Math.max(0, Math.round(p.beat ?? 0));
-      return beat > 0 ? { bar: Math.round(p.bar), beat, ms: p.ms } : { bar: Math.round(p.bar), ms: p.ms };
+      return beat > 0
+        ? { bar: Math.round(p.bar), beat, ms: p.ms }
+        : { bar: Math.round(p.bar), ms: p.ms };
     })
     .sort((a, b) => a.bar - b.bar || (a.beat ?? 0) - (b.beat ?? 0))
     .filter((p, i, all) => {
@@ -205,12 +207,18 @@ export function normalizeLane(lane: AudioLane, sources: ReadonlySet<string>): Au
 }
 
 function normalizeBus(bus: AudioBus): AudioBus {
-  return { ...bus, volume: clamp(bus.volume, 0, 1), effects: bus.effects.slice(0, MAX_TRACK_EFFECTS) };
+  return {
+    ...bus,
+    volume: clamp(bus.volume, 0, 1),
+    effects: bus.effects.slice(0, MAX_TRACK_EFFECTS),
+  };
 }
 
 /** Only sources that a clip plays (a removed clip's file is dropped on the next save). */
 export function usedSources(audio: AudioLanesSettings): AudioSource[] {
-  const used = new Set(audio.lanes.flatMap((l) => l.clips.flatMap((c) => c.takes.map((t) => t.sourceId))));
+  const used = new Set(
+    audio.lanes.flatMap((l) => l.clips.flatMap((c) => c.takes.map((t) => t.sourceId))),
+  );
   return audio.sources.filter((s) => used.has(s.id));
 }
 
@@ -232,7 +240,10 @@ export function normalizeAudio(audio: AudioLanesSettings): AudioLanesSettings {
     sync: normalizeSync(audio.sync),
     zone: {
       start: Math.max(0, Math.round(audio.zone.start)),
-      end: audio.zone.end === null ? null : Math.max(Math.round(audio.zone.start) + 1, Math.round(audio.zone.end)),
+      end:
+        audio.zone.end === null
+          ? null
+          : Math.max(Math.round(audio.zone.start) + 1, Math.round(audio.zone.end)),
     },
     ripple: audio.ripple === "lane" || audio.ripple === "all" ? audio.ripple : "off",
   };
@@ -254,7 +265,10 @@ const extensionOf = (name: string) => /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLower
  * decoded, so it is long enough for any file the decoder accepts (30 minutes) and the engine
  * stops at the end of the source.
  */
-export function migrateAudioTrack(track: AudioTrackSettings, laneId: string = newId()): AudioLanesSettings {
+export function migrateAudioTrack(
+  track: AudioTrackSettings,
+  laneId: string = newId(),
+): AudioLanesSettings {
   const sourceId = legacySourceId(track.name);
   const source: AudioSource = {
     id: sourceId,
@@ -277,7 +291,10 @@ export function migrateAudioTrack(track: AudioTrackSettings, laneId: string = ne
  * The audio side of saved settings: version 3 lanes as they are, an old audio track migrated,
  * nothing otherwise. The returned settings never carry `audioTrack`.
  */
-export function readAudio(settings: MixerSettings): { audio: AudioLanesSettings; rest: MixerSettings } {
+export function readAudio(settings: MixerSettings): {
+  audio: AudioLanesSettings;
+  rest: MixerSettings;
+} {
   const { audioTrack, audio, ...rest } = settings;
   if (audio) return { audio: normalizeAudio(audio), rest };
   if (audioTrack) return { audio: migrateAudioTrack(audioTrack), rest };

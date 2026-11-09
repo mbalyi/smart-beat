@@ -20,7 +20,14 @@ import {
   trimClip,
   updateClip,
 } from "@/lib/audio-lanes/edits";
-import { CUT_FADE_MS, EMPTY_AUDIO, MAX_LANES, clipEndMs, newClip, newLane } from "@/lib/audio-lanes/model";
+import {
+  CUT_FADE_MS,
+  EMPTY_AUDIO,
+  MAX_LANES,
+  clipEndMs,
+  newClip,
+  newLane,
+} from "@/lib/audio-lanes/model";
 import type { AudioLanesSettings } from "@/lib/tauri";
 
 const src = { id: "s", name: "a.wav", ext: "wav", embedded: true };
@@ -30,7 +37,10 @@ function song(...clips: [string, number, number][]): AudioLanesSettings {
     ...EMPTY_AUDIO,
     sources: [src, { ...src, id: "t" }],
     lanes: [
-      { ...newLane("A", "a"), clips: clips.map(([id, start, len]) => newClip("s", id, start, len, id)) },
+      {
+        ...newLane("A", "a"),
+        clips: clips.map(([id, start, len]) => newClip("s", id, start, len, id)),
+      },
       newLane("B", "b"),
     ],
   };
@@ -147,7 +157,11 @@ describe("copy, takes and ranges", () => {
   });
 
   it("adds a take and switches between takes", () => {
-    const audio = addTake(song(["c", 0, 1000]), "c", { name: "Take 2", sourceId: "t", offsetMs: 0 });
+    const audio = addTake(song(["c", 0, 1000]), "c", {
+      name: "Take 2",
+      sourceId: "t",
+      offsetMs: 0,
+    });
     expect(clip(audio, "c").take).toBe(1);
     expect(clip(chooseTake(audio, "c", 0), "c").take).toBe(0);
   });

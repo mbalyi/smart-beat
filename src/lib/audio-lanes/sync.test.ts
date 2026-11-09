@@ -18,7 +18,10 @@ import {
 } from "@/lib/audio-lanes/sync";
 
 /** Eight bars of 4/4 at 120 bpm: 2 s a bar. */
-const grid: SongGrid = { barTimes: Array.from({ length: 8 }, (_, i) => i * 2000), beats: Array(8).fill(4) };
+const grid: SongGrid = {
+  barTimes: Array.from({ length: 8 }, (_, i) => i * 2000),
+  beats: Array(8).fill(4),
+};
 const bpm = () => 120;
 
 describe("grid mapping", () => {
@@ -74,7 +77,13 @@ describe("sync points", () => {
   });
 
   it("drops points outside a narrowed zone", () => {
-    const audio = { ...EMPTY_AUDIO, sync: [{ bar: 1, ms: 2000 }, { bar: 6, ms: 12000 }] };
+    const audio = {
+      ...EMPTY_AUDIO,
+      sync: [
+        { bar: 1, ms: 2000 },
+        { bar: 6, ms: 12000 },
+      ],
+    };
     expect(setZone(audio, "end", 4).sync).toEqual([{ bar: 1, ms: 2000 }]);
   });
 });

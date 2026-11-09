@@ -21,12 +21,22 @@ export function songMsAt(grid: SongGrid, bar: number, beat = 0): number {
 }
 
 /** The sync points as (song ms, audio timeline ms) pairs. */
-export function syncPairs(sync: readonly SyncPoint[], grid: SongGrid): { songMs: number; ms: number }[] {
-  return sync.flatMap((p) => (grid.barTimes[p.bar] === undefined ? [] : [{ songMs: songMsAt(grid, p.bar, p.beat), ms: p.ms }]));
+export function syncPairs(
+  sync: readonly SyncPoint[],
+  grid: SongGrid,
+): { songMs: number; ms: number }[] {
+  return sync.flatMap((p) =>
+    grid.barTimes[p.bar] === undefined ? [] : [{ songMs: songMsAt(grid, p.bar, p.beat), ms: p.ms }],
+  );
 }
 
 /** Where a beat of the score falls on the audio timeline. */
-export function timelineMsAt(audio: AudioLanesSettings, grid: SongGrid, bar: number, beat = 0): number {
+export function timelineMsAt(
+  audio: AudioLanesSettings,
+  grid: SongGrid,
+  bar: number,
+  beat = 0,
+): number {
   return audioMsAt(syncPairs(audio.sync, grid), songMsAt(grid, bar, beat));
 }
 
@@ -47,7 +57,12 @@ export function barAtTimelineMs(audio: AudioLanesSettings, grid: SongGrid, ms: n
 }
 
 /** The nearest grid line (bar or beat) to a timeline point, for snapping. */
-export function snapMs(audio: AudioLanesSettings, grid: SongGrid, ms: number, step: "bar" | "beat"): number {
+export function snapMs(
+  audio: AudioLanesSettings,
+  grid: SongGrid,
+  ms: number,
+  step: "bar" | "beat",
+): number {
   const at = barAtTimelineMs(audio, grid, ms);
   const bar = Math.floor(at);
   if (step === "bar") {
@@ -64,7 +79,12 @@ export function snapMs(audio: AudioLanesSettings, grid: SongGrid, ms: number, st
  * Adds a sync point on a beat at the audio time it plays now, or removes the one there
  * (double-click). Points stay inside the play zone.
  */
-export function toggleSyncPoint(audio: AudioLanesSettings, grid: SongGrid, bar: number, beat = 0): AudioLanesSettings {
+export function toggleSyncPoint(
+  audio: AudioLanesSettings,
+  grid: SongGrid,
+  bar: number,
+  beat = 0,
+): AudioLanesSettings {
   const same = (p: SyncPoint) => p.bar === bar && (p.beat ?? 0) === beat;
   if (audio.sync.some(same)) return { ...audio, sync: audio.sync.filter((p) => !same(p)) };
   if (bar < audio.zone.start || (audio.zone.end !== null && bar > audio.zone.end)) return audio;
@@ -73,7 +93,12 @@ export function toggleSyncPoint(audio: AudioLanesSettings, grid: SongGrid, bar: 
 }
 
 /** Drags a sync point to a new audio time (between its neighbours). */
-export function moveSyncPoint(audio: AudioLanesSettings, bar: number, beat: number, ms: number): AudioLanesSettings {
+export function moveSyncPoint(
+  audio: AudioLanesSettings,
+  bar: number,
+  beat: number,
+  ms: number,
+): AudioLanesSettings {
   const sync = normalizeSync(audio.sync);
   const i = sync.findIndex((p) => p.bar === bar && (p.beat ?? 0) === beat);
   if (i < 0) return audio;
@@ -84,17 +109,27 @@ export function moveSyncPoint(audio: AudioLanesSettings, bar: number, beat: numb
 }
 
 /** Removes every sync point (the tasks menu and right-click). */
-export const clearSync = (audio: AudioLanesSettings): AudioLanesSettings => ({ ...audio, sync: [] });
+export const clearSync = (audio: AudioLanesSettings): AudioLanesSettings => ({
+  ...audio,
+  sync: [],
+});
 
 /**
  * Padding: slides the audio against the grid by `deltaMs` (Cmd-drag on the waveform, or the
  * entry bracket). Every sync point moves with it; without points, the zone start gets one.
  */
-export function shiftPadding(audio: AudioLanesSettings, grid: SongGrid, deltaMs: number): AudioLanesSettings {
+export function shiftPadding(
+  audio: AudioLanesSettings,
+  grid: SongGrid,
+  deltaMs: number,
+): AudioLanesSettings {
   const sync = audio.sync.length
     ? audio.sync
     : [{ bar: audio.zone.start, ms: timelineMsAt(audio, grid, audio.zone.start) }];
-  return { ...audio, sync: normalizeSync(sync.map((p) => ({ ...p, ms: Math.max(0, p.ms + deltaMs) }))) };
+  return {
+    ...audio,
+    sync: normalizeSync(sync.map((p) => ({ ...p, ms: Math.max(0, p.ms + deltaMs) }))),
+  };
 }
 
 /** Puts the zone start back on the start of the audio (tasks menu: Reset padding). */
@@ -104,7 +139,11 @@ export function resetPadding(audio: AudioLanesSettings, grid: SongGrid): AudioLa
 }
 
 /** Moves the entry or exit bracket of the play zone to a bar. */
-export function setZone(audio: AudioLanesSettings, edge: "start" | "end", bar: number): AudioLanesSettings {
+export function setZone(
+  audio: AudioLanesSettings,
+  edge: "start" | "end",
+  bar: number,
+): AudioLanesSettings {
   const start = edge === "start" ? Math.max(0, Math.round(bar)) : audio.zone.start;
   const end = edge === "end" ? Math.max(start + 1, Math.round(bar)) : audio.zone.end;
   const zone = { start, end: end !== null && end <= start ? start + 1 : end };
@@ -121,7 +160,10 @@ export function segmentBpms(
   grid: SongGrid,
   scoreBpmAt: (bar: number) => number,
 ): { bar: number; beat: number; bpm: number }[] {
-  const pairs = normalizeSync(audio.sync).map((p) => ({ ...p, songMs: songMsAt(grid, p.bar, p.beat) }));
+  const pairs = normalizeSync(audio.sync).map((p) => ({
+    ...p,
+    songMs: songMsAt(grid, p.bar, p.beat),
+  }));
   return pairs.flatMap((p, i) => {
     const next = pairs[i + 1];
     if (!next) return [];

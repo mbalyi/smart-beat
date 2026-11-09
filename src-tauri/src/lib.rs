@@ -1,6 +1,7 @@
 //! Smart Beat desktop core: native window, menu bar, file access and IPC commands.
 
 pub mod audio;
+pub mod audio_lanes;
 pub mod cloud;
 pub mod cloud_commands;
 pub mod cloud_folder;

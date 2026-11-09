@@ -67,12 +67,21 @@ describe("migrateAudioTrack", () => {
 
   it("points the source at the old embedded entry", () => {
     const [src] = migrateAudioTrack(oldTrack).sources;
-    expect(src).toMatchObject({ id: legacySourceId("Backing.mp3"), ext: "mp3", embedded: true, legacyEntry: "Backing.mp3" });
+    expect(src).toMatchObject({
+      id: legacySourceId("Backing.mp3"),
+      ext: "mp3",
+      embedded: true,
+      legacyEntry: "Backing.mp3",
+    });
   });
 
   it("keeps a file path for a track that was not embedded", () => {
     const [src] = migrateAudioTrack({ ...oldTrack, embedded: false }).sources;
-    expect(src).toMatchObject({ path: "/music/Backing.mp3", embedded: false, legacyEntry: undefined });
+    expect(src).toMatchObject({
+      path: "/music/Backing.mp3",
+      embedded: false,
+      legacyEntry: undefined,
+    });
   });
 });
 
@@ -91,7 +100,9 @@ describe("readAudio", () => {
 
   it("prefers version 3 lanes over a stale old field", () => {
     const audio = { ...EMPTY_AUDIO, sources: [source], lanes: [newLane("A", "a")] };
-    expect(readAudio({ ...base, audio, audioTrack: oldTrack }).audio.lanes.map((l) => l.id)).toEqual(["a"]);
+    expect(
+      readAudio({ ...base, audio, audioTrack: oldTrack }).audio.lanes.map((l) => l.id),
+    ).toEqual(["a"]);
   });
 });
 

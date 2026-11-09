@@ -1,6 +1,5 @@
 import { STEM_COLOR_ORDER, stemColor } from "@/lib/stems/colors";
 
-
 /** How many colours tracks cycle through (`--track-1` … `--track-8` in index.css). */
 export const TRACK_COLOR_COUNT = 8;
 

@@ -102,7 +102,7 @@ pub fn read_settings(path: &Path) -> Result<Option<MixerSettings>, CommandError>
     }
     let settings = serde_json::from_str::<MixerSettings>(&json)
         .map_err(|e| e.to_string())
-        .and_then(|s| s.validate().map(|()| s));
+        .and_then(|s| s.validate().map(|()| s.migrate()));
     match settings {
         Ok(settings) => Ok(Some(settings)),
         Err(reason) => {
