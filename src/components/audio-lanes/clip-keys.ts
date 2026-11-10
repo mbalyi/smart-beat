@@ -4,9 +4,14 @@ import { slipByStep } from "@/components/audio-lanes/clip-copy-slip";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { updateClip } from "@/lib/audio-lanes/edits";
 import { findClip } from "@/lib/audio-lanes/edits";
+import { laneClipIds } from "@/lib/audio-lanes/selection";
 
 /** The clip shortcuts, as the shortcut list shows them. */
 export const CLIP_SHORTCUTS: readonly { keys: string; action: string }[] = [
+  { keys: "⌘-click", action: "Add a clip to the selection or take it out" },
+  { keys: "Shift-click", action: "Select the clips from the last one clicked" },
+  { keys: "⌘A", action: "Select every clip on the lane" },
+  { keys: "Esc", action: "Clear the selection" },
   { keys: "← →", action: "Nudge by a beat (Shift: a bar)" },
   { keys: "⌥← ⌥→", action: "Slip the audio inside the clip by a beat (⌥⇧: a bar)" },
   { keys: "⌘-drag", action: "Copy the clip to where it is dropped" },
@@ -59,6 +64,7 @@ export function handleClipKey(
   else if (mod && event.key.toLowerCase() === "x") lanes.commands.cut(ids);
   else if (mod && event.key.toLowerCase() === "c") lanes.commands.copy(ids);
   else if (mod && event.key.toLowerCase() === "v") lanes.commands.paste(laneId);
+  else if (mod && event.key.toLowerCase() === "a") lanes.select(laneClipIds(lanes.audio, laneId));
   else if (mod) used = false;
   else if (event.key.toLowerCase() === "s") lanes.commands.split();
   else if (event.key.toLowerCase() === "g") lanes.commands.glue();
@@ -71,7 +77,8 @@ export function handleClipKey(
   else if (event.key === "F2") {
     ensureSelected();
     (properties ?? open)();
-  } else used = false;
+  } else if (event.key === "Escape" && lanes.selection.length) lanes.select([]);
+  else used = false;
   if (used) {
     event.preventDefault();
     event.stopPropagation();

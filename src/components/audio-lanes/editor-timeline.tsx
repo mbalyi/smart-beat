@@ -4,9 +4,12 @@ import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
+import { MarqueeBox, SelectionStatus } from "@/components/audio-lanes/selection-overlay";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
+import { useMarquee } from "@/components/audio-lanes/use-marquee";
 import { moveClip, trimClip } from "@/lib/audio-lanes/edits";
 import { clipEndMs } from "@/lib/audio-lanes/model";
+import { clickSelection } from "@/lib/audio-lanes/selection";
 import {
   moveSyncPoint,
   segmentBpms,
@@ -88,6 +91,18 @@ export function EditorTimeline({
     return b;
   };
 
+  // A plain drag on empty space frames this lane's clips (Shift adds; ⌘-drag slides the audio).
+  const marquee = useMarquee({
+    selection: lanes.selection,
+    select: lanes.select,
+    onTap: (e) => {
+      lanes.setEditCursorMs(
+        lanes.snapTo(toMs(e.clientX - e.currentTarget.getBoundingClientRect().left)),
+      );
+      lanes.select([]);
+    },
+    additive: (keys) => keys.shiftKey,
+  });
   const drop = (drag: ClipDrag) => {
     if (dropCopyOrSlip(lanes, drag)) return;
     if (drag.kind === "move") apply((a) => moveClip(a, drag.clipId, drag.startMs));
@@ -254,20 +269,23 @@ export function EditorTimeline({
               pad.current = { x: e.clientX, done: 0 };
               lanes.beginGesture();
               e.currentTarget.setPointerCapture?.(e.pointerId);
-            } else {
-              const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-              lanes.setEditCursorMs(lanes.snapTo(toMs(x)));
-              lanes.select([]);
-            }
+            } else marquee.handlers.onPointerDown(e);
           }}
           onPointerMove={(e) => {
             const p = pad.current;
-            if (!p) return;
+            if (!p) return marquee.handlers.onPointerMove(e);
             const delta = -toMs(e.clientX - p.x) - p.done;
             p.done += delta;
             lanes.applyQuiet((a) => shiftPadding(a, grid, delta));
           }}
-          onPointerUp={() => (pad.current = null)}
+          onPointerUp={(e) => {
+            if (pad.current) pad.current = null;
+            else marquee.handlers.onPointerUp(e);
+          }}
+          onPointerCancel={() => {
+            pad.current = null;
+            marquee.handlers.onPointerCancel();
+          }}
           onDoubleClick={(e) => {
             if (e.target !== e.currentTarget) return;
             const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
@@ -322,8 +340,8 @@ export function EditorTimeline({
               toX={toX}
               toMs={toMs}
               snap={lanes.snapTo}
-              onSelect={(additive) =>
-                lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
+              onSelect={(mode) =>
+                lanes.select(clickSelection(lanes.selection, clip.id, mode, [lane]))
               }
               onDrop={drop}
               onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
@@ -337,8 +355,10 @@ export function EditorTimeline({
             className="pointer-events-none absolute inset-y-0 z-10 border-l border-dashed border-primary"
             style={{ left: toX(lanes.editCursorMs) }}
           />
+          <MarqueeBox box={marquee.box} />
         </div>
       </LaneContextMenu>
+      <SelectionStatus count={lanes.selection.length} />
       {/* Time ruler: drag to select bars. */}
       <div
         className="relative h-5 border-t text-[10px] text-muted-foreground"

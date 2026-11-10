@@ -13,6 +13,8 @@ import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { LaneColorPopover } from "@/components/audio-lanes/lane-color-popover";
+import { MarqueeBox, SelectionStatus } from "@/components/audio-lanes/selection-overlay";
+import { useMarquee } from "@/components/audio-lanes/use-marquee";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { LevelMeter } from "@/components/audio/level-meter";
 import { LabeledSlider } from "@/components/labeled-slider";
@@ -39,6 +41,7 @@ import {
   updateLane,
 } from "@/lib/audio-lanes/edits";
 import { clipEndMs } from "@/lib/audio-lanes/model";
+import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
 import { barAtTimelineMs, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
 import { describeVolume } from "@/lib/score/mixer";
 import type { PlayheadStore } from "@/lib/score/playhead";
@@ -96,12 +99,19 @@ export function LaneRow({
       apply((a) => moveClip(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
     else apply((a) => trimClip(a, drag.clipId, drag.edge, drag.atMs));
   };
-  const setCursor = (event: MouseEvent<HTMLDivElement>) => {
+  const setCursor = (event: MouseEvent<HTMLElement>) => {
     if (event.target !== event.currentTarget) return;
     const x = event.clientX - event.currentTarget.getBoundingClientRect().left;
     lanes.setEditCursorMs(lanes.snapTo(toMs(x)));
     lanes.select([]);
   };
+  // A drag on empty space frames clips across the track list's lanes; a click sets the cursor.
+  const marquee = useMarquee({
+    selection: lanes.selection,
+    select: lanes.select,
+    onTap: setCursor,
+    scope: (el) => el.closest("ol, ul"),
+  });
   const cursorX = toX(lanes.editCursorMs);
   // The row is as long as the score or its last clip, whichever ends later.
   const scoreWidth = barCount * barWidth;
@@ -256,7 +266,7 @@ export function LaneRow({
           data-px-per-bar={barWidth}
           className="relative h-[3.25rem] shrink-0"
           style={{ width }}
-          onClick={setCursor}
+          {...marquee.handlers}
           aria-hidden={lane.folder || undefined}
         >
           {width > scoreWidth && (
@@ -282,8 +292,10 @@ export function LaneRow({
                 toMs={toMs}
                 snap={lanes.snapTo}
                 compact
-                onSelect={(additive) =>
-                  lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
+                onSelect={(mode) =>
+                  lanes.select(
+                    clickSelection(lanes.selection, clip.id, mode, selectableLanes(audio)),
+                  )
                 }
                 onDrop={drop}
                 onKey={(event) =>
@@ -301,8 +313,13 @@ export function LaneRow({
             style={{ left: cursorX }}
           />
           {playhead && <Playhead store={playhead} barWidth={barWidth} playing={playing} />}
+          <MarqueeBox box={marquee.box} />
         </div>
       </LaneContextMenu>
+      {/* One announcement for the list, on the first top-level lane (always shown). */}
+      {index === audio.lanes.findIndex((l) => !l.parent) && (
+        <SelectionStatus count={lanes.selection.length} />
+      )}
     </li>
   );
 }
