@@ -10,6 +10,7 @@
 import { model } from "@coderline/alphatab";
 
 import { assignProps, checkProps } from "@/lib/score/ops/codec";
+import { kindOf, type PartKind } from "@/lib/score/ops/fields";
 import type { IdRegistry, Part } from "@/lib/score/ops/ids";
 import type { Node, Op } from "@/lib/score/ops/types";
 import { newBar, newVoice, placeholderBeats, type Score } from "@/lib/score/model";
@@ -196,10 +197,26 @@ function deleteTrack(ids: IdRegistry, score: Score, track: model.Track) {
   if (removeFrom(score.tracks, track) >= 0) ids.forget(track);
 }
 
-/** Throws when some property in the node (or inside it) cannot be written. */
-function checkNode(node: Node): void {
-  checkProps(node.p);
-  for (const child of node.c ?? []) checkNode(child);
+/** Throws when some property in the node (or inside it) cannot be written; notes what it holds. */
+function checkNode(node: Node, made: Map<string, PartKind>): void {
+  checkProps(node.k, node.p);
+  made.set(node.u, node.k);
+  for (const child of node.c ?? []) checkNode(child, made);
+}
+
+/**
+ * Throws when an operation writes something that is not a data field of its target, or the wrong
+ * kind of value. A target that is not there is skipped: the operation will be dropped.
+ */
+function checkOps(ids: IdRegistry, ops: readonly Op[]): void {
+  const made = new Map<string, PartKind>();
+  for (const op of ops) {
+    if (op.t === "ins") checkNode(op.d, made);
+    else if (op.t === "set") {
+      const kind = kindOf(ids.get(op.u)) ?? made.get(op.u);
+      if (kind) checkProps(kind, op.d);
+    }
+  }
 }
 
 /**
@@ -207,10 +224,7 @@ function checkNode(node: Node): void {
  * anything, when an operation cannot be applied (malformed data from another computer).
  */
 export function applyOps(ids: IdRegistry, score: Score, ops: readonly Op[]): ApplyResult {
-  for (const op of ops) {
-    if (op.t === "set") checkProps(op.d);
-    else if (op.t === "ins") checkNode(op.d);
-  }
+  checkOps(ids, ops);
   for (const op of ops) {
     if (op.t === "reset") return "reset";
     if (op.t === "set") {

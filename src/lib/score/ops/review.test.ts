@@ -99,12 +99,12 @@ describe("ops: the codec refuses what would change other parts", () => {
   it("does not let a property reach the prototype or change the type of an object", () => {
     const note = new model.Note();
     const hostile = JSON.parse('{"__proto__": {"$c": "Object", "p": {"polluted": true}}}');
-    assignProps(note, hostile);
+    expect(() => assignProps(note, hostile)).toThrow();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     expect((new model.Note() as unknown as Record<string, unknown>).polluted).toBeUndefined();
     expect(Object.getPrototypeOf(note)).toBe(model.Note.prototype);
     expect(() =>
-      checkProps(JSON.parse('{"a": {"$c": "Object", "p": {"__proto__": {}}}}')),
+      checkProps("note", JSON.parse('{"text": {"$c": "Object", "p": {"__proto__": {}}}}')),
     ).toThrow();
   });
 
@@ -122,27 +122,25 @@ describe("ops: the codec refuses what would change other parts", () => {
   });
 
   it("does not instantiate a part of the score from a property", () => {
-    expect(() => checkProps({ x: { $c: "Track", p: {} } })).toThrow();
-    expect(() => checkProps({ x: { $c: "NotAClass", p: {} } })).toThrow();
-    expect(() => checkProps({ x: { $m: "nope" } })).toThrow();
-    expect(() => checkProps({ x: deep(60) as never })).toThrow();
+    expect(() => checkProps("beat", { text: { $c: "Track", p: {} } })).toThrow();
+    expect(() => checkProps("beat", { text: { $c: "NotAClass", p: {} } })).toThrow();
+    expect(() => checkProps("beat", { text: { $m: "nope" } })).toThrow();
+    expect(() => checkProps("beat", { text: deep(60) as never })).toThrow();
   });
 
   it("round-trips the special values", () => {
-    const note = new model.Note();
-    const source = new model.Note();
+    const note = new model.Beat();
+    const source = new model.Beat();
     Object.assign(source, {
-      weird: [NaN, Infinity, -Infinity],
-      gone: undefined,
-      table: new Map([["a", 1]]),
-      group: new Set([1, 2]),
+      lyrics: [NaN, Infinity, -Infinity],
+      text: undefined,
+      chordId: new Set([1, 2]),
     });
     assignProps(note, encodeProps(source));
     const copy = note as unknown as Record<string, unknown>;
-    expect(copy.weird).toEqual([NaN, Infinity, -Infinity]);
-    expect(copy.table).toEqual(new Map([["a", 1]]));
-    expect(copy.group).toEqual(new Set([1, 2]));
-    expect("gone" in copy).toBe(true);
+    expect(copy.lyrics).toEqual([NaN, Infinity, -Infinity]);
+    expect(copy.chordId).toEqual(new Set([1, 2]));
+    expect("text" in copy).toBe(true);
   });
 
   it("tells null from undefined", () => {

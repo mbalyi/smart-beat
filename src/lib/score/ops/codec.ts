@@ -9,6 +9,7 @@
 import { model } from "@coderline/alphatab";
 
 import { PERSONAL, type Json, type Props } from "@/lib/score/ops/types";
+import { fitsField, isDataField, kindOf, type PartKind } from "@/lib/score/ops/fields";
 import { FORBIDDEN_KEYS } from "@/lib/score/ops/validate";
 
 const MODEL_TYPES: (new (...args: never[]) => object)[] = [
@@ -144,6 +145,18 @@ const PART_CLASS_NAMES: ReadonlySet<string> = new Set(
 
 const MAX_DEPTH = 40;
 
+/** Whether `key` on an object with this prototype would hide a method or accessor of its class. */
+function hidesMember(proto: object, key: string): boolean {
+  for (let level: object | null = proto; level; level = Object.getPrototypeOf(level)) {
+    const found = Object.getOwnPropertyDescriptor(level, key);
+    if (found)
+      return (
+        found.get !== undefined || found.set !== undefined || typeof found.value === "function"
+      );
+  }
+  return false;
+}
+
 function decode(value: Json, depth = 0): unknown {
   if (value === null || typeof value !== "object") return value;
   if (depth > MAX_DEPTH) throw new BadEdit();
@@ -171,19 +184,19 @@ function decode(value: Json, depth = 0): unknown {
     if (!Array.isArray(tagged.$s)) throw new BadEdit();
     return new Set(tagged.$s.map((item) => decode(item as Json, depth + 1)));
   }
-  if (tagged.$c === undefined) return value;
+  // The encoder tags every object it writes: one without a tag was made by hand.
+  if (tagged.$c === undefined) throw new BadEdit();
   const known =
     tagged.$c === "Object" || (CLASSES.has(tagged.$c) && !PART_CLASS_NAMES.has(tagged.$c));
   if (!known || (tagged.p !== undefined && (typeof tagged.p !== "object" || tagged.p === null))) {
     throw new BadEdit();
   }
-  const target =
-    tagged.$c === "Object"
-      ? {}
-      : Object.create(CLASSES.get(tagged.$c)?.prototype ?? Object.prototype);
+  const proto = tagged.$c === "Object" ? Object.prototype : CLASSES.get(tagged.$c)?.prototype;
+  const target = Object.create(proto ?? Object.prototype) as Record<string, unknown>;
   for (const [key, item] of Object.entries(tagged.p ?? {})) {
-    if (FORBIDDEN_KEYS.has(key)) throw new BadEdit();
-    (target as Record<string, unknown>)[key] = decode(item, depth + 1);
+    // A method of the class hidden by a value would break the object for whoever calls it next.
+    if (FORBIDDEN_KEYS.has(key) || hidesMember(target, key)) throw new BadEdit();
+    target[key] = decode(item, depth + 1);
   }
   return target;
 }
@@ -220,20 +233,35 @@ export function encodeProps(element: object): Props {
   return props;
 }
 
-/** Throws when `props` cannot be written onto an element (so nothing is changed half way). */
-export function checkProps(props: Props): void {
+/**
+ * The properties of `props` that may be written onto a part of `kind`, decoded. Links, lists of
+ * parts and derived values are never taken from another computer (they are left out); anything
+ * that is not a data field of the part, or holds the wrong kind of value, is refused: this throws.
+ */
+function settable(kind: PartKind, props: Props): [string, unknown][] {
+  const accepted: [string, unknown][] = [];
   for (const [key, encoded] of Object.entries(props)) {
-    if (!NOT_SETTABLE.has(key)) decode(encoded);
+    if (FORBIDDEN_KEYS.has(key)) throw new BadEdit();
+    if (NOT_SETTABLE.has(key)) continue;
+    if (!isDataField(kind, key)) throw new BadEdit();
+    const value = decode(encoded);
+    if (!fitsField(kind, key, value)) throw new BadEdit();
+    accepted.push([key, value]);
   }
+  return accepted;
+}
+
+/** Throws when `props` cannot be written onto a part of `kind` (so nothing is changed half way). */
+export function checkProps(kind: PartKind, props: Props): void {
+  settable(kind, props);
 }
 
 /** Writes encoded properties onto an element. Nested objects of the same class are updated in place. */
 export function assignProps(element: object, props: Props): void {
+  const kind = kindOf(element);
+  if (!kind) throw new BadEdit();
   const record = element as Record<string, unknown>;
-  for (const [key, encoded] of Object.entries(props)) {
-    // Links, lists of parts and derived values are never taken from another computer.
-    if (NOT_SETTABLE.has(key)) continue;
-    const value = decode(encoded);
+  for (const [key, value] of settable(kind, props)) {
     const current = record[key];
     if (
       current &&

@@ -628,8 +628,13 @@ export class GuestEditing {
           this.lastSeq = body.seq;
         }
         // The host's order is final: the echo of this guest's own edit puts it back in place.
-        const result = this.sync.receive(found.ops as Op[], body.from === this.options.guest);
-        if (result === "reset") this.link.send({ k: "resync" });
+        try {
+          const result = this.sync.receive(found.ops as Op[], body.from === this.options.guest);
+          if (result === "reset") this.link.send({ k: "resync" });
+        } catch {
+          // A batch that does not fit this tab is refused before anything is written: ask for the tab.
+          this.link.send({ k: "resync" });
+        }
         return;
       }
       case "live":
