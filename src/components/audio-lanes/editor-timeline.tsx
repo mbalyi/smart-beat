@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent, type RefObject
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
+import { MarkerRuler } from "@/components/audio-lanes/marker-ruler";
+import type { MarkerControls } from "@/components/audio-lanes/use-markers";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { moveClip, trimClip } from "@/lib/audio-lanes/edits";
 import { clipEndMs } from "@/lib/audio-lanes/model";
@@ -40,6 +42,7 @@ export function EditorTimeline({
   pxPerSecond,
   scoreBpmAt,
   playhead,
+  markers,
   selectedBars,
   onSelectBars,
   onSeekBar,
@@ -54,6 +57,8 @@ export function EditorTimeline({
   pxPerSecond: number;
   scoreBpmAt: (bar: number) => number;
   playhead?: PlayheadStore;
+  /** The user's markers and regions, shown in a compact row under the bar numbers. */
+  markers?: MarkerControls;
   /** The bars selected in the score (mirrored here). */
   selectedBars: { start: number; end: number } | null;
   onSelectBars: (start: number, end: number) => void;
@@ -137,6 +142,7 @@ export function EditorTimeline({
           </button>
         ))}
       </div>
+      {markers && <MarkerRuler lanes={lanes} controls={markers} toX={toX} toMs={toMs} compact />}
       {/* Play zone, BPM labels and sync points. */}
       <div className="relative h-14 border-b text-[11px]" data-testid="sync-row">
         <span

@@ -14,6 +14,7 @@ import { useRef, useState } from "react";
 import { EditorTimeline } from "@/components/audio-lanes/editor-timeline";
 import { EqPopover } from "@/components/audio/eq-popover";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
+import { useMarkers } from "@/components/audio-lanes/use-markers";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -92,6 +93,7 @@ export function LaneEditorDock({
   const [zoom, setZoom] = useState(60);
   const [height, setHeight] = useState(280);
   const scroller = useRef<HTMLDivElement>(null);
+  const userMarkers = useMarkers(lanes);
   const [byHand, setByHand] = useState(false);
   const autoScrolled = useRef(false);
   const update = (patch: Partial<AudioLane>) => apply((a) => updateLane(a, lane.id, patch));
@@ -110,11 +112,13 @@ export function LaneEditorDock({
   }
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the marker keys bubble up from the focused controls inside; the section takes none itself
     <section
       aria-label={`Lane editor: ${lane.name}`}
       data-testid="lane-editor"
       className="flex shrink-0 flex-col border-t bg-card"
       style={{ height }}
+      onKeyDown={userMarkers.onKeyDown}
       onWheel={(e) => {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault();
@@ -253,6 +257,7 @@ export function LaneEditorDock({
           pxPerSecond={zoom}
           scoreBpmAt={scoreBpmAt}
           playhead={playhead}
+          markers={userMarkers}
           follow={playing && !byHand}
           scroller={scroller}
           onAutoScroll={() => (autoScrolled.current = true)}

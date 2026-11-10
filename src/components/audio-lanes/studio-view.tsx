@@ -16,6 +16,8 @@ import { ClipProperties } from "@/components/audio-lanes/clip-properties";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
+import { MarkerList, MarkerRuler, MarkerToolbar } from "@/components/audio-lanes/marker-ruler";
+import { MARKER_SHORTCUTS, useMarkers } from "@/components/audio-lanes/use-markers";
 import { SpectrogramView } from "@/components/audio-lanes/spectrogram-view";
 import type { AudioLanesController, SnapMode } from "@/components/audio-lanes/use-audio-lanes";
 import { gridStepMs } from "@/components/audio-lanes/use-audio-lanes";
@@ -84,6 +86,7 @@ export function StudioView({
   const [rangeLanes, setRangeLanes] = useState<readonly string[] | null>(null);
   const [spectrogram, setSpectrogram] = useState(false);
   const rulerDrag = useRef<number | null>(null);
+  const userMarkers = useMarkers(lanes, { timeSelection: range, onSelectSpan: setRange });
   const toX = (ms: number) => (ms / 1000) * pps;
   const toMs = (x: number) => (x / pps) * 1000;
   const songEnd = timelineMsAtBar(audio, grid, grid.barTimes.length);
@@ -110,6 +113,7 @@ export function StudioView({
         showCloseButton={false}
         aria-describedby={undefined}
         data-testid="studio"
+        onKeyDown={userMarkers.onKeyDown}
         className="h-[calc(100dvh-1rem)] max-h-none max-w-[calc(100%-1rem)] gap-0 bg-background p-0 sm:max-w-[calc(100%-1rem)]"
       >
         <header className="flex flex-wrap items-center gap-2 border-b bg-card px-4 py-2">
@@ -338,6 +342,15 @@ export function StudioView({
                   )}
                 </div>
               </div>
+              <div className="sticky top-10 z-30 flex border-b bg-card">
+                <div
+                  className="sticky left-0 z-10 flex shrink-0 items-center border-r bg-card px-3"
+                  style={{ width: HEADER_PX }}
+                >
+                  <MarkerToolbar controls={userMarkers} />
+                </div>
+                <MarkerRuler lanes={lanes} controls={userMarkers} toX={toX} toMs={toMs} />
+              </div>
               {shown.map((lane) => (
                 <StudioLane
                   key={lane.id}
@@ -417,6 +430,7 @@ export function StudioView({
             </div>
           </div>
           {selected && <ClipProperties lanes={lanes} clip={selected.clip} />}
+          <MarkerList lanes={lanes} controls={userMarkers} />
         </div>
         {spectrogram && selected && <SpectrogramView clip={selected.clip} />}
         {spectrogram && !selected && (
@@ -646,7 +660,7 @@ function ShortcutsPopover() {
       </PopoverTrigger>
       <PopoverContent className="w-80" aria-label="Clip shortcuts">
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-          {CLIP_SHORTCUTS.map((s) => (
+          {[...CLIP_SHORTCUTS, ...MARKER_SHORTCUTS].map((s) => (
             <div key={s.keys} className="contents">
               <dt className="font-mono text-xs">{s.keys}</dt>
               <dd>{s.action}</dd>
