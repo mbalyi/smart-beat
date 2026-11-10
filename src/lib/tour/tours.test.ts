@@ -44,6 +44,23 @@ describe("tours", () => {
   it("starts the main tour at the open-file control", () => {
     expect(TOURS.main.steps[0]?.target).toBe("open-file");
   });
+
+  it("shows the repeat count, the score menu and playing from the cursor in Edit mode (#228)", () => {
+    const steps = TOURS.editing.steps;
+    const ids = steps.map((s) => s.id);
+    expect(ids.slice(ids.indexOf("palette"), ids.indexOf("history") + 1)).toEqual([
+      "palette",
+      "repeat-end",
+      "score-menu",
+      "play-from-cursor",
+      "history",
+    ]);
+    const step = (id: string) => steps.find((s) => s.id === id);
+    expect(step("repeat-end")).toMatchObject({ target: "repeat-end", show: { editing: true } });
+    expect(step("score-menu")).toMatchObject({ target: "score", show: { editing: true } });
+    expect(step("score-menu")?.body).toMatch(/Insert rest before.*Insert rest after.*Repeat end/);
+    expect(step("play-from-cursor")).toMatchObject({ target: "play", show: { editing: true } });
+  });
 });
 
 describe("feature registry", () => {

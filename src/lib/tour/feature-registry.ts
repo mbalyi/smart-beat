@@ -26,6 +26,29 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     since: "1.3.0",
   },
   {
+    id: "insert-rest",
+    title: "Insert a rest before or after",
+    summary:
+      "In Edit mode, right-click a note and pick Insert rest before or Insert rest after, or press I or Shift+I, to move the notes along without typing the bar again. The rest is as long as the note value in the palette.",
+    since: "1.3.0",
+    tour: "editing",
+  },
+  {
+    id: "repeat-count",
+    title: "Choose how many times a repeat plays",
+    summary:
+      "The Repeat end box in the palette writes a repeat end that plays 2 to 8 times, and the score's right-click menu changes the count of one that is already there. Playback follows it, and it is saved with the file.",
+    since: "1.3.0",
+    tour: "editing",
+  },
+  {
+    id: "smoother-editing",
+    title: "Smoother editing",
+    summary:
+      "Play in Edit mode starts at the note you are on, or plays only the selection. Pasting over a selection replaces it, and adds bars when the new part is longer, so nothing after it is overwritten. Copy in one open tab and paste in another. On a drum tab, click any line to write a note on it.",
+    since: "1.3.0",
+  },
+  {
     id: "practice-together",
     title: "Practice together",
     summary:

@@ -266,6 +266,8 @@ export interface VariantCellProps {
   shown?: { visual: PaletteVisual; label: string };
   /** Extra controls under the grid; `done` closes the box and hands focus to the score. */
   footer?: (done: () => void) => ReactNode;
+  /** The `data-tour` name of the cell, when a guided tour points at it. */
+  tour?: string;
 }
 
 /**
@@ -283,6 +285,7 @@ export function VariantCell({
   onDone,
   shown,
   footer,
+  tour,
 }: VariantCellProps) {
   const [open, setOpen] = useState(false);
   const [lastPick, setLastPick] = useState<string | null>(null);
@@ -383,6 +386,7 @@ export function VariantCell({
           aria-label={name}
           data-slot="palette-button"
           data-state={lit ? "on" : open ? "open" : "closed"}
+          data-tour={tour}
           // No preventDefault on mouse down here: the box takes focus, and gives it back.
           className={cn(
             CELL,

@@ -2,7 +2,12 @@ import { Fragment, useId, useState, type KeyboardEvent } from "react";
 import { model } from "@coderline/alphatab";
 
 import { NestedTupletDialog } from "@/components/score/nested-tuplet-dialog";
-import { CellVisual, PaletteCell, VariantCell } from "@/components/score/palette-cell";
+import {
+  CellVisual,
+  PaletteCell,
+  VariantCell,
+  type VariantCellProps,
+} from "@/components/score/palette-cell";
 import { TimeSignatureControl } from "@/components/score/time-signature-control";
 import { Switch } from "@/components/ui/switch";
 import type { BeatInfo, EffectsInfo, ToggleState } from "@/lib/score/editor";
@@ -381,39 +386,37 @@ export function EditPalette({
     if (box.id === "tuplet") groups = withCustomTuplet(groups);
     if (groups.length === 0) return null;
     const time: TimeSignature = bar.timeSignature;
-    return (
-      <VariantCell
-        key={box.id}
-        box={box}
-        groups={groups}
-        stateOf={(item) => stateOf(item.action) ?? "off"}
-        isDisabled={(item) => disabledOf(item.action)}
-        onPick={run}
-        onDone={edit.onDone}
-        shown={
-          box.id === "time"
-            ? {
-                visual: { digits: [time.numerator, time.denominator] },
-                label: timeSignatureText(time),
-              }
-            : undefined
-        }
-        footer={
-          box.footer === "time"
-            ? (done) => (
-                <TimeSignatureControl
-                  key={timeSignatureText(time)}
-                  time={time}
-                  onChange={(next) => {
-                    edit.onBarSettings({ timeSignature: next });
-                    done();
-                  }}
-                />
-              )
-            : undefined
-        }
-      />
-    );
+    const props: VariantCellProps = {
+      box,
+      groups,
+      stateOf: (item) => stateOf(item.action) ?? "off",
+      isDisabled: (item) => disabledOf(item.action),
+      onPick: run,
+      onDone: edit.onDone,
+      shown:
+        box.id === "time"
+          ? {
+              visual: { digits: [time.numerator, time.denominator] },
+              label: timeSignatureText(time),
+            }
+          : undefined,
+      footer:
+        box.footer === "time"
+          ? (done) => (
+              <TimeSignatureControl
+                key={timeSignatureText(time)}
+                time={time}
+                onChange={(next) => {
+                  edit.onBarSettings({ timeSignature: next });
+                  done();
+                }}
+              />
+            )
+          : undefined,
+    };
+    // The editing tour points at the repeat count box (#228).
+    if (box.id === "repeat-end") return <VariantCell key={box.id} {...props} tour="repeat-end" />;
+    return <VariantCell key={box.id} {...props} />;
   };
 
   const renderRow = (row: PaletteRow, key: number) => {

@@ -287,6 +287,13 @@ describe("EditPalette: cells", () => {
     expect(fx.onRepeatEnd).toHaveBeenLastCalledWith(0);
   });
 
+  it("marks only the Repeat end box for the editing tour (#228)", () => {
+    setup();
+    const marked = document.querySelectorAll("[data-tour=repeat-end]");
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toBe(screen.getByRole("button", { name: /^Repeat end/ }));
+  });
+
   it("disables note effects without a note", () => {
     setup({ editor: editorOf({ note: false }) });
     expect(screen.getByRole("button", { name: "Palm mute, P.M." })).toBeDisabled();
