@@ -1,4 +1,4 @@
-import { normalizeSync } from "@/lib/audio-lanes/model";
+import { lanesEndMs, normalizeSync } from "@/lib/audio-lanes/model";
 import { audioMsAt } from "@/lib/audio/engine-config";
 import type { AudioLanesSettings, SyncPoint } from "@/lib/tauri";
 
@@ -11,12 +11,27 @@ export interface SongGrid {
   beats: readonly number[];
 }
 
-/** Where a beat starts in the song, in ms. */
+/** Bars after the grid's last entry last as long as its last bar (2 s with no bar to go by). */
+const FALLBACK_BAR_MS = 2000;
+function tailBarMs(grid: SongGrid): number {
+  const t = grid.barTimes;
+  const length = t.length >= 2 ? t[t.length - 1]! - t[t.length - 2]! : 0;
+  return length > 0 ? length : FALLBACK_BAR_MS;
+}
+
+/**
+ * Where a beat starts in the song, in ms. Past the grid's last entry the bars go on at the last
+ * bar's length, so audio that runs longer than the score still has a place on the grid.
+ */
 export function songMsAt(grid: SongGrid, bar: number, beat = 0): number {
-  const start = grid.barTimes[bar] ?? grid.barTimes[grid.barTimes.length - 1] ?? 0;
-  const next = grid.barTimes[bar + 1];
-  const beats = grid.beats[bar] ?? 4;
-  if (beat <= 0 || next === undefined) return start;
+  const t = grid.barTimes;
+  if (t.length === 0) return 0;
+  const last = t.length - 1;
+  const whole = Math.max(0, bar);
+  const start = whole <= last ? t[whole]! : t[last]! + (whole - last) * tailBarMs(grid);
+  if (beat <= 0) return start;
+  const next = whole < last ? t[whole + 1]! : start + tailBarMs(grid);
+  const beats = grid.beats[whole] ?? grid.beats[grid.beats.length - 1] ?? 4;
   return start + ((next - start) * beat) / beats;
 }
 
@@ -44,6 +59,12 @@ export function timelineMsAt(
 export function barAtTimelineMs(audio: AudioLanesSettings, grid: SongGrid, ms: number): number {
   const bars = grid.barTimes.length;
   if (bars === 0) return 0;
+  // Past the end of the grid: on at the last bar's length.
+  const lastStart = timelineMsAt(audio, grid, bars - 1);
+  if (ms >= lastStart) {
+    const length = timelineMsAt(audio, grid, bars) - lastStart;
+    return length > 0 ? bars - 1 + (ms - lastStart) / length : bars - 1;
+  }
   let lo = 0;
   let hi = bars - 1;
   while (lo < hi) {
@@ -190,10 +211,6 @@ export function tempoChangesFromSync(
 export function timelineMsAtBar(audio: AudioLanesSettings, grid: SongGrid, bar: number): number {
   const whole = Math.max(0, Math.floor(bar));
   const start = timelineMsAt(audio, grid, whole);
-  if (whole + 1 >= grid.barTimes.length) {
-    const previous = whole > 0 ? timelineMsAt(audio, grid, whole - 1) : start - 2000;
-    return start + (bar - whole) * (start - previous);
-  }
   return start + (bar - whole) * (timelineMsAt(audio, grid, whole + 1) - start);
 }
 
@@ -219,4 +236,21 @@ export function syncFromDetectedBeats(
     beat += grid.beats[bar] ?? 4;
   }
   return normalizeSync(points);
+}
+
+/**
+ * How many bars the score lacks for its audio: the bars past `scoreBars` that clips still play in
+ * (0 when the score is long enough). Playback follows the score, so audio past its last bar is
+ * heard only once the score has bars there.
+ */
+export function barsToFitAudio(
+  audio: AudioLanesSettings,
+  grid: SongGrid,
+  scoreBars: number,
+): number {
+  const end = lanesEndMs(audio);
+  if (end <= 0) return 0;
+  // A clip ending a hair into a bar does not need that bar.
+  const needed = Math.ceil(barAtTimelineMs(audio, grid, end) - 0.01);
+  return Math.max(0, needed - scoreBars);
 }

@@ -1727,6 +1727,20 @@ export class ScorePlayer {
     return restart;
   }
 
+  /**
+   * Moves the playback cursor into a bar: `position` is a fractional bar (2.5 is halfway through
+   * the third bar), as the audio lanes place their position line.
+   */
+  seekToBarPosition(position: number) {
+    const bars = this.score.masterBars;
+    if (bars.length === 0 || !Number.isFinite(position)) return;
+    const index = Math.min(bars.length - 1, Math.max(0, Math.floor(position)));
+    const masterBar = bars[index]!;
+    const start = this.api.tickCache?.getMasterBarStart(masterBar) ?? masterBar.start;
+    const into = Math.min(1, Math.max(0, position - index));
+    this.seekToTick(Math.round(start + into * masterBar.calculateDuration()));
+  }
+
   /** Moves the playback cursor to the start of a bar (0-based). */
   seekToBar(barIndex: number) {
     const masterBar = this.score.masterBars[barIndex];

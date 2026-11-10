@@ -961,9 +961,11 @@ pub fn audio_transport(
         } else {
             0.0
         };
-        if inner.engine.is_none() {
-            return Ok(());
-        }
+    }
+    // A player sends its settings as soon as it exists, before its sounds have started the
+    // engine; the player sends the mix and loop again once the engine runs.
+    if inner.engine.is_none() {
+        return Ok(());
     }
     let inner = inner;
     with_engine(&inner, |engine| match command {

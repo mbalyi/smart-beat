@@ -10,6 +10,7 @@ import { useCallback, useState, type MouseEvent } from "react";
 
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
+import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { LaneColorPopover } from "@/components/audio-lanes/lane-color-popover";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { LevelMeter } from "@/components/audio/level-meter";
@@ -36,6 +37,7 @@ import {
   trimClip,
   updateLane,
 } from "@/lib/audio-lanes/edits";
+import { clipEndMs } from "@/lib/audio-lanes/model";
 import { barAtTimelineMs, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
 import { describeVolume } from "@/lib/score/mixer";
 import type { PlayheadStore } from "@/lib/score/playhead";
@@ -99,6 +101,10 @@ export function LaneRow({
     lanes.select([]);
   };
   const cursorX = toX(lanes.editCursorMs);
+  // The row is as long as the score or its last clip, whichever ends later.
+  const scoreWidth = barCount * barWidth;
+  const clipsEnd = lane.clips.reduce((x, clip) => Math.max(x, toX(clipEndMs(clip))), 0);
+  const width = Math.max(scoreWidth, Math.ceil(clipsEnd / barWidth) * barWidth);
 
   return (
     <li className="flex border-b" data-testid={`lane-row-${lane.id}`}>
@@ -241,48 +247,59 @@ export function LaneRow({
           </div>
         </div>
       </div>
-      <div
-        role="presentation"
-        data-lane-id={lane.folder ? undefined : lane.id}
-        data-px-per-bar={barWidth}
-        className="relative h-[3.25rem] shrink-0"
-        style={{ width: barCount * barWidth }}
-        onClick={setCursor}
-        aria-hidden={lane.folder || undefined}
-      >
-        {!lane.folder &&
-          lane.clips.map((clip) => (
-            <ClipView
-              key={clip.id}
-              clip={clip}
-              laneName={lane.name}
-              color={color}
-              info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
-              missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}
-              selected={lanes.selection.includes(clip.id)}
-              toX={toX}
-              toMs={toMs}
-              snap={lanes.snapTo}
-              compact
-              onSelect={(additive) =>
-                lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
-              }
-              onDrop={drop}
-              onKey={(event) =>
-                handleClipKey(event, lanes, clip.id, lane.id, () => onOpenEditor(lane.id))
-              }
-              onOpen={() => onOpenEditor(lane.id)}
-              onCursor={lanes.setEditCursorMs}
+      <LaneContextMenu lanes={lanes} lane={lane} toMs={toMs} onOpenEditor={onOpenEditor}>
+        <div
+          role="presentation"
+          data-lane-id={lane.folder ? undefined : lane.id}
+          data-px-per-bar={barWidth}
+          className="relative h-[3.25rem] shrink-0"
+          style={{ width }}
+          onClick={setCursor}
+          aria-hidden={lane.folder || undefined}
+        >
+          {width > scoreWidth && (
+            <span
+              aria-hidden="true"
+              data-testid="past-score"
+              title="Past the end of the score"
+              className="pointer-events-none absolute inset-y-0 bg-[repeating-linear-gradient(135deg,transparent_0_6px,color-mix(in_oklab,var(--muted-foreground)_14%,transparent)_6px_8px)]"
+              style={{ left: scoreWidth, width: width - scoreWidth }}
             />
-          ))}
-        <span
-          aria-hidden="true"
-          data-testid="edit-cursor"
-          className="pointer-events-none absolute inset-y-0 z-10 border-l border-dashed border-primary"
-          style={{ left: cursorX }}
-        />
-        {playhead && <Playhead store={playhead} barWidth={barWidth} playing={playing} />}
-      </div>
+          )}
+          {!lane.folder &&
+            lane.clips.map((clip) => (
+              <ClipView
+                key={clip.id}
+                clip={clip}
+                laneName={lane.name}
+                color={color}
+                info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
+                missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}
+                selected={lanes.selection.includes(clip.id)}
+                toX={toX}
+                toMs={toMs}
+                snap={lanes.snapTo}
+                compact
+                onSelect={(additive) =>
+                  lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
+                }
+                onDrop={drop}
+                onKey={(event) =>
+                  handleClipKey(event, lanes, clip.id, lane.id, () => onOpenEditor(lane.id))
+                }
+                onOpen={() => onOpenEditor(lane.id)}
+                onCursor={lanes.setEditCursorMs}
+              />
+            ))}
+          <span
+            aria-hidden="true"
+            data-testid="edit-cursor"
+            className="pointer-events-none absolute inset-y-0 z-10 border-l border-dashed border-primary"
+            style={{ left: cursorX }}
+          />
+          {playhead && <Playhead store={playhead} barWidth={barWidth} playing={playing} />}
+        </div>
+      </LaneContextMenu>
     </li>
   );
 }

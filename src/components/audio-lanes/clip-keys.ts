@@ -7,13 +7,13 @@ import { findClip } from "@/lib/audio-lanes/edits";
 /** The clip shortcuts, as the shortcut list shows them. */
 export const CLIP_SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: "← →", action: "Nudge by a beat (Shift: a bar)" },
-  { keys: "S", action: "Split at the edit cursor" },
+  { keys: "S", action: "Split at the position line" },
   { keys: "G", action: "Glue the selected clips" },
   { keys: "M", action: "Mute or unmute" },
   { keys: "L", action: "Lock or unlock the position" },
   { keys: "R", action: "Reverse" },
   { keys: "⌘D", action: "Duplicate" },
-  { keys: "⌘C ⌘V", action: "Copy, paste at the edit cursor" },
+  { keys: "⌘X ⌘C ⌘V", action: "Cut, copy, paste at the position line" },
   { keys: "Delete", action: "Delete" },
   { keys: "Enter", action: "Open the lane editor" },
 ];
@@ -33,6 +33,8 @@ export function handleClipKey(
   const ensureSelected = () => {
     if (!lanes.selection.includes(clipId)) lanes.select([clipId]);
   };
+  // The focused clip, with the rest of the selection when it is part of it.
+  const ids = lanes.selection.includes(clipId) ? lanes.selection : [clipId];
   const toggle = (field: "mute" | "locked" | "reversed") =>
     lanes.apply((a) => {
       const found = findClip(a, clipId);
@@ -42,9 +44,10 @@ export function handleClipKey(
   if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
     ensureSelected();
     lanes.commands.nudge(event.key === "ArrowLeft" ? -1 : 1, event.shiftKey);
-  } else if (event.key === "Delete" || event.key === "Backspace") lanes.commands.remove();
-  else if (mod && event.key.toLowerCase() === "d") lanes.commands.duplicate();
-  else if (mod && event.key.toLowerCase() === "c") lanes.commands.copy();
+  } else if (event.key === "Delete" || event.key === "Backspace") lanes.commands.remove(ids);
+  else if (mod && event.key.toLowerCase() === "d") lanes.commands.duplicate(ids);
+  else if (mod && event.key.toLowerCase() === "x") lanes.commands.cut(ids);
+  else if (mod && event.key.toLowerCase() === "c") lanes.commands.copy(ids);
   else if (mod && event.key.toLowerCase() === "v") lanes.commands.paste(laneId);
   else if (mod) used = false;
   else if (event.key.toLowerCase() === "s") lanes.commands.split();

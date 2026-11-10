@@ -1826,6 +1826,24 @@ export class ScoreEditor {
     );
   }
 
+  /**
+   * Adds `count` empty bars after the last one (with its time signature), in one undo step; the
+   * cursor stays where it is. For audio that runs past the end of the score.
+   */
+  appendBars(count: number) {
+    const last = this.score.masterBars.length - 1;
+    const bars = Math.floor(count);
+    if (last < 0 || bars < 1) return;
+    this.run(
+      "Add bars",
+      () => this.structureTargets(),
+      () => {
+        for (let i = 0; i < bars; i++) insertMasterBar(this.score, last + 1 + i, last + i);
+      },
+      bars === 1 ? "Added a bar" : `Added ${bars} bars`,
+    );
+  }
+
   /** Removes the bar `at` (default: the cursor's) from every track. A song keeps one bar. */
   deleteBar(at = this._cursor.bar): boolean {
     return this.deleteBars(at, at);

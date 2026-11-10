@@ -12,6 +12,7 @@ import { useAudioLanes, type AudioLanesController } from "@/components/audio-lan
 import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 import type { SongGrid } from "@/lib/audio-lanes/sync";
 import { mixerReducer } from "@/lib/score/mixer";
+import { PlayheadStore } from "@/lib/score/playhead";
 import type { AudioLanesSettings, MixerSettings } from "@/lib/tauri";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -162,6 +163,77 @@ describe("LaneRow clips", () => {
   });
 });
 
+describe("LaneRow right-click menu", () => {
+  const renderRow = () =>
+    renderWithProviders(
+      <Lanes>
+        {(lanes) => (
+          <ul>
+            {lanes.audio.lanes.map((lane, index) => (
+              <LaneRow
+                key={lane.id}
+                lanes={lanes}
+                lane={lane}
+                index={index}
+                barWidth={20}
+                barCount={8}
+                grid={grid}
+                playing={false}
+                onEffects={vi.fn()}
+                onOpenEditor={vi.fn()}
+              />
+            ))}
+          </ul>
+        )}
+      </Lanes>,
+    );
+  const clips = () => lanesNow().audio.lanes[0]!.clips;
+
+  it("splits the clip it was opened on at the position line", async () => {
+    const { user } = renderRow();
+    act(() => lanesNow().setEditCursorMs(3000));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /take\.wav on Vocals/ }));
+    const menu = await screen.findByRole("menu", { name: "Lane actions: Vocals" });
+    await user.click(within(menu).getByRole("menuitem", { name: /Split at the position line/ }));
+    await vi.waitFor(() => expect(clips()).toHaveLength(2));
+    expect(clips()[1]!.startMs).toBe(3000);
+    await expectNoA11yViolations();
+  });
+
+  it("offers no split when the line is outside the clip", async () => {
+    renderRow();
+    act(() => lanesNow().setEditCursorMs(9000));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /take\.wav on Vocals/ }));
+    const split = await screen.findByRole("menuitem", { name: /Split at the position line/ });
+    expect(split).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("cuts a clip and pastes it where the other lane was clicked", async () => {
+    const { user } = renderRow();
+    fireEvent.contextMenu(screen.getByRole("button", { name: /take\.wav on Vocals/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Cut/ }));
+    expect(clips()).toHaveLength(0);
+
+    const drums = screen.getByTestId("lane-row-lane-b").querySelector("[data-lane-id]")!;
+    // 100 px at 20 px a bar of 2 s: bar 5, 10 s.
+    fireEvent.contextMenu(drums, { clientX: 100 });
+    await user.click(await screen.findByRole("menuitem", { name: "Paste here" }));
+    const pasted = lanesNow().audio.lanes[1]!.clips;
+    expect(pasted).toHaveLength(1);
+    expect(pasted[0]!.startMs).toBe(10_000);
+  });
+
+  it("copies with the keys and pastes on the same lane at the line", async () => {
+    const { user } = renderRow();
+    await user.click(screen.getByRole("button", { name: /take\.wav on Vocals/ }));
+    await user.keyboard("{Control>}c{/Control}");
+    act(() => lanesNow().setEditCursorMs(8000));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /take\.wav on Vocals/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /Paste at the position line/ }));
+    expect(clips().map((c) => c.startMs)).toEqual([2000, 8000]);
+  });
+});
+
 describe("LaneEditorDock", () => {
   const actions = (): LaneEditorActions => ({
     syncFromScoreTempo: vi.fn(() => [{ bar: 0, ms: 0 }]),
@@ -224,6 +296,47 @@ describe("LaneEditorDock", () => {
     });
     expect(lanesNow().audio.zone.end).toBe(7);
     await expectNoA11yViolations();
+  });
+});
+
+describe("LaneEditorDock position line", () => {
+  it("shows where playback is while stopped, and follows a seek", () => {
+    const playhead = new PlayheadStore();
+    playhead.set(2);
+    renderWithProviders(
+      <Lanes>
+        {(lanes) => (
+          <LaneEditorDock
+            lanes={lanes}
+            lane={lanes.audio.lanes[0]!}
+            index={0}
+            grid={grid}
+            scoreBpmAt={() => 120}
+            playhead={playhead}
+            playing={false}
+            selectedBars={null}
+            onSelectBars={vi.fn()}
+            onSeekBar={vi.fn()}
+            actions={{
+              syncFromScoreTempo: vi.fn(() => []),
+              tempoFromSync: vi.fn(),
+              syncFromBeats: vi.fn(),
+              replaceFile: vi.fn(),
+              extract: vi.fn(),
+              addBar: vi.fn(),
+              effects: vi.fn(),
+              openStudio: vi.fn(),
+              close: vi.fn(),
+            }}
+          />
+        )}
+      </Lanes>,
+    );
+    // Bar 3 starts at 4 s; the editor opens at 60 px a second.
+    const line = screen.getByTestId("position-line");
+    expect(line).toHaveStyle({ left: "240px" });
+    act(() => playhead.set(3.5));
+    expect(line).toHaveStyle({ left: "420px" });
   });
 });
 
@@ -330,5 +443,46 @@ describe("normalizeGainDb", () => {
     // Peaks already carry the clip's gain: +6 dB with a 0.5 peak means the file peaks at 0.25.
     expect(normalizeGainDb([0.5], 6)).toBeCloseTo(12, 0);
     expect(normalizeGainDb([], 3)).toBe(3);
+  });
+});
+
+describe("useAudioLanes: opening a file while the engine starts", () => {
+  it("opens the file once the engine is ready instead of dropping it", async () => {
+    const loadSource = vi.fn(async () => ({
+      id: "b".repeat(64),
+      ext: "mp3",
+      durationMs: 300_000,
+      sampleRate: 44_100,
+      channels: 2,
+      peaks: [],
+    }));
+    const engine = { loadSource } as never;
+    function Starting({ ready }: { ready: boolean }) {
+      const [mix, setMix] = useState<MixerSettings>({ version: 3, master: 1, tracks: [] });
+      const lanes = useAudioLanes({
+        mix,
+        changeMix: (action) => setMix((m) => mixerReducer(m, action)),
+        loader: () => (ready ? engine : null),
+        canLoad: ready,
+        epoch: ready ? 1 : 0,
+        songPath: null,
+        grid,
+        // The first file switches the engine on: it is not running yet.
+        ensureEngine: () => ready,
+      });
+      useEffect(() => {
+        latest.lanes = lanes;
+      });
+      return null;
+    }
+    const { rerender } = renderWithProviders(<Starting ready={false} />);
+    await act(async () => lanesNow().importFiles(["/music/song.mp3"]));
+    expect(loadSource).not.toHaveBeenCalled();
+
+    rerender(<Starting ready />);
+    await vi.waitFor(() => expect(lanesNow().audio.lanes).toHaveLength(1));
+    expect(loadSource).toHaveBeenCalledWith({ type: "file", path: "/music/song.mp3" });
+    // The whole file, not cut to the score.
+    expect(lanesNow().audio.lanes[0]!.clips[0]!.lengthMs).toBe(300_000);
   });
 });

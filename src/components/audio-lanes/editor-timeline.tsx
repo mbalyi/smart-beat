@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type RefObject } from "react";
 
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
+import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { moveClip, trimClip } from "@/lib/audio-lanes/edits";
 import { clipEndMs } from "@/lib/audio-lanes/model";
@@ -42,6 +43,9 @@ export function EditorTimeline({
   selectedBars,
   onSelectBars,
   onSeekBar,
+  follow = false,
+  scroller,
+  onAutoScroll,
 }: {
   lanes: AudioLanesController;
   lane: AudioLane;
@@ -55,6 +59,11 @@ export function EditorTimeline({
   onSelectBars: (start: number, end: number) => void;
   /** Plays from a bar; with `loop`, loops the selected bars. */
   onSeekBar: (bar: number, loop: boolean) => void;
+  /** Scrolls `scroller` to keep the position line in view (while playing). */
+  follow?: boolean;
+  scroller?: RefObject<HTMLElement | null>;
+  /** Called just before following scrolls, so the scroll is not taken for the user's. */
+  onAutoScroll?: () => void;
 }) {
   const { audio, apply } = lanes;
   const toX = (ms: number) => (ms / 1000) * pxPerSecond;
@@ -231,103 +240,102 @@ export function EditorTimeline({
           ))}
       </div>
       {/* Clips over the beat grid. Cmd-drag on empty space slides the audio (padding). */}
-      <div
-        role="presentation"
-        className="relative h-28"
-        data-lane-id={lane.id}
-        data-ms-per-px={1000 / pxPerSecond}
-        onPointerDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.metaKey || e.ctrlKey) {
-            pad.current = { x: e.clientX, done: 0 };
-            lanes.beginGesture();
-            e.currentTarget.setPointerCapture?.(e.pointerId);
-          } else {
+      <LaneContextMenu lanes={lanes} lane={lane} toMs={toMs}>
+        <div
+          role="presentation"
+          className="relative h-28"
+          data-lane-id={lane.id}
+          data-ms-per-px={1000 / pxPerSecond}
+          onPointerDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.metaKey || e.ctrlKey) {
+              pad.current = { x: e.clientX, done: 0 };
+              lanes.beginGesture();
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+            } else {
+              const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+              lanes.setEditCursorMs(lanes.snapTo(toMs(x)));
+              lanes.select([]);
+            }
+          }}
+          onPointerMove={(e) => {
+            const p = pad.current;
+            if (!p) return;
+            const delta = -toMs(e.clientX - p.x) - p.done;
+            p.done += delta;
+            lanes.applyQuiet((a) => shiftPadding(a, grid, delta));
+          }}
+          onPointerUp={() => (pad.current = null)}
+          onDoubleClick={(e) => {
+            if (e.target !== e.currentTarget) return;
             const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-            lanes.setEditCursorMs(lanes.snapTo(toMs(x)));
-            lanes.select([]);
-          }
-        }}
-        onPointerMove={(e) => {
-          const p = pad.current;
-          if (!p) return;
-          const delta = -toMs(e.clientX - p.x) - p.done;
-          p.done += delta;
-          lanes.applyQuiet((a) => shiftPadding(a, grid, delta));
-        }}
-        onPointerUp={() => (pad.current = null)}
-        onDoubleClick={(e) => {
-          if (e.target !== e.currentTarget) return;
-          const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-          const bar = barAtX(x);
-          const beats = grid.beats[bar] ?? 4;
-          const within =
-            ((x - (barX[bar] ?? 0)) / Math.max(1, (barX[bar + 1] ?? x + 1) - (barX[bar] ?? 0))) *
-            beats;
-          apply((a) => toggleSyncPoint(a, grid, bar, Math.min(beats - 1, Math.round(within))));
-        }}
-      >
-        {barX.slice(0, bars).map((x, b) => {
-          const width = (barX[b + 1] ?? x) - x;
-          const beats = grid.beats[b] ?? 4;
-          return (
+            const bar = barAtX(x);
+            const beats = grid.beats[bar] ?? 4;
+            const within =
+              ((x - (barX[bar] ?? 0)) / Math.max(1, (barX[bar + 1] ?? x + 1) - (barX[bar] ?? 0))) *
+              beats;
+            apply((a) => toggleSyncPoint(a, grid, bar, Math.min(beats - 1, Math.round(within))));
+          }}
+        >
+          {barX.slice(0, bars).map((x, b) => {
+            const width = (barX[b + 1] ?? x) - x;
+            const beats = grid.beats[b] ?? 4;
+            return (
+              <span
+                key={b}
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0"
+                style={{ left: x, width }}
+              >
+                <span className="absolute inset-y-0 left-0 w-px bg-red-500/70" />
+                {Array.from({ length: beats - 1 }, (_, i) => (
+                  <span
+                    key={i}
+                    className="absolute inset-y-0 border-l border-dashed border-amber-500/40"
+                    style={{ left: (width * (i + 1)) / beats }}
+                  />
+                ))}
+              </span>
+            );
+          })}
+          {selectedBars && (
             <span
-              key={b}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0"
-              style={{ left: x, width }}
-            >
-              <span className="absolute inset-y-0 left-0 w-px bg-red-500/70" />
-              {Array.from({ length: beats - 1 }, (_, i) => (
-                <span
-                  key={i}
-                  className="absolute inset-y-0 border-l border-dashed border-amber-500/40"
-                  style={{ left: (width * (i + 1)) / beats }}
-                />
-              ))}
-            </span>
-          );
-        })}
-        {selectedBars && (
+              className="pointer-events-none absolute inset-y-0 bg-primary/20"
+              style={{
+                left: barX[selectedBars.start],
+                width: (barX[selectedBars.end + 1] ?? end) - (barX[selectedBars.start] ?? 0),
+              }}
+            />
+          )}
+          {lane.clips.map((clip) => (
+            <ClipView
+              key={clip.id}
+              clip={clip}
+              laneName={lane.name}
+              color={color}
+              info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
+              missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}
+              selected={lanes.selection.includes(clip.id)}
+              toX={toX}
+              toMs={toMs}
+              snap={lanes.snapTo}
+              onSelect={(additive) =>
+                lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
+              }
+              onDrop={drop}
+              onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
+              onOpen={() => undefined}
+              onCursor={lanes.setEditCursorMs}
+            />
+          ))}
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 bg-primary/20"
-            style={{
-              left: barX[selectedBars.start],
-              width: (barX[selectedBars.end + 1] ?? end) - (barX[selectedBars.start] ?? 0),
-            }}
+            className="pointer-events-none absolute inset-y-0 z-10 border-l border-dashed border-primary"
+            style={{ left: toX(lanes.editCursorMs) }}
           />
-        )}
-        {lane.clips.map((clip) => (
-          <ClipView
-            key={clip.id}
-            clip={clip}
-            laneName={lane.name}
-            color={color}
-            info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
-            missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}
-            selected={lanes.selection.includes(clip.id)}
-            toX={toX}
-            toMs={toMs}
-            snap={lanes.snapTo}
-            onSelect={(additive) =>
-              lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
-            }
-            onDrop={drop}
-            onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
-            onOpen={() => undefined}
-            onCursor={lanes.setEditCursorMs}
-          />
-        ))}
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 z-10 border-l border-dashed border-primary"
-          style={{ left: toX(lanes.editCursorMs) }}
-        />
-        {playhead && (
-          <EditorPlayhead store={playhead} toX={(bar) => toX(timelineMsAtBar(audio, grid, bar))} />
-        )}
-      </div>
+        </div>
+      </LaneContextMenu>
       {/* Time ruler: drag to select bars. */}
       <div
         className="relative h-5 border-t text-[10px] text-muted-foreground"
@@ -367,17 +375,53 @@ export function EditorTimeline({
           );
         })}
       </div>
+      {playhead && (
+        <EditorPlayhead
+          store={playhead}
+          toX={(bar) => toX(timelineMsAtBar(audio, grid, bar))}
+          follow={follow}
+          scroller={scroller}
+          onAutoScroll={onAutoScroll}
+        />
+      )}
     </div>
   );
 }
 
-function EditorPlayhead({ store, toX }: { store: PlayheadStore; toX: (bar: number) => number }) {
-  const bar = usePlayheadBar(store);
+/**
+ * Where playback is: a line across the whole editor with a handle on the bar ruler. It shows
+ * while stopped too (that is where Play starts and where Split and Paste act).
+ */
+function EditorPlayhead({
+  store,
+  toX,
+  follow,
+  scroller,
+  onAutoScroll,
+}: {
+  store: PlayheadStore;
+  toX: (bar: number) => number;
+  follow: boolean;
+  scroller?: RefObject<HTMLElement | null>;
+  onAutoScroll?: () => void;
+}) {
+  const x = toX(usePlayheadBar(store));
+  useEffect(() => {
+    const el = scroller?.current;
+    if (!follow || !el) return;
+    if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 24) {
+      onAutoScroll?.();
+      el.scrollTo?.({ left: Math.max(0, x - el.clientWidth / 4) });
+    }
+  }, [follow, onAutoScroll, scroller, x]);
   return (
     <span
       aria-hidden="true"
-      className="pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 bg-foreground shadow-[0_0_0_1px_var(--background)]"
-      style={{ left: toX(bar) }}
-    />
+      data-testid="position-line"
+      className="pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 bg-primary shadow-[0_0_0_1px_var(--background)]"
+      style={{ left: x }}
+    >
+      <span className="absolute -top-px left-1/2 size-3 -translate-x-1/2 bg-primary [clip-path:polygon(0_0,100%_0,50%_100%)]" />
+    </span>
   );
 }

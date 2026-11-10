@@ -499,6 +499,24 @@ describe("ScoreEditor: bars", () => {
     expect(score.masterBars[3]).toBe(marker);
   });
 
+  it("adds bars at the end in one undo step and leaves the cursor", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const before = score.masterBars.length;
+    const cursor = { ...editor.cursor };
+
+    editor.appendBars(3);
+    expect(score.masterBars).toHaveLength(before + 3);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => before + 3));
+    expect(score.masterBars.map((m) => m.index)).toEqual(score.masterBars.map((_, i) => i));
+    expect(editor.cursor).toMatchObject(cursor);
+
+    editor.undo();
+    expect(score.masterBars).toHaveLength(before);
+    editor.appendBars(0);
+    expect(score.masterBars).toHaveLength(before);
+  });
+
   it("deletes a bar from every track, keeps the tempo, and undoes it", () => {
     const editor = practiceSong();
     const { score } = editor;

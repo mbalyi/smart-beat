@@ -27,8 +27,10 @@ import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
+import { EMPTY_AUDIO } from "@/lib/audio-lanes/model";
 import {
   barAtTimelineMs,
+  barsToFitAudio,
   syncFromDetectedBeats,
   tempoChangesFromSync,
   timelineMsAt,
@@ -285,6 +287,7 @@ import {
   readDroppedAudio,
   saveMixerSettings,
   writePdfFile,
+  type AudioLanesSettings,
   type ChainTarget,
   type FocusMode,
   type MenuAction,
@@ -1916,6 +1919,8 @@ export function ScoreWorkspace({
     toast.info("Audio lanes play with the native audio engine");
     return false;
   };
+  /** The lanes as last drawn, for callbacks that run later. */
+  const lanesAudioRef = useRef<AudioLanesSettings>(EMPTY_AUDIO);
   const lanesLoader = useCallback(
     () => (playerRef.current?.usesNativeEngine ? playerRef.current : null),
     [],
@@ -1929,7 +1934,45 @@ export function ScoreWorkspace({
     songPath: song.path ?? null,
     grid: laneGrid,
     ensureEngine,
+    // Split and Paste act at the line the user sees: the playhead while playing.
+    positionMs: () =>
+      playing ? timelineMsAtBar(lanesAudioRef.current, laneGrid, playhead.get()) : null,
+    // A click in a lane while stopped moves playback there too: one position line.
+    onCursorMove: (ms) => {
+      if (playing) return;
+      const at = barAtTimelineMs(lanesAudioRef.current, laneGrid, ms);
+      if (at >= 0 && at < score.masterBars.length) playerRef.current?.seekToBarPosition(at);
+    },
   });
+  // While stopped, the edit cursor is where playback is: a seek or a pause moves it along, so
+  // Split and Paste work at the line the user sees.
+  const followPlayback = lanes.followPosition;
+  useEffect(() => {
+    if (playing) return;
+    const follow = () =>
+      followPlayback(timelineMsAtBar(lanesAudioRef.current, laneGrid, playhead.get()));
+    follow();
+    return playhead.subscribe(follow);
+  }, [playing, playhead, laneGrid, followPlayback]);
+  useEffect(() => {
+    lanesAudioRef.current = lanes.audio;
+  }, [lanes.audio]);
+  /** Bars the score lacks for its audio: playback follows the score and stops at its end. */
+  const missingBars = barsToFitAudio(lanes.audio, laneGrid, score.masterBars.length);
+  const addMissingBars = () => editor.appendBars(missingBars);
+  // Audio that an edit made run past the score: say so once, with the fix.
+  const missingBefore = useRef(missingBars);
+  useEffect(() => {
+    const before = missingBefore.current;
+    missingBefore.current = missingBars;
+    if (missingBars <= before || lanes.lastEditAt === 0) return;
+    const what = missingBars === 1 ? "1 bar" : `${missingBars} bars`;
+    toast.info(`The audio runs ${what} past the end of the score`, {
+      description: "Playback stops at the last bar. Add bars to hear all of it.",
+      // Whatever is missing when the button is pressed (more edits may have come since).
+      action: { label: `Add ${what}`, onClick: () => editor.appendBars(missingBefore.current) },
+    });
+  }, [missingBars, lanes.lastEditAt, editor]);
   // The editor closes with its lane: a removed lane is simply not found.
   const editorLane = lanes.audio.lanes.find((l) => l.id === editorLaneId && !l.folder) ?? null;
 
@@ -3454,6 +3497,8 @@ export function ScoreWorkspace({
                   onRecord: () => setRecordAudioOpen(true),
                   onEffects: (laneIndex) => openPedalboard({ lane: laneIndex }),
                   onOpenEditor: (laneId) => setEditorLaneId(laneId),
+                  missingBars,
+                  onAddMissingBars: addMissingBars,
                 }
               : undefined
           }

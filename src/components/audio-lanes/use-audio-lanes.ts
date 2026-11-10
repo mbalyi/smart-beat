@@ -28,6 +28,7 @@ import {
   AUDIO_EXTENSIONS,
   audioZeroCrossing,
   isCommandError,
+  pickAudioFile,
   type AudioClip,
   type AudioLanesSettings,
   type AudioSource,
@@ -59,8 +60,25 @@ export interface AudioLanesOptions {
   /** The song file, for files embedded in it (`.gp` only). */
   songPath: string | null;
   grid: SongGrid;
-  /** Asks for the native engine; false when it cannot be used here. */
+  /**
+   * Asks for the native engine: true when it runs, false when it cannot be used here. While it is
+   * being switched on, files opened meanwhile are loaded once it is ready.
+   */
   ensureEngine: () => boolean;
+  /** The user moved the edit cursor (a click in a lane): the score can follow it there. */
+  onCursorMove?: (ms: number) => void;
+  /**
+   * Where the position line is now, on the audio timeline (the playhead while playing): Split and
+   * Paste act there. Without it they act at the edit cursor.
+   */
+  positionMs?: () => number | null;
+}
+
+/** Files opened while the engine was starting, loaded once it is ready. */
+interface PendingImport {
+  paths: readonly string[];
+  laneId?: string;
+  atMs?: number;
 }
 
 /** The fraction of the file name after the last dot, lower case. */
@@ -114,7 +132,18 @@ export function renameSource(
  * clip commands.
  */
 export function useAudioLanes(options: AudioLanesOptions) {
-  const { mix, changeMix, loader, canLoad, epoch, songPath, grid, ensureEngine } = options;
+  const {
+    mix,
+    changeMix,
+    loader,
+    canLoad,
+    epoch,
+    songPath,
+    grid,
+    ensureEngine,
+    onCursorMove,
+    positionMs,
+  } = options;
   const audio = useMemo(() => lanesOf(mix), [mix.audio, mix.audioTrack]); // eslint-disable-line react-hooks/exhaustive-deps
   const audioRef = useRef(audio);
   useEffect(() => {
@@ -124,8 +153,18 @@ export function useAudioLanes(options: AudioLanesOptions) {
   const [infos, setInfos] = useState<ReadonlyMap<string, SourceInfo>>(new Map());
   const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
   const [selection, setSelection] = useState<readonly string[]>([]);
-  const [editCursorMs, setEditCursorMs] = useState(0);
+  const [editCursorMs, followPosition] = useState(0);
+  const cursorMoved = useRef(onCursorMove);
+  useEffect(() => {
+    cursorMoved.current = onCursorMove;
+  }, [onCursorMove]);
+  /** Puts the edit cursor (the position line) at a point the user chose. */
+  const setEditCursorMs = useCallback((ms: number) => {
+    followPosition(ms);
+    cursorMoved.current?.(ms);
+  }, []);
   const [snap, setSnap] = useState<SnapMode>("beat");
+  const pendingImport = useRef<PendingImport | null>(null);
   const history = useRef<{ past: AudioLanesSettings[]; future: AudioLanesSettings[] }>({
     past: [],
     future: [],
@@ -138,6 +177,12 @@ export function useAudioLanes(options: AudioLanesOptions) {
   };
   const [lastEditAt, setLastEditAt] = useState(0);
   const clipboard = useRef<AudioClip[]>([]);
+  /** How many clips are on the clipboard (state, so Paste can tell whether it has anything). */
+  const [clipboardSize, setClipboardSize] = useState(0);
+  const position = useRef(positionMs);
+  useEffect(() => {
+    position.current = positionMs;
+  }, [positionMs]);
   const loading = useRef(new Set<string>());
 
   const commit = useCallback(
@@ -256,10 +301,10 @@ export function useAudioLanes(options: AudioLanesOptions) {
    */
   const importFiles = useCallback(
     async (paths: readonly string[], laneId?: string, atMs?: number) => {
-      if (!ensureEngine()) return;
-      const engine = loader();
+      const engine = ensureEngine() && canLoad ? loader() : null;
       if (!engine) {
-        toast.info("The audio lanes load once the effects engine is ready. Try again in a moment.");
+        // The engine is starting (or about to): the files open as soon as it is ready.
+        pendingImport.current = { paths, laneId, atMs };
         return;
       }
       let at = snapTo(atMs ?? editCursorMs);
@@ -295,52 +340,89 @@ export function useAudioLanes(options: AudioLanesOptions) {
         if (laneId) at = startAt + info.durationMs;
       }
     },
-    [apply, editCursorMs, ensureEngine, loader, snapTo],
+    [apply, canLoad, editCursorMs, ensureEngine, loader, snapTo],
+  );
+  /** Shows the file chooser and opens the chosen file (on `laneId` at `atMs`, else a new lane). */
+  const chooseFile = useCallback(
+    async (laneId?: string, atMs?: number) => {
+      let file: string | null;
+      try {
+        file = await pickAudioFile();
+      } catch (error) {
+        toast.error("Couldn't show the Open dialog", { description: errorText(error) });
+        return;
+      }
+      if (file) await importFiles([file], laneId, atMs);
+    },
+    [importFiles],
+  );
+  // Files opened while the engine was starting open once it is ready.
+  useEffect(() => {
+    const pending = pendingImport.current;
+    if (!pending || !canLoad || !loader()) return;
+    pendingImport.current = null;
+    void importFiles(pending.paths, pending.laneId, pending.atMs);
+  }, [canLoad, epoch, importFiles, loader]);
+
+  /** Where Split and Paste act: the position line (the playhead while playing). */
+  const lineMs = useCallback(() => position.current?.() ?? editCursorMs, [editCursorMs]);
+
+  /**
+   * Splits clips at a point (default: the position line), on a zero crossing: `ids`, else the
+   * selected clips, else every clip under the line.
+   */
+  const splitAt = useCallback(
+    async (ids: readonly string[], at: number) => {
+      const a = audioRef.current;
+      const targets = a.lanes
+        .flatMap((l) => l.clips)
+        .filter(
+          (c) => (ids.length === 0 || ids.includes(c.id)) && c.startMs < at && clipEndMs(c) > at,
+        );
+      const cuts = await Promise.all(
+        targets.map(async (c) => {
+          const take = activeTake(c);
+          // The file position under the cursor is simple to map back only for a plain clip; a
+          // reversed or stretched one is cut where the cursor is (its cut still gets a fade).
+          if (c.reversed || c.stretch.length) return { id: c.id, at };
+          const sourceMs = take.offsetMs + (at - c.startMs) * c.playrate;
+          const crossing = await audioZeroCrossing(take.sourceId, sourceMs).catch(() => sourceMs);
+          return { id: c.id, at: c.startMs + (crossing - take.offsetMs) / c.playrate };
+        }),
+      );
+      apply((current) => cuts.reduce((next, cut) => splitClip(next, cut.id, cut.at), current));
+    },
+    [apply],
   );
 
-  /** Splits the selected clips (or every clip under the cursor) at the edit cursor, on a zero crossing. */
-  const splitAtCursor = useCallback(async () => {
-    const a = audioRef.current;
-    const at = editCursorMs;
-    const targets = a.lanes
-      .flatMap((l) => l.clips)
-      .filter(
-        (c) =>
-          (selection.length === 0 || selection.includes(c.id)) &&
-          c.startMs < at &&
-          clipEndMs(c) > at,
+  const commands = useMemo(() => {
+    // Each command acts on the clips given, else on the selection.
+    const copy = (ids: readonly string[] = selection) => {
+      clipboard.current = audioRef.current.lanes.flatMap((l) =>
+        l.clips.filter((c) => ids.includes(c.id)),
       );
-    const cuts = await Promise.all(
-      targets.map(async (c) => {
-        const take = activeTake(c);
-        // The file position under the cursor is simple to map back only for a plain clip; a
-        // reversed or stretched one is cut where the cursor is (its cut still gets a fade).
-        if (c.reversed || c.stretch.length) return { id: c.id, at };
-        const sourceMs = take.offsetMs + (at - c.startMs) * c.playrate;
-        const crossing = await audioZeroCrossing(take.sourceId, sourceMs).catch(() => sourceMs);
-        return { id: c.id, at: c.startMs + (crossing - take.offsetMs) / c.playrate };
-      }),
-    );
-    apply((current) => cuts.reduce((next, cut) => splitClip(next, cut.id, cut.at), current));
-  }, [apply, editCursorMs, selection]);
-
-  const commands = useMemo(
-    () => ({
+      setClipboardSize(clipboard.current.length);
+    };
+    const remove = (ids: readonly string[] = selection) => {
+      apply((a) => removeClips(a, ids));
+      setSelection((s) => s.filter((id) => !ids.includes(id)));
+    };
+    return {
       addLane: () => apply((a) => addLane(a)),
-      split: () => void splitAtCursor(),
-      glue: () => apply((a) => glueClips(a, selection)),
-      duplicate: () => apply((a) => duplicateClips(a, selection)),
-      remove: () => {
-        apply((a) => removeClips(a, selection));
-        setSelection([]);
+      /** Splits at `atMs` (default: the position line). */
+      split: (ids: readonly string[] = selection, atMs?: number) =>
+        void splitAt(ids, atMs ?? lineMs()),
+      glue: (ids: readonly string[] = selection) => apply((a) => glueClips(a, ids)),
+      duplicate: (ids: readonly string[] = selection) => apply((a) => duplicateClips(a, ids)),
+      remove,
+      copy,
+      cut: (ids: readonly string[] = selection) => {
+        copy(ids);
+        remove(ids);
       },
-      copy: () => {
-        clipboard.current = audioRef.current.lanes.flatMap((l) =>
-          l.clips.filter((c) => selection.includes(c.id)),
-        );
-      },
-      paste: (laneId: string) =>
-        apply((a) => pasteClips(a, laneId, clipboard.current, editCursorMs)),
+      /** Pastes on a lane at `atMs` (default: the position line). */
+      paste: (laneId: string, atMs?: number) =>
+        apply((a) => pasteClips(a, laneId, clipboard.current, atMs ?? lineMs())),
       /** Moves the selected clips by one beat (a bar with `big`; 10 ms with snap off). */
       nudge: (direction: -1 | 1, big: boolean) =>
         apply((a) =>
@@ -354,9 +436,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
             return moveClip(next, id, found.clip.startMs + direction * step);
           }, a),
         ),
-    }),
-    [apply, editCursorMs, grid, selection, snap, splitAtCursor],
-  );
+    };
+  }, [apply, grid, lineMs, selection, snap, splitAt]);
 
   return {
     audio,
@@ -366,6 +447,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
     select: setSelection,
     editCursorMs,
     setEditCursorMs,
+    /** Moves the edit cursor along with playback (without moving playback again). */
+    followPosition,
     snap,
     setSnap,
     snapTo,
@@ -377,7 +460,11 @@ export function useAudioLanes(options: AudioLanesOptions) {
     canUndo: steps.undo > 0,
     canRedo: steps.redo > 0,
     lastEditAt,
+    canPaste: clipboardSize > 0,
+    /** Where the position line is now (the playhead while playing). */
+    lineMs,
     importFiles,
+    chooseFile,
     commands,
   };
 }

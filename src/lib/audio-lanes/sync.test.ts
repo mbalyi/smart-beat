@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_AUDIO } from "@/lib/audio-lanes/model";
+import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 import {
   barAtTimelineMs,
+  barsToFitAudio,
   clearSync,
   moveSyncPoint,
   resetPadding,
@@ -159,5 +160,28 @@ describe("review regressions (sync)", () => {
       { bar: 0, ms: 0 },
       { bar: 2, ms: 4000 },
     ]);
+  });
+});
+
+describe("audio longer than the score", () => {
+  // The app's grid: four bars of 2 s and the song's end at 8 s.
+  const scored: SongGrid = { barTimes: [0, 2000, 4000, 6000, 8000], beats: [4, 4, 4, 4] };
+  const withClip = (lengthMs: number) => ({
+    ...EMPTY_AUDIO,
+    sources: [{ id: "s", name: "a.wav", ext: "wav", embedded: true }],
+    lanes: [{ ...newLane("A", "a"), clips: [newClip("s", "a.wav", 0, lengthMs, "c")] }],
+  });
+
+  it("places a point past the last bar on bars as long as the last one", () => {
+    expect(barAtTimelineMs(EMPTY_AUDIO, scored, 12_000)).toBeCloseTo(6);
+    expect(timelineMsAtBar(EMPTY_AUDIO, scored, 6.5)).toBeCloseTo(13_000);
+    expect(songMsAt(scored, 7, 2)).toBe(15_000);
+  });
+
+  it("counts the bars the score lacks for its audio", () => {
+    expect(barsToFitAudio(withClip(7000), scored, 4)).toBe(0);
+    expect(barsToFitAudio(withClip(8000), scored, 4)).toBe(0);
+    expect(barsToFitAudio(withClip(12_500), scored, 4)).toBe(3);
+    expect(barsToFitAudio(EMPTY_AUDIO, scored, 4)).toBe(0);
   });
 });

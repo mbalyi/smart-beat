@@ -93,6 +93,7 @@ export function LaneEditorDock({
   const [height, setHeight] = useState(280);
   const scroller = useRef<HTMLDivElement>(null);
   const [byHand, setByHand] = useState(false);
+  const autoScrolled = useRef(false);
   const update = (patch: Partial<AudioLane>) => apply((a) => updateLane(a, lane.id, patch));
   const color = laneColor(index, lane.color);
   const sources = audio.sources.filter((s) =>
@@ -239,7 +240,9 @@ export function LaneEditorDock({
         ref={scroller}
         className="relative min-h-0 flex-1 overflow-auto"
         onScroll={() => {
-          if (playing) setByHand(true);
+          // Following playback scrolls too: only the user's own scroll stops the following.
+          if (autoScrolled.current) autoScrolled.current = false;
+          else if (playing) setByHand(true);
         }}
       >
         <EditorTimeline
@@ -249,7 +252,10 @@ export function LaneEditorDock({
           grid={grid}
           pxPerSecond={zoom}
           scoreBpmAt={scoreBpmAt}
-          playhead={byHand ? undefined : playhead}
+          playhead={playhead}
+          follow={playing && !byHand}
+          scroller={scroller}
+          onAutoScroll={() => (autoScrolled.current = true)}
           selectedBars={selectedBars}
           onSelectBars={onSelectBars}
           onSeekBar={onSeekBar}

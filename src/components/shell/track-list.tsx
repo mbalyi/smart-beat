@@ -566,6 +566,9 @@ export function TrackList({
     onRecord: () => void;
     onEffects: (laneIndex: number) => void;
     onOpenEditor: (laneId: string) => void;
+    /** Bars the score lacks for its audio (playback stops at the score's end). */
+    missingBars: number;
+    onAddMissingBars: () => void;
   };
 }) {
   const [lanes, setLanes] = useState<Record<number, AutomationLaneKind>>({});
@@ -1119,6 +1122,9 @@ export function TrackList({
                 />
               );
             })}
+          {audio && audio.missingBars > 0 && (
+            <AudioPastScore bars={audio.missingBars} onAdd={audio.onAddMissingBars} />
+          )}
           {monitor && mix.monitor && (
             <MonitorRow
               monitor={mix.monitor}
@@ -1194,5 +1200,25 @@ export function TrackList({
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Audio runs past the score: the lanes show all of it, but playback follows the score and stops
+ * at its last bar. One click adds the bars the audio needs.
+ */
+function AudioPastScore({ bars, onAdd }: { bars: number; onAdd: () => void }) {
+  const what = bars === 1 ? "1 bar" : `${bars} bars`;
+  return (
+    <li className="flex border-b" data-testid="audio-past-score">
+      <div className="sticky left-0 z-10 flex w-[30rem] shrink-0 items-center gap-2 border-r bg-card px-3 py-1.5 text-xs">
+        <span className="min-w-0 flex-1 text-muted-foreground">
+          The audio runs {what} past the end of the score. Playback stops at the last bar.
+        </span>
+        <Button variant="outline" size="xs" onClick={onAdd}>
+          Add {what}
+        </Button>
+      </div>
+    </li>
   );
 }

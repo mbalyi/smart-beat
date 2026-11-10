@@ -15,6 +15,7 @@ import { useRef, useState, type PointerEvent } from "react";
 import { ClipProperties } from "@/components/audio-lanes/clip-properties";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
+import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { SpectrogramView } from "@/components/audio-lanes/spectrogram-view";
 import type { AudioLanesController, SnapMode } from "@/components/audio-lanes/use-audio-lanes";
 import { gridStepMs } from "@/components/audio-lanes/use-audio-lanes";
@@ -539,52 +540,54 @@ function StudioLane({
         </div>
       </div>
       {!lane.folder && (
-        <div
-          role="presentation"
-          className="relative flex-1"
-          data-lane-id={lane.id}
-          onPointerDown={(e) => {
-            if (e.target !== e.currentTarget) return;
-            lanes.setEditCursorMs(
-              lanes.snapTo(toMs(e.clientX - e.currentTarget.getBoundingClientRect().left)),
-            );
-            lanes.select([]);
-          }}
-        >
-          {range && inRange && (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 bg-primary/15"
-              style={{ left: toX(range.startMs), width: toX(range.endMs - range.startMs) }}
-            />
-          )}
-          {lane.clips.map((clip) => (
-            <ClipView
-              key={clip.id}
-              clip={clip}
-              laneName={lane.name}
-              color={color}
-              info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
-              missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}
-              selected={lanes.selection.includes(clip.id)}
-              toX={toX}
-              toMs={toMs}
-              snap={lanes.snapTo}
-              onSelect={(additive) =>
-                lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
-              }
-              onDrop={onDrop}
-              onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
-              onOpen={() => lanes.select([clip.id])}
-              onCursor={lanes.setEditCursorMs}
-            />
-          ))}
-          {lane.clips.some((c) => c.takes.length > 1) && (
-            <span className="pointer-events-none absolute right-1 bottom-0.5 text-[10px] text-muted-foreground">
-              takes
-            </span>
-          )}
-        </div>
+        <LaneContextMenu lanes={lanes} lane={lane} toMs={toMs}>
+          <div
+            role="presentation"
+            className="relative flex-1"
+            data-lane-id={lane.id}
+            onPointerDown={(e) => {
+              if (e.target !== e.currentTarget) return;
+              lanes.setEditCursorMs(
+                lanes.snapTo(toMs(e.clientX - e.currentTarget.getBoundingClientRect().left)),
+              );
+              lanes.select([]);
+            }}
+          >
+            {range && inRange && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 bg-primary/15"
+                style={{ left: toX(range.startMs), width: toX(range.endMs - range.startMs) }}
+              />
+            )}
+            {lane.clips.map((clip) => (
+              <ClipView
+                key={clip.id}
+                clip={clip}
+                laneName={lane.name}
+                color={color}
+                info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
+                missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}
+                selected={lanes.selection.includes(clip.id)}
+                toX={toX}
+                toMs={toMs}
+                snap={lanes.snapTo}
+                onSelect={(additive) =>
+                  lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
+                }
+                onDrop={onDrop}
+                onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
+                onOpen={() => lanes.select([clip.id])}
+                onCursor={lanes.setEditCursorMs}
+              />
+            ))}
+            {lane.clips.some((c) => c.takes.length > 1) && (
+              <span className="pointer-events-none absolute right-1 bottom-0.5 text-[10px] text-muted-foreground">
+                takes
+              </span>
+            )}
+          </div>
+        </LaneContextMenu>
       )}
       {lane.folder && <div className="flex-1" aria-hidden="true" />}
     </div>
@@ -660,8 +663,11 @@ function StudioPlayhead({ store, toX }: { store: PlayheadStore; toX: (bar: numbe
   return (
     <span
       aria-hidden="true"
-      className="pointer-events-none absolute top-10 bottom-0 z-20 w-0.5 -translate-x-1/2 bg-foreground shadow-[0_0_0_1px_var(--background)]"
+      data-testid="position-line"
+      className="pointer-events-none absolute top-10 bottom-0 z-20 w-0.5 -translate-x-1/2 bg-primary shadow-[0_0_0_1px_var(--background)]"
       style={{ left: toX(bar) }}
-    />
+    >
+      <span className="absolute -top-px left-1/2 size-3 -translate-x-1/2 bg-primary [clip-path:polygon(0_0,100%_0,50%_100%)]" />
+    </span>
   );
 }

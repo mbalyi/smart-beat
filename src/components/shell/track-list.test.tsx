@@ -58,7 +58,13 @@ function renderLanes({
   changes = [] as MixerAction[],
   playhead,
   playing = false,
+  clipMs = 3000,
+  missingBars = 0,
+  onAddMissingBars = vi.fn(),
 }: {
+  clipMs?: number;
+  missingBars?: number;
+  onAddMissingBars?: () => void;
   onAdd?: () => void;
   onRecord?: () => void;
   onOpenEditor?: (laneId: string) => void;
@@ -72,7 +78,7 @@ function renderLanes({
     ...EMPTY_AUDIO,
     sources: [{ id: "s", name: "take.mp3", ext: "mp3", embedded: false }],
     lanes: [
-      { ...newLane("Vocals", "lane-a"), clips: [newClip("s", "take.mp3", 0, 3000, "clip-a")] },
+      { ...newLane("Vocals", "lane-a"), clips: [newClip("s", "take.mp3", 0, clipMs, "clip-a")] },
       newLane("Drums", "lane-b"),
     ],
   };
@@ -118,7 +124,16 @@ function renderLanes({
         saved={false}
         playing={playing}
         playhead={playhead}
-        audio={{ lanes, grid, onAdd, onRecord, onEffects, onOpenEditor }}
+        audio={{
+          lanes,
+          grid,
+          onAdd,
+          onRecord,
+          onEffects,
+          onOpenEditor,
+          missingBars,
+          onAddMissingBars,
+        }}
       />
     );
   }
@@ -578,6 +593,26 @@ describe("TrackList", () => {
     ).toHaveStyle({
       backgroundColor: "var(--stem-drums)",
     });
+  });
+
+  it("draws all of a clip that runs past the score, and offers the bars it needs", async () => {
+    const onAddMissingBars = vi.fn();
+    // The test grid has 2 s bars: a clip 6 bars longer than the score.
+    const bars = parseScore(fixtureBytes("practice-song.gp")).score.masterBars.length;
+    const { user, container } = renderLanes({
+      clipMs: (bars + 6) * 2000,
+      missingBars: 6,
+      onAddMissingBars,
+    });
+    const row = within(container).getByTestId("lane-row-lane-a");
+    const timeline = row.querySelector("[data-lane-id]") as HTMLElement;
+    expect(timeline).toHaveStyle({ width: `${(bars + 6) * BAR_PX}px` });
+    expect(within(row).getByTestId("past-score")).toHaveStyle({ left: `${bars * BAR_PX}px` });
+    const notice = within(container).getByTestId("audio-past-score");
+    expect(notice).toHaveTextContent("The audio runs 6 bars past the end of the score");
+    await user.click(within(notice).getByRole("button", { name: "Add 6 bars" }));
+    expect(onAddMissingBars).toHaveBeenCalled();
+    await expectNoA11yViolations();
   });
 
   it("draws a playhead in the bars of every track and every lane while playing", () => {
