@@ -1521,6 +1521,39 @@ export class ScoreEditor {
     });
   }
 
+  /**
+   * Inserts a rest before or after the cursor's beat (#228), as long as the value the palette
+   * shows (the beat's own, or the chosen value in an empty bar), and puts the cursor on it. In
+   * an empty bar its whole-bar rest becomes one rest of that value. The bar may end up short or
+   * long: that is checked on play and save, not while editing.
+   */
+  insertRest(where: "before" | "after") {
+    this.run(
+      where === "before" ? "Insert rest before" : "Insert rest after",
+      this.cursorTargets,
+      () => {
+        const current = this.writableBeat();
+        this._selection = null;
+        if (isPlaceholder(current)) {
+          current.duration = this._entryDuration;
+          current.dots = 0;
+          current.tupletNumerator = 1;
+          current.tupletDenominator = 1;
+          current.isEmpty = false;
+          this._cursor.beat = current.index;
+          return;
+        }
+        const beat = newBeat(current.duration, current.dots, {
+          numerator: current.tupletNumerator,
+          denominator: current.tupletDenominator,
+        });
+        const at = current.index + (where === "after" ? 1 : 0);
+        current.voice.beats.splice(at, 0, beat);
+        this._cursor.beat = at;
+      },
+    );
+  }
+
   /** Appends a rest after the cursor's beat (moving right at the end of a bar). */
   private addBeatAfterCursor() {
     this.run("Add beat", this.cursorTargets, () => {

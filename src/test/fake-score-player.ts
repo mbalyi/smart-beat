@@ -1,6 +1,7 @@
 import { act } from "@testing-library/react";
 import { vi } from "vitest";
 
+import type { Beat } from "@/lib/score/model";
 import type { Rect, ScorePlayerCallbacks, ScorePlayerOptions } from "@/lib/score/player";
 
 /**
@@ -30,6 +31,7 @@ export class FakeScorePlayer {
   setSoundFont = vi.fn();
   playPause = vi.fn();
   playFrom = vi.fn();
+  beatAt = vi.fn((): Beat | null => null);
   stop = vi.fn();
   pause = vi.fn();
   renderAudio = vi.fn(async (onProgress?: (fraction: number) => void) => {

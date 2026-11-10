@@ -161,7 +161,8 @@ export function useEditorKeys(
       case "i":
       case "I":
         handled();
-        editor.insertBeat();
+        // A rest before the beat, or after it with Shift (#228).
+        editor.insertRest(event.shiftKey ? "after" : "before");
         return;
       case "t":
       case "T":
@@ -224,7 +225,8 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
   { keys: ["R"], spoken: "R", label: "Make a rest" },
   { keys: ["T"], spoken: "T", label: "Tie to the previous note" },
   { keys: ["V"], spoken: "V", label: "Switch between voice 1 and 2" },
-  { keys: ["I"], spoken: "I", label: "Insert a beat" },
+  { keys: ["I"], spoken: "I", label: "Insert a rest before the beat" },
+  { keys: ["⇧", "I"], spoken: "Shift+I", label: "Insert a rest after the beat" },
   { keys: ["H"], spoken: "H", label: "Hammer-on / pull-off" },
   { keys: ["S"], spoken: "S", label: "Slide to the next note" },
   { keys: ["P"], spoken: "P", label: "Palm mute" },

@@ -169,6 +169,49 @@ describe("ScoreEditor: note entry", () => {
     expect(frets(editor)).toEqual(["6:0", "r", "6:3", "r", "r"]);
   });
 
+  describe("insert rest before / after (#228)", () => {
+    it("inserts a rest of the beat's note value before it, the cursor on the new rest", () => {
+      const { editor } = newSong();
+      editor.typeDigit(1);
+      editor.moveBeat(1);
+      editor.typeDigit(2);
+      editor.insertRest("before");
+      expect(frets(editor)).toEqual(["6:1", "r", "6:2"]);
+      expect(editor.cursor).toMatchObject({ bar: 0, beat: 1 });
+      expect(editor.undoLabel).toBe("Insert rest before");
+    });
+
+    it("inserts a rest after the beat, the cursor on the new rest", () => {
+      const { editor } = newSong();
+      editor.setDuration(Duration.Sixteenth);
+      editor.typeDigit(1);
+      editor.insertRest("after");
+      expect(frets(editor)).toEqual(["6:1", "r"]);
+      expect(voice(editor, 0).beats[1]!.duration).toBe(Duration.Sixteenth);
+      expect(editor.cursor).toMatchObject({ bar: 0, beat: 1 });
+    });
+
+    it("turns an empty bar's rest into one rest of the chosen value", () => {
+      const { editor } = newSong();
+      editor.setDuration(Duration.Sixteenth);
+      editor.insertRest("after");
+      expect(frets(editor)).toEqual(["r"]);
+      expect(voice(editor, 0).beats[0]!.duration).toBe(Duration.Sixteenth);
+    });
+
+    it("is undone in one step and clears the selection", () => {
+      const { editor } = newSong();
+      editor.typeDigit(1);
+      editor.moveBeat(1);
+      editor.typeDigit(2);
+      editor.moveBeat(-1, true);
+      editor.insertRest("after");
+      expect(editor.selection).toBeNull();
+      editor.undo();
+      expect(frets(editor)).toEqual(["6:1", "6:2"]);
+    });
+  });
+
   it("keeps editing a bar that is too long: notes and inserted rests (#228)", () => {
     const { editor } = newSong();
     editor.typeDigit(1);

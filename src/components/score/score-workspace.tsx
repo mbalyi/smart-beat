@@ -2503,6 +2503,17 @@ export function ScoreWorkspace({
     onCutBar: (at) => editor.cutBar(at),
     onDeleteBar: (at) => editor.deleteBar(at),
     onPasteBarsAfter: (at) => editor.pasteBarsAfter(at),
+    onInsertRest: (where, beat) => {
+      // A right-clicked beat of this track becomes the cursor's beat first (#228).
+      if (beat && beat.voice.bar.staff.track === trackObject) {
+        editor.setCursorTo({
+          bar: beat.voice.bar.index,
+          beat: beat.index,
+          voice: beat.voice.index,
+        });
+      }
+      editor.insertRest(where);
+    },
     onLoopSelection: () => {
       const range = selectedBars();
       if (!range) return;
@@ -2929,6 +2940,10 @@ export function ScoreWorkspace({
             barAt={(x, y) => {
               const rect = surfaceRef.current?.getBoundingClientRect();
               return rect ? (playerRef.current?.barAt(x - rect.left, y - rect.top) ?? null) : null;
+            }}
+            beatAt={(x, y) => {
+              const rect = surfaceRef.current?.getBoundingClientRect();
+              return rect ? (playerRef.current?.beatAt(x - rect.left, y - rect.top) ?? null) : null;
             }}
             sections={sections}
             actions={scoreMenuActions}

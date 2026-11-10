@@ -1369,6 +1369,15 @@ export class ScorePlayer {
   }
 
   /**
+   * The beat drawn at a point of the score, in the drawing's own pixels (a beat of the drum tab
+   * is its drum beat), or null. For the score's right-click menu (#228).
+   */
+  beatAt(x: number, y: number): Beat | null {
+    const beat = this.api.boundsLookup?.getBeatAtPos(x, y);
+    return beat ? realBeatOf(beat) : null;
+  }
+
+  /**
    * The bar drawn at a point of the score, in the drawing's own pixels (from the top left of
    * the surface), or null between the bars. For the score's right-click menu (#83): alphaTab
    * only reports left clicks.

@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
+  BetweenVerticalEndIcon,
+  BetweenVerticalStartIcon,
   ClipboardCopyIcon,
   ClipboardPasteIcon,
   GaugeIcon,
@@ -20,6 +22,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import type { Beat } from "@/lib/score/model";
 import { describeRange } from "@/lib/score/practice";
 import { sectionAt, type SongSection } from "@/lib/score/structure";
 
@@ -47,6 +50,11 @@ export interface ScoreMenuActions {
   onDeleteBar: (bar: number) => void;
   /** Inserts the copied bars as new bars after this one. */
   onPasteBarsAfter: (bar: number) => void;
+  /**
+   * Edit Mode: a rest before or after the beat that was right-clicked (null: the edit cursor's
+   * beat), as long as the note value the palette shows (#228).
+   */
+  onInsertRest: (where: "before" | "after", beat: Beat | null) => void;
 }
 
 /** The bars a score selection covers (0-based, inclusive). */
@@ -63,6 +71,7 @@ export interface SelectionBars {
 export function ScoreContextMenu({
   children,
   barAt,
+  beatAt = () => null,
   sections,
   actions,
   selection = null,
@@ -72,6 +81,8 @@ export function ScoreContextMenu({
   children: ReactNode;
   /** The bar (0-based) under a point of the window, or null. */
   barAt: (clientX: number, clientY: number) => number | null;
+  /** The beat under a point of the window, or null (alphaTab only reports left clicks). */
+  beatAt?: (clientX: number, clientY: number) => Beat | null;
   sections: readonly SongSection[];
   actions: ScoreMenuActions;
   /** The selected range: its actions are offered while there is one. */
@@ -82,6 +93,7 @@ export function ScoreContextMenu({
   canPaste?: boolean;
 }) {
   const [bar, setBar] = useState<number | null>(null);
+  const [beat, setBeat] = useState<Beat | null>(null);
   const section = bar === null ? null : sectionAt(sections, bar);
   const on = bar !== null;
   const run = (action: (bar: number) => void) => () => {
@@ -93,7 +105,10 @@ export function ScoreContextMenu({
       <ContextMenuTrigger
         asChild
         // Which bar was clicked, before the menu opens.
-        onContextMenu={(event) => setBar(barAt(event.clientX, event.clientY))}
+        onContextMenu={(event) => {
+          setBar(barAt(event.clientX, event.clientY));
+          setBeat(beatAt(event.clientX, event.clientY));
+        }}
       >
         <div className="contents">{children}</div>
       </ContextMenuTrigger>
@@ -137,6 +152,14 @@ export function ScoreContextMenu({
         {editing && on && (
           <>
             <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => actions.onInsertRest("before", beat)}>
+              <BetweenVerticalStartIcon />
+              Insert rest before
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => actions.onInsertRest("after", beat)}>
+              <BetweenVerticalEndIcon />
+              Insert rest after
+            </ContextMenuItem>
             <ContextMenuItem onSelect={run(actions.onInsertBarBefore)}>
               <PlusIcon />
               Insert bar before

@@ -1,9 +1,10 @@
 import { fireEvent, screen } from "@testing-library/react";
 
 import { ScoreContextMenu, type ScoreMenuActions } from "@/components/score/score-context-menu";
+import { newBeat, type Beat } from "@/lib/score/model";
 import { renderWithProviders } from "@/test/render";
 
-function setup(props: { editing?: boolean; canPaste?: boolean } = {}) {
+function setup(props: { editing?: boolean; canPaste?: boolean; beatAt?: () => Beat | null } = {}) {
   const actions = Object.fromEntries(
     [
       "onPlayFrom",
@@ -24,6 +25,7 @@ function setup(props: { editing?: boolean; canPaste?: boolean } = {}) {
       "onCutBar",
       "onDeleteBar",
       "onPasteBarsAfter",
+      "onInsertRest",
     ].map((name) => [name, vi.fn()]),
   ) as unknown as ScoreMenuActions;
   const ui = renderWithProviders(
@@ -52,6 +54,23 @@ describe("ScoreContextMenu: bars (Edit Mode)", () => {
     expect(screen.queryByRole("menuitem", { name: "Paste bar after" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "Insert bar after" }));
     expect(actions.onInsertBarAfter).toHaveBeenCalledWith(2);
+  });
+
+  it("inserts a rest before or after the right-clicked beat (#228)", async () => {
+    const beat = newBeat(4);
+    const { user, actions } = setup({ editing: true, beatAt: () => beat });
+    await user.click(await screen.findByRole("menuitem", { name: "Insert rest before" }));
+    expect(actions.onInsertRest).toHaveBeenCalledWith("before", beat);
+
+    fireEvent.contextMenu(screen.getByTestId("score"));
+    await user.click(await screen.findByRole("menuitem", { name: "Insert rest after" }));
+    expect(actions.onInsertRest).toHaveBeenLastCalledWith("after", beat);
+  });
+
+  it("offers no rest insertion outside Edit Mode", async () => {
+    setup();
+    await screen.findAllByRole("menuitem");
+    expect(screen.queryByRole("menuitem", { name: "Insert rest before" })).not.toBeInTheDocument();
   });
 
   it("runs each action on the clicked bar", async () => {
