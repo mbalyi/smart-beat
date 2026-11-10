@@ -36,6 +36,9 @@ function keepInView(element: HTMLElement, viewport: HTMLElement) {
     },
   );
   if (next) viewport.scrollTo({ ...next, behavior: "instant" });
+  // Then the panels around the score bring it on screen, as in a small window, where alphaTab
+  // draws nothing that is out of sight. The score itself no longer moves: the cursor is seen.
+  element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
 }
 
 /**
