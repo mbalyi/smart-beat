@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from "react";
 
+import { slipByStep } from "@/components/audio-lanes/clip-copy-slip";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { updateClip } from "@/lib/audio-lanes/edits";
 import { findClip } from "@/lib/audio-lanes/edits";
@@ -7,6 +8,9 @@ import { findClip } from "@/lib/audio-lanes/edits";
 /** The clip shortcuts, as the shortcut list shows them. */
 export const CLIP_SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: "← →", action: "Nudge by a beat (Shift: a bar)" },
+  { keys: "⌥← ⌥→", action: "Slip the audio inside the clip by a beat (⌥⇧: a bar)" },
+  { keys: "⌘-drag", action: "Copy the clip to where it is dropped" },
+  { keys: "⌥-drag", action: "Slip the audio inside the clip" },
   { keys: "S", action: "Split at the position line" },
   { keys: "[ ]", action: "Trim the start or the end to the position line" },
   { keys: "G", action: "Glue the selected clips" },
@@ -45,7 +49,9 @@ export function handleClipKey(
       return found ? updateClip(a, clipId, { [field]: !found.clip[field] }) : a;
     });
   let used = true;
-  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+  if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    slipByStep(lanes, clipId, event.key === "ArrowLeft" ? -1 : 1, event.shiftKey);
+  } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
     ensureSelected();
     lanes.commands.nudge(event.key === "ArrowLeft" ? -1 : 1, event.shiftKey);
   } else if (event.key === "Delete" || event.key === "Backspace") lanes.commands.remove(ids);

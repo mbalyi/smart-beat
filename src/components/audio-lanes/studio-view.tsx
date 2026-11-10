@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useRef, useState, type PointerEvent } from "react";
 
+import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
@@ -104,6 +105,7 @@ export function StudioView({
     setPanelFocus((n) => n + 1);
   };
   const drop = (drag: ClipDrag) => {
+    if (dropCopyOrSlip(lanes, drag)) return;
     if (drag.kind === "move")
       apply((a) => moveClip(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
     else apply((a) => trimClip(a, drag.clipId, drag.edge, drag.atMs));
