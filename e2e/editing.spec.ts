@@ -5,6 +5,7 @@ import {
   expectTab,
   newSong,
   openSong,
+  playedSeconds,
   scoreRegion,
   tabNumbers,
   test,
@@ -147,6 +148,36 @@ test.describe("note entry and editing (#9)", () => {
     // alphaTab draws voice 2 first.
     await expect.poll(async () => (await tabNumbers(app)).sort()).toEqual(["0", "2"]);
     await expect(app.getByRole("button", { name: "Voice, Voice 2" })).toBeVisible();
+  });
+
+  test("plays from the edit cursor, and only the selected beats (#228)", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("button", { name: "Edit" }).click();
+    await waitForAnimations(app); // the palette slides in and moves the score
+    await expect(scoreRegion(app)).toBeFocused();
+    const bar = app.getByRole("spinbutton", { name: "Bar" });
+
+    // Bar 3 starts 8 s in (two 4/4 bars at 60 BPM).
+    await app.keyboard.press("ControlOrMeta+ArrowRight");
+    await app.keyboard.press("ControlOrMeta+ArrowRight");
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(bar).toHaveValue("3");
+    expect(await playedSeconds(app)).toBeGreaterThanOrEqual(8);
+    await app.getByRole("button", { name: "Pause" }).click();
+
+    // Two beats of bar 1 selected: they play (2 s), then playback stops by itself.
+    await scoreRegion(app).focus();
+    await app.keyboard.press("ControlOrMeta+ArrowLeft");
+    await app.keyboard.press("ControlOrMeta+ArrowLeft");
+    await app.keyboard.press("Shift+ArrowRight");
+    await expect(app.getByTestId("edit-selection")).not.toHaveCount(0);
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(bar).toHaveValue("1");
+    await expect(app.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 10_000 });
+    await expect(bar).toHaveValue("1");
+    expect(await playedSeconds(app)).toBeLessThan(4);
   });
 
   test("places the cursor by clicking a note in the score", async ({ app }) => {

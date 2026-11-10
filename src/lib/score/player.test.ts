@@ -1293,6 +1293,120 @@ describe("ScorePlayer", () => {
       expect(callbacks.onRangeSelect).toHaveBeenLastCalledWith(null);
     });
 
+    describe("playing from the edit cursor (#228)", () => {
+      const beatOf = (score: { tracks: Track[] }, bar: number, index: number) =>
+        score.tracks[0]!.staves[0]!.bars[bar]!.voices[0]!.beats[index]!;
+
+      it("starts at the cursor beat and plays on to the end of the song", async () => {
+        const { player, api, score } = await readySetup();
+        player.setEditing(true);
+
+        player.playFrom(beatOf(score, 1, 2));
+
+        expect(api.tickPosition).toBe(3840 + 2 * 960);
+        expect(api.playbackRange).toBeNull();
+        expect(api.playPause).toHaveBeenCalledOnce();
+        expect(player.isPlaying()).toBe(true);
+      });
+
+      it("plays only the selected beats, then stops back at the first one", async () => {
+        const { player, api, score, setPlaying } = await readySetup();
+        player.setEditing(true);
+        const position = (currentTick: number) =>
+          api.playerPositionChanged.trigger({
+            currentTime: 0,
+            endTime: 12_000,
+            currentTick,
+            originalTempo: 60,
+            modifiedTempo: 60,
+          });
+
+        player.playFrom(beatOf(score, 0, 1), beatOf(score, 1, 0));
+        setPlaying(true);
+        expect(api.tickPosition).toBe(960);
+        expect(api.playPause).toHaveBeenCalledOnce();
+
+        // To the end of the last selected beat (a quarter note here), and not one tick more.
+        position(3840 + 959);
+        expect(api.playPause).toHaveBeenCalledOnce();
+        position(3840 + 960);
+        expect(api.playPause).toHaveBeenCalledTimes(2);
+        expect(player.isPlaying()).toBe(false);
+        expect(api.tickPosition).toBe(960);
+        expect(api.playbackRange).toBeNull(); // alphaTab's range is left alone
+
+        // Plain Play afterwards plays on to the end of the song.
+        setPlaying(false);
+        player.playPause();
+        setPlaying(true);
+        position(3840 * 3);
+        expect(api.playPause).toHaveBeenCalledTimes(3);
+        expect(player.isPlaying()).toBe(true);
+      });
+
+      it("forgets the selection when paused before its end", async () => {
+        const { player, api, score, setPlaying } = await readySetup();
+        player.playFrom(beatOf(score, 0, 0), beatOf(score, 0, 1));
+        setPlaying(true);
+        setPlaying(false);
+        player.playPause();
+        setPlaying(true);
+        api.playerPositionChanged.trigger({
+          currentTime: 0,
+          endTime: 12_000,
+          currentTick: 3840,
+          originalTempo: 60,
+          modifiedTempo: 60,
+        });
+        expect(player.isPlaying()).toBe(true);
+      });
+
+      it("keeps looping while a loop is on", async () => {
+        const { player, api, score, setPlaying } = await readySetup();
+        player.setEditing(true);
+        player.setLoop({ start: 0, end: 1 });
+
+        player.playFrom(beatOf(score, 0, 1), beatOf(score, 0, 2));
+        setPlaying(true);
+        api.playerPositionChanged.trigger({
+          currentTime: 0,
+          endTime: 12_000,
+          currentTick: 3840,
+          originalTempo: 60,
+          modifiedTempo: 60,
+        });
+
+        expect(api.playbackRange).toMatchObject({ startTick: 0, endTick: 7680 });
+        expect(api.playPause).toHaveBeenCalledOnce();
+        expect(player.isPlaying()).toBe(true);
+      });
+
+      it("makes the MIDI of the last edits before finding the beat", async () => {
+        const { player, api, score, mix } = await readySetup();
+        player.setEditing(true);
+        player.refresh({ trackIndex: 0, view: { notation: "score-tab", rhythm: false }, mix });
+        expect(api.loadMidiForScore).not.toHaveBeenCalled(); // waits for the typing to pause
+
+        player.playFrom(beatOf(score, 1, 0));
+
+        expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+        expect(api.loadMidiForScore.mock.invocationCallOrder[0]).toBeLessThan(
+          api.tickCache!.getBeatStart.mock.invocationCallOrder[0]!,
+        );
+      });
+
+      it("does nothing while playing or before the sounds are loaded", async () => {
+        const { player, api, score, setPlaying } = await readySetup();
+        setPlaying(true);
+        player.playFrom(beatOf(score, 1, 0));
+        expect(api.playPause).not.toHaveBeenCalled();
+
+        const loading = await setup();
+        loading.player.playFrom(beatOf(loading.score, 1, 0));
+        expect(loading.api.playPause).not.toHaveBeenCalled();
+      });
+    });
+
     it("reports the shown track's beats being played", async () => {
       const { api, score, callbacks, setPlaying } = await readySetup();
       const guitarBeat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;

@@ -29,6 +29,7 @@ export class FakeScorePlayer {
   setFocusCut = vi.fn();
   setSoundFont = vi.fn();
   playPause = vi.fn();
+  playFrom = vi.fn();
   stop = vi.fn();
   pause = vi.fn();
   renderAudio = vi.fn(async (onProgress?: (fraction: number) => void) => {

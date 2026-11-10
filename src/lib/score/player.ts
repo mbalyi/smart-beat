@@ -462,6 +462,7 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
+      if (!this.playing) this.once = null;
       if (this.seekLocked) this.updateInteraction();
       if (this.playing && !this.latencyMeasured && !this.engine) {
         this.latencyMeasured = true;
@@ -478,12 +479,13 @@ export class ScorePlayer {
     // Also fires when a MIDI file is loaded (with the song length). Don't use
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
     // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
-    api.playerPositionChanged.on((e) =>
+    api.playerPositionChanged.on((e) => {
+      this.stopAfterOnce(e.currentTick);
       this.delayer.run(() => {
         this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo);
         this.reportBarPosition(e.currentTick);
-      }),
-    );
+      });
+    });
     // alphaTab leaves slap, pop, tapping, pick strokes and wah silent: make them
     // audible in the MIDI it just generated (its tick lookup is ready by now).
     api.midiLoad.on((file) => {
@@ -1365,6 +1367,44 @@ export class ScorePlayer {
       }
     }
     return null;
+  }
+
+  /**
+   * Edit mode: the selected beats being played once (#228), or null. Watched on the position
+   * events rather than set as alphaTab's playback range: its synthesizer can stall at the end of
+   * a range that does not loop, and the native engine knows no such range.
+   */
+  private once: { startTick: number; endTick: number } | null = null;
+
+  /**
+   * Edit mode (#228): plays from `start` to the end of the song, or, with `end`, only to the end
+   * of that beat, and then stops back at `start`. A loop keeps playing its own bars. Does nothing
+   * while playing or before the sounds are loaded.
+   */
+  playFrom(start: Beat, end: Beat | null = null) {
+    if (!this.ready || this.playing) return;
+    this.flushMidi(); // the beats' ticks come from the MIDI: it must hold the last edits
+    const cache = this.api.tickCache;
+    const startTick = cache?.getBeatStart(start);
+    if (cache == null || startTick === undefined) return;
+    this.once =
+      end && !this.loop
+        ? {
+            startTick,
+            endTick: Math.max(startTick + 1, cache.getBeatStart(end) + end.playbackDuration),
+          }
+        : null;
+    this.seekToBeat(start);
+    this.playPause();
+  }
+
+  /** The selection played once has been heard to its end: stop, back at its start. */
+  private stopAfterOnce(tick: number) {
+    const once = this.once;
+    if (!once || !this.playing || tick < once.endTick) return;
+    this.once = null;
+    this.playPause();
+    this.api.tickPosition = once.startTick;
   }
 
   /** Moves the playback cursor to a beat. */

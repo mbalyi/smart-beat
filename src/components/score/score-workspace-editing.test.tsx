@@ -240,6 +240,50 @@ describe("ScoreWorkspace: editing", () => {
 
     expect(frets(0, 1)[0]).toBe("1:5");
   });
+
+  describe("Play in edit mode (#228)", () => {
+    const beatAt = (song: ScoreDocument, bar: number, index: number) =>
+      song.score.tracks[0]!.staves[0]!.bars[bar]!.voices[0]!.beats[index]!;
+
+    it("starts at the beat under the edit cursor", async () => {
+      const { user, player, song } = await setup({ startEditing: true });
+      await screen.findByRole("toolbar", { name: "Edit" });
+      await waitFor(() => expect(screen.getByRole("region", { name: /^Score:/ })).toHaveFocus());
+      await user.keyboard("{ArrowRight}{ArrowRight}");
+
+      await user.click(screen.getByRole("button", { name: "Play" }));
+
+      expect(player.playFrom).toHaveBeenCalledExactlyOnceWith(beatAt(song, 0, 2), null);
+      expect(player.playPause).not.toHaveBeenCalled();
+    });
+
+    it("plays only the selected beats", async () => {
+      const { user, player, song } = await setup({ startEditing: true });
+      await screen.findByRole("toolbar", { name: "Edit" });
+      await waitFor(() => expect(screen.getByRole("region", { name: /^Score:/ })).toHaveFocus());
+      await user.keyboard("{ArrowRight}{Shift>}{ArrowRight}{ArrowRight}{/Shift}");
+
+      await user.click(screen.getByRole("button", { name: "Play" }));
+
+      expect(player.playFrom).toHaveBeenCalledExactlyOnceWith(
+        beatAt(song, 0, 1),
+        beatAt(song, 0, 3),
+      );
+    });
+
+    it("pauses as before, and plays as before outside edit mode", async () => {
+      const { user, player } = await setup();
+      await user.click(screen.getByRole("button", { name: "Play" }));
+      expect(player.playPause).toHaveBeenCalledOnce();
+      expect(player.playFrom).not.toHaveBeenCalled();
+
+      await startEditing(user);
+      player.emit("onPlayingChange", true);
+      await user.click(screen.getByRole("button", { name: "Pause" }));
+      expect(player.playPause).toHaveBeenCalledTimes(2);
+      expect(player.playFrom).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("ScoreWorkspace: instrument view", () => {

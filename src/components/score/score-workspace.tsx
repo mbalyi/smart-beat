@@ -130,6 +130,7 @@ import {
   type BarProblem,
 } from "@/lib/score/bar-duration";
 import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
+import { editPlaySpan } from "@/lib/score/edit-playback";
 import type { EncodingChoice } from "@/lib/score/encoding";
 import {
   drumKitOf,
@@ -1781,7 +1782,10 @@ export function ScoreWorkspace({
     if (!playing) {
       trackUsage("play_soundfont", soundFontCounterId(getSoundFont(soundFont, soundFonts.fonts)));
     }
-    playerRef.current?.playPause();
+    // Edit mode plays from the edit cursor, or only the selected beats (#228).
+    const span = editing && !playing ? editPlaySpan(editor) : null;
+    if (span) playerRef.current?.playFrom(span.start, span.end);
+    else playerRef.current?.playPause();
   };
   useSpaceToPlay(playPause, ready && active && !recordBusy);
 
