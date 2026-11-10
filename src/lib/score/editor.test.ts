@@ -289,6 +289,43 @@ describe("ScoreEditor: note entry", () => {
     expect(voice(editor).beats[0]!.duration).toBe(Duration.Whole);
   });
 
+  it("deletes several selected rests in one step, and one undo brings them back", () => {
+    const editor = practiceSong();
+    editor.setCursorTo({ bar: 0, beat: 1 });
+    editor.moveBeat(1, true);
+    editor.clearNotes();
+    const before = frets(editor);
+    expect(before.slice(1, 3)).toEqual(["r", "r"]);
+    expect(editor.selection).not.toBeNull();
+
+    editor.deleteAtCursor();
+
+    expect(frets(editor)).toEqual([before[0], before[3]]);
+    expect(editor.selection).toBeNull();
+    expect(editor.cursor).toMatchObject({ bar: 0, beat: 1 });
+    expect(editor.undoLabel).toBe("Delete beats");
+    editor.undo();
+    expect(frets(editor)).toEqual(before);
+  });
+
+  it("deletes a selection of notes and rests together", () => {
+    const editor = practiceSong();
+    editor.setCursorTo({ bar: 0, beat: 1 });
+    editor.clearNotes();
+    const before = frets(editor);
+    expect(before[0]).not.toBe("r");
+    expect(before[1]).toBe("r");
+    editor.setCursorTo({ bar: 0, beat: 0 });
+    editor.moveBeat(1, true);
+    editor.moveBeat(1, true);
+
+    editor.deleteAtCursor();
+
+    expect(frets(editor)).toEqual([before[3]]);
+    editor.undo();
+    expect(frets(editor)).toEqual(before);
+  });
+
   it("adds a bar when moving past the end of the song", () => {
     const { editor, score } = newSong();
     editor.moveBar(1);
