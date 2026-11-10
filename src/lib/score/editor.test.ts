@@ -1192,6 +1192,25 @@ describe("ScoreEditor: drum numbers and rests", () => {
     expect(editor.message).toBe("Hi-Hat (open)");
   });
 
+  it("adds drums typed one after another; replaces only a drum the cursor was put on (#228)", () => {
+    const editor = drumSong();
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(8, 1_100); // snare
+    editor.typeDigit(3, 3_000);
+    editor.typeDigit(6, 3_100); // a kick with it, typed right away: added
+    expect(hits(editor)).toEqual([38, 36]);
+
+    // On the snare's line by choice (Up/Down or a click): the next number replaces it.
+    editor.setCursorTo({ bar: 0, beat: 0, note: voice(editor, 0).beats[0]!.notes[0]! });
+    editor.typeDigit(4, 5_000);
+    editor.typeDigit(9, 5_100);
+    expect(hits(editor)).toEqual([49, 36]);
+    // Typed: the next number adds again.
+    editor.typeDigit(4, 7_000);
+    editor.typeDigit(2, 7_100);
+    expect(hits(editor)).toEqual([49, 36, 42]);
+  });
+
   it("types three-digit numbers, with or without leading zeros", () => {
     const editor = drumSong();
     editor.typeDigit(9, 1_000);
@@ -1244,6 +1263,7 @@ describe("ScoreEditor: drum numbers and rests", () => {
     editor.typeDigit(3, 1_000);
     editor.typeDigit(8, 1_100); // snare: line 4, where the cursor stays
     expect(editor.cursor.line).toBe(4);
+    editor.setCursorTo({ bar: 0, beat: 0, line: 4 }); // the user puts the cursor on the snare
 
     editor.typeDigit(3, 3_000);
     editor.typeDigit(6, 3_100); // a kick typed on the snare's line: it takes the snare's place

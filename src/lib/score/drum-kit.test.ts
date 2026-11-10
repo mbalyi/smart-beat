@@ -97,7 +97,8 @@ describe("drum kits (#229)", () => {
       kitSize,
     );
     const editor = new ScoreEditor(score, 1);
-    editor.enterDrum(38); // the cursor is now on the snare's line
+    editor.enterDrum(38);
+    editor.setCursorTo({ bar: 0, beat: 0, note: firstBeat(score).notes[0]! }); // on the snare
     editor.typeDigit(4, 1_000);
     editor.typeDigit(9, 1_100); // crash: not in the kit yet
     const notes = firstBeat(score).notes;
