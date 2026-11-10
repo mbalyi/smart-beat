@@ -881,8 +881,9 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     const player = FakeScorePlayer.last;
     player.usesNativeEngine = true;
     player.becomeReady();
-    await menu("add-audio-lane");
+    // The file chosen while the engine was switching on opens once it is ready: no second try.
     const row = await screen.findByTestId(/^lane-row-/);
+    expect(screen.getAllByTestId(/^lane-row-/)).toHaveLength(1);
     expect(player.loadSource).toHaveBeenCalledWith({ type: "file", path: "/music/take.mp3" });
     await user.click(within(row).getByRole("button", { name: "Edit the lane take" }));
     const editor = await screen.findByRole("region", { name: "Lane editor: take" });
