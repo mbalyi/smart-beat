@@ -13,6 +13,7 @@ import {
   PanelBottomOpenIcon,
   RepeatIcon,
   ScissorsIcon,
+  ScissorsLineDashedIcon,
   SplitIcon,
   Trash2Icon,
   UngroupIcon,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { useState, type MouseEvent, type ReactElement } from "react";
 
+import { RemoveSilenceDialog } from "@/components/audio-lanes/remove-silence-dialog";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import {
   ContextMenu,
@@ -70,6 +72,8 @@ export function LaneContextMenu({
 }) {
   const [target, setTarget] = useState<MenuTarget | null>(null);
   const [line, setLine] = useState(0);
+  /** The clips the Remove silence dialog is open for. */
+  const [silenceFor, setSilenceFor] = useState<readonly string[] | null>(null);
   // A folder holds lanes, not clips.
   if (lane.folder) return children;
 
@@ -187,6 +191,10 @@ export function LaneContextMenu({
               Ungroup
               <Keys>{`${MOD}⇧G`}</Keys>
             </ContextMenuItem>
+            <ContextMenuItem onSelect={() => setSilenceFor(ids)}>
+              <ScissorsLineDashedIcon />
+              Remove silence…
+            </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => toggle("mute")}>
               <VolumeXIcon />
@@ -240,6 +248,13 @@ export function LaneContextMenu({
           </>
         )}
       </ContextMenuContent>
+      {/* Outside the menu's content, so it stays open after the menu closes. */}
+      <RemoveSilenceDialog
+        open={silenceFor !== null}
+        onOpenChange={(open) => !open && setSilenceFor(null)}
+        lanes={lanes}
+        clipIds={silenceFor ?? []}
+      />
     </ContextMenu>
   );
 }

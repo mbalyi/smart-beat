@@ -1591,6 +1591,38 @@ pub fn audio_detect_beats(
     Ok(analysis::detect_beats(&audio))
 }
 
+/// The quiet parts of a source (file ms) for "Remove silence": quieter than `threshold_db` for
+/// at least `min_silence_ms`, each shrunk by `pad_ms` on both sides.
+#[tauri::command(async)]
+pub fn audio_silent_regions(
+    source_id: String,
+    threshold_db: f64,
+    min_silence_ms: f64,
+    pad_ms: f64,
+    state: State<'_, AudioState>,
+) -> Result<Vec<analysis::SilentRegion>, CommandError> {
+    if ![threshold_db, min_silence_ms, pad_ms]
+        .iter()
+        .all(|v| v.is_finite())
+    {
+        return Err(audio_error("The silence settings are not numbers"));
+    }
+    let audio = state
+        .inner
+        .lock()
+        .unwrap()
+        .sources
+        .get(&source_id)
+        .map(|s| s.audio.clone())
+        .ok_or_else(|| audio_error("The audio file is not loaded"))?;
+    Ok(analysis::silent_regions(
+        &audio,
+        threshold_db,
+        min_silence_ms,
+        pad_ms,
+    ))
+}
+
 /// Adds, changes or removes (`null`) the monitor track. The same input and
 /// channel keep the open input (the UI sends this after every song load);
 /// switching it off lets go of the input. An input that cannot be opened is

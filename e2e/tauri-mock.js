@@ -881,6 +881,8 @@
         return { integrated: -14.2, shortTermMax: -11.8, peakDb: -1.3 };
       case "audio_detect_beats":
         return { bpm: 120, beats: Array.from({ length: 64 }, (_, i) => i * 500) };
+      case "audio_silent_regions":
+        return [{ startMs: 1000, endMs: 2000 }];
       case "audio_start":
       case "audio_state":
         return {

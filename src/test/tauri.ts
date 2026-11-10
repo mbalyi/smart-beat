@@ -519,6 +519,9 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         case "audio_input_channels":
           return 2;
+        // One quiet second, 1 s into every file; tests override it for other shapes.
+        case "audio_silent_regions":
+          return [{ startMs: 1000, endMs: 2000 }];
         case "audio_set_monitor":
           backend.monitor = (args as { monitor: MockMonitor | null }).monitor;
           return backend.monitor
