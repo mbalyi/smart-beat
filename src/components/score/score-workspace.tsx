@@ -75,6 +75,7 @@ import { useM4aSupport, usePdfSupport } from "@/hooks/use-m4a-support";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
+import { useRestoreEditFocus } from "@/hooks/use-restore-edit-focus";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { usePianoModel } from "@/hooks/use-piano-model";
@@ -1267,6 +1268,8 @@ export function ScoreWorkspace({
     menuHandlesUndo: isTauri(),
     onBend: () => openCurve("bend"),
   });
+  // Back on this tab in edit mode: the keys go on from the edit cursor (#228).
+  useRestoreEditFocus(viewportRef, { active, editing });
 
   // Outside edit mode Escape clears a range dragged in the score (#53).
   useEffect(() => {
