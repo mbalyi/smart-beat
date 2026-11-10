@@ -2,6 +2,7 @@ import { useEffect, useRef, type Ref } from "react";
 import { LoaderCircleIcon } from "lucide-react";
 
 import type { Layout, NoteRect, Rect } from "@/lib/score/player";
+import { scrollToShow } from "@/lib/score/scroll-to-show";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,10 +17,33 @@ export interface EditOverlay {
 const box = ({ x, y, w, h }: Rect) => ({ left: x, top: y, width: w, height: h });
 
 /**
+ * Scrolls `viewport` just far enough to show `element`, and not at all while it is fully in
+ * view (#228): edits re-draw the score, and the view must stay where it is.
+ */
+function keepInView(element: HTMLElement, viewport: HTMLElement) {
+  const box = element.getBoundingClientRect();
+  const frame = viewport.getBoundingClientRect();
+  // The element's place in the scrolled content.
+  const x = box.left - frame.left - viewport.clientLeft + viewport.scrollLeft;
+  const y = box.top - frame.top - viewport.clientTop + viewport.scrollTop;
+  const next = scrollToShow(
+    { x, y, w: box.width, h: box.height },
+    {
+      left: viewport.scrollLeft,
+      top: viewport.scrollTop,
+      width: viewport.clientWidth,
+      height: viewport.clientHeight,
+    },
+  );
+  if (next) viewport.scrollTo({ ...next, behavior: "instant" });
+}
+
+/**
  * Draws the editor's quiet marks over the notation (alphaTab draws the playback cursor
  * itself): a rounded outline around the fret number or the empty spot under the cursor, a thin
- * ring around its notehead on the standard staff, and a light rectangle for a range. Scrolls the
- * cursor into view when it moves.
+ * ring around its notehead on the standard staff, and a light rectangle for a range. Each time
+ * the marks are placed (the cursor moved, or the score was drawn again after an edit) the
+ * cursor is kept in view, scrolling only when it would be outside it.
  */
 function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -28,11 +52,12 @@ function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
   const hasTab = notes.some((n) => n.staff === "tab");
   const outlines = notes.filter((n) => !hasTab || n.staff === "tab");
   const heads = hasTab ? notes.filter((n) => n.staff === "score") : [];
-  const anchor = notes[0]?.rect ?? selection[0];
 
   useEffect(() => {
-    anchorRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [anchor?.x, anchor?.y]);
+    const anchor = anchorRef.current;
+    const viewport = anchor?.closest<HTMLElement>("[data-score-viewport]");
+    if (anchor && viewport) keepInView(anchor, viewport);
+  }, [overlay]);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10" aria-hidden="true">
@@ -110,6 +135,7 @@ export function ScoreView({
         ref={viewportRef}
         data-tour="score"
         data-testid="score-viewport"
+        data-score-viewport
         role="region"
         aria-label={label}
         aria-roledescription={editing ? "score editor" : undefined}

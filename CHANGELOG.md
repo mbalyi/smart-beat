@@ -16,6 +16,7 @@ Release notes for every version. The release workflow publishes the section that
 - Edit mode: choose how many times a repeat plays (2 to 8 times) from the palette's Repeat end box, and change it later from the right-click menu. Larger counts are in the Bar dialog.
 - Drum tab: click any line to put the cursor there and write the drum you type on it.
 - Edit mode: Delete removes every selected beat, also rests, in one step.
+- Edit mode: the score stays where it is while you delete or change notes. It only scrolls when the note you are on would leave the view, and then just far enough to show it.
 - Switching between open tabs in Edit mode puts the keyboard back where you were editing.
 - Pasting over a selection replaces it. When the pasted part is longer, it flows into new bars (a note crossing a bar line becomes two tied notes), so nothing after it is written over.
 - Sound: a new installation plays with SoundFonts. The effects engine is remembered only when you switch it on yourself.

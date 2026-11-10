@@ -426,13 +426,20 @@ export class ScorePlayer {
     this.api.customCursorHandler = createCursorHandler(this.delayer, !options.reducedMotion);
     // alphaTab scrolls the view as the cursor moves: delay that too, so the
     // view follows what is heard (the delay is 0 while paused, e.g. for seeks).
+    // In edit mode, while the song is not playing, the view belongs to the editor: alphaTab
+    // scrolls to the start of the playback cursor's bar (or line) after every render, so each
+    // edit would move the view away from the note being edited (#228). The score view keeps the
+    // edit cursor in sight itself, and only when it would leave the view.
     const ui = this.api.uiFacade as unknown as {
       scrollToY: (...args: unknown[]) => void;
       scrollToX: (...args: unknown[]) => void;
     };
     for (const method of ["scrollToY", "scrollToX"] as const) {
       const original = ui[method].bind(ui);
-      ui[method] = (...args: unknown[]) => this.delayer.run(() => original(...args));
+      ui[method] = (...args: unknown[]) => {
+        if (this.editing && !this.playing) return;
+        this.delayer.run(() => original(...args));
+      };
     }
     // alphaTab reports clicked beats without the mouse event: remember Shift.
     options.element.addEventListener(
