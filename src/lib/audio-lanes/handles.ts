@@ -5,7 +5,7 @@ import type { AudioClip, ClipFade, FadeShape } from "@/lib/tauri";
 export type FadeEdge = "in" | "out";
 
 /** A clip narrower than this (px) shows no fade or volume handles. */
-export const HANDLE_MIN_CLIP_PX = 40;
+export const HANDLE_MIN_CLIP_PX = 48;
 /** Volume change per pixel of vertical drag on the top edge, and with Shift held. */
 export const DB_PER_PX = 0.25;
 export const FINE_DB_PER_PX = 0.025;

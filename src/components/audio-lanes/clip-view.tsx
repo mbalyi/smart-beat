@@ -303,7 +303,9 @@ export function ClipView({
     <>
       {button}
       {/* Only on the selected clip: small targets on every clip would crowd the lane. */}
-      {edits && selected && <ClipHandles {...{ clip, name, left, width, toX, toMs, edits }} />}
+      {edits && selected && (
+        <ClipHandles {...{ clip, name, left, width, toX, toMs, edits, compact }} />
+      )}
     </>
   );
 }

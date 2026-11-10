@@ -43,8 +43,8 @@ import { cn } from "@/lib/utils";
 /** The lane edits the handles make: one undo step per drag, key or menu choice. */
 export type ClipEdits = Pick<AudioLanesController, "apply" | "applyQuiet" | "beginGesture">;
 
-/** The size (px) of a fade handle's grab area. */
-const FADE_HANDLE_PX = 14;
+/** The size (px) of a handle's grab area: the smallest touch target there is. */
+const FADE_HANDLE_PX = 24;
 
 interface HandleProps {
   clip: AudioClip;
@@ -156,7 +156,7 @@ function GainHandle({ clip, name, edits }: HandleProps) {
       aria-valuenow={clip.gainDb}
       aria-valuetext={text}
       data-testid={`clip-gain-${clip.id}`}
-      className="group/handle pointer-events-auto absolute inset-x-3.5 top-0 h-1.5 cursor-ns-resize touch-none outline-none"
+      className="group/handle pointer-events-auto absolute inset-x-6 top-0 h-6 cursor-ns-resize touch-none outline-none"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={end}
@@ -175,7 +175,7 @@ function GainHandle({ clip, name, edits }: HandleProps) {
           active ? "bg-primary" : clip.gainDb !== 0 ? "bg-primary/50" : "bg-transparent",
         )}
       />
-      <HandleLabel text={text} active={active} className="top-1.5 left-1/2 -translate-x-1/2" />
+      <HandleLabel text={text} active={active} className="top-6 left-1/2 -translate-x-1/2" />
     </span>
   );
 }
@@ -231,8 +231,10 @@ function FadeHandle({
   width,
   toX,
   toMs,
+  showGain,
 }: HandleProps & {
   edge: FadeEdge;
+  showGain: boolean;
   width: number;
   toX: (ms: number) => number;
   toMs: (x: number) => number;
@@ -296,12 +298,14 @@ function FadeHandle({
           aria-valuenow={fade.ms}
           aria-valuetext={text}
           data-testid={`clip-fade-${edge}-${clip.id}`}
-          className="group/handle pointer-events-auto absolute top-0 z-10 flex cursor-ew-resize touch-none items-start outline-none"
+          className="group/handle pointer-events-auto absolute z-10 flex cursor-ew-resize touch-none items-start outline-none"
           style={{
             width: FADE_HANDLE_PX,
             height: FADE_HANDLE_PX,
+            // Under the volume handle when there is one, else in the corner.
+            top: showGain ? FADE_HANDLE_PX : 0,
             [edge === "in" ? "left" : "right"]: inset,
-            justifyContent: edge === "in" ? "flex-start" : "flex-end",
+            justifyContent: "center",
           }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -322,7 +326,7 @@ function FadeHandle({
           <HandleLabel
             text={text}
             active={active}
-            className={cn("top-3.5", edge === "in" ? "left-0" : "right-0")}
+            className={cn("top-6", edge === "in" ? "left-0" : "right-0")}
           />
         </span>
       </ContextMenuTrigger>
@@ -344,14 +348,24 @@ export function ClipHandles({
   toX,
   toMs,
   edits,
+  compact = false,
 }: HandleProps & {
+  /** A short lane has room for the fade handles only (no volume handle). */
+  compact?: boolean;
   left: number;
   width: number;
   toX: (ms: number) => number;
   toMs: (x: number) => number;
 }) {
-  if (clip.locked || width < HANDLE_MIN_CLIP_PX) return null;
-  const shared = { clip, name, edits, width, toX, toMs };
+  const showGain = !compact;
+  // Two fade handles (and the volume handle between them) each need a 24 px target.
+  if (
+    clip.locked ||
+    width < (showGain ? HANDLE_MIN_CLIP_PX + FADE_HANDLE_PX : HANDLE_MIN_CLIP_PX)
+  ) {
+    return null;
+  }
+  const shared = { clip, name, edits, width, toX, toMs, showGain };
   return (
     <div
       data-testid={`clip-handles-${clip.id}`}
@@ -360,7 +374,7 @@ export function ClipHandles({
       className="pointer-events-none absolute inset-y-1 z-20"
       style={{ left, width }}
     >
-      <GainHandle clip={clip} name={name} edits={edits} />
+      {showGain && <GainHandle clip={clip} name={name} edits={edits} />}
       <FadeHandle edge="in" {...shared} />
       <FadeHandle edge="out" {...shared} />
     </div>

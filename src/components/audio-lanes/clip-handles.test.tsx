@@ -269,17 +269,17 @@ describe("ClipHandles in the track list", () => {
     expect(clipNow().fadeIn.ms).toBe(0);
   });
 
-  it("opens the clip's lane menu on a right-click on the volume edge", async () => {
+  it("has fade handles only on a short row: the volume handle needs a taller lane", () => {
     renderRow();
-    fireEvent.contextMenu(volume());
-    const menu = await screen.findByRole("menu", { name: "Lane actions: Vocals" });
-    expect(within(menu).getByRole("menuitem", { name: /^Cut/ })).toBeInTheDocument();
+    expect(fadeIn()).toBeInTheDocument();
+    expect(fadeOut()).toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: /^Volume of take\.wav/ })).toBeNull();
   });
 
   it("keeps a click on a handle from moving the edit cursor", () => {
     renderRow();
     act(() => lanesNow().setEditCursorMs(0));
-    fireEvent.click(volume(), { clientX: 120 });
+    fireEvent.click(fadeIn(), { clientX: 120 });
     expect(lanesNow().editCursorMs).toBe(0);
   });
 });

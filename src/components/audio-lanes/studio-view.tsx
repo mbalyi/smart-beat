@@ -684,6 +684,7 @@ function StudioLane({
                 selected={lanes.selection.includes(clip.id)}
                 toX={toX}
                 toMs={toMs}
+                compact={compact}
                 snap={lanes.snapTo}
                 onSelect={(mode, alone) =>
                   lanes.select(
