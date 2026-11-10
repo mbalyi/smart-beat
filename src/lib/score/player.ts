@@ -1189,6 +1189,7 @@ export class ScorePlayer {
 
   private cancelSynthCount() {
     if (!this.synthCount) return;
+    this.once = null; // paused during the count-in: the selection is not played
     clearTimeout(this.synthCount.timer);
     this.synthCount.run?.cancel();
     this.synthCount = null;
@@ -1414,6 +1415,7 @@ export class ScorePlayer {
     const cache = this.api.tickCache;
     const startTick = cache?.getBeatStart(start);
     if (cache == null || startTick === undefined) return;
+    this.seekToBeat(start); // (forgets an earlier selection: set the new one after it)
     this.once =
       end && !this.loop
         ? {
@@ -1421,7 +1423,6 @@ export class ScorePlayer {
             endTick: Math.max(startTick + 1, cache.getBeatStart(end) + end.playbackDuration),
           }
         : null;
-    this.seekToBeat(start);
     this.playPause();
   }
 
@@ -1438,6 +1439,7 @@ export class ScorePlayer {
   seekToBeat(beat: Beat) {
     const tick = this.api.tickCache?.getBeatStart(beat);
     if (tick === undefined) return;
+    this.once = null; // the user moved on: a selection played once is forgotten
     this.delayer.clear();
     this.restartPending = false;
     this.api.tickPosition = tick;

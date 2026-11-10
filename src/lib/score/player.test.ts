@@ -1362,6 +1362,22 @@ describe("ScorePlayer", () => {
         expect(player.isPlaying()).toBe(true);
       });
 
+      it("forgets the selection when the user moves the cursor while it plays", async () => {
+        const { player, api, score, setPlaying } = await readySetup();
+        player.playFrom(beatOf(score, 0, 0), beatOf(score, 0, 1));
+        setPlaying(true);
+        player.seekToBeat(beatOf(score, 1, 2)); // past the selection's end
+        api.playerPositionChanged.trigger({
+          currentTime: 0,
+          endTime: 12_000,
+          currentTick: 3840 + 2 * 960,
+          originalTempo: 60,
+          modifiedTempo: 60,
+        });
+        expect(player.isPlaying()).toBe(true);
+        expect(api.playPause).toHaveBeenCalledOnce();
+      });
+
       it("keeps looping while a loop is on", async () => {
         const { player, api, score, setPlaying } = await readySetup();
         player.setEditing(true);
