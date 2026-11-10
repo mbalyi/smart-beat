@@ -1,4 +1,7 @@
+import { useState } from "react";
+
 import { clipPeaks, normalizeGainDb } from "@/lib/audio-lanes/peaks";
+import { RemoveSilenceDialog } from "@/components/audio-lanes/remove-silence-dialog";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -109,6 +112,7 @@ export function ClipProperties({ lanes, clip }: { lanes: AudioLanesController; c
   const info = lanes.infos.get(activeTake(clip).sourceId);
   const inside = editCursorMs > clip.startMs && editCursorMs < clipEndMs(clip);
   const at = inside ? (editCursorMs - clip.startMs) / (clipEndMs(clip) - clip.startMs) : null;
+  const [silenceOpen, setSilenceOpen] = useState(false);
   return (
     <aside
       aria-label="Clip properties"
@@ -181,6 +185,15 @@ export function ClipProperties({ lanes, clip }: { lanes: AudioLanesController; c
       >
         Normalize
       </Button>
+      <Button variant="outline" size="sm" onClick={() => setSilenceOpen(true)}>
+        Remove silence…
+      </Button>
+      <RemoveSilenceDialog
+        open={silenceOpen}
+        onOpenChange={setSilenceOpen}
+        lanes={lanes}
+        clipIds={lanes.selection.includes(clip.id) ? lanes.selection : [clip.id]}
+      />
       {clip.takes.length > 1 && (
         <label className="flex items-center justify-between gap-2 text-sm">
           <span className="text-muted-foreground">Take</span>

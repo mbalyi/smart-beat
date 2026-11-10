@@ -1186,6 +1186,20 @@ export const audioLoudness = (source: string, startMs: number, endMs: number) =>
 export const detectAudioBeats = (source: string) =>
   call<BeatInfo>("audio_detect_beats", { source });
 
+/** Mirrors `SilentRegion`: a quiet part of a file, in ms of the file. */
+export interface SilentRegion {
+  startMs: number;
+  endMs: number;
+}
+
+/** The quiet parts of a loaded file, each shrunk by `padMs` on both sides. */
+export const audioSilentRegions = (
+  sourceId: string,
+  thresholdDb: number,
+  minSilenceMs: number,
+  padMs: number,
+) => call<SilentRegion[]>("audio_silent_regions", { sourceId, thresholdDb, minSilenceMs, padMs });
+
 /**
  * The monitor track (null removes it): its settings, and the input it plays. `device` is the
  * input's name (null: the system's default input); `channel` is 0-based (null: all mixed).

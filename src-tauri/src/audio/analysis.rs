@@ -1,5 +1,6 @@
 //! Looking at the audio files of the lanes: zero crossings for clean cuts, a WAV copy for
-//! "Extract audio file", a spectrogram, loudness (LUFS), and tempo and beat detection.
+//! "Extract audio file", a spectrogram, loudness (LUFS), tempo and beat detection, and the
+//! quiet parts of a file for "Remove silence".
 
 use realfft::RealFftPlanner;
 use serde::Serialize;
@@ -311,6 +312,81 @@ pub fn loudness(audio: &DecodedAudio, start_ms: f64, end_ms: f64) -> Loudness {
     }
 }
 
+/// The length of the windows `silent_regions` measures, in ms.
+const SILENCE_WINDOW_MS: f64 = 10.0;
+
+/// A quiet part of a file, in ms of the file.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SilentRegion {
+    pub start_ms: f64,
+    pub end_ms: f64,
+}
+
+/// How many frames one silence window holds.
+fn window_frames(audio: &DecodedAudio) -> usize {
+    ((SILENCE_WINDOW_MS / 1000.0) * audio.rate.max(1) as f64)
+        .round()
+        .max(1.0) as usize
+}
+
+/// The level (dBFS) of each 10 ms window of a file: the RMS of both channels together.
+fn window_levels(audio: &DecodedAudio) -> Vec<f64> {
+    let size = window_frames(audio);
+    let frames = audio.frames().min(audio.right.len());
+    (0..frames.div_ceil(size))
+        .map(|w| {
+            let range = w * size..((w + 1) * size).min(frames);
+            let count = (range.len() * 2).max(1) as f64;
+            let power = audio.left[range.clone()]
+                .iter()
+                .chain(&audio.right[range])
+                .map(|&x| (x as f64) * (x as f64))
+                .sum::<f64>()
+                / count;
+            10.0 * power.max(1e-12).log10()
+        })
+        .collect()
+}
+
+/// The parts of a file quieter than `threshold_db` (RMS of both channels over 10 ms windows)
+/// for at least `min_silence_ms`, each shrunk by `pad_ms` on both sides so the sound around them
+/// keeps its tail and its attack. In file ms, in order.
+pub fn silent_regions(
+    audio: &DecodedAudio,
+    threshold_db: f64,
+    min_silence_ms: f64,
+    pad_ms: f64,
+) -> Vec<SilentRegion> {
+    let duration_ms = audio.duration() * 1000.0;
+    let threshold = threshold_db.clamp(-120.0, 0.0);
+    let min_silence = min_silence_ms.max(SILENCE_WINDOW_MS);
+    let pad = pad_ms.max(0.0);
+    let window_ms = window_frames(audio) as f64 * 1000.0 / audio.rate.max(1) as f64;
+    let levels = window_levels(audio);
+    let mut regions = Vec::new();
+    let mut start: Option<usize> = None;
+    for i in 0..=levels.len() {
+        let quiet = levels.get(i).is_some_and(|&db| db < threshold);
+        match (quiet, start) {
+            (true, None) => start = Some(i),
+            (false, Some(first)) => {
+                start = None;
+                let from = first as f64 * window_ms;
+                let to = (i as f64 * window_ms).min(duration_ms);
+                if to - from >= min_silence && to - from > 2.0 * pad {
+                    regions.push(SilentRegion {
+                        start_ms: from + pad,
+                        end_ms: to - pad,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    regions
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,5 +478,89 @@ mod tests {
         assert!((info.bpm - 120.0).abs() < 3.0, "{} bpm", info.bpm);
         assert!(info.beats.len() >= 20);
         assert!(info.beats[1] - info.beats[0] > 450.0);
+    }
+
+    /// `parts` of (seconds, loud) one after another: a 440 Hz tone at half scale, or silence.
+    fn sections(parts: &[(f32, bool)]) -> DecodedAudio {
+        audio(
+            parts
+                .iter()
+                .flat_map(|&(seconds, loud)| {
+                    (0..(seconds * RATE as f32) as usize).map(move |i| {
+                        if loud {
+                            (2.0 * std::f32::consts::PI * 440.0 * i as f32 / RATE as f32).sin()
+                                * 0.5
+                        } else {
+                            0.0
+                        }
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    fn near(a: f64, b: f64) -> bool {
+        (a - b).abs() <= SILENCE_WINDOW_MS + 0.01
+    }
+
+    #[test]
+    fn finds_the_silence_around_a_tone() {
+        let a = sections(&[(1.0, false), (1.0, true), (1.0, false)]);
+        let regions = silent_regions(&a, -45.0, 300.0, 0.0);
+        assert_eq!(regions.len(), 2, "{regions:?}");
+        assert!(near(regions[0].start_ms, 0.0) && near(regions[0].end_ms, 1_000.0));
+        assert!(near(regions[1].start_ms, 2_000.0) && near(regions[1].end_ms, 3_000.0));
+    }
+
+    #[test]
+    fn padding_shrinks_each_region_on_both_sides() {
+        let a = sections(&[(1.0, false), (1.0, true), (1.0, false)]);
+        let plain = silent_regions(&a, -45.0, 300.0, 0.0);
+        let padded = silent_regions(&a, -45.0, 300.0, 50.0);
+        assert_eq!(padded.len(), 2);
+        for (p, q) in plain.iter().zip(&padded) {
+            assert!((q.start_ms - p.start_ms - 50.0).abs() < 1e-6);
+            assert!((p.end_ms - q.end_ms - 50.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn short_gaps_are_not_silence() {
+        // 200 ms of silence between two tones is shorter than the minimum.
+        let a = sections(&[
+            (1.0, true),
+            (0.2, false),
+            (1.0, true),
+            (0.5, false),
+            (0.5, true),
+        ]);
+        let regions = silent_regions(&a, -45.0, 300.0, 0.0);
+        assert_eq!(regions.len(), 1, "{regions:?}");
+        assert!(near(regions[0].start_ms, 2_200.0) && near(regions[0].end_ms, 2_700.0));
+    }
+
+    #[test]
+    fn the_threshold_decides_what_is_quiet() {
+        // A tone at about −26 dBFS RMS: quiet for a −20 dB threshold, sound for −45 dB.
+        let soft = audio(
+            sections(&[(1.0, true)])
+                .left
+                .iter()
+                .map(|s| s * 0.1)
+                .collect(),
+        );
+        assert!(silent_regions(&soft, -45.0, 300.0, 0.0).is_empty());
+        let all = silent_regions(&soft, -20.0, 300.0, 0.0);
+        assert_eq!(all.len(), 1);
+        assert!(near(all[0].start_ms, 0.0) && near(all[0].end_ms, 1_000.0));
+    }
+
+    #[test]
+    fn a_tone_throughout_has_no_silence_and_padding_can_eat_a_region() {
+        assert!(silent_regions(&sections(&[(2.0, true)]), -45.0, 300.0, 0.0).is_empty());
+        let a = sections(&[(1.0, true), (0.4, false), (1.0, true)]);
+        assert_eq!(silent_regions(&a, -45.0, 300.0, 0.0).len(), 1);
+        assert!(silent_regions(&a, -45.0, 300.0, 250.0).is_empty());
+        assert!(silent_regions(&audio(Vec::new()), -45.0, 300.0, 0.0).is_empty());
     }
 }
