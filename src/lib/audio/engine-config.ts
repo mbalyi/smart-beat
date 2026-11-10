@@ -26,22 +26,34 @@ export interface BarOccurrence {
   bar: number;
   start: number;
   end: number;
+  /** Beats in the bar (the time signature's numerator); a bar's length in quarters when absent. */
+  beats?: number;
 }
 
 /** What alphaTab's tick lookup provides (only the parts used here). */
 export interface TickLookupLike {
-  masterBars: { start: number; end: number; masterBar: { index: number } }[];
+  masterBars: {
+    start: number;
+    end: number;
+    masterBar: { index: number; timeSignatureNumerator?: number };
+  }[];
 }
 
 /** Every bar pass in playback order (from alphaTab's lookup, else straight through). */
 export function barOccurrences(score: Score, lookup: TickLookupLike | null): BarOccurrence[] {
   if (lookup && lookup.masterBars.length > 0) {
-    return lookup.masterBars.map((m) => ({ bar: m.masterBar.index, start: m.start, end: m.end }));
+    return lookup.masterBars.map((m) => ({
+      bar: m.masterBar.index,
+      start: m.start,
+      end: m.end,
+      beats: m.masterBar.timeSignatureNumerator,
+    }));
   }
   return score.masterBars.map((m) => ({
     bar: m.index,
     start: m.start,
     end: m.start + m.calculateDuration(),
+    beats: m.timeSignatureNumerator || 4,
   }));
 }
 
@@ -169,7 +181,19 @@ export function engineSounds(
   return { chains: soundChains(mix, track), switches: soundSwitchTicks(mix, track, occurrences) };
 }
 
-/** Sync points in ticks (first pass through each bar). */
+/** The tick `beat` beats into a bar pass, clamped inside it. */
+function syncTick(o: BarOccurrence, beat: number): number {
+  if (beat <= 0) return o.start;
+  const length = o.end - o.start;
+  const beats = o.beats || Math.max(1, Math.round(length / 960));
+  return Math.min(o.start + Math.round((length * beat) / beats), Math.max(o.start, o.end - 1));
+}
+
+/**
+ * Sync points in ticks (first pass through each bar). A point on a beat sits that many beats into
+ * the bar (the bar's ticks split by its time signature's numerator, as the lanes grid counts them),
+ * kept inside the bar so it never lands on the next bar's start.
+ */
 export function syncTicks(
   sync: readonly SyncPoint[],
   occurrences: readonly BarOccurrence[],
@@ -177,7 +201,7 @@ export function syncTicks(
   const first = firstOccurrence(occurrences);
   return sync.flatMap((p) => {
     const o = first.get(p.bar);
-    return o ? [{ tick: o.start, ms: p.ms }] : [];
+    return o ? [{ tick: syncTick(o, p.beat ?? 0), ms: p.ms }] : [];
   });
 }
 
