@@ -1,5 +1,6 @@
 import { model } from "@coderline/alphatab";
 
+import { EditorClipboard, sharedClipboard } from "@/lib/score/clipboard";
 import {
   comparePositions,
   DRUM_DIGITS_MS,
@@ -7,12 +8,16 @@ import {
   selectionRange,
   TWO_DIGIT_MS,
 } from "@/lib/score/editor";
+import { drumNumber } from "@/lib/score/model";
 import { parseScore } from "@/lib/score/score";
 import { createSong, createTrack, insertTrack } from "@/lib/score/tracks";
 import { fixtureBytes } from "@/test/score";
 import { mockTauri } from "@/test/tauri";
 
 const { Duration } = model;
+
+// Every editor shares the app's clipboard: each test starts with an empty one.
+beforeEach(() => sharedClipboard.clear());
 
 /** A new song (one guitar, four empty 4/4 bars) with an editor on its guitar. */
 function newSong() {
@@ -589,6 +594,44 @@ describe("ScoreEditor: clipboard", () => {
     editor.setTrack(2); // drums can't take pitched notes
     editor.paste();
     expect(voice(editor, 1).beats[0]!.notes).toHaveLength(0);
+  });
+
+  it("pastes what another song's editor copied: the clipboard is shared by every tab (#228)", () => {
+    const source = practiceSong();
+    source.moveBeat(1, true);
+    source.copy();
+    const copied = frets(source).slice(0, 2);
+
+    const { editor: target } = newSong(); // another open song
+    expect(target.hasClipboard).toBe(true);
+    target.moveBar(1);
+    target.paste();
+    expect(frets(target, 1)).toEqual(copied);
+    target.undo();
+    expect(frets(target, 1)).toEqual(["r"]);
+  });
+
+  it("keeps the drum sounds when drums are pasted into another song (#228)", () => {
+    const source = practiceSong(2);
+    const drums = (e: ScoreEditor, bar: number) =>
+      voice(e, bar).beats.map((b) => b.notes.map((n) => drumNumber(n)).sort());
+    source.copyBar(0);
+    const copied = drums(source, 0);
+    expect(copied.flat().length).toBeGreaterThan(0);
+
+    const score = createSong();
+    insertTrack(score, createTrack(score, { kind: "drums", name: "Drums", program: 0 }));
+    const target = new ScoreEditor(score, 1);
+    target.paste();
+    expect(drums(target, 0)).toEqual(copied);
+  });
+
+  it("can keep a clipboard of its own", () => {
+    const own = new EditorClipboard();
+    const editor = new ScoreEditor(practiceSong().score, 0, own);
+    editor.copy();
+    expect(own.get()).not.toBeNull();
+    expect(sharedClipboard.get()).toBeNull();
   });
 
   it("does nothing without a clipboard, or with nothing to copy", () => {
