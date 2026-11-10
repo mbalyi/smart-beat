@@ -327,6 +327,7 @@ export function EditorTimeline({
               onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
               onOpen={() => undefined}
               onCursor={lanes.setEditCursorMs}
+              edits={lanes}
             />
           ))}
           <span

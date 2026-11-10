@@ -579,6 +579,7 @@ function StudioLane({
                 onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
                 onOpen={() => lanes.select([clip.id])}
                 onCursor={lanes.setEditCursorMs}
+                edits={lanes}
               />
             ))}
             {lane.clips.some((c) => c.takes.length > 1) && (
