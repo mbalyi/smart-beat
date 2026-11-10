@@ -15,6 +15,7 @@ Release notes for every version. The release workflow publishes the section that
 - Edit mode: only the purple selection is shown, without the blue highlight on top of it.
 - Edit mode: choose how many times a repeat plays (2 to 8 times) from the palette's Repeat end box, and change it later from the right-click menu. Larger counts are in the Bar dialog.
 - Drum tab: click any line to put the cursor there and write the drum you type on it.
+- Drum tab: a drum number typed on a line that already holds a drum replaces that drum, on the same line. To add a second drum to the beat, move to an empty line first.
 - Edit mode: Delete removes every selected beat, also rests, in one step.
 - Switching between open tabs in Edit mode puts the keyboard back where you were editing.
 - Pasting over a selection replaces it. When the pasted part is longer, it flows into new bars (a note crossing a bar line becomes two tied notes), so nothing after it is written over.

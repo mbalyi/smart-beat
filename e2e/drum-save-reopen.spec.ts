@@ -122,15 +122,44 @@ const BAR1: readonly (readonly [number, RegExp])[][] = [
 ];
 const TYPED = BAR1.flat().map(([drum]) => drum);
 
+/** Lines of the drum tab; the status line counts them from the top. */
+const DRUM_TAB_LINES = 6;
+
+/**
+ * Moves the cursor down (else up) the drum tab to a line without a drum on this beat, so the next
+ * number is added: typed on a line that holds a drum, it would replace that drum (#228). Stays
+ * within the lines, as past the last one the arrows go on to the other voice.
+ */
+async function toEmptyLine(app: Page) {
+  const at = async () => /line (\d) of the drum tab, (empty)?/.exec(await editorStatus(app));
+  let match = await at();
+  for (const [key, step] of [
+    ["ArrowDown", 1],
+    ["ArrowUp", -1],
+  ] as const) {
+    while (match && !match[2]) {
+      const next = Number(match[1]) + step;
+      if (next < 1 || next > DRUM_TAB_LINES) break;
+      await app.keyboard.press(key);
+      await expect.poll(async () => (match = await at())?.[1]).toBe(String(next));
+    }
+  }
+  expect(match?.[2], "an empty line on the beat").toBe("empty");
+}
+
 /**
  * Kick, snare, pedal and open hi-hat, ride and both crashes on the four beats of bar 1, typed
- * one number after another and moving on with the Right arrow, as on the drum tab. None of them
- * is on its beat yet in the test songs (typing a drum that is there would remove it).
+ * one number after another and moving on with the Right arrow, as on the drum tab; a second drum
+ * of a beat goes on an empty line. None of them is on its beat yet in the test songs (typing a
+ * drum that is there would remove it).
  */
 async function enterDrums(app: Page) {
   for (const [index, beat] of BAR1.entries()) {
     if (index > 0) await app.keyboard.press("ArrowRight");
-    for (const [drum, name] of beat) await typeDrum(app, drum, name);
+    for (const [position, [drum, name]] of beat.entries()) {
+      if (position > 0) await toEmptyLine(app);
+      await typeDrum(app, drum, name);
+    }
   }
 }
 

@@ -1157,8 +1157,9 @@ export class ScoreEditor {
    * Types a drum number on a drum track, e.g. "4" then "6" for 46, the open
    * hi-hat (the General MIDI numbers of Guitar Pro's drum kit). Digits typed
    * within a moment of each other form one number; as soon as it is a known
-   * drum it is entered. A number already on the beat is removed again; another
-   * one is added to the beat, so two drums can sound together.
+   * drum it is entered. A number already on the beat is removed again; on a
+   * line that holds another drum it replaces that drum; on an empty line it is
+   * added to the beat, so two drums can sound together.
    */
   private typeDrumDigit(digit: number, now: number) {
     const c = this._cursor;
@@ -1182,9 +1183,19 @@ export class ScoreEditor {
     this.pendingDrum = { text, at: now, key };
   }
 
-  /** Adds a drum sound to the cursor's beat, or removes it when it is already there. */
+  /**
+   * Adds a drum sound to the cursor's beat, or removes it when it is already there.
+   * On a line that holds another drum it replaces that drum instead (#228).
+   */
   toggleDrum(sound: number) {
-    const existing = this.beatAt()?.notes.find((note) => pitchOf(note) === sound);
+    const beat = this.beatAt();
+    const line = this._cursor.line;
+    const onLine = beat && line !== null ? this.drumOnLine(beat, line) : null;
+    if (this.kind === "drums" && onLine && !this.isDrum(onLine, sound)) {
+      this.replaceDrum(sound);
+      return;
+    }
+    const existing = beat?.notes.find((note) => pitchOf(note) === sound);
     if (!existing) {
       this.enterDrum(sound);
       return;

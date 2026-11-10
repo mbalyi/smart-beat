@@ -1225,17 +1225,59 @@ describe("ScoreEditor: drum numbers and rests", () => {
     const editor = drumSong();
     editor.typeDigit(4, 1_000);
     editor.typeDigit(9, 1_100); // crash
+    editor.setCursorTo({ bar: 0, beat: 0, line: 2 }); // an empty line
     editor.typeDigit(3, 3_000);
     editor.typeDigit(6, 3_100); // kick, at the same time
     expect(hits(editor)).toEqual([49, 36]);
 
-    editor.typeDigit(4, 5_000);
-    editor.typeDigit(9, 5_100); // the crash again: removed
-    expect(hits(editor)).toEqual([36]);
-    expect(editor.message).toBe("Crash high (hit) removed");
+    editor.typeDigit(3, 5_000);
+    editor.typeDigit(6, 5_100); // the kick again, on its line: removed
+    expect(hits(editor)).toEqual([49]);
+    expect(editor.message).toBe("Kick (hit) removed");
 
     editor.undo();
     expect(hits(editor)).toEqual([49, 36]);
+  });
+
+  it("replaces the drum on the cursor's line with the number typed there, in one undo step (#228)", () => {
+    const editor = drumSong();
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(8, 1_100); // snare: line 4, where the cursor stays
+    expect(editor.cursor.line).toBe(4);
+
+    editor.typeDigit(3, 3_000);
+    editor.typeDigit(6, 3_100); // a kick typed on the snare's line: it takes the snare's place
+
+    expect(hits(editor)).toEqual([36]);
+    expect(drumLine(voice(editor, 0).beats[0]!.notes[0]!)).toBe(4);
+    expect([editor.cursor.line, editor.cursorDrum]).toEqual([4, 36]);
+    expect(editor.message).toBe("Snare (hit) replaced by Kick (hit)");
+
+    editor.undo();
+    expect(hits(editor)).toEqual([38]);
+    expect(editor.cursorDrum).toBe(38);
+  });
+
+  it("does not replace a drum with one the beat already has on another line (#228)", () => {
+    const editor = drumSong();
+    editor.enterDrum(42); // hi-hat: line 6
+    editor.setCursorTo({ bar: 0, beat: 0, line: 4 });
+    editor.enterDrum(38); // snare: line 4
+    editor.typeDigit(4, 3_000);
+    editor.typeDigit(2, 3_100); // the hi-hat, already on line 6
+    expect(hits(editor)).toEqual([42, 38]);
+    expect(editor.message).toBe("Hi-Hat (closed) is already on this beat");
+  });
+
+  it("still adds a typed drum when the cursor is on no line (#228)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38);
+    editor.setTrack(0);
+    editor.setTrack(1); // drums again: the cursor has no line
+    expect(editor.cursor.line).toBeNull();
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(6, 1_100);
+    expect(hits(editor)).toEqual([38, 36]);
   });
 
   it("walks every line of the drum tab with Up and Down, also the empty ones (#178)", () => {
@@ -1356,7 +1398,8 @@ describe("ScoreEditor: drum numbers and rests", () => {
     editor.typeDigit(1, 1_100); // rim shot
     expect(hits(editor)).toEqual([91]);
     expect(editor.message).toBe("Snare (hit) replaced by Snare (rim shot)");
-    // The next number adds again.
+    // The next number, on an empty line, adds again.
+    editor.setCursorTo({ bar: 0, beat: 0, line: 2 });
     editor.typeDigit(3, 3_000);
     editor.typeDigit(6, 3_100);
     expect(hits(editor)).toEqual([91, 36]);
