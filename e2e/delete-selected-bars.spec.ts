@@ -76,8 +76,13 @@ async function rightClickFret(app: Page, fret: number) {
     .locator(".at-surface svg text")
     .filter({ hasText: new RegExp(`^${fret}$`) })
     .first();
-  // WebKit counts the drawing above the text as covering it; the click lands on the note.
-  await note.click({ button: "right", force: true });
+  // A real right-click at the note's centre. The position comes from the page: Playwright's
+  // boundingBox() places SVG text wrongly in WebKit, so the click missed the bar there.
+  const box = await note.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await app.mouse.click(box.x, box.y, { button: "right" });
   const menu = app.getByRole("menu", { name: "Score actions" });
   await expect(menu).toBeVisible();
   return menu;
