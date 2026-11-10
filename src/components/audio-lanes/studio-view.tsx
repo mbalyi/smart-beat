@@ -10,7 +10,7 @@ import {
   Redo2Icon,
   Undo2Icon,
 } from "lucide-react";
-import { useRef, useState, type PointerEvent } from "react";
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import { ClipProperties } from "@/components/audio-lanes/clip-properties";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
@@ -30,11 +30,11 @@ import {
   findClip,
   moveClip,
   moveRange,
-  splitRange,
   trimClip,
   updateLane,
 } from "@/lib/audio-lanes/edits";
 import { MAX_BUSES, clipEndMs, newId } from "@/lib/audio-lanes/model";
+import { describeRange, normalizeRange, type TimeRange } from "@/lib/audio-lanes/range-edits";
 import { timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
 import { usePlayheadBar, type PlayheadStore } from "@/lib/score/playhead";
 import { laneColor } from "@/lib/score/track-colors";
@@ -80,10 +80,11 @@ export function StudioView({
 }) {
   const { audio, apply } = lanes;
   const [pps, setPps] = useState(40);
-  const [range, setRange] = useState<{ startMs: number; endMs: number } | null>(null);
-  const [rangeLanes, setRangeLanes] = useState<readonly string[] | null>(null);
+  // The time selection lives in the lanes hook; `draft` is the one being dragged on the ruler.
+  const [draft, setDraft] = useState<TimeRange | null>(null);
+  const range = draft ?? lanes.timeRange;
   const [spectrogram, setSpectrogram] = useState(false);
-  const rulerDrag = useRef<number | null>(null);
+  const rulerDrag = useRef<{ anchor: number; moved: boolean } | null>(null);
   const toX = (ms: number) => (ms / 1000) * pps;
   const toMs = (x: number) => (x / pps) * 1000;
   const songEnd = timelineMsAtBar(audio, grid, grid.barTimes.length);
@@ -92,11 +93,50 @@ export function StudioView({
     (l) => !l.parent || !audio.lanes.find((f) => f.id === l.parent)?.collapsed,
   );
   const playable = audio.lanes.filter((l) => !l.folder).map((l) => l.id);
-  const inRange = rangeLanes ?? playable;
+  const inRange = lanes.rangeLanes?.length ? lanes.rangeLanes : playable;
   const selected = lanes.selection.length === 1 ? findClip(audio, lanes.selection[0]!) : null;
 
   const rulerMs = (e: PointerEvent<HTMLDivElement>) =>
     lanes.snapTo(toMs(e.clientX - e.currentTarget.getBoundingClientRect().left));
+  /** Starts a ruler drag; with Shift it extends the selection from its far edge. */
+  const startRulerDrag = (e: PointerEvent<HTMLDivElement>) => {
+    const at = rulerMs(e);
+    const current = lanes.timeRange;
+    const extend = e.shiftKey && !!current;
+    const anchor =
+      extend && Math.abs(at - current.startMs) < Math.abs(at - current.endMs)
+        ? current.endMs
+        : extend
+          ? current.startMs
+          : at;
+    rulerDrag.current = { anchor, moved: extend };
+    if (extend) setDraft(normalizeRange({ startMs: anchor, endMs: at }));
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const moveRulerDrag = (e: PointerEvent<HTMLDivElement>) => {
+    const drag = rulerDrag.current;
+    if (!drag) return;
+    const at = rulerMs(e);
+    if (!drag.moved && Math.abs(at - drag.anchor) <= 1) return;
+    drag.moved = true;
+    setDraft(normalizeRange({ startMs: drag.anchor, endMs: at }));
+  };
+  /** Ends a ruler drag: a drag selects, a click clears the selection and moves the cursor. */
+  const endRulerDrag = (e: PointerEvent<HTMLDivElement>) => {
+    const drag = rulerDrag.current;
+    rulerDrag.current = null;
+    setDraft(null);
+    if (!drag) return;
+    const picked = drag.moved ? normalizeRange({ startMs: drag.anchor, endMs: rulerMs(e) }) : null;
+    lanes.setTimeRange(picked);
+    if (!picked) lanes.setEditCursorMs(rulerMs(e));
+  };
+  const studioKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const field = (e.target as HTMLElement).closest("input, select, textarea, [role=slider]");
+    if (field || !lanes.timeRange || !e.shiftKey || e.key.toLowerCase() !== "s") return;
+    e.preventDefault();
+    lanes.commands.splitTimeRange();
+  };
   const drop = (drag: ClipDrag) => {
     if (drag.kind === "move")
       apply((a) => moveClip(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
@@ -110,6 +150,13 @@ export function StudioView({
         showCloseButton={false}
         aria-describedby={undefined}
         data-testid="studio"
+        onKeyDown={studioKey}
+        onEscapeKeyDown={(e) => {
+          // Escape clears the time selection first; with none, it closes the studio.
+          if (!lanes.timeRange) return;
+          e.preventDefault();
+          lanes.setTimeRange(null);
+        }}
         className="h-[calc(100dvh-1rem)] max-h-none max-w-[calc(100%-1rem)] gap-0 bg-background p-0 sm:max-w-[calc(100%-1rem)]"
       >
         <header className="flex flex-wrap items-center gap-2 border-b bg-card px-4 py-2">
@@ -236,16 +283,25 @@ export function StudioView({
             className="flex flex-wrap items-center gap-2 border-b bg-muted/50 px-4 py-1.5 text-sm"
             data-testid="range-bar"
           >
-            <span className="tabular-nums">
-              Range {(range.startMs / 1000).toFixed(2)} s – {(range.endMs / 1000).toFixed(2)} s on{" "}
-              {inRange.length} lanes
+            <span className="tabular-nums" data-testid="time-range-label">
+              Selection {describeRange(range)} on {inRange.length} lanes
             </span>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => apply((a) => splitRange(a, inRange, range.startMs, range.endMs))}
+              title="Shift+S"
+              onClick={lanes.commands.splitTimeRange}
             >
               Split at the edges
+            </Button>
+            <Button variant="outline" size="sm" onClick={lanes.commands.trimToTimeRange}>
+              Trim to selection
+            </Button>
+            <Button variant="outline" size="sm" onClick={lanes.commands.removeTimeRange}>
+              Remove and close gap
+            </Button>
+            <Button variant="outline" size="sm" onClick={lanes.commands.insertSpace}>
+              Insert space
             </Button>
             <Button
               variant="outline"
@@ -262,7 +318,7 @@ export function StudioView({
                 onClick={() => {
                   const step = d * gridStepMs(grid, range.startMs, false);
                   apply((a) => moveRange(a, inRange, range.startMs, range.endMs, step));
-                  setRange({ startMs: range.startMs + step, endMs: range.endMs + step });
+                  lanes.setTimeRange({ startMs: range.startMs + step, endMs: range.endMs + step });
                 }}
               >
                 Move {d < 0 ? "earlier" : "later"} a beat
@@ -275,7 +331,7 @@ export function StudioView({
             >
               Render range
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setRange(null)}>
+            <Button variant="ghost" size="sm" onClick={() => lanes.setTimeRange(null)}>
               Clear
             </Button>
           </div>
@@ -291,24 +347,10 @@ export function StudioView({
                 <div
                   className="relative flex-1 cursor-text"
                   data-testid="studio-ruler"
-                  onPointerDown={(e) => {
-                    rulerDrag.current = rulerMs(e);
-                    setRange(null);
-                    e.currentTarget.setPointerCapture?.(e.pointerId);
-                  }}
-                  onPointerMove={(e) => {
-                    if (rulerDrag.current === null) return;
-                    const at = rulerMs(e);
-                    if (Math.abs(at - rulerDrag.current) > 1)
-                      setRange({
-                        startMs: Math.min(at, rulerDrag.current),
-                        endMs: Math.max(at, rulerDrag.current),
-                      });
-                  }}
-                  onPointerUp={(e) => {
-                    if (rulerDrag.current !== null && !range) lanes.setEditCursorMs(rulerMs(e));
-                    rulerDrag.current = null;
-                  }}
+                  title="Drag to select a time range (Shift: extend it); click to clear it"
+                  onPointerDown={startRulerDrag}
+                  onPointerMove={moveRulerDrag}
+                  onPointerUp={endRulerDrag}
                 >
                   {markers.map((m) => (
                     <span
@@ -332,9 +374,19 @@ export function StudioView({
                   {range && (
                     <span
                       aria-hidden="true"
-                      className="absolute inset-x-0 bottom-0 h-3 bg-primary/50"
+                      data-testid="time-range-band"
+                      className="absolute bottom-0 h-3 border-x border-primary bg-primary/50"
                       style={{ left: toX(range.startMs), width: toX(range.endMs - range.startMs) }}
                     />
+                  )}
+                  {draft && (
+                    <span
+                      role="tooltip"
+                      className="pointer-events-none absolute top-full z-40 mt-1 rounded border bg-popover px-1.5 py-0.5 text-[10px] whitespace-nowrap text-popover-foreground tabular-nums shadow-sm"
+                      style={{ left: toX(draft.startMs) }}
+                    >
+                      {describeRange(draft)}
+                    </span>
                   )}
                 </div>
               </div>
@@ -348,12 +400,11 @@ export function StudioView({
                   toMs={toMs}
                   inRange={inRange.includes(lane.id)}
                   onRangeToggle={() =>
-                    setRangeLanes((current) => {
-                      const list = current ?? playable;
-                      return list.includes(lane.id)
-                        ? list.filter((id) => id !== lane.id)
-                        : [...list, lane.id];
-                    })
+                    lanes.setRangeLanes(
+                      inRange.includes(lane.id)
+                        ? inRange.filter((id) => id !== lane.id)
+                        : [...inRange, lane.id],
+                    )
                   }
                   onEffects={actions.effects}
                   onDrop={drop}
@@ -553,10 +604,13 @@ function StudioLane({
               lanes.select([]);
             }}
           >
-            {range && inRange && (
+            {range && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 bg-primary/15"
+                className={cn(
+                  "pointer-events-none absolute inset-y-0 border-x border-primary/40",
+                  inRange ? "bg-primary/15" : "bg-primary/5",
+                )}
                 style={{ left: toX(range.startMs), width: toX(range.endMs - range.startMs) }}
               />
             )}

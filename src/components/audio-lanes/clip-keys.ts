@@ -8,6 +8,8 @@ import { findClip } from "@/lib/audio-lanes/edits";
 export const CLIP_SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: "← →", action: "Nudge by a beat (Shift: a bar)" },
   { keys: "S", action: "Split at the position line" },
+  { keys: "⇧S", action: "Split at the edges of the time selection" },
+  { keys: "Esc", action: "Clear the time selection" },
   { keys: "G", action: "Glue the selected clips" },
   { keys: "M", action: "Mute or unmute" },
   { keys: "L", action: "Lock or unlock the position" },
@@ -50,6 +52,8 @@ export function handleClipKey(
   else if (mod && event.key.toLowerCase() === "c") lanes.commands.copy(ids);
   else if (mod && event.key.toLowerCase() === "v") lanes.commands.paste(laneId);
   else if (mod) used = false;
+  else if (event.shiftKey && event.key.toLowerCase() === "s" && lanes.timeRange)
+    lanes.commands.splitTimeRange();
   else if (event.key.toLowerCase() === "s") lanes.commands.split();
   else if (event.key.toLowerCase() === "g") lanes.commands.glue();
   else if (event.key.toLowerCase() === "m") toggle("mute");

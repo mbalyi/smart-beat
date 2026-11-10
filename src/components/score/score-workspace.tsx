@@ -1943,6 +1943,15 @@ export function ScoreWorkspace({
       const at = barAtTimelineMs(lanesAudioRef.current, laneGrid, ms);
       if (at >= 0 && at < score.masterBars.length) playerRef.current?.seekToBarPosition(at);
     },
+    // The audio time selection is the loop: the bars it covers (none: the loop goes).
+    onTimeRangeChange: (range) => {
+      if (!range) return dispatchPractice({ type: "loop", value: false });
+      const last = Math.max(0, score.masterBars.length - 1);
+      const barAt = (ms: number) => barAtTimelineMs(lanesAudioRef.current, laneGrid, ms);
+      const start = Math.min(last, Math.max(0, Math.floor(barAt(range.startMs))));
+      const end = Math.min(last, Math.max(start, Math.ceil(barAt(range.endMs)) - 1));
+      loopBars(start, end);
+    },
   });
   // While stopped, the edit cursor is where playback is: a seek or a pause moves it along, so
   // Split and Paste work at the line the user sees.
