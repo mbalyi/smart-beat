@@ -170,6 +170,33 @@ export function ScoreContextMenu({
         {editing && on && (
           <>
             <ContextMenuSeparator />
+            <ContextMenuItem onSelect={run(actions.onInsertBarBefore)}>
+              <PlusIcon />
+              Insert bar before
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={run(actions.onInsertBarAfter)}>
+              <PlusIcon />
+              Insert bar after
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={run(actions.onCopyBar)}>
+              <ClipboardCopyIcon />
+              Copy bar
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={run(actions.onCutBar)}>
+              <ScissorsIcon />
+              Cut bar
+            </ContextMenuItem>
+            {canPaste && (
+              <ContextMenuItem onSelect={run(actions.onPasteBarsAfter)}>
+                <ClipboardPasteIcon />
+                Paste bar after
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onSelect={run(actions.onDeleteBar)}>
+              <Trash2Icon />
+              Delete bar
+            </ContextMenuItem>
+            <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => actions.onInsertRest("before", beat)}>
               <BetweenVerticalStartIcon />
               Insert rest before
@@ -197,32 +224,6 @@ export function ScoreContextMenu({
                 </ContextMenuRadioGroup>
               </ContextMenuSubContent>
             </ContextMenuSub>
-            <ContextMenuItem onSelect={run(actions.onInsertBarBefore)}>
-              <PlusIcon />
-              Insert bar before
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={run(actions.onInsertBarAfter)}>
-              <PlusIcon />
-              Insert bar after
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={run(actions.onCopyBar)}>
-              <ClipboardCopyIcon />
-              Copy bar
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={run(actions.onCutBar)}>
-              <ScissorsIcon />
-              Cut bar
-            </ContextMenuItem>
-            {canPaste && (
-              <ContextMenuItem onSelect={run(actions.onPasteBarsAfter)}>
-                <ClipboardPasteIcon />
-                Paste bar after
-              </ContextMenuItem>
-            )}
-            <ContextMenuItem onSelect={run(actions.onDeleteBar)}>
-              <Trash2Icon />
-              Delete bar
-            </ContextMenuItem>
           </>
         )}
         <ContextMenuSeparator />

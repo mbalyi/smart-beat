@@ -94,6 +94,16 @@ describe("ScoreContextMenu: bars (Edit Mode)", () => {
     expect(actions.onRepeatEnd).toHaveBeenCalledWith(2, 0);
   });
 
+  it("lists the rest and repeat items after the bar items (#228)", async () => {
+    setup({ editing: true });
+    const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+    const at = (name: string) => items.indexOf(name);
+    expect(at("Delete bar")).toBeGreaterThan(at("Insert bar before"));
+    expect(at("Insert rest before")).toBe(at("Delete bar") + 1);
+    expect(at("Insert rest after")).toBe(at("Insert rest before") + 1);
+    expect(at("Repeat end")).toBe(at("Insert rest after") + 1);
+  });
+
   it("offers no rest insertion outside Edit Mode", async () => {
     setup();
     await screen.findAllByRole("menuitem");
