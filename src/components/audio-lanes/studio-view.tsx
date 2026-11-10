@@ -16,9 +16,11 @@ import { ClipProperties } from "@/components/audio-lanes/clip-properties";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
+import { MarqueeBox, SelectionStatus } from "@/components/audio-lanes/selection-overlay";
 import { SpectrogramView } from "@/components/audio-lanes/spectrogram-view";
 import type { AudioLanesController, SnapMode } from "@/components/audio-lanes/use-audio-lanes";
 import { gridStepMs } from "@/components/audio-lanes/use-audio-lanes";
+import { useMarquee } from "@/components/audio-lanes/use-marquee";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -35,6 +37,7 @@ import {
   updateLane,
 } from "@/lib/audio-lanes/edits";
 import { MAX_BUSES, clipEndMs, newId } from "@/lib/audio-lanes/model";
+import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
 import { timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
 import { usePlayheadBar, type PlayheadStore } from "@/lib/score/playhead";
 import { laneColor } from "@/lib/score/track-colors";
@@ -110,6 +113,12 @@ export function StudioView({
         showCloseButton={false}
         aria-describedby={undefined}
         data-testid="studio"
+        // Escape clears the clip selection first; with none, it closes the studio.
+        onEscapeKeyDown={(e) => {
+          if (!lanes.selection.length) return;
+          e.preventDefault();
+          lanes.select([]);
+        }}
         className="h-[calc(100dvh-1rem)] max-h-none max-w-[calc(100%-1rem)] gap-0 bg-background p-0 sm:max-w-[calc(100%-1rem)]"
       >
         <header className="flex flex-wrap items-center gap-2 border-b bg-card px-4 py-2">
@@ -417,6 +426,7 @@ export function StudioView({
             </div>
           </div>
           {selected && <ClipProperties lanes={lanes} clip={selected.clip} />}
+          <SelectionStatus count={lanes.selection.length} />
         </div>
         {spectrogram && selected && <SpectrogramView clip={selected.clip} />}
         {spectrogram && !selected && (
@@ -455,6 +465,19 @@ function StudioLane({
   const { apply } = lanes;
   const color = laneColor(index, lane.color);
   const update = (patch: Partial<AudioLane>) => apply((a) => updateLane(a, lane.id, patch));
+  // A drag on empty space frames clips across the studio's lanes; a click sets the cursor.
+  const marquee = useMarquee({
+    selection: lanes.selection,
+    select: lanes.select,
+    onTap: (e) => {
+      if (e.target !== e.currentTarget) return;
+      lanes.setEditCursorMs(
+        lanes.snapTo(toMs(e.clientX - e.currentTarget.getBoundingClientRect().left)),
+      );
+      lanes.select([]);
+    },
+    scope: (el) => el.closest("[data-testid='studio']"),
+  });
   return (
     <div
       className={cn("flex border-b", lane.folder ? "h-9 bg-muted/40" : "h-20")}
@@ -545,13 +568,7 @@ function StudioLane({
             role="presentation"
             className="relative flex-1"
             data-lane-id={lane.id}
-            onPointerDown={(e) => {
-              if (e.target !== e.currentTarget) return;
-              lanes.setEditCursorMs(
-                lanes.snapTo(toMs(e.clientX - e.currentTarget.getBoundingClientRect().left)),
-              );
-              lanes.select([]);
-            }}
+            {...marquee.handlers}
           >
             {range && inRange && (
               <span
@@ -572,8 +589,10 @@ function StudioLane({
                 toX={toX}
                 toMs={toMs}
                 snap={lanes.snapTo}
-                onSelect={(additive) =>
-                  lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
+                onSelect={(mode) =>
+                  lanes.select(
+                    clickSelection(lanes.selection, clip.id, mode, selectableLanes(lanes.audio)),
+                  )
                 }
                 onDrop={onDrop}
                 onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
@@ -586,6 +605,7 @@ function StudioLane({
                 takes
               </span>
             )}
+            <MarqueeBox box={marquee.box} />
           </div>
         </LaneContextMenu>
       )}

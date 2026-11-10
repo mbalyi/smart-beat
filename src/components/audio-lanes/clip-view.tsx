@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from
 
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
 import { clipPeaks } from "@/lib/audio-lanes/peaks";
+import { clickMode, type ClickMode } from "@/lib/audio-lanes/selection";
 import { waveformPath } from "@/lib/stems/waveform";
 import type { AudioClip, SourceInfo } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,8 @@ export function ClipView({
   snap: (ms: number) => number;
   /** Short rows (the track list): no title line. */
   compact?: boolean;
-  onSelect: (additive: boolean) => void;
+  /** A press on the clip: select it alone, toggle it (⌘/Ctrl) or select a range (Shift). */
+  onSelect: (mode: ClickMode) => void;
   onDrop: (drag: ClipDrag) => void;
   onKey: (event: KeyboardEvent<HTMLButtonElement>) => void;
   onOpen: () => void;
@@ -105,7 +107,7 @@ export function ClipView({
           : "move";
     press.current = { x: event.clientX, y: event.clientY, mode, dragging: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    onSelect(event.shiftKey || event.metaKey);
+    onSelect(clickMode(event));
   };
   const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
     const p = press.current;
@@ -168,7 +170,7 @@ export function ClipView({
       onKeyDown={onKey}
       className={cn(
         "absolute inset-y-1 flex overflow-hidden rounded-md border text-left transition-shadow outline-none focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none",
-        selected ? "ring-2 ring-foreground" : "",
+        selected ? "ring-2 ring-primary" : "",
         preview && "z-30 shadow-lg",
         clip.mute && "opacity-40",
         missing && "border-dashed",
@@ -199,6 +201,9 @@ export function ClipView({
         >
           <path d={path} fill="currentColor" />
         </svg>
+      )}
+      {selected && (
+        <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-primary/20" />
       )}
       {missing && (
         <span className="pointer-events-none m-auto text-[10px] text-muted-foreground">
