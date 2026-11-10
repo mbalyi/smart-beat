@@ -115,6 +115,8 @@ export type PaletteAction =
   | { type: "ending"; ending: number }
   | { type: "jump"; direction: DirectionType }
   | { type: "repeat"; side: "start" | "end" }
+  /** Ends a repeat that plays this many times (#228); the active count removes it again. */
+  | { type: "repeatEnd"; count: number }
   | { type: "noteEffect"; id: NoteEffectId; value?: number }
   | { type: "beatEffect"; id: BeatEffectId; value?: number }
   | { type: "grace"; grace: number }
@@ -379,6 +381,26 @@ const FEEL_BOX: PaletteBox = {
         visual: FEEL_VISUALS[value] ?? { text: label },
         action: { type: "feel", feel: value },
         neutral: value === TripletFeel.NoTripletFeel,
+      })),
+    },
+  ],
+};
+
+/** How many times a repeat plays, picked when it is written (#228); more in the Bar dialog. */
+const REPEAT_END_COUNTS = [2, 3, 4, 5, 6, 7, 8] as const;
+
+const REPEAT_END_BOX: PaletteBox = {
+  id: "repeat-end",
+  label: "Repeat end",
+  columns: 4,
+  idle: glyph("repeatRight"),
+  groups: [
+    {
+      items: REPEAT_END_COUNTS.map((count) => ({
+        id: `repeat:end:${count}`,
+        label: `Repeat end, play ${count} times`,
+        visual: { text: `×${count}` },
+        action: { type: "repeatEnd", count } as PaletteAction,
       })),
     },
   ],
@@ -870,12 +892,7 @@ export const PALETTE_SECTIONS: PaletteSection[] = [
               side: "start",
             }),
           ),
-          cell(
-            plain("repeat:end", "Repeat end", glyph("repeatRight"), {
-              type: "repeat",
-              side: "end",
-            }),
-          ),
+          box(REPEAT_END_BOX),
           box(ENDINGS_BOX),
           box(JUMPS_BOX),
         ],

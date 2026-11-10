@@ -19,7 +19,12 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import type { Beat } from "@/lib/score/model";
@@ -55,7 +60,12 @@ export interface ScoreMenuActions {
    * beat), as long as the note value the palette shows (#228).
    */
   onInsertRest: (where: "before" | "after", beat: Beat | null) => void;
+  /** Edit Mode: ends a repeat at the bar that plays `count` times; 0 removes it (#228). */
+  onRepeatEnd: (bar: number, count: number) => void;
 }
+
+/** The repeat counts the menu offers; another count in the file is offered too. */
+const REPEAT_COUNTS = [2, 3, 4, 5, 6, 7, 8];
 
 /** The bars a score selection covers (0-based, inclusive). */
 export interface SelectionBars {
@@ -72,6 +82,7 @@ export function ScoreContextMenu({
   children,
   barAt,
   beatAt = () => null,
+  repeatCountAt = () => 0,
   sections,
   actions,
   selection = null,
@@ -83,6 +94,8 @@ export function ScoreContextMenu({
   barAt: (clientX: number, clientY: number) => number | null;
   /** The beat under a point of the window, or null (alphaTab only reports left clicks). */
   beatAt?: (clientX: number, clientY: number) => Beat | null;
+  /** How many times the repeat ending at a bar plays (0: none). */
+  repeatCountAt?: (bar: number) => number;
   sections: readonly SongSection[];
   actions: ScoreMenuActions;
   /** The selected range: its actions are offered while there is one. */
@@ -96,6 +109,11 @@ export function ScoreContextMenu({
   const [beat, setBeat] = useState<Beat | null>(null);
   const section = bar === null ? null : sectionAt(sections, bar);
   const on = bar !== null;
+  const repeatCount = bar === null ? 0 : repeatCountAt(bar);
+  const counts =
+    repeatCount > 0 && !REPEAT_COUNTS.includes(repeatCount)
+      ? [...REPEAT_COUNTS, repeatCount].sort((a, b) => a - b)
+      : REPEAT_COUNTS;
   const run = (action: (bar: number) => void) => () => {
     if (bar !== null) action(bar);
   };
@@ -160,6 +178,25 @@ export function ScoreContextMenu({
               <BetweenVerticalEndIcon />
               Insert rest after
             </ContextMenuItem>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <RepeatIcon />
+                Repeat end
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent aria-label="Repeat end">
+                <ContextMenuRadioGroup value={String(repeatCount)}>
+                  {[0, ...counts].map((count) => (
+                    <ContextMenuRadioItem
+                      key={count}
+                      value={String(count)}
+                      onSelect={run((at) => actions.onRepeatEnd(at, count))}
+                    >
+                      {count === 0 ? "No repeat end" : `Play ${count} times`}
+                    </ContextMenuRadioItem>
+                  ))}
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
             <ContextMenuItem onSelect={run(actions.onInsertBarBefore)}>
               <PlusIcon />
               Insert bar before

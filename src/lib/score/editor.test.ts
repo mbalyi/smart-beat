@@ -403,6 +403,25 @@ describe("ScoreEditor: note entry", () => {
 });
 
 describe("ScoreEditor: bars", () => {
+  it("sets how many times a repeat plays, and removes it with 0 (#228)", () => {
+    const { editor } = newSong();
+    editor.setCursorTo({ bar: 1, beat: 0 });
+    expect(editor.repeatCount()).toBe(0);
+    editor.setRepeatEnd(4);
+    expect(editor.score.masterBars[1]!.repeatCount).toBe(4);
+    expect(editor.repeatCount()).toBe(4);
+    expect(editor.undoLabel).toBe("Repeat end");
+    expect(editor.message).toBe("Repeat end: play 4 times");
+    editor.setRepeatEnd(0);
+    expect(editor.score.masterBars[1]!.repeatCount).toBe(0);
+    expect(editor.message).toBe("No repeat end");
+    editor.undo();
+    expect(editor.repeatCount()).toBe(4);
+    // Another bar than the cursor's.
+    editor.setRepeatEnd(3, 2);
+    expect(editor.score.masterBars[2]!.repeatCount).toBe(3);
+  });
+
   const barCounts = (editor: ScoreEditor) =>
     editor.score.tracks.map((t) => t.staves[0]!.bars.length);
 

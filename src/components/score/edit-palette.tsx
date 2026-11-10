@@ -69,6 +69,8 @@ export interface EffectActions {
   onGrace: (type: number) => void;
   onFermata: () => void;
   onRepeat: (side: "start" | "end") => void;
+  /** Ends a repeat at the cursor's bar that plays `count` times; 0 removes it (#228). */
+  onRepeatEnd: (count: number) => void;
   onBend: () => void;
   onWhammy: () => void;
   onText: () => void;
@@ -82,6 +84,8 @@ export interface PaletteState {
   fermata: ToggleState;
   repeatStart: boolean;
   repeatEnd: boolean;
+  /** How many times the repeat ending at the cursor's bar plays (0: none). */
+  repeatCount: number;
 }
 
 const SECTION = "flex flex-col gap-[3px] border-t border-sidebar-border py-2.5 first:border-t-0";
@@ -192,6 +196,8 @@ export function EditPalette({
         return onOff(bar.directions.includes(action.direction));
       case "repeat":
         return onOff(action.side === "start" ? state.repeatStart : state.repeatEnd);
+      case "repeatEnd":
+        return onOff(state.repeatCount === action.count);
       case "noteEffect":
         return state.effect("note", action.id, action.value);
       case "beatEffect":
@@ -293,6 +299,10 @@ export function EditPalette({
         return false;
       case "repeat":
         fx.onRepeat(action.side);
+        return false;
+      case "repeatEnd":
+        // The count already there takes the repeat end away again.
+        fx.onRepeatEnd(state.repeatCount === action.count ? 0 : action.count);
         return false;
       case "noteEffect": {
         if (action.value === undefined) {

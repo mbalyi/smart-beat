@@ -73,6 +73,7 @@ import {
   type Voice,
 } from "@/lib/score/model";
 import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
+import { MAX_REPEAT_COUNT } from "@/lib/score/structure";
 import { drumIdOf, drumValueFor, kitIndexOf } from "@/lib/score/drum-kit";
 import { DRUM_TAB_LINES, drumLine, setDrumLine } from "@/lib/score/drum-lines";
 import { drumTabString, placeDrums } from "@/lib/score/drum-tab";
@@ -2026,6 +2027,30 @@ export class ScoreEditor {
         else masterBar.repeatCount = on ? 2 : 0;
       },
       on ? `${what[0]!.toUpperCase()}${what.slice(1)}` : `No ${what}`,
+    );
+  }
+
+  /** How many times the repeat ending at a bar (the cursor's by default) plays; 0: none. */
+  repeatCount(bar = this._cursor.bar): number {
+    return this.score.masterBars[bar]?.repeatCount ?? 0;
+  }
+
+  /**
+   * Ends a repeat at a bar (the cursor's by default) that plays `count` times, or removes it
+   * with 0 (#228). One undo step; the count is saved with the file and followed by playback.
+   */
+  setRepeatEnd(count: number, bar = this._cursor.bar) {
+    const masterBar = this.score.masterBars[bar];
+    if (!masterBar) return;
+    const times = count <= 0 ? 0 : Math.min(MAX_REPEAT_COUNT, Math.max(2, Math.round(count)));
+    if (masterBar.repeatCount === times) return;
+    this.run(
+      "Repeat end",
+      () => masterBarContent(this.score, bar),
+      () => {
+        masterBar.repeatCount = times;
+      },
+      times === 0 ? "No repeat end" : `Repeat end: play ${times} times`,
     );
   }
 

@@ -1,10 +1,17 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 
 import { ScoreContextMenu, type ScoreMenuActions } from "@/components/score/score-context-menu";
 import { newBeat, type Beat } from "@/lib/score/model";
 import { renderWithProviders } from "@/test/render";
 
-function setup(props: { editing?: boolean; canPaste?: boolean; beatAt?: () => Beat | null } = {}) {
+function setup(
+  props: {
+    editing?: boolean;
+    canPaste?: boolean;
+    beatAt?: () => Beat | null;
+    repeatCountAt?: () => number;
+  } = {},
+) {
   const actions = Object.fromEntries(
     [
       "onPlayFrom",
@@ -26,6 +33,7 @@ function setup(props: { editing?: boolean; canPaste?: boolean; beatAt?: () => Be
       "onDeleteBar",
       "onPasteBarsAfter",
       "onInsertRest",
+      "onRepeatEnd",
     ].map((name) => [name, vi.fn()]),
   ) as unknown as ScoreMenuActions;
   const ui = renderWithProviders(
@@ -65,6 +73,25 @@ describe("ScoreContextMenu: bars (Edit Mode)", () => {
     fireEvent.contextMenu(screen.getByTestId("score"));
     await user.click(await screen.findByRole("menuitem", { name: "Insert rest after" }));
     expect(actions.onInsertRest).toHaveBeenLastCalledWith("after", beat);
+  });
+
+  it("sets how many times the repeat ending at the bar plays (#228)", async () => {
+    const { user, actions } = setup({ editing: true, repeatCountAt: () => 12 });
+    await user.click(await screen.findByRole("menuitem", { name: "Repeat end" }));
+    const counts = await screen.findByRole("menu", { name: "Repeat end" });
+    // The count in the file is offered and checked, next to the usual ones.
+    expect(within(counts).getByRole("menuitemradio", { name: "Play 12 times" })).toBeChecked();
+    expect(within(counts).getAllByRole("menuitemradio")).toHaveLength(9);
+    // jsdom: user-event's pointer events do not reach a submenu's items; a click does.
+    fireEvent.click(within(counts).getByRole("menuitemradio", { name: "Play 4 times" }));
+    expect(actions.onRepeatEnd).toHaveBeenCalledWith(2, 4);
+  });
+
+  it("removes a repeat end from the menu", async () => {
+    const { user, actions } = setup({ editing: true, repeatCountAt: () => 3 });
+    await user.click(await screen.findByRole("menuitem", { name: "Repeat end" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "No repeat end" }));
+    expect(actions.onRepeatEnd).toHaveBeenCalledWith(2, 0);
   });
 
   it("offers no rest insertion outside Edit Mode", async () => {

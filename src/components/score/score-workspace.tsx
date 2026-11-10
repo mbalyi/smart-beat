@@ -1249,6 +1249,7 @@ export function ScoreWorkspace({
     onWhammy: () => openCurve("whammy"),
     onFermata: () => editor.toggleFermata(),
     onRepeat: (side) => editor.toggleRepeat(side),
+    onRepeatEnd: (count) => editor.setRepeatEnd(count),
     onText: () => setTextDialogOpen(true),
     onChord: () => setChordDialogOpen(true),
     onLyrics: () => openLyrics(trackObject),
@@ -1258,6 +1259,7 @@ export function ScoreWorkspace({
     fermata: editor.fermataState,
     repeatStart: editor.repeatState("start"),
     repeatEnd: editor.repeatState("end"),
+    repeatCount: editor.repeatCount(),
   };
 
   /** Chord names for the selected notes (or the cursor's), in the key's spelling. */
@@ -2503,6 +2505,7 @@ export function ScoreWorkspace({
     onCutBar: (at) => editor.cutBar(at),
     onDeleteBar: (at) => editor.deleteBar(at),
     onPasteBarsAfter: (at) => editor.pasteBarsAfter(at),
+    onRepeatEnd: (at, count) => editor.setRepeatEnd(count, at),
     onInsertRest: (where, beat) => {
       // A right-clicked beat of this track becomes the cursor's beat first (#228).
       if (beat && beat.voice.bar.staff.track === trackObject) {
@@ -2941,6 +2944,7 @@ export function ScoreWorkspace({
               const rect = surfaceRef.current?.getBoundingClientRect();
               return rect ? (playerRef.current?.barAt(x - rect.left, y - rect.top) ?? null) : null;
             }}
+            repeatCountAt={(at) => editor.repeatCount(at)}
             beatAt={(x, y) => {
               const rect = surfaceRef.current?.getBoundingClientRect();
               return rect ? (playerRef.current?.beatAt(x - rect.left, y - rect.top) ?? null) : null;
