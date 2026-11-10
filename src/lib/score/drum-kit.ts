@@ -16,6 +16,8 @@
  */
 import { exporter, importer, model, Settings } from "@coderline/alphatab";
 
+import { drumNumber } from "@/lib/score/model";
+
 type Articulation = model.InstrumentArticulation;
 type Score = model.Score;
 type Track = model.Track;
@@ -141,10 +143,8 @@ export function drumValueFor(track: Track, drum: number): number {
  * default kit's articulation it is (92 for "Hi-Hat (half)"), else the key it plays.
  */
 export function drumIdOf(note: model.Note): number {
-  const own = note.beat.voice.bar.staff.track.percussionArticulations[note.percussionArticulation];
-  if (!own) return note.percussionArticulation;
-  const known = defaultDrumKit().find((a) => a.id === own.id);
-  return known?.outputMidiNumber === own.outputMidiNumber ? own.id : own.outputMidiNumber;
+  // One rule for showing and for copying drums: copy and paste must not remap them.
+  return drumNumber(note);
 }
 
 const isDrumTrack = (track: Track) =>
@@ -170,6 +170,16 @@ function drumNotes(track: Track): model.Note[] {
  */
 export function withWritableDrumKits<T>(score: Score, fn: () => T): T {
   const undo: (() => void)[] = [];
+  try {
+    prepareKits(score, undo);
+    return fn();
+  } finally {
+    for (const restore of undo) restore();
+  }
+}
+
+/** Gives every drum track a kit its notes index into; `undo` collects how to put each back. */
+function prepareKits(score: Score, undo: (() => void)[]) {
   for (const track of score.tracks) {
     if (!isDrumTrack(track)) continue;
     const notes = drumNotes(track);
@@ -200,10 +210,5 @@ export function withWritableDrumKits<T>(score: Score, fn: () => T): T {
       track.percussionArticulations = kit;
       loose.forEach((note, i) => (note.percussionArticulation = values[i]!));
     });
-  }
-  try {
-    return fn();
-  } finally {
-    for (const restore of undo) restore();
   }
 }

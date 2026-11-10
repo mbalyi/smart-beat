@@ -1520,18 +1520,9 @@ export class ScoreEditor {
     });
   }
 
-  /** Inserts a rest before the cursor, as long as the beat at the cursor. */
+  /** The palette's Insert beat and the Insert key: a rest before the cursor's beat (#228). */
   insertBeat() {
-    this.run("Insert beat", this.cursorTargets, () => {
-      const current = this.writableBeat();
-      const beat = current.isEmpty
-        ? newBeat(this._entryDuration)
-        : newBeat(current.duration, current.dots, {
-            numerator: current.tupletNumerator,
-            denominator: current.tupletDenominator,
-          });
-      current.voice.beats.splice(current.index, 0, beat);
-    });
+    this.insertRest("before");
   }
 
   /**
