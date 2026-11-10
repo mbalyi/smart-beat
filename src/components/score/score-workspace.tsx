@@ -2503,7 +2503,7 @@ export function ScoreWorkspace({
     onInsertBarAfter: (at) => editor.insertBar("after", at),
     onCopyBar: (at) => editor.copyBar(at),
     onCutBar: (at) => editor.cutBar(at),
-    onDeleteBar: (at) => editor.deleteBar(at),
+    onDeleteBars: (start, end) => editor.deleteBars(start, end),
     onPasteBarsAfter: (at) => editor.pasteBarsAfter(at),
     onRepeatEnd: (at, count) => editor.setRepeatEnd(count, at),
     onInsertRest: (where, beat) => {

@@ -257,6 +257,14 @@ export function removeMasterBar(score: Score, index: number): void {
   }
 }
 
+/** Empties a bar: each voice gets its placeholder back (a bar rest, or an empty beat). */
+export function clearBar(bar: Bar): void {
+  for (const voice of bar.voices) {
+    voice.beats.splice(0, voice.beats.length);
+    for (const beat of placeholderBeats(bar.masterBar, voice.index)) voice.addBeat(beat);
+  }
+}
+
 /** Makes sure every bar of the staff has at least `count` voices. */
 export function ensureVoices(staff: Staff, count: number): void {
   for (const bar of staff.bars) {

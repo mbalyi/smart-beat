@@ -505,6 +505,63 @@ describe("ScoreEditor: bars", () => {
     expect(editor.message).toContain("at least one bar");
   });
 
+  it("deletes several bars from every track in one undo step (#228)", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const bars = [...score.masterBars];
+    const length = bars.length;
+    editor.setCursorTo({ bar: 1, beat: 1 });
+    editor.setCursorTo({ bar: 2, beat: 0 }, true);
+    const selection = editor.selection;
+
+    expect(editor.deleteBars(1, 2)).toBe(true);
+    expect(score.masterBars).toHaveLength(length - 2);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => length - 2));
+    expect(score.masterBars).toEqual([bars[0], ...bars.slice(3)]);
+    expect(score.masterBars.map((m) => m.index)).toEqual(score.masterBars.map((_, i) => i));
+    expect(editor.cursor).toMatchObject({ bar: 1, beat: 0 });
+    expect(editor.selection).toBeNull();
+    expect(editor.undoLabel).toBe("Delete bars");
+    expect(editor.message).toBe("Deleted bars 2–3");
+
+    editor.undo();
+    expect(score.masterBars).toEqual(bars);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => length));
+    expect(editor.cursor).toMatchObject({ bar: 2, beat: 0 });
+    expect(editor.selection).toEqual(selection);
+    expect(editor.canUndo).toBe(false);
+  });
+
+  it("puts the cursor on the last bar after deleting the bars at the end", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const length = score.masterBars.length;
+    editor.deleteBars(length - 2, length - 1);
+    expect(score.masterBars).toHaveLength(length - 2);
+    expect(editor.cursor).toMatchObject({ bar: length - 3, beat: 0 });
+  });
+
+  it("keeps the first bar, emptied, when every bar is deleted (#228)", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const bars = [...score.masterBars];
+    const notes = () =>
+      score.tracks.flatMap((t) =>
+        t.staves[0]!.bars[0]!.voices.flatMap((v) => v.beats.flatMap((b) => b.notes)),
+      );
+    expect(notes().length).toBeGreaterThan(0);
+
+    expect(editor.deleteBars(0, bars.length - 1)).toBe(true);
+    expect(score.masterBars).toEqual([bars[0]]);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => 1));
+    expect(notes()).toEqual([]);
+    expect(editor.cursor).toMatchObject({ bar: 0, beat: 0 });
+
+    editor.undo();
+    expect(score.masterBars).toEqual(bars);
+    expect(notes().length).toBeGreaterThan(0);
+  });
+
   it("copies a bar and inserts it as a new bar after another, keeping the music there", () => {
     const editor = practiceSong();
     const { score } = editor;
