@@ -1415,7 +1415,7 @@ export function ScoreWorkspace({
       !engineOn &&
       nativeEngineAvailable()
     )
-      changeAudioEngine("native");
+      changeAudioEngine("native", false);
   };
 
   // --- Panels and Practice View (#83) ------------------------------------------------------
@@ -1791,8 +1791,9 @@ export function ScoreWorkspace({
 
   // --- Effects and the native audio engine -------------------------------------
 
-  const changeAudioEngine = (kind: typeof audioEngine) => {
-    storeAudioEnginePreference(kind);
+  /** `remember` is false when the app switches by itself: only the user's own pick is kept. */
+  const changeAudioEngine = (kind: typeof audioEngine, remember = true) => {
+    if (remember) storeAudioEnginePreference(kind);
     setEffectProblems({ tracks: [], master: [] });
     setAudioEngine(kind);
   };
@@ -2027,7 +2028,7 @@ export function ScoreWorkspace({
       if (nativeEngineAvailable()) {
         // The audio track needs the native engine: switch to it, and the recording loads into
         // the new player (see the effect above).
-        changeAudioEngine("native");
+        changeAudioEngine("native", false);
         toast.info("Switched to effects playback for the audio track");
       } else {
         toast.info("The audio track plays with the native audio engine");
@@ -3050,7 +3051,9 @@ export function ScoreWorkspace({
                 onCopyToInstrument: () => setCopyTrack(trackObject),
               }}
               audioEngine={audioEngine}
-              onAudioEngineChange={nativeEngineAvailable() ? changeAudioEngine : undefined}
+              onAudioEngineChange={
+                nativeEngineAvailable() ? (kind) => changeAudioEngine(kind) : undefined
+              }
               effects={trackEffects(mix, trackIndex)}
               effectProblems={effectProblems.tracks[trackIndex]?.flat().length ?? 0}
               onEffectsChange={(slots) => changeMix({ type: "effects", track: trackIndex, slots })}
