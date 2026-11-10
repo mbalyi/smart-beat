@@ -93,4 +93,79 @@ describe("ScoreView", () => {
     expect(ranges[0]).toHaveClass("bg-brand/15", "border-brand/40", "rounded-sm");
     expect(ranges[1]).toHaveStyle({ left: "10px", top: "200px", width: "120px" });
   });
+
+  describe("keeping the edit cursor in view (#228)", () => {
+    /** The region shows content 1000…1600 × 200…600 of its scrolled content. */
+    function scrolledRegion() {
+      const el = region();
+      const scroll = { left: 1000, top: 200 };
+      Object.defineProperties(el, {
+        scrollLeft: { configurable: true, get: () => scroll.left },
+        scrollTop: { configurable: true, get: () => scroll.top },
+        clientWidth: { configurable: true, value: 600 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      const scrollTo = vi.fn((to: { left: number; top: number }) => Object.assign(scroll, to));
+      el.scrollTo = scrollTo as never;
+      // The region sits at the window's origin; the marks are placed by their style in the
+      // scrolled content.
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        if (this === el) return new DOMRect(0, 0, 600, 400);
+        const { left, top, width, height } = this.style;
+        return new DOMRect(
+          parseFloat(left) - scroll.left,
+          parseFloat(top) - scroll.top,
+          parseFloat(width),
+          parseFloat(height),
+        );
+      });
+      return scrollTo;
+    }
+
+    const at = (x: number, y = 300): EditOverlay => ({
+      notes: [{ rect: { x, y, w: 10, h: 12 }, staff: "tab" }],
+      selection: [],
+    });
+
+    const view = (overlay: EditOverlay | null) => (
+      <ScoreView
+        viewportRef={{ current: null }}
+        surfaceRef={{ current: null }}
+        label="Score: Guitar"
+        layout="horizontal"
+        rendering={false}
+        editing
+        overlay={overlay}
+      />
+    );
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it("does not scroll while the cursor is in view, also when the score is drawn again", () => {
+      const { rerender } = render(view(null));
+      const scrollTo = scrolledRegion();
+
+      rerender(view(at(1300)));
+      // An edit draws the score again: new marks at the same place.
+      rerender(view(at(1300)));
+      // The cursor moved, but stays in view.
+      rerender(view(at(1290)));
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it("scrolls only as far as needed when the cursor would leave the view", () => {
+      const { rerender } = render(view(null));
+      const scrollTo = scrolledRegion();
+
+      // Past the right edge: the outline (2 px around the note, so 1593…1607) comes just inside.
+      rerender(view(at(1595)));
+      expect(scrollTo).toHaveBeenLastCalledWith({ left: 1007, top: 200, behavior: "instant" });
+
+      // Before the left edge: no jump to the start of the bar or the score.
+      rerender(view(at(900)));
+      expect(scrollTo).toHaveBeenLastCalledWith({ left: 898, top: 200, behavior: "instant" });
+    });
+  });
 });

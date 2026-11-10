@@ -17,6 +17,7 @@ Release notes for every version. The release workflow publishes the section that
 - Drum tab: click any line to put the cursor there and write the drum you type on it.
 - Drum tab: put the cursor on a drum (with the Up and Down arrows or a click) and type another number to replace it on the same line. Numbers typed one after another still add drums to the beat, such as a kick under a crash.
 - Edit mode: Delete removes every selected beat, also rests, in one step.
+- Edit mode: the score stays where it is while you delete or change notes. It only scrolls when the note you are on would leave the view, and then just far enough to show it.
 - Switching between open tabs in Edit mode puts the keyboard back where you were editing.
 - Pasting over a selection replaces it. When the pasted part is longer, it flows into new bars (a note crossing a bar line becomes two tied notes), so nothing after it is written over.
 - Sound: a new installation plays with SoundFonts. The effects engine is remembered only when you switch it on yourself.

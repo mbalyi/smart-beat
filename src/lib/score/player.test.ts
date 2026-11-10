@@ -1643,6 +1643,27 @@ describe("ScorePlayer: cursor in sync with the sound", () => {
     expect(api.scrolls.at(-1)).toEqual(["view", 400, 0]);
   });
 
+  it("does not let alphaTab move the view in edit mode while stopped, only while playing (#228)", async () => {
+    const { player, api, setPlaying } = await readySetup();
+    player.setEditing(true);
+
+    // alphaTab scrolls to the playback cursor's bar after every render (an edit): ignored.
+    api.uiFacade.scrollToX("view", 120, 300);
+    api.uiFacade.scrollToY("view", 80, 300);
+    expect(api.scrolls).toEqual([]);
+
+    // Playing in edit mode: the view follows the music as before.
+    setPlaying(true);
+    api.uiFacade.scrollToX("view", 400, 300);
+    expect(api.scrolls).toEqual([["view", 400, 300]]);
+
+    // Outside edit mode nothing changes.
+    setPlaying(false);
+    player.setEditing(false);
+    api.uiFacade.scrollToX("view", 500, 300);
+    expect(api.scrolls.at(-1)).toEqual(["view", 500, 300]);
+  });
+
   it("uses its own cursor handler, which delays the cursor by the latency", async () => {
     const { api } = await setup();
     expect(api.customCursorHandler).toBeDefined();
