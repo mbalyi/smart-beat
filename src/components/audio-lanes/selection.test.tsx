@@ -319,7 +319,9 @@ describe("Selecting clips in the studio", () => {
     drag(laneArea("lane-a"), { x: 200, y: 20 }, { x: 420, y: 80 });
     expect(lanesNow().selection).toEqual(["clip-a", "clip-b", "clip-c"]);
     const studio = screen.getByRole("dialog", { name: "Studio" });
-    expect(within(studio).getByRole("status")).toHaveTextContent("3 clips selected");
+    expect(within(studio).getByTestId("clip-selection-status")).toHaveTextContent(
+      "3 clips selected",
+    );
     await user.click(within(studio).getByRole("button", { name: /fill\.wav/ }));
     expect(lanesNow().selection).toEqual(["clip-c"]);
     await user.keyboard("{Escape}");

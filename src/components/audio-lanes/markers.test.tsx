@@ -192,7 +192,9 @@ describe("studio regions", () => {
 
     await user.dblClick(screen.getByTestId(`region-${region!.id}`));
     expect(lanesNow().editCursorMs).toBe(2000);
-    expect(screen.getByTestId("range-bar")).toHaveTextContent("Range 2.00 s – 6.00 s");
+    expect(screen.getByTestId("range-bar")).toHaveTextContent(
+      "Selection 0:02.00 – 0:06.00 (4.00 s)",
+    );
     // With a time selection the region comes from it.
     expect(
       within(studio).getByRole("button", { name: "Region from the time selection" }),
