@@ -1,3 +1,4 @@
+import { model } from "@coderline/alphatab";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -5,6 +6,7 @@ import {
   defaultDrumKit,
   drumValueFor,
   kitIndexOf,
+  resetDefaultDrumKitForTests,
   withWritableDrumKits,
 } from "@/lib/score/drum-kit";
 import { ScoreEditor } from "@/lib/score/editor";
@@ -52,6 +54,25 @@ describe("drum kits (#229)", () => {
     expect(notes).toHaveLength(1);
     expect(drumKey(notes[0]!)).toBe(46);
     expect(score.tracks[1]!.percussionArticulations[notes[0]!.percussionArticulation]!.id).toBe(92);
+  });
+
+  it("names a drum added to a kit by what it is, not by the key it plays (#229)", () => {
+    const score = drumSong(true);
+    score.tracks[1]!.percussionArticulations = score.tracks[1]!.percussionArticulations.slice(0, 3);
+    const editor = new ScoreEditor(score, 1);
+    editor.enterDrum(91); // snare rim shot: plays the snare's key, 38
+    const note = firstBeat(score).notes[0]!;
+    expect(drumNumber(note)).toBe(91);
+    expect(drumKey(note)).toBe(38);
+  });
+
+  it("leaves alphaTab's ids counting on when it reads its default kit (#229)", () => {
+    const counter = model.Beat as unknown as { _globalBeatId: number };
+    counter._globalBeatId = 5000;
+    resetDefaultDrumKitForTests();
+    defaultDrumKit();
+    // Reading a file starts alphaTab's counters again from 0: new beats would share ids.
+    expect(counter._globalBeatId).toBe(5000);
   });
 
   it("pastes drums between tracks with different kits", () => {

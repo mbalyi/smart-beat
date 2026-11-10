@@ -29,6 +29,40 @@ let defaultKit: readonly Articulation[] | null = null;
  */
 export function defaultDrumKit(): readonly Articulation[] {
   if (defaultKit) return defaultKit;
+  defaultKit = withIdCounters(readDefaultKit);
+  return defaultKit;
+}
+
+/** Forgets the default kit read so far (tests only). */
+export function resetDefaultDrumKitForTests() {
+  defaultKit = null;
+}
+
+/**
+ * alphaTab's id counters of bars, voices, beats and notes. Reading a file starts them again
+ * from 0, so beats and notes made afterwards would share ids with those already in the song.
+ */
+const COUNTERS: readonly [object, string][] = [
+  [model.Bar, "_globalBarId"],
+  [model.Voice, "_globalVoiceId"],
+  [model.Beat, "_globalBeatId"],
+  [model.Note, "globalNoteId"],
+];
+
+/** Runs `fn`, then puts alphaTab's id counters back where they were. */
+function withIdCounters<T>(fn: () => T): T {
+  const counters = COUNTERS as readonly [Record<string, number>, string][];
+  const saved = counters.map(([owner, name]) => owner[name]);
+  try {
+    return fn();
+  } finally {
+    counters.forEach(([owner, name], i) => {
+      if (typeof saved[i] === "number") owner[name] = saved[i];
+    });
+  }
+}
+
+function readDefaultKit(): readonly Articulation[] {
   const settings = new Settings();
   const probe = importer.ScoreLoader.loadAlphaTex(
     '\\track "Drums" \\instrument percussion \\articulation defaults :1 38',
@@ -39,8 +73,7 @@ export function defaultDrumKit(): readonly Articulation[] {
   track.staves[0]!.bars[0]!.voices[0]!.beats[0]!.notes[0]!.percussionArticulation = 38;
   const bytes = new exporter.Gp7Exporter().export(probe, settings);
   const read = importer.ScoreLoader.loadScoreFromBytes(bytes, settings);
-  defaultKit = [...read.tracks[0]!.percussionArticulations];
-  return defaultKit;
+  return [...read.tracks[0]!.percussionArticulations];
 }
 
 const copy = (a: Articulation): Articulation =>

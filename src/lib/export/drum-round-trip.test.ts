@@ -102,9 +102,9 @@ function hitsOf(score: Score): Hit[] {
 }
 
 /** The drums of each bar, voices and beats merged (for formats that do not keep voices). */
-function drumsPerBar(score: Score, { unique = false } = {}): number[][] {
+function drumsPerBar(score: Score, { unique = false, byKey = false } = {}): number[][] {
   const bars: number[][] = [];
-  for (const hit of hitsOf(score)) (bars[hit.bar] ??= []).push(hit.drum);
+  for (const hit of hitsOf(score)) (bars[hit.bar] ??= []).push(byKey ? hit.key : hit.drum);
   return bars.map((drums) => [...(unique ? new Set(drums) : drums)].sort((a, b) => a - b));
 }
 
@@ -168,12 +168,22 @@ describe("drum tracks after save and reopen (#229)", () => {
     },
   );
 
-  it.each(["mscz", "mscx", "musicxml", "mxl"] as const)(
-    "keeps every drum of each bar in %s",
+  it.each(["mscz", "mscx"] as const)("keeps every drum of each bar in %s", async (format) => {
+    const score = editedDrumSong();
+    const { score: again } = await reopen(score, format);
+    expect(drumsPerBar(again).slice(0, 2)).toEqual(drumsPerBar(score));
+  });
+
+  it.each(["musicxml", "mxl"] as const)(
+    "keeps the sound of every drum of each bar in %s",
     async (format) => {
+      // MusicXML names a drum by the key it plays, so the open hi-hat (46) can come back as the
+      // half-open one (92), which plays the same key.
       const score = editedDrumSong();
       const { score: again } = await reopen(score, format);
-      expect(drumsPerBar(again).slice(0, 2)).toEqual(drumsPerBar(score));
+      expect(drumsPerBar(again, { byKey: true }).slice(0, 2)).toEqual(
+        drumsPerBar(score, { byKey: true }),
+      );
     },
   );
 
@@ -220,7 +230,7 @@ describe("drum tracks after save and reopen (#229)", () => {
         bar.voices.flatMap((voice) => voice.beats.flatMap((beat) => beat.notes)),
       );
     const wrong = new Map(
-      notes(score).map((note, i) => [drumNumber(note), drumNumber(notes(damaged)[i]!)]),
+      notes(score).map((note, i) => [drumNumber(note), drumKey(notes(damaged)[i]!)]),
     );
     expect([KICK, SNARE, CRASH, CRASH_2].map((d) => wrong.get(d))).toEqual([60, 61, 62, 54]);
     // Dropping the kit reads them as drum numbers again: nothing was lost.

@@ -276,9 +276,13 @@ export const tuningOf = (staff: Staff): number[] => staff.stringTuning.tunings;
  */
 export function drumNumber(note: Note): number {
   const articulations = note.beat.voice.bar.staff.track.percussionArticulations;
-  return (
-    articulations[note.percussionArticulation]?.outputMidiNumber ?? note.percussionArticulation
-  );
+  const own = articulations[note.percussionArticulation];
+  if (!own) return note.percussionArticulation;
+  // A drum of its own that plays another's key keeps its number: the snare rim shot (91)
+  // plays the snare's 38, but is still the rim shot (#229).
+  return own.id !== own.outputMidiNumber && drumOutputKey(own.id) === own.outputMidiNumber
+    ? own.id
+    : own.outputMidiNumber;
 }
 
 /** The MIDI key a drum note sounds (92 "Hi-Hat (half)" plays 46, as alphaTab does). */
