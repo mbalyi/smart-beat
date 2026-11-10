@@ -2,13 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
+  freshGroups,
+  groupClips,
+  groupLeaders,
+  moveClipGroup,
+  pruneGroups,
+  regroupCopies,
+  ungroupClips,
+  withGroup,
+} from "@/lib/audio-lanes/clip-groups";
+import {
   addClip,
   addLane,
   addSource,
   duplicateClips,
   findClip,
   glueClips,
-  moveClip,
   pasteClips,
   removeClips,
   splitClip,
@@ -195,8 +204,10 @@ export function useAudioLanes(options: AudioLanesOptions) {
   const apply = useCallback(
     (edit: (audio: AudioLanesSettings) => AudioLanesSettings) => {
       const before = audioRef.current;
-      const next = edit(before);
-      if (next === before) return;
+      const edited = edit(before);
+      if (edited === before) return;
+      // A clip group left with one clip (after a delete, glue or lane removal) goes.
+      const next = pruneGroups(edited);
       remember({ past: [...history.current.past, before].slice(-HISTORY), future: [] });
       setLastEditAt(Date.now());
       audioRef.current = next;
@@ -396,16 +407,18 @@ export function useAudioLanes(options: AudioLanesOptions) {
   );
 
   const commands = useMemo(() => {
-    // Each command acts on the clips given, else on the selection.
+    // Each command acts on the clips given, else on the selection; grouped clips with their group.
     const copy = (ids: readonly string[] = selection) => {
+      const all = withGroup(audioRef.current, ids);
       clipboard.current = audioRef.current.lanes.flatMap((l) =>
-        l.clips.filter((c) => ids.includes(c.id)),
+        l.clips.filter((c) => all.includes(c.id)),
       );
       setClipboardSize(clipboard.current.length);
     };
     const remove = (ids: readonly string[] = selection) => {
-      apply((a) => removeClips(a, ids));
-      setSelection((s) => s.filter((id) => !ids.includes(id)));
+      const all = withGroup(audioRef.current, ids);
+      apply((a) => removeClips(a, all));
+      setSelection((s) => s.filter((id) => !all.includes(id)));
     };
     return {
       addLane: () => apply((a) => addLane(a)),
@@ -413,7 +426,11 @@ export function useAudioLanes(options: AudioLanesOptions) {
       split: (ids: readonly string[] = selection, atMs?: number) =>
         void splitAt(ids, atMs ?? lineMs()),
       glue: (ids: readonly string[] = selection) => apply((a) => glueClips(a, ids)),
-      duplicate: (ids: readonly string[] = selection) => apply((a) => duplicateClips(a, ids)),
+      duplicate: (ids: readonly string[] = selection) =>
+        apply((a) => regroupCopies(a, duplicateClips(a, withGroup(a, ids)))),
+      /** Groups the clips (two or more), so they move, delete and select together. */
+      group: (ids: readonly string[] = selection) => apply((a) => groupClips(a, ids)),
+      ungroup: (ids: readonly string[] = selection) => apply((a) => ungroupClips(a, ids)),
       remove,
       copy,
       cut: (ids: readonly string[] = selection) => {
@@ -422,29 +439,36 @@ export function useAudioLanes(options: AudioLanesOptions) {
       },
       /** Pastes on a lane at `atMs` (default: the position line). */
       paste: (laneId: string, atMs?: number) =>
-        apply((a) => pasteClips(a, laneId, clipboard.current, atMs ?? lineMs())),
+        apply((a) => pasteClips(a, laneId, freshGroups(clipboard.current), atMs ?? lineMs())),
       /** Moves the selected clips by one beat (a bar with `big`; 10 ms with snap off). */
       nudge: (direction: -1 | 1, big: boolean) =>
         apply((a) =>
-          selection.reduce((next, id) => {
+          groupLeaders(a, withGroup(a, selection)).reduce((next, id) => {
             const found = findClip(next, id);
             if (!found) return next;
             const step =
               snap === "off" && !big
                 ? 10
                 : gridStepMs(grid, found.clip.startMs, big || snap === "bar");
-            return moveClip(next, id, found.clip.startMs + direction * step);
+            return moveClipGroup(next, id, found.clip.startMs + direction * step);
           }, a),
         ),
     };
   }, [apply, grid, lineMs, selection, snap, splitAt]);
+
+  /** Selects clips, each with its whole group (`alone`: just these clips). */
+  const select = useCallback(
+    (ids: readonly string[], alone = false) =>
+      setSelection(alone ? ids : withGroup(audioRef.current, ids)),
+    [],
+  );
 
   return {
     audio,
     infos,
     missing,
     selection,
-    select: setSelection,
+    select,
     editCursorMs,
     setEditCursorMs,
     /** Moves the edit cursor along with playback (without moving playback again). */

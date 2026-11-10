@@ -116,6 +116,9 @@ pub struct AudioClip {
     pub envelope: Vec<GainPoint>,
     #[serde(default)]
     pub stretch: Vec<StretchMarker>,
+    /// Clips with the same group id move, nudge, delete and select together.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
 }
 
 fn one() -> f64 {
@@ -284,6 +287,9 @@ fn check_id(id: &str, what: &str) -> Result<(), String> {
 impl AudioClip {
     fn validate(&self, sources: &[AudioSource]) -> Result<(), String> {
         check_id(&self.id, "clip")?;
+        if let Some(group) = &self.group_id {
+            check_id(group, "clip group")?;
+        }
         if self.takes.is_empty() || self.takes.len() > MAX_TAKES || self.take >= self.takes.len() {
             return Err("a clip needs one to 64 takes".into());
         }
@@ -464,6 +470,7 @@ pub fn migrate_audio_track(track: &AudioTrack) -> AudioLanes {
         fade_out: ClipFade::default(),
         envelope: Vec::new(),
         stretch: Vec::new(),
+        group_id: None,
     };
     let lane = AudioLane {
         id: lane_id,
@@ -600,6 +607,28 @@ mod tests {
         let mut audio = migrate_audio_track(&track());
         audio.lanes[0].color = Some("red".into());
         assert!(audio.validate().is_err());
+    }
+
+    #[test]
+    fn clip_groups_round_trip_and_old_clips_have_none() {
+        let mut audio = migrate_audio_track(&track());
+        let written = serde_json::to_value(&audio).unwrap();
+        assert!(written["lanes"][0]["clips"][0].get("groupId").is_none());
+        audio.lanes[0].clips[0].group_id = Some("group-1".into());
+        let json = serde_json::to_string(&audio).unwrap();
+        assert!(json.contains(r#""groupId":"group-1""#));
+        let read: AudioLanes = serde_json::from_str(&json).unwrap();
+        assert_eq!(read, audio);
+        assert_eq!(read.validate(), Ok(()));
+    }
+
+    #[test]
+    fn rejects_bad_clip_group_ids() {
+        for bad in ["", "../x", &"g".repeat(81)] {
+            let mut audio = migrate_audio_track(&track());
+            audio.lanes[0].clips[0].group_id = Some(bad.to_string());
+            assert!(audio.validate().is_err(), "{bad:?}");
+        }
     }
 
     #[test]

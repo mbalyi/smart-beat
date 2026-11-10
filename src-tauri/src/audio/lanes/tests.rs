@@ -65,6 +65,7 @@ fn clip(id: &str, start_ms: f64, offset_ms: f64, length_ms: f64) -> AudioClip {
         fade_out: ClipFade::default(),
         envelope: vec![],
         stretch: vec![],
+        group_id: None,
     }
 }
 

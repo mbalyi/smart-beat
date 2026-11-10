@@ -379,6 +379,8 @@ export interface AudioClip {
   fadeOut: ClipFade;
   envelope: GainPoint[];
   stretch: StretchMarker[];
+  /** Clips with the same group id move, nudge, delete and select together. */
+  groupId?: string;
 }
 
 /** Mirrors `AudioSource`: an audio file that clips play. */

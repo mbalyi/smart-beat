@@ -654,6 +654,7 @@ fn lane_engine(solo: bool, clip_ms: f64) -> Engine {
                 fade_out: ClipFade::default(),
                 envelope: vec![],
                 stretch: vec![],
+                group_id: None,
             }],
         }],
         ..Default::default()

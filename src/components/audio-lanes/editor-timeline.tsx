@@ -4,7 +4,8 @@ import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
-import { moveClip, trimClip } from "@/lib/audio-lanes/edits";
+import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
+import { trimClip } from "@/lib/audio-lanes/edits";
 import { clipEndMs } from "@/lib/audio-lanes/model";
 import {
   moveSyncPoint,
@@ -88,7 +89,7 @@ export function EditorTimeline({
   };
 
   const drop = (drag: ClipDrag) => {
-    if (drag.kind === "move") apply((a) => moveClip(a, drag.clipId, drag.startMs));
+    if (drag.kind === "move") apply((a) => moveClipGroup(a, drag.clipId, drag.startMs));
     else apply((a) => trimClip(a, drag.clipId, drag.edge, drag.atMs));
   };
   const dragPoint = (bar: number, beat: number) => (event: PointerEvent<HTMLButtonElement>) => {
@@ -320,8 +321,11 @@ export function EditorTimeline({
               toX={toX}
               toMs={toMs}
               snap={lanes.snapTo}
-              onSelect={(additive) =>
-                lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
+              onSelect={(additive, alone) =>
+                lanes.select(
+                  additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id],
+                  alone,
+                )
               }
               onDrop={drop}
               onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
