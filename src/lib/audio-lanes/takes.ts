@@ -1,3 +1,4 @@
+import { MAX_PLAYRATE, MAX_TAKES, MIN_PLAYRATE } from "@/lib/audio-lanes/model";
 import { songMsAt, timelineMsAt, type SongGrid } from "@/lib/audio-lanes/sync";
 import type { AudioLanesSettings } from "@/lib/tauri";
 
@@ -9,8 +10,17 @@ export interface TakePlacement {
   startMs: number;
   /** Where each pass starts in the recorded file (one for a plain take). */
   passes: number[];
-  /** How much of the file each pass plays. */
+  /** How much of the file each pass plays (source time, as recorded). */
   lengthMs: number;
+  /**
+   * The clip playrate that makes the recorded pass fill its score span: the song played at
+   * `speed`, so the take is `1 / speed` times longer than the score time it covers.
+   */
+  playrate: number;
+  /** False when `speed` is too far from 1 for the playrate range, so the take drifts from the score. */
+  aligned: boolean;
+  /** Passes left out because a clip holds at most `MAX_TAKES` takes (the earliest ones). */
+  dropped: number;
 }
 
 /**
@@ -38,18 +48,20 @@ export function placeTake(options: {
   const first = downbeat * 1000 + preRollMs;
   if (first >= takeMs) return null;
   const startMs = timelineMsAt(audio, grid, punchBar);
+  const wanted = 1 / speed;
+  const playrate = Math.min(MAX_PLAYRATE, Math.max(MIN_PLAYRATE, wanted));
+  const common = { startMs, playrate, aligned: playrate === wanted, dropped: 0 };
   if (mode === "playhead" || !range)
-    return { startMs, passes: [Math.max(0, first)], lengthMs: takeMs - Math.max(0, first) };
+    return { ...common, passes: [Math.max(0, first)], lengthMs: takeMs - Math.max(0, first) };
   const passMs = (songMsAt(grid, range.end + 1) - songMsAt(grid, range.start)) / speed;
   if (passMs <= 0) return null;
   if (mode === "punch")
-    return { startMs, passes: [Math.max(0, first)], lengthMs: Math.min(passMs, takeMs - first) };
+    return { ...common, passes: [Math.max(0, first)], lengthMs: Math.min(passMs, takeMs - first) };
   const count = Math.max(1, Math.floor((takeMs - first) / passMs));
-  return {
-    startMs,
-    passes: Array.from({ length: count }, (_, k) => Math.max(0, first + k * passMs)),
-    lengthMs: passMs,
-  };
+  const all = Array.from({ length: count }, (_, k) => Math.max(0, first + k * passMs));
+  // A clip holds `MAX_TAKES` takes at most: keep the latest passes, the best one is usually late.
+  const passes = all.slice(-MAX_TAKES);
+  return { ...common, passes, lengthMs: passMs, dropped: all.length - passes.length };
 }
 
 /** A mono take as a 16-bit WAV file (what the lanes store for a recording). */

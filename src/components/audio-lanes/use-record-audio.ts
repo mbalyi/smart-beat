@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import type { RecordPhase } from "@/hooks/use-record-to-tab";
 import { addClip, addLane, addSource } from "@/lib/audio-lanes/edits";
-import { MAX_LANES, newClip, newLane } from "@/lib/audio-lanes/model";
+import { MAX_LANES, MAX_TAKES, newClip, newLane } from "@/lib/audio-lanes/model";
 import type { SongGrid } from "@/lib/audio-lanes/sync";
 import { monoWav, placeTake, type RecordMode } from "@/lib/audio-lanes/takes";
 import { audioInputErrorText, readAudioInput } from "@/lib/audio/input";
@@ -218,9 +218,13 @@ export function useRecordAudio(env: {
           next = addLane(next, lane);
           laneId = lane.id;
         }
-        const clip = newClip(info.id, name, placement.startMs, placement.lengthMs);
+        // The file is as long as the take lasted; the clip's playrate maps it back onto the score.
+        const clip = {
+          ...newClip(info.id, name, placement.startMs, placement.lengthMs),
+          playrate: placement.playrate,
+        };
         const takes = placement.passes.map((offsetMs, i) => ({
-          name: placement.passes.length > 1 ? `Pass ${i + 1}` : name,
+          name: placement.passes.length > 1 ? `Pass ${placement.dropped + i + 1}` : name,
           sourceId: info.id,
           offsetMs,
         }));
@@ -231,6 +235,17 @@ export function useRecordAudio(env: {
           ? `Recorded ${placement.passes.length} takes`
           : "Recorded a take",
       );
+      if (placement.dropped > 0)
+        toast.info(
+          `Kept the last ${placement.passes.length} of ${placement.passes.length + placement.dropped} passes`,
+          {
+            description: `A clip holds ${MAX_TAKES} takes at most; the earliest passes were left out.`,
+          },
+        );
+      if (!placement.aligned)
+        toast.warning("The take can't follow the score at this speed", {
+          description: "It was recorded too slowly or too fast to line up with the bars.",
+        });
     } catch (error) {
       toast.error("Couldn't keep the take", { description: errorText(error) });
     }

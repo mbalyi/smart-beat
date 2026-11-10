@@ -30,6 +30,8 @@ export const MAX_PLAYRATE = 4;
 /** Clip gain range, in dB. */
 export const MIN_GAIN_DB = -60;
 export const MAX_GAIN_DB = 24;
+/** The most takes a clip can hold (the Rust side rejects a clip with more). */
+export const MAX_TAKES = 64;
 /** The fade a cut gets so it does not click. */
 export const CUT_FADE_MS = 5;
 /** The shortest clip an edit can leave. */
