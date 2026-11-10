@@ -5,18 +5,28 @@ import type { AudioLanesController } from "@/components/audio-lanes/use-audio-la
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { EMPTY_AUDIO, MAX_LANES, newLane } from "@/lib/audio-lanes/model";
 
-const recorder = vi.hoisted(() => ({
-  cancel: vi.fn(),
-  elapsed: vi.fn(() => 1),
-  stop: vi.fn(async () => ({
-    samples: new Float32Array(48_000 * 3),
-    sampleRate: 48_000,
-    startedAt: 0,
-    inputLatency: 0,
-    capped: false,
-  })),
-}));
-const startRecorder = vi.hoisted(() => vi.fn(async () => recorder));
+const recorder = vi.hoisted(() => {
+  const state = { startedAt: 0 };
+  return {
+    state,
+    cancel: vi.fn(),
+    elapsed: vi.fn(() => 1),
+    stop: vi.fn(async () => ({
+      samples: new Float32Array(48_000 * 3),
+      sampleRate: 48_000,
+      // The clock the hook times takes on: the take starts when the input opens, not at time 0.
+      startedAt: state.startedAt,
+      inputLatency: 0,
+      capped: false,
+    })),
+  };
+});
+const startRecorder = vi.hoisted(() =>
+  vi.fn(async () => {
+    recorder.state.startedAt = performance.now();
+    return recorder;
+  }),
+);
 const addAudioTake = vi.hoisted(() => vi.fn());
 const toast = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), success: vi.fn() }));
 
