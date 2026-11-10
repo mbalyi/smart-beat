@@ -124,6 +124,78 @@ export function selectionRange(selection: Selection): [BeatPosition, BeatPositio
     : [selection.head, selection.anchor];
 }
 
+/** Where {@link replaceSelectionWithClip} put the pasted beats. */
+export interface ReplacedRange {
+  /** The first pasted beat. */
+  first: BeatPosition;
+  /** The last pasted beat. */
+  last: BeatPosition;
+  /** Empty bars inserted after the selection to make room for a longer clip. */
+  addedBars: number;
+}
+
+/**
+ * Replaces the selected beats of one voice with the clip's beats (#228): the selection is
+ * removed and the clip goes in where it started, its first bar there and each further bar at
+ * the start of the following bar. What came before and after the selection stays around it.
+ *
+ * - A clip with fewer bars than the selection leaves the rest short; a bar left with nothing
+ *   gets its rest back. Nothing is filled up.
+ * - A clip with more bars gets empty bars (every track, the time signature of the selection's
+ *   last bar) inserted after the selection, so the bars after it are never written over. The
+ *   rest of the selection's last bar then follows the clip in the last new bar.
+ *
+ * The clip's beats are placed as they are (pass fresh copies). The score is changed in place,
+ * as every editor command does (undo snapshots alphaTab's objects); `selection` and the clip's
+ * lists are not changed. Returns null, changing nothing, when there is nothing to paste or the
+ * selection is outside the track.
+ */
+export function replaceSelectionWithClip(
+  score: Score,
+  target: { track: number; voice: number },
+  selection: Selection,
+  clip: readonly (readonly Beat[])[],
+): ReplacedRange | null {
+  const bars = clip.filter((beats) => beats.length > 0);
+  const staff = score.tracks[target.track]?.staves[0];
+  const [start, end] = selectionRange(selection);
+  if (bars.length === 0 || !staff?.bars[start.bar] || !staff.bars[end.bar]) return null;
+
+  ensureVoices(staff, target.voice + 1);
+  const writtenBeats = (bar: number, from: number, to?: number) =>
+    staff.bars[bar]!.voices[target.voice]!.beats.slice(from, to).filter((beat) => !beat.isEmpty);
+  const before = writtenBeats(start.bar, 0, start.beat);
+  const after = writtenBeats(end.bar, end.beat + 1);
+
+  const selectedBars = end.bar - start.bar + 1;
+  const addedBars = Math.max(0, bars.length - selectedBars);
+  for (let i = 0; i < addedBars; i++) insertMasterBar(score, end.bar + 1 + i, end.bar);
+
+  const lastClipBar = start.bar + bars.length - 1;
+  // The rest of the selection's last bar follows the clip, but never moves to an earlier bar.
+  const afterBar = Math.max(end.bar, lastClipBar);
+  for (let bar = start.bar; bar < start.bar + Math.max(selectedBars, bars.length); bar++) {
+    const content = [
+      ...(bar === start.bar ? before : []),
+      ...(bars[bar - start.bar] ?? []),
+      ...(bar === afterBar ? after : []),
+    ];
+    const voice = staff.bars[bar]!.voices[target.voice]!;
+    voice.beats.splice(
+      0,
+      voice.beats.length,
+      ...(content.length > 0 ? content : placeholderBeats(score.masterBars[bar]!, target.voice)),
+    );
+  }
+
+  const lastBeat = (lastClipBar === start.bar ? before.length : 0) + bars.at(-1)!.length - 1;
+  return {
+    first: { bar: start.bar, beat: before.length },
+    last: { bar: lastClipBar, beat: lastBeat },
+    addedBars,
+  };
+}
+
 export function trackKind(track: Track): TrackKind {
   const staff = track.staves[0]!;
   if (staff.isPercussion || track.isPercussion) return "drums";
@@ -1937,10 +2009,15 @@ export class ScoreEditor {
    * Pastes over the music from the cursor on, bar by bar as it was copied
    * (the first copied bar at the cursor, the next ones at the start of the
    * following bars). Bars are added at the end of the song when needed.
+   * With a selection, the paste replaces it instead (see {@link replaceSelectionWithClip}).
    */
   paste() {
     const clipboard = this.clipboard;
     if (!clipboard) return;
+    if (this._selection) {
+      this.pasteOverSelection(clipboard, this._selection);
+      return;
+    }
     const start = { bar: this._cursor.bar, beat: this._cursor.beat };
     const barsNeeded = start.bar + clipboard.bars.length - this.staff.bars.length;
     const count = clipboard.bars.flat().length;
@@ -1974,6 +2051,38 @@ export class ScoreEditor {
         this._cursor.beat = end.beat;
       },
       `Pasted ${count} ${count === 1 ? "beat" : "beats"}`,
+    );
+  }
+
+  /** Replaces the selection with the clipboard as one undo step, selecting what was pasted. */
+  private pasteOverSelection(clipboard: Clipboard, selection: Selection) {
+    const [start, end] = selectionRange(selection);
+    const selectedBars = end.bar - start.bar + 1;
+    const bars = Math.max(selectedBars, clipboard.bars.length);
+    // Copied bars are never empty, so a longer clip adds exactly this many bars.
+    const added = bars - selectedBars;
+    const count = clipboard.bars.flat().length;
+    this.run(
+      "Paste",
+      () => [
+        ...this.structureTargets(),
+        // Before: the selected bars and those a longer clip pushes on. After: the new bars too.
+        ...masterBarContent(this.score, start.bar, start.bar + bars - 1),
+        ...(this._cursor.voice < this.bar().voices.length ? [] : staffContent(this.staff)),
+      ],
+      () => {
+        const clip = clipboard.bars.map((copied) =>
+          copied.map((c) => this.convertBeat(c, clipboard.kind)),
+        );
+        const target = { track: this._cursor.track, voice: this._cursor.voice };
+        const pasted = replaceSelectionWithClip(this.score, target, selection, clip);
+        if (!pasted) return;
+        this._selection = { anchor: pasted.first, head: pasted.last };
+        this._cursor.bar = pasted.last.bar;
+        this._cursor.beat = pasted.last.beat;
+      },
+      `Pasted ${count} ${count === 1 ? "beat" : "beats"} over the selection` +
+        (added > 0 ? `, added ${added} ${added === 1 ? "bar" : "bars"}` : ""),
     );
   }
 

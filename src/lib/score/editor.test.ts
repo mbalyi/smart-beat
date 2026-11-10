@@ -3,10 +3,13 @@ import { model } from "@coderline/alphatab";
 import {
   comparePositions,
   DRUM_DIGITS_MS,
+  replaceSelectionWithClip,
   ScoreEditor,
   selectionRange,
   TWO_DIGIT_MS,
+  type BeatPosition,
 } from "@/lib/score/editor";
+import { newBeat } from "@/lib/score/model";
 import { parseScore } from "@/lib/score/score";
 import { createSong, createTrack, insertTrack } from "@/lib/score/tracks";
 import { fixtureBytes } from "@/test/score";
@@ -559,6 +562,176 @@ describe("ScoreEditor: clipboard", () => {
     editor.setTrack(2); // drums can't take pitched notes
     editor.paste();
     expect(voice(editor, 1).beats[0]!.notes).toHaveLength(0);
+  });
+
+  describe("pasting onto a selection replaces it (#228)", () => {
+    /** The practice song's guitar bars, as frets: bar n is played on string n + 1. */
+    const allBars = (editor: ScoreEditor) =>
+      editor.score.masterBars.map((_, bar) => frets(editor, bar));
+
+    /** Copies bar 0 beats `from`–`to` of the practice song's guitar. */
+    function copyBeats(editor: ScoreEditor, from: number, to: number) {
+      editor.setCursorTo({ bar: 0, beat: from });
+      editor.setCursorTo({ bar: 0, beat: to }, true);
+      editor.copy();
+    }
+
+    function select(editor: ScoreEditor, from: BeatPosition, to: BeatPosition) {
+      editor.setCursorTo(from);
+      editor.setCursorTo(to, true);
+    }
+
+    it("leaves the bar short when the clip is shorter than the selection", () => {
+      const editor = practiceSong();
+      const original = allBars(editor);
+      copyBeats(editor, 0, 1);
+      select(editor, { bar: 2, beat: 0 }, { bar: 2, beat: 3 });
+
+      editor.paste();
+
+      expect(frets(editor, 2)).toEqual(["1:0", "1:2"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+      expect([0, 1, 3].map((bar) => frets(editor, bar))).toEqual([0, 1, 3].map((b) => original[b]));
+      expect(editor.selection).toEqual({ anchor: { bar: 2, beat: 0 }, head: { bar: 2, beat: 1 } });
+      expect(editor.cursor).toMatchObject({ bar: 2, beat: 1 });
+    });
+
+    it("swaps the selected beats for as many pasted ones", () => {
+      const editor = practiceSong();
+      const original = allBars(editor);
+      copyBeats(editor, 0, 1);
+      select(editor, { bar: 2, beat: 1 }, { bar: 2, beat: 2 });
+
+      editor.paste();
+
+      expect(frets(editor, 2)).toEqual(["3:0", "1:0", "1:2", "3:0"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+      expect(frets(editor, 3)).toEqual(original[3]);
+    });
+
+    it("inserts bars for a longer clip instead of writing over the bars after it", () => {
+      const editor = practiceSong();
+      const { score } = editor;
+      const original = allBars(editor);
+      const bassBar3 = score.tracks[1]!.staves[0]!.bars[3]!.voices[0]!.beats.map(
+        (b) => b.notes[0]!.fret,
+      );
+      // Two bars (8 beats) onto two beats of one bar.
+      select(editor, { bar: 0, beat: 0 }, { bar: 1, beat: 3 });
+      editor.copy();
+      select(editor, { bar: 2, beat: 1 }, { bar: 2, beat: 2 });
+
+      editor.paste();
+
+      expect(score.masterBars).toHaveLength(5);
+      expect(editor.message).toBe("Pasted 8 beats over the selection, added 1 bar");
+      expect(score.tracks.map((t) => t.staves[0]!.bars.length)).toEqual([5, 5, 5, 5]);
+      expect(frets(editor, 2)).toEqual(["3:0", ...original[0]!]);
+      // The overflow flows into the new bar, followed by the rest of the selected bar.
+      expect(frets(editor, 3)).toEqual([...original[1]!, "3:0"]);
+      expect(score.masterBars[3]!.timeSignatureNumerator).toBe(4);
+      // The bar after the selection is untouched, only one place later, in every track.
+      expect(frets(editor, 4)).toEqual(original[3]);
+      expect(
+        score.tracks[1]!.staves[0]!.bars[4]!.voices[0]!.beats.map((b) => b.notes[0]!.fret),
+      ).toEqual(bassBar3);
+      expect(
+        score.tracks[1]!.staves[0]!.bars[3]!.voices[0]!.beats.every((b) => !b.notes.length),
+      ).toBe(true);
+      expect(editor.selection).toEqual({ anchor: { bar: 2, beat: 1 }, head: { bar: 3, beat: 3 } });
+    });
+
+    it("replaces a selection across two bars, keeping what is around it", () => {
+      const editor = practiceSong();
+      const original = allBars(editor);
+      copyBeats(editor, 0, 1);
+      select(editor, { bar: 1, beat: 2 }, { bar: 2, beat: 1 });
+
+      editor.paste();
+
+      expect(frets(editor, 1)).toEqual(["2:0", "2:2", "1:0", "1:2"]);
+      expect(frets(editor, 2)).toEqual(["3:3", "3:0"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+      expect(frets(editor, 0)).toEqual(original[0]);
+      expect(frets(editor, 3)).toEqual(original[3]);
+    });
+
+    it("pastes two copied bars over a two-bar selection bar by bar", () => {
+      const editor = practiceSong();
+      select(editor, { bar: 0, beat: 2 }, { bar: 1, beat: 1 });
+      editor.copy();
+      select(editor, { bar: 2, beat: 2 }, { bar: 3, beat: 1 });
+
+      editor.paste();
+
+      expect(frets(editor, 2)).toEqual(["3:0", "3:2", "1:3", "1:0"]);
+      expect(frets(editor, 3)).toEqual(["2:0", "2:2", "4:3", "4:0"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+    });
+
+    it("gives a bar emptied by the paste its rest back", () => {
+      const editor = practiceSong();
+      copyBeats(editor, 0, 1);
+      select(editor, { bar: 1, beat: 0 }, { bar: 2, beat: 3 });
+
+      editor.paste();
+
+      expect(frets(editor, 1)).toEqual(["1:0", "1:2"]);
+      expect(frets(editor, 2)).toEqual(["r"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+    });
+
+    it("is undone in one step, back to the original selection", () => {
+      const editor = practiceSong();
+      const original = allBars(editor);
+      select(editor, { bar: 0, beat: 0 }, { bar: 1, beat: 3 });
+      editor.copy();
+      select(editor, { bar: 2, beat: 1 }, { bar: 2, beat: 2 });
+      const selection = editor.selection;
+      const cursor = { ...editor.cursor };
+
+      editor.paste();
+      const pasted = allBars(editor);
+      expect(editor.undoLabel).toBe("Paste");
+      editor.undo();
+
+      expect(allBars(editor)).toEqual(original);
+      expect(editor.score.tracks.map((t) => t.staves[0]!.bars.length)).toEqual([4, 4, 4, 4]);
+      expect(editor.selection).toEqual(selection);
+      expect(editor.cursor).toEqual(cursor);
+      expect(editor.canUndo).toBe(false);
+
+      editor.redo();
+      expect(allBars(editor)).toEqual(pasted);
+    });
+  });
+
+  describe("replaceSelectionWithClip", () => {
+    it("does nothing with an empty clip", () => {
+      const { score } = newSong();
+      const selection = { anchor: { bar: 0, beat: 0 }, head: { bar: 0, beat: 0 } };
+      expect(replaceSelectionWithClip(score, { track: 0, voice: 0 }, selection, [[]])).toBeNull();
+      expect(score.masterBars).toHaveLength(4);
+    });
+
+    it("leaves the selection and the clip it is given unchanged", () => {
+      const { score } = newSong();
+      const selection = { anchor: { bar: 1, beat: 0 }, head: { bar: 0, beat: 0 } };
+      const clip = [[newBeat(Duration.Half)], [newBeat(Duration.Half)], [newBeat(Duration.Half)]];
+      const copy = { anchor: { ...selection.anchor }, head: { ...selection.head } };
+      const lists = clip.map((bar) => [...bar]);
+
+      const result = replaceSelectionWithClip(score, { track: 0, voice: 0 }, selection, clip);
+
+      expect(result).toEqual({
+        first: { bar: 0, beat: 0 },
+        last: { bar: 2, beat: 0 },
+        addedBars: 1,
+      });
+      expect(score.masterBars).toHaveLength(5);
+      expect(selection).toEqual(copy);
+      expect(clip).toEqual(lists);
+    });
   });
 
   it("does nothing without a clipboard, or with nothing to copy", () => {
