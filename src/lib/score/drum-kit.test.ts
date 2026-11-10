@@ -89,6 +89,25 @@ describe("drum kits (#229)", () => {
     expect(drumNumber(firstBeat(score).notes[0]!)).toBe(49);
   });
 
+  it("replaces a drum typed over on a track with its own kit, kit growth in the same undo step (#228)", () => {
+    const score = drumSong(true);
+    const kitSize = 3; // snares only
+    score.tracks[1]!.percussionArticulations = score.tracks[1]!.percussionArticulations.slice(
+      0,
+      kitSize,
+    );
+    const editor = new ScoreEditor(score, 1);
+    editor.enterDrum(38); // the cursor is now on the snare's line
+    editor.typeDigit(4, 1_000);
+    editor.typeDigit(9, 1_100); // crash: not in the kit yet
+    const notes = firstBeat(score).notes;
+    expect(notes.map(drumNumber)).toEqual([49]);
+
+    editor.undo();
+    expect(firstBeat(score).notes.map(drumNumber)).toEqual([38]);
+    expect(score.tracks[1]!.percussionArticulations).toHaveLength(kitSize);
+  });
+
   it("pastes drums between tracks with different kits", () => {
     const score = drumSong(true);
     insertTrack(score, createTrack(score, { kind: "drums", name: "Drums 2", program: 0 }));
