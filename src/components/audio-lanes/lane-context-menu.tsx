@@ -1,4 +1,6 @@
 import {
+  ArrowLeftToLineIcon,
+  ArrowRightToLineIcon,
   ClipboardCopyIcon,
   ClipboardPasteIcon,
   CopyPlusIcon,
@@ -42,10 +44,10 @@ function Keys({ children }: { children: string }) {
 const MOD = typeof navigator !== "undefined" && /Mac/.test(navigator.platform) ? "⌘" : "Ctrl+";
 
 /**
- * The right-click menu on a lane's timeline. On a clip: split it at the position line, cut, copy,
- * paste, duplicate, glue, mute, lock, reverse and delete. On empty space: paste or insert an audio
- * file at that point. `children` is the timeline element; `toMs` maps a point across it (pixels
- * from its left edge) to the audio timeline.
+ * The right-click menu on a lane's timeline. On a clip: split it at the position line, trim its
+ * start or end to it, cut, copy, paste, duplicate, glue, mute, lock, reverse and delete. On empty
+ * space: paste or insert an audio file at that point. `children` is the timeline element; `toMs`
+ * maps a point across it (pixels from its left edge) to the audio timeline.
  */
 export function LaneContextMenu({
   lanes,
@@ -120,6 +122,22 @@ export function LaneContextMenu({
               <SplitIcon />
               Split at the position line
               <Keys>S</Keys>
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={!lineInClip || clip.locked}
+              onSelect={() => lanes.commands.trimStartToLine(ids, line)}
+            >
+              <ArrowRightToLineIcon />
+              Trim start to the position line
+              <Keys>[</Keys>
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={!lineInClip || clip.locked}
+              onSelect={() => lanes.commands.trimEndToLine(ids, line)}
+            >
+              <ArrowLeftToLineIcon />
+              Trim end to the position line
+              <Keys>]</Keys>
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => lanes.commands.cut(ids)}>

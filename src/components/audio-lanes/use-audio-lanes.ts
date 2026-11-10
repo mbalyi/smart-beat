@@ -22,6 +22,7 @@ import {
   newLane,
 } from "@/lib/audio-lanes/model";
 import { snapMs, type SongGrid } from "@/lib/audio-lanes/sync";
+import { trimToLine } from "@/lib/audio-lanes/trim-line";
 import { errorText } from "@/lib/errors";
 import type { MixerAction } from "@/lib/score/mixer";
 import {
@@ -412,6 +413,12 @@ export function useAudioLanes(options: AudioLanesOptions) {
       /** Splits at `atMs` (default: the position line). */
       split: (ids: readonly string[] = selection, atMs?: number) =>
         void splitAt(ids, atMs ?? lineMs()),
+      /** Trims the start of the clips under `atMs` (default: the position line) to it. */
+      trimStartToLine: (ids: readonly string[] = selection, atMs?: number) =>
+        apply((a) => trimToLine(a, ids, "start", atMs ?? lineMs())),
+      /** Trims the end of the clips under `atMs` (default: the position line) to it. */
+      trimEndToLine: (ids: readonly string[] = selection, atMs?: number) =>
+        apply((a) => trimToLine(a, ids, "end", atMs ?? lineMs())),
       glue: (ids: readonly string[] = selection) => apply((a) => glueClips(a, ids)),
       duplicate: (ids: readonly string[] = selection) => apply((a) => duplicateClips(a, ids)),
       remove,
