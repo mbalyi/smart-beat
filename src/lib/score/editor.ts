@@ -1215,12 +1215,13 @@ export class ScoreEditor {
   }
 
   /**
-   * Delete: with a selection, turns it into rests. Otherwise removes the note
-   * under the cursor, or the beat itself when it holds no notes.
+   * Delete: with a selection, removes the selected beats (rests, notes or both)
+   * in one undo step. Otherwise removes the note under the cursor, or the beat
+   * itself when it holds no notes.
    */
   deleteAtCursor() {
     if (this._selection) {
-      this.clearNotes("Clear");
+      this.deleteBeats();
       return;
     }
     const beat = this.beatAt();

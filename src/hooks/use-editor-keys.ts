@@ -235,7 +235,7 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
   { keys: ["N"], spoken: "N", label: "Natural harmonic" },
   { keys: [">"], spoken: "Greater than", label: "Accent" },
   { keys: ["⇧", "B"], spoken: "Shift+B", label: "Bend" },
-  { keys: ["Delete"], spoken: "Delete", label: "Delete the note (or clear the selection)" },
+  { keys: ["Delete"], spoken: "Delete", label: "Delete the note (or the selected beats)" },
   { keys: ["⇧", "Delete"], spoken: "Shift+Delete", label: "Delete the beat" },
   { keys: ["mod", "C / X / V"], spoken: "mod+C, X or V", label: "Copy / cut / paste" },
   { keys: ["mod", "A"], spoken: "mod+A", label: "Select the whole track" },
