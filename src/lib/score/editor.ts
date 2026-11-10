@@ -73,6 +73,7 @@ import {
   type Voice,
 } from "@/lib/score/model";
 import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
+import { drumIdOf, drumValueFor, kitIndexOf } from "@/lib/score/drum-kit";
 import { DRUM_TAB_LINES, drumLine, setDrumLine } from "@/lib/score/drum-lines";
 import { drumTabString, placeDrums } from "@/lib/score/drum-tab";
 import {
@@ -865,6 +866,13 @@ export class ScoreEditor {
     this.announce(`Replace ${drumNumberName(pitchOf(note))}: type the new drum number`);
   }
 
+  /** Whether a drum note is the drum `sound` (also an articulation of the track's own kit for it). */
+  private isDrum(note: Note, sound: number): boolean {
+    if (pitchOf(note) === sound) return true;
+    const kit = this.track.percussionArticulations;
+    return kit.length > 0 && note.percussionArticulation === kitIndexOf(kit, sound);
+  }
+
   /** Puts another drum in place of the one under the cursor. */
   replaceDrum(sound: number) {
     this.replacingDrum = false;
@@ -875,11 +883,10 @@ export class ScoreEditor {
     }
     const old = pitchOf(note);
     if (old === sound) return;
-    if (this.beatAt()?.notes.some((n) => pitchOf(n) === sound)) {
+    if (this.beatAt()?.notes.some((n) => this.isDrum(n, sound))) {
       this.announce(`${drumNumberName(sound)} is already on this beat`);
       return;
     }
-    const own = this.track.percussionArticulations.findIndex((a) => a.outputMidiNumber === sound);
     this.run(
       "Replace note",
       this.cursorTargets,
@@ -887,7 +894,7 @@ export class ScoreEditor {
         const target = this.noteAtCursor()!;
         // The new drum stays on the line of the one it replaces, whatever its usual line is.
         const line = this.lineOfDrum(target);
-        target.percussionArticulation = own >= 0 ? own : sound;
+        target.percussionArticulation = drumValueFor(this.track, sound);
         setDrumLine(target, line);
         this._cursor.pitch = sound;
         this._cursor.line = this.lineOfDrum(target);
@@ -1346,15 +1353,13 @@ export class ScoreEditor {
   enterDrum(sound: number) {
     if (this.kind !== "drums") return;
     const beat = this.beatAt();
-    const present = beat?.notes.find((note) => pitchOf(note) === sound);
+    const present = beat?.notes.find((note) => this.isDrum(note, sound));
     if (present) {
       this._cursor.pitch = sound;
       this._cursor.line = this.lineOfDrum(present);
       this.moved();
       return;
     }
-    // Tracks with their own articulations (Guitar Pro 6+) refer to them by index.
-    const own = this.track.percussionArticulations.findIndex((a) => a.outputMidiNumber === sound);
     this.run(
       "Add note",
       this.cursorTargets,
@@ -1362,7 +1367,8 @@ export class ScoreEditor {
         const target = this.writableBeat();
         this.prepareForNote(target);
         const note = new model.Note();
-        note.percussionArticulation = own >= 0 ? own : sound;
+        // Tracks with their own kit (Guitar Pro 6+) refer to it by index (#229).
+        note.percussionArticulation = drumValueFor(this.track, sound);
         // On the line the cursor is on, when that is free; else on its usual line.
         const wanted = this._cursor.line;
         if (
@@ -2118,7 +2124,12 @@ export class ScoreEditor {
         positions
           .map((p) => this.beatAt(p))
           .filter((beat): beat is Beat => beat !== null && !beat.isEmpty)
-          .map((beat) => ({ beat: cloneBeat(beat), pitches: beat.notes.map(pitchOf) })),
+          .map((beat) => ({
+            beat: cloneBeat(beat),
+            pitches: beat.notes.map(pitchOf),
+            drums: beat.notes.map((note) => (note.isPercussion ? drumIdOf(note) : -1)),
+            track: this.track,
+          })),
       )
       .filter((beats) => beats.length > 0);
     const count = bars.flat().length;
@@ -2215,7 +2226,7 @@ export class ScoreEditor {
   }
 
   /** A fresh copy of a copied beat, adapted to this track: tab ↔ staff by pitch, drums only onto drums. */
-  private convertBeat({ beat, pitches }: CopiedBeat, from: TrackKind): Beat {
+  private convertBeat({ beat, pitches, drums, track }: CopiedBeat, from: TrackKind): Beat {
     const copy = cloneBeat(beat);
     const to = this.kind;
     const notes = [...copy.notes];
@@ -2224,7 +2235,8 @@ export class ScoreEditor {
       const pitch = pitches[i]!;
       if ((from === "drums") !== (to === "drums")) return;
       if (to === "drums") {
-        note.percussionArticulation = this.articulationFor(note.percussionArticulation, pitch);
+        // Another drum track may have another kit (or none): the drum is looked up there (#229).
+        if (track !== this.track) note.percussionArticulation = drumValueFor(this.track, drums[i]!);
         copy.addNote(note);
       } else if (to === "pitched") {
         note.string = -1;
@@ -2251,18 +2263,6 @@ export class ScoreEditor {
       }
     });
     return copy;
-  }
-
-  /**
-   * The articulation a pasted drum note takes on this track. Tracks with their own articulations
-   * (Guitar Pro 6+) number them by index; a note from another song keeps its drum number.
-   */
-  private articulationFor(articulation: number, drum: number): number {
-    const own = this.track.percussionArticulations;
-    if (own.length === 0) return drum;
-    if (own[articulation]?.outputMidiNumber === drum) return articulation;
-    const index = own.findIndex((a) => a.outputMidiNumber === drum);
-    return index >= 0 ? index : drum;
   }
 
   private fits(pitch: number, string: number): boolean {

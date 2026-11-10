@@ -2,13 +2,17 @@
  * The score editor's clipboard. Every open song has its own editor, but they share one clipboard,
  * so beats or bars copied in one tab can be pasted into another (#228).
  */
-import type { Beat } from "@/lib/score/model";
+import type { Beat, Track } from "@/lib/score/model";
 import type { TrackKind } from "@/lib/score/music";
 
 /** A copied beat, with the sounding pitch of each note (a detached note can't compute it). */
 export interface CopiedBeat {
   beat: Beat;
   pitches: number[];
+  /** The drum of each note (a drum number, whatever kit it came from), for drum tracks (#229). */
+  drums: number[];
+  /** The track the beat was copied from. */
+  track: Track;
 }
 
 export interface ClipboardContent {
