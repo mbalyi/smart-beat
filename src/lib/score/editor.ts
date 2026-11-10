@@ -52,6 +52,7 @@ import {
   insertMasterBar,
   removeMasterBar,
   barContent,
+  clearBar,
   cloneBeat,
   cloneNote,
   ensureVoices,
@@ -1633,20 +1634,39 @@ export class ScoreEditor {
 
   /** Removes the bar `at` (default: the cursor's) from every track. A song keeps one bar. */
   deleteBar(at = this._cursor.bar): boolean {
-    if (!this.score.masterBars[at]) return false;
-    if (this.score.masterBars.length < 2) {
+    return this.deleteBars(at, at);
+  }
+
+  /**
+   * Removes the bars `start`–`end` (inclusive) from every track in one undo step and puts the
+   * cursor on the bar where they started. A song keeps one bar: deleting every bar of a longer
+   * song leaves the first one, emptied in every track (#228).
+   */
+  deleteBars(start: number, end = start): boolean {
+    const last = Math.min(end, this.score.masterBars.length - 1);
+    if (!this.score.masterBars[start] || last < start) return false;
+    const count = last - start + 1;
+    const whole = count === this.score.masterBars.length;
+    if (whole && count < 2) {
       this._message = "A song needs at least one bar";
       this.emit("cursor");
       return false;
     }
     this.run(
-      "Delete bar",
-      () => [...this.structureTargets(), ...masterBarContent(this.score, at, at + 1)],
+      count > 1 ? "Delete bars" : "Delete bar",
+      () => [...this.structureTargets(), ...masterBarContent(this.score, start, last + 1)],
       () => {
-        removeMasterBar(this.score, at);
-        this.placeCursorInBar(Math.min(at, this.score.masterBars.length - 1));
+        for (let index = last; index >= (whole ? 1 : start); index--) {
+          removeMasterBar(this.score, index);
+        }
+        if (whole) {
+          for (const track of this.score.tracks) {
+            for (const staff of track.staves) clearBar(staff.bars[0]!);
+          }
+        }
+        this.placeCursorInBar(Math.min(start, this.score.masterBars.length - 1));
       },
-      `Deleted bar ${at + 1}`,
+      count > 1 ? `Deleted bars ${start + 1}–${last + 1}` : `Deleted bar ${start + 1}`,
     );
     return true;
   }

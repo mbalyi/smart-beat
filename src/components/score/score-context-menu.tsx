@@ -52,7 +52,8 @@ export interface ScoreMenuActions {
   onInsertBarAfter: (bar: number) => void;
   onCopyBar: (bar: number) => void;
   onCutBar: (bar: number) => void;
-  onDeleteBar: (bar: number) => void;
+  /** Bars `start`–`end` (inclusive): the selected bars, or just the right-clicked one (#228). */
+  onDeleteBars: (start: number, end: number) => void;
   /** Inserts the copied bars as new bars after this one. */
   onPasteBarsAfter: (bar: number) => void;
   /**
@@ -114,6 +115,15 @@ export function ScoreContextMenu({
     repeatCount > 0 && !REPEAT_COUNTS.includes(repeatCount)
       ? [...REPEAT_COUNTS, repeatCount].sort((a, b) => a - b)
       : REPEAT_COUNTS;
+  // A selection over several bars, right-clicked inside it: Delete removes all of them (#228).
+  const inSelection =
+    selection !== null &&
+    bar !== null &&
+    selection.end > selection.start &&
+    bar >= selection.start &&
+    bar <= selection.end;
+  const deleted = inSelection ? selection : bar === null ? null : { start: bar, end: bar };
+  const deletedCount = deleted ? deleted.end - deleted.start + 1 : 1;
   const run = (action: (bar: number) => void) => () => {
     if (bar !== null) action(bar);
   };
@@ -192,9 +202,11 @@ export function ScoreContextMenu({
                 Paste bar after
               </ContextMenuItem>
             )}
-            <ContextMenuItem onSelect={run(actions.onDeleteBar)}>
+            <ContextMenuItem
+              onSelect={() => deleted && actions.onDeleteBars(deleted.start, deleted.end)}
+            >
               <Trash2Icon />
-              Delete bar
+              {deletedCount > 1 ? `Delete ${deletedCount} bars` : "Delete bar"}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => actions.onInsertRest("before", beat)}>

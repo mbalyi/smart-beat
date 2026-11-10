@@ -1,6 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 
 import { ScoreContextMenu, type ScoreMenuActions } from "@/components/score/score-context-menu";
+import type { SelectionBars } from "@/components/score/score-context-menu";
 import { newBeat, type Beat } from "@/lib/score/model";
 import { renderWithProviders } from "@/test/render";
 
@@ -10,6 +11,7 @@ function setup(
     canPaste?: boolean;
     beatAt?: () => Beat | null;
     repeatCountAt?: () => number;
+    selection?: SelectionBars | null;
   } = {},
 ) {
   const actions = Object.fromEntries(
@@ -30,7 +32,7 @@ function setup(
       "onInsertBarAfter",
       "onCopyBar",
       "onCutBar",
-      "onDeleteBar",
+      "onDeleteBars",
       "onPasteBarsAfter",
       "onInsertRest",
       "onRepeatEnd",
@@ -113,7 +115,25 @@ describe("ScoreContextMenu: bars (Edit Mode)", () => {
   it("runs each action on the clicked bar", async () => {
     const { user, actions } = setup({ editing: true, canPaste: true });
     await user.click(await screen.findByRole("menuitem", { name: "Delete bar" }));
-    expect(actions.onDeleteBar).toHaveBeenCalledWith(2);
+    expect(actions.onDeleteBars).toHaveBeenCalledWith(2, 2);
+  });
+
+  it("deletes every selected bar when the clicked bar is in a selection over several bars (#228)", async () => {
+    const { user, actions } = setup({ editing: true, selection: { start: 1, end: 3 } });
+    await user.click(await screen.findByRole("menuitem", { name: "Delete 3 bars" }));
+    expect(actions.onDeleteBars).toHaveBeenCalledWith(1, 3);
+    expect(screen.queryByRole("menuitem", { name: "Delete bar" })).not.toBeInTheDocument();
+  });
+
+  it("deletes only the clicked bar outside the selection or with a one-bar selection (#228)", async () => {
+    const { user, actions, unmount } = setup({ editing: true, selection: { start: 4, end: 6 } });
+    await user.click(await screen.findByRole("menuitem", { name: "Delete bar" }));
+    expect(actions.onDeleteBars).toHaveBeenCalledWith(2, 2);
+    unmount();
+
+    const oneBar = setup({ editing: true, selection: { start: 2, end: 2 } });
+    await oneBar.user.click(await screen.findByRole("menuitem", { name: "Delete bar" }));
+    expect(oneBar.actions.onDeleteBars).toHaveBeenCalledWith(2, 2);
   });
 
   it("offers paste only when there is something to paste", async () => {
