@@ -41,9 +41,12 @@ const clipNow = () => lanesNow().audio.lanes[0]!.clips[0]!;
 function Lanes({
   children,
   audio,
+  selected = [],
 }: {
   children: (lanes: AudioLanesController) => ReactNode;
   audio: AudioLanesSettings;
+  /** Clips selected from the start (the handles show on selected clips). */
+  selected?: readonly string[];
 }) {
   const [mix, setMix] = useState<MixerSettings>({ version: 3, master: 1, tracks: [], audio });
   const lanes = useAudioLanes({
@@ -59,6 +62,12 @@ function Lanes({
   useEffect(() => {
     latest.lanes = lanes;
   });
+  const select = lanes.select;
+  useEffect(() => {
+    if (selected.length) select(selected);
+    // Once, when the harness mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return <>{children(lanes)}</>;
 }
 
@@ -76,7 +85,7 @@ function renderClip(patch: Partial<AudioClip> = {}, pxPerMs = 0.1) {
               color="#ffd21a"
               info={undefined}
               missing={false}
-              selected={false}
+              selected
               toX={(ms) => ms * pxPerMs}
               toMs={(x) => x / pxPerMs}
               snap={(ms) => ms}
@@ -216,9 +225,10 @@ describe("ClipHandles", () => {
 });
 
 describe("ClipHandles in the track list", () => {
+  // The handles belong to the selected clip: the clip starts selected.
   const renderRow = () =>
     renderWithProviders(
-      <Lanes audio={song({ fadeIn: { ms: 400, shape: "linear" } })}>
+      <Lanes audio={song({ fadeIn: { ms: 400, shape: "linear" } })} selected={["clip-a"]}>
         {(lanes) => (
           <ul>
             {lanes.audio.lanes.map((lane, index) => (

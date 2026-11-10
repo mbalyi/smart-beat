@@ -1,5 +1,12 @@
 import { Link2Icon } from "lucide-react";
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 
 import { ClipHandles, type ClipEdits } from "@/components/audio-lanes/clip-handles";
 import { groupHue } from "@/lib/audio-lanes/clip-groups";
@@ -187,6 +194,18 @@ export function ClipView({
     }
   };
 
+  // Tabbing to a clip selects it, so its handles (fades and volume) are the next stops.
+  const selectOnKeyboardFocus = (event: FocusEvent<HTMLButtonElement>) => {
+    if (selected || press.current) return;
+    let keyboard = false;
+    try {
+      keyboard = event.currentTarget.matches(":focus-visible");
+    } catch {
+      // No :focus-visible here (an old engine): a click selects instead.
+    }
+    if (keyboard) onSelect("single", false);
+  };
+
   const button = (
     <button
       type="button"
@@ -205,6 +224,7 @@ export function ClipView({
         setPreview(null);
       }}
       onDoubleClick={onOpen}
+      onFocus={selectOnKeyboardFocus}
       onKeyDown={onKey}
       className={cn(
         "absolute inset-y-1 flex overflow-hidden rounded-md border text-left transition-shadow outline-none focus-visible:ring-3 focus-visible:ring-ring/50 motion-reduce:transition-none",
@@ -282,7 +302,8 @@ export function ClipView({
   return (
     <>
       {button}
-      {edits && <ClipHandles {...{ clip, name, left, width, toX, toMs, edits }} />}
+      {/* Only on the selected clip: small targets on every clip would crowd the lane. */}
+      {edits && selected && <ClipHandles {...{ clip, name, left, width, toX, toMs, edits }} />}
     </>
   );
 }
