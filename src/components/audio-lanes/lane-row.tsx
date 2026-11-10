@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useCallback, useState, type MouseEvent } from "react";
 
+import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
@@ -90,6 +91,7 @@ export function LaneRow({
   const children = lane.folder ? audio.lanes.filter((l) => l.parent === lane.id).length : 0;
 
   const drop = (drag: ClipDrag) => {
+    if (dropCopyOrSlip(lanes, drag)) return;
     if (drag.kind === "move")
       apply((a) => moveClip(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
     else apply((a) => trimClip(a, drag.clipId, drag.edge, drag.atMs));

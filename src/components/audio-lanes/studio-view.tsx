@@ -13,6 +13,7 @@ import {
 import { useRef, useState, type PointerEvent } from "react";
 
 import { ClipProperties } from "@/components/audio-lanes/clip-properties";
+import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
@@ -98,6 +99,7 @@ export function StudioView({
   const rulerMs = (e: PointerEvent<HTMLDivElement>) =>
     lanes.snapTo(toMs(e.clientX - e.currentTarget.getBoundingClientRect().left));
   const drop = (drag: ClipDrag) => {
+    if (dropCopyOrSlip(lanes, drag)) return;
     if (drag.kind === "move")
       apply((a) => moveClip(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
     else apply((a) => trimClip(a, drag.clipId, drag.edge, drag.atMs));

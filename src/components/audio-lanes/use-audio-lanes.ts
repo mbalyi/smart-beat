@@ -452,6 +452,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
     snap,
     setSnap,
     snapTo,
+    /** The song's bars and beats on the audio timeline. */
+    grid,
     apply,
     applyQuiet,
     beginGesture,

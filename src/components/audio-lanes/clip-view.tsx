@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from
 
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
 import { clipPeaks } from "@/lib/audio-lanes/peaks";
+import { slippedClip } from "@/lib/audio-lanes/slip";
 import { waveformPath } from "@/lib/stems/waveform";
 import type { AudioClip, SourceInfo } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -13,7 +14,11 @@ const EDGE_PX = 6;
 
 export type ClipDrag =
   | { kind: "move"; clipId: string; startMs: number; laneId: string | null }
-  | { kind: "trim"; clipId: string; edge: "start" | "end"; atMs: number };
+  | { kind: "trim"; clipId: string; edge: "start" | "end"; atMs: number }
+  /** ⌘/Ctrl-drag: a copy lands at `startMs`; the clip stays. */
+  | { kind: "copy"; clipId: string; startMs: number; laneId: string | null }
+  /** ⌥/Alt-drag: the audio slides `deltaMs` inside the clip; the clip stays. */
+  | { kind: "slip"; clipId: string; deltaMs: number };
 
 /**
  * A clip on a lane: its waveform in the lane colour, its name, fades and a mute or lock mark. It
@@ -60,11 +65,12 @@ export function ClipView({
   const press = useRef<{
     x: number;
     y: number;
-    mode: "move" | "start" | "end";
+    mode: "move" | "copy" | "slip" | "start" | "end";
     dragging: boolean;
   } | null>(null);
+  const travels = preview?.kind === "move" || preview?.kind === "copy";
   const left = toX(
-    preview?.kind === "move"
+    travels
       ? preview.startMs
       : preview?.kind === "trim" && preview.edge === "start"
         ? preview.atMs
@@ -73,11 +79,13 @@ export function ClipView({
   const right = toX(
     preview?.kind === "trim" && preview.edge === "end"
       ? preview.atMs
-      : clipEndMs(clip) + (preview?.kind === "move" ? preview.startMs - clip.startMs : 0),
+      : clipEndMs(clip) + (travels ? preview.startMs - clip.startMs : 0),
   );
   // A short clip stays big enough to grab and to reach by touch (24 px).
   const width = Math.max(24, right - left);
-  const peaks = useMemo(() => clipPeaks(clip, info), [clip, info]);
+  const heard =
+    preview?.kind === "slip" ? slippedClip(clip, preview.deltaMs, info?.durationMs) : clip;
+  const peaks = useMemo(() => clipPeaks(heard, info), [heard, info]);
   const path = useMemo(() => (peaks.length ? waveformPath(peaks) : ""), [peaks]);
   const name = activeTake(clip).name;
   const fadeIn =
@@ -98,11 +106,15 @@ export function ClipView({
     const offset = event.clientX - box.left;
     const mode = clip.locked
       ? "move"
-      : offset < EDGE_PX
-        ? "start"
-        : offset > box.width - EDGE_PX
-          ? "end"
-          : "move";
+      : event.altKey
+        ? "slip"
+        : event.metaKey || event.ctrlKey
+          ? "copy"
+          : offset < EDGE_PX
+            ? "start"
+            : offset > box.width - EDGE_PX
+              ? "end"
+              : "move";
     press.current = { x: event.clientX, y: event.clientY, mode, dragging: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
     onSelect(event.shiftKey || event.metaKey);
@@ -113,13 +125,19 @@ export function ClipView({
     const dx = event.clientX - p.x;
     if (!p.dragging && Math.hypot(dx, event.clientY - p.y) < DRAG_PX) return;
     p.dragging = true;
-    if (p.mode === "move") {
+    if (p.mode === "slip") {
+      setPreview({
+        kind: "slip",
+        clipId: clip.id,
+        deltaMs: toMs(toX(clip.startMs) + dx) - clip.startMs,
+      });
+    } else if (p.mode === "move" || p.mode === "copy") {
       const target = document
         .elementFromPoint?.(event.clientX, event.clientY)
         ?.closest<HTMLElement>("[data-lane-id]");
       const startMs = snap(toMs(toX(clip.startMs) + dx));
       setPreview({
-        kind: "move",
+        kind: p.mode,
         clipId: clip.id,
         startMs,
         laneId: target?.dataset.laneId ?? null,
@@ -154,6 +172,7 @@ export function ClipView({
       type="button"
       data-testid={`clip-${clip.id}`}
       data-clip-id={clip.id}
+      data-drag={preview?.kind}
       aria-pressed={selected}
       aria-label={`${name} on ${laneName}${clip.mute ? ", muted" : ""}${clip.locked ? ", locked" : ""}${missing ? ", file missing" : ""}`}
       title={missing ? `“${name}” cannot be found` : name}
@@ -173,6 +192,8 @@ export function ClipView({
         clip.mute && "opacity-40",
         missing && "border-dashed",
         !clip.locked && "cursor-grab active:cursor-grabbing",
+        preview?.kind === "copy" && "cursor-copy overflow-visible active:cursor-copy",
+        preview?.kind === "slip" && "cursor-ew-resize active:cursor-ew-resize",
       )}
       style={{
         left,
@@ -219,6 +240,41 @@ export function ClipView({
           style={{ width: fadeOut }}
         />
       )}
+      {preview?.kind === "copy" && (
+        <CopyMarks ghostLeft={toX(clip.startMs) - left} ghostWidth={width} color={color} />
+      )}
     </button>
+  );
+}
+
+/**
+ * A copy being dragged: a "+" badge on it, and a dashed outline where the original stays
+ * (`ghostLeft` from the copy's left edge).
+ */
+function CopyMarks({
+  ghostLeft,
+  ghostWidth,
+  color,
+}: {
+  ghostLeft: number;
+  ghostWidth: number;
+  color: string;
+}) {
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        data-testid="clip-copy-ghost"
+        className="pointer-events-none absolute -inset-y-px rounded-md border border-dashed"
+        style={{ left: ghostLeft, width: ghostWidth, borderColor: color }}
+      />
+      <span
+        aria-hidden="true"
+        data-testid="clip-copy-badge"
+        className="pointer-events-none absolute top-0.5 right-0.5 z-20 grid size-4 place-items-center rounded-full bg-foreground text-[11px] leading-none font-bold text-background"
+      >
+        +
+      </span>
+    </>
   );
 }
