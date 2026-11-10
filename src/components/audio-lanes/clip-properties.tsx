@@ -113,7 +113,8 @@ export function ClipProperties({ lanes, clip }: { lanes: AudioLanesController; c
     <aside
       aria-label="Clip properties"
       data-testid="clip-properties"
-      className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l bg-card p-3"
+      tabIndex={-1}
+      className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l bg-card p-3 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       <h3 className="truncate text-sm font-semibold">{activeTake(clip).name}</h3>
       <NumberField

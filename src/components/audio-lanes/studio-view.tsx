@@ -12,10 +12,10 @@ import {
 } from "lucide-react";
 import { useRef, useState, type PointerEvent } from "react";
 
-import { ClipProperties } from "@/components/audio-lanes/clip-properties";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
+import { SelectedClipsPanel } from "@/components/audio-lanes/multi-clip-properties";
 import { SpectrogramView } from "@/components/audio-lanes/spectrogram-view";
 import type { AudioLanesController, SnapMode } from "@/components/audio-lanes/use-audio-lanes";
 import { gridStepMs } from "@/components/audio-lanes/use-audio-lanes";
@@ -83,6 +83,8 @@ export function StudioView({
   const [range, setRange] = useState<{ startMs: number; endMs: number } | null>(null);
   const [rangeLanes, setRangeLanes] = useState<readonly string[] | null>(null);
   const [spectrogram, setSpectrogram] = useState(false);
+  /** Bumped by F2 or a double-click on a clip: the properties panel takes the focus. */
+  const [panelFocus, setPanelFocus] = useState(0);
   const rulerDrag = useRef<number | null>(null);
   const toX = (ms: number) => (ms / 1000) * pps;
   const toMs = (x: number) => (x / pps) * 1000;
@@ -97,6 +99,10 @@ export function StudioView({
 
   const rulerMs = (e: PointerEvent<HTMLDivElement>) =>
     lanes.snapTo(toMs(e.clientX - e.currentTarget.getBoundingClientRect().left));
+  const openProperties = (clipId: string) => {
+    if (!lanes.selection.includes(clipId)) lanes.select([clipId]);
+    setPanelFocus((n) => n + 1);
+  };
   const drop = (drag: ClipDrag) => {
     if (drag.kind === "move")
       apply((a) => moveClip(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
@@ -357,6 +363,7 @@ export function StudioView({
                   }
                   onEffects={actions.effects}
                   onDrop={drop}
+                  onOpenProperties={openProperties}
                   range={range}
                 />
               ))}
@@ -416,7 +423,7 @@ export function StudioView({
               />
             </div>
           </div>
-          {selected && <ClipProperties lanes={lanes} clip={selected.clip} />}
+          <SelectedClipsPanel lanes={lanes} focusRequest={panelFocus} />
         </div>
         {spectrogram && selected && <SpectrogramView clip={selected.clip} />}
         {spectrogram && !selected && (
@@ -439,6 +446,7 @@ function StudioLane({
   onRangeToggle,
   onEffects,
   onDrop,
+  onOpenProperties,
   range,
 }: {
   lanes: AudioLanesController;
@@ -450,6 +458,7 @@ function StudioLane({
   onRangeToggle: () => void;
   onEffects: (index: number) => void;
   onDrop: (drag: ClipDrag) => void;
+  onOpenProperties: (clipId: string) => void;
   range: { startMs: number; endMs: number } | null;
 }) {
   const { apply } = lanes;
@@ -576,8 +585,17 @@ function StudioLane({
                   lanes.select(additive ? [...new Set([...lanes.selection, clip.id])] : [clip.id])
                 }
                 onDrop={onDrop}
-                onKey={(event) => handleClipKey(event, lanes, clip.id, lane.id, () => undefined)}
-                onOpen={() => lanes.select([clip.id])}
+                onKey={(event) =>
+                  handleClipKey(
+                    event,
+                    lanes,
+                    clip.id,
+                    lane.id,
+                    () => undefined,
+                    () => onOpenProperties(clip.id),
+                  )
+                }
+                onOpen={() => onOpenProperties(clip.id)}
                 onCursor={lanes.setEditCursorMs}
               />
             ))}

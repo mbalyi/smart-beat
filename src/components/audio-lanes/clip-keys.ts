@@ -16,11 +16,13 @@ export const CLIP_SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: "⌘X ⌘C ⌘V", action: "Cut, copy, paste at the position line" },
   { keys: "Delete", action: "Delete" },
   { keys: "Enter", action: "Open the lane editor" },
+  { keys: "F2", action: "Edit the properties of the selected clips" },
 ];
 
 /**
  * Keyboard commands on a focused clip. `laneId` is where a paste goes; `open` opens the editor.
- * Returns whether the key was used.
+ * F2 opens `properties` (the clip properties panel) when given, else the editor. Returns whether
+ * the key was used.
  */
 export function handleClipKey(
   event: KeyboardEvent<HTMLElement>,
@@ -28,6 +30,7 @@ export function handleClipKey(
   clipId: string,
   laneId: string,
   open: () => void,
+  properties?: () => void,
 ): boolean {
   const mod = event.metaKey || event.ctrlKey;
   const ensureSelected = () => {
@@ -56,7 +59,10 @@ export function handleClipKey(
   else if (event.key.toLowerCase() === "l") toggle("locked");
   else if (event.key.toLowerCase() === "r") toggle("reversed");
   else if (event.key === "Enter") open();
-  else used = false;
+  else if (event.key === "F2") {
+    ensureSelected();
+    (properties ?? open)();
+  } else used = false;
   if (used) {
     event.preventDefault();
     event.stopPropagation();
