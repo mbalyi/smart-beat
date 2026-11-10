@@ -1,3 +1,4 @@
+import { normalizeLaneHeight } from "@/lib/audio-lanes/lane-height";
 import { MAX_TRACK_EFFECTS } from "@/lib/audio/effects";
 import { normalizeMarkers, normalizeRegions } from "@/lib/audio-lanes/markers";
 import { FLAT_EQ, normalizeEq } from "@/lib/score/mixer";
@@ -211,6 +212,7 @@ export function normalizeLane(lane: AudioLane, sources: ReadonlySet<string>): Au
     effects: lane.effects.slice(0, MAX_TRACK_EFFECTS),
     sends: lane.sends.map((s) => ({ ...s, level: clamp(s.level, 0, 1) })),
     group: clamp(Math.round(lane.group), 0, 64),
+    height: normalizeLaneHeight(lane.height),
     clips: lane.folder
       ? []
       : lane.clips

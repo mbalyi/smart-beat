@@ -632,6 +632,7 @@ fn lane_engine(solo: bool, clip_ms: f64) -> Engine {
             folder: false,
             collapsed: false,
             group: 0,
+            height: None,
             clips: vec![AudioClip {
                 id: "clip".into(),
                 takes: vec![AudioTake {

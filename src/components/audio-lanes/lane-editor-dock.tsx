@@ -6,15 +6,15 @@ import {
   SlidersHorizontalIcon,
   Trash2Icon,
   XIcon,
-  ZoomInIcon,
-  ZoomOutIcon,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { EditorTimeline } from "@/components/audio-lanes/editor-timeline";
 import { EqPopover } from "@/components/audio/eq-popover";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { useMarkers } from "@/components/audio-lanes/use-markers";
+import { useTimelineZoom } from "@/components/audio-lanes/use-timeline-zoom";
+import { ZoomControls } from "@/components/audio-lanes/zoom-controls";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,7 +29,8 @@ import { Knob } from "@/components/ui/knob";
 import { Switch } from "@/components/ui/switch";
 import { removeLane, updateLane } from "@/lib/audio-lanes/edits";
 import { MAX_CENTS, MAX_SEMITONES } from "@/lib/audio-lanes/model";
-import { clearSync, resetPadding, type SongGrid } from "@/lib/audio-lanes/sync";
+import { clearSync, resetPadding, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
+import { selectionSpan, songSpan } from "@/lib/audio-lanes/zoom";
 import { FILTER_LABELS } from "@/lib/audio/audio-track";
 import type { PlayheadStore } from "@/lib/score/playhead";
 import { laneColor } from "@/lib/score/track-colors";
@@ -90,10 +91,33 @@ export function LaneEditorDock({
   actions: LaneEditorActions;
 }) {
   const { apply, audio } = lanes;
-  const [zoom, setZoom] = useState(60);
-  const [height, setHeight] = useState(280);
   const scroller = useRef<HTMLDivElement>(null);
   const userMarkers = useMarkers(lanes);
+  const zoomer = useTimelineZoom({
+    initial: 60,
+    limits: { min: MIN_ZOOM, max: MAX_ZOOM },
+    song: songSpan(audio, timelineMsAtBar(audio, grid, grid.barTimes.length)),
+    selection: selectionSpan(
+      { ...audio, lanes: [lane] },
+      lanes.selection,
+      selectedBars && {
+        startMs: timelineMsAtBar(audio, grid, selectedBars.start),
+        endMs: timelineMsAtBar(audio, grid, selectedBars.end + 1),
+      },
+    ),
+    lineMs: lanes.lineMs,
+  });
+  const zoom = zoomer.pxPerSecond;
+  const { attachScroller } = zoomer;
+  // The editor's follow-playback needs the scroller as a ref too: one element, two holders.
+  const holdScroller = useCallback(
+    (el: HTMLDivElement | null) => {
+      scroller.current = el;
+      attachScroller(el);
+    },
+    [attachScroller],
+  );
+  const [height, setHeight] = useState(280);
   const [byHand, setByHand] = useState(false);
   const autoScrolled = useRef(false);
   const update = (patch: Partial<AudioLane>) => apply((a) => updateLane(a, lane.id, patch));
@@ -101,8 +125,6 @@ export function LaneEditorDock({
   const sources = audio.sources.filter((s) =>
     lane.clips.some((c) => c.takes.some((t) => t.sourceId === s.id)),
   );
-  const zoomBy = (factor: number) =>
-    setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * factor)));
 
   // Follows the playhead while playing, until the user scrolls by hand; a new play follows again.
   const [wasPlaying, setWasPlaying] = useState(playing);
@@ -112,18 +134,16 @@ export function LaneEditorDock({
   }
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the marker keys bubble up from the focused controls inside; the section takes none itself
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the marker and zoom keys bubble up from the focused controls inside; the section takes none itself
     <section
       aria-label={`Lane editor: ${lane.name}`}
       data-testid="lane-editor"
       className="flex shrink-0 flex-col border-t bg-card"
       style={{ height }}
-      onKeyDown={userMarkers.onKeyDown}
-      onWheel={(e) => {
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1);
-        }
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        zoomer.onKeyDown(e);
+        userMarkers.onKeyDown(e);
       }}
     >
       <button
@@ -165,24 +185,14 @@ export function LaneEditorDock({
         <Button variant="outline" size="sm" onClick={() => apply((a) => removeLane(a, lane.id))}>
           <Trash2Icon /> Remove
         </Button>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label="Zoom out"
-          onClick={() => zoomBy(1 / 1.5)}
-        >
-          <ZoomOutIcon />
-        </Button>
-        <Button variant="outline" size="icon-sm" aria-label="Zoom in" onClick={() => zoomBy(1.5)}>
-          <ZoomInIcon />
-        </Button>
+        <ZoomControls zoom={zoomer} />
         <TasksMenu
           lanes={lanes}
           lane={lane}
           sources={sources}
           grid={grid}
           actions={actions}
-          onZoom={setZoom}
+          onZoom={zoomer.setPxPerSecond}
         />
         <span className="flex-1" />
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -241,7 +251,7 @@ export function LaneEditorDock({
         </Button>
       </div>
       <div
-        ref={scroller}
+        ref={holdScroller}
         className="relative min-h-0 flex-1 overflow-auto"
         onScroll={() => {
           // Following playback scrolls too: only the user's own scroll stops the following.
