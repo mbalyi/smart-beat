@@ -159,13 +159,14 @@ const barCapacity = (masterBar: MasterBar): number =>
 function splitBeat(
   beat: Beat,
   values: readonly { duration: Duration; dots: number }[],
-  tied: boolean,
+  continued: boolean,
 ) {
   return values.map(({ duration, dots }, i) => {
-    const piece = i === 0 && !tied ? beat : cloneBeat(beat);
+    // Only the first piece of a beat is the beat itself; every other piece is a copy.
+    const piece = i === 0 && !continued ? beat : cloneBeat(beat);
     piece.duration = duration;
     piece.dots = dots;
-    if (i > 0 || tied) for (const note of piece.notes) note.isTieDestination = true;
+    if (i > 0 || continued) for (const note of piece.notes) note.isTieDestination = true;
     return piece;
   });
 }
@@ -208,15 +209,17 @@ function flowLayout(
     used = 0;
   };
   const place = (beat: Beat) => {
-    let remaining = beatTicks(beat);
-    let tied = false;
+    const total = beatTicks(beat);
+    let remaining = total;
+    // Part of the beat is already placed: what follows is copies (tied, for notes).
+    let continued = false;
     const isTuplet = beat.tupletNumerator !== 1 || beat.tupletDenominator !== 1;
     for (;;) {
       const room = capacity(bars.length - 1) - used;
       if (remaining <= room + BAR_TOLERANCE) {
         const pieces =
-          tied || remaining !== beatTicks(beat)
-            ? splitBeat(beat, fillDurations(remaining), tied)
+          continued || remaining !== total
+            ? splitBeat(beat, fillDurations(remaining), continued)
             : [beat];
         bars.at(-1)!.push(...pieces);
         used += remaining;
@@ -224,9 +227,9 @@ function flowLayout(
       }
       const head = isTuplet ? [] : fillDurations(room);
       if (head.length > 0) {
-        bars.at(-1)!.push(...splitBeat(beat, head, tied));
+        bars.at(-1)!.push(...splitBeat(beat, head, continued));
         remaining -= head.reduce((sum, v) => sum + durationTicks(v.duration, v.dots), 0);
-        tied = beat.notes.length > 0;
+        continued = true;
       }
       if (bars.at(-1)!.length === 0 && used === 0 && head.length === 0) {
         // Longer than a whole bar and cannot be split (a tuplet): it goes in as it is.

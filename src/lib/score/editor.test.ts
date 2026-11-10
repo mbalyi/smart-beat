@@ -932,6 +932,11 @@ describe("ScoreEditor: clipboard", () => {
       replaceSelectionWithClip(score, { track: 0, voice: 0 }, lastBeat, [[newBeat(Duration.Half)]]);
       expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "3/4", "r/4"]);
       expect(beatsOf(score, 1)).toEqual(["r/4", "r/2."]);
+      // Two beats, each in its own bar (not one beat object in both).
+      refinish(score); // as the editor does after every command
+      const voices = [0, 1].map((bar) => score.tracks[0]!.staves[0]!.bars[bar]!.voices[0]!);
+      expect(voices[0]!.beats[3]).not.toBe(voices[1]!.beats[0]);
+      expect(voices[1]!.beats[0]!.voice).toBe(voices[1]);
     });
 
     it("starts a tuplet that would cross the bar line in the next bar", () => {
