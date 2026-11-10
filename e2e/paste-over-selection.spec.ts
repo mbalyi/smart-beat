@@ -138,9 +138,7 @@ test.describe("paste replaces the selection (#228)", () => {
     expect(await readBars(app)).toEqual([SONG[0], SONG[1], [1, 2], SONG[3]]);
   });
 
-  test("a longer clip flows into new bars and moves the next bars back", async ({
-    app,
-  }) => {
+  test("a longer clip flows into new bars and moves the next bars back", async ({ app }) => {
     await songWithFourBars(app);
     await copyBeats(app, 1, 1, 8); // bars 1 and 2
     await pasteOver(app, 3, 3, 2); // frets 11 and 12, the end of the last-but-one bar
