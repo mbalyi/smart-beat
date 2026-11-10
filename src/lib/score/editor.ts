@@ -569,7 +569,14 @@ export class ScoreEditor {
 
   /** Puts the cursor on a beat (e.g. a click in the score). Shift extends the selection. */
   setCursorTo(
-    target: { bar: number; beat: number; voice?: number; note?: Note | null },
+    target: {
+      bar: number;
+      beat: number;
+      voice?: number;
+      note?: Note | null;
+      /** Drums: the line of the drum tab that was clicked (1 = bottom), when no note was. */
+      line?: number | null;
+    },
     extend = false,
   ) {
     const from: BeatPosition = { bar: this._cursor.bar, beat: this._cursor.beat };
@@ -577,12 +584,18 @@ export class ScoreEditor {
     this._cursor.beat = target.beat;
     if (target.voice !== undefined) this._cursor.voice = target.voice;
     const note = target.note;
+    const line = this.kind === "drums" && !note ? (target.line ?? null) : null;
     if (note?.isStringed) this._cursor.string = note.string;
     else if (note) {
       this._cursor.pitch = pitchOf(note);
       if (this.kind === "drums") this._cursor.line = this.lineOfDrum(note);
-    }
+    } else if (line !== null) this._cursor.line = line;
     this.clamp();
+    if (line !== null) {
+      // An empty line too (#228): the next drum number typed is written on it.
+      const onLine = this.noteAtCursor();
+      this._cursor.pitch = onLine ? pitchOf(onLine) : null;
+    }
     this.updateSelection(extend, from);
     this.moved();
   }

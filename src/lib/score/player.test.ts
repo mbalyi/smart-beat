@@ -1259,6 +1259,7 @@ describe("ScorePlayer", () => {
         beat,
         note: beat.notes[0],
         extend: true,
+        line: null, // not a click on the drum tab
       });
       expect(callbacks.onActiveBeatsChange).toHaveBeenCalledWith([beat]);
       expect(api.tickPosition).toBe(0); // alphaTab moves the cursor itself...

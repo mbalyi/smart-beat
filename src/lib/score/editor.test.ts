@@ -11,6 +11,7 @@ import {
   type BeatPosition,
 } from "@/lib/score/editor";
 import { drumNumber, newBeat } from "@/lib/score/model";
+import { drumLine } from "@/lib/score/drum-lines";
 import { parseScore } from "@/lib/score/score";
 import { createSong, createTrack, insertTrack } from "@/lib/score/tracks";
 import { fixtureBytes } from "@/test/score";
@@ -1004,6 +1005,23 @@ describe("ScoreEditor: drum numbers and rests", () => {
 
   const hits = (editor: ScoreEditor, bar = 0, beat = 0) =>
     voice(editor, bar).beats[beat]!.notes.map((n) => n.percussionArticulation);
+
+  it("a click on a line of the drum tab puts the cursor there, and a number is written on it (#228)", () => {
+    const editor = drumSong();
+    editor.setCursorTo({ bar: 0, beat: 0, line: 6 }); // the top line, nothing written on it
+    expect(editor.cursor.line).toBe(6);
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(6, 1_100); // a kick, whose usual line is the second from the bottom
+    const kick = voice(editor, 0).beats[0]!.notes[0]!;
+    expect(drumLine(kick)).toBe(6);
+    expect(editor.cursor.line).toBe(6);
+
+    editor.setCursorTo({ bar: 0, beat: 0, line: 3 }); // the middle: an empty line again
+    expect(editor.cursor.line).toBe(3);
+    expect(editor.cursor.pitch).toBeNull();
+    editor.setCursorTo({ bar: 0, beat: 0, line: 6 }); // back on the kick
+    expect(editor.cursor.pitch).toBe(36);
+  });
 
   it("types a drum number with two digits, e.g. 4 then 6 for the open hi-hat", () => {
     const editor = drumSong();

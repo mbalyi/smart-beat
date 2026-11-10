@@ -19,6 +19,18 @@ type Score = model.Score;
 /** Lines of the drum tab (Guitar Pro 5 drum tracks have six strings). */
 export const DRUM_TAB_LINES = 6;
 
+/**
+ * The line of the drum tab nearest to a height in the drawing (6 = top line), where the bar
+ * spans from the top line (`bar.y`) to the bottom one; null for a point more than half a line
+ * gap above or below the staff (#228).
+ */
+export function drumLineAtY(bar: { y: number; h: number }, y: number): number | null {
+  const spacing = bar.h / (DRUM_TAB_LINES - 1);
+  const fromTop = Math.round((y - bar.y) / spacing);
+  if (y < bar.y - spacing / 2 || y > bar.y + bar.h + spacing / 2) return null;
+  return DRUM_TAB_LINES - Math.min(DRUM_TAB_LINES - 1, Math.max(0, fromTop));
+}
+
 const isLine = (value: number) => Number.isInteger(value) && value >= 1 && value <= DRUM_TAB_LINES;
 
 /** The line a drum note was placed on, or null (then it goes on its usual line). */

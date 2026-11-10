@@ -857,7 +857,12 @@ export function ScoreWorkspace({
   });
 
   const onBeatClick = useEffectEvent(
-    ({ beat, note, extend }: Parameters<NonNullable<ScorePlayerCallbacks["onBeatClick"]>>[0]) => {
+    ({
+      beat,
+      note,
+      extend,
+      line,
+    }: Parameters<NonNullable<ScorePlayerCallbacks["onBeatClick"]>>[0]) => {
       // Outside edit mode too, so a selection made there is kept for edit mode (#53).
       const clicked = beat.voice.bar.staff.track;
       if (clicked !== trackObject) {
@@ -867,7 +872,7 @@ export function ScoreWorkspace({
         changeTrack(index);
       } else if (extend) trackUsage("shift_select");
       editor.setCursorTo(
-        { bar: beat.voice.bar.index, beat: beat.index, voice: beat.voice.index, note },
+        { bar: beat.voice.bar.index, beat: beat.index, voice: beat.voice.index, note, line },
         extend,
       );
     },

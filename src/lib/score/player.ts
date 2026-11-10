@@ -49,7 +49,7 @@ import {
   pruneMirrors,
   removeMirrorNotes,
 } from "@/lib/score/drum-tab";
-import { DRUM_TAB_LINES } from "@/lib/score/drum-lines";
+import { DRUM_TAB_LINES, drumLineAtY } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import {
@@ -169,7 +169,13 @@ export interface ScorePlayerCallbacks {
   /** Beats of the shown track being played (or clicked while paused). */
   onActiveBeatsChange?: (beats: Beat[]) => void;
   /** A beat (and the note, if any) was clicked. `extend`: with Shift held. */
-  onBeatClick?: (target: { beat: Beat; note: Note | null; extend: boolean }) => void;
+  onBeatClick?: (target: {
+    beat: Beat;
+    note: Note | null;
+    extend: boolean;
+    /** A click on the drum tab: the line clicked (1 = bottom), written on or not (#228). */
+    line?: number | null;
+  }) => void;
   /** The mouse was dragged onto another beat after a click. */
   onBeatDrag?: (beat: Beat) => void;
   /** Rendering finished: beat and note positions are up to date. */
@@ -369,6 +375,8 @@ export class ScorePlayer {
   private editing = false;
   /** Shift was held on the last pointer press in the score. */
   private shiftDown = false;
+  /** Where the last click landed, in the drawing's pixels (for clicks on the drum tab). */
+  private pointerY: number | null = null;
   /** A SoundFont is loaded in the synthesizer (none right after a reset). */
   private hasSounds = false;
   private readonly synthReady: Promise<void>;
@@ -431,6 +439,8 @@ export class ScorePlayer {
       "pointerdown",
       (event) => {
         this.shiftDown = event.shiftKey;
+        const rect = options.element.getBoundingClientRect();
+        this.pointerY = event.clientY - rect.top;
       },
       { capture: true },
     );
@@ -537,7 +547,8 @@ export class ScorePlayer {
       // The note (if any) is reported right after the beat: wait for it.
       const extend = this.shiftDown;
       this.clickedNote = null;
-      queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend }));
+      const line = clicked !== beat ? this.drumLineAt(beat, this.pointerY) : null;
+      queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend, line }));
     });
     api.noteMouseDown.on((note) => {
       this.clickedNote = realNoteOf(note);
@@ -1348,6 +1359,13 @@ export class ScorePlayer {
     const spacing = bar.h / (DRUM_TAB_LINES - 1);
     const { x, w } = bounds.visualBounds;
     return { x, y: bar.y + (DRUM_TAB_LINES - line) * spacing - spacing / 2, w, h: spacing + 1 };
+  }
+
+  /** The line of the drum tab drawn at a height of a drum beat (1 = bottom), or null. */
+  private drumLineAt(beat: Beat, y: number | null): number | null {
+    const mirror = y === null ? null : mirrorBeatOf(beat);
+    const bounds = mirror ? this.api.boundsLookup?.findBeats(mirror)?.[0] : undefined;
+    return bounds && y !== null ? drumLineAtY(bounds.barBounds.visualBounds, y) : null;
   }
 
   /**
