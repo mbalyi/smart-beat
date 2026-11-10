@@ -138,7 +138,7 @@ test.describe("paste replaces the selection (#228)", () => {
     expect(await readBars(app)).toEqual([SONG[0], SONG[1], [1, 2], SONG[3]]);
   });
 
-  test("a longer clip replaces the selected beats and moves the next bars back", async ({
+  test("a longer clip flows into new bars and moves the next bars back", async ({
     app,
   }) => {
     await songWithFourBars(app);
@@ -151,20 +151,19 @@ test.describe("paste replaces the selection (#228)", () => {
       ...["9", "10", "1", "2", "3", "4", "5", "6", "7", "8"],
       ...["13", "14", "15", "16"],
     ]);
-    expect(await barCount(app)).toBeGreaterThan(SONG.length);
+    // The music flows over the bar lines: every bar is filled to its four beats, the rest of
+    // the clip goes into two new bars (the last one filled with a rest), and the old bar 4
+    // comes last, unchanged.
+    await expect.poll(() => barCount(app)).toBe(SONG.length + 2);
     const bars = await readBars(app);
-    expect(bars.slice(0, 3)).toEqual([SONG[0], SONG[1], [9, 10, 1, 2]]);
-    // The rest of the clip is in the inserted bars, and the old bar 4 comes last, unchanged.
-    const inserted = bars.slice(3, -1).flat();
-    expect(inserted.filter((fret) => fret !== null)).toEqual([3, 4, 5, 6, 7, 8]);
-    expect(bars.at(-1)).toEqual(SONG[3]);
+    expect(bars).toEqual([SONG[0], SONG[1], [9, 10, 1, 2], [3, 4, 5, 6], [7, 8, null], SONG[3]]);
   });
 
   test("one Undo brings back the bars and beats from before the paste", async ({ app }) => {
     await songWithFourBars(app);
     await copyBeats(app, 1, 1, 8);
     await pasteOver(app, 3, 3, 2);
-    await expect.poll(() => barCount(app)).toBeGreaterThan(SONG.length);
+    await expect.poll(() => barCount(app)).toBe(SONG.length + 2);
 
     // ⌘Z / Ctrl+Z: the desktop app undoes through the Edit menu (Rust forwards the shortcut).
     await emitMenuAction(app, "undo");

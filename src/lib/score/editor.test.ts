@@ -10,7 +10,7 @@ import {
   TWO_DIGIT_MS,
   type BeatPosition,
 } from "@/lib/score/editor";
-import { drumNumber, newBeat } from "@/lib/score/model";
+import { drumNumber, newBeat, refinish, type Score } from "@/lib/score/model";
 import { drumLine } from "@/lib/score/drum-lines";
 import { parseScore } from "@/lib/score/score";
 import { createSong, createTrack, insertTrack } from "@/lib/score/tracks";
@@ -719,36 +719,36 @@ describe("ScoreEditor: clipboard", () => {
       expect(frets(editor, 3)).toEqual(original[3]);
     });
 
-    it("inserts bars for a longer clip instead of writing over the bars after it", () => {
+    it("flows a longer clip into new bars instead of writing over the bars after it", () => {
       const editor = practiceSong();
       const { score } = editor;
       const original = allBars(editor);
       const bassBar3 = score.tracks[1]!.staves[0]!.bars[3]!.voices[0]!.beats.map(
         (b) => b.notes[0]!.fret,
       );
-      // Two bars (8 beats) onto two beats of one bar.
+      // Two bars (8 quarters) onto two quarters of one bar.
       select(editor, { bar: 0, beat: 0 }, { bar: 1, beat: 3 });
       editor.copy();
       select(editor, { bar: 2, beat: 1 }, { bar: 2, beat: 2 });
 
       editor.paste();
 
-      expect(score.masterBars).toHaveLength(5);
-      expect(editor.message).toBe("Pasted 8 beats over the selection, added 1 bar");
-      expect(score.tracks.map((t) => t.staves[0]!.bars.length)).toEqual([5, 5, 5, 5]);
-      expect(frets(editor, 2)).toEqual(["3:0", ...original[0]!]);
-      // The overflow flows into the new bar, followed by the rest of the selected bar.
-      expect(frets(editor, 3)).toEqual([...original[1]!, "3:0"]);
-      expect(score.masterBars[3]!.timeSignatureNumerator).toBe(4);
-      // The bar after the selection is untouched, only one place later, in every track.
-      expect(frets(editor, 4)).toEqual(original[3]);
+      const clip = [...original[0]!, ...original[1]!];
+      expect(score.masterBars).toHaveLength(6);
+      expect(editor.message).toBe("Pasted 8 beats over the selection, added 2 bars");
+      expect(score.tracks.map((t) => t.staves[0]!.bars.length)).toEqual([6, 6, 6, 6]);
+      // Every bar is filled to its four beats; the copied bar lines are not kept.
+      expect(frets(editor, 2)).toEqual(["3:0", ...clip.slice(0, 3)]);
+      expect(frets(editor, 3)).toEqual(clip.slice(3, 7));
+      // The rest of the selected bar follows the clip; the last new bar is filled with a rest.
+      expect(frets(editor, 4)).toEqual([clip[7], "3:0", "r"]);
+      expect(score.masterBars[4]!.timeSignatureNumerator).toBe(4);
+      // The bar after the selection is untouched, only two places later, in every track.
+      expect(frets(editor, 5)).toEqual(original[3]);
       expect(
-        score.tracks[1]!.staves[0]!.bars[4]!.voices[0]!.beats.map((b) => b.notes[0]!.fret),
+        score.tracks[1]!.staves[0]!.bars[5]!.voices[0]!.beats.map((b) => b.notes[0]!.fret),
       ).toEqual(bassBar3);
-      expect(
-        score.tracks[1]!.staves[0]!.bars[3]!.voices[0]!.beats.every((b) => !b.notes.length),
-      ).toBe(true);
-      expect(editor.selection).toEqual({ anchor: { bar: 2, beat: 1 }, head: { bar: 3, beat: 3 } });
+      expect(editor.selection).toEqual({ anchor: { bar: 2, beat: 1 }, head: { bar: 4, beat: 0 } });
     });
 
     it("replaces a selection across two bars, keeping what is around it", () => {
@@ -824,6 +824,74 @@ describe("ScoreEditor: clipboard", () => {
       expect(score.masterBars).toHaveLength(4);
     });
 
+    /** A new song's guitar, voice 1: bar 1 holds quarters (frets 1–4), the rest whole rests. */
+    function quarters() {
+      const { score } = newSong();
+      const voice = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!;
+      voice.beats.splice(0, voice.beats.length);
+      for (let fret = 1; fret <= 4; fret++) {
+        const beat = newBeat(Duration.Quarter);
+        const note = new model.Note();
+        note.string = 1;
+        note.fret = fret;
+        beat.addNote(note);
+        voice.addBeat(beat);
+      }
+      refinish(score);
+      return score;
+    }
+    const beatsOf = (score: Score, bar: number) =>
+      score.tracks[0]!.staves[0]!.bars[bar]!.voices[0]!.beats.map(
+        (b) =>
+          `${b.notes[0]?.fret ?? "r"}/${b.duration}${".".repeat(b.dots)}` +
+          (b.notes[0]?.isTieDestination ? "~" : ""),
+      );
+    const lastBeat = { anchor: { bar: 0, beat: 3 }, head: { bar: 0, beat: 3 } };
+    const note = (duration: model.Duration, dots = 0, fret = 9) => {
+      const beat = newBeat(duration, dots);
+      const n = new model.Note();
+      n.string = 1;
+      n.fret = fret;
+      beat.addNote(n);
+      return beat;
+    };
+
+    it("splits a dotted value across the bar line into tied notes", () => {
+      const score = quarters();
+      // A dotted half on beat 4: a quarter here, a half tied to it in a new bar.
+      const result = replaceSelectionWithClip(score, { track: 0, voice: 0 }, lastBeat, [
+        [note(Duration.Half, 1)],
+      ]);
+      expect(result?.addedBars).toBe(1);
+      expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "3/4", "9/4"]);
+      expect(beatsOf(score, 1)).toEqual(["9/2~", "r/2"]);
+    });
+
+    it("splits a rest across the bar line into rests, without ties", () => {
+      const score = quarters();
+      replaceSelectionWithClip(score, { track: 0, voice: 0 }, lastBeat, [[newBeat(Duration.Half)]]);
+      expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "3/4", "r/4"]);
+      expect(beatsOf(score, 1)).toEqual(["r/4", "r/2."]);
+    });
+
+    it("starts a tuplet that would cross the bar line in the next bar", () => {
+      const score = quarters();
+      const triplet = [0, 1, 2].map((i) => {
+        const beat = note(Duration.Quarter, 0, 5 + i);
+        beat.tupletNumerator = 3;
+        beat.tupletDenominator = 2;
+        return beat;
+      });
+      const selection = { anchor: { bar: 0, beat: 2 }, head: { bar: 0, beat: 3 } };
+      replaceSelectionWithClip(score, { track: 0, voice: 0 }, selection, [
+        [note(Duration.Quarter, 0, 4), ...triplet],
+      ]);
+      // The first triplet quarter fits in beat 4 and stays; the rest moves on whole, unsplit.
+      expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "4/4", "5/4"]);
+      expect(beatsOf(score, 1).slice(0, 2)).toEqual(["6/4", "7/4"]);
+      expect(score.masterBars).toHaveLength(5);
+    });
+
     it("leaves the selection and the clip it is given unchanged", () => {
       const { score } = newSong();
       const selection = { anchor: { bar: 1, beat: 0 }, head: { bar: 0, beat: 0 } };
@@ -833,12 +901,13 @@ describe("ScoreEditor: clipboard", () => {
 
       const result = replaceSelectionWithClip(score, { track: 0, voice: 0 }, selection, clip);
 
+      // Two halves fill bar 1, the third goes into bar 2: no bar needs adding.
       expect(result).toEqual({
         first: { bar: 0, beat: 0 },
-        last: { bar: 2, beat: 0 },
-        addedBars: 1,
+        last: { bar: 1, beat: 0 },
+        addedBars: 0,
       });
-      expect(score.masterBars).toHaveLength(5);
+      expect(score.masterBars).toHaveLength(4);
       expect(selection).toEqual(copy);
       expect(clip).toEqual(lists);
     });

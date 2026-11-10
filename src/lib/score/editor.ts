@@ -19,7 +19,13 @@ import {
   type CopiedBeat,
   type EditorClipboard,
 } from "@/lib/score/clipboard";
-import { restsFor, TOLERANCE as BAR_TOLERANCE, voiceTicks } from "@/lib/score/bar-duration";
+import {
+  beatTicks,
+  fillDurations,
+  restsFor,
+  TOLERANCE as BAR_TOLERANCE,
+  voiceTicks,
+} from "@/lib/score/bar-duration";
 import { chordOf, setChord, type ChordSpec } from "@/lib/score/chords";
 import {
   activeEffectName,
@@ -59,6 +65,7 @@ import {
   tuningOf,
   type Bar,
   type Beat,
+  type MasterBar,
   type Note,
   type Score,
   type Staff,
@@ -69,8 +76,10 @@ import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
 import { DRUM_TAB_LINES, drumLine, setDrumLine } from "@/lib/score/drum-lines";
 import { drumTabString, placeDrums } from "@/lib/score/drum-tab";
 import {
+  durationTicks,
   MAX_FRET,
   NO_TUPLET,
+  QUARTER_TICKS,
   noteValueLabel,
   pitchFromLetter,
   pitchName,
@@ -140,16 +149,144 @@ export interface ReplacedRange {
   addedBars: number;
 }
 
+/** Ticks a bar of this master bar's time signature holds. */
+const barCapacity = (masterBar: MasterBar): number =>
+  (QUARTER_TICKS * 4 * masterBar.timeSignatureNumerator) / masterBar.timeSignatureDenominator;
+
+/** Copies of a beat with these note values; every copy after the first is tied to the one before. */
+function splitBeat(
+  beat: Beat,
+  values: readonly { duration: Duration; dots: number }[],
+  tied: boolean,
+) {
+  return values.map(({ duration, dots }, i) => {
+    const piece = i === 0 && !tied ? beat : cloneBeat(beat);
+    piece.duration = duration;
+    piece.dots = dots;
+    if (i > 0 || tied) for (const note of piece.notes) note.isTieDestination = true;
+    return piece;
+  });
+}
+
+/** How {@link replaceSelectionWithClip} lays out the music, bar by bar from the selection's start. */
+interface FlowLayout {
+  bars: Beat[][];
+  first: BeatPosition;
+  last: BeatPosition;
+  addedBars: number;
+}
+
+/**
+ * Lays the clip out from the selection's start (#228), without changing the score: each bar
+ * is filled up to its length before the music goes on in the next one, a note that crosses a
+ * bar line is split into tied notes (a rest into rests), and a tuplet that would cross starts
+ * in the next bar instead. When the clip reaches the selection's last bar, the beats after the
+ * selection follow it; otherwise they stay at the start of that bar.
+ */
+function flowLayout(
+  score: Score,
+  staff: Staff,
+  voiceIndex: number,
+  selection: Selection,
+  clip: readonly Beat[],
+): FlowLayout {
+  const [start, end] = selectionRange(selection);
+  const writtenBeats = (bar: number, from: number, to?: number) =>
+    staff.bars[bar]!.voices[voiceIndex]!.beats.slice(from, to).filter((beat) => !beat.isEmpty);
+  const before = writtenBeats(start.bar, 0, start.beat);
+  const after = writtenBeats(end.bar, end.beat + 1);
+  // Bars past the selection are new ones, in the time signature of its last bar.
+  const capacity = (offset: number) =>
+    barCapacity(score.masterBars[Math.min(start.bar + offset, end.bar)]!);
+
+  const bars: Beat[][] = [[...before]];
+  let used = before.reduce((sum, beat) => sum + beatTicks(beat), 0);
+  const nextBar = () => {
+    bars.push([]);
+    used = 0;
+  };
+  const place = (beat: Beat) => {
+    let remaining = beatTicks(beat);
+    let tied = false;
+    const isTuplet = beat.tupletNumerator !== 1 || beat.tupletDenominator !== 1;
+    for (;;) {
+      const room = capacity(bars.length - 1) - used;
+      if (remaining <= room + BAR_TOLERANCE) {
+        const pieces =
+          tied || remaining !== beatTicks(beat)
+            ? splitBeat(beat, fillDurations(remaining), tied)
+            : [beat];
+        bars.at(-1)!.push(...pieces);
+        used += remaining;
+        return;
+      }
+      const head = isTuplet ? [] : fillDurations(room);
+      if (head.length > 0) {
+        bars.at(-1)!.push(...splitBeat(beat, head, tied));
+        remaining -= head.reduce((sum, v) => sum + durationTicks(v.duration, v.dots), 0);
+        tied = beat.notes.length > 0;
+      }
+      if (bars.at(-1)!.length === 0 && used === 0 && head.length === 0) {
+        // Longer than a whole bar and cannot be split (a tuplet): it goes in as it is.
+        bars.at(-1)!.push(beat);
+        used += remaining;
+        return;
+      }
+      nextBar();
+    }
+  };
+  for (const beat of clip) place(beat);
+
+  const lastBar = bars.length - 1;
+  const last: BeatPosition = { bar: start.bar + lastBar, beat: bars[lastBar]!.length - 1 };
+  const selectedBars = end.bar - start.bar + 1;
+  if (bars.length >= selectedBars) for (const beat of after) place(beat);
+  else {
+    while (bars.length < selectedBars - 1) bars.push([]);
+    bars.push([...after]);
+  }
+  const addedBars = Math.max(0, bars.length - selectedBars);
+  if (addedBars > 0) {
+    // The last new bar is filled up with rests.
+    const room = capacity(bars.length - 1) - used;
+    for (const { duration, dots } of fillDurations(room))
+      bars.at(-1)!.push(newBeat(duration, dots));
+  }
+  return { bars, first: { bar: start.bar, beat: before.length }, last, addedBars };
+}
+
+/** How many bars {@link replaceSelectionWithClip} would add, without changing anything. */
+export function barsAddedByPaste(
+  score: Score,
+  target: { track: number; voice: number },
+  selection: Selection,
+  clip: readonly (readonly Beat[])[],
+): number {
+  const staff = score.tracks[target.track]?.staves[0];
+  const [start, end] = selectionRange(selection);
+  if (
+    !staff?.bars[start.bar] ||
+    !staff.bars[end.bar] ||
+    !staff.bars[start.bar]!.voices[target.voice]
+  )
+    return 0;
+  const copies = clip.flat().map((beat) => cloneBeat(beat));
+  return copies.length === 0
+    ? 0
+    : flowLayout(score, staff, target.voice, selection, copies).addedBars;
+}
+
 /**
  * Replaces the selected beats of one voice with the clip's beats (#228): the selection is
- * removed and the clip goes in where it started, its first bar there and each further bar at
- * the start of the following bar. What came before and after the selection stays around it.
+ * removed and the clip goes in where it started. The music flows over the bar lines (the
+ * clip's own bar lines are not kept): each bar is filled to its length, a note crossing a bar
+ * line is split into tied notes, and a tuplet that would cross starts in the next bar.
  *
- * - A clip with fewer bars than the selection leaves the rest short; a bar left with nothing
- *   gets its rest back. Nothing is filled up.
- * - A clip with more bars gets empty bars (every track, the time signature of the selection's
- *   last bar) inserted after the selection, so the bars after it are never written over. The
- *   rest of the selection's last bar then follows the clip in the last new bar.
+ * - A clip shorter than the selection leaves the bar short; a bar left with nothing gets its
+ *   rest back. Nothing is filled up.
+ * - A longer clip gets empty bars (every track, the time signature of the selection's last
+ *   bar) inserted after the selection, so the bars after it are never written over; the rest
+ *   of the selection's last bar follows the clip, and the last new bar is filled with rests.
  *
  * The clip's beats are placed as they are (pass fresh copies). The score is changed in place,
  * as every editor command does (undo snapshots alphaTab's objects); `selection` and the clip's
@@ -162,44 +299,24 @@ export function replaceSelectionWithClip(
   selection: Selection,
   clip: readonly (readonly Beat[])[],
 ): ReplacedRange | null {
-  const bars = clip.filter((beats) => beats.length > 0);
+  const beats = clip.flat();
   const staff = score.tracks[target.track]?.staves[0];
   const [start, end] = selectionRange(selection);
-  if (bars.length === 0 || !staff?.bars[start.bar] || !staff.bars[end.bar]) return null;
+  if (beats.length === 0 || !staff?.bars[start.bar] || !staff.bars[end.bar]) return null;
 
   ensureVoices(staff, target.voice + 1);
-  const writtenBeats = (bar: number, from: number, to?: number) =>
-    staff.bars[bar]!.voices[target.voice]!.beats.slice(from, to).filter((beat) => !beat.isEmpty);
-  const before = writtenBeats(start.bar, 0, start.beat);
-  const after = writtenBeats(end.bar, end.beat + 1);
-
-  const selectedBars = end.bar - start.bar + 1;
-  const addedBars = Math.max(0, bars.length - selectedBars);
-  for (let i = 0; i < addedBars; i++) insertMasterBar(score, end.bar + 1 + i, end.bar);
-
-  const lastClipBar = start.bar + bars.length - 1;
-  // The rest of the selection's last bar follows the clip, but never moves to an earlier bar.
-  const afterBar = Math.max(end.bar, lastClipBar);
-  for (let bar = start.bar; bar < start.bar + Math.max(selectedBars, bars.length); bar++) {
-    const content = [
-      ...(bar === start.bar ? before : []),
-      ...(bars[bar - start.bar] ?? []),
-      ...(bar === afterBar ? after : []),
-    ];
+  const layout = flowLayout(score, staff, target.voice, selection, beats);
+  for (let i = 0; i < layout.addedBars; i++) insertMasterBar(score, end.bar + 1 + i, end.bar);
+  layout.bars.forEach((content, offset) => {
+    const bar = start.bar + offset;
     const voice = staff.bars[bar]!.voices[target.voice]!;
     voice.beats.splice(
       0,
       voice.beats.length,
       ...(content.length > 0 ? content : placeholderBeats(score.masterBars[bar]!, target.voice)),
     );
-  }
-
-  const lastBeat = (lastClipBar === start.bar ? before.length : 0) + bars.at(-1)!.length - 1;
-  return {
-    first: { bar: start.bar, beat: before.length },
-    last: { bar: lastClipBar, beat: lastBeat },
-    addedBars,
-  };
+  });
+  return { first: layout.first, last: layout.last, addedBars: layout.addedBars };
 }
 
 export function trackKind(track: Track): TrackKind {
@@ -2072,25 +2189,21 @@ export class ScoreEditor {
   /** Replaces the selection with the clipboard as one undo step, selecting what was pasted. */
   private pasteOverSelection(clipboard: ClipboardContent, selection: Selection) {
     const [start, end] = selectionRange(selection);
-    const selectedBars = end.bar - start.bar + 1;
-    const bars = Math.max(selectedBars, clipboard.bars.length);
-    // Copied bars are never empty, so a longer clip adds exactly this many bars.
-    const added = bars - selectedBars;
+    const convert = () =>
+      clipboard.bars.map((copied) => copied.map((c) => this.convertBeat(c, clipboard.kind)));
+    const target = { track: this._cursor.track, voice: this._cursor.voice };
+    const added = barsAddedByPaste(this.score, target, selection, convert());
     const count = clipboard.bars.flat().length;
     this.run(
       "Paste",
       () => [
         ...this.structureTargets(),
-        // Before: the selected bars and those a longer clip pushes on. After: the new bars too.
-        ...masterBarContent(this.score, start.bar, start.bar + bars - 1),
+        // Before: the selected bars. After: the bars added for a longer clip too.
+        ...masterBarContent(this.score, start.bar, end.bar + added),
         ...(this._cursor.voice < this.bar().voices.length ? [] : staffContent(this.staff)),
       ],
       () => {
-        const clip = clipboard.bars.map((copied) =>
-          copied.map((c) => this.convertBeat(c, clipboard.kind)),
-        );
-        const target = { track: this._cursor.track, voice: this._cursor.voice };
-        const pasted = replaceSelectionWithClip(this.score, target, selection, clip);
+        const pasted = replaceSelectionWithClip(this.score, target, selection, convert());
         if (!pasted) return;
         this._selection = { anchor: pasted.first, head: pasted.last };
         this._cursor.bar = pasted.last.bar;
