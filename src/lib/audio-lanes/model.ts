@@ -1,4 +1,5 @@
 import { MAX_TRACK_EFFECTS } from "@/lib/audio/effects";
+import { normalizeMarkers, normalizeRegions } from "@/lib/audio-lanes/markers";
 import { FLAT_EQ, normalizeEq } from "@/lib/score/mixer";
 import { isTrackColor } from "@/lib/score/track-colors";
 import type {
@@ -259,6 +260,8 @@ export function normalizeAudio(audio: AudioLanesSettings): AudioLanesSettings {
           : Math.max(Math.round(audio.zone.start) + 1, Math.round(audio.zone.end)),
     },
     ripple: audio.ripple === "lane" || audio.ripple === "all" ? audio.ripple : "off",
+    ...(audio.markers && { markers: normalizeMarkers(audio.markers) }),
+    ...(audio.regions && { regions: normalizeRegions(audio.regions) }),
   };
 }
 

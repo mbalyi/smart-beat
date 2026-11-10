@@ -20,6 +20,11 @@ pub const MAX_CLIPS: usize = 2_000;
 pub const MAX_TAKES: usize = 64;
 pub const MAX_SOURCES: usize = 512;
 pub const MAX_POINTS: usize = 4_096;
+/// The most user markers and the most regions a song can have.
+pub const MAX_MARKERS: usize = 256;
+pub const MAX_REGIONS: usize = 256;
+/// The longest marker or region name, in characters.
+pub const MAX_MARKER_NAME: usize = 64;
 /// The longest timeline position or clip, in ms (a day).
 const MAX_MS: f64 = 86_400_000.0;
 /// A clip of an old audio track plays its whole file: no file the decoder accepts is longer.
@@ -255,6 +260,25 @@ pub enum RippleMode {
     All,
 }
 
+/// A named point the user put on the audio timeline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioMarker {
+    pub id: String,
+    pub ms: f64,
+    pub name: String,
+}
+
+/// A named span of the audio timeline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioRegion {
+    pub id: String,
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub name: String,
+}
+
 /// The audio side of a song.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -265,6 +289,12 @@ pub struct AudioLanes {
     pub sync: Vec<SyncPoint>,
     pub zone: Zone,
     pub ripple: RippleMode,
+    /// User markers in time order (absent in files saved before markers existed).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<AudioMarker>,
+    /// Regions in start order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub regions: Vec<AudioRegion>,
 }
 
 fn finite_in(value: f64, min: f64, max: f64) -> bool {
@@ -282,6 +312,53 @@ fn check_id(id: &str, what: &str) -> Result<(), String> {
     } else {
         Err(format!("invalid {what} id"))
     }
+}
+
+fn check_marker_name(name: &str) -> Result<(), String> {
+    if name.chars().count() > MAX_MARKER_NAME {
+        Err("marker or region name too long".into())
+    } else {
+        Ok(())
+    }
+}
+
+/// Markers: at most 256, finite, in range and in time order.
+fn validate_markers(markers: &[AudioMarker]) -> Result<(), String> {
+    if markers.len() > MAX_MARKERS {
+        return Err(format!("more than {MAX_MARKERS} markers"));
+    }
+    for marker in markers {
+        check_id(&marker.id, "marker")?;
+        check_marker_name(&marker.name)?;
+        if !finite_in(marker.ms, 0.0, MAX_MS) {
+            return Err("marker position out of range".into());
+        }
+    }
+    if markers.windows(2).any(|w| w[0].ms > w[1].ms) {
+        return Err("markers out of order".into());
+    }
+    Ok(())
+}
+
+/// Regions: at most 256, finite, each ending after it starts, in start order.
+fn validate_regions(regions: &[AudioRegion]) -> Result<(), String> {
+    if regions.len() > MAX_REGIONS {
+        return Err(format!("more than {MAX_REGIONS} regions"));
+    }
+    for region in regions {
+        check_id(&region.id, "region")?;
+        check_marker_name(&region.name)?;
+        if !finite_in(region.start_ms, 0.0, MAX_MS)
+            || !finite_in(region.end_ms, 0.0, MAX_MS)
+            || region.end_ms <= region.start_ms
+        {
+            return Err("region span out of range".into());
+        }
+    }
+    if regions.windows(2).any(|w| w[0].start_ms > w[1].start_ms) {
+        return Err("regions out of order".into());
+    }
+    Ok(())
 }
 
 impl AudioClip {
@@ -384,6 +461,8 @@ impl AudioLanes {
         if self.sync.len() > 10_000 || self.sync.iter().any(|p| !finite_in(p.ms, 0.0, 1.0e9)) {
             return Err("invalid audio sync points".into());
         }
+        validate_markers(&self.markers)?;
+        validate_regions(&self.regions)?;
         for source in &self.sources {
             if !source.id.starts_with("legacy-")
                 && (source.id.len() != 64 || !source.id.chars().all(|c| c.is_ascii_hexdigit()))
@@ -505,6 +584,7 @@ pub fn migrate_audio_track(track: &AudioTrack) -> AudioLanes {
         sync,
         zone: Zone::default(),
         ripple: RippleMode::Off,
+        ..Default::default()
     }
 }
 
@@ -638,6 +718,102 @@ mod tests {
         unused.id = "a".repeat(64);
         audio.sources.push(unused);
         assert_eq!(audio.used_sources().count(), 1);
+    }
+
+    fn marker(id: &str, ms: f64) -> AudioMarker {
+        AudioMarker {
+            id: id.into(),
+            ms,
+            name: format!("Marker {id}"),
+        }
+    }
+
+    fn region(id: &str, start_ms: f64, end_ms: f64) -> AudioRegion {
+        AudioRegion {
+            id: id.into(),
+            start_ms,
+            end_ms,
+            name: "Chorus".into(),
+        }
+    }
+
+    #[test]
+    fn markers_and_regions_round_trip() {
+        let mut audio = migrate_audio_track(&track());
+        audio.markers = vec![marker("m1", 1_000.0), marker("m2", 2_500.5)];
+        audio.regions = vec![region("r1", 4_000.0, 8_000.0)];
+        audio.validate().unwrap();
+        let json = serde_json::to_value(&audio).unwrap();
+        assert_eq!(json["markers"][1]["ms"], 2_500.5);
+        assert_eq!(json["regions"][0]["startMs"], 4_000.0);
+        assert_eq!(json["regions"][0]["endMs"], 8_000.0);
+        let back: AudioLanes = serde_json::from_value(json).unwrap();
+        assert_eq!(back, audio);
+    }
+
+    #[test]
+    fn files_without_markers_still_load_and_write_none() {
+        let audio = migrate_audio_track(&track());
+        let json = serde_json::to_value(&audio).unwrap();
+        assert!(json.get("markers").is_none());
+        assert!(json.get("regions").is_none());
+        let back: AudioLanes = serde_json::from_value(json).unwrap();
+        assert!(back.markers.is_empty() && back.regions.is_empty());
+    }
+
+    #[test]
+    fn rejects_bad_markers_and_regions() {
+        let base = migrate_audio_track(&track());
+        let with_markers = |markers: Vec<AudioMarker>| AudioLanes {
+            markers,
+            ..base.clone()
+        };
+        let with_regions = |regions: Vec<AudioRegion>| AudioLanes {
+            regions,
+            ..base.clone()
+        };
+        assert!(
+            with_markers(vec![marker("a", 2_000.0), marker("b", 1_000.0)])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            with_markers(vec![marker("a", f64::NAN)])
+                .validate()
+                .is_err()
+        );
+        assert!(with_markers(vec![marker("a", -1.0)]).validate().is_err());
+        assert!(with_markers(vec![marker("../a", 1.0)]).validate().is_err());
+        let mut long = marker("a", 1.0);
+        long.name = "x".repeat(MAX_MARKER_NAME + 1);
+        assert!(with_markers(vec![long]).validate().is_err());
+        let many = (0..=MAX_MARKERS)
+            .map(|i| marker(&format!("m{i}"), i as f64))
+            .collect();
+        assert!(with_markers(many).validate().is_err());
+        assert!(
+            with_regions(vec![region("r", 5.0, 5.0)])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            with_regions(vec![region("r", 0.0, f64::INFINITY)])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            with_regions(vec![region("a", 9.0, 10.0), region("b", 1.0, 2.0)])
+                .validate()
+                .is_err()
+        );
+        let many = (0..=MAX_REGIONS)
+            .map(|i| region(&format!("r{i}"), i as f64, i as f64 + 1.0))
+            .collect();
+        assert!(with_regions(many).validate().is_err());
+        let full = (0..MAX_MARKERS)
+            .map(|i| marker(&format!("m{i}"), i as f64))
+            .collect();
+        assert_eq!(with_markers(full).validate(), Ok(()));
     }
 
     #[test]

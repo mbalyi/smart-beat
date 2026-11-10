@@ -448,6 +448,21 @@ export interface AudioBus {
 /** Ripple editing: moving or deleting a clip moves the later ones. */
 export type RippleMode = "off" | "lane" | "all";
 
+/** Mirrors `AudioMarker`: a named point the user put on the audio timeline. */
+export interface AudioMarker {
+  id: string;
+  ms: number;
+  name: string;
+}
+
+/** Mirrors `AudioRegion`: a named span of the audio timeline. */
+export interface AudioRegion {
+  id: string;
+  startMs: number;
+  endMs: number;
+  name: string;
+}
+
 /** The audio side of a song (settings version 3). */
 export interface AudioLanesSettings {
   lanes: AudioLane[];
@@ -458,6 +473,10 @@ export interface AudioLanesSettings {
   /** The play zone brackets, in bars (end null: the end of the song). */
   zone: { start: number; end: number | null };
   ripple: RippleMode;
+  /** User markers in time order (absent in older files). */
+  markers?: AudioMarker[];
+  /** Regions in start order (absent in older files). */
+  regions?: AudioRegion[];
 }
 
 /** Mirrors `AudioTrack` in `src-tauri/src/mixer.rs`. */
