@@ -893,7 +893,7 @@ export class ScoreEditor {
     }
     this.run(
       "Replace note",
-      this.cursorTargets,
+      this.drumNoteTargets,
       () => {
         const target = this.noteAtCursor()!;
         // The new drum stays on the line of the one it replaces, whatever its usual line is.
@@ -1092,6 +1092,14 @@ export class ScoreEditor {
     this._cursor.voice < this.bar().voices.length
       ? barContent(this.bar())
       : staffContent(this.staff);
+
+  /**
+   * A drum track itself, for edits that may add a drum to its kit (#229): other undo steps
+   * record the track too, so its kit must be recorded wherever it can grow.
+   */
+  private kitTargets = (): object[] => (this.kind === "drums" ? [this.track] : []);
+
+  private drumNoteTargets = () => [...this.cursorTargets(), ...this.kitTargets()];
 
   private selectionTargets = () => {
     const bars = this.selectedPositions().map((positions) => positions[0]!.bar);
@@ -1366,7 +1374,7 @@ export class ScoreEditor {
     }
     this.run(
       "Add note",
-      this.cursorTargets,
+      this.drumNoteTargets,
       () => {
         const target = this.writableBeat();
         this.prepareForNote(target);
@@ -1655,6 +1663,7 @@ export class ScoreEditor {
       "Paste bars",
       () => [
         ...this.structureTargets(),
+        ...this.kitTargets(),
         ...(this._cursor.voice < this.bar().voices.length ? [] : staffContent(this.staff)),
       ],
       () => {
@@ -2229,6 +2238,7 @@ export class ScoreEditor {
       "Paste",
       () => [
         ...this.structureTargets(),
+        ...this.kitTargets(),
         ...clipboard.bars.flatMap((_, i) => {
           const bar = this.staff.bars[start.bar + i];
           return bar ? [...barContent(bar)] : [];
@@ -2264,12 +2274,16 @@ export class ScoreEditor {
     const convert = () =>
       clipboard.bars.map((copied) => copied.map((c) => this.convertBeat(c, clipboard.kind)));
     const target = { track: this._cursor.track, voice: this._cursor.voice };
-    const added = barsAddedByPaste(this.score, target, selection, convert());
+    // Only the note values matter here: the copied beats as they are (converting them could add
+    // drums to the kit outside the undo step).
+    const lengths = clipboard.bars.map((copied) => copied.map((c) => c.beat));
+    const added = barsAddedByPaste(this.score, target, selection, lengths);
     const count = clipboard.bars.flat().length;
     this.run(
       "Paste",
       () => [
         ...this.structureTargets(),
+        ...this.kitTargets(),
         // Before: the selected bars. After: the bars added for a longer clip too.
         ...masterBarContent(this.score, start.bar, end.bar + added),
         ...(this._cursor.voice < this.bar().voices.length ? [] : staffContent(this.staff)),

@@ -75,6 +75,20 @@ describe("drum kits (#229)", () => {
     expect(counter._globalBeatId).toBe(5000);
   });
 
+  it("keeps a drum added to the kit through undo and redo (#229)", () => {
+    const score = drumSong(true);
+    score.tracks[1]!.percussionArticulations = score.tracks[1]!.percussionArticulations.slice(0, 2);
+    const editor = new ScoreEditor(score, 1);
+    editor.insertBar("after", 1); // its undo snapshot holds the kit as it is now
+    editor.setCursorTo({ bar: 0, beat: 0 });
+    editor.enterDrum(49);
+    editor.undo();
+    editor.undo();
+    editor.redo();
+    editor.redo();
+    expect(drumNumber(firstBeat(score).notes[0]!)).toBe(49);
+  });
+
   it("pastes drums between tracks with different kits", () => {
     const score = drumSong(true);
     insertTrack(score, createTrack(score, { kind: "drums", name: "Drums 2", program: 0 }));
