@@ -162,8 +162,9 @@ function splitBeat(
   continued: boolean,
 ) {
   return values.map(({ duration, dots }, i) => {
-    // Only the first piece of a beat is the beat itself; every other piece is a copy.
-    const piece = i === 0 && !continued ? beat : cloneBeat(beat);
+    // Every piece is a copy: the beat itself may still be in the song (the beats after the
+    // selection, or a preview that must change nothing).
+    const piece = cloneBeat(beat);
     piece.duration = duration;
     piece.dots = dots;
     if (i > 0 || continued) for (const note of piece.notes) note.isTieDestination = true;

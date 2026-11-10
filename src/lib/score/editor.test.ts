@@ -4,6 +4,7 @@ import { EditorClipboard, sharedClipboard } from "@/lib/score/clipboard";
 import {
   comparePositions,
   DRUM_DIGITS_MS,
+  barsAddedByPaste,
   replaceSelectionWithClip,
   ScoreEditor,
   selectionRange,
@@ -937,6 +938,19 @@ describe("ScoreEditor: clipboard", () => {
       const voices = [0, 1].map((bar) => score.tracks[0]!.staves[0]!.bars[bar]!.voices[0]!);
       expect(voices[0]!.beats[3]).not.toBe(voices[1]!.beats[0]);
       expect(voices[1]!.beats[0]!.voice).toBe(voices[1]);
+    });
+
+    it("counts the bars a paste adds without changing the song", () => {
+      const score = quarters();
+      const voice = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!;
+      voice.beats.splice(2, 2, newBeat(Duration.Half)); // quarter, quarter, half
+      refinish(score);
+      const selection = { anchor: { bar: 0, beat: 0 }, head: { bar: 0, beat: 1 } };
+      const clip = [[0, 1, 2].map(() => newBeat(Duration.Quarter))];
+
+      expect(barsAddedByPaste(score, { track: 0, voice: 0 }, selection, clip)).toBe(1);
+      expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "r/2"]);
+      expect(clip[0]!.map((b) => b.duration)).toEqual([4, 4, 4]);
     });
 
     it("starts a tuplet that would cross the bar line in the next bar", () => {
