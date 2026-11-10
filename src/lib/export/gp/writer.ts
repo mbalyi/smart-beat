@@ -280,6 +280,7 @@ class GpWriter {
   private readonly plans: TrackPlan[];
   /** Tempo changes after the start, by `bar:beat` (beat of the first track's first voice). */
   private readonly tempoChanges = new Map<string, TempoChange>();
+  private readonly usedVoices = new Map<TrackPlan, Set<number>>();
 
   private readonly score: Score;
   private readonly version: GpVersion;
@@ -630,11 +631,12 @@ class GpWriter {
     for (let v = 0; v < voices; v++) {
       const voice = bar?.voices[v];
       const beats = (voice?.beats ?? []).filter((beat) => beat.graceType === GraceType.None);
-      // A second voice that holds nothing is not written.
+      // A second voice that holds nothing is not written...
       const empty = !voice || beats.length === 0 || (v > 0 && beats.every((beat) => beat.isEmpty));
       if (empty) {
-        // The only voice of a bar must have a beat.
-        if (version < 5) this.writeEmptyBeat();
+        // ...but the only voice of a bar must have a beat, and so must a voice the track uses in
+        // other bars: alphaTab cannot read a voice that stops and starts again.
+        if (version < 5 || v === 0 || this.usesVoice(plan, v)) this.writeEmptyBeat();
         else out.i32(0);
         continue;
       }
@@ -657,13 +659,28 @@ class GpWriter {
     }
   }
 
-  /** A bar without beats: one empty beat, which is what Guitar Pro 3 and 4 expect there. */
+  /** Whether any bar of the track has something in voice `v`. */
+  private usesVoice(plan: TrackPlan, v: number): boolean {
+    let used = this.usedVoices.get(plan);
+    if (!used) {
+      used = new Set(
+        (plan.track.staves[0]?.bars ?? []).flatMap((bar) =>
+          bar.voices.flatMap((voice, i) => (voice.beats.some((beat) => !beat.isEmpty) ? [i] : [])),
+        ),
+      );
+      this.usedVoices.set(plan, used);
+    }
+    return used.has(v);
+  }
+
+  /** A voice without beats: one empty beat, which is what Guitar Pro expects there. */
   private writeEmptyBeat() {
     const { out } = this;
     out.i32(1);
     out.u8(0x40).u8(0); // status: empty
     out.i8(durationCode(4));
     out.u8(0); // no notes
+    if (this.version >= 5) out.i16(0); // beam and ottava flags
   }
 
   private writeBeat(

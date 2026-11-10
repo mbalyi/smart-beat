@@ -7,6 +7,7 @@ import {
   selectionRange,
   TWO_DIGIT_MS,
 } from "@/lib/score/editor";
+import { drumNumber } from "@/lib/score/model";
 import { parseScore } from "@/lib/score/score";
 import { createSong, createTrack, insertTrack } from "@/lib/score/tracks";
 import { fixtureBytes } from "@/test/score";
@@ -200,12 +201,10 @@ describe("ScoreEditor: note entry", () => {
   it("enters drum sounds", () => {
     const editor = practiceSong(2);
     editor.enterDrum(49);
-    const hits = voice(editor).beats[0]!.notes.map((n) => n.percussionArticulation);
+    const hits = voice(editor).beats[0]!.notes.map(drumNumber);
     expect(hits).toContain(49);
     editor.enterDrum(49); // already there: just selects it
-    expect(
-      voice(editor).beats[0]!.notes.filter((n) => n.percussionArticulation === 49),
-    ).toHaveLength(1);
+    expect(voice(editor).beats[0]!.notes.filter((n) => drumNumber(n) === 49)).toHaveLength(1);
   });
 
   it("changes and deletes the note under the cursor", () => {

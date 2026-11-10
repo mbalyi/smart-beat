@@ -5,12 +5,13 @@
  * dots), tuplets, ties, dynamics, the first verse of lyrics, repeats, time and
  * key signatures and tempo (MuseScore 3 and 4 files). Left out and listed in
  * the warnings: grace notes, volta endings, slurs, text and layout.
- * Guitar-like parts are written as tablature, the rest as a score. The notes
- * are written as alphaTex and read by alphaTab.
+ * Guitar-like parts are written as tablature, drum sets as drum tracks, the
+ * rest as a score. The notes are written as alphaTex and read by alphaTab.
  */
 import { importer, Settings, type model } from "@coderline/alphatab";
 
 import { listZip, readZipEntry } from "@/lib/import/zip";
+import { defaultDrumKit } from "@/lib/score/drum-kit";
 import { ScoreLoadError } from "@/lib/score/errors";
 import type { Score } from "@/lib/score/model";
 import { MAX_FRET } from "@/lib/score/music";
@@ -21,6 +22,9 @@ export interface MuseScoreImport {
 }
 
 const MAX_BARS = 2000;
+
+/** Whether alphaTab's drum kit has the drum number (alphaTex rejects the others). */
+const isKnownDrum = (drum: number) => defaultDrumKit().some((a) => a.id === drum);
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const texPitch = (midi: number) => `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
@@ -82,6 +86,8 @@ interface Staff {
   name: string;
   /** Guitar-like: its strings (highest first), or null. */
   tuning: number[] | null;
+  /** A drum set: its notes' pitches are drum numbers (#229). */
+  drums: boolean;
 }
 
 /** Where to play a pitch on a string instrument: the lowest fret that is free, else the nearest string. */
@@ -132,6 +138,11 @@ export function importMuseScoreXml(xml: string): MuseScoreImport {
     // MuseScore lists the strings from the lowest; Smart Beat from the highest.
     const tuning =
       strings.length >= 4 && strings.every(Number.isFinite) ? [...strings].reverse() : null;
+    const drums =
+      text(instrument, "useDrumset") === "1" ||
+      children(part, "Staff").some(
+        (s) => child(s, "StaffType")?.getAttribute("group") === "percussion",
+      );
     const ids = children(part, "Staff").map((s) => Number(s.getAttribute("id")));
     ids.forEach((id, i) => {
       staves.push({
@@ -140,7 +151,8 @@ export function importMuseScoreXml(xml: string): MuseScoreImport {
           ids.length > 1
             ? `${partName || "Part"} ${i + 1}`
             : partName || `Track ${staves.length + 1}`,
-        tuning,
+        tuning: drums ? null : tuning,
+        drums,
       });
     });
   }
@@ -312,6 +324,23 @@ export function importMuseScoreXml(xml: string): MuseScoreImport {
           });
           const pitches = noteNodes.map((n) => Number(text(n, "pitch")));
           if (pitches.length === 0) continue;
+          if (staff.drums) {
+            // Drum notes: the pitch is the drum number, an articulation of alphaTab's kit.
+            const known = pitches.filter((p) => isKnownDrum(p));
+            if (known.length < pitches.length) {
+              warnings.add("Drum sounds without a drum number in Smart Beat were left out.");
+            }
+            const token =
+              known.length === 0
+                ? "r"
+                : known.length === 1
+                  ? `${known[0]}`
+                  : `(${known.join(" ")})`;
+            barTex.push(`${prefix}${token}${mark}`);
+            barLyrics.push(null);
+            beats++;
+            continue;
+          }
 
           // Ties: MuseScore 4 writes <Spanner type="Tie"> with <next>/<prev>,
           // MuseScore 3 <Tie> on the first note and <endSpanner> on the second.
@@ -410,7 +439,11 @@ export function importMuseScoreXml(xml: string): MuseScoreImport {
       [
         ...head,
         `\\track "${staff.name.replace(/["\\]/g, "")}"`,
-        tab ? "\\staff {score tabs}" : "\\staff {score}",
+        staff.drums
+          ? "\\instrument percussion \\articulation defaults"
+          : tab
+            ? "\\staff {score tabs}"
+            : "\\staff {score}",
         tuningLine,
         voiceTex.join("\n\\voice\n"),
       ]

@@ -422,10 +422,12 @@ describe("drum takes", () => {
     insertTrack(score, kit);
     refinish(score);
     const index = score.tracks.length - 1;
-    // Kick, snare, hat, and a snare-ish key the table does not have (45, a tom) on the beat.
+    // Kick, snare, hat, and a key the table does not have (45, a tom) on the beat: that one is
+    // added to the table (#229), as an index past the end would not open in Guitar Pro.
     const hits = [note(0, 36, 0.1), note(0.5, 38, 0.1), note(1, 42, 0.1), note(1.5, 45, 0.1)];
     writeRecording(score, hits, { trackIndex: index, startBar: 0 });
-    expect(drumsOf(score.tracks[index]!).flat()).toEqual([3, 1, 0, 45]);
+    expect(drumsOf(score.tracks[index]!).flat()).toEqual([3, 1, 0, 4]);
+    expect(kit.percussionArticulations[4]?.outputMidiNumber).toBe(45);
   });
 
   it("click mode still refuses a track that is not there", () => {
