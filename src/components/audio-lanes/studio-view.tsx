@@ -28,14 +28,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
-import {
-  deleteRange,
-  findClip,
-  moveClip,
-  moveRange,
-  trimClip,
-  updateLane,
-} from "@/lib/audio-lanes/edits";
+import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
+import { deleteRange, findClip, moveRange, trimClip, updateLane } from "@/lib/audio-lanes/edits";
 import { MAX_BUSES, clipEndMs, newId } from "@/lib/audio-lanes/model";
 import { describeRange, normalizeRange, type TimeRange } from "@/lib/audio-lanes/range-edits";
 import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
@@ -150,7 +144,7 @@ export function StudioView({
   const drop = (drag: ClipDrag) => {
     if (dropCopyOrSlip(lanes, drag)) return;
     if (drag.kind === "move")
-      apply((a) => moveClip(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
+      apply((a) => moveClipGroup(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
     else apply((a) => trimClip(a, drag.clipId, drag.edge, drag.atMs));
   };
 
@@ -649,9 +643,10 @@ function StudioLane({
                 toX={toX}
                 toMs={toMs}
                 snap={lanes.snapTo}
-                onSelect={(mode) =>
+                onSelect={(mode, alone) =>
                   lanes.select(
                     clickSelection(lanes.selection, clip.id, mode, selectableLanes(lanes.audio)),
+                    alone,
                   )
                 }
                 onDrop={onDrop}

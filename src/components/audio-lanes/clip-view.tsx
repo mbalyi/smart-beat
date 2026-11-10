@@ -1,6 +1,8 @@
+import { Link2Icon } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import { ClipHandles, type ClipEdits } from "@/components/audio-lanes/clip-handles";
+import { groupHue } from "@/lib/audio-lanes/clip-groups";
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
 import { clipPeaks } from "@/lib/audio-lanes/peaks";
 import { clickMode, type ClickMode } from "@/lib/audio-lanes/selection";
@@ -22,11 +24,20 @@ export type ClipDrag =
   /** ⌥/Alt-drag: the audio slides `deltaMs` inside the clip; the clip stays. */
   | { kind: "slip"; clipId: string; deltaMs: number };
 
+/** The colour every clip of a group shares (its outline and link mark). */
+const groupColor = (groupId: string) => `oklch(0.72 0.16 ${groupHue(groupId)})`;
+
+/** A grouped clip: the group's outline, and a hint of its tint over the lane colour. */
+const groupStyle = (groupId: string) => ({
+  outlineColor: groupColor(groupId),
+  backgroundImage: `linear-gradient(color-mix(in oklch, ${groupColor(groupId)} 14%, transparent), transparent)`,
+});
+
 /**
- * A clip on a lane: its waveform in the lane colour, its name, fades and a mute or lock mark. It
- * is a button (focus, Enter, arrows, Delete), and it can be dragged along the lane or to another
- * lane, and trimmed at its edges. Positions go through `toX` and `toMs` (bars in the track list,
- * time in the studio view).
+ * A clip on a lane: its waveform in the lane colour, its name, fades and a mute or lock mark (and
+ * a link mark with its group's outline when it is grouped). It is a button (focus, Enter, arrows,
+ * Delete), and it can be dragged along the lane or to another lane, and trimmed at its edges.
+ * Positions go through `toX` and `toMs` (bars in the track list, time in the studio view).
  */
 export function ClipView({
   clip,
@@ -57,8 +68,11 @@ export function ClipView({
   snap: (ms: number) => number;
   /** Short rows (the track list): no title line. */
   compact?: boolean;
-  /** A press on the clip: select it alone, toggle it (⌘/Ctrl) or select a range (Shift). */
-  onSelect: (mode: ClickMode) => void;
+  /**
+   * A press on the clip: select it alone, toggle it (⌘/Ctrl) or select a range (Shift). `alone`
+   * (⌥) means just this clip, not the rest of its group.
+   */
+  onSelect: (mode: ClickMode, alone: boolean) => void;
   onDrop: (drag: ClipDrag) => void;
   onKey: (event: KeyboardEvent<HTMLButtonElement>) => void;
   onOpen: () => void;
@@ -123,7 +137,7 @@ export function ClipView({
               : "move";
     press.current = { x: event.clientX, y: event.clientY, mode, dragging: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    onSelect(clickMode(event));
+    onSelect(clickMode(event), event.altKey);
   };
   const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
     const p = press.current;
@@ -180,7 +194,8 @@ export function ClipView({
       data-clip-id={clip.id}
       data-drag={preview?.kind}
       aria-pressed={selected}
-      aria-label={`${name} on ${laneName}${clip.mute ? ", muted" : ""}${clip.locked ? ", locked" : ""}${missing ? ", file missing" : ""}`}
+      aria-label={`${name} on ${laneName}${clip.groupId ? ", grouped" : ""}${clip.mute ? ", muted" : ""}${clip.locked ? ", locked" : ""}${missing ? ", file missing" : ""}`}
+      data-group-id={clip.groupId}
       title={missing ? `“${name}” cannot be found` : name}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -200,14 +215,24 @@ export function ClipView({
         !clip.locked && "cursor-grab active:cursor-grabbing",
         preview?.kind === "copy" && "cursor-copy overflow-visible active:cursor-copy",
         preview?.kind === "slip" && "cursor-ew-resize active:cursor-ew-resize",
+        clip.groupId && "outline-2 outline-offset-1 outline-dashed",
       )}
       style={{
         left,
         width,
         borderColor: color,
         backgroundColor: `color-mix(in oklch, ${color} 22%, transparent)`,
+        ...(clip.groupId && groupStyle(clip.groupId)),
       }}
     >
+      {clip.groupId && (
+        <Link2Icon
+          aria-hidden="true"
+          data-testid="clip-group-mark"
+          className="pointer-events-none absolute top-0.5 right-1 z-10 size-3"
+          style={{ color: groupColor(clip.groupId) }}
+        />
+      )}
       {!compact && (
         <span className="pointer-events-none absolute top-0.5 left-1.5 z-10 max-w-full truncate text-[10px] leading-3 font-medium">
           {name}

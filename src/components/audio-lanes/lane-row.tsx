@@ -32,14 +32,8 @@ import {
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
-import {
-  makeFolder,
-  moveClip,
-  moveLane,
-  removeLane,
-  trimClip,
-  updateLane,
-} from "@/lib/audio-lanes/edits";
+import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
+import { makeFolder, moveLane, removeLane, trimClip, updateLane } from "@/lib/audio-lanes/edits";
 import { clipEndMs } from "@/lib/audio-lanes/model";
 import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
 import { barAtTimelineMs, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
@@ -96,7 +90,7 @@ export function LaneRow({
   const drop = (drag: ClipDrag) => {
     if (dropCopyOrSlip(lanes, drag)) return;
     if (drag.kind === "move")
-      apply((a) => moveClip(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
+      apply((a) => moveClipGroup(a, drag.clipId, drag.startMs, drag.laneId ?? undefined));
     else apply((a) => trimClip(a, drag.clipId, drag.edge, drag.atMs));
   };
   const setCursor = (event: MouseEvent<HTMLElement>) => {
@@ -292,9 +286,10 @@ export function LaneRow({
                 toMs={toMs}
                 snap={lanes.snapTo}
                 compact
-                onSelect={(mode) =>
+                onSelect={(mode, alone) =>
                   lanes.select(
                     clickSelection(lanes.selection, clip.id, mode, selectableLanes(audio)),
+                    alone,
                   )
                 }
                 onDrop={drop}

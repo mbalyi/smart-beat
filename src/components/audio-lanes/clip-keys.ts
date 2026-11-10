@@ -24,6 +24,8 @@ export const CLIP_SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: "M", action: "Mute or unmute" },
   { keys: "L", action: "Lock or unlock the position" },
   { keys: "R", action: "Reverse" },
+  { keys: "⌘G", action: "Group the selected clips" },
+  { keys: "⌘⇧G", action: "Ungroup" },
   { keys: "⌘D", action: "Duplicate" },
   { keys: "⌘X ⌘C ⌘V", action: "Cut, copy, paste at the position line" },
   { keys: "Delete", action: "Delete" },
@@ -67,6 +69,8 @@ export function handleClipKey(
   else if (mod && event.key.toLowerCase() === "c") lanes.commands.copy(ids);
   else if (mod && event.key.toLowerCase() === "v") lanes.commands.paste(laneId);
   else if (mod && event.key.toLowerCase() === "a") lanes.select(laneClipIds(lanes.audio, laneId));
+  else if (mod && event.key.toLowerCase() === "g")
+    lanes.commands[event.shiftKey ? "ungroup" : "group"](ids);
   else if (mod) used = false;
   else if (event.shiftKey && event.key.toLowerCase() === "s" && lanes.timeRange)
     lanes.commands.splitTimeRange();

@@ -46,6 +46,8 @@ const FILTERS: readonly BackingFilter[] = [
   "highCut",
 ];
 const FADE_SHAPES: readonly FadeShape[] = ["linear", "equalPower", "sCurve"];
+/** What a clip group id may look like (the Rust side checks the same). */
+const GROUP_ID = /^[A-Za-z0-9_-]{1,80}$/;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
@@ -169,8 +171,10 @@ export function normalizeClip(clip: AudioClip): AudioClip {
   const lengthMs = Math.max(MIN_CLIP_MS, clip.lengthMs);
   const fadeIn = normalizeFade(clip.fadeIn, lengthMs);
   const fadeOut = normalizeFade(clip.fadeOut, lengthMs - fadeIn.ms);
+  const { groupId, ...rest } = clip;
   return {
-    ...clip,
+    ...rest,
+    ...(typeof groupId === "string" && GROUP_ID.test(groupId) && { groupId }),
     takes: takes.map((t) => ({ ...t, offsetMs: Math.max(0, t.offsetMs) })),
     take: clamp(Math.round(clip.take), 0, Math.max(0, takes.length - 1)),
     startMs: Math.max(0, clip.startMs),

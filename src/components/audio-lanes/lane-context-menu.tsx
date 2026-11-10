@@ -7,6 +7,7 @@ import {
   CropIcon,
   FileAudioIcon,
   FoldHorizontalIcon,
+  GroupIcon,
   LinkIcon,
   LockIcon,
   PanelBottomOpenIcon,
@@ -14,6 +15,7 @@ import {
   ScissorsIcon,
   SplitIcon,
   Trash2Icon,
+  UngroupIcon,
   VolumeXIcon,
 } from "lucide-react";
 import { useState, type MouseEvent, type ReactElement } from "react";
@@ -27,6 +29,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { anyGrouped } from "@/lib/audio-lanes/clip-groups";
 import { findClip, updateClip } from "@/lib/audio-lanes/edits";
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
 import { describeRange } from "@/lib/audio-lanes/range-edits";
@@ -48,9 +51,9 @@ const MOD = typeof navigator !== "undefined" && /Mac/.test(navigator.platform) ?
 
 /**
  * The right-click menu on a lane's timeline. On a clip: split it at the position line, trim its
- * start or end to it, cut, copy, paste, duplicate, glue, mute, lock, reverse and delete. On empty
- * space: paste or insert an audio file at that point. `children` is the timeline element; `toMs`
- * maps a point across it (pixels from its left edge) to the audio timeline.
+ * start or end to it, cut, copy, paste, duplicate, glue, group, ungroup, mute, lock, reverse and
+ * delete. On empty space: paste or insert an audio file at that point. `children` is the timeline
+ * element; `toMs` maps a point across it (pixels from its left edge) to the audio timeline.
  */
 export function LaneContextMenu({
   lanes,
@@ -170,6 +173,19 @@ export function LaneContextMenu({
               <LinkIcon />
               Glue
               <Keys>G</Keys>
+            </ContextMenuItem>
+            <ContextMenuItem disabled={ids.length < 2} onSelect={() => lanes.commands.group(ids)}>
+              <GroupIcon />
+              Group
+              <Keys>{`${MOD}G`}</Keys>
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={!anyGrouped(lanes.audio, ids)}
+              onSelect={() => lanes.commands.ungroup(ids)}
+            >
+              <UngroupIcon />
+              Ungroup
+              <Keys>{`${MOD}⇧G`}</Keys>
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => toggle("mute")}>
