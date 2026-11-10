@@ -21,6 +21,15 @@ import {
   newClip,
   newLane,
 } from "@/lib/audio-lanes/model";
+import {
+  clipLaneIds,
+  insertSpaceAtRange,
+  normalizeRange,
+  removeRangeClosingGap,
+  splitAtRangeEdges,
+  trimToRange,
+  type TimeRange,
+} from "@/lib/audio-lanes/range-edits";
 import { snapMs, type SongGrid } from "@/lib/audio-lanes/sync";
 import { trimToLine } from "@/lib/audio-lanes/trim-line";
 import { errorText } from "@/lib/errors";
@@ -73,6 +82,8 @@ export interface AudioLanesOptions {
    * Paste act there. Without it they act at the edit cursor.
    */
   positionMs?: () => number | null;
+  /** The time selection changed (null: cleared): the score loops the bars it covers. */
+  onTimeRangeChange?: (range: TimeRange | null) => void;
 }
 
 /** Files opened while the engine was starting, loaded once it is ready. */
@@ -144,6 +155,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
     ensureEngine,
     onCursorMove,
     positionMs,
+    onTimeRangeChange,
   } = options;
   const audio = useMemo(() => lanesOf(mix), [mix.audio, mix.audioTrack]); // eslint-disable-line react-hooks/exhaustive-deps
   const audioRef = useRef(audio);
@@ -165,6 +177,23 @@ export function useAudioLanes(options: AudioLanesOptions) {
     cursorMoved.current?.(ms);
   }, []);
   const [snap, setSnap] = useState<SnapMode>("beat");
+  const [timeRange, keepTimeRange] = useState<TimeRange | null>(null);
+  /** The lanes time-selection edits act on (null or empty: every lane). */
+  const [rangeLanes, setRangeLanes] = useState<readonly string[] | null>(null);
+  const rangeChanged = useRef(onTimeRangeChange);
+  useEffect(() => {
+    rangeChanged.current = onTimeRangeChange;
+  }, [onTimeRangeChange]);
+  const timeRangeNow = useRef<TimeRange | null>(null);
+  /** Sets the time selection (null clears it); a click-short range clears it too. */
+  const setTimeRange = useCallback((range: TimeRange | null) => {
+    const next = normalizeRange(range);
+    // Clearing nothing is not a change: the score keeps a loop it set itself.
+    if (!next && !timeRangeNow.current) return;
+    timeRangeNow.current = next;
+    keepTimeRange(next);
+    rangeChanged.current?.(next);
+  }, []);
   const pendingImport = useRef<PendingImport | null>(null);
   const history = useRef<{ past: AudioLanesSettings[]; future: AudioLanesSettings[] }>({
     past: [],
@@ -408,8 +437,25 @@ export function useAudioLanes(options: AudioLanesOptions) {
       apply((a) => removeClips(a, ids));
       setSelection((s) => s.filter((id) => !ids.includes(id)));
     };
+    /** The lanes a time-selection edit acts on: the chosen ones, else every lane. */
+    const rangeTargets = () => (rangeLanes?.length ? rangeLanes : clipLaneIds(audioRef.current));
+    const onRange = (edit: (a: AudioLanesSettings, range: TimeRange) => AudioLanesSettings) => {
+      if (timeRange) apply((a) => edit(a, timeRange));
+    };
     return {
       addLane: () => apply((a) => addLane(a)),
+      /** Splits the clips crossing either edge of the time selection. */
+      splitTimeRange: () => onRange((a, r) => splitAtRangeEdges(a, rangeTargets(), r)),
+      /** Keeps only the parts of the clips inside the time selection. */
+      trimToTimeRange: () => onRange((a, r) => trimToRange(a, rangeTargets(), r)),
+      /** Removes the time selection on every lane and closes the gap. */
+      removeTimeRange: () => {
+        if (!timeRange) return;
+        onRange(removeRangeClosingGap);
+        setTimeRange(null);
+      },
+      /** Inserts empty space as long as the time selection at its start, on every lane. */
+      insertSpace: () => onRange(insertSpaceAtRange),
       /** Splits at `atMs` (default: the position line). */
       split: (ids: readonly string[] = selection, atMs?: number) =>
         void splitAt(ids, atMs ?? lineMs()),
@@ -444,7 +490,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
           }, a),
         ),
     };
-  }, [apply, grid, lineMs, selection, snap, splitAt]);
+  }, [apply, grid, lineMs, rangeLanes, selection, setTimeRange, snap, splitAt, timeRange]);
 
   return {
     audio,
@@ -461,6 +507,11 @@ export function useAudioLanes(options: AudioLanesOptions) {
     snapTo,
     /** The song's bars and beats on the audio timeline. */
     grid,
+    /** The time selection on the audio timeline (null: none). */
+    timeRange,
+    setTimeRange,
+    rangeLanes,
+    setRangeLanes,
     apply,
     applyQuiet,
     beginGesture,

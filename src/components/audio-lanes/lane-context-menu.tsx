@@ -4,7 +4,9 @@ import {
   ClipboardCopyIcon,
   ClipboardPasteIcon,
   CopyPlusIcon,
+  CropIcon,
   FileAudioIcon,
+  FoldHorizontalIcon,
   LinkIcon,
   LockIcon,
   PanelBottomOpenIcon,
@@ -27,6 +29,7 @@ import {
 } from "@/components/ui/context-menu";
 import { findClip, updateClip } from "@/lib/audio-lanes/edits";
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
+import { describeRange } from "@/lib/audio-lanes/range-edits";
 import type { AudioClip, AudioLane } from "@/lib/tauri";
 
 /** What the menu was opened on: a clip, or a point of the lane. */
@@ -206,6 +209,7 @@ export function LaneContextMenu({
             </ContextMenuItem>
           </>
         )}
+        {lanes.timeRange && <TimeRangeItems lanes={lanes} />}
         <ContextMenuItem onSelect={() => void lanes.chooseFile(lane.id, insertAt)}>
           <FileAudioIcon />
           {clip ? "Insert an audio file after this clip…" : "Insert an audio file here…"}
@@ -221,5 +225,35 @@ export function LaneContextMenu({
         )}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** The time selection's edits, shown while there is one. */
+function TimeRangeItems({ lanes }: { lanes: AudioLanesController }) {
+  const range = lanes.timeRange;
+  if (!range) return null;
+  return (
+    <>
+      <ContextMenuSeparator />
+      <ContextMenuLabel className="tabular-nums">Selection {describeRange(range)}</ContextMenuLabel>
+      <ContextMenuItem onSelect={lanes.commands.splitTimeRange}>
+        <SplitIcon />
+        Split at the selection edges
+        <Keys>⇧S</Keys>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={lanes.commands.trimToTimeRange}>
+        <CropIcon />
+        Trim to the selection
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={lanes.commands.removeTimeRange}>
+        <FoldHorizontalIcon />
+        Remove the selection and close the gap
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={lanes.commands.insertSpace}>
+        <ArrowRightToLineIcon />
+        Insert empty space at the selection
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+    </>
   );
 }

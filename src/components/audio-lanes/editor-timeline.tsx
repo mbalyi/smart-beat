@@ -328,6 +328,17 @@ export function EditorTimeline({
               }}
             />
           )}
+          {lanes.timeRange && (
+            <span
+              aria-hidden="true"
+              data-testid="editor-time-range"
+              className="pointer-events-none absolute inset-y-0 border-x border-primary/40 bg-primary/15"
+              style={{
+                left: toX(lanes.timeRange.startMs),
+                width: toX(lanes.timeRange.endMs - lanes.timeRange.startMs),
+              }}
+            />
+          )}
           {lane.clips.map((clip) => (
             <ClipView
               key={clip.id}
