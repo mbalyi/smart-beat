@@ -176,19 +176,20 @@ test.describe("odd time signatures (#43)", () => {
     await expect(app.getByRole("status", { name: "Bar lengths" })).toHaveCount(0);
 
     await setTime(app, "5", "1/8 notes");
-    // The written bar is now two eighths too long, and the song says so.
-    await expect(app.getByRole("status", { name: "Bar lengths" })).toContainText(
-      "Bar 1 is 1 beat too long",
-    );
     // The empty bars follow the new signature: 3 × 1.25 s, and the full bar is played as written.
     await expect(app.getByRole("timer")).toHaveText(/^0:00 \/ 0:0[56]$/);
-    await app.getByRole("button", { name: "Fix bar" }).click();
-    await expect(app.getByRole("status", { name: "Bar lengths" })).toHaveCount(0);
-    await expect(app.getByRole("timer")).toHaveText("0:00 / 0:05");
+    const banner = app.getByRole("status", { name: "Bar lengths" });
+    await expect(banner).toHaveCount(0); // quiet while writing (#228)
 
+    // Played, the song says the written bar is now two eighths too long.
     await app.getByRole("button", { name: "Play" }).click();
+    await expect(banner).toContainText("Bar 1 is 1 beat too long");
     await expect.poll(() => playedSeconds(app), { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
     await app.getByRole("button", { name: "Stop" }).click();
+
+    await banner.getByRole("button", { name: "Fix bar" }).click();
+    await expect(banner).toHaveCount(0);
+    await expect(app.getByRole("timer")).toHaveText("0:00 / 0:05");
   });
 
   test("an 11/16 bar is 2.75 beats long", async ({ app }) => {

@@ -13,7 +13,8 @@
 import { track, type TrackedEvent } from "@/lib/telemetry";
 import { model } from "@coderline/alphatab";
 
-import { restsFor } from "@/lib/score/bar-duration";
+import { sharedClipboard, type CopiedBeat, type EditorClipboard } from "@/lib/score/clipboard";
+import { restsFor, TOLERANCE as BAR_TOLERANCE, voiceTicks } from "@/lib/score/bar-duration";
 import { chordOf, setChord, type ChordSpec } from "@/lib/score/chords";
 import {
   activeEffectName,
@@ -163,18 +164,6 @@ export interface EffectsInfo {
   chord: ChordSpec | null;
 }
 
-/** A copied beat, with the sounding pitch of each note (a detached note can't compute it). */
-interface CopiedBeat {
-  beat: Beat;
-  pitches: number[];
-}
-
-interface Clipboard {
-  kind: TrackKind;
-  /** Copied beats, one list per bar they came from. */
-  bars: CopiedBeat[][];
-}
-
 interface HistoryExtra {
   cursor: Cursor;
   selection: Selection | null;
@@ -242,7 +231,6 @@ export class ScoreEditor {
   private readonly listeners = new Set<(change: EditorChange) => void>();
   private _cursor: Cursor;
   private _selection: Selection | null = null;
-  private clipboard: Clipboard | null = null;
   /** Length given to notes typed into an empty bar. */
   private _entryDuration: Duration = D.Quarter;
   /** The first digit of a possible two-digit fret. */
@@ -258,8 +246,12 @@ export class ScoreEditor {
   /** Increases with every change (music, cursor, selection): for React. */
   private _version = 0;
 
-  constructor(score: Score, track = 0) {
+  /** Shared by every open song's editor, so music can be copied between tabs (#228). */
+  private readonly sharedClipboard: EditorClipboard;
+
+  constructor(score: Score, track = 0, clipboard: EditorClipboard = sharedClipboard) {
     this.score = score;
+    this.sharedClipboard = clipboard;
     this._cursor = { track, voice: 0, bar: 0, beat: 0, string: 1, pitch: null, line: null };
     this._cursor.string = this.defaultString();
   }
@@ -331,6 +323,10 @@ export class ScoreEditor {
 
   get hasClipboard(): boolean {
     return this.clipboard !== null;
+  }
+
+  private get clipboard() {
+    return this.sharedClipboard.get();
   }
 
   get track(): Track {
@@ -761,17 +757,17 @@ export class ScoreEditor {
       .filter((beat): beat is Beat => beat !== null && !beat.isEmpty);
   }
 
-  private hasWrittenMusic(beat: Beat | null): boolean {
-    return beat !== null && !beat.isEmpty && beat.notes.length > 0;
-  }
-
-  /** The bar at the cursor has written music and is not full yet. */
+  /**
+   * The bar at the cursor is not full yet, so moving right adds a beat. Rests count as written
+   * music: a short bar is often filled with a run of rests first, then the notes (#228). Only an
+   * invisible beat (an empty voice) does not grow; an empty bar's rest already fills it.
+   */
   private canGrowBar(): boolean {
     const voice = this.voice();
     const beat = this.beatAt();
-    if (!voice || !beat || !this.hasWrittenMusic(beat)) return false;
+    if (!voice || !beat || beat.isEmpty) return false;
     const masterBar = this.bar().masterBar;
-    return voice.calculateDuration() < masterBar.calculateDuration();
+    return voiceTicks(voice) < masterBar.calculateDuration() - BAR_TOLERANCE;
   }
 
   describeCursor(): string {
@@ -1919,7 +1915,7 @@ export class ScoreEditor {
       .filter((beats) => beats.length > 0);
     const count = bars.flat().length;
     if (count === 0) return;
-    this.clipboard = { kind: this.kind, bars };
+    this.sharedClipboard.set({ kind: this.kind, bars });
     if (record) track("copy");
     this._message = `Copied ${count} ${count === 1 ? "beat" : "beats"}`;
     this.emit("cursor");
@@ -1987,6 +1983,7 @@ export class ScoreEditor {
       const pitch = pitches[i]!;
       if ((from === "drums") !== (to === "drums")) return;
       if (to === "drums") {
+        note.percussionArticulation = this.articulationFor(note.percussionArticulation, pitch);
         copy.addNote(note);
       } else if (to === "pitched") {
         note.string = -1;
@@ -2013,6 +2010,18 @@ export class ScoreEditor {
       }
     });
     return copy;
+  }
+
+  /**
+   * The articulation a pasted drum note takes on this track. Tracks with their own articulations
+   * (Guitar Pro 6+) number them by index; a note from another song keeps its drum number.
+   */
+  private articulationFor(articulation: number, drum: number): number {
+    const own = this.track.percussionArticulations;
+    if (own.length === 0) return drum;
+    if (own[articulation]?.outputMidiNumber === drum) return articulation;
+    const index = own.findIndex((a) => a.outputMidiNumber === drum);
+    return index >= 0 ? index : drum;
   }
 
   private fits(pitch: number, string: number): boolean {

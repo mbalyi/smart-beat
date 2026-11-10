@@ -8,6 +8,7 @@ import {
   newSong,
   openSong,
   PRACTICE_SONG,
+  playAndStop,
   scoreRegion,
   tabNumbers,
   test,
@@ -330,6 +331,10 @@ test.describe("bar durations (#14)", () => {
     await newSong(app);
     await app.getByRole("button", { name: "Insert beat" }).click();
     const banner = app.getByRole("status", { name: "Bar lengths" });
+    // Quiet while the bar is being written; playback brings the warning (#228).
+    await expect(banner).toBeHidden();
+    await expect(app.getByTestId("bar-problem")).toHaveCount(0);
+    await playAndStop(app);
     await expect(banner).toContainText("Bar 1 is 4 beats too long");
     await expect(app.getByTestId("bar-problem")).toHaveCount(1);
     await expectNoA11yViolations(app);
@@ -344,6 +349,7 @@ test.describe("bar durations (#14)", () => {
     await app.keyboard.press("5");
     await app.getByRole("radio", { name: "Eighth" }).click();
     const banner = app.getByRole("status", { name: "Bar lengths" });
+    await playAndStop(app);
     await expect(banner).toContainText("Bar 1 is 3.5 beats too short");
 
     await app.getByRole("button", { name: "Tools" }).click();
@@ -359,6 +365,7 @@ test.describe("bar durations (#14)", () => {
       await app.emulateMedia({ colorScheme });
       await newSong(app);
       await app.getByRole("button", { name: "Insert beat" }).click();
+      await playAndStop(app);
       await expect(app.getByRole("status", { name: "Bar lengths" })).toBeVisible();
       await expectNoA11yViolations(app);
     });

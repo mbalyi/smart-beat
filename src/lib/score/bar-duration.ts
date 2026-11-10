@@ -24,7 +24,7 @@ const { GraceType } = model;
 const MIN_TICKS = 60;
 
 /** Differences below this are rounding noise from tuplets. */
-const TOLERANCE = 0.5;
+export const TOLERANCE = 0.5;
 
 export interface BarProblem {
   /** 0-based bar index. */

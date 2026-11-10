@@ -576,6 +576,11 @@ export function ScoreWorkspace({
   const [bar, setBar] = useState(0);
   const [playhead] = useState(() => new PlayheadStore());
   const [editing, setEditing] = useState(startEditing);
+  // The bar length check stays quiet while the music is being written (#228): it shows when the
+  // song is opened or saved and when playback starts, until the next edit.
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  if (playing && checkedAt !== revision) setCheckedAt(revision);
+  const showProblems = !editing || !editor.edited || checkedAt === revision;
   const [overlay, setOverlay] = useState<EditOverlay | null>(null);
   /** Beats of the shown track being played (or clicked while paused). */
   const [activeBeats, setActiveBeats] = useState<Beat[]>([]);
@@ -2876,7 +2881,11 @@ export function ScoreWorkspace({
         }
       />
       {tabs}
-      <BarProblems problems={problems} onFix={() => fixBars()} onGoTo={goToBar} />
+      <BarProblems
+        problems={showProblems ? problems : []}
+        onFix={() => fixBars()}
+        onGoTo={goToBar}
+      />
       {/* Palette | score | inspector; below 1024 px the palette stacks above the score. */}
       <div className="relative flex min-h-72 flex-1 max-lg:flex-col">
         <NotePalette editing={editing}>
@@ -2923,7 +2932,7 @@ export function ScoreWorkspace({
               editing={editing}
               playing={playing}
               overlay={overlay}
-              problemRects={problemRects}
+              problemRects={showProblems ? problemRects : []}
               describedBy={editing ? statusId : undefined}
             />
           </ScoreContextMenu>
