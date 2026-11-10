@@ -13,7 +13,12 @@
 import { track, type TrackedEvent } from "@/lib/telemetry";
 import { model } from "@coderline/alphatab";
 
-import { sharedClipboard, type CopiedBeat, type EditorClipboard } from "@/lib/score/clipboard";
+import {
+  sharedClipboard,
+  type ClipboardContent,
+  type CopiedBeat,
+  type EditorClipboard,
+} from "@/lib/score/clipboard";
 import { restsFor, TOLERANCE as BAR_TOLERANCE, voiceTicks } from "@/lib/score/bar-duration";
 import { chordOf, setChord, type ChordSpec } from "@/lib/score/chords";
 import {
@@ -2052,7 +2057,7 @@ export class ScoreEditor {
   }
 
   /** Replaces the selection with the clipboard as one undo step, selecting what was pasted. */
-  private pasteOverSelection(clipboard: Clipboard, selection: Selection) {
+  private pasteOverSelection(clipboard: ClipboardContent, selection: Selection) {
     const [start, end] = selectionRange(selection);
     const selectedBars = end.bar - start.bar + 1;
     const bars = Math.max(selectedBars, clipboard.bars.length);
