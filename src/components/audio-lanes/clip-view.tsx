@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
+import { ClipHandles, type ClipEdits } from "@/components/audio-lanes/clip-handles";
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
 import { clipPeaks } from "@/lib/audio-lanes/peaks";
 import { waveformPath } from "@/lib/stems/waveform";
@@ -37,6 +38,7 @@ export function ClipView({
   onKey,
   onOpen,
   onCursor,
+  edits,
 }: {
   clip: AudioClip;
   laneName: string;
@@ -55,6 +57,8 @@ export function ClipView({
   onOpen: () => void;
   /** A click (not a drag) on the clip puts the edit cursor there. */
   onCursor?: (ms: number) => void;
+  /** Lane edits for the fade and volume handles (none: no handles). */
+  edits?: ClipEdits;
 }) {
   const [preview, setPreview] = useState<ClipDrag | null>(null);
   const press = useRef<{
@@ -149,7 +153,7 @@ export function ClipView({
     }
   };
 
-  return (
+  const button = (
     <button
       type="button"
       data-testid={`clip-${clip.id}`}
@@ -220,5 +224,11 @@ export function ClipView({
         />
       )}
     </button>
+  );
+  return (
+    <>
+      {button}
+      {edits && <ClipHandles {...{ clip, name, left, width, toX, toMs, edits }} />}
+    </>
   );
 }

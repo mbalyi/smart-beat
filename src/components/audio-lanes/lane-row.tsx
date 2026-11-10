@@ -289,6 +289,7 @@ export function LaneRow({
                 }
                 onOpen={() => onOpenEditor(lane.id)}
                 onCursor={lanes.setEditCursorMs}
+                edits={lanes}
               />
             ))}
           <span
