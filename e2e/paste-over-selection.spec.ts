@@ -143,12 +143,8 @@ test.describe("paste replaces the selection (#228)", () => {
     await copyBeats(app, 1, 1, 8); // bars 1 and 2
     await pasteOver(app, 3, 3, 2); // frets 11 and 12, the end of the last-but-one bar
 
-    // Nothing is written over: frets 13 to 16 follow the whole clip.
-    await expectTab(app, [
-      ...["1", "2", "3", "4", "5", "6", "7", "8"],
-      ...["9", "10", "1", "2", "3", "4", "5", "6", "7", "8"],
-      ...["13", "14", "15", "16"],
-    ]);
+    // (Read through the editor, not the drawing: the new bars push the last line of music out
+    // of view, where it is drawn only once it scrolls in.)
     // The music flows over the bar lines: every bar is filled to its four beats, the rest of
     // the clip goes into two new bars (the last one filled with a rest), and the old bar 4
     // comes last, unchanged.
