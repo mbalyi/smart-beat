@@ -329,6 +329,9 @@ test.describe("transpose (#14)", () => {
 test.describe("bar durations (#14)", () => {
   test("warns about a bar that is too long, frames it and fixes it", async ({ app }) => {
     await newSong(app);
+    // A whole note, and a whole rest inserted before it: 8 beats in a 4/4 bar.
+    await app.keyboard.press("5");
+    await app.getByRole("radio", { name: "Whole" }).click();
     await app.getByRole("button", { name: "Insert beat" }).click();
     const banner = app.getByRole("status", { name: "Bar lengths" });
     // Quiet while the bar is being written; playback brings the warning (#228).
