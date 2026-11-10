@@ -200,6 +200,15 @@ describe("ScoreEditor: note entry", () => {
       expect(voice(editor, 0).beats[0]!.duration).toBe(Duration.Sixteenth);
     });
 
+    it("keeps inserting rests in a bar that holds a single short rest", () => {
+      const { editor } = newSong();
+      editor.setDuration(Duration.Sixteenth);
+      editor.insertRest("after"); // the empty bar's rest becomes one 16th
+      editor.insertRest("after");
+      editor.insertRest("before");
+      expect(frets(editor)).toEqual(["r", "r", "r"]);
+    });
+
     it("is undone in one step and clears the selection", () => {
       const { editor } = newSong();
       editor.typeDigit(1);

@@ -1547,7 +1547,11 @@ export class ScoreEditor {
       () => {
         const current = this.writableBeat();
         this._selection = null;
-        if (isPlaceholder(current)) {
+        // Only an empty bar's stand-in (an invisible beat, or the rest filling the bar) is
+        // turned into the new rest: a single shorter rest is music already written.
+        const fillsBar =
+          beatTicks(current) >= barCapacity(current.voice.bar.masterBar) - BAR_TOLERANCE;
+        if (current.isEmpty || (isPlaceholder(current) && fillsBar)) {
           current.duration = this._entryDuration;
           current.dots = 0;
           current.tupletNumerator = 1;
