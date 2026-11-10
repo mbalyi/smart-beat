@@ -94,6 +94,27 @@ test.describe("note entry and editing (#9)", () => {
     await expect(scoreRegion(app)).toBeFocused(); // typing continues in the score
   });
 
+  test("fills a short bar step by step: a run of rests, then notes on them (#228)", async ({
+    app,
+  }) => {
+    await newSong(app);
+    await app.keyboard.press("Shift+5"); // 16th notes
+    await app.keyboard.press("0");
+    // Four 16th rests after the note: the short bar keeps growing as the cursor moves on.
+    for (let i = 0; i < 4; i++) await app.keyboard.press("ArrowRight");
+    await expect.poll(() => editorStatus(app)).toMatch(/^Bar 1, beat 5 of 5/);
+    // While writing, the bar length warning stays out of the way.
+    await expect(app.getByRole("status", { name: "Bar lengths" })).toBeHidden();
+    await expect(app.getByTestId("bar-problem")).toHaveCount(0);
+
+    for (const fret of ["3", "5"]) {
+      await app.keyboard.press("ArrowLeft");
+      await app.keyboard.press(fret);
+    }
+    await expectTab(app, ["0", "5", "3"]);
+    expect(await editorStatus(app)).toMatch(/^Bar 1, beat 3 of 5/);
+  });
+
   test("copies, cuts and pastes beats", async ({ app }) => {
     await newSong(app);
     await app.keyboard.press("1");

@@ -146,6 +146,36 @@ describe("ScoreEditor: note entry", () => {
     expect(editor.edited).toBe(true);
   });
 
+  it("keeps adding rests to a bar that is too short, to fill it step by step (#228)", () => {
+    const { editor } = newSong();
+    editor.setDuration(Duration.Sixteenth);
+    editor.typeDigit(0); // the bar is now 3.75 beats too short
+    // A run of 16th rests: moving right on a rest still adds a beat while the bar has room.
+    for (let i = 0; i < 4; i++) editor.moveBeat(1);
+    expect(frets(editor)).toEqual(["6:0", "r", "r", "r", "r"]);
+    expect(editor.cursor).toMatchObject({ bar: 0, beat: 4 });
+
+    // ...and the rests take notes afterwards.
+    editor.setCursorTo({ bar: 0, beat: 2 });
+    editor.typeDigit(3);
+    expect(frets(editor)).toEqual(["6:0", "r", "6:3", "r", "r"]);
+  });
+
+  it("keeps editing a bar that is too long: notes and inserted rests (#228)", () => {
+    const { editor } = newSong();
+    editor.typeDigit(1);
+    editor.setDuration(Duration.Whole); // 4 beats of 4/4, then more
+    editor.insertBeat();
+    expect(frets(editor)).toEqual(["r", "6:1"]);
+    editor.moveBeat(-1);
+    editor.typeDigit(2);
+    expect(frets(editor)).toEqual(["6:2", "6:1"]);
+    // The bar is full: moving on goes to the next bar instead of growing it.
+    editor.moveBeat(1);
+    editor.moveBeat(1);
+    expect(editor.cursor).toMatchObject({ bar: 1, beat: 0 });
+  });
+
   it("combines two quick digits into one fret and one undo step", () => {
     const { editor } = newSong();
 

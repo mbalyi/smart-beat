@@ -13,7 +13,7 @@
 import { track, type TrackedEvent } from "@/lib/telemetry";
 import { model } from "@coderline/alphatab";
 
-import { restsFor } from "@/lib/score/bar-duration";
+import { restsFor, TOLERANCE as BAR_TOLERANCE, voiceTicks } from "@/lib/score/bar-duration";
 import { chordOf, setChord, type ChordSpec } from "@/lib/score/chords";
 import {
   activeEffectName,
@@ -761,17 +761,17 @@ export class ScoreEditor {
       .filter((beat): beat is Beat => beat !== null && !beat.isEmpty);
   }
 
-  private hasWrittenMusic(beat: Beat | null): boolean {
-    return beat !== null && !beat.isEmpty && beat.notes.length > 0;
-  }
-
-  /** The bar at the cursor has written music and is not full yet. */
+  /**
+   * The bar at the cursor is not full yet, so moving right adds a beat. Rests count as written
+   * music: a short bar is often filled with a run of rests first, then the notes (#228). Only an
+   * invisible beat (an empty voice) does not grow; an empty bar's rest already fills it.
+   */
   private canGrowBar(): boolean {
     const voice = this.voice();
     const beat = this.beatAt();
-    if (!voice || !beat || !this.hasWrittenMusic(beat)) return false;
+    if (!voice || !beat || beat.isEmpty) return false;
     const masterBar = this.bar().masterBar;
-    return voice.calculateDuration() < masterBar.calculateDuration();
+    return voiceTicks(voice) < masterBar.calculateDuration() - BAR_TOLERANCE;
   }
 
   describeCursor(): string {

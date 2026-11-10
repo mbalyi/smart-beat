@@ -656,11 +656,41 @@ describe("ScoreWorkspace: bar lengths", () => {
     await user.click(within(dialog).getByRole("button", { name: "Apply" }));
   }
 
+  /** Starts and stops playback: the bar check speaks up when the song is played. */
+  function playAndStop(player: FakeScorePlayer) {
+    player.emit("onPlayingChange", true);
+    player.emit("onPlayingChange", false);
+  }
+
+  it("keeps quiet while the bars are edited, and warns on playback and on save (#228)", async () => {
+    const { user, player } = await setup({ path: "/songs/practice-song.gp" });
+    await breakBar(user);
+    await act(async () => player.callbacks.onRendered?.());
+    // Still writing: no banner and no frames, the bars stay free to edit.
+    expect(screen.queryByRole("status", { name: "Bar lengths" })).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId("bar-problem")).toHaveLength(0);
+
+    player.emit("onPlayingChange", true);
+    expect(await screen.findByRole("status", { name: "Bar lengths" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("bar-problem")).toHaveLength(4);
+    player.emit("onPlayingChange", false);
+    expect(screen.getByRole("status", { name: "Bar lengths" })).toBeInTheDocument();
+
+    // The next edit hides it again, until the song is saved.
+    await user.click(screen.getByRole("button", { name: "Insert beat" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("status", { name: "Bar lengths" })).not.toBeInTheDocument(),
+    );
+    await menu("save");
+    expect(await screen.findByRole("status", { name: "Bar lengths" })).toBeInTheDocument();
+  });
+
   it("warns about bars with the wrong length, highlights them and fixes them", async () => {
     const { user, song, player } = await setup();
     expect(screen.queryByRole("status", { name: "Bar lengths" })).not.toBeInTheDocument();
 
     await breakBar(user);
+    playAndStop(player);
 
     const banner = await screen.findByRole("status", { name: "Bar lengths" });
     expect(banner).toHaveTextContent("4 bars have the wrong length: 1, 2, 3, 4");
@@ -682,6 +712,7 @@ describe("ScoreWorkspace: bar lengths", () => {
   it("goes to the first wrong bar", async () => {
     const { user, player } = await setup();
     await breakBar(user);
+    playAndStop(player);
     const banner = await screen.findByRole("status", { name: "Bar lengths" });
     await user.click(within(banner).getByRole("button", { name: "Go to bar 1" }));
     expect(player.seekToBar).toHaveBeenCalledWith(0);
