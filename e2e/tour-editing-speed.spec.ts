@@ -39,12 +39,31 @@ test.describe("the Editing tour", () => {
 
     await emitMenuAction(app, "tour-editing");
     await expect(coachMark(app)).toContainText("Edit mode");
-    await expect(coachMark(app)).toContainText("Step 1 of 6");
+    await expect(coachMark(app)).toContainText("Step 1 of 9");
 
     await next(app);
     await expect(coachMark(app)).toContainText("Note palette");
     await expect(coachMark(app)).toContainText("box of variants");
     const palette = app.getByRole("complementary", { name: "Note palette" });
+    await expect(palette).toBeVisible();
+
+    // The new editing features (#228): the repeat count box, the score's right-click menu and
+    // playing from the edit cursor.
+    await next(app);
+    await expect(coachMark(app)).toContainText("Repeat end");
+    await expect(coachMark(app)).toContainText("×2 to ×8");
+    const repeatEnd = palette.locator("[data-tour=repeat-end]");
+    await expect(repeatEnd).toBeInViewport();
+    await expect(repeatEnd).toHaveAttribute("data-tour-active", "");
+
+    await next(app);
+    await expect(coachMark(app)).toContainText("Right-click the score");
+    await expect(coachMark(app)).toContainText("Insert rest before");
+    await expect(app.locator("[data-tour=score]")).toHaveAttribute("data-tour-active", "");
+
+    await next(app);
+    await expect(coachMark(app)).toContainText("Hear what you wrote");
+    await expect(app.locator("[data-tour=play]")).toHaveAttribute("data-tour-active", "");
     await expect(palette).toBeVisible();
 
     await next(app);

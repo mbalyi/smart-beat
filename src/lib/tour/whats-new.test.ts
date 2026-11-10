@@ -79,6 +79,21 @@ describe("stem separation in the registry (#186)", () => {
   });
 });
 
+describe("the editing features in the registry (#228)", () => {
+  it("are announced in 1.3.0, the rest and repeat count with the editing tour", () => {
+    const entry = (id: string) => FEATURE_REGISTRY.find((x) => x.id === id);
+    expect(entry("insert-rest")).toMatchObject({ since: "1.3.0", tour: "editing" });
+    expect(entry("repeat-count")).toMatchObject({ since: "1.3.0", tour: "editing" });
+    expect(entry("smoother-editing")).toMatchObject({ since: "1.3.0" });
+    expect(entry("smoother-editing")?.tour).toBeUndefined();
+    expect(latestFeatures(FEATURE_REGISTRY).version).toBe("1.3.0");
+    expect(pendingFeatures("1.2.0", "1.3.0", FEATURE_REGISTRY).map((x) => x.id)).toEqual(
+      expect.arrayContaining(["insert-rest", "repeat-count", "smoother-editing"]),
+    );
+    expect(pendingFeatures("1.3.0", "1.3.0", FEATURE_REGISTRY)).toEqual([]);
+  });
+});
+
 describe("sharing in the registry (#201)", () => {
   it("is announced in 1.2.0, without a tour", () => {
     const entry = FEATURE_REGISTRY.find((x) => x.id === "cloud-share");
