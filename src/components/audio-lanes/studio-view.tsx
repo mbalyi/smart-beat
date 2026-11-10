@@ -16,9 +16,12 @@ import { ClipProperties } from "@/components/audio-lanes/clip-properties";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
+import { LaneResizeHandle } from "@/components/audio-lanes/lane-resize-handle";
 import { SpectrogramView } from "@/components/audio-lanes/spectrogram-view";
 import type { AudioLanesController, SnapMode } from "@/components/audio-lanes/use-audio-lanes";
 import { gridStepMs } from "@/components/audio-lanes/use-audio-lanes";
+import { useTimelineZoom } from "@/components/audio-lanes/use-timeline-zoom";
+import { ZoomControls } from "@/components/audio-lanes/zoom-controls";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -34,14 +37,19 @@ import {
   trimClip,
   updateLane,
 } from "@/lib/audio-lanes/edits";
+import { COMPACT_LANE_HEIGHT, laneHeight } from "@/lib/audio-lanes/lane-height";
 import { MAX_BUSES, clipEndMs, newId } from "@/lib/audio-lanes/model";
 import { timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
+import { selectionSpan, songSpan } from "@/lib/audio-lanes/zoom";
 import { usePlayheadBar, type PlayheadStore } from "@/lib/score/playhead";
 import { laneColor } from "@/lib/score/track-colors";
 import type { AudioLane, RippleMode } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 const HEADER_PX = 224;
+/** Studio zoom range, pixels per second. */
+const MIN_PPS = 10;
+const MAX_PPS = 300;
 
 export interface StudioActions {
   playPause: () => void;
@@ -79,14 +87,22 @@ export function StudioView({
   actions: StudioActions;
 }) {
   const { audio, apply } = lanes;
-  const [pps, setPps] = useState(40);
   const [range, setRange] = useState<{ startMs: number; endMs: number } | null>(null);
   const [rangeLanes, setRangeLanes] = useState<readonly string[] | null>(null);
   const [spectrogram, setSpectrogram] = useState(false);
   const rulerDrag = useRef<number | null>(null);
+  const songEnd = timelineMsAtBar(audio, grid, grid.barTimes.length);
+  const zoomer = useTimelineZoom({
+    initial: 40,
+    limits: { min: MIN_PPS, max: MAX_PPS },
+    offsetPx: HEADER_PX,
+    song: songSpan(audio, songEnd),
+    selection: selectionSpan(audio, lanes.selection, range),
+    lineMs: lanes.lineMs,
+  });
+  const { pxPerSecond: pps, attachScroller } = zoomer;
   const toX = (ms: number) => (ms / 1000) * pps;
   const toMs = (x: number) => (x / pps) * 1000;
-  const songEnd = timelineMsAtBar(audio, grid, grid.barTimes.length);
   const end = Math.max(songEnd, ...audio.lanes.flatMap((l) => l.clips.map(clipEndMs))) + 4000;
   const shown = audio.lanes.filter(
     (l) => !l.parent || !audio.lanes.find((f) => f.id === l.parent)?.collapsed,
@@ -111,6 +127,7 @@ export function StudioView({
         aria-describedby={undefined}
         data-testid="studio"
         className="h-[calc(100dvh-1rem)] max-h-none max-w-[calc(100%-1rem)] gap-0 bg-background p-0 sm:max-w-[calc(100%-1rem)]"
+        onKeyDown={zoomer.onKeyDown}
       >
         <header className="flex flex-wrap items-center gap-2 border-b bg-card px-4 py-2">
           <Button variant="outline" size="sm" onClick={actions.close}>
@@ -218,14 +235,15 @@ export function StudioView({
             <DownloadIcon /> Render lanes
           </Button>
           <ShortcutsPopover />
+          <ZoomControls zoom={zoomer} />
           <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
             Zoom
             <input
               type="range"
-              min={10}
-              max={300}
+              min={MIN_PPS}
+              max={MAX_PPS}
               value={pps}
-              onChange={(e) => setPps(e.currentTarget.valueAsNumber)}
+              onChange={(e) => zoomer.setPxPerSecond(e.currentTarget.valueAsNumber)}
               aria-label="Zoom"
               className="w-24"
             />
@@ -281,7 +299,7 @@ export function StudioView({
           </div>
         )}
         <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1 overflow-auto">
+          <div ref={attachScroller} className="min-w-0 flex-1 overflow-auto">
             <div className="relative" style={{ width: HEADER_PX + toX(end) }}>
               <div className="sticky top-0 z-30 flex h-10 border-b bg-card">
                 <div
@@ -455,19 +473,24 @@ function StudioLane({
   const { apply } = lanes;
   const color = laneColor(index, lane.color);
   const update = (patch: Partial<AudioLane>) => apply((a) => updateLane(a, lane.id, patch));
+  const height = laneHeight(lane);
+  // A short lane's header is one row: the name, mute and solo.
+  const compact = !lane.folder && height < COMPACT_LANE_HEIGHT;
   return (
     <div
-      className={cn("flex border-b", lane.folder ? "h-9 bg-muted/40" : "h-20")}
+      className={cn("relative flex border-b", lane.folder && "h-9 bg-muted/40")}
+      style={lane.folder ? undefined : { height }}
       data-testid={`studio-lane-${lane.id}`}
     >
       <div
         className={cn(
-          "sticky left-0 z-10 flex shrink-0 flex-col justify-center gap-1 border-r bg-card px-3",
+          "sticky left-0 z-10 flex shrink-0 justify-center gap-1 overflow-hidden border-r bg-card px-3",
+          compact ? "flex-row items-center justify-between" : "flex-col",
           lane.parent && "pl-6",
         )}
         style={{ width: HEADER_PX, boxShadow: `inset 3px 0 0 ${color}` }}
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           {lane.folder && (
             <Button
               variant="ghost"
@@ -503,7 +526,7 @@ function StudioLane({
           >
             S
           </Toggle>
-          {!lane.folder && (
+          {!lane.folder && !compact && (
             <>
               <Button
                 variant="outline"
@@ -590,6 +613,7 @@ function StudioLane({
         </LaneContextMenu>
       )}
       {lane.folder && <div className="flex-1" aria-hidden="true" />}
+      {!lane.folder && <LaneResizeHandle lanes={lanes} lane={lane} />}
     </div>
   );
 }

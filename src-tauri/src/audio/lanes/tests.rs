@@ -86,6 +86,7 @@ fn lane(id: &str, clips: Vec<AudioClip>) -> AudioLane {
         folder: false,
         collapsed: false,
         group: 0,
+        height: None,
         clips,
     }
 }

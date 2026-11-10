@@ -431,6 +431,8 @@ export interface AudioLane extends BackingParams {
   collapsed: boolean;
   /** Edit group: lanes in one group move, split and trim together (0: none). */
   group: number;
+  /** The studio row's height, 40 to 240 px (unset: the default). */
+  height?: number;
   clips: AudioClip[];
 }
 

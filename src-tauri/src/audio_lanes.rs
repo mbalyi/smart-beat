@@ -22,6 +22,10 @@ pub const MAX_SOURCES: usize = 512;
 pub const MAX_POINTS: usize = 4_096;
 /// The longest timeline position or clip, in ms (a day).
 const MAX_MS: f64 = 86_400_000.0;
+/// A studio lane row's height range, px (`MIN_LANE_HEIGHT` and `MAX_LANE_HEIGHT` in
+/// `src/lib/audio-lanes/lane-height.ts`).
+pub const MIN_LANE_HEIGHT: f64 = 40.0;
+pub const MAX_LANE_HEIGHT: f64 = 240.0;
 /// A clip of an old audio track plays its whole file: no file the decoder accepts is longer.
 const LEGACY_CLIP_MS: f64 = 30.0 * 60.0 * 1_000.0;
 
@@ -218,6 +222,9 @@ pub struct AudioLane {
     pub collapsed: bool,
     #[serde(default)]
     pub group: u32,
+    /// The studio row's height in px (none: the default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
     #[serde(default)]
     pub clips: Vec<AudioClip>,
 }
@@ -342,6 +349,11 @@ impl AudioLane {
             }
         }
         self.params.validate()?;
+        if let Some(height) = self.height
+            && !finite_in(height, MIN_LANE_HEIGHT, MAX_LANE_HEIGHT)
+        {
+            return Err("lane height out of range".into());
+        }
         if self.effects.len() > MAX_TRACK_EFFECTS {
             return Err(format!("lane: more than {MAX_TRACK_EFFECTS} effects"));
         }
@@ -479,6 +491,7 @@ pub fn migrate_audio_track(track: &AudioTrack) -> AudioLanes {
         folder: false,
         collapsed: false,
         group: 0,
+        height: None,
         clips: vec![clip],
     };
     let mut sync = track.sync.clone();
@@ -609,6 +622,39 @@ mod tests {
         unused.id = "a".repeat(64);
         audio.sources.push(unused);
         assert_eq!(audio.used_sources().count(), 1);
+    }
+
+    #[test]
+    fn lane_height_round_trips_and_is_optional() {
+        let mut audio = migrate_audio_track(&track());
+        let written = serde_json::to_value(&audio).unwrap();
+        assert!(written["lanes"][0].get("height").is_none());
+        audio.lanes[0].height = Some(120.0);
+        let json = serde_json::to_string(&audio).unwrap();
+        let read: AudioLanes = serde_json::from_str(&json).unwrap();
+        assert_eq!(read.lanes[0].height, Some(120.0));
+        assert_eq!(read, audio);
+        assert_eq!(read.validate(), Ok(()));
+        // A lane saved before heights existed loads with the default.
+        let mut old = serde_json::to_value(&audio).unwrap();
+        old["lanes"][0].as_object_mut().unwrap().remove("height");
+        let read: AudioLanes = serde_json::from_value(old).unwrap();
+        assert_eq!(read.lanes[0].height, None);
+    }
+
+    #[test]
+    fn rejects_a_lane_height_out_of_range() {
+        for (height, ok) in [
+            (MIN_LANE_HEIGHT, true),
+            (MAX_LANE_HEIGHT, true),
+            (39.0, false),
+            (241.0, false),
+            (f64::NAN, false),
+        ] {
+            let mut audio = migrate_audio_track(&track());
+            audio.lanes[0].height = Some(height);
+            assert_eq!(audio.validate().is_ok(), ok, "height {height}");
+        }
     }
 
     #[test]
