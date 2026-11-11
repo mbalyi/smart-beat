@@ -313,6 +313,20 @@ describe("ScoreEditor: note entry", () => {
     expect(voice(editor).beats[0]!.notes.filter((n) => drumNumber(n) === 49)).toHaveLength(1);
   });
 
+  it("tells the drum tab line the cursor is on, picked or by the hit under it", () => {
+    const editor = practiceSong(2);
+    expect(editor.cursorDrumLine()).toBeNull(); // an empty spot, no line picked
+    editor.enterDrum(49);
+    const line = editor.cursorDrumLine();
+    expect(line).not.toBeNull();
+    editor.moveBeat(1);
+    editor.moveBeat(-1);
+    // A hit under the cursor gives its line even when the cursor holds no picked line.
+    expect(editor.cursorDrumLine()).toBe(line);
+    // Not a drum track: no line.
+    expect(practiceSong(1).cursorDrumLine()).toBeNull();
+  });
+
   it("changes and deletes the note under the cursor", () => {
     const { editor } = newSong();
     editor.typeDigit(7);

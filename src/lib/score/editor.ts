@@ -701,6 +701,17 @@ export class ScoreEditor {
     return this.noteAtCursor();
   }
 
+  /**
+   * Drums: the line of the drum tab the cursor is on: the picked line, else that of the hit under
+   * the cursor (the cursor stands on a drum by its pitch); null on other tracks or an empty spot.
+   */
+  cursorDrumLine(): number | null {
+    if (this.kind !== "drums") return null;
+    if (this._cursor.line !== null) return this._cursor.line;
+    const note = this.noteAtCursor();
+    return note ? this.lineOfDrum(note) : null;
+  }
+
   /** The selected beats, in order (empty without a selection). */
   selectedBeatList(): Beat[] {
     return this._selection ? this.selectedBeats() : [];

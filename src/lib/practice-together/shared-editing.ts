@@ -143,12 +143,13 @@ export function presenceOf(editor: ScoreEditor, sync: EditSync): Presence | null
   const range = editor.rangeSelected ? editor.selectedBeatList() : [];
   const first = range[0] && sync.idOf(range[0]);
   const last = range.at(-1) && sync.idOf(range.at(-1)!);
+  const line = editor.kind === "drums" ? editor.cursorDrumLine() : null;
   return {
     track: trackId,
     beat: beatId,
     ...(first && last && range.length > 1 ? { sel: [first, last] as [string, string] } : {}),
     ...(editor.kind === "stringed" ? { string: editor.cursor.string } : {}),
-    ...(editor.kind === "drums" && editor.cursor.line !== null ? { line: editor.cursor.line } : {}),
+    ...(line === null ? {} : { line }),
   };
 }
 

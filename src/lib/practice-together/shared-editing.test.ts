@@ -345,12 +345,29 @@ describe("shared editing: a selected range in the cursor", () => {
     const drums = Object.create(a.editor) as typeof a.editor;
     Object.defineProperty(drums, "kind", { value: "drums" });
     Object.defineProperty(drums, "cursor", { value: { ...a.editor.cursor, line: 3 } });
+    Object.defineProperty(drums, "cursorDrumLine", { value: () => 3 });
     const cur = presenceOf(drums, a.edit.sync)!;
     expect(cur).toMatchObject({ line: 3 });
     expect(cur).not.toHaveProperty("string");
     expect(locate(a.edit.sync, cur)).toMatchObject({ line: 3 });
     // A guitarist sends a string, no line.
     expect(presenceOf(a.editor, a.edit.sync)).not.toHaveProperty("line");
+  });
+
+  it("sends the line of the drum under a drummer's cursor when no line was picked", async () => {
+    const t = setup();
+    const a = t.join("a");
+    await t.settle();
+    // The cursor stands on a drum by its pitch (no line picked): the host draws that hit, so the
+    // guest must be told which line it is on and draw the same single mark, not the whole beat.
+    const drums = Object.create(a.editor) as typeof a.editor;
+    Object.defineProperty(drums, "kind", { value: "drums" });
+    Object.defineProperty(drums, "cursor", { value: { ...a.editor.cursor, line: null } });
+    Object.defineProperty(drums, "cursorDrumLine", { value: () => 2, configurable: true });
+    expect(presenceOf(drums, a.edit.sync)).toMatchObject({ line: 2 });
+    // Nothing under the cursor: no line.
+    Object.defineProperty(drums, "cursorDrumLine", { value: () => null });
+    expect(presenceOf(drums, a.edit.sync)).not.toHaveProperty("line");
   });
 
   it("drops the range when another player's edit arrives", async () => {
