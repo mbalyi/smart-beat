@@ -21,7 +21,13 @@ const grid: SongGrid = {
   barTimes: Array.from({ length: 8 }, (_, i) => i * 2000),
   beats: Array(8).fill(4),
 };
-const SOURCE = { id: "a".repeat(64), name: "take.wav", ext: "wav", embedded: true };
+const SOURCE = {
+  id: "a".repeat(64),
+  name: "take.wav",
+  ext: "wav",
+  path: "/music/take.wav",
+  embedded: true,
+};
 const IDS = ["clip-a", "clip-b", "clip-c"];
 
 function clip(id: string, startMs: number, patch: Partial<AudioClip> = {}): AudioClip {
@@ -66,12 +72,9 @@ function Lanes({
   const lanes = useAudioLanes({
     mix,
     changeMix: (action) => setMix((m) => mixerReducer(m, action)),
-    loader: () => null,
-    canLoad: false,
-    epoch: 0,
+    loadSource: () => new Promise(() => {}),
     songPath: null,
     grid,
-    ensureEngine: () => true,
   });
   const { select } = lanes;
   const selected = selection.join(",");

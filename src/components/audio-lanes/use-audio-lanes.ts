@@ -47,6 +47,7 @@ import {
   AUDIO_EXTENSIONS,
   audioZeroCrossing,
   isCommandError,
+  loadAudioSource,
   pickAudioFile,
   type AudioClip,
   type AudioLanesSettings,
@@ -62,28 +63,39 @@ const HISTORY = 100;
 /** Snap for moving and trimming clips. */
 export type SnapMode = "bar" | "beat" | "off";
 
-/** Loads audio files into the engine (the score player, native engine only). */
-export interface SourceLoader {
-  loadSource(location: SourceLocation): Promise<SourceInfo>;
+/** Opens an audio file: decodes it and returns its description (waveform peaks included). */
+export type SourceLoader = (location: SourceLocation) => Promise<SourceInfo>;
+
+/**
+ * Whether the lanes can be heard. Lanes are decoded and edited with any engine, but only the
+ * native audio engine plays them; with the SoundFonts the lanes are silent.
+ */
+export interface LanePlayback {
+  /** The native audio engine makes the sound. */
+  engineOn: boolean;
+  /** Switches to the native audio engine (undefined: it cannot be used here). */
+  enable?: () => void;
 }
 
 export interface AudioLanesOptions {
   mix: MixerSettings;
   changeMix: (action: MixerAction) => void;
-  /** The engine to load files into (null: none yet). */
-  loader: () => SourceLoader | null;
-  /** The native engine is on and the player is ready (files load then). */
-  canLoad: boolean;
-  /** Bumped when a new player is made, so files load again into it. */
-  epoch: number;
+  /**
+   * Opens a file (default: the file-level command, which needs no audio engine). The workspace
+   * passes the native engine's loader while it runs, so the engine also learns where the file
+   * came from.
+   */
+  loadSource?: SourceLoader;
+  /**
+   * Bumped when a new native engine is made, so files load again into it (null: no native
+   * engine, files are loaded once).
+   */
+  epoch?: number | null;
   /** The song file, for files embedded in it (`.gp` only). */
   songPath: string | null;
   grid: SongGrid;
-  /**
-   * Asks for the native engine: true when it runs, false when it cannot be used here. While it is
-   * being switched on, files opened meanwhile are loaded once it is ready.
-   */
-  ensureEngine: () => boolean;
+  /** Whether the lanes are heard (see {@link LanePlayback}); shown next to the lanes. */
+  playback?: LanePlayback;
   /** The user moved the edit cursor (a click in a lane): the score can follow it there. */
   onCursorMove?: (ms: number) => void;
   /**
@@ -95,12 +107,8 @@ export interface AudioLanesOptions {
   onTimeRangeChange?: (range: TimeRange | null) => void;
 }
 
-/** Files opened while the engine was starting, loaded once it is ready. */
-interface PendingImport {
-  paths: readonly string[];
-  laneId?: string;
-  atMs?: number;
-}
+/** What {@link useAudioLanes} assumes when the host says nothing: no notice is shown. */
+const NO_NOTICE: LanePlayback = { engineOn: true };
 
 /** The fraction of the file name after the last dot, lower case. */
 const extensionOf = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
@@ -156,12 +164,11 @@ export function useAudioLanes(options: AudioLanesOptions) {
   const {
     mix,
     changeMix,
-    loader,
-    canLoad,
-    epoch,
+    loadSource = loadAudioSource,
+    epoch = null,
     songPath,
     grid,
-    ensureEngine,
+    playback = NO_NOTICE,
     onCursorMove,
     positionMs,
     onTimeRangeChange,
@@ -203,7 +210,6 @@ export function useAudioLanes(options: AudioLanesOptions) {
     keepTimeRange(next);
     rangeChanged.current?.(next);
   }, []);
-  const pendingImport = useRef<PendingImport | null>(null);
   const history = useRef<{ past: AudioLanesSettings[]; future: AudioLanesSettings[] }>({
     past: [],
     future: [],
@@ -222,7 +228,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
   useEffect(() => {
     position.current = positionMs;
   }, [positionMs]);
-  const loading = useRef(new Set<string>());
+  /** The epoch each source was loaded in (or is being loaded in), by source id. */
+  const loadedIn = useRef(new Map<string, number | null>());
 
   const commit = useCallback(
     (next: AudioLanesSettings) =>
@@ -288,19 +295,19 @@ export function useAudioLanes(options: AudioLanesOptions) {
     return true;
   }, [commit]);
 
-  // Loads every file the lanes play when the song opens, the engine starts or a file is added.
+  // Loads every file the lanes play when the song opens or a file is added. Decoding needs no
+  // audio engine; a new native engine gets the files again (it must know where they came from).
   useEffect(() => {
-    if (!canLoad) return;
-    const engine = loader();
-    if (!engine) return;
     for (const source of audio.sources) {
-      if (infos.has(source.id) || loading.current.has(`${epoch}:${source.id}`)) continue;
-      loading.current.add(`${epoch}:${source.id}`);
+      const loaded = loadedIn.current;
+      if (loaded.has(source.id) && (epoch === null || loaded.get(source.id) === epoch)) continue;
+      loaded.set(source.id, epoch);
       void (async () => {
         let lastError: unknown = new Error(`“${source.name}” has no file to load.`);
         for (const location of sourceLocations(source, songPath)) {
           try {
-            const info = await engine.loadSource(location);
+            const info = await loadSource(location);
+            loaded.set(info.id, epoch);
             setInfos((m) => new Map(m).set(info.id, info).set(source.id, info));
             setMissing((m) => {
               const next = new Set(m);
@@ -321,14 +328,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
         });
       })();
     }
-  }, [audio.sources, canLoad, epoch, infos, loader, songPath, commit]);
-
-  // A new player starts with no files: load them all again.
-  const [loadedFor, setLoadedFor] = useState(epoch);
-  if (loadedFor !== epoch) {
-    setLoadedFor(epoch);
-    setInfos(new Map());
-  }
+  }, [audio.sources, epoch, loadSource, songPath, commit]);
 
   const snapTo = useCallback(
     (ms: number) =>
@@ -342,12 +342,6 @@ export function useAudioLanes(options: AudioLanesOptions) {
    */
   const importFiles = useCallback(
     async (paths: readonly string[], laneId?: string, atMs?: number) => {
-      const engine = ensureEngine() && canLoad ? loader() : null;
-      if (!engine) {
-        // The engine is starting (or about to): the files open as soon as it is ready.
-        pendingImport.current = { paths, laneId, atMs };
-        return;
-      }
       let at = snapTo(atMs ?? editCursorMs);
       for (const path of paths) {
         const name = baseName(path);
@@ -359,11 +353,12 @@ export function useAudioLanes(options: AudioLanesOptions) {
         }
         let info: SourceInfo;
         try {
-          info = await engine.loadSource({ type: "file", path });
+          info = await loadSource({ type: "file", path });
         } catch (error) {
           toast.error(`Couldn't open “${name}”`, { description: errorText(error) });
           continue;
         }
+        loadedIn.current.set(info.id, epoch);
         setInfos((m) => new Map(m).set(info.id, info));
         const source: AudioSource = { id: info.id, name, ext: info.ext, path, embedded: true };
         const clip = newClip(info.id, name, at, info.durationMs);
@@ -381,7 +376,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
         if (laneId) at = startAt + info.durationMs;
       }
     },
-    [apply, canLoad, editCursorMs, ensureEngine, loader, snapTo],
+    [apply, editCursorMs, epoch, loadSource, snapTo],
   );
   /** Shows the file chooser and opens the chosen file (on `laneId` at `atMs`, else a new lane). */
   const chooseFile = useCallback(
@@ -397,14 +392,6 @@ export function useAudioLanes(options: AudioLanesOptions) {
     },
     [importFiles],
   );
-  // Files opened while the engine was starting open once it is ready.
-  useEffect(() => {
-    const pending = pendingImport.current;
-    if (!pending || !canLoad || !loader()) return;
-    pendingImport.current = null;
-    void importFiles(pending.paths, pending.laneId, pending.atMs);
-  }, [canLoad, epoch, importFiles, loader]);
-
   /** Where Split and Paste act: the position line (the playhead while playing). */
   const lineMs = useCallback(() => position.current?.() ?? editCursorMs, [editCursorMs]);
 
@@ -550,6 +537,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
     importFiles,
     chooseFile,
     commands,
+    /** Whether the lanes are heard with the engine in use. */
+    playback,
   };
 }
 

@@ -75,6 +75,48 @@ test.describe("audio lanes (#185)", () => {
     await expect.poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes.length)).toBe(1);
   });
 
+  test("with the SoundFonts engine a lane is decoded and edited, and says it needs the native engine", async ({
+    app,
+  }) => {
+    await openSong(app);
+    const engineSwitch = app.getByRole("switch", { name: "Native engine with effects" });
+    await expect(engineSwitch).not.toBeChecked();
+    const preference = () =>
+      app.evaluate(() => window.localStorage.getItem("smart-beat:audio-engine:v2"));
+    const before = await preference();
+
+    const row = await addLane(app, "/Users/me/Music/take.mp3");
+    // The waveform is there (the file was decoded), and the engine was not touched.
+    const clip = row.getByRole("button", { name: /take\.mp3 on take/ });
+    await expect(clip.locator("svg path")).toHaveCount(1);
+    await expect(engineSwitch).not.toBeChecked();
+    expect(await preference()).toBe(before);
+    expect(await app.evaluate(() => Object.keys(window.__engineSources ?? {}).length)).toBe(1);
+
+    // The lane says it is silent here, with a way to switch (the user's own choice).
+    const notice = row.getByRole("button", { name: /Lane take is silent here/ });
+    await expect(notice).toBeVisible();
+
+    // The editor and the studio work too.
+    await row.getByRole("button", { name: "Edit the lane take" }).click();
+    const editor = app.getByRole("region", { name: "Lane editor: take" });
+    await expect(editor.getByText("Plays with effects playback")).toBeVisible();
+    await editor.getByRole("button", { name: "Studio" }).click();
+    const studio = app.getByRole("dialog", { name: "Studio" });
+    await expect(studio).toBeVisible();
+    await expect(studio.getByRole("button", { name: /take\.mp3 on take/ }).first()).toBeVisible();
+    await app.mouse.move(2, 2);
+    await expectNoA11yViolations(app);
+    await studio.getByRole("button", { name: "Back to score" }).click();
+    await expect(studio).toBeHidden();
+    expect(await preference()).toBe(before);
+
+    // Switching is the user's own pick: the engine turns on and the choice is remembered.
+    await editor.getByRole("button", { name: /Lane take is silent here/ }).click();
+    await expect(engineSwitch).toBeChecked();
+    expect(await preference()).toBe("native");
+  });
+
   test("lanes take the stem colours, and a lane's colour can be changed", async ({ app }) => {
     await openWithEngine(app);
     const vocals = await addLane(app, "/Users/me/Music/vocals.wav");

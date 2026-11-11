@@ -280,6 +280,7 @@ import {
   detectAudioBeats,
   extractAudioSource,
   isTauri,
+  loadAudioSource,
   MIXER_SETTINGS_VERSION,
   pickAudioFile,
   pickSavePath,
@@ -294,6 +295,7 @@ import {
   type MixerSettings,
   type MonitorStatus,
   type NoteEffectFlags,
+  type SourceLocation,
 } from "@/lib/tauri";
 
 /** Mixer changes are saved this long after the last one. */
@@ -1908,33 +1910,44 @@ export function ScoreWorkspace({
     () => ({ barTimes, beats: score.masterBars.map((m) => m.timeSignatureNumerator || 4) }),
     [barTimes, score.masterBars],
   );
-  /** Asks for the native engine (the lanes play there); false when it cannot be used. */
-  const ensureEngine = () => {
+  /**
+   * Recording needs the native engine (input monitoring, count-in): true when it runs. Otherwise
+   * switches to it for this take (not remembered as the user's pick) and returns false. Importing
+   * and editing lanes need no engine: files are only decoded.
+   */
+  const ensureRecordingEngine = () => {
     if (engineOn) return true;
     if (nativeEngineAvailable()) {
       // The app switched by itself: only the user's own pick is remembered.
       changeAudioEngine("native", false);
-      toast.info("Switched to effects playback for the audio lanes");
+      toast.info("Switched to effects playback to record audio");
       return false;
     }
-    toast.info("Audio lanes play with the native audio engine");
+    toast.info("Recording audio needs the native audio engine");
     return false;
   };
   /** The lanes as last drawn, for callbacks that run later. */
   const lanesAudioRef = useRef<AudioLanesSettings>(EMPTY_AUDIO);
-  const lanesLoader = useCallback(
-    () => (playerRef.current?.usesNativeEngine ? playerRef.current : null),
-    [],
-  );
+  /**
+   * Opens an audio file for the lanes with any engine (it is only decoded). The native engine
+   * takes it through its own queue, so it also learns where the file came from.
+   */
+  const loadLaneSource = useCallback((location: SourceLocation) => {
+    const player = playerRef.current;
+    return player?.usesNativeEngine ? player.loadSource(location) : loadAudioSource(location);
+  }, []);
   const lanes = useAudioLanes({
     mix,
     changeMix,
-    loader: lanesLoader,
-    canLoad: engineOn && ready,
-    epoch: playerEpoch,
+    loadSource: loadLaneSource,
+    epoch: engineOn ? playerEpoch : null,
     songPath: song.path ?? null,
     grid: laneGrid,
-    ensureEngine,
+    // Lanes are heard with the native audio engine only (a bridge until the SoundFonts play them).
+    playback: {
+      engineOn,
+      enable: nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined,
+    },
     // Split and Paste act at the line the user sees: the playhead while playing.
     positionMs: () =>
       playing ? timelineMsAtBar(lanesAudioRef.current, laneGrid, playhead.get()) : null,
@@ -2251,7 +2264,7 @@ export function ScoreWorkspace({
       };
     },
     speed: () => practice.speed / 100,
-    ensureEngine,
+    ensureEngine: ensureRecordingEngine,
   });
   /** Section markers for the studio ruler. */
   const studioMarkers = useMemo(
@@ -2298,10 +2311,9 @@ export function ScoreWorkspace({
       toast.error("Couldn't show the Open dialog", { description: errorText(error) });
       return;
     }
-    const player = playerRef.current;
-    if (!file || !player?.usesNativeEngine) return;
+    if (!file) return;
     try {
-      const info = await player.loadSource({ type: "file", path: file });
+      const info = await loadLaneSource({ type: "file", path: file });
       const name = baseName(file);
       lanes.apply((a) => {
         const withSource = addSource(a, {

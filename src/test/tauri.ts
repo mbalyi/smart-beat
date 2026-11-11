@@ -519,6 +519,27 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         case "audio_input_channels":
           return 2;
+        // Opening a file for the lanes only decodes it: no engine is involved (a 4 s file whose
+        // content id follows its name).
+        case "audio_load_source": {
+          const { location } = args as {
+            location: { type: "file"; path: string } | { type: "embedded"; entry: string };
+          };
+          const path = location.type === "file" ? location.path : location.entry;
+          const name = path.split(/[\\/]/).pop() ?? path;
+          let hash = 7;
+          for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
+          return {
+            id: hash.toString(16).padStart(8, "0").repeat(8),
+            name,
+            ext: name.split(".").pop()?.toLowerCase() ?? "wav",
+            durationMs: 4000,
+            sampleRate: 44100,
+            channels: 2,
+            peaks: [0.4, 0.8, 0.5, 0.9],
+            peaksPerSecond: 1,
+          };
+        }
         // One quiet second, 1 s into every file; tests override it for other shapes.
         case "audio_silent_regions":
           return [{ startMs: 1000, endMs: 2000 }];

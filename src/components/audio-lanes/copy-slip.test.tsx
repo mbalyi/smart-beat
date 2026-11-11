@@ -16,7 +16,13 @@ const grid: SongGrid = {
   barTimes: Array.from({ length: 8 }, (_, i) => i * 2000),
   beats: Array(8).fill(4),
 };
-const SOURCE = { id: "a".repeat(64), name: "take.wav", ext: "wav", embedded: true };
+const SOURCE = {
+  id: "a".repeat(64),
+  name: "take.wav",
+  ext: "wav",
+  path: "/music/take.wav",
+  embedded: true,
+};
 
 /** Clip "clip-a" plays 4 s of the file from 2 s, at 2 s on lane "Vocals"; "Drums" is empty. */
 function song(patch: Partial<AudioClip> = {}): AudioLanesSettings {
@@ -48,12 +54,9 @@ function Lanes({
   const lanes = useAudioLanes({
     mix,
     changeMix: (action) => setMix((m) => mixerReducer(m, action)),
-    loader: () => null,
-    canLoad: false,
-    epoch: 0,
+    loadSource: () => new Promise(() => {}),
     songPath: null,
     grid,
-    ensureEngine: () => true,
   });
   useEffect(() => {
     latest.lanes = lanes;

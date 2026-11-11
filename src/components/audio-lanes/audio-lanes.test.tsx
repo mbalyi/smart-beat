@@ -8,7 +8,11 @@ import { LaneEditorDock, type LaneEditorActions } from "@/components/audio-lanes
 import { LaneRow } from "@/components/audio-lanes/lane-row";
 import { RecordAudioDialog } from "@/components/audio-lanes/record-audio-dialog";
 import { StudioView } from "@/components/audio-lanes/studio-view";
-import { useAudioLanes, type AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
+import {
+  useAudioLanes,
+  type AudioLanesController,
+  type LanePlayback,
+} from "@/components/audio-lanes/use-audio-lanes";
 import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 import type { SongGrid } from "@/lib/audio-lanes/sync";
 import { mixerReducer } from "@/lib/score/mixer";
@@ -22,7 +26,13 @@ const grid: SongGrid = {
   barTimes: Array.from({ length: 8 }, (_, i) => i * 2000),
   beats: Array(8).fill(4),
 };
-const SOURCE = { id: "a".repeat(64), name: "take.wav", ext: "wav", embedded: true };
+const SOURCE = {
+  id: "a".repeat(64),
+  name: "take.wav",
+  ext: "wav",
+  path: "/music/take.wav",
+  embedded: true,
+};
 
 function song(): AudioLanesSettings {
   return {
@@ -42,20 +52,20 @@ function song(): AudioLanesSettings {
 function Lanes({
   children,
   audio = song(),
+  playback,
 }: {
   children: (lanes: AudioLanesController) => ReactNode;
   audio?: AudioLanesSettings;
+  playback?: LanePlayback;
 }) {
   const [mix, setMix] = useState<MixerSettings>({ version: 3, master: 1, tracks: [], audio });
   const lanes = useAudioLanes({
     mix,
     changeMix: (action) => setMix((m) => mixerReducer(m, action)),
-    loader: () => null,
-    canLoad: false,
-    epoch: 0,
+    loadSource: () => new Promise(() => {}),
     songPath: null,
     grid,
-    ensureEngine: () => true,
+    playback,
   });
   useEffect(() => {
     latest.lanes = lanes;
@@ -446,43 +456,85 @@ describe("normalizeGainDb", () => {
   });
 });
 
-describe("useAudioLanes: opening a file while the engine starts", () => {
-  it("opens the file once the engine is ready instead of dropping it", async () => {
-    const loadSource = vi.fn(async () => ({
-      id: "b".repeat(64),
-      ext: "mp3",
-      durationMs: 300_000,
-      sampleRate: 44_100,
-      channels: 2,
-      peaks: [],
-    }));
-    const engine = { loadSource } as never;
-    function Starting({ ready }: { ready: boolean }) {
-      const [mix, setMix] = useState<MixerSettings>({ version: 3, master: 1, tracks: [] });
-      const lanes = useAudioLanes({
-        mix,
-        changeMix: (action) => setMix((m) => mixerReducer(m, action)),
-        loader: () => (ready ? engine : null),
-        canLoad: ready,
-        epoch: ready ? 1 : 0,
-        songPath: null,
-        grid,
-        // The first file switches the engine on: it is not running yet.
-        ensureEngine: () => ready,
-      });
-      useEffect(() => {
-        latest.lanes = lanes;
-      });
-      return null;
-    }
-    const { rerender } = renderWithProviders(<Starting ready={false} />);
-    await act(async () => lanesNow().importFiles(["/music/song.mp3"]));
-    expect(loadSource).not.toHaveBeenCalled();
+describe("lane playback notice", () => {
+  const renderRow = (playback: LanePlayback) =>
+    renderWithProviders(
+      <Lanes playback={playback}>
+        {(lanes) => (
+          <ul>
+            {lanes.audio.lanes.map((lane, index) => (
+              <LaneRow
+                key={lane.id}
+                lanes={lanes}
+                lane={lane}
+                index={index}
+                barWidth={20}
+                barCount={8}
+                grid={grid}
+                playing={false}
+                onEffects={vi.fn()}
+                onOpenEditor={vi.fn()}
+              />
+            ))}
+          </ul>
+        )}
+      </Lanes>,
+    );
 
-    rerender(<Starting ready />);
-    await vi.waitFor(() => expect(lanesNow().audio.lanes).toHaveLength(1));
-    expect(loadSource).toHaveBeenCalledWith({ type: "file", path: "/music/song.mp3" });
-    // The whole file, not cut to the score.
-    expect(lanesNow().audio.lanes[0]!.clips[0]!.lengthMs).toBe(300_000);
+  it("tells a lane with clips that it is silent here, and switches on request", async () => {
+    const enable = vi.fn();
+    const { user } = renderRow({ engineOn: false, enable });
+    // Only the lane with a clip says it; the empty one has nothing to play.
+    const buttons = screen.getAllByRole("button", { name: /is silent here: switch/ });
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName(
+      "Lane Vocals is silent here: switch to the native audio engine",
+    );
+    await user.click(buttons[0]!);
+    expect(enable).toHaveBeenCalledTimes(1);
+    await expectNoA11yViolations();
+  });
+
+  it("is quiet while the native engine plays the lanes, or cannot be switched on", () => {
+    const { unmount } = renderRow({ engineOn: true, enable: vi.fn() });
+    expect(screen.queryByTestId("lane-playback-notice")).toBeNull();
+    unmount();
+    renderRow({ engineOn: false });
+    expect(screen.queryByTestId("lane-playback-notice")).toBeNull();
+  });
+
+  it("shows in the lane editor too", async () => {
+    const enable = vi.fn();
+    const { user } = renderWithProviders(
+      <Lanes playback={{ engineOn: false, enable }}>
+        {(lanes) => (
+          <LaneEditorDock
+            lanes={lanes}
+            lane={lanes.audio.lanes[0]!}
+            index={0}
+            grid={grid}
+            scoreBpmAt={() => 120}
+            playing={false}
+            selectedBars={null}
+            onSelectBars={vi.fn()}
+            onSeekBar={vi.fn()}
+            actions={{
+              syncFromScoreTempo: vi.fn(() => []),
+              tempoFromSync: vi.fn(),
+              syncFromBeats: vi.fn(),
+              replaceFile: vi.fn(),
+              extract: vi.fn(),
+              addBar: vi.fn(),
+              effects: vi.fn(),
+              openStudio: vi.fn(),
+              close: vi.fn(),
+            }}
+          />
+        )}
+      </Lanes>,
+    );
+    expect(screen.getByText("Plays with effects playback")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Lane Vocals is silent here/ }));
+    expect(enable).toHaveBeenCalledTimes(1);
   });
 });

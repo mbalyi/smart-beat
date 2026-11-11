@@ -871,29 +871,77 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     );
   });
 
-  it("adds an audio lane from the Track menu, edits it in the lane editor and removes it", async () => {
-    const { user } = await setup({ path: "/songs/practice-song.gp" });
+  it("adds an audio lane with the SoundFonts engine: decoded and edited, no engine switch", async () => {
+    const { user, calls, player } = await setup({ path: "/songs/practice-song.gp" });
+    expect(player.usesNativeEngine).toBe(false);
     backend.dialogResult = "/music/take.mp3";
     await menu("add-audio-lane");
-    // The desktop app switches to the native engine by itself: lanes need it.
-    expect(await toastWith("Switched to effects playback for the audio lanes")).toBeInTheDocument();
-    await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
-    // The app switched by itself: only the user's own pick is remembered (#228).
-    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBeNull();
-    const player = FakeScorePlayer.last;
-    player.usesNativeEngine = true;
-    player.becomeReady();
-    // The file chosen while the engine was switching on opens once it is ready: no second try.
+    // The file is only decoded, by the file-level command; the first try works, with no waiting.
     const row = await screen.findByTestId(/^lane-row-/);
     expect(screen.getAllByTestId(/^lane-row-/)).toHaveLength(1);
-    expect(player.loadSource).toHaveBeenCalledWith({ type: "file", path: "/music/take.mp3" });
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        cmd: "audio_load_source",
+        args: { location: { type: "file", path: "/music/take.mp3" } },
+      }),
+    );
+    expect(player.loadSource).not.toHaveBeenCalled();
+    // The app does not switch engines by itself, nor remember a choice nobody made (#228).
+    expect(FakeScorePlayer.last.options.audioEngine).not.toBe("native");
+    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBeNull();
+    expect(screen.queryByText("Switched to effects playback for the audio lanes")).toBeNull();
     await user.click(within(row).getByRole("button", { name: "Edit the lane take" }));
     const editor = await screen.findByRole("region", { name: "Lane editor: take" });
-    expect(within(editor).getByRole("button", { name: /take\.mp3 on take/ })).toBeInTheDocument();
+    // The clip has its waveform (the file's peaks arrived).
+    const clip = within(editor).getByRole("button", { name: /take\.mp3 on take/ });
+    await waitFor(() => expect(clip.querySelector("svg path")).not.toBeNull());
     await expectNoA11yViolations();
     await user.click(within(editor).getByRole("button", { name: "Remove" }));
     expect(screen.queryByTestId(/^lane-row-/)).toBeNull();
     expect(screen.queryByRole("region", { name: "Lane editor: take" })).toBeNull();
+  });
+
+  it("says the lanes are silent with the SoundFonts and switches to the native engine on request", async () => {
+    const { user } = await setup({ path: "/songs/practice-song.gp" });
+    backend.dialogResult = "/music/take.mp3";
+    await menu("add-audio-lane");
+    const row = await screen.findByTestId(/^lane-row-/);
+    await user.click(within(row).getByRole("button", { name: /Lane take is silent here/ }));
+    // The user's own pick: remembered.
+    await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
+    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBe("native");
+    FakeScorePlayer.last.usesNativeEngine = true;
+    FakeScorePlayer.last.becomeReady();
+    await waitFor(() => expect(within(row).queryByTestId("lane-playback-notice")).toBeNull());
+    // The native engine takes the file again, so it knows where it came from.
+    await waitFor(() =>
+      expect(FakeScorePlayer.last.loadSource).toHaveBeenCalledWith({
+        type: "file",
+        path: "/music/take.mp3",
+      }),
+    );
+  });
+
+  it("replaces a lane's file with the SoundFonts engine", async () => {
+    const { user, calls } = await setup({ path: "/songs/practice-song.gp" });
+    backend.dialogResult = "/music/take.mp3";
+    await menu("add-audio-lane");
+    const row = await screen.findByTestId(/^lane-row-/);
+    await user.click(within(row).getByRole("button", { name: "Edit the lane take" }));
+    const editor = await screen.findByRole("region", { name: "Lane editor: take" });
+    backend.dialogResult = "/music/other.wav";
+    await user.click(within(editor).getByRole("button", { name: "Replace file" }));
+    await waitFor(() =>
+      expect(
+        within(editor).getByRole("button", { name: /other\.wav on take/ }),
+      ).toBeInTheDocument(),
+    );
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        cmd: "audio_load_source",
+        args: { location: { type: "file", path: "/music/other.wav" } },
+      }),
+    );
   });
 
   it("moves a playhead through every lane and every track's bars while playing", async () => {

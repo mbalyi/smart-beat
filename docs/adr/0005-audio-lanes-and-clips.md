@@ -49,6 +49,12 @@ Until 1.2 a song had at most one audio track: one file, one set of mix settings 
 - loudness (ITU-R BS.1770 integrated and short-term LUFS);
 - onset-based tempo and beat detection, for sync points.
 
+**Lanes are decoded without the audio engine; only playback needs it.**
+
+- Opening a file (`audio_load_source`, `audio_add_take`), its waveform peaks, zero crossings, spectrograms, loudness, beat detection, silent regions, WAV extraction, `audio_forget_sources` and storing the lane settings (`audio_set_lanes`) work on the shared source pool and never touch the engine. `audio_set_lanes` only rebuilds the engine's lanes when an engine runs.
+- So waveforms, the lane editor, the studio and every clip edit work with the SoundFont (alphaTab) engine too, and adding a file never switches engines. The UI loads files with the file-level command; while the native engine runs it goes through the engine's loader instead, so the engine also remembers where each file came from.
+- Only playback of lanes needs the native engine. With the SoundFonts the lanes are silent, and each lane (and the lane editor) says so, with a button to switch to the native engine (the user's own pick, so it is remembered). Recording still needs the native engine (input monitoring, count-in). This is a bridge until lanes can play next to SoundFont playback.
+
 ## Consequences
 
 - The old `Backing` single-slot path, its commands (`audio_load_backing`, `audio_set_backing`, `audio_clear_backing`) and the audio track panel are gone.

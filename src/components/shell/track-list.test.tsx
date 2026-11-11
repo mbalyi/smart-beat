@@ -94,12 +94,9 @@ function renderLanes({
         changes.push(action);
         setMix((m) => mixerReducer(m, action));
       },
-      loader: () => null,
-      canLoad: false,
-      epoch: 0,
+      loadSource: () => new Promise(() => {}),
       songPath: null,
       grid,
-      ensureEngine: () => true,
     });
     return (
       <TrackList
