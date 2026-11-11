@@ -22,20 +22,28 @@ import { LevelMeter } from "@/components/audio/level-meter";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { PanControl } from "@/components/pan-control";
 import { Playhead } from "@/components/playhead";
+import { RowEye } from "@/components/shell/row-eye";
 import { CONTROLS } from "@/components/shell/track-row-layout";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
-import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
-import { makeFolder, moveLane, removeLane, trimClip, updateLane } from "@/lib/audio-lanes/edits";
+import {
+  makeFolder,
+  moveLane,
+  removeLane,
+  setLaneInScore,
+  trimClip,
+  updateLane,
+} from "@/lib/audio-lanes/edits";
 import { clipEndMs, laneEndMs } from "@/lib/audio-lanes/model";
 import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
 import { barAtTimelineMs, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
@@ -46,8 +54,9 @@ import type { AudioLane } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 /**
- * One audio lane in the track list (compact row): colour strip, name, on switch, mute and solo,
- * volume with its meter, pan, EQ, effects, colour and a menu; then its clips across the bar grid,
+ * One audio lane in the track list (compact row): colour strip, name, the eye (shown under the
+ * tabs in the continuous view), mute and solo, volume with its meter, pan, effects, colour and a
+ * menu (which also has the lane's on switch); then its clips across the bar grid,
  * where clips are moved, trimmed and dropped, and a click sets the edit cursor.
  */
 export function LaneRow({
@@ -61,6 +70,7 @@ export function LaneRow({
   playing,
   onEffects,
   onOpenEditor,
+  stacking = false,
 }: {
   lanes: AudioLanesController;
   lane: AudioLane;
@@ -73,6 +83,8 @@ export function LaneRow({
   playing: boolean;
   onEffects: (index: number) => void;
   onOpenEditor: (laneId: string) => void;
+  /** The track list is in the continuous view: its eye column is wider (the tabs' handles). */
+  stacking?: boolean;
 }) {
   const { audio, apply } = lanes;
   const [renaming, setRenaming] = useState(false);
@@ -87,7 +99,10 @@ export function LaneRow({
     [audio, grid, barWidth],
   );
   const label = lane.folder ? `folder ${lane.name}` : `lane ${lane.name}`;
-  const children = lane.folder ? audio.lanes.filter((l) => l.parent === lane.id).length : 0;
+  const childLanes = lane.folder ? audio.lanes.filter((l) => l.parent === lane.id) : [];
+  const children = childLanes.length;
+  // A folder is shown while any lane in it is; an empty folder has nothing to show.
+  const inScore = lane.folder ? childLanes.some((l) => !l.hiddenInScore) : !lane.hiddenInScore;
 
   const drop = (drag: ClipDrag) => {
     if (dropCopyOrSlip(lanes, drag)) return;
@@ -115,7 +130,10 @@ export function LaneRow({
   const width = Math.max(scoreWidth, Math.ceil(clipsEnd / barWidth) * barWidth);
 
   return (
-    <li className="flex border-b" data-testid={`lane-row-${lane.id}`}>
+    <li
+      className={cn("flex border-b", !lane.enabled && "opacity-70")}
+      data-testid={`lane-row-${lane.id}`}
+    >
       <div
         role="presentation"
         className={cn(
@@ -124,9 +142,7 @@ export function LaneRow({
         )}
         onDoubleClick={() => onOpenEditor(lane.id)}
       >
-        {/* A lane has no eye: the wider eye column of the stacked tracks would push its last
-            buttons past the header (over the first bar). */}
-        <div className={cn(CONTROLS, "w-full [--eye-col:2rem]")}>
+        <div className={cn(CONTROLS, "w-full")}>
           <div className="flex min-w-0 items-center gap-1.5">
             <span
               aria-hidden="true"
@@ -181,13 +197,14 @@ export function LaneRow({
               <LanePlaybackNotice playback={lanes.playback} laneName={lane.name} compact />
             )}
           </div>
-          <div className="flex items-center">
-            <Switch
-              checked={lane.enabled}
-              onCheckedChange={(enabled) => update({ enabled })}
-              aria-label={`${lane.name} on`}
-            />
-          </div>
+          <RowEye
+            pressed={inScore}
+            disabled={lane.folder && children === 0}
+            onPressedChange={(shown) => apply((a) => setLaneInScore(a, lane.id, shown))}
+            label={`${inScore ? "Hide" : "Show"} ${label} ${inScore ? "from under" : "under"} the tabs`}
+            title={`${inScore ? "Hide" : "Show"} ${lane.folder ? "its lanes" : "this lane"} ${inScore ? "from under" : "under"} the tabs in the continuous view`}
+            keepHandleRoom={stacking}
+          />
           <div className="flex gap-0.5">
             <Toggle
               size="sm"
@@ -361,6 +378,13 @@ function LaneMenu({
             Add audio file…
           </DropdownMenuItem>
         )}
+        <DropdownMenuCheckboxItem
+          checked={lane.enabled}
+          onCheckedChange={(enabled) => apply((a) => updateLane(a, lane.id, { enabled }))}
+        >
+          Enabled
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onRename}>Rename…</DropdownMenuItem>
         <DropdownMenuItem
           disabled={index === 0}

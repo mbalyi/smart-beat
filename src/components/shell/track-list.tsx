@@ -77,6 +77,7 @@ import type {
 } from "@/lib/tauri";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { cn } from "@/lib/utils";
+import { RowEye } from "@/components/shell/row-eye";
 import { CONTROLS } from "@/components/shell/track-row-layout";
 
 export interface TrackActions {
@@ -917,56 +918,53 @@ export function TrackList({
                         )}
                         <LowSoundMark track={track} soundFont={soundFont} />
                       </div>
-                      <div className="flex items-center">
-                        {place && place.of > 1 && (
-                          <button
-                            type="button"
-                            draggable
-                            data-testid="view-handle"
-                            aria-label={`Reorder ${track.name} in the view`}
-                            aria-keyshortcuts="ArrowUp ArrowDown"
-                            onDragStart={(event) => {
-                              dragged.current = i;
-                              event.dataTransfer.effectAllowed = "move";
-                            }}
-                            onDragEnd={() => (dragged.current = null)}
-                            onKeyDown={(event) => {
-                              const delta =
-                                event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
-                              if (delta === 0) return;
-                              event.preventDefault();
-                              actions.onMoveInView?.(i, delta);
-                            }}
-                            title="Drag to reorder in the view, or use the Up and Down arrows"
-                            className="mr-0.5 flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                          >
-                            <GripVerticalIcon className="size-3.5" aria-hidden="true" />
-                          </button>
-                        )}
-                        <Toggle
-                          size="sm"
-                          pressed={stacking ? stacked : isShown}
-                          disabled={stacking && isShown}
-                          onPressedChange={() =>
-                            stacking && actions.onToggleVisible
-                              ? actions.onToggleVisible(i)
-                              : actions.onShow(i)
-                          }
-                          aria-label={`Visible: ${track.name}`}
-                          title={
-                            stacking
-                              ? isShown
-                                ? "The track you edit is always in the view"
-                                : stacked
-                                  ? "Take out of the continuous view"
-                                  : "Show in the continuous view"
-                              : "Show in the score"
-                          }
-                          className="size-7 min-w-7 px-0"
-                        >
-                          <EyeIcon />
-                        </Toggle>
-                      </div>
+                      <RowEye
+                        pressed={stacking ? stacked : isShown}
+                        disabled={stacking && isShown}
+                        onPressedChange={() =>
+                          stacking && actions.onToggleVisible
+                            ? actions.onToggleVisible(i)
+                            : actions.onShow(i)
+                        }
+                        label={`Visible: ${track.name}`}
+                        title={
+                          stacking
+                            ? isShown
+                              ? "The track you edit is always in the view"
+                              : stacked
+                                ? "Take out of the continuous view"
+                                : "Show in the continuous view"
+                            : "Show in the score"
+                        }
+                        keepHandleRoom={stacking}
+                        handle={
+                          place && place.of > 1 ? (
+                            <button
+                              type="button"
+                              draggable
+                              data-testid="view-handle"
+                              aria-label={`Reorder ${track.name} in the view`}
+                              aria-keyshortcuts="ArrowUp ArrowDown"
+                              onDragStart={(event) => {
+                                dragged.current = i;
+                                event.dataTransfer.effectAllowed = "move";
+                              }}
+                              onDragEnd={() => (dragged.current = null)}
+                              onKeyDown={(event) => {
+                                const delta =
+                                  event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+                                if (delta === 0) return;
+                                event.preventDefault();
+                                actions.onMoveInView?.(i, delta);
+                              }}
+                              title="Drag to reorder in the view, or use the Up and Down arrows"
+                              className="mr-0.5 flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                            >
+                              <GripVerticalIcon className="size-3.5" aria-hidden="true" />
+                            </button>
+                          ) : undefined
+                        }
+                      />
                       <div className="flex gap-0.5">
                         <Toggle
                           size="sm"
@@ -1135,6 +1133,7 @@ export function TrackList({
                   playing={playing}
                   onEffects={audio.onEffects}
                   onOpenEditor={audio.onOpenEditor}
+                  stacking={stacking}
                 />
               );
             })}

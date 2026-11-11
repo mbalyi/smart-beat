@@ -62,7 +62,9 @@ function renderLanes({
   clipMs = 3000,
   missingBars = 0,
   onAddMissingBars = vi.fn(),
+  stack,
 }: {
+  stack?: { indexes: number[]; stacking: boolean };
   clipMs?: number;
   missingBars?: number;
   onAddMissingBars?: () => void;
@@ -123,6 +125,7 @@ function renderLanes({
         saved={false}
         playing={playing}
         playhead={playhead}
+        stack={stack}
         audio={{
           lanes,
           grid,
@@ -879,6 +882,71 @@ describe("TrackList", () => {
 
     it("has no accessibility violations while stacking", async () => {
       setup({ stack: stacking, actions: stackActions() });
+      await expectNoA11yViolations();
+    });
+  });
+
+  describe("the eye of an audio lane", () => {
+    const eyeCell = (button: HTMLElement) =>
+      button.closest<HTMLElement>("[data-testid='row-eye']")!;
+
+    it("sits in the eye column of the tab rows, in the plain list", async () => {
+      renderLanes();
+      const tab = eyeCell(screen.getByRole("button", { name: "Visible: Guitar" }));
+      const lane = eyeCell(
+        screen.getByRole("button", { name: /Vocals (from under|under) the tabs/ }),
+      );
+      // The same component in the same grid (name, eye, M/S, volume, pan, actions), column two.
+      expect(lane.parentElement!.className).toBe(tab.parentElement!.className);
+      expect(Array.from(lane.parentElement!.children).indexOf(lane)).toBe(1);
+      expect(Array.from(tab.parentElement!.children).indexOf(tab)).toBe(1);
+      // The same size, shape and states: one component.
+      expect(lane.querySelector("button")!.className).toBe(tab.querySelector("button")!.className);
+    });
+
+    it("keeps the handle's room, like the stacked tabs, so the eyes line up", () => {
+      renderLanes({ stack: { indexes: [0, 2], stacking: true } });
+      const handled = eyeCell(screen.getByRole("button", { name: "Visible: Guitar" }));
+      const plain = eyeCell(screen.getByRole("button", { name: "Visible: Bass" }));
+      const lane = eyeCell(
+        screen.getByRole("button", { name: /Vocals (from under|under) the tabs/ }),
+      );
+      for (const cell of [handled, plain, lane]) {
+        expect(cell.firstElementChild).toHaveClass("size-6", "mr-0.5", "shrink-0");
+        expect(cell.children).toHaveLength(2);
+      }
+      expect(handled.firstElementChild).toHaveAttribute("data-testid", "view-handle");
+      expect(lane.firstElementChild).toHaveAttribute("aria-hidden", "true");
+    });
+
+    it("hides a lane from under the tabs and brings it back, in the track list", async () => {
+      const changes: MixerAction[] = [];
+      const { user } = renderLanes({ changes });
+      await user.click(
+        screen.getByRole("button", { name: "Hide lane Vocals from under the tabs" }),
+      );
+      const audio = changes.at(-1);
+      expect(audio?.type === "audio" && audio.value?.lanes[0]?.hiddenInScore).toBe(true);
+      // The lane stays in the list.
+      expect(screen.getByTestId("lane-row-lane-a")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Show lane Vocals under the tabs" }));
+      const back = changes.at(-1);
+      expect(
+        back?.type === "audio" && back.value?.lanes[0] && "hiddenInScore" in back.value.lanes[0],
+      ).toBe(false);
+    });
+
+    it("has no accessibility violations in the plain and the stacked list, light and dark", async () => {
+      const { unmount } = renderLanes({ stack: { indexes: [0, 2], stacking: true } });
+      await expectNoA11yViolations();
+      document.documentElement.classList.add("dark");
+      try {
+        await expectNoA11yViolations();
+      } finally {
+        document.documentElement.classList.remove("dark");
+      }
+      unmount();
+      renderLanes();
       await expectNoA11yViolations();
     });
   });

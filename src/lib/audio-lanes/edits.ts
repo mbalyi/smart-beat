@@ -56,6 +56,25 @@ export function updateLane(audio: Audio, laneId: string, patch: Partial<AudioLan
   return mapLanes(audio, (l) => (l.id === laneId ? { ...l, ...patch, id: l.id } : l));
 }
 
+/**
+ * Shows a lane under the tabs in the continuous view or hides it there (it stays in the track
+ * list). Shown clears the flag rather than storing `false`. A folder carries its children: they
+ * are set, the folder itself is not (it follows its children).
+ */
+export function setLaneInScore(audio: Audio, laneId: string, shown: boolean): Audio {
+  const target = audio.lanes.find((l) => l.id === laneId);
+  if (!target) return audio;
+  const ids = new Set(
+    target.folder ? audio.lanes.filter((l) => l.parent === laneId).map((l) => l.id) : [laneId],
+  );
+  return mapLanes(audio, (l) => {
+    if (!ids.has(l.id)) return l;
+    const next: AudioLane = { ...l, hiddenInScore: true };
+    if (shown) delete next.hiddenInScore;
+    return next;
+  });
+}
+
 /** Moves a lane to another place in the list. */
 export function moveLane(audio: Audio, laneId: string, to: number): Audio {
   const from = audio.lanes.findIndex((l) => l.id === laneId);

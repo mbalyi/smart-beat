@@ -199,6 +199,57 @@ test.describe("lanes under the tabs in the continuous layout", () => {
     await expect(app.getByTestId("score-lanes-band")).toHaveCount(0);
   });
 
+  test("a lane's eye hides it from under the tabs and shows it again, and the lane stays listed", async ({
+    app,
+  }) => {
+    const band = await openWithBand(app);
+    const take = band.getByRole("group", { name: /Audio lane take under the score/ });
+    const other = band.getByRole("group", { name: /Audio lane other under the score/ });
+    await expect(take).toBeVisible();
+
+    const hide = app.getByRole("button", { name: "Hide lane take from under the tabs" });
+    await expect(hide).toHaveAttribute("aria-pressed", "true");
+    await hide.click();
+    await expect(take).toHaveCount(0);
+    await expect(other).toBeVisible();
+    // Still in the track list, with its eye off.
+    await expect(app.getByRole("button", { name: "Edit the lane take" })).toBeVisible();
+    await expect(
+      app.getByRole("button", { name: "Show lane take under the tabs" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    await expect
+      .poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes[0]?.hiddenInScore))
+      .toBe(true);
+
+    await app.getByRole("button", { name: "Show lane take under the tabs" }).click();
+    await expect(take).toBeVisible();
+    await expect
+      .poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes[0]?.hiddenInScore))
+      .toBeUndefined();
+  });
+
+  test("a lane's eye is in the same column as a tab's eye", async ({ app }) => {
+    await openWithBand(app);
+    const centre = async (name: string | RegExp) => {
+      const button = app.getByRole("button", { name });
+      await button.scrollIntoViewIfNeeded();
+      const box = (await button.boundingBox())!;
+      return box.x + box.width / 2;
+    };
+    const lane = await centre("Hide lane take from under the tabs");
+    expect(Math.abs((await centre("Hide lane other from under the tabs")) - lane)).toBeLessThan(1);
+    // Every tab row's eye, in the continuous layout (with and without the reorder handle).
+    for (const track of ["Guitar", "Bass", "Drums", "Piano"]) {
+      expect(Math.abs((await centre(`Visible: ${track}`)) - lane)).toBeLessThan(1);
+    }
+    // And in the page layout, where the column is narrower and has no handles.
+    await app.getByRole("radio", { name: "Page" }).click();
+    const plainLane = await centre("Hide lane take from under the tabs");
+    for (const track of ["Guitar", "Bass"]) {
+      expect(Math.abs((await centre(`Visible: ${track}`)) - plainLane)).toBeLessThan(1);
+    }
+  });
+
   for (const colorScheme of ["light", "dark"] as const) {
     test(`has no accessibility violations in ${colorScheme} mode`, async ({ app }) => {
       await app.emulateMedia({ colorScheme });
