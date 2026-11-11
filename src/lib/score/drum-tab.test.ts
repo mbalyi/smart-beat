@@ -1,4 +1,4 @@
-import { midi } from "@coderline/alphatab";
+import { LayoutMode, Settings, midi, rendering } from "@coderline/alphatab";
 
 import {
   buildMirror,
@@ -16,7 +16,7 @@ import {
   withoutDrumTabs,
 } from "@/lib/score/drum-tab";
 import { drumKey } from "@/lib/score/model";
-import { parseScore } from "@/lib/score/score";
+import { applyTrackView, parseScore, type NotationView } from "@/lib/score/score";
 import { generateMidi, noteOns } from "@/test/playback";
 import { fixtureBytes } from "@/test/score";
 
@@ -114,6 +114,44 @@ describe("the mirror staff", () => {
       }),
     ).toThrow("save failed");
     expect(track.staves).toHaveLength(2);
+  });
+
+  it("shares each bar's id with its drum bar, so the drum bar finds the mirror's renderer", () => {
+    const { track } = drums();
+    const mirror = buildMirror(track.staves[0]!);
+    expect(mirror.bars.map((b) => b.id)).toEqual(track.staves[0]!.bars.map((b) => b.id));
+  });
+});
+
+describe("the drum tab in the continuous view (#228)", () => {
+  /** Any visible width: alphaTab skips a render into a 0 px wide element. */
+  const VIEW_WIDTH = 1200;
+
+  /** Renders the drum track alone, one long line, and returns the drawn SVG parts and errors. */
+  function renderContinuous(notation: NotationView) {
+    const { score, track } = drums();
+    applyTrackView(track, { notation, rhythm: false });
+    const settings = new Settings();
+    settings.core.engine = "svg";
+    settings.core.enableLazyLoading = false;
+    settings.display.layoutMode = LayoutMode.Horizontal;
+    const renderer = new rendering.ScoreRenderer(settings);
+    renderer.width = VIEW_WIDTH;
+    const errors: unknown[] = [];
+    const parts: string[] = [];
+    renderer.error.on((e) => errors.push(e));
+    renderer.partialRenderFinished.on((e) => parts.push(String(e.renderResult ?? "")));
+    renderer.renderScore(score, [track.index]);
+    return { errors, svg: parts.join(""), track };
+  }
+
+  it.each<NotationView>(["tab", "score-tab"])("draws the drum numbers with %s", (notation) => {
+    const { errors, svg, track } = renderContinuous(notation);
+    expect(errors).toEqual([]);
+    const firstHit = mirrorOf(track)!
+      .bars.flatMap((b) => b.voices[0]!.beats)
+      .find((b) => b.notes.length > 0)!.notes[0]!;
+    expect(svg).toContain(`>${firstHit.fret}<`);
   });
 });
 

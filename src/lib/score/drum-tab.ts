@@ -127,6 +127,13 @@ export function buildMirror(drums: Staff): Staff {
   staff.showStandardNotation = false;
   for (const sourceBar of drums.bars) {
     const bar = new model.Bar();
+    // The continuous layout places each part of the line at the x of the
+    // first track's first staff's bar, looked up among the renderers of the
+    // first staff it draws. With "tab" only the drum staff is not drawn and
+    // that staff is the mirror, so the drum bar's id must find the mirror's
+    // bar. Sharing ids is safe: alphaTab keys bar renderers by staff kind
+    // ("score", "tab") and the drum staff never draws as tab.
+    bar.id = sourceBar.id;
     bar.clef = model.Clef.Neutral;
     for (const sourceVoice of sourceBar.voices) {
       const voice = new model.Voice();
