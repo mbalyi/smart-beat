@@ -8,6 +8,7 @@ import {
   KeyboardIcon,
   PauseIcon,
   PlayIcon,
+  ListPlusIcon,
   PlusIcon,
   Redo2Icon,
   Undo2Icon,
@@ -264,7 +265,7 @@ export function StudioView({
             <Redo2Icon />
           </Button>
           <Button variant="outline" size="sm" onClick={lanes.commands.addLane}>
-            <PlusIcon /> New audio lane
+            <ListPlusIcon /> New audio lane
           </Button>
           <Button variant="outline" size="sm" onClick={() => void lanes.chooseFile()}>
             <FileMusicIcon /> Import audio

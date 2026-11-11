@@ -7,6 +7,7 @@ import {
   CopyIcon,
   CopyPlusIcon,
   ListOrderedIcon,
+  ListPlusIcon,
   CrosshairIcon,
   DrumIcon,
   EyeIcon,
@@ -683,7 +684,7 @@ export function TrackList({
                     onClick={audio.onAdd}
                     data-tour="add-audio-lane"
                   >
-                    <PlusIcon />
+                    <ListPlusIcon />
                   </Button>
                 )}
                 {audio && (
