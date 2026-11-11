@@ -84,6 +84,21 @@ const COMMANDS: Record<string, (e: ScoreEditor) => void> = {
     e.copyBar(0);
     e.pasteBarsAfter(1);
   },
+  "insert a rest before": (e) => e.insertRest("before"),
+  "insert a rest after": (e) => e.insertRest("after"),
+  "delete several bars": (e) => {
+    e.deleteBars(1, 2);
+  },
+  "set a repeat end with a count": (e) => e.setRepeatEnd(3),
+  "cut a bar": (e) => {
+    e.cutBar(1);
+  },
+  "cut the selection and paste it": (e) => {
+    e.selectAll();
+    e.cut();
+    e.setCursorTo({ bar: 1, beat: 0 });
+    e.paste();
+  },
   transpose: (e) => e.transpose(1),
   "select all and delete": (e) => {
     e.selectAll();
