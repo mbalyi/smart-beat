@@ -21,6 +21,7 @@ Release notes for every version. The release workflow publishes the section that
 - Switching between open tabs in Edit mode puts the keyboard back where you were editing.
 - Pasting over a selection replaces it. When the pasted part is longer, it flows into new bars (a note crossing a bar line becomes two tied notes), so nothing after it is written over.
 - Sound: a new installation plays with SoundFonts. The effects engine is remembered only when you switch it on yourself.
+- Fixed: a drum track shown as Tab drew no numbers in the Continuous view.
 - Fixed: drums changed to other instruments after a tab was saved and opened again (a kick came back as a bongo, a crash as a tambourine). Files saved this way by older versions still open with the wrong drums.
 
 ## [1.2.0]
