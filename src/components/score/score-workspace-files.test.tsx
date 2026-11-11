@@ -656,11 +656,41 @@ describe("ScoreWorkspace: bar lengths", () => {
     await user.click(within(dialog).getByRole("button", { name: "Apply" }));
   }
 
+  /** Starts and stops playback: the bar check speaks up when the song is played. */
+  function playAndStop(player: FakeScorePlayer) {
+    player.emit("onPlayingChange", true);
+    player.emit("onPlayingChange", false);
+  }
+
+  it("keeps quiet while the bars are edited, and warns on playback and on save (#228)", async () => {
+    const { user, player } = await setup({ path: "/songs/practice-song.gp" });
+    await breakBar(user);
+    await act(async () => player.callbacks.onRendered?.());
+    // Still writing: no banner and no frames, the bars stay free to edit.
+    expect(screen.queryByRole("status", { name: "Bar lengths" })).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId("bar-problem")).toHaveLength(0);
+
+    player.emit("onPlayingChange", true);
+    expect(await screen.findByRole("status", { name: "Bar lengths" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("bar-problem")).toHaveLength(4);
+    player.emit("onPlayingChange", false);
+    expect(screen.getByRole("status", { name: "Bar lengths" })).toBeInTheDocument();
+
+    // The next edit hides it again, until the song is saved.
+    await user.click(screen.getByRole("button", { name: "Insert beat" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("status", { name: "Bar lengths" })).not.toBeInTheDocument(),
+    );
+    await menu("save");
+    expect(await screen.findByRole("status", { name: "Bar lengths" })).toBeInTheDocument();
+  });
+
   it("warns about bars with the wrong length, highlights them and fixes them", async () => {
     const { user, song, player } = await setup();
     expect(screen.queryByRole("status", { name: "Bar lengths" })).not.toBeInTheDocument();
 
     await breakBar(user);
+    playAndStop(player);
 
     const banner = await screen.findByRole("status", { name: "Bar lengths" });
     expect(banner).toHaveTextContent("4 bars have the wrong length: 1, 2, 3, 4");
@@ -682,6 +712,7 @@ describe("ScoreWorkspace: bar lengths", () => {
   it("goes to the first wrong bar", async () => {
     const { user, player } = await setup();
     await breakBar(user);
+    playAndStop(player);
     const banner = await screen.findByRole("status", { name: "Bar lengths" });
     await user.click(within(banner).getByRole("button", { name: "Go to bar 1" }));
     expect(player.seekToBar).toHaveBeenCalledWith(0);
@@ -823,10 +854,12 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
   it("loads a new audio track on the first try, even when the native engine was off", async () => {
     // Regression: the track waited for a restart, because nothing loaded it into the new player.
     const { user } = await setup({ path: "/songs/practice-song.gp" });
-    expect(localStorage.getItem("smart-beat:audio-engine")).not.toBe("native");
+    expect(localStorage.getItem("smart-beat:audio-engine:v2")).not.toBe("native");
     backend.dialogResult = "/music/take.mp3";
     await menu("add-audio-track");
-    await waitFor(() => expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native"));
+    await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
+    // The app switched by itself: only the user's own pick is remembered (#228).
+    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBeNull();
     // The switch made a new player; the recording goes into it once it is ready.
     await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
     const player = FakeScorePlayer.last;
@@ -850,7 +883,7 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
 
   it("loads the recording when the native engine plays", async () => {
     mockTauri();
-    localStorage.setItem("smart-beat:audio-engine", "native");
+    localStorage.setItem("smart-beat:audio-engine:v2", "native");
     const song = await makeSong("/songs/practice-song.gp");
     renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
     const player = FakeScorePlayer.last;
@@ -866,7 +899,7 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
 
   it("moves a playhead through the audio track and every track's bars while playing", async () => {
     mockTauri();
-    localStorage.setItem("smart-beat:audio-engine", "native");
+    localStorage.setItem("smart-beat:audio-engine:v2", "native");
     const song = await makeSong("/songs/practice-song.gp");
     renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
     const player = FakeScorePlayer.last;
@@ -905,7 +938,7 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
 
   it("adds a monitor track that plays the input chosen in Settings through its own pedalboard", async () => {
     mockTauri();
-    localStorage.setItem("smart-beat:audio-engine", "native");
+    localStorage.setItem("smart-beat:audio-engine:v2", "native");
     storeAudioInput({ deviceId: "scarlett", label: "Scarlett 2i2 USB" });
     storeAudioInputChannel(1);
     const song = await makeSong("/songs/practice-song.gp");
@@ -974,7 +1007,8 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     const popup = await screen.findByRole("dialog", { name: "Practice mix" });
     expect(within(popup).getByRole("button", { name: "Input effects" })).toBeDisabled();
     await user.click(within(popup).getByRole("switch", { name: "Monitor my input" }));
-    expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native");
+    await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
+    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBeNull();
     const player = FakeScorePlayer.last;
     player.becomeReady();
     const rig = player.options.mix.monitor;
@@ -1006,7 +1040,8 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     });
     expect(toggle).not.toBeChecked();
     await user.click(toggle);
-    expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native");
+    await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
+    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBeNull();
     expect(FakeScorePlayer.last.options.mix.monitor).toMatchObject({ enabled: true });
   });
 
@@ -1015,7 +1050,8 @@ describe("ScoreWorkspace: settings and the audio track in the song file", () => 
     rememberMonitorTrack({ ...DEFAULT_MONITOR, volume: 0.4, effects: [defaultEffect("delay")] });
     const { user } = await setup();
     await user.click(screen.getByRole("button", { name: "Add monitor track" }));
-    expect(localStorage.getItem("smart-beat:audio-engine")).toBe("native");
+    await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
+    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBeNull();
     expect(await toastWith("The monitor track plays your audio input live")).toBeInTheDocument();
     const row = await screen.findByTestId("monitor-track-row");
     expect(within(row).getByRole("slider", { name: "Volume, monitor track" })).toHaveAttribute(

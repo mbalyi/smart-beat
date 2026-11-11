@@ -1,4 +1,4 @@
-import { emitMenuAction, expect, newSong, openSong, test } from "./fixtures";
+import { emitMenuAction, expect, newSong, openSong, playAndStop, test } from "./fixtures";
 
 const VIEWPORTS = [
   { name: "narrow window", width: 375, height: 700, columns: 1 },
@@ -77,6 +77,7 @@ for (const { width, height } of [...VIEWPORTS, { width: 480, height: 360 }]) {
 
       await newSong(app);
       await app.getByRole("button", { name: "Insert beat" }).click();
+      await playAndStop(app);
       const banner = app.getByRole("status", { name: "Bar lengths" });
       await expect(banner).toBeVisible();
       expect(await overflowX()).toBeLessThanOrEqual(0);

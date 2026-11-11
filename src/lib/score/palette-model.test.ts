@@ -165,7 +165,7 @@ describe("palette model", () => {
     has((a) => a.type === "grace" && a.grace === model.GraceType.BeforeBeat);
     has((a) => a.type === "grace" && a.grace === model.GraceType.OnBeat);
     has((a) => a.type === "repeat" && a.side === "start");
-    has((a) => a.type === "repeat" && a.side === "end");
+    has((a) => a.type === "repeatEnd" && a.count === 2);
   });
 
   it("has the bar level boxes: all keys, time presets, tempo names, feels, endings and jumps", () => {

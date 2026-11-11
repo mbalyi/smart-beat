@@ -172,6 +172,9 @@ test.describe("fretboard and keyboard (#8)", () => {
     await app.keyboard.press("ArrowRight");
     await app.keyboard.type("46"); // open hi-hat on the next beat
     await expect.poll(() => editorStatus(app)).toMatch(/beat 2 of 32.*Hi-Hat \(open\)/);
+    // Down to an empty line: typed on the hi-hat's line, a number would replace it (#228).
+    await app.keyboard.press("ArrowDown");
+    await expect.poll(() => editorStatus(app)).toMatch(/of the drum tab, empty/);
     await app.keyboard.type("36"); // and a kick at the same time
     await expect.poll(() => editorStatus(app)).toMatch(/Kick \(hit\)/);
 

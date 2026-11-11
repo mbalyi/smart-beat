@@ -75,6 +75,7 @@ import { useM4aSupport, usePdfSupport } from "@/hooks/use-m4a-support";
 import { useMenuActions } from "@/hooks/use-menu-actions";
 import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
+import { useRestoreEditFocus } from "@/hooks/use-restore-edit-focus";
 import { useScoreEditor } from "@/hooks/use-score-editor";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { usePianoModel } from "@/hooks/use-piano-model";
@@ -129,6 +130,7 @@ import {
   type BarProblem,
 } from "@/lib/score/bar-duration";
 import { selectionRange, type EffectsInfo } from "@/lib/score/editor";
+import { editPlaySpan } from "@/lib/score/edit-playback";
 import type { EncodingChoice } from "@/lib/score/encoding";
 import {
   drumKitOf,
@@ -576,6 +578,11 @@ export function ScoreWorkspace({
   const [bar, setBar] = useState(0);
   const [playhead] = useState(() => new PlayheadStore());
   const [editing, setEditing] = useState(startEditing);
+  // The bar length check stays quiet while the music is being written (#228): it shows when the
+  // song is opened or saved and when playback starts, until the next edit.
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  if (playing && checkedAt !== revision) setCheckedAt(revision);
+  const showProblems = !editing || !editor.edited || checkedAt === revision;
   const [overlay, setOverlay] = useState<EditOverlay | null>(null);
   /** Beats of the shown track being played (or clicked while paused). */
   const [activeBeats, setActiveBeats] = useState<Beat[]>([]);
@@ -850,7 +857,12 @@ export function ScoreWorkspace({
   });
 
   const onBeatClick = useEffectEvent(
-    ({ beat, note, extend }: Parameters<NonNullable<ScorePlayerCallbacks["onBeatClick"]>>[0]) => {
+    ({
+      beat,
+      note,
+      extend,
+      line,
+    }: Parameters<NonNullable<ScorePlayerCallbacks["onBeatClick"]>>[0]) => {
       // Outside edit mode too, so a selection made there is kept for edit mode (#53).
       const clicked = beat.voice.bar.staff.track;
       if (clicked !== trackObject) {
@@ -860,7 +872,7 @@ export function ScoreWorkspace({
         changeTrack(index);
       } else if (extend) trackUsage("shift_select");
       editor.setCursorTo(
-        { bar: beat.voice.bar.index, beat: beat.index, voice: beat.voice.index, note },
+        { bar: beat.voice.bar.index, beat: beat.index, voice: beat.voice.index, note, line },
         extend,
       );
     },
@@ -1237,6 +1249,7 @@ export function ScoreWorkspace({
     onWhammy: () => openCurve("whammy"),
     onFermata: () => editor.toggleFermata(),
     onRepeat: (side) => editor.toggleRepeat(side),
+    onRepeatEnd: (count) => editor.setRepeatEnd(count),
     onText: () => setTextDialogOpen(true),
     onChord: () => setChordDialogOpen(true),
     onLyrics: () => openLyrics(trackObject),
@@ -1246,6 +1259,7 @@ export function ScoreWorkspace({
     fermata: editor.fermataState,
     repeatStart: editor.repeatState("start"),
     repeatEnd: editor.repeatState("end"),
+    repeatCount: editor.repeatCount(),
   };
 
   /** Chord names for the selected notes (or the cursor's), in the key's spelling. */
@@ -1267,6 +1281,8 @@ export function ScoreWorkspace({
     menuHandlesUndo: isTauri(),
     onBend: () => openCurve("bend"),
   });
+  // Back on this tab in edit mode: the keys go on from the edit cursor (#228).
+  useRestoreEditFocus(viewportRef, { active, editing });
 
   // Outside edit mode Escape clears a range dragged in the score (#53).
   useEffect(() => {
@@ -1406,7 +1422,7 @@ export function ScoreWorkspace({
       !engineOn &&
       nativeEngineAvailable()
     )
-      changeAudioEngine("native");
+      changeAudioEngine("native", false);
   };
 
   // --- Panels and Practice View (#83) ------------------------------------------------------
@@ -1773,14 +1789,18 @@ export function ScoreWorkspace({
     if (!playing) {
       trackUsage("play_soundfont", soundFontCounterId(getSoundFont(soundFont, soundFonts.fonts)));
     }
-    playerRef.current?.playPause();
+    // Edit mode plays from the edit cursor, or only the selected beats (#228).
+    const span = editing && !playing ? editPlaySpan(editor) : null;
+    if (span) playerRef.current?.playFrom(span.start, span.end);
+    else playerRef.current?.playPause();
   };
   useSpaceToPlay(playPause, ready && active && !recordBusy);
 
   // --- Effects and the native audio engine -------------------------------------
 
-  const changeAudioEngine = (kind: typeof audioEngine) => {
-    storeAudioEnginePreference(kind);
+  /** `remember` is false when the app switches by itself: only the user's own pick is kept. */
+  const changeAudioEngine = (kind: typeof audioEngine, remember = true) => {
+    if (remember) storeAudioEnginePreference(kind);
     setEffectProblems({ tracks: [], master: [] });
     setAudioEngine(kind);
   };
@@ -2015,7 +2035,7 @@ export function ScoreWorkspace({
       if (nativeEngineAvailable()) {
         // The audio track needs the native engine: switch to it, and the recording loads into
         // the new player (see the effect above).
-        changeAudioEngine("native");
+        changeAudioEngine("native", false);
         toast.info("Switched to effects playback for the audio track");
       } else {
         toast.info("The audio track plays with the native audio engine");
@@ -2445,6 +2465,32 @@ export function ScoreWorkspace({
     focusScore();
   };
 
+  /**
+   * A bar of a lane in the track panel was clicked. A track that is not in view is shown first,
+   * so the click opens the bar the user pointed at (#228). A track already in view (the shown
+   * one, or one stacked in the continuous view) keeps the view as it is: the click only seeks.
+   */
+  const seekLaneBar = (index: number, track: number) => {
+    const target = score.tracks[track];
+    const switching =
+      !!target &&
+      track !== trackIndex &&
+      !(layout === "horizontal" && stackRef.current.includes(target));
+    if (switching) changeTrack(track);
+    // Editing goes on at the clicked bar of the newly opened track (#228).
+    if (switching && editing) editor.setCursorTo({ bar: index, beat: 0, voice: 0 });
+    if (together.intercept({ kind: "seekBar", bar: index })) return;
+    playerRef.current?.seekToBar(index);
+    if (!switching) return;
+    // That seek scrolled to where the bar is drawn on the old track; the new one is drawn a
+    // moment later, so scroll to the bar again then. Not while playing: seeking again would jump
+    // back, and the score follows the playing bar by itself.
+    afterRender.current = () => {
+      const player = playerRef.current;
+      if (player && !player.isPlaying()) player.seekToBar(index);
+    };
+  };
+
   /** The bars the Shift-selected range covers, or null. */
   const selectedBars = (): LoopRange | null => {
     const selection = editor.selection;
@@ -2483,8 +2529,20 @@ export function ScoreWorkspace({
     onInsertBarAfter: (at) => editor.insertBar("after", at),
     onCopyBar: (at) => editor.copyBar(at),
     onCutBar: (at) => editor.cutBar(at),
-    onDeleteBar: (at) => editor.deleteBar(at),
+    onDeleteBars: (start, end) => editor.deleteBars(start, end),
     onPasteBarsAfter: (at) => editor.pasteBarsAfter(at),
+    onRepeatEnd: (at, count) => editor.setRepeatEnd(count, at),
+    onInsertRest: (where, beat) => {
+      // A right-clicked beat of this track becomes the cursor's beat first (#228).
+      if (beat && beat.voice.bar.staff.track === trackObject) {
+        editor.setCursorTo({
+          bar: beat.voice.bar.index,
+          beat: beat.index,
+          voice: beat.voice.index,
+        });
+      }
+      editor.insertRest(where);
+    },
     onLoopSelection: () => {
       const range = selectedBars();
       if (!range) return;
@@ -2876,7 +2934,11 @@ export function ScoreWorkspace({
         }
       />
       {tabs}
-      <BarProblems problems={problems} onFix={() => fixBars()} onGoTo={goToBar} />
+      <BarProblems
+        problems={showProblems ? problems : []}
+        onFix={() => fixBars()}
+        onGoTo={goToBar}
+      />
       {/* Palette | score | inspector; below 1024 px the palette stacks above the score. */}
       <div className="relative flex min-h-72 flex-1 max-lg:flex-col">
         <NotePalette editing={editing}>
@@ -2908,6 +2970,11 @@ export function ScoreWorkspace({
               const rect = surfaceRef.current?.getBoundingClientRect();
               return rect ? (playerRef.current?.barAt(x - rect.left, y - rect.top) ?? null) : null;
             }}
+            repeatCountAt={(at) => editor.repeatCount(at)}
+            beatAt={(x, y) => {
+              const rect = surfaceRef.current?.getBoundingClientRect();
+              return rect ? (playerRef.current?.beatAt(x - rect.left, y - rect.top) ?? null) : null;
+            }}
             sections={sections}
             actions={scoreMenuActions}
             selection={selectedBars()}
@@ -2923,7 +2990,7 @@ export function ScoreWorkspace({
               editing={editing}
               playing={playing}
               overlay={overlay}
-              problemRects={problemRects}
+              problemRects={showProblems ? problemRects : []}
               describedBy={editing ? statusId : undefined}
             />
           </ScoreContextMenu>
@@ -3034,7 +3101,9 @@ export function ScoreWorkspace({
                 onCopyToInstrument: () => setCopyTrack(trackObject),
               }}
               audioEngine={audioEngine}
-              onAudioEngineChange={nativeEngineAvailable() ? changeAudioEngine : undefined}
+              onAudioEngineChange={
+                nativeEngineAvailable() ? (kind) => changeAudioEngine(kind) : undefined
+              }
               effects={trackEffects(mix, trackIndex)}
               effectProblems={effectProblems.tracks[trackIndex]?.flat().length ?? 0}
               onEffectsChange={(slots) => changeMix({ type: "effects", track: trackIndex, slots })}
@@ -3079,11 +3148,7 @@ export function ScoreWorkspace({
           onReset={resetMix}
           actions={trackActions}
           bar={bar}
-          onSeekBar={(index) => {
-            if (!together.intercept({ kind: "seekBar", bar: index })) {
-              playerRef.current?.seekToBar(index);
-            }
-          }}
+          onSeekBar={seekLaneBar}
           saved={saved}
           playing={playing}
           playhead={playhead}

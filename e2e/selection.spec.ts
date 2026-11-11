@@ -58,6 +58,39 @@ test.describe("Shift selection (#92)", () => {
     await expect(app.getByRole("spinbutton", { name: "Loop to bar" })).toHaveValue("3");
     await expect(app.getByTestId("edit-selection")).not.toHaveCount(0);
   });
+
+  test("shows only the editor's selection in edit mode, also while it plays (#228)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await app.getByRole("button", { name: "Edit" }).click();
+    await waitForAnimations(app); // the palette slides in and moves the score
+    const notes = await tabNoteCenters(app);
+    await app.mouse.click(notes[1]!.x, notes[1]!.y);
+    await app.keyboard.down("Shift");
+    await app.mouse.click(notes[9]!.x, notes[9]!.y);
+    await app.keyboard.up("Shift");
+    await expect(app.getByTestId("edit-selection")).not.toHaveCount(0);
+
+    // Shift+click must not select the notation's glyphs as text (painted blue by the browser).
+    const selectedText = () => app.evaluate(() => window.getSelection()?.toString() ?? "");
+    expect(await selectedText()).toBe("");
+    expect(
+      await scoreRegion(app)
+        .locator(".score-paper")
+        .evaluate((el) => getComputedStyle(el).userSelect),
+    ).toBe("none");
+
+    // Looping the selection while it plays: alphaTab's own range highlight stays hidden.
+    await app.getByRole("button", { name: "Loop" }).click();
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(scoreRegion(app)).toHaveAttribute("data-playing", "true");
+    await expect(highlight(app)).not.toHaveCount(0);
+    for (const box of await highlight(app).all()) await expect(box).toBeHidden();
+    await expect(app.getByTestId("edit-selection")).not.toHaveCount(0);
+    await app.getByRole("button", { name: "Pause" }).click();
+  });
 });
 
 /** A mouse selection stays after the button is released (#53). */

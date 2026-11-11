@@ -351,6 +351,19 @@ export async function expectTab(page: Page, numbers: string[]) {
   await expect.poll(() => tabNumbers(page), { timeout: 10_000 }).toEqual(numbers);
 }
 
+/**
+ * Plays the song for a moment and stops it. The bar length check stays quiet while music is
+ * written and speaks up when playback starts (#228).
+ */
+export async function playAndStop(page: Page) {
+  const play = page.getByRole("button", { name: "Play" });
+  await expect(play).toBeEnabled({ timeout: 30_000 });
+  await play.click();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(play).toBeVisible();
+}
+
 /** The 0:00 / 0:12 display, as seconds played. */
 export async function playedSeconds(page: Page): Promise<number> {
   const text = (await page.getByRole("timer").textContent()) ?? "";

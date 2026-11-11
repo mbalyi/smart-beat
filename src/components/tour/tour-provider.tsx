@@ -250,8 +250,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
       if (el && el !== marked) {
         marked?.removeAttribute("data-tour-active");
         el.setAttribute("data-tour-active", "");
-        // A target inside a dialog may sit below the fold of the dialog's scrolling body.
-        if (el.closest("[data-slot=dialog-content]"))
+        // A target inside a dialog or the note palette may sit below the fold of its scrolling body.
+        if (el.closest("[data-slot=dialog-content], [data-tour=note-palette]"))
           el.scrollIntoView({ block: "nearest", behavior: "instant" });
         marked = el;
       }

@@ -14,6 +14,7 @@ import { importer, model, Settings } from "@coderline/alphatab";
 import { placeFrets, type PlacedGroup } from "@/lib/import/fret-placement";
 import { findGrid, fitsGrid, gridError } from "@/lib/import/midi-grid";
 import { fillDurations } from "@/lib/score/bar-duration";
+import { drumValueFor } from "@/lib/score/drum-kit";
 import { ScoreLoadError } from "@/lib/score/errors";
 import { newBeat, placeholderBeats, refinish, type Score, type Track } from "@/lib/score/model";
 import {
@@ -521,11 +522,8 @@ export function fillTrack(
         for (const pitch of [...group.pitches].sort((a, b) => b - a)) {
           const note = new model.Note();
           if (drums) {
-            // Tracks with their own articulations (Guitar Pro 6+) refer to them by index.
-            const own = track.percussionArticulations.findIndex(
-              (a) => a.outputMidiNumber === pitch,
-            );
-            note.percussionArticulation = own >= 0 ? own : pitch;
+            // Tracks with their own kit (Guitar Pro 6+) refer to it by index (#229).
+            note.percussionArticulation = drumValueFor(track, pitch);
           } else {
             // A transposing staff sounds its written value minus its transposition: write what
             // gives the pitch that was heard.

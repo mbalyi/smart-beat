@@ -49,7 +49,7 @@ import {
   pruneMirrors,
   removeMirrorNotes,
 } from "@/lib/score/drum-tab";
-import { DRUM_TAB_LINES } from "@/lib/score/drum-lines";
+import { DRUM_TAB_LINES, drumLineAtY } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import {
@@ -169,7 +169,13 @@ export interface ScorePlayerCallbacks {
   /** Beats of the shown track being played (or clicked while paused). */
   onActiveBeatsChange?: (beats: Beat[]) => void;
   /** A beat (and the note, if any) was clicked. `extend`: with Shift held. */
-  onBeatClick?: (target: { beat: Beat; note: Note | null; extend: boolean }) => void;
+  onBeatClick?: (target: {
+    beat: Beat;
+    note: Note | null;
+    extend: boolean;
+    /** A click on the drum tab: the line clicked (1 = bottom), written on or not (#228). */
+    line?: number | null;
+  }) => void;
   /** The mouse was dragged onto another beat after a click. */
   onBeatDrag?: (beat: Beat) => void;
   /** Rendering finished: beat and note positions are up to date. */
@@ -369,6 +375,8 @@ export class ScorePlayer {
   private editing = false;
   /** Shift was held on the last pointer press in the score. */
   private shiftDown = false;
+  /** Where the last click landed, in the drawing's pixels (for clicks on the drum tab). */
+  private pointerY: number | null = null;
   /** A SoundFont is loaded in the synthesizer (none right after a reset). */
   private hasSounds = false;
   private readonly synthReady: Promise<void>;
@@ -418,19 +426,28 @@ export class ScorePlayer {
     this.api.customCursorHandler = createCursorHandler(this.delayer, !options.reducedMotion);
     // alphaTab scrolls the view as the cursor moves: delay that too, so the
     // view follows what is heard (the delay is 0 while paused, e.g. for seeks).
+    // In edit mode, while the song is not playing, the view belongs to the editor: alphaTab
+    // scrolls to the start of the playback cursor's bar (or line) after every render, so each
+    // edit would move the view away from the note being edited (#228). The score view keeps the
+    // edit cursor in sight itself, and only when it would leave the view.
     const ui = this.api.uiFacade as unknown as {
       scrollToY: (...args: unknown[]) => void;
       scrollToX: (...args: unknown[]) => void;
     };
     for (const method of ["scrollToY", "scrollToX"] as const) {
       const original = ui[method].bind(ui);
-      ui[method] = (...args: unknown[]) => this.delayer.run(() => original(...args));
+      ui[method] = (...args: unknown[]) => {
+        if (this.editing && !this.playing) return;
+        this.delayer.run(() => original(...args));
+      };
     }
     // alphaTab reports clicked beats without the mouse event: remember Shift.
     options.element.addEventListener(
       "pointerdown",
       (event) => {
         this.shiftDown = event.shiftKey;
+        const rect = options.element.getBoundingClientRect();
+        this.pointerY = event.clientY - rect.top;
       },
       { capture: true },
     );
@@ -462,6 +479,7 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
+      if (!this.playing) this.once = null;
       if (this.seekLocked) this.updateInteraction();
       if (this.playing && !this.latencyMeasured && !this.engine) {
         this.latencyMeasured = true;
@@ -478,12 +496,13 @@ export class ScorePlayer {
     // Also fires when a MIDI file is loaded (with the song length). Don't use
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
     // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
-    api.playerPositionChanged.on((e) =>
+    api.playerPositionChanged.on((e) => {
+      this.stopAfterOnce(e.currentTick);
       this.delayer.run(() => {
         this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo);
         this.reportBarPosition(e.currentTick);
-      }),
-    );
+      });
+    });
     // alphaTab leaves slap, pop, tapping, pick strokes and wah silent: make them
     // audible in the MIDI it just generated (its tick lookup is ready by now).
     api.midiLoad.on((file) => {
@@ -535,7 +554,12 @@ export class ScorePlayer {
       // The note (if any) is reported right after the beat: wait for it.
       const extend = this.shiftDown;
       this.clickedNote = null;
-      queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend }));
+      // The line comes from the height of the click, not from which staff's beat was reported:
+      // alphaTab picks the beat by x alone among all the staves of a line, so with "Score + tab"
+      // a click on the tab strip reports the drum staff's beat drawn at the same x (#228).
+      // A click on the drum staff itself is too far above the tab strip to find a line there.
+      const line = this.drumLineAt(beat, this.pointerY);
+      queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend, line }));
     });
     api.noteMouseDown.on((note) => {
       this.clickedNote = realNoteOf(note);
@@ -1176,6 +1200,7 @@ export class ScorePlayer {
 
   private cancelSynthCount() {
     if (!this.synthCount) return;
+    this.once = null; // paused during the count-in: the selection is not played
     clearTimeout(this.synthCount.timer);
     this.synthCount.run?.cancel();
     this.synthCount = null;
@@ -1348,6 +1373,22 @@ export class ScorePlayer {
     return { x, y: bar.y + (DRUM_TAB_LINES - line) * spacing - spacing / 2, w, h: spacing + 1 };
   }
 
+  /** The line of the drum tab drawn at a height of a drum beat (1 = bottom), or null. */
+  private drumLineAt(beat: Beat, y: number | null): number | null {
+    const mirror = y === null ? null : mirrorBeatOf(beat);
+    const bounds = mirror ? this.api.boundsLookup?.findBeats(mirror)?.[0] : undefined;
+    return bounds && y !== null ? drumLineAtY(bounds.barBounds.visualBounds, y) : null;
+  }
+
+  /**
+   * The beat drawn at a point of the score, in the drawing's own pixels (a beat of the drum tab
+   * is its drum beat), or null. For the score's right-click menu (#228).
+   */
+  beatAt(x: number, y: number): Beat | null {
+    const beat = this.api.boundsLookup?.getBeatAtPos(x, y);
+    return beat ? realBeatOf(beat) : null;
+  }
+
   /**
    * The bar drawn at a point of the score, in the drawing's own pixels (from the top left of
    * the surface), or null between the bars. For the score's right-click menu (#83): alphaTab
@@ -1367,10 +1408,49 @@ export class ScorePlayer {
     return null;
   }
 
+  /**
+   * Edit mode: the selected beats being played once (#228), or null. Watched on the position
+   * events rather than set as alphaTab's playback range: its synthesizer can stall at the end of
+   * a range that does not loop, and the native engine knows no such range.
+   */
+  private once: { startTick: number; endTick: number } | null = null;
+
+  /**
+   * Edit mode (#228): plays from `start` to the end of the song, or, with `end`, only to the end
+   * of that beat, and then stops back at `start`. A loop keeps playing its own bars. Does nothing
+   * while playing or before the sounds are loaded.
+   */
+  playFrom(start: Beat, end: Beat | null = null) {
+    if (!this.ready || this.playing) return;
+    this.flushMidi(); // the beats' ticks come from the MIDI: it must hold the last edits
+    const cache = this.api.tickCache;
+    const startTick = cache?.getBeatStart(start);
+    if (cache == null || startTick === undefined) return;
+    this.seekToBeat(start); // (forgets an earlier selection: set the new one after it)
+    this.once =
+      end && !this.loop
+        ? {
+            startTick,
+            endTick: Math.max(startTick + 1, cache.getBeatStart(end) + end.playbackDuration),
+          }
+        : null;
+    this.playPause();
+  }
+
+  /** The selection played once has been heard to its end: stop, back at its start. */
+  private stopAfterOnce(tick: number) {
+    const once = this.once;
+    if (!once || !this.playing || tick < once.endTick) return;
+    this.once = null;
+    this.playPause();
+    this.api.tickPosition = once.startTick;
+  }
+
   /** Moves the playback cursor to a beat. */
   seekToBeat(beat: Beat) {
     const tick = this.api.tickCache?.getBeatStart(beat);
     if (tick === undefined) return;
+    this.once = null; // the user moved on: a selection played once is forgotten
     this.delayer.clear();
     this.restartPending = false;
     this.api.tickPosition = tick;

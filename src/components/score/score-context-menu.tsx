@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
+  BetweenVerticalEndIcon,
+  BetweenVerticalStartIcon,
   ClipboardCopyIcon,
   ClipboardPasteIcon,
   GaugeIcon,
@@ -17,9 +19,15 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import type { Beat } from "@/lib/score/model";
 import { describeRange } from "@/lib/score/practice";
 import { sectionAt, type SongSection } from "@/lib/score/structure";
 
@@ -44,10 +52,21 @@ export interface ScoreMenuActions {
   onInsertBarAfter: (bar: number) => void;
   onCopyBar: (bar: number) => void;
   onCutBar: (bar: number) => void;
-  onDeleteBar: (bar: number) => void;
+  /** Bars `start`–`end` (inclusive): the selected bars, or just the right-clicked one (#228). */
+  onDeleteBars: (start: number, end: number) => void;
   /** Inserts the copied bars as new bars after this one. */
   onPasteBarsAfter: (bar: number) => void;
+  /**
+   * Edit Mode: a rest before or after the beat that was right-clicked (null: the edit cursor's
+   * beat), as long as the note value the palette shows (#228).
+   */
+  onInsertRest: (where: "before" | "after", beat: Beat | null) => void;
+  /** Edit Mode: ends a repeat at the bar that plays `count` times; 0 removes it (#228). */
+  onRepeatEnd: (bar: number, count: number) => void;
 }
+
+/** The repeat counts the menu offers; another count in the file is offered too. */
+const REPEAT_COUNTS = [2, 3, 4, 5, 6, 7, 8];
 
 /** The bars a score selection covers (0-based, inclusive). */
 export interface SelectionBars {
@@ -63,6 +82,8 @@ export interface SelectionBars {
 export function ScoreContextMenu({
   children,
   barAt,
+  beatAt = () => null,
+  repeatCountAt = () => 0,
   sections,
   actions,
   selection = null,
@@ -72,6 +93,10 @@ export function ScoreContextMenu({
   children: ReactNode;
   /** The bar (0-based) under a point of the window, or null. */
   barAt: (clientX: number, clientY: number) => number | null;
+  /** The beat under a point of the window, or null (alphaTab only reports left clicks). */
+  beatAt?: (clientX: number, clientY: number) => Beat | null;
+  /** How many times the repeat ending at a bar plays (0: none). */
+  repeatCountAt?: (bar: number) => number;
   sections: readonly SongSection[];
   actions: ScoreMenuActions;
   /** The selected range: its actions are offered while there is one. */
@@ -82,8 +107,23 @@ export function ScoreContextMenu({
   canPaste?: boolean;
 }) {
   const [bar, setBar] = useState<number | null>(null);
+  const [beat, setBeat] = useState<Beat | null>(null);
   const section = bar === null ? null : sectionAt(sections, bar);
   const on = bar !== null;
+  const repeatCount = bar === null ? 0 : repeatCountAt(bar);
+  const counts =
+    repeatCount > 0 && !REPEAT_COUNTS.includes(repeatCount)
+      ? [...REPEAT_COUNTS, repeatCount].sort((a, b) => a - b)
+      : REPEAT_COUNTS;
+  // A selection over several bars, right-clicked inside it: Delete removes all of them (#228).
+  const inSelection =
+    selection !== null &&
+    bar !== null &&
+    selection.end > selection.start &&
+    bar >= selection.start &&
+    bar <= selection.end;
+  const deleted = inSelection ? selection : bar === null ? null : { start: bar, end: bar };
+  const deletedCount = deleted ? deleted.end - deleted.start + 1 : 1;
   const run = (action: (bar: number) => void) => () => {
     if (bar !== null) action(bar);
   };
@@ -93,7 +133,10 @@ export function ScoreContextMenu({
       <ContextMenuTrigger
         asChild
         // Which bar was clicked, before the menu opens.
-        onContextMenu={(event) => setBar(barAt(event.clientX, event.clientY))}
+        onContextMenu={(event) => {
+          setBar(barAt(event.clientX, event.clientY));
+          setBeat(beatAt(event.clientX, event.clientY));
+        }}
       >
         <div className="contents">{children}</div>
       </ContextMenuTrigger>
@@ -159,10 +202,40 @@ export function ScoreContextMenu({
                 Paste bar after
               </ContextMenuItem>
             )}
-            <ContextMenuItem onSelect={run(actions.onDeleteBar)}>
+            <ContextMenuItem
+              onSelect={() => deleted && actions.onDeleteBars(deleted.start, deleted.end)}
+            >
               <Trash2Icon />
-              Delete bar
+              {deletedCount > 1 ? `Delete ${deletedCount} bars` : "Delete bar"}
             </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => actions.onInsertRest("before", beat)}>
+              <BetweenVerticalStartIcon />
+              Insert rest before
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => actions.onInsertRest("after", beat)}>
+              <BetweenVerticalEndIcon />
+              Insert rest after
+            </ContextMenuItem>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <RepeatIcon />
+                Repeat end
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent aria-label="Repeat end">
+                <ContextMenuRadioGroup value={String(repeatCount)}>
+                  {[0, ...counts].map((count) => (
+                    <ContextMenuRadioItem
+                      key={count}
+                      value={String(count)}
+                      onSelect={run((at) => actions.onRepeatEnd(at, count))}
+                    >
+                      {count === 0 ? "No repeat end" : `Play ${count} times`}
+                    </ContextMenuRadioItem>
+                  ))}
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
           </>
         )}
         <ContextMenuSeparator />

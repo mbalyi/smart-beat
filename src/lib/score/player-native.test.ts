@@ -258,4 +258,32 @@ describe("ScorePlayer with the native engine", () => {
     player.setLoopCountIn(false);
     expect(setLoop).toHaveBeenLastCalledWith(expect.any(Object), null);
   });
+
+  it("stops at the end of a selection played from edit mode (#228)", async () => {
+    const { player, api, onReadyChange } = await setup();
+    api.player.ready.trigger();
+    api.player.readyForPlayback.trigger();
+    await vi.waitFor(() => expect(onReadyChange).toHaveBeenCalledWith(true));
+    const beats = player["score"].tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats;
+    const position = (currentTick: number) =>
+      api.playerPositionChanged.trigger({
+        currentTime: 0,
+        endTime: 12_000,
+        currentTick,
+        originalTempo: 60,
+        modifiedTempo: 60,
+      });
+
+    player.playFrom(beats[0]!, beats[1]!);
+    expect(api.playPause).toHaveBeenCalledOnce();
+    position(1000);
+    expect(player.isPlaying()).toBe(true);
+
+    // The engine plays on past the range: the player pauses at its end, back at the start.
+    position(1920);
+    expect(api.playPause).toHaveBeenCalledTimes(2);
+    expect(player.isPlaying()).toBe(false);
+    expect(api.playbackRange).toBeNull();
+    expect(api.tickPosition).toBe(0);
+  });
 });

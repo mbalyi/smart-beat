@@ -5,6 +5,7 @@ import {
   expectTab,
   newSong,
   openSong,
+  playedSeconds,
   scoreRegion,
   tabNumbers,
   test,
@@ -94,6 +95,27 @@ test.describe("note entry and editing (#9)", () => {
     await expect(scoreRegion(app)).toBeFocused(); // typing continues in the score
   });
 
+  test("fills a short bar step by step: a run of rests, then notes on them (#228)", async ({
+    app,
+  }) => {
+    await newSong(app);
+    await app.keyboard.press("Shift+5"); // 16th notes
+    await app.keyboard.press("0");
+    // Four 16th rests after the note: the short bar keeps growing as the cursor moves on.
+    for (let i = 0; i < 4; i++) await app.keyboard.press("ArrowRight");
+    await expect.poll(() => editorStatus(app)).toMatch(/^Bar 1, beat 5 of 5/);
+    // While writing, the bar length warning stays out of the way.
+    await expect(app.getByRole("status", { name: "Bar lengths" })).toBeHidden();
+    await expect(app.getByTestId("bar-problem")).toHaveCount(0);
+
+    for (const fret of ["3", "5"]) {
+      await app.keyboard.press("ArrowLeft");
+      await app.keyboard.press(fret);
+    }
+    await expectTab(app, ["0", "5", "3"]);
+    expect(await editorStatus(app)).toMatch(/^Bar 1, beat 3 of 5/);
+  });
+
   test("copies, cuts and pastes beats", async ({ app }) => {
     await newSong(app);
     await app.keyboard.press("1");
@@ -126,6 +148,36 @@ test.describe("note entry and editing (#9)", () => {
     // alphaTab draws voice 2 first.
     await expect.poll(async () => (await tabNumbers(app)).sort()).toEqual(["0", "2"]);
     await expect(app.getByRole("button", { name: "Voice, Voice 2" })).toBeVisible();
+  });
+
+  test("plays from the edit cursor, and only the selected beats (#228)", async ({ app }) => {
+    await openSong(app);
+    await app.getByRole("button", { name: "Edit" }).click();
+    await waitForAnimations(app); // the palette slides in and moves the score
+    await expect(scoreRegion(app)).toBeFocused();
+    const bar = app.getByRole("spinbutton", { name: "Bar" });
+
+    // Bar 3 starts 8 s in (two 4/4 bars at 60 BPM).
+    await app.keyboard.press("ControlOrMeta+ArrowRight");
+    await app.keyboard.press("ControlOrMeta+ArrowRight");
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(bar).toHaveValue("3");
+    expect(await playedSeconds(app)).toBeGreaterThanOrEqual(8);
+    await app.getByRole("button", { name: "Pause" }).click();
+
+    // Two beats of bar 1 selected: they play (2 s), then playback stops by itself.
+    await scoreRegion(app).focus();
+    await app.keyboard.press("ControlOrMeta+ArrowLeft");
+    await app.keyboard.press("ControlOrMeta+ArrowLeft");
+    await app.keyboard.press("Shift+ArrowRight");
+    await expect(app.getByTestId("edit-selection")).not.toHaveCount(0);
+    await app.getByRole("button", { name: "Play" }).click();
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(bar).toHaveValue("1");
+    await expect(app.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 10_000 });
+    await expect(bar).toHaveValue("1");
+    expect(await playedSeconds(app)).toBeLessThan(4);
   });
 
   test("places the cursor by clicking a note in the score", async ({ app }) => {

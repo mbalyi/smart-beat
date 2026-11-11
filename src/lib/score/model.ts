@@ -257,6 +257,14 @@ export function removeMasterBar(score: Score, index: number): void {
   }
 }
 
+/** Empties a bar: each voice gets its placeholder back (a bar rest, or an empty beat). */
+export function clearBar(bar: Bar): void {
+  for (const voice of bar.voices) {
+    voice.beats.splice(0, voice.beats.length);
+    for (const beat of placeholderBeats(bar.masterBar, voice.index)) voice.addBeat(beat);
+  }
+}
+
 /** Makes sure every bar of the staff has at least `count` voices. */
 export function ensureVoices(staff: Staff, count: number): void {
   for (const bar of staff.bars) {
@@ -275,10 +283,21 @@ export const tuningOf = (staff: Staff): number[] => staff.stringTuning.tunings;
  * default ones (e.g. 92 "Hi-Hat (half)").
  */
 export function drumNumber(note: Note): number {
-  const articulations = note.beat.voice.bar.staff.track.percussionArticulations;
-  return (
-    articulations[note.percussionArticulation]?.outputMidiNumber ?? note.percussionArticulation
-  );
+  return drumNumberOf(note.beat.voice.bar.staff.track, note.percussionArticulation);
+}
+
+/**
+ * The drum number a `percussionArticulation` value stands for on a track (see `drumNumber`).
+ * Works for a detached note too, e.g. one on the clipboard.
+ */
+export function drumNumberOf(track: Track, value: number): number {
+  const own = track.percussionArticulations[value];
+  if (!own) return value;
+  // A drum of its own that plays another's key keeps its number: the snare rim shot (91)
+  // plays the snare's 38, but is still the rim shot (#229).
+  return own.id !== own.outputMidiNumber && drumOutputKey(own.id) === own.outputMidiNumber
+    ? own.id
+    : own.outputMidiNumber;
 }
 
 /** The MIDI key a drum note sounds (92 "Hi-Hat (half)" plays 46, as alphaTab does). */

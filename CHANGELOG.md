@@ -8,6 +8,23 @@ Release notes for every version. The release workflow publishes the section that
 
 - Edit mode: the edit palette is now a compact grid of icons. Point at an icon to see its name and shortcut; an icon with several choices (key, time signature, tempo, jumps, tuplet, slide, harmonic and more) opens a small box of them and keeps your pick. The key, tempo, triplet feel, repeat endings and every jump can be set from the palette too, not only from the Bar dialog.
 - Edit mode: the note you are editing is shown with a quiet outline around its fret number instead of a big box and a vertical line, and a selection of beats is one light rectangle per line of music. Options you have switched on are shown in purple, and the palette is light or dark with the app. The icon under the pointer lights up in purple from the inside, and its border lines reach past its corners.
+- Edit mode: insert a rest before or after a note with I and Shift+I, or from the right-click menu (Insert rest before, Insert rest after). The rest is as long as the note value in the palette.
+- Edit mode: a bar that is too short or too long no longer stops you from editing it. Type a run of rests first and fill them in later; the bar lengths are checked when you play or save.
+- Edit mode: Play starts at the note you are on, and plays only the selection when you have selected some beats.
+- Edit mode: copy in one open tab and paste in another.
+- Edit mode: only the purple selection is shown, without the blue highlight on top of it.
+- Edit mode: choose how many times a repeat plays (2 to 8 times) from the palette's Repeat end box, and change it later from the right-click menu. Larger counts are in the Bar dialog.
+- Drum tab: click any line to put the cursor there and write the drum you type on it.
+- Drum tab: put the cursor on a drum (with the Up and Down arrows or a click) and type another number to replace it on the same line. Every number you type replaces it again; to add a second drum to the beat, such as a kick under a crash, put the cursor on an empty line first.
+- Drum tab: a click on any line of the tab, also under the drum staff in Score + tab and where there is no note yet, puts the cursor on that line.
+- Tracks panel: clicking a bar in another track's lane opens that track at the bar (in Edit mode with the cursor on it).
+- Edit mode: Delete removes every selected beat, also rests, in one step.
+- Edit mode: the score stays where it is while you delete or change notes. It only scrolls when the note you are on would leave the view, and then just far enough to show it.
+- Switching between open tabs in Edit mode puts the keyboard back where you were editing.
+- Pasting over a selection replaces it. When the pasted part is longer, it flows into new bars (a note crossing a bar line becomes two tied notes), so nothing after it is written over.
+- Sound: a new installation plays with SoundFonts. The effects engine is remembered only when you switch it on yourself.
+- Fixed: a drum track shown as Tab drew no numbers in the Continuous view.
+- Fixed: drums changed to other instruments after a tab was saved and opened again (a kick came back as a bongo, a crash as a tambourine). Files saved this way by older versions still open with the wrong drums.
 
 ## [1.2.0]
 

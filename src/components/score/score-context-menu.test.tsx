@@ -1,9 +1,19 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 
 import { ScoreContextMenu, type ScoreMenuActions } from "@/components/score/score-context-menu";
+import type { SelectionBars } from "@/components/score/score-context-menu";
+import { newBeat, type Beat } from "@/lib/score/model";
 import { renderWithProviders } from "@/test/render";
 
-function setup(props: { editing?: boolean; canPaste?: boolean } = {}) {
+function setup(
+  props: {
+    editing?: boolean;
+    canPaste?: boolean;
+    beatAt?: () => Beat | null;
+    repeatCountAt?: () => number;
+    selection?: SelectionBars | null;
+  } = {},
+) {
   const actions = Object.fromEntries(
     [
       "onPlayFrom",
@@ -22,8 +32,10 @@ function setup(props: { editing?: boolean; canPaste?: boolean } = {}) {
       "onInsertBarAfter",
       "onCopyBar",
       "onCutBar",
-      "onDeleteBar",
+      "onDeleteBars",
       "onPasteBarsAfter",
+      "onInsertRest",
+      "onRepeatEnd",
     ].map((name) => [name, vi.fn()]),
   ) as unknown as ScoreMenuActions;
   const ui = renderWithProviders(
@@ -54,10 +66,74 @@ describe("ScoreContextMenu: bars (Edit Mode)", () => {
     expect(actions.onInsertBarAfter).toHaveBeenCalledWith(2);
   });
 
+  it("inserts a rest before or after the right-clicked beat (#228)", async () => {
+    const beat = newBeat(4);
+    const { user, actions } = setup({ editing: true, beatAt: () => beat });
+    await user.click(await screen.findByRole("menuitem", { name: "Insert rest before" }));
+    expect(actions.onInsertRest).toHaveBeenCalledWith("before", beat);
+
+    fireEvent.contextMenu(screen.getByTestId("score"));
+    await user.click(await screen.findByRole("menuitem", { name: "Insert rest after" }));
+    expect(actions.onInsertRest).toHaveBeenLastCalledWith("after", beat);
+  });
+
+  it("sets how many times the repeat ending at the bar plays (#228)", async () => {
+    const { user, actions } = setup({ editing: true, repeatCountAt: () => 12 });
+    await user.click(await screen.findByRole("menuitem", { name: "Repeat end" }));
+    const counts = await screen.findByRole("menu", { name: "Repeat end" });
+    // The count in the file is offered and checked, next to the usual ones.
+    expect(within(counts).getByRole("menuitemradio", { name: "Play 12 times" })).toBeChecked();
+    expect(within(counts).getAllByRole("menuitemradio")).toHaveLength(9);
+    // jsdom: user-event's pointer events do not reach a submenu's items; a click does.
+    fireEvent.click(within(counts).getByRole("menuitemradio", { name: "Play 4 times" }));
+    expect(actions.onRepeatEnd).toHaveBeenCalledWith(2, 4);
+  });
+
+  it("removes a repeat end from the menu", async () => {
+    const { user, actions } = setup({ editing: true, repeatCountAt: () => 3 });
+    await user.click(await screen.findByRole("menuitem", { name: "Repeat end" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "No repeat end" }));
+    expect(actions.onRepeatEnd).toHaveBeenCalledWith(2, 0);
+  });
+
+  it("lists the rest and repeat items after the bar items (#228)", async () => {
+    setup({ editing: true });
+    const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+    const at = (name: string) => items.indexOf(name);
+    expect(at("Delete bar")).toBeGreaterThan(at("Insert bar before"));
+    expect(at("Insert rest before")).toBe(at("Delete bar") + 1);
+    expect(at("Insert rest after")).toBe(at("Insert rest before") + 1);
+    expect(at("Repeat end")).toBe(at("Insert rest after") + 1);
+  });
+
+  it("offers no rest insertion outside Edit Mode", async () => {
+    setup();
+    await screen.findAllByRole("menuitem");
+    expect(screen.queryByRole("menuitem", { name: "Insert rest before" })).not.toBeInTheDocument();
+  });
+
   it("runs each action on the clicked bar", async () => {
     const { user, actions } = setup({ editing: true, canPaste: true });
     await user.click(await screen.findByRole("menuitem", { name: "Delete bar" }));
-    expect(actions.onDeleteBar).toHaveBeenCalledWith(2);
+    expect(actions.onDeleteBars).toHaveBeenCalledWith(2, 2);
+  });
+
+  it("deletes every selected bar when the clicked bar is in a selection over several bars (#228)", async () => {
+    const { user, actions } = setup({ editing: true, selection: { start: 1, end: 3 } });
+    await user.click(await screen.findByRole("menuitem", { name: "Delete 3 bars" }));
+    expect(actions.onDeleteBars).toHaveBeenCalledWith(1, 3);
+    expect(screen.queryByRole("menuitem", { name: "Delete bar" })).not.toBeInTheDocument();
+  });
+
+  it("deletes only the clicked bar outside the selection or with a one-bar selection (#228)", async () => {
+    const { user, actions, unmount } = setup({ editing: true, selection: { start: 4, end: 6 } });
+    await user.click(await screen.findByRole("menuitem", { name: "Delete bar" }));
+    expect(actions.onDeleteBars).toHaveBeenCalledWith(2, 2);
+    unmount();
+
+    const oneBar = setup({ editing: true, selection: { start: 2, end: 2 } });
+    await oneBar.user.click(await screen.findByRole("menuitem", { name: "Delete bar" }));
+    expect(oneBar.actions.onDeleteBars).toHaveBeenCalledWith(2, 2);
   });
 
   it("offers paste only when there is something to paste", async () => {

@@ -13,7 +13,19 @@
 import { track, type TrackedEvent } from "@/lib/telemetry";
 import { model } from "@coderline/alphatab";
 
-import { restsFor } from "@/lib/score/bar-duration";
+import {
+  sharedClipboard,
+  type ClipboardContent,
+  type CopiedBeat,
+  type EditorClipboard,
+} from "@/lib/score/clipboard";
+import {
+  beatTicks,
+  fillDurations,
+  restsFor,
+  TOLERANCE as BAR_TOLERANCE,
+  voiceTicks,
+} from "@/lib/score/bar-duration";
 import { chordOf, setChord, type ChordSpec } from "@/lib/score/chords";
 import {
   activeEffectName,
@@ -40,6 +52,7 @@ import {
   insertMasterBar,
   removeMasterBar,
   barContent,
+  clearBar,
   cloneBeat,
   cloneNote,
   ensureVoices,
@@ -49,10 +62,12 @@ import {
   placeholderBeats,
   refinish,
   drumNumber,
+  drumNumberOf,
   staffContent,
   tuningOf,
   type Bar,
   type Beat,
+  type MasterBar,
   type Note,
   type Score,
   type Staff,
@@ -60,11 +75,15 @@ import {
   type Voice,
 } from "@/lib/score/model";
 import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
+import { MAX_REPEAT_COUNT } from "@/lib/score/structure";
+import { drumIdOf, drumValueFor, kitIndexOf } from "@/lib/score/drum-kit";
 import { DRUM_TAB_LINES, drumLine, setDrumLine } from "@/lib/score/drum-lines";
 import { drumTabString, placeDrums } from "@/lib/score/drum-tab";
 import {
+  durationTicks,
   MAX_FRET,
   NO_TUPLET,
+  QUARTER_TICKS,
   noteValueLabel,
   pitchFromLetter,
   pitchName,
@@ -124,6 +143,190 @@ export function selectionRange(selection: Selection): [BeatPosition, BeatPositio
     : [selection.head, selection.anchor];
 }
 
+/** Where {@link replaceSelectionWithClip} put the pasted beats. */
+export interface ReplacedRange {
+  /** The first pasted beat. */
+  first: BeatPosition;
+  /** The last pasted beat. */
+  last: BeatPosition;
+  /** Empty bars inserted after the selection to make room for a longer clip. */
+  addedBars: number;
+}
+
+/** Ticks a bar of this master bar's time signature holds. */
+const barCapacity = (masterBar: MasterBar): number =>
+  (QUARTER_TICKS * 4 * masterBar.timeSignatureNumerator) / masterBar.timeSignatureDenominator;
+
+/** Copies of a beat with these note values; every copy after the first is tied to the one before. */
+function splitBeat(
+  beat: Beat,
+  values: readonly { duration: Duration; dots: number }[],
+  continued: boolean,
+) {
+  return values.map(({ duration, dots }, i) => {
+    // Every piece is a copy: the beat itself may still be in the song (the beats after the
+    // selection, or a preview that must change nothing).
+    const piece = cloneBeat(beat);
+    piece.duration = duration;
+    piece.dots = dots;
+    if (i > 0 || continued) for (const note of piece.notes) note.isTieDestination = true;
+    return piece;
+  });
+}
+
+/** How {@link replaceSelectionWithClip} lays out the music, bar by bar from the selection's start. */
+interface FlowLayout {
+  bars: Beat[][];
+  first: BeatPosition;
+  last: BeatPosition;
+  addedBars: number;
+}
+
+/**
+ * Lays the clip out from the selection's start (#228), without changing the score: each bar
+ * is filled up to its length before the music goes on in the next one, a note that crosses a
+ * bar line is split into tied notes (a rest into rests), and a tuplet that would cross starts
+ * in the next bar instead. When the clip reaches the selection's last bar, the beats after the
+ * selection follow it; otherwise they stay at the start of that bar.
+ */
+function flowLayout(
+  score: Score,
+  staff: Staff,
+  voiceIndex: number,
+  selection: Selection,
+  clip: readonly Beat[],
+): FlowLayout {
+  const [start, end] = selectionRange(selection);
+  const writtenBeats = (bar: number, from: number, to?: number) =>
+    staff.bars[bar]!.voices[voiceIndex]!.beats.slice(from, to).filter((beat) => !beat.isEmpty);
+  const before = writtenBeats(start.bar, 0, start.beat);
+  const after = writtenBeats(end.bar, end.beat + 1);
+  // Bars past the selection are new ones, in the time signature of its last bar.
+  const capacity = (offset: number) =>
+    barCapacity(score.masterBars[Math.min(start.bar + offset, end.bar)]!);
+
+  const bars: Beat[][] = [[...before]];
+  let used = before.reduce((sum, beat) => sum + beatTicks(beat), 0);
+  const nextBar = () => {
+    bars.push([]);
+    used = 0;
+  };
+  const place = (beat: Beat) => {
+    const total = beatTicks(beat);
+    let remaining = total;
+    // Part of the beat is already placed: what follows is copies (tied, for notes).
+    let continued = false;
+    const isTuplet = beat.tupletNumerator !== 1 || beat.tupletDenominator !== 1;
+    for (;;) {
+      const room = capacity(bars.length - 1) - used;
+      if (remaining <= room + BAR_TOLERANCE) {
+        const pieces =
+          continued || remaining !== total
+            ? splitBeat(beat, fillDurations(remaining), continued)
+            : [beat];
+        bars.at(-1)!.push(...pieces);
+        used += remaining;
+        return;
+      }
+      const head = isTuplet ? [] : fillDurations(room);
+      if (head.length > 0) {
+        bars.at(-1)!.push(...splitBeat(beat, head, continued));
+        remaining -= head.reduce((sum, v) => sum + durationTicks(v.duration, v.dots), 0);
+        continued = true;
+      }
+      if (bars.at(-1)!.length === 0 && used === 0 && head.length === 0) {
+        // Longer than a whole bar and cannot be split (a tuplet): it goes in as it is.
+        bars.at(-1)!.push(beat);
+        used += remaining;
+        return;
+      }
+      nextBar();
+    }
+  };
+  for (const beat of clip) place(beat);
+
+  const lastBar = bars.length - 1;
+  const last: BeatPosition = { bar: start.bar + lastBar, beat: bars[lastBar]!.length - 1 };
+  const selectedBars = end.bar - start.bar + 1;
+  if (bars.length >= selectedBars) for (const beat of after) place(beat);
+  else {
+    while (bars.length < selectedBars - 1) bars.push([]);
+    bars.push([...after]);
+  }
+  const addedBars = Math.max(0, bars.length - selectedBars);
+  if (addedBars > 0) {
+    // The last new bar is filled up with rests.
+    const room = capacity(bars.length - 1) - used;
+    for (const { duration, dots } of fillDurations(room))
+      bars.at(-1)!.push(newBeat(duration, dots));
+  }
+  return { bars, first: { bar: start.bar, beat: before.length }, last, addedBars };
+}
+
+/** How many bars {@link replaceSelectionWithClip} would add, without changing anything. */
+export function barsAddedByPaste(
+  score: Score,
+  target: { track: number; voice: number },
+  selection: Selection,
+  clip: readonly (readonly Beat[])[],
+): number {
+  const staff = score.tracks[target.track]?.staves[0];
+  const [start, end] = selectionRange(selection);
+  if (
+    !staff?.bars[start.bar] ||
+    !staff.bars[end.bar] ||
+    !staff.bars[start.bar]!.voices[target.voice]
+  )
+    return 0;
+  const copies = clip.flat().map((beat) => cloneBeat(beat));
+  return copies.length === 0
+    ? 0
+    : flowLayout(score, staff, target.voice, selection, copies).addedBars;
+}
+
+/**
+ * Replaces the selected beats of one voice with the clip's beats (#228): the selection is
+ * removed and the clip goes in where it started. The music flows over the bar lines (the
+ * clip's own bar lines are not kept): each bar is filled to its length, a note crossing a bar
+ * line is split into tied notes, and a tuplet that would cross starts in the next bar.
+ *
+ * - A clip shorter than the selection leaves the bar short; a bar left with nothing gets its
+ *   rest back. Nothing is filled up.
+ * - A longer clip gets empty bars (every track, the time signature of the selection's last
+ *   bar) inserted after the selection, so the bars after it are never written over; the rest
+ *   of the selection's last bar follows the clip, and the last new bar is filled with rests.
+ *
+ * The clip's beats are placed as they are (pass fresh copies). The score is changed in place,
+ * as every editor command does (undo snapshots alphaTab's objects); `selection` and the clip's
+ * lists are not changed. Returns null, changing nothing, when there is nothing to paste or the
+ * selection is outside the track.
+ */
+export function replaceSelectionWithClip(
+  score: Score,
+  target: { track: number; voice: number },
+  selection: Selection,
+  clip: readonly (readonly Beat[])[],
+): ReplacedRange | null {
+  const beats = clip.flat();
+  const staff = score.tracks[target.track]?.staves[0];
+  const [start, end] = selectionRange(selection);
+  if (beats.length === 0 || !staff?.bars[start.bar] || !staff.bars[end.bar]) return null;
+
+  ensureVoices(staff, target.voice + 1);
+  const layout = flowLayout(score, staff, target.voice, selection, beats);
+  for (let i = 0; i < layout.addedBars; i++) insertMasterBar(score, end.bar + 1 + i, end.bar);
+  layout.bars.forEach((content, offset) => {
+    const bar = start.bar + offset;
+    const voice = staff.bars[bar]!.voices[target.voice]!;
+    voice.beats.splice(
+      0,
+      voice.beats.length,
+      ...(content.length > 0 ? content : placeholderBeats(score.masterBars[bar]!, target.voice)),
+    );
+  });
+  return { first: layout.first, last: layout.last, addedBars: layout.addedBars };
+}
+
 export function trackKind(track: Track): TrackKind {
   const staff = track.staves[0]!;
   if (staff.isPercussion || track.isPercussion) return "drums";
@@ -163,18 +366,6 @@ export interface EffectsInfo {
   chord: ChordSpec | null;
 }
 
-/** A copied beat, with the sounding pitch of each note (a detached note can't compute it). */
-interface CopiedBeat {
-  beat: Beat;
-  pitches: number[];
-}
-
-interface Clipboard {
-  kind: TrackKind;
-  /** Copied beats, one list per bar they came from. */
-  bars: CopiedBeat[][];
-}
-
 interface HistoryExtra {
   cursor: Cursor;
   selection: Selection | null;
@@ -182,9 +373,15 @@ interface HistoryExtra {
 
 export type EditorChange = "model" | "cursor";
 
-/** An empty voice's stand-in: an invisible beat, or the rest filling an empty bar. */
+/**
+ * An empty voice's stand-in: an invisible beat, or the rest filling an empty bar. A lone
+ * shorter rest (from Insert rest, say) is music already written, not a stand-in, so the
+ * palette shows its value and a new note value changes it, like any other rest (#230).
+ */
 function isPlaceholder(beat: Beat): boolean {
-  return beat.isEmpty || (beat.notes.length === 0 && beat.voice.beats.length === 1);
+  if (beat.isEmpty) return true;
+  if (beat.notes.length > 0 || beat.voice.beats.length !== 1) return false;
+  return beatTicks(beat) >= barCapacity(beat.voice.bar.masterBar) - BAR_TOLERANCE;
 }
 
 /** Which note of a chord is "under the cursor" on a pitched or drum track. */
@@ -242,7 +439,6 @@ export class ScoreEditor {
   private readonly listeners = new Set<(change: EditorChange) => void>();
   private _cursor: Cursor;
   private _selection: Selection | null = null;
-  private clipboard: Clipboard | null = null;
   /** Length given to notes typed into an empty bar. */
   private _entryDuration: Duration = D.Quarter;
   /** The first digit of a possible two-digit fret. */
@@ -258,8 +454,12 @@ export class ScoreEditor {
   /** Increases with every change (music, cursor, selection): for React. */
   private _version = 0;
 
-  constructor(score: Score, track = 0) {
+  /** Shared by every open song's editor, so music can be copied between tabs (#228). */
+  private readonly sharedClipboard: EditorClipboard;
+
+  constructor(score: Score, track = 0, clipboard: EditorClipboard = sharedClipboard) {
     this.score = score;
+    this.sharedClipboard = clipboard;
     this._cursor = { track, voice: 0, bar: 0, beat: 0, string: 1, pitch: null, line: null };
     this._cursor.string = this.defaultString();
   }
@@ -331,6 +531,10 @@ export class ScoreEditor {
 
   get hasClipboard(): boolean {
     return this.clipboard !== null;
+  }
+
+  private get clipboard() {
+    return this.sharedClipboard.get();
   }
 
   get track(): Track {
@@ -496,7 +700,14 @@ export class ScoreEditor {
 
   /** Puts the cursor on a beat (e.g. a click in the score). Shift extends the selection. */
   setCursorTo(
-    target: { bar: number; beat: number; voice?: number; note?: Note | null },
+    target: {
+      bar: number;
+      beat: number;
+      voice?: number;
+      note?: Note | null;
+      /** Drums: the line of the drum tab that was clicked (1 = bottom), when no note was. */
+      line?: number | null;
+    },
     extend = false,
   ) {
     const from: BeatPosition = { bar: this._cursor.bar, beat: this._cursor.beat };
@@ -504,12 +715,18 @@ export class ScoreEditor {
     this._cursor.beat = target.beat;
     if (target.voice !== undefined) this._cursor.voice = target.voice;
     const note = target.note;
+    const line = this.kind === "drums" && !note ? (target.line ?? null) : null;
     if (note?.isStringed) this._cursor.string = note.string;
     else if (note) {
       this._cursor.pitch = pitchOf(note);
       if (this.kind === "drums") this._cursor.line = this.lineOfDrum(note);
-    }
+    } else if (line !== null) this._cursor.line = line;
     this.clamp();
+    if (line !== null) {
+      // An empty line too (#228): the next drum number typed is written on it.
+      const onLine = this.noteAtCursor();
+      this._cursor.pitch = onLine ? pitchOf(onLine) : null;
+    }
     this.updateSelection(extend, from);
     this.moved();
   }
@@ -662,6 +879,13 @@ export class ScoreEditor {
     this.announce(`Replace ${drumNumberName(pitchOf(note))}: type the new drum number`);
   }
 
+  /** Whether a drum note is the drum `sound` (also an articulation of the track's own kit for it). */
+  private isDrum(note: Note, sound: number): boolean {
+    if (pitchOf(note) === sound) return true;
+    const kit = this.track.percussionArticulations;
+    return kit.length > 0 && note.percussionArticulation === kitIndexOf(kit, sound);
+  }
+
   /** Puts another drum in place of the one under the cursor. */
   replaceDrum(sound: number) {
     this.replacingDrum = false;
@@ -672,19 +896,18 @@ export class ScoreEditor {
     }
     const old = pitchOf(note);
     if (old === sound) return;
-    if (this.beatAt()?.notes.some((n) => pitchOf(n) === sound)) {
+    if (this.beatAt()?.notes.some((n) => this.isDrum(n, sound))) {
       this.announce(`${drumNumberName(sound)} is already on this beat`);
       return;
     }
-    const own = this.track.percussionArticulations.findIndex((a) => a.outputMidiNumber === sound);
     this.run(
       "Replace note",
-      this.cursorTargets,
+      this.drumNoteTargets,
       () => {
         const target = this.noteAtCursor()!;
         // The new drum stays on the line of the one it replaces, whatever its usual line is.
         const line = this.lineOfDrum(target);
-        target.percussionArticulation = own >= 0 ? own : sound;
+        target.percussionArticulation = drumValueFor(this.track, sound);
         setDrumLine(target, line);
         this._cursor.pitch = sound;
         this._cursor.line = this.lineOfDrum(target);
@@ -761,17 +984,17 @@ export class ScoreEditor {
       .filter((beat): beat is Beat => beat !== null && !beat.isEmpty);
   }
 
-  private hasWrittenMusic(beat: Beat | null): boolean {
-    return beat !== null && !beat.isEmpty && beat.notes.length > 0;
-  }
-
-  /** The bar at the cursor has written music and is not full yet. */
+  /**
+   * The bar at the cursor is not full yet, so moving right adds a beat. Rests count as written
+   * music: a short bar is often filled with a run of rests first, then the notes (#228). Only an
+   * invisible beat (an empty voice) does not grow; an empty bar's rest already fills it.
+   */
   private canGrowBar(): boolean {
     const voice = this.voice();
     const beat = this.beatAt();
-    if (!voice || !beat || !this.hasWrittenMusic(beat)) return false;
+    if (!voice || !beat || beat.isEmpty) return false;
     const masterBar = this.bar().masterBar;
-    return voice.calculateDuration() < masterBar.calculateDuration();
+    return voiceTicks(voice) < masterBar.calculateDuration() - BAR_TOLERANCE;
   }
 
   describeCursor(): string {
@@ -879,6 +1102,14 @@ export class ScoreEditor {
       ? barContent(this.bar())
       : staffContent(this.staff);
 
+  /**
+   * A drum track itself, for edits that may add a drum to its kit (#229): other undo steps
+   * record the track too, so its kit must be recorded wherever it can grow.
+   */
+  private kitTargets = (): object[] => (this.kind === "drums" ? [this.track] : []);
+
+  private drumNoteTargets = () => [...this.cursorTargets(), ...this.kitTargets()];
+
   private selectionTargets = () => {
     const bars = this.selectedPositions().map((positions) => positions[0]!.bar);
     return bars.flatMap((bar) => [...barContent(this.bar(bar))]);
@@ -934,8 +1165,10 @@ export class ScoreEditor {
    * Types a drum number on a drum track, e.g. "4" then "6" for 46, the open
    * hi-hat (the General MIDI numbers of Guitar Pro's drum kit). Digits typed
    * within a moment of each other form one number; as soon as it is a known
-   * drum it is entered. A number already on the beat is removed again; another
-   * one is added to the beat, so two drums can sound together.
+   * drum it is entered. A number already on the beat is removed again; on a
+   * line that holds another drum it replaces that drum (again and again: the
+   * cursor stays on the drum just written); on an empty line it is added to the
+   * beat, so two drums can sound together.
    */
   private typeDrumDigit(digit: number, now: number) {
     const c = this._cursor;
@@ -959,9 +1192,23 @@ export class ScoreEditor {
     this.pendingDrum = { text, at: now, key };
   }
 
-  /** Adds a drum sound to the cursor's beat, or removes it when it is already there. */
+  /**
+   * Adds a drum sound to the cursor's beat, or removes it when it is already there.
+   * On a line that holds another drum it replaces that drum instead (#228).
+   */
   toggleDrum(sound: number) {
-    const existing = this.beatAt()?.notes.find((note) => pitchOf(note) === sound);
+    const beat = this.beatAt();
+    const line = this._cursor.line;
+    // Whatever put the cursor on the line (Up/Down, a click, or the drum typed just before), the
+    // drum it sits on is the one replaced, every time: the cursor follows each new drum, so
+    // typing number after number keeps changing that one drum (#228). A second drum goes on the
+    // beat from an empty line.
+    const onLine = beat && line !== null ? this.drumOnLine(beat, line) : null;
+    if (this.kind === "drums" && onLine && !this.isDrum(onLine, sound)) {
+      this.replaceDrum(sound);
+      return;
+    }
+    const existing = beat?.notes.find((note) => pitchOf(note) === sound);
     if (!existing) {
       this.enterDrum(sound);
       return;
@@ -1143,23 +1390,22 @@ export class ScoreEditor {
   enterDrum(sound: number) {
     if (this.kind !== "drums") return;
     const beat = this.beatAt();
-    const present = beat?.notes.find((note) => pitchOf(note) === sound);
+    const present = beat?.notes.find((note) => this.isDrum(note, sound));
     if (present) {
       this._cursor.pitch = sound;
       this._cursor.line = this.lineOfDrum(present);
       this.moved();
       return;
     }
-    // Tracks with their own articulations (Guitar Pro 6+) refer to them by index.
-    const own = this.track.percussionArticulations.findIndex((a) => a.outputMidiNumber === sound);
     this.run(
       "Add note",
-      this.cursorTargets,
+      this.drumNoteTargets,
       () => {
         const target = this.writableBeat();
         this.prepareForNote(target);
         const note = new model.Note();
-        note.percussionArticulation = own >= 0 ? own : sound;
+        // Tracks with their own kit (Guitar Pro 6+) refer to it by index (#229).
+        note.percussionArticulation = drumValueFor(this.track, sound);
         // On the line the cursor is on, when that is free; else on its usual line.
         const wanted = this._cursor.line;
         if (
@@ -1215,12 +1461,13 @@ export class ScoreEditor {
   }
 
   /**
-   * Delete: with a selection, turns it into rests. Otherwise removes the note
-   * under the cursor, or the beat itself when it holds no notes.
+   * Delete: with a selection, removes the selected beats (rests, notes or both)
+   * in one undo step. Otherwise removes the note under the cursor, or the beat
+   * itself when it holds no notes.
    */
   deleteAtCursor() {
     if (this._selection) {
-      this.clearNotes("Clear");
+      this.deleteBeats();
       return;
     }
     const beat = this.beatAt();
@@ -1297,18 +1544,45 @@ export class ScoreEditor {
     });
   }
 
-  /** Inserts a rest before the cursor, as long as the beat at the cursor. */
+  /** The palette's Insert beat and the Insert key: a rest before the cursor's beat (#228). */
   insertBeat() {
-    this.run("Insert beat", this.cursorTargets, () => {
-      const current = this.writableBeat();
-      const beat = current.isEmpty
-        ? newBeat(this._entryDuration)
-        : newBeat(current.duration, current.dots, {
-            numerator: current.tupletNumerator,
-            denominator: current.tupletDenominator,
-          });
-      current.voice.beats.splice(current.index, 0, beat);
-    });
+    this.insertRest("before");
+  }
+
+  /**
+   * Inserts a rest before or after the cursor's beat (#228), as long as the value the palette
+   * shows (the beat's own, or the chosen value in an empty bar), and puts the cursor on it. In
+   * an empty bar its whole-bar rest becomes one rest of that value. The bar may end up short or
+   * long: that is checked on play and save, not while editing.
+   */
+  insertRest(where: "before" | "after") {
+    this.run(
+      where === "before" ? "Insert rest before" : "Insert rest after",
+      this.cursorTargets,
+      () => {
+        const current = this.writableBeat();
+        this._selection = null;
+        // Only an empty bar's stand-in is turned into the new rest. Anything else, a single
+        // shorter rest included, is written music whose value the palette shows, so the new
+        // rest copies it: the same rule setDuration and beatInfo use (#230).
+        if (isPlaceholder(current)) {
+          current.duration = this._entryDuration;
+          current.dots = 0;
+          current.tupletNumerator = 1;
+          current.tupletDenominator = 1;
+          current.isEmpty = false;
+          this._cursor.beat = current.index;
+          return;
+        }
+        const beat = newBeat(current.duration, current.dots, {
+          numerator: current.tupletNumerator,
+          denominator: current.tupletDenominator,
+        });
+        const at = current.index + (where === "after" ? 1 : 0);
+        current.voice.beats.splice(at, 0, beat);
+        this._cursor.beat = at;
+      },
+    );
   }
 
   /** Appends a rest after the cursor's beat (moving right at the end of a bar). */
@@ -1358,20 +1632,39 @@ export class ScoreEditor {
 
   /** Removes the bar `at` (default: the cursor's) from every track. A song keeps one bar. */
   deleteBar(at = this._cursor.bar): boolean {
-    if (!this.score.masterBars[at]) return false;
-    if (this.score.masterBars.length < 2) {
+    return this.deleteBars(at, at);
+  }
+
+  /**
+   * Removes the bars `start`–`end` (inclusive) from every track in one undo step and puts the
+   * cursor on the bar where they started. A song keeps one bar: deleting every bar of a longer
+   * song leaves the first one, emptied in every track (#228).
+   */
+  deleteBars(start: number, end = start): boolean {
+    const last = Math.min(end, this.score.masterBars.length - 1);
+    if (!this.score.masterBars[start] || last < start) return false;
+    const count = last - start + 1;
+    const whole = count === this.score.masterBars.length;
+    if (whole && count < 2) {
       this._message = "A song needs at least one bar";
       this.emit("cursor");
       return false;
     }
     this.run(
-      "Delete bar",
-      () => [...this.structureTargets(), ...masterBarContent(this.score, at, at + 1)],
+      count > 1 ? "Delete bars" : "Delete bar",
+      () => [...this.structureTargets(), ...masterBarContent(this.score, start, last + 1)],
       () => {
-        removeMasterBar(this.score, at);
-        this.placeCursorInBar(Math.min(at, this.score.masterBars.length - 1));
+        for (let index = last; index >= (whole ? 1 : start); index--) {
+          removeMasterBar(this.score, index);
+        }
+        if (whole) {
+          for (const track of this.score.tracks) {
+            for (const staff of track.staves) clearBar(staff.bars[0]!);
+          }
+        }
+        this.placeCursorInBar(Math.min(start, this.score.masterBars.length - 1));
       },
-      `Deleted bar ${at + 1}`,
+      count > 1 ? `Deleted bars ${start + 1}–${last + 1}` : `Deleted bar ${start + 1}`,
     );
     return true;
   }
@@ -1408,6 +1701,7 @@ export class ScoreEditor {
       "Paste bars",
       () => [
         ...this.structureTargets(),
+        ...this.kitTargets(),
         ...(this._cursor.voice < this.bar().voices.length ? [] : staffContent(this.staff)),
       ],
       () => {
@@ -1786,6 +2080,30 @@ export class ScoreEditor {
     );
   }
 
+  /** How many times the repeat ending at a bar (the cursor's by default) plays; 0: none. */
+  repeatCount(bar = this._cursor.bar): number {
+    return this.score.masterBars[bar]?.repeatCount ?? 0;
+  }
+
+  /**
+   * Ends a repeat at a bar (the cursor's by default) that plays `count` times, or removes it
+   * with 0 (#228). One undo step; the count is saved with the file and followed by playback.
+   */
+  setRepeatEnd(count: number, bar = this._cursor.bar) {
+    const masterBar = this.score.masterBars[bar];
+    if (!masterBar) return;
+    const times = count <= 0 ? 0 : Math.min(MAX_REPEAT_COUNT, Math.max(2, Math.round(count)));
+    if (masterBar.repeatCount === times) return;
+    this.run(
+      "Repeat end",
+      () => masterBarContent(this.score, bar),
+      () => {
+        masterBar.repeatCount = times;
+      },
+      times === 0 ? "No repeat end" : `Repeat end: play ${times} times`,
+    );
+  }
+
   /** Bends the cursor's note (or every selected note); null removes the bend. */
   setBend(points: readonly CurvePoint[] | null) {
     if (this.kind !== "stringed") return this.refuse("Bends are only available on tab tracks");
@@ -1914,12 +2232,17 @@ export class ScoreEditor {
         positions
           .map((p) => this.beatAt(p))
           .filter((beat): beat is Beat => beat !== null && !beat.isEmpty)
-          .map((beat) => ({ beat: cloneBeat(beat), pitches: beat.notes.map(pitchOf) })),
+          .map((beat) => ({
+            beat: cloneBeat(beat),
+            pitches: beat.notes.map(pitchOf),
+            drums: beat.notes.map((note) => (note.isPercussion ? drumIdOf(note) : -1)),
+            track: this.track,
+          })),
       )
       .filter((beats) => beats.length > 0);
     const count = bars.flat().length;
     if (count === 0) return;
-    this.clipboard = { kind: this.kind, bars };
+    this.sharedClipboard.set({ kind: this.kind, bars });
     if (record) track("copy");
     this._message = `Copied ${count} ${count === 1 ? "beat" : "beats"}`;
     this.emit("cursor");
@@ -1937,10 +2260,15 @@ export class ScoreEditor {
    * Pastes over the music from the cursor on, bar by bar as it was copied
    * (the first copied bar at the cursor, the next ones at the start of the
    * following bars). Bars are added at the end of the song when needed.
+   * With a selection, the paste replaces it instead (see {@link replaceSelectionWithClip}).
    */
   paste() {
     const clipboard = this.clipboard;
     if (!clipboard) return;
+    if (this._selection) {
+      this.pasteOverSelection(clipboard, this._selection);
+      return;
+    }
     const start = { bar: this._cursor.bar, beat: this._cursor.beat };
     const barsNeeded = start.bar + clipboard.bars.length - this.staff.bars.length;
     const count = clipboard.bars.flat().length;
@@ -1948,6 +2276,7 @@ export class ScoreEditor {
       "Paste",
       () => [
         ...this.structureTargets(),
+        ...this.kitTargets(),
         ...clipboard.bars.flatMap((_, i) => {
           const bar = this.staff.bars[start.bar + i];
           return bar ? [...barContent(bar)] : [];
@@ -1977,8 +2306,40 @@ export class ScoreEditor {
     );
   }
 
+  /** Replaces the selection with the clipboard as one undo step, selecting what was pasted. */
+  private pasteOverSelection(clipboard: ClipboardContent, selection: Selection) {
+    const [start, end] = selectionRange(selection);
+    const convert = () =>
+      clipboard.bars.map((copied) => copied.map((c) => this.convertBeat(c, clipboard.kind)));
+    const target = { track: this._cursor.track, voice: this._cursor.voice };
+    // Only the note values matter here: the copied beats as they are (converting them could add
+    // drums to the kit outside the undo step).
+    const lengths = clipboard.bars.map((copied) => copied.map((c) => c.beat));
+    const added = barsAddedByPaste(this.score, target, selection, lengths);
+    const count = clipboard.bars.flat().length;
+    this.run(
+      "Paste",
+      () => [
+        ...this.structureTargets(),
+        ...this.kitTargets(),
+        // Before: the selected bars. After: the bars added for a longer clip too.
+        ...masterBarContent(this.score, start.bar, end.bar + added),
+        ...(this._cursor.voice < this.bar().voices.length ? [] : staffContent(this.staff)),
+      ],
+      () => {
+        const pasted = replaceSelectionWithClip(this.score, target, selection, convert());
+        if (!pasted) return;
+        this._selection = { anchor: pasted.first, head: pasted.last };
+        this._cursor.bar = pasted.last.bar;
+        this._cursor.beat = pasted.last.beat;
+      },
+      `Pasted ${count} ${count === 1 ? "beat" : "beats"} over the selection` +
+        (added > 0 ? `, added ${added} ${added === 1 ? "bar" : "bars"}` : ""),
+    );
+  }
+
   /** A fresh copy of a copied beat, adapted to this track: tab ↔ staff by pitch, drums only onto drums. */
-  private convertBeat({ beat, pitches }: CopiedBeat, from: TrackKind): Beat {
+  private convertBeat({ beat, pitches, drums, track }: CopiedBeat, from: TrackKind): Beat {
     const copy = cloneBeat(beat);
     const to = this.kind;
     const notes = [...copy.notes];
@@ -1987,6 +2348,14 @@ export class ScoreEditor {
       const pitch = pitches[i]!;
       if ((from === "drums") !== (to === "drums")) return;
       if (to === "drums") {
+        // Another drum track may have another kit (or none): the drum is looked up there (#229).
+        // On the same track the saved kit index is kept (it is the very drum copied), but only
+        // while it still is that drum: an undo since the copy may have taken it out of the kit,
+        // and a drum entered later may have taken its index (#230).
+        const drum = drums[i]!;
+        const keep =
+          track === this.track && drumNumberOf(this.track, note.percussionArticulation) === drum;
+        if (!keep) note.percussionArticulation = drumValueFor(this.track, drum);
         copy.addNote(note);
       } else if (to === "pitched") {
         note.string = -1;

@@ -2,7 +2,7 @@
  * Integration tests for editing, practice tools, the instrument view and
  * track management in the workspace, with a real score and a fake player.
  */
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import {
   AUDITION_STORAGE_KEY,
@@ -198,6 +198,37 @@ describe("ScoreWorkspace: editing", () => {
     expect(selection[1]).toHaveStyle({ left: "10px", top: "200px" });
   });
 
+  it("deletes selected rests with Delete, and one undo brings them back (#228)", async () => {
+    const { user, score, frets } = await setup();
+    await startEditing(user);
+    await waitFor(() => expect(score()).toHaveFocus());
+    // Beats 2 and 3 of the first bar become rests, and stay selected.
+    await user.keyboard("{ArrowRight}{Shift>}{ArrowRight}{/Shift}r");
+    expect(frets()).toEqual(["1:0", "r", "r", "1:0"]);
+
+    await user.keyboard("{Delete}");
+
+    // The bar is left short, which is allowed.
+    expect(frets()).toEqual(["1:0", "1:0"]);
+    await user.click(screen.getByRole("button", { name: "Undo Delete beats" }));
+    expect(frets()).toEqual(["1:0", "r", "r", "1:0"]);
+  });
+
+  it("deletes a selection of notes and rests from the score menu (#228)", async () => {
+    const { user, score, frets } = await setup();
+    await startEditing(user);
+    await waitFor(() => expect(score()).toHaveFocus());
+    await user.keyboard("{ArrowRight}r{Shift>}{ArrowRight}{/Shift}");
+    expect(frets()).toEqual(["1:0", "r", "1:3", "1:0"]);
+
+    fireEvent.contextMenu(score());
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+
+    expect(frets()).toEqual(["1:0", "1:0"]);
+    await user.click(screen.getByRole("button", { name: "Undo Delete beats" }));
+    expect(frets()).toEqual(["1:0", "r", "1:3", "1:0"]);
+  });
+
   it("keeps editing the shown track when switching tracks", async () => {
     const { user, frets } = await setup({ startEditing: true });
     await screen.findByRole("toolbar", { name: "Edit" });
@@ -208,6 +239,50 @@ describe("ScoreWorkspace: editing", () => {
     await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}5");
 
     expect(frets(0, 1)[0]).toBe("1:5");
+  });
+
+  describe("Play in edit mode (#228)", () => {
+    const beatAt = (song: ScoreDocument, bar: number, index: number) =>
+      song.score.tracks[0]!.staves[0]!.bars[bar]!.voices[0]!.beats[index]!;
+
+    it("starts at the beat under the edit cursor", async () => {
+      const { user, player, song } = await setup({ startEditing: true });
+      await screen.findByRole("toolbar", { name: "Edit" });
+      await waitFor(() => expect(screen.getByRole("region", { name: /^Score:/ })).toHaveFocus());
+      await user.keyboard("{ArrowRight}{ArrowRight}");
+
+      await user.click(screen.getByRole("button", { name: "Play" }));
+
+      expect(player.playFrom).toHaveBeenCalledExactlyOnceWith(beatAt(song, 0, 2), null);
+      expect(player.playPause).not.toHaveBeenCalled();
+    });
+
+    it("plays only the selected beats", async () => {
+      const { user, player, song } = await setup({ startEditing: true });
+      await screen.findByRole("toolbar", { name: "Edit" });
+      await waitFor(() => expect(screen.getByRole("region", { name: /^Score:/ })).toHaveFocus());
+      await user.keyboard("{ArrowRight}{Shift>}{ArrowRight}{ArrowRight}{/Shift}");
+
+      await user.click(screen.getByRole("button", { name: "Play" }));
+
+      expect(player.playFrom).toHaveBeenCalledExactlyOnceWith(
+        beatAt(song, 0, 1),
+        beatAt(song, 0, 3),
+      );
+    });
+
+    it("pauses as before, and plays as before outside edit mode", async () => {
+      const { user, player } = await setup();
+      await user.click(screen.getByRole("button", { name: "Play" }));
+      expect(player.playPause).toHaveBeenCalledOnce();
+      expect(player.playFrom).not.toHaveBeenCalled();
+
+      await startEditing(user);
+      player.emit("onPlayingChange", true);
+      await user.click(screen.getByRole("button", { name: "Pause" }));
+      expect(player.playPause).toHaveBeenCalledTimes(2);
+      expect(player.playFrom).not.toHaveBeenCalled();
+    });
   });
 });
 

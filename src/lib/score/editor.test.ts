@@ -1,18 +1,27 @@
 import { model } from "@coderline/alphatab";
 
+import { EditorClipboard, sharedClipboard } from "@/lib/score/clipboard";
 import {
   comparePositions,
   DRUM_DIGITS_MS,
+  barsAddedByPaste,
+  replaceSelectionWithClip,
   ScoreEditor,
   selectionRange,
   TWO_DIGIT_MS,
+  type BeatPosition,
 } from "@/lib/score/editor";
+import { drumNumber, newBeat, refinish, type Score } from "@/lib/score/model";
+import { drumLine } from "@/lib/score/drum-lines";
 import { parseScore } from "@/lib/score/score";
 import { createSong, createTrack, insertTrack } from "@/lib/score/tracks";
 import { fixtureBytes } from "@/test/score";
 import { mockTauri } from "@/test/tauri";
 
 const { Duration } = model;
+
+// Every editor shares the app's clipboard: each test starts with an empty one.
+beforeEach(() => sharedClipboard.clear());
 
 /** A new song (one guitar, four empty 4/4 bars) with an editor on its guitar. */
 function newSong() {
@@ -146,6 +155,104 @@ describe("ScoreEditor: note entry", () => {
     expect(editor.edited).toBe(true);
   });
 
+  it("keeps adding rests to a bar that is too short, to fill it step by step (#228)", () => {
+    const { editor } = newSong();
+    editor.setDuration(Duration.Sixteenth);
+    editor.typeDigit(0); // the bar is now 3.75 beats too short
+    // A run of 16th rests: moving right on a rest still adds a beat while the bar has room.
+    for (let i = 0; i < 4; i++) editor.moveBeat(1);
+    expect(frets(editor)).toEqual(["6:0", "r", "r", "r", "r"]);
+    expect(editor.cursor).toMatchObject({ bar: 0, beat: 4 });
+
+    // ...and the rests take notes afterwards.
+    editor.setCursorTo({ bar: 0, beat: 2 });
+    editor.typeDigit(3);
+    expect(frets(editor)).toEqual(["6:0", "r", "6:3", "r", "r"]);
+  });
+
+  describe("insert rest before / after (#228)", () => {
+    it("inserts a rest of the beat's note value before it, the cursor on the new rest", () => {
+      const { editor } = newSong();
+      editor.typeDigit(1);
+      editor.moveBeat(1);
+      editor.typeDigit(2);
+      editor.insertRest("before");
+      expect(frets(editor)).toEqual(["6:1", "r", "6:2"]);
+      expect(editor.cursor).toMatchObject({ bar: 0, beat: 1 });
+      expect(editor.undoLabel).toBe("Insert rest before");
+    });
+
+    it("inserts a rest after the beat, the cursor on the new rest", () => {
+      const { editor } = newSong();
+      editor.setDuration(Duration.Sixteenth);
+      editor.typeDigit(1);
+      editor.insertRest("after");
+      expect(frets(editor)).toEqual(["6:1", "r"]);
+      expect(voice(editor, 0).beats[1]!.duration).toBe(Duration.Sixteenth);
+      expect(editor.cursor).toMatchObject({ bar: 0, beat: 1 });
+    });
+
+    it("turns an empty bar's rest into one rest of the chosen value", () => {
+      const { editor } = newSong();
+      editor.setDuration(Duration.Sixteenth);
+      editor.insertRest("after");
+      expect(frets(editor)).toEqual(["r"]);
+      expect(voice(editor, 0).beats[0]!.duration).toBe(Duration.Sixteenth);
+    });
+
+    it("keeps inserting rests in a bar that holds a single short rest", () => {
+      const { editor } = newSong();
+      editor.setDuration(Duration.Sixteenth);
+      editor.insertRest("after"); // the empty bar's rest becomes one 16th
+      editor.insertRest("after");
+      editor.insertRest("before");
+      expect(frets(editor)).toEqual(["r", "r", "r"]);
+    });
+
+    it("takes the palette's note value after it changes beside a lone short rest", () => {
+      const { editor } = newSong();
+      editor.insertRest("after"); // the empty bar's rest becomes one quarter
+      editor.setDuration(Duration.Eighth);
+      // The palette, the rest under the cursor and the next inserted rest all agree.
+      expect(editor.beatInfo.duration).toBe(Duration.Eighth);
+      expect(voice(editor, 0).beats[0]!.duration).toBe(Duration.Eighth);
+      editor.insertRest("after");
+      editor.insertRest("before");
+      expect(voice(editor, 0).beats.map((b) => b.duration)).toEqual([
+        Duration.Eighth,
+        Duration.Eighth,
+        Duration.Eighth,
+      ]);
+    });
+
+    it("is undone in one step and clears the selection", () => {
+      const { editor } = newSong();
+      editor.typeDigit(1);
+      editor.moveBeat(1);
+      editor.typeDigit(2);
+      editor.moveBeat(-1, true);
+      editor.insertRest("after");
+      expect(editor.selection).toBeNull();
+      editor.undo();
+      expect(frets(editor)).toEqual(["6:1", "6:2"]);
+    });
+  });
+
+  it("keeps editing a bar that is too long: notes and inserted rests (#228)", () => {
+    const { editor } = newSong();
+    editor.typeDigit(1);
+    editor.setDuration(Duration.Whole); // 4 beats of 4/4, then more
+    editor.insertBeat();
+    expect(frets(editor)).toEqual(["r", "6:1"]);
+    editor.moveBeat(-1);
+    editor.typeDigit(2);
+    expect(frets(editor)).toEqual(["6:2", "6:1"]);
+    // The bar is full: moving on goes to the next bar instead of growing it.
+    editor.moveBeat(1);
+    editor.moveBeat(1);
+    expect(editor.cursor).toMatchObject({ bar: 1, beat: 0 });
+  });
+
   it("combines two quick digits into one fret and one undo step", () => {
     const { editor } = newSong();
 
@@ -200,12 +307,10 @@ describe("ScoreEditor: note entry", () => {
   it("enters drum sounds", () => {
     const editor = practiceSong(2);
     editor.enterDrum(49);
-    const hits = voice(editor).beats[0]!.notes.map((n) => n.percussionArticulation);
+    const hits = voice(editor).beats[0]!.notes.map(drumNumber);
     expect(hits).toContain(49);
     editor.enterDrum(49); // already there: just selects it
-    expect(
-      voice(editor).beats[0]!.notes.filter((n) => n.percussionArticulation === 49),
-    ).toHaveLength(1);
+    expect(voice(editor).beats[0]!.notes.filter((n) => drumNumber(n) === 49)).toHaveLength(1);
   });
 
   it("changes and deletes the note under the cursor", () => {
@@ -254,6 +359,43 @@ describe("ScoreEditor: note entry", () => {
     expect(voice(editor).beats[0]!.duration).toBe(Duration.Whole);
   });
 
+  it("deletes several selected rests in one step, and one undo brings them back", () => {
+    const editor = practiceSong();
+    editor.setCursorTo({ bar: 0, beat: 1 });
+    editor.moveBeat(1, true);
+    editor.clearNotes();
+    const before = frets(editor);
+    expect(before.slice(1, 3)).toEqual(["r", "r"]);
+    expect(editor.selection).not.toBeNull();
+
+    editor.deleteAtCursor();
+
+    expect(frets(editor)).toEqual([before[0], before[3]]);
+    expect(editor.selection).toBeNull();
+    expect(editor.cursor).toMatchObject({ bar: 0, beat: 1 });
+    expect(editor.undoLabel).toBe("Delete beats");
+    editor.undo();
+    expect(frets(editor)).toEqual(before);
+  });
+
+  it("deletes a selection of notes and rests together", () => {
+    const editor = practiceSong();
+    editor.setCursorTo({ bar: 0, beat: 1 });
+    editor.clearNotes();
+    const before = frets(editor);
+    expect(before[0]).not.toBe("r");
+    expect(before[1]).toBe("r");
+    editor.setCursorTo({ bar: 0, beat: 0 });
+    editor.moveBeat(1, true);
+    editor.moveBeat(1, true);
+
+    editor.deleteAtCursor();
+
+    expect(frets(editor)).toEqual([before[3]]);
+    editor.undo();
+    expect(frets(editor)).toEqual(before);
+  });
+
   it("adds a bar when moving past the end of the song", () => {
     const { editor, score } = newSong();
     editor.moveBar(1);
@@ -287,6 +429,25 @@ describe("ScoreEditor: note entry", () => {
 });
 
 describe("ScoreEditor: bars", () => {
+  it("sets how many times a repeat plays, and removes it with 0 (#228)", () => {
+    const { editor } = newSong();
+    editor.setCursorTo({ bar: 1, beat: 0 });
+    expect(editor.repeatCount()).toBe(0);
+    editor.setRepeatEnd(4);
+    expect(editor.score.masterBars[1]!.repeatCount).toBe(4);
+    expect(editor.repeatCount()).toBe(4);
+    expect(editor.undoLabel).toBe("Repeat end");
+    expect(editor.message).toBe("Repeat end: play 4 times");
+    editor.setRepeatEnd(0);
+    expect(editor.score.masterBars[1]!.repeatCount).toBe(0);
+    expect(editor.message).toBe("No repeat end");
+    editor.undo();
+    expect(editor.repeatCount()).toBe(4);
+    // Another bar than the cursor's.
+    editor.setRepeatEnd(3, 2);
+    expect(editor.score.masterBars[2]!.repeatCount).toBe(3);
+  });
+
   const barCounts = (editor: ScoreEditor) =>
     editor.score.tracks.map((t) => t.staves[0]!.bars.length);
 
@@ -358,6 +519,63 @@ describe("ScoreEditor: bars", () => {
     expect(editor.deleteBar()).toBe(false);
     expect(score.masterBars).toHaveLength(1);
     expect(editor.message).toContain("at least one bar");
+  });
+
+  it("deletes several bars from every track in one undo step (#228)", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const bars = [...score.masterBars];
+    const length = bars.length;
+    editor.setCursorTo({ bar: 1, beat: 1 });
+    editor.setCursorTo({ bar: 2, beat: 0 }, true);
+    const selection = editor.selection;
+
+    expect(editor.deleteBars(1, 2)).toBe(true);
+    expect(score.masterBars).toHaveLength(length - 2);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => length - 2));
+    expect(score.masterBars).toEqual([bars[0], ...bars.slice(3)]);
+    expect(score.masterBars.map((m) => m.index)).toEqual(score.masterBars.map((_, i) => i));
+    expect(editor.cursor).toMatchObject({ bar: 1, beat: 0 });
+    expect(editor.selection).toBeNull();
+    expect(editor.undoLabel).toBe("Delete bars");
+    expect(editor.message).toBe("Deleted bars 2–3");
+
+    editor.undo();
+    expect(score.masterBars).toEqual(bars);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => length));
+    expect(editor.cursor).toMatchObject({ bar: 2, beat: 0 });
+    expect(editor.selection).toEqual(selection);
+    expect(editor.canUndo).toBe(false);
+  });
+
+  it("puts the cursor on the last bar after deleting the bars at the end", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const length = score.masterBars.length;
+    editor.deleteBars(length - 2, length - 1);
+    expect(score.masterBars).toHaveLength(length - 2);
+    expect(editor.cursor).toMatchObject({ bar: length - 3, beat: 0 });
+  });
+
+  it("keeps the first bar, emptied, when every bar is deleted (#228)", () => {
+    const editor = practiceSong();
+    const { score } = editor;
+    const bars = [...score.masterBars];
+    const notes = () =>
+      score.tracks.flatMap((t) =>
+        t.staves[0]!.bars[0]!.voices.flatMap((v) => v.beats.flatMap((b) => b.notes)),
+      );
+    expect(notes().length).toBeGreaterThan(0);
+
+    expect(editor.deleteBars(0, bars.length - 1)).toBe(true);
+    expect(score.masterBars).toEqual([bars[0]]);
+    expect(barCounts(editor)).toEqual(score.tracks.map(() => 1));
+    expect(notes()).toEqual([]);
+    expect(editor.cursor).toMatchObject({ bar: 0, beat: 0 });
+
+    editor.undo();
+    expect(score.masterBars).toEqual(bars);
+    expect(notes().length).toBeGreaterThan(0);
   });
 
   it("copies a bar and inserts it as a new bar after another, keeping the music there", () => {
@@ -561,6 +779,301 @@ describe("ScoreEditor: clipboard", () => {
     expect(voice(editor, 1).beats[0]!.notes).toHaveLength(0);
   });
 
+  it("pastes what another song's editor copied: the clipboard is shared by every tab (#228)", () => {
+    const source = practiceSong();
+    source.moveBeat(1, true);
+    source.copy();
+    const copied = frets(source).slice(0, 2);
+
+    const { editor: target } = newSong(); // another open song
+    expect(target.hasClipboard).toBe(true);
+    target.moveBar(1);
+    target.paste();
+    expect(frets(target, 1)).toEqual(copied);
+    target.undo();
+    expect(frets(target, 1)).toEqual(["r"]);
+  });
+
+  it("keeps the drum sounds when drums are pasted into another song (#228)", () => {
+    const source = practiceSong(2);
+    const drums = (e: ScoreEditor, bar: number) =>
+      voice(e, bar).beats.map((b) => b.notes.map((n) => drumNumber(n)).sort());
+    source.copyBar(0);
+    const copied = drums(source, 0);
+    expect(copied.flat().length).toBeGreaterThan(0);
+
+    const score = createSong();
+    insertTrack(score, createTrack(score, { kind: "drums", name: "Drums", program: 0 }));
+    const target = new ScoreEditor(score, 1);
+    target.paste();
+    expect(drums(target, 0)).toEqual(copied);
+  });
+
+  it("can keep a clipboard of its own", () => {
+    const own = new EditorClipboard();
+    const editor = new ScoreEditor(practiceSong().score, 0, own);
+    editor.copy();
+    expect(own.get()).not.toBeNull();
+    expect(sharedClipboard.get()).toBeNull();
+  });
+
+  describe("pasting onto a selection replaces it (#228)", () => {
+    /** The practice song's guitar bars, as frets: bar n is played on string n + 1. */
+    const allBars = (editor: ScoreEditor) =>
+      editor.score.masterBars.map((_, bar) => frets(editor, bar));
+
+    /** Copies bar 0 beats `from`–`to` of the practice song's guitar. */
+    function copyBeats(editor: ScoreEditor, from: number, to: number) {
+      editor.setCursorTo({ bar: 0, beat: from });
+      editor.setCursorTo({ bar: 0, beat: to }, true);
+      editor.copy();
+    }
+
+    function select(editor: ScoreEditor, from: BeatPosition, to: BeatPosition) {
+      editor.setCursorTo(from);
+      editor.setCursorTo(to, true);
+    }
+
+    it("leaves the bar short when the clip is shorter than the selection", () => {
+      const editor = practiceSong();
+      const original = allBars(editor);
+      copyBeats(editor, 0, 1);
+      select(editor, { bar: 2, beat: 0 }, { bar: 2, beat: 3 });
+
+      editor.paste();
+
+      expect(frets(editor, 2)).toEqual(["1:0", "1:2"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+      expect([0, 1, 3].map((bar) => frets(editor, bar))).toEqual([0, 1, 3].map((b) => original[b]));
+      expect(editor.selection).toEqual({ anchor: { bar: 2, beat: 0 }, head: { bar: 2, beat: 1 } });
+      expect(editor.cursor).toMatchObject({ bar: 2, beat: 1 });
+    });
+
+    it("swaps the selected beats for as many pasted ones", () => {
+      const editor = practiceSong();
+      const original = allBars(editor);
+      copyBeats(editor, 0, 1);
+      select(editor, { bar: 2, beat: 1 }, { bar: 2, beat: 2 });
+
+      editor.paste();
+
+      expect(frets(editor, 2)).toEqual(["3:0", "1:0", "1:2", "3:0"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+      expect(frets(editor, 3)).toEqual(original[3]);
+    });
+
+    it("flows a longer clip into new bars instead of writing over the bars after it", () => {
+      const editor = practiceSong();
+      const { score } = editor;
+      const original = allBars(editor);
+      const bassBar3 = score.tracks[1]!.staves[0]!.bars[3]!.voices[0]!.beats.map(
+        (b) => b.notes[0]!.fret,
+      );
+      // Two bars (8 quarters) onto two quarters of one bar.
+      select(editor, { bar: 0, beat: 0 }, { bar: 1, beat: 3 });
+      editor.copy();
+      select(editor, { bar: 2, beat: 1 }, { bar: 2, beat: 2 });
+
+      editor.paste();
+
+      const clip = [...original[0]!, ...original[1]!];
+      expect(score.masterBars).toHaveLength(6);
+      expect(editor.message).toBe("Pasted 8 beats over the selection, added 2 bars");
+      expect(score.tracks.map((t) => t.staves[0]!.bars.length)).toEqual([6, 6, 6, 6]);
+      // Every bar is filled to its four beats; the copied bar lines are not kept.
+      expect(frets(editor, 2)).toEqual(["3:0", ...clip.slice(0, 3)]);
+      expect(frets(editor, 3)).toEqual(clip.slice(3, 7));
+      // The rest of the selected bar follows the clip; the last new bar is filled with a rest.
+      expect(frets(editor, 4)).toEqual([clip[7], "3:0", "r"]);
+      expect(score.masterBars[4]!.timeSignatureNumerator).toBe(4);
+      // The bar after the selection is untouched, only two places later, in every track.
+      expect(frets(editor, 5)).toEqual(original[3]);
+      expect(
+        score.tracks[1]!.staves[0]!.bars[5]!.voices[0]!.beats.map((b) => b.notes[0]!.fret),
+      ).toEqual(bassBar3);
+      expect(editor.selection).toEqual({ anchor: { bar: 2, beat: 1 }, head: { bar: 4, beat: 0 } });
+    });
+
+    it("replaces a selection across two bars, keeping what is around it", () => {
+      const editor = practiceSong();
+      const original = allBars(editor);
+      copyBeats(editor, 0, 1);
+      select(editor, { bar: 1, beat: 2 }, { bar: 2, beat: 1 });
+
+      editor.paste();
+
+      expect(frets(editor, 1)).toEqual(["2:0", "2:2", "1:0", "1:2"]);
+      expect(frets(editor, 2)).toEqual(["3:3", "3:0"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+      expect(frets(editor, 0)).toEqual(original[0]);
+      expect(frets(editor, 3)).toEqual(original[3]);
+    });
+
+    it("pastes two copied bars over a two-bar selection bar by bar", () => {
+      const editor = practiceSong();
+      select(editor, { bar: 0, beat: 2 }, { bar: 1, beat: 1 });
+      editor.copy();
+      select(editor, { bar: 2, beat: 2 }, { bar: 3, beat: 1 });
+
+      editor.paste();
+
+      expect(frets(editor, 2)).toEqual(["3:0", "3:2", "1:3", "1:0"]);
+      expect(frets(editor, 3)).toEqual(["2:0", "2:2", "4:3", "4:0"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+    });
+
+    it("gives a bar emptied by the paste its rest back", () => {
+      const editor = practiceSong();
+      copyBeats(editor, 0, 1);
+      select(editor, { bar: 1, beat: 0 }, { bar: 2, beat: 3 });
+
+      editor.paste();
+
+      expect(frets(editor, 1)).toEqual(["1:0", "1:2"]);
+      expect(frets(editor, 2)).toEqual(["r"]);
+      expect(editor.score.masterBars).toHaveLength(4);
+    });
+
+    it("is undone in one step, back to the original selection", () => {
+      const editor = practiceSong();
+      const original = allBars(editor);
+      select(editor, { bar: 0, beat: 0 }, { bar: 1, beat: 3 });
+      editor.copy();
+      select(editor, { bar: 2, beat: 1 }, { bar: 2, beat: 2 });
+      const selection = editor.selection;
+      const cursor = { ...editor.cursor };
+
+      editor.paste();
+      const pasted = allBars(editor);
+      expect(editor.undoLabel).toBe("Paste");
+      editor.undo();
+
+      expect(allBars(editor)).toEqual(original);
+      expect(editor.score.tracks.map((t) => t.staves[0]!.bars.length)).toEqual([4, 4, 4, 4]);
+      expect(editor.selection).toEqual(selection);
+      expect(editor.cursor).toEqual(cursor);
+      expect(editor.canUndo).toBe(false);
+
+      editor.redo();
+      expect(allBars(editor)).toEqual(pasted);
+    });
+  });
+
+  describe("replaceSelectionWithClip", () => {
+    it("does nothing with an empty clip", () => {
+      const { score } = newSong();
+      const selection = { anchor: { bar: 0, beat: 0 }, head: { bar: 0, beat: 0 } };
+      expect(replaceSelectionWithClip(score, { track: 0, voice: 0 }, selection, [[]])).toBeNull();
+      expect(score.masterBars).toHaveLength(4);
+    });
+
+    /** A new song's guitar, voice 1: bar 1 holds quarters (frets 1–4), the rest whole rests. */
+    function quarters() {
+      const { score } = newSong();
+      const voice = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!;
+      voice.beats.splice(0, voice.beats.length);
+      for (let fret = 1; fret <= 4; fret++) {
+        const beat = newBeat(Duration.Quarter);
+        const note = new model.Note();
+        note.string = 1;
+        note.fret = fret;
+        beat.addNote(note);
+        voice.addBeat(beat);
+      }
+      refinish(score);
+      return score;
+    }
+    const beatsOf = (score: Score, bar: number) =>
+      score.tracks[0]!.staves[0]!.bars[bar]!.voices[0]!.beats.map(
+        (b) =>
+          `${b.notes[0]?.fret ?? "r"}/${b.duration}${".".repeat(b.dots)}` +
+          (b.notes[0]?.isTieDestination ? "~" : ""),
+      );
+    const lastBeat = { anchor: { bar: 0, beat: 3 }, head: { bar: 0, beat: 3 } };
+    const note = (duration: model.Duration, dots = 0, fret = 9) => {
+      const beat = newBeat(duration, dots);
+      const n = new model.Note();
+      n.string = 1;
+      n.fret = fret;
+      beat.addNote(n);
+      return beat;
+    };
+
+    it("splits a dotted value across the bar line into tied notes", () => {
+      const score = quarters();
+      // A dotted half on beat 4: a quarter here, a half tied to it in a new bar.
+      const result = replaceSelectionWithClip(score, { track: 0, voice: 0 }, lastBeat, [
+        [note(Duration.Half, 1)],
+      ]);
+      expect(result?.addedBars).toBe(1);
+      expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "3/4", "9/4"]);
+      expect(beatsOf(score, 1)).toEqual(["9/2~", "r/2"]);
+    });
+
+    it("splits a rest across the bar line into rests, without ties", () => {
+      const score = quarters();
+      replaceSelectionWithClip(score, { track: 0, voice: 0 }, lastBeat, [[newBeat(Duration.Half)]]);
+      expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "3/4", "r/4"]);
+      expect(beatsOf(score, 1)).toEqual(["r/4", "r/2."]);
+      // Two beats, each in its own bar (not one beat object in both).
+      refinish(score); // as the editor does after every command
+      const voices = [0, 1].map((bar) => score.tracks[0]!.staves[0]!.bars[bar]!.voices[0]!);
+      expect(voices[0]!.beats[3]).not.toBe(voices[1]!.beats[0]);
+      expect(voices[1]!.beats[0]!.voice).toBe(voices[1]);
+    });
+
+    it("counts the bars a paste adds without changing the song", () => {
+      const score = quarters();
+      const voice = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!;
+      voice.beats.splice(2, 2, newBeat(Duration.Half)); // quarter, quarter, half
+      refinish(score);
+      const selection = { anchor: { bar: 0, beat: 0 }, head: { bar: 0, beat: 1 } };
+      const clip = [[0, 1, 2].map(() => newBeat(Duration.Quarter))];
+
+      expect(barsAddedByPaste(score, { track: 0, voice: 0 }, selection, clip)).toBe(1);
+      expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "r/2"]);
+      expect(clip[0]!.map((b) => b.duration)).toEqual([4, 4, 4]);
+    });
+
+    it("starts a tuplet that would cross the bar line in the next bar", () => {
+      const score = quarters();
+      const triplet = [0, 1, 2].map((i) => {
+        const beat = note(Duration.Quarter, 0, 5 + i);
+        beat.tupletNumerator = 3;
+        beat.tupletDenominator = 2;
+        return beat;
+      });
+      const selection = { anchor: { bar: 0, beat: 2 }, head: { bar: 0, beat: 3 } };
+      replaceSelectionWithClip(score, { track: 0, voice: 0 }, selection, [
+        [note(Duration.Quarter, 0, 4), ...triplet],
+      ]);
+      // The first triplet quarter fits in beat 4 and stays; the rest moves on whole, unsplit.
+      expect(beatsOf(score, 0)).toEqual(["1/4", "2/4", "4/4", "5/4"]);
+      expect(beatsOf(score, 1).slice(0, 2)).toEqual(["6/4", "7/4"]);
+      expect(score.masterBars).toHaveLength(5);
+    });
+
+    it("leaves the selection and the clip it is given unchanged", () => {
+      const { score } = newSong();
+      const selection = { anchor: { bar: 1, beat: 0 }, head: { bar: 0, beat: 0 } };
+      const clip = [[newBeat(Duration.Half)], [newBeat(Duration.Half)], [newBeat(Duration.Half)]];
+      const copy = { anchor: { ...selection.anchor }, head: { ...selection.head } };
+      const lists = clip.map((bar) => [...bar]);
+
+      const result = replaceSelectionWithClip(score, { track: 0, voice: 0 }, selection, clip);
+
+      // Two halves fill bar 1, the third goes into bar 2: no bar needs adding.
+      expect(result).toEqual({
+        first: { bar: 0, beat: 0 },
+        last: { bar: 1, beat: 0 },
+        addedBars: 0,
+      });
+      expect(score.masterBars).toHaveLength(4);
+      expect(selection).toEqual(copy);
+      expect(clip).toEqual(lists);
+    });
+  });
+
   it("does nothing without a clipboard, or with nothing to copy", () => {
     const { editor } = newSong();
     editor.paste();
@@ -723,6 +1236,23 @@ describe("ScoreEditor: drum numbers and rests", () => {
   const hits = (editor: ScoreEditor, bar = 0, beat = 0) =>
     voice(editor, bar).beats[beat]!.notes.map((n) => n.percussionArticulation);
 
+  it("a click on a line of the drum tab puts the cursor there, and a number is written on it (#228)", () => {
+    const editor = drumSong();
+    editor.setCursorTo({ bar: 0, beat: 0, line: 6 }); // the top line, nothing written on it
+    expect(editor.cursor.line).toBe(6);
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(6, 1_100); // a kick, whose usual line is the second from the bottom
+    const kick = voice(editor, 0).beats[0]!.notes[0]!;
+    expect(drumLine(kick)).toBe(6);
+    expect(editor.cursor.line).toBe(6);
+
+    editor.setCursorTo({ bar: 0, beat: 0, line: 3 }); // the middle: an empty line again
+    expect(editor.cursor.line).toBe(3);
+    expect(editor.cursor.pitch).toBeNull();
+    editor.setCursorTo({ bar: 0, beat: 0, line: 6 }); // back on the kick
+    expect(editor.cursor.pitch).toBe(36);
+  });
+
   it("types a drum number with two digits, e.g. 4 then 6 for the open hi-hat", () => {
     const editor = drumSong();
     editor.typeDigit(4, 1_000);
@@ -733,6 +1263,66 @@ describe("ScoreEditor: drum numbers and rests", () => {
 
     expect(hits(editor)).toEqual([46]);
     expect(editor.message).toBe("Hi-Hat (open)");
+  });
+
+  it("replaces the drum the cursor sits on with every number typed, also one typed just before (#228)", () => {
+    const editor = drumSong();
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(8, 1_100); // snare: the cursor is now on it
+    editor.typeDigit(3, 3_000);
+    editor.typeDigit(6, 3_100); // a kick typed right away takes the snare's place
+    expect(hits(editor)).toEqual([36]);
+
+    // A second drum goes on the beat from an empty line.
+    editor.setCursorTo({ bar: 0, beat: 0, line: 6 });
+    editor.typeDigit(4, 5_000);
+    editor.typeDigit(9, 5_100);
+    expect(hits(editor)).toEqual([36, 49]);
+    // The cursor stays on the crash: the next number replaces it, not the kick.
+    editor.typeDigit(4, 7_000);
+    editor.typeDigit(2, 7_100);
+    expect(hits(editor)).toEqual([36, 42]);
+  });
+
+  it("keeps replacing the same drum, number after number (#228)", () => {
+    const editor = drumSong();
+    editor.enterDrum(36); // kick: line 2
+    editor.enterDrum(42); // hi-hat: line 6
+    const kick = voice(editor, 0).beats[0]!.notes[0]!;
+    editor.setCursorTo({ bar: 0, beat: 0, note: kick }); // the user puts the cursor on the kick
+
+    for (const [typed, at] of [
+      [38, 1_000],
+      [49, 3_000],
+      [46, 5_000],
+    ] as const) {
+      editor.typeDigit(Math.floor(typed / 10), at);
+      editor.typeDigit(typed % 10, at + 100);
+      // One drum where the kick was, the number typed last; the hi-hat is left alone.
+      expect(hits(editor)).toEqual([typed, 42]);
+      expect([editor.cursor.line, editor.cursorDrum]).toEqual([2, typed]);
+    }
+    expect(editor.message).toBe("Crash high (hit) replaced by Hi-Hat (open)");
+    // Each replacement is its own undo step.
+    editor.undo();
+    expect(hits(editor)).toEqual([49, 42]);
+  });
+
+  it("follows a replacing drum whose usual line is another one, and replaces it again (#228)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38); // snare: line 4
+    editor.setCursorTo({ bar: 0, beat: 0, line: 4 });
+
+    editor.typeDigit(4, 1_000);
+    editor.typeDigit(9, 1_100); // a crash, usually on the top line: it stays on the snare's line
+    expect(hits(editor)).toEqual([49]);
+    expect(drumLine(voice(editor, 0).beats[0]!.notes[0]!)).toBe(4);
+    expect([editor.cursor.line, editor.cursorDrum]).toEqual([4, 49]);
+
+    editor.typeDigit(3, 3_000);
+    editor.typeDigit(6, 3_100); // a kick (usually line 2) replaces the crash on that line
+    expect(hits(editor)).toEqual([36]);
+    expect([editor.cursor.line, editor.cursorDrum]).toEqual([4, 36]);
   });
 
   it("types three-digit numbers, with or without leading zeros", () => {
@@ -768,17 +1358,60 @@ describe("ScoreEditor: drum numbers and rests", () => {
     const editor = drumSong();
     editor.typeDigit(4, 1_000);
     editor.typeDigit(9, 1_100); // crash
+    editor.setCursorTo({ bar: 0, beat: 0, line: 2 }); // an empty line
     editor.typeDigit(3, 3_000);
     editor.typeDigit(6, 3_100); // kick, at the same time
     expect(hits(editor)).toEqual([49, 36]);
 
-    editor.typeDigit(4, 5_000);
-    editor.typeDigit(9, 5_100); // the crash again: removed
-    expect(hits(editor)).toEqual([36]);
-    expect(editor.message).toBe("Crash high (hit) removed");
+    editor.typeDigit(3, 5_000);
+    editor.typeDigit(6, 5_100); // the kick again, on its line: removed
+    expect(hits(editor)).toEqual([49]);
+    expect(editor.message).toBe("Kick (hit) removed");
 
     editor.undo();
     expect(hits(editor)).toEqual([49, 36]);
+  });
+
+  it("replaces the drum on the cursor's line with the number typed there, in one undo step (#228)", () => {
+    const editor = drumSong();
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(8, 1_100); // snare: line 4, where the cursor stays
+    expect(editor.cursor.line).toBe(4);
+    editor.setCursorTo({ bar: 0, beat: 0, line: 4 }); // the user puts the cursor on the snare
+
+    editor.typeDigit(3, 3_000);
+    editor.typeDigit(6, 3_100); // a kick typed on the snare's line: it takes the snare's place
+
+    expect(hits(editor)).toEqual([36]);
+    expect(drumLine(voice(editor, 0).beats[0]!.notes[0]!)).toBe(4);
+    expect([editor.cursor.line, editor.cursorDrum]).toEqual([4, 36]);
+    expect(editor.message).toBe("Snare (hit) replaced by Kick (hit)");
+
+    editor.undo();
+    expect(hits(editor)).toEqual([38]);
+    expect(editor.cursorDrum).toBe(38);
+  });
+
+  it("does not replace a drum with one the beat already has on another line (#228)", () => {
+    const editor = drumSong();
+    editor.enterDrum(42); // hi-hat: line 6
+    editor.setCursorTo({ bar: 0, beat: 0, line: 4 });
+    editor.enterDrum(38); // snare: line 4
+    editor.typeDigit(4, 3_000);
+    editor.typeDigit(2, 3_100); // the hi-hat, already on line 6
+    expect(hits(editor)).toEqual([42, 38]);
+    expect(editor.message).toBe("Hi-Hat (closed) is already on this beat");
+  });
+
+  it("still adds a typed drum when the cursor is on no line (#228)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38);
+    editor.setTrack(0);
+    editor.setTrack(1); // drums again: the cursor has no line
+    expect(editor.cursor.line).toBeNull();
+    editor.typeDigit(3, 1_000);
+    editor.typeDigit(6, 1_100);
+    expect(hits(editor)).toEqual([38, 36]);
   });
 
   it("walks every line of the drum tab with Up and Down, also the empty ones (#178)", () => {
@@ -899,7 +1532,8 @@ describe("ScoreEditor: drum numbers and rests", () => {
     editor.typeDigit(1, 1_100); // rim shot
     expect(hits(editor)).toEqual([91]);
     expect(editor.message).toBe("Snare (hit) replaced by Snare (rim shot)");
-    // The next number adds again.
+    // The next number, on an empty line, adds again.
+    editor.setCursorTo({ bar: 0, beat: 0, line: 2 });
     editor.typeDigit(3, 3_000);
     editor.typeDigit(6, 3_100);
     expect(hits(editor)).toEqual([91, 36]);

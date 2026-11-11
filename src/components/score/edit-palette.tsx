@@ -2,7 +2,12 @@ import { Fragment, useId, useState, type KeyboardEvent } from "react";
 import { model } from "@coderline/alphatab";
 
 import { NestedTupletDialog } from "@/components/score/nested-tuplet-dialog";
-import { CellVisual, PaletteCell, VariantCell } from "@/components/score/palette-cell";
+import {
+  CellVisual,
+  PaletteCell,
+  VariantCell,
+  type VariantCellProps,
+} from "@/components/score/palette-cell";
 import { TimeSignatureControl } from "@/components/score/time-signature-control";
 import { Switch } from "@/components/ui/switch";
 import type { BeatInfo, EffectsInfo, ToggleState } from "@/lib/score/editor";
@@ -69,6 +74,8 @@ export interface EffectActions {
   onGrace: (type: number) => void;
   onFermata: () => void;
   onRepeat: (side: "start" | "end") => void;
+  /** Ends a repeat at the cursor's bar that plays `count` times; 0 removes it (#228). */
+  onRepeatEnd: (count: number) => void;
   onBend: () => void;
   onWhammy: () => void;
   onText: () => void;
@@ -82,6 +89,8 @@ export interface PaletteState {
   fermata: ToggleState;
   repeatStart: boolean;
   repeatEnd: boolean;
+  /** How many times the repeat ending at the cursor's bar plays (0: none). */
+  repeatCount: number;
 }
 
 const SECTION = "flex flex-col gap-[3px] border-t border-sidebar-border py-2.5 first:border-t-0";
@@ -192,6 +201,8 @@ export function EditPalette({
         return onOff(bar.directions.includes(action.direction));
       case "repeat":
         return onOff(action.side === "start" ? state.repeatStart : state.repeatEnd);
+      case "repeatEnd":
+        return onOff(state.repeatCount === action.count);
       case "noteEffect":
         return state.effect("note", action.id, action.value);
       case "beatEffect":
@@ -294,6 +305,10 @@ export function EditPalette({
       case "repeat":
         fx.onRepeat(action.side);
         return false;
+      case "repeatEnd":
+        // The count already there takes the repeat end away again.
+        fx.onRepeatEnd(state.repeatCount === action.count ? 0 : action.count);
+        return false;
       case "noteEffect": {
         if (action.value === undefined) {
           fx.onToggleNote(action.id);
@@ -371,39 +386,37 @@ export function EditPalette({
     if (box.id === "tuplet") groups = withCustomTuplet(groups);
     if (groups.length === 0) return null;
     const time: TimeSignature = bar.timeSignature;
-    return (
-      <VariantCell
-        key={box.id}
-        box={box}
-        groups={groups}
-        stateOf={(item) => stateOf(item.action) ?? "off"}
-        isDisabled={(item) => disabledOf(item.action)}
-        onPick={run}
-        onDone={edit.onDone}
-        shown={
-          box.id === "time"
-            ? {
-                visual: { digits: [time.numerator, time.denominator] },
-                label: timeSignatureText(time),
-              }
-            : undefined
-        }
-        footer={
-          box.footer === "time"
-            ? (done) => (
-                <TimeSignatureControl
-                  key={timeSignatureText(time)}
-                  time={time}
-                  onChange={(next) => {
-                    edit.onBarSettings({ timeSignature: next });
-                    done();
-                  }}
-                />
-              )
-            : undefined
-        }
-      />
-    );
+    const props: VariantCellProps = {
+      box,
+      groups,
+      stateOf: (item) => stateOf(item.action) ?? "off",
+      isDisabled: (item) => disabledOf(item.action),
+      onPick: run,
+      onDone: edit.onDone,
+      shown:
+        box.id === "time"
+          ? {
+              visual: { digits: [time.numerator, time.denominator] },
+              label: timeSignatureText(time),
+            }
+          : undefined,
+      footer:
+        box.footer === "time"
+          ? (done) => (
+              <TimeSignatureControl
+                key={timeSignatureText(time)}
+                time={time}
+                onChange={(next) => {
+                  edit.onBarSettings({ timeSignature: next });
+                  done();
+                }}
+              />
+            )
+          : undefined,
+    };
+    // The editing tour points at the repeat count box (#228).
+    if (box.id === "repeat-end") return <VariantCell key={box.id} {...props} tour="repeat-end" />;
+    return <VariantCell key={box.id} {...props} />;
   };
 
   const renderRow = (row: PaletteRow, key: number) => {

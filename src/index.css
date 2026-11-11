@@ -234,9 +234,17 @@
  */
 [data-editing]:not([data-playing]) .at-cursor-bar,
 [data-editing]:not([data-playing]) .at-cursor-beat,
-[data-editing]:not([data-playing]) .at-selection {
+[data-editing] .at-selection {
   /* alphaTab positions its cursor with inline styles. */
   display: none !important;
+}
+/*
+ * Edit mode handles clicks itself (alphaTab no longer prevents the browser's default): without
+ * this, Shift+click and drags select the notation's glyphs as text and paint them blue (#228).
+ */
+[data-editing] .score-paper {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Printing the score (see lib/print.ts): only the copy of the score in #print-root is printed. */

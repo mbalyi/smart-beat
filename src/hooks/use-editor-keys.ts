@@ -161,7 +161,8 @@ export function useEditorKeys(
       case "i":
       case "I":
         handled();
-        editor.insertBeat();
+        // A rest before the beat, or after it with Shift (#228).
+        editor.insertRest(event.shiftKey ? "after" : "before");
         return;
       case "t":
       case "T":
@@ -208,7 +209,7 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
     keys: ["0–9"],
     spoken: "0 to 9",
     label:
-      "Drum track: type a drum number (46 = open hi-hat, 38 = snare); the same number again removes it",
+      "Drum track: type a drum number (46 = open hi-hat, 38 = snare); on a drum it replaces it (each number typed there again), on an empty line it is added, the same number again removes it",
   },
   {
     keys: ["K", "0–9"],
@@ -224,7 +225,8 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
   { keys: ["R"], spoken: "R", label: "Make a rest" },
   { keys: ["T"], spoken: "T", label: "Tie to the previous note" },
   { keys: ["V"], spoken: "V", label: "Switch between voice 1 and 2" },
-  { keys: ["I"], spoken: "I", label: "Insert a beat" },
+  { keys: ["I"], spoken: "I", label: "Insert a rest before the beat" },
+  { keys: ["⇧", "I"], spoken: "Shift+I", label: "Insert a rest after the beat" },
   { keys: ["H"], spoken: "H", label: "Hammer-on / pull-off" },
   { keys: ["S"], spoken: "S", label: "Slide to the next note" },
   { keys: ["P"], spoken: "P", label: "Palm mute" },
@@ -235,7 +237,7 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
   { keys: ["N"], spoken: "N", label: "Natural harmonic" },
   { keys: [">"], spoken: "Greater than", label: "Accent" },
   { keys: ["⇧", "B"], spoken: "Shift+B", label: "Bend" },
-  { keys: ["Delete"], spoken: "Delete", label: "Delete the note (or clear the selection)" },
+  { keys: ["Delete"], spoken: "Delete", label: "Delete the note (or the selected beats)" },
   { keys: ["⇧", "Delete"], spoken: "Shift+Delete", label: "Delete the beat" },
   { keys: ["mod", "C / X / V"], spoken: "mod+C, X or V", label: "Copy / cut / paste" },
   { keys: ["mod", "A"], spoken: "mod+A", label: "Select the whole track" },

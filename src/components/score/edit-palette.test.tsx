@@ -39,6 +39,7 @@ const stateOf = (editor: ScoreEditor): PaletteState => ({
   fermata: editor.fermataState,
   repeatStart: editor.repeatState("start"),
   repeatEnd: editor.repeatState("end"),
+  repeatCount: editor.repeatCount(),
 });
 
 function setup({
@@ -76,6 +77,7 @@ function setup({
     onGrace: vi.fn(),
     onFermata: vi.fn(),
     onRepeat: vi.fn(),
+    onRepeatEnd: vi.fn(),
     onBend: vi.fn(),
     onWhammy: vi.fn(),
     onText: vi.fn(),
@@ -265,9 +267,31 @@ describe("EditPalette: cells", () => {
     );
     expect(screen.getByRole("button", { name: "Fermata" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "Fermata" }));
-    await user.click(screen.getByRole("button", { name: "Repeat end" }));
     expect(fx.onFermata).toHaveBeenCalled();
-    expect(fx.onRepeat).toHaveBeenCalledWith("end");
+  });
+
+  it("writes a repeat end that plays a chosen number of times, and takes it away (#228)", async () => {
+    const { user, fx } = setup({ state: { repeatEnd: true, repeatCount: 3 } });
+    await user.click(screen.getByRole("button", { name: /^Repeat end/ }));
+    const counts = await box("Repeat end");
+    expect(within(counts).getAllByRole("button")).toHaveLength(7);
+    expect(
+      within(counts).getByRole("button", { name: "Repeat end, play 3 times" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await user.click(within(counts).getByRole("button", { name: "Repeat end, play 4 times" }));
+    expect(fx.onRepeatEnd).toHaveBeenLastCalledWith(4);
+    await user.click(screen.getByRole("button", { name: /^Repeat end/ }));
+    await user.click(
+      within(await box("Repeat end")).getByRole("button", { name: "Repeat end, play 3 times" }),
+    );
+    expect(fx.onRepeatEnd).toHaveBeenLastCalledWith(0);
+  });
+
+  it("marks only the Repeat end box for the editing tour (#228)", () => {
+    setup();
+    const marked = document.querySelectorAll("[data-tour=repeat-end]");
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toBe(screen.getByRole("button", { name: /^Repeat end/ }));
   });
 
   it("disables note effects without a note", () => {

@@ -108,6 +108,12 @@ describe("useEditorKeys", () => {
     expect(frets()).toEqual(["6:0", "r", "r"]);
     await user.keyboard("{Shift>}{Delete}{/Shift}");
     expect(frets()).toEqual(["6:0", "r"]);
+    // Shift+I: a rest after the beat, the cursor on it (#228).
+    await user.keyboard("{ArrowLeft}{Shift>}I{/Shift}");
+    expect(frets()).toEqual(["6:0", "r", "r"]);
+    expect(editor.cursor.beat).toBe(1);
+    await user.keyboard("{Shift>}{Delete}{/Shift}");
+    expect(frets()).toEqual(["6:0", "r"]);
     await user.keyboard("v");
     expect(editor.cursor.voice).toBe(1);
   });
