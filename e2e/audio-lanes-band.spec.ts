@@ -18,7 +18,7 @@ async function openWithEngine(app: Page) {
 /** Opens `file` as a new lane from the Track menu. */
 async function addLane(app: Page, file: string) {
   await app.evaluate((path) => (window.__dialogResult = path), file);
-  await emitMenuAction(app, "add-audio-lane");
+  await emitMenuAction(app, "import-audio-file");
   const name = file
     .split("/")
     .pop()!
