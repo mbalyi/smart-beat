@@ -16,6 +16,11 @@ import {
  * an old single audio track opening as a lane. Decoding and playback are in the (mocked) engine.
  */
 
+// The track list, the score and the 280 px lane editor together are taller than the default 720 px
+// window: the page then scrolls and jumps back after a click, so a menu opened by a click could
+// appear where its button was a moment earlier. A taller window keeps the layout still.
+test.use({ viewport: { width: 1280, height: 1000 } });
+
 /** Opens the practice song with the native engine on (the lanes play there). */
 async function openWithEngine(app: Page) {
   await openSong(app);
