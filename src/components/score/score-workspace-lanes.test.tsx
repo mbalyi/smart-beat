@@ -62,6 +62,19 @@ describe("ScoreWorkspace track lanes", () => {
     expect(player.seekToBar).toHaveBeenCalledOnce();
   });
 
+  it("in Edit mode puts the cursor on the clicked bar of the opened track", async () => {
+    const { user } = await setup();
+    await user.click(screen.getByRole("button", { name: /^Show Drums/ }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await screen.findByRole("toolbar", { name: "Edit" });
+
+    clickLaneBar(0, 2);
+
+    const score = screen.getByRole("region", { name: "Score: Guitar" });
+    const status = document.getElementById(score.getAttribute("aria-describedby")!)!;
+    expect(status).toHaveTextContent(/^Bar 3, beat 1 of/);
+  });
+
   it("only seeks for a bar of the shown track, as before", async () => {
     const { player } = await setup();
 

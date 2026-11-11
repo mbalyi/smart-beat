@@ -2477,6 +2477,8 @@ export function ScoreWorkspace({
       track !== trackIndex &&
       !(layout === "horizontal" && stackRef.current.includes(target));
     if (switching) changeTrack(track);
+    // Editing goes on at the clicked bar of the newly opened track (#228).
+    if (switching && editing) editor.setCursorTo({ bar: index, beat: 0, voice: 0 });
     if (together.intercept({ kind: "seekBar", bar: index })) return;
     playerRef.current?.seekToBar(index);
     if (!switching) return;
