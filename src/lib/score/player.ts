@@ -307,6 +307,9 @@ function createSettings(options: ScorePlayerOptions): Settings {
 
 /** Edits closer together than this share one MIDI regeneration (ms). */
 const MIDI_DEBOUNCE_MS = 250;
+/** How long a shared start waits for the MIDI of an edit to load, and how often it looks. */
+const PREPARE_START_TIMEOUT_MS = 3000;
+const PREPARE_START_POLL_MS = 20;
 
 export class ScorePlayer {
   private readonly api: AlphaTabApi;
@@ -360,6 +363,8 @@ export class ScorePlayer {
    * at the next pause, never mid-song.
    */
   private midiPending = false;
+  /** A regenerated MIDI is loading: the song cannot start on time until alphaTab is ready again. */
+  private midiBusy = false;
   /** Bars to loop, or null. Applied once the MIDI is loaded. */
   private loop: LoopRange | null = null;
   /** Set while the adapter itself changes the playback range. */
@@ -593,6 +598,7 @@ export class ScorePlayer {
     // mixer is applied last. It also runs again after every MIDI or SoundFont reload.
     player.readyForPlayback.on(() => {
       this.alphaTabReady = true;
+      this.midiBusy = false;
       // The native engine's sounds load separately (see setSoundFont).
       if (this.engine && !this.engine.soundFont) return;
       this.hasSounds = true;
@@ -791,6 +797,7 @@ export class ScorePlayer {
     // straight after pausing) it would still say "playing".
     // Kept locally: loading the MIDI can finish (and clear `resume`) at once.
     const resume = (this.resume ??= { tick: api.tickPosition, play: this.playing });
+    this.midiBusy = true;
     api.loadMidiForScore();
     api.tickPosition = resume.tick;
   }
@@ -1126,9 +1133,27 @@ export class ScorePlayer {
     return this.outputDelayMs();
   }
 
-  /** Whether the song is loaded, so Play starts it (Practice together asks before a start). */
+  /**
+   * Whether the song is loaded, so Play starts it (Practice together asks before a start).
+   * Not while the MIDI of an edit loads: a start then waits for the load and comes late.
+   */
   isReady(): boolean {
-    return this.ready;
+    return this.ready && !this.midiBusy;
+  }
+
+  /**
+   * Practice together: before a shared start, makes the MIDI of a recent edit now and waits until
+   * it is loaded. Otherwise `playPause` makes it at the agreed instant, and this computer starts
+   * late by the time that takes (the count-in, the metronome and the song all move together).
+   * Gives up after `timeoutMs`, so a load that never ends cannot hold a start for ever.
+   */
+  async prepareStart(timeoutMs = PREPARE_START_TIMEOUT_MS): Promise<boolean> {
+    this.flushMidi();
+    const until = performance.now() + timeoutMs;
+    while (!this.destroyed && this.midiBusy && performance.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, PREPARE_START_POLL_MS));
+    }
+    return this.isReady();
   }
 
   /**

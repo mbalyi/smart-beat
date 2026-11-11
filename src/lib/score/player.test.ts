@@ -1971,6 +1971,59 @@ describe("ScorePlayer: Practice together (#158)", () => {
     expect(player.isReady()).toBe(true);
   });
 
+  describe("a shared start after an edit", () => {
+    const edited = async () => {
+      const setup = await readySetup();
+      vi.useFakeTimers();
+      setup.player.refresh({
+        trackIndex: 0,
+        view: { notation: "score-tab", rhythm: false },
+        mix: setup.mix,
+      });
+      return setup;
+    };
+
+    it("is not ready while the MIDI of an edit is still being loaded", async () => {
+      const { player, api, becomeReady } = await edited();
+      vi.advanceTimersByTime(300);
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+      expect(player.isReady()).toBe(false);
+      becomeReady();
+      expect(player.isReady()).toBe(true);
+    });
+
+    it("makes the waiting MIDI before the start, not inside it", async () => {
+      const { player, api, becomeReady } = await edited();
+      // The edit is a moment old: the MIDI has not been made yet.
+      expect(api.loadMidiForScore).not.toHaveBeenCalled();
+      const prepared = player.prepareStart();
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+      let done = false;
+      void prepared.then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(done).toBe(false);
+      becomeReady();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await prepared).toBe(true);
+    });
+
+    it("gives up when the MIDI never loads, instead of waiting for ever", async () => {
+      const { player } = await edited();
+      const prepared = player.prepareStart(500);
+      await vi.advanceTimersByTimeAsync(600);
+      expect(await prepared).toBe(false);
+    });
+
+    it("is ready at once when nothing was edited", async () => {
+      const { player, api } = await readySetup();
+      vi.useFakeTimers();
+      const prepared = player.prepareStart();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await prepared).toBe(true);
+      expect(api.loadMidiForScore).not.toHaveBeenCalled();
+    });
+  });
+
   describe("the seek lock of a session", () => {
     it("lets a click move the cursor while stopped, and not while the song plays", async () => {
       const { player, api, setPlaying } = await readySetup();

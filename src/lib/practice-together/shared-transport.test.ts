@@ -48,6 +48,13 @@ class FakePlayer implements TransportPlayer {
   isReady() {
     return this.ready;
   }
+  /** Set by a test: what the player says once it has made its waiting MIDI. */
+  prepared: Promise<boolean> | null = null;
+  prepareStarts = 0;
+  prepareStart() {
+    this.prepareStarts += 1;
+    return this.prepared ?? Promise.resolve(this.ready);
+  }
 }
 
 const cmd = (over: Partial<Command> = {}): Command => ({
@@ -127,6 +134,40 @@ describe("SharedTransport commands", () => {
     expect(await ready).toBe(true);
     expect(applied[0]?.speed).toBe(75);
     expect(player!.events.map((e) => e.what)).toEqual(["seek 1920"]);
+  });
+
+  it("waits for the player to make its waiting MIDI before a play, so the start itself does none of it", async () => {
+    const { transport, player } = make();
+    let finish: (ok: boolean) => void = () => {};
+    player!.prepared = new Promise<boolean>((resolve) => (finish = resolve));
+    let answer: boolean | null = null;
+    void transport.hooks.prepare(cmd()).then((ok) => (answer = ok));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(player!.prepareStarts).toBe(1);
+    expect(answer).toBeNull();
+    expect(player!.events).toEqual([]);
+    finish(true);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(answer).toBe(true);
+    expect(player!.events.map((e) => e.what)).toEqual(["seek 1920"]);
+  });
+
+  it("says it cannot start when the MIDI did not load in time", async () => {
+    const { transport, player } = make();
+    player!.prepared = Promise.resolve(false);
+    const play = transport.hooks.prepare(cmd());
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await play).toBe(false);
+    expect(player!.events).toEqual([]);
+  });
+
+  it("does not wait for the MIDI for a pause or a settings change", async () => {
+    const { transport, player } = make();
+    const a = transport.hooks.prepare(cmd({ action: "pause" }));
+    const b = transport.hooks.prepare(cmd({ action: "settings" }));
+    await vi.advanceTimersByTimeAsync(50);
+    await Promise.all([a, b]);
+    expect(player!.prepareStarts).toBe(0);
   });
 
   it("does not move for a pause or a settings change", async () => {
