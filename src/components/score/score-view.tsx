@@ -1,4 +1,4 @@
-import { useEffect, useRef, type Ref } from "react";
+import { useEffect, useRef, type ReactNode, type Ref } from "react";
 import { LoaderCircleIcon } from "lucide-react";
 
 import type { Layout, NoteRect, Rect } from "@/lib/score/player";
@@ -190,6 +190,7 @@ export function ScoreView({
   overlay = null,
   problemRects = [],
   describedBy,
+  band,
 }: {
   viewportRef: Ref<HTMLDivElement>;
   surfaceRef: Ref<HTMLDivElement>;
@@ -209,6 +210,8 @@ export function ScoreView({
   problemRects?: Rect[];
   /** Id of the element describing the editor's keys and state. */
   describedBy?: string;
+  /** The audio lanes under the notation (continuous layout): in the paper's flow, below the staves. */
+  band?: ReactNode;
 }) {
   return (
     // `isolate`: alphaTab puts its cursor at z-index 1000; keep that inside the
@@ -244,6 +247,7 @@ export function ScoreView({
         >
           <div className="relative">
             <div ref={surfaceRef} />
+            {band}
             {problemRects.length > 0 && (
               <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden="true">
                 {problemRects.map((rect, i) => (

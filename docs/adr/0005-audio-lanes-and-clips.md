@@ -55,6 +55,12 @@ Until 1.2 a song had at most one audio track: one file, one set of mix settings 
 - So waveforms, the lane editor, the studio and every clip edit work with the SoundFont (alphaTab) engine too, and adding a file never switches engines. The UI loads files with the file-level command; while the native engine runs it goes through the engine's loader instead, so the engine also remembers where each file came from.
 - Only playback of lanes needs the native engine. With the SoundFonts the lanes are silent, and each lane (and the lane editor) says so, with a button to switch to the native engine (the user's own pick, so it is remembered). Recording still needs the native engine (input monitoring, count-in). This is a bridge until lanes can play next to SoundFont playback.
 
+**Lanes also show under the tabs in the continuous view, mapped through the bars' measured x ranges.**
+
+- The score draws bars of different widths, so the track list's fixed pixels per bar (and the editor's pixels per second) do not line up with the notation. In the continuous layout the player reads each bar's x range from alphaTab's bounds lookup (`ScorePlayer.barBounds()`, read again after every draw through `onLayoutChange`), and `lib/audio-lanes/bar-bounds.ts` turns the audio timeline into pixels and back: `barAtTimelineMs` and `timelineMsAtBar` (so sync points and padding still apply) joined to piecewise linear bars, extrapolating past both ends with the first and last bar's width.
+- The band is a block in the score's paper, directly under the notation, so the scroll area grows to make room and no note is covered. It is drawn only in the continuous layout, when the song has lanes and the notation has been drawn. The page layout wraps bars onto lines and shows no band. Clips outside the visible range (plus a margin) are not drawn.
+- Everything goes through the shared lanes controller and the shared clip, handle, marquee and menu components, which already take `toX` and `toMs`; a drag, trim, fade or marquee maps through the bars, and snapping stays in time. A lane element there registers its own pixel-to-time function (`registerLaneResolver`) for files dropped from Finder, instead of the `data-px-per-bar` and `data-ms-per-px` attributes the other hosts use. The controls (volume, pan, effects, colour) stay in the track list.
+
 ## Consequences
 
 - The old `Backing` single-slot path, its commands (`audio_load_backing`, `audio_set_backing`, `audio_clear_backing`) and the audio track panel are gone.

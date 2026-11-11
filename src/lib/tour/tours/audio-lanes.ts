@@ -64,6 +64,15 @@ export const audioLanesTour: TourDefinition = {
       placement: "top",
     },
     {
+      id: "band",
+      target: "lanes-band",
+      title: "Lanes under the tabs",
+      body: "In the continuous view the lanes also show right under the tabs, on the same bars, so you can see the audio against the notes. Move, trim, split and fade clips there as in the track list. (Shown when the continuous view and a lane are on screen.)",
+      needsSong: true,
+      show: MIXER,
+      placement: "top",
+    },
+    {
       id: "record",
       target: "record-audio",
       title: "Record audio",
