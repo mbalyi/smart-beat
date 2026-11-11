@@ -192,7 +192,18 @@ describe("TrackList", () => {
     expect(cells).toHaveLength(4);
     fireEvent.click(cells[2]!);
 
-    expect(onSeekBar).toHaveBeenCalledWith(2);
+    expect(onSeekBar).toHaveBeenCalledWith(2, 0);
+  });
+
+  it("tells which track's lane a clicked bar is in (#228)", () => {
+    const { container, onSeekBar } = setup({ shown: 2 });
+
+    const cells = container.querySelectorAll<HTMLButtonElement>(
+      "ol li:first-child button[tabindex='-1']",
+    );
+    fireEvent.click(cells[3]!);
+
+    expect(onSeekBar).toHaveBeenCalledWith(3, 0);
   });
 
   it("marks the tempo changes above the bar grid", () => {

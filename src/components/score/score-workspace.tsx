@@ -2465,6 +2465,30 @@ export function ScoreWorkspace({
     focusScore();
   };
 
+  /**
+   * A bar of a lane in the track panel was clicked. A track that is not in view is shown first,
+   * so the click opens the bar the user pointed at (#228). A track already in view (the shown
+   * one, or one stacked in the continuous view) keeps the view as it is: the click only seeks.
+   */
+  const seekLaneBar = (index: number, track: number) => {
+    const target = score.tracks[track];
+    const switching =
+      !!target &&
+      track !== trackIndex &&
+      !(layout === "horizontal" && stackRef.current.includes(target));
+    if (switching) changeTrack(track);
+    if (together.intercept({ kind: "seekBar", bar: index })) return;
+    playerRef.current?.seekToBar(index);
+    if (!switching) return;
+    // That seek scrolled to where the bar is drawn on the old track; the new one is drawn a
+    // moment later, so scroll to the bar again then. Not while playing: seeking again would jump
+    // back, and the score follows the playing bar by itself.
+    afterRender.current = () => {
+      const player = playerRef.current;
+      if (player && !player.isPlaying()) player.seekToBar(index);
+    };
+  };
+
   /** The bars the Shift-selected range covers, or null. */
   const selectedBars = (): LoopRange | null => {
     const selection = editor.selection;
@@ -3122,11 +3146,7 @@ export function ScoreWorkspace({
           onReset={resetMix}
           actions={trackActions}
           bar={bar}
-          onSeekBar={(index) => {
-            if (!together.intercept({ kind: "seekBar", bar: index })) {
-              playerRef.current?.seekToBar(index);
-            }
-          }}
+          onSeekBar={seekLaneBar}
           saved={saved}
           playing={playing}
           playhead={playhead}

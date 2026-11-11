@@ -546,7 +546,8 @@ export function TrackList({
   actions: TrackActions;
   /** The bar being played (0-based). */
   bar: number;
-  onSeekBar: (bar: number) => void;
+  /** A bar of a lane was clicked (`track`: whose lane; it need not be the shown track). */
+  onSeekBar: (bar: number, track: number) => void;
   /** Whether changes are saved for this song (desktop app only). */
   saved: boolean;
   /** Pan is applied at the next pause during playback (see ScorePlayer.setMix). */
@@ -610,9 +611,9 @@ export function TrackList({
   useEffect(() => {
     if (!playing && bar === 0 && scroller.current) scroller.current.scrollLeft = 0;
   }, [bar, playing]);
-  const seekBar = (index: number) => {
+  const seekBar = (index: number, track: number) => {
     scrolledByHand.current = false;
-    onSeekBar(index);
+    onSeekBar(index, track);
   };
   const sections = useMemo(() => {
     void revision;
@@ -1029,7 +1030,7 @@ export function TrackList({
                       filled={grids[i] ?? []}
                       current={bar}
                       dimmed={!audible}
-                      onSeek={seekBar}
+                      onSeek={(index) => seekBar(index, i)}
                       playhead={playhead}
                       playing={playing}
                     />
