@@ -23,7 +23,14 @@ function Harness({
   const ref = useRef<HTMLDivElement>(null);
   useEditorKeys(ref, editor, { enabled, menuHandlesUndo, onBend });
   // A focusable stand-in for the score region.
-  return <div ref={ref} tabIndex={0} role="region" aria-label="Score" />;
+  return (
+    <div ref={ref} tabIndex={0} role="region" aria-label="Score">
+      {/* The audio lanes under the tabs sit in the score's region and take their own keys. */}
+      <div data-lane-band>
+        <button type="button">Clip</button>
+      </div>
+    </div>
+  );
 }
 
 function setup(
@@ -218,6 +225,18 @@ describe("useEditorKeys", () => {
     await user.keyboard("k");
     expect(replace).toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  it("leaves the keys of a clip in the lanes under the tabs alone", async () => {
+    const { editor, user } = setup();
+    screen.getByRole("button", { name: "Clip" }).focus();
+    await user.keyboard("5{ArrowRight}{Delete}");
+    // Nothing was typed or moved in the score; the same keys on the score itself do act.
+    expect(editor.cursor.beat).toBe(0);
+    expect(editor.beatInfo.notes).toHaveLength(0);
+    screen.getByRole("region").focus();
+    await user.keyboard("5");
+    expect(editor.beatInfo.notes).toHaveLength(1);
   });
 
   it("lists the new keys in the shortcuts", () => {

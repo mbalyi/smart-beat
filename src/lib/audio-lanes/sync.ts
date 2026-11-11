@@ -73,7 +73,8 @@ export function barAtTimelineMs(audio: AudioLanesSettings, grid: SongGrid, ms: n
     else hi = mid - 1;
   }
   const start = timelineMsAt(audio, grid, lo);
-  const end = lo + 1 < bars ? timelineMsAt(audio, grid, lo + 1) : start;
+  // (A one-bar score has no next bar: the grid goes on at the bar's own length.)
+  const end = timelineMsAt(audio, grid, lo + 1);
   return end > start ? lo + Math.min(1, (ms - start) / (end - start)) : lo;
 }
 

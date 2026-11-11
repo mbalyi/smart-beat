@@ -123,7 +123,9 @@ export function LaneRow({
         )}
         onDoubleClick={() => onOpenEditor(lane.id)}
       >
-        <div className={cn(CONTROLS, "w-full")}>
+        {/* A lane has no eye: the wider eye column of the stacked tracks would push its last
+            buttons past the header (over the first bar). */}
+        <div className={cn(CONTROLS, "w-full [--eye-col:2rem]")}>
           <div className="flex min-w-0 items-center gap-1.5">
             <span
               aria-hidden="true"

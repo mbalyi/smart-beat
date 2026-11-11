@@ -30,7 +30,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: "audio-lanes",
     title: "Audio lanes",
     summary:
-      "Put several audio files on lanes next to your tracks, each in its own colour (the stem colours by default), with its own mix and effects. Move, trim, split, glue and fade clips, give each its own pitch, sync the audio to the score, record plain audio takes, and open the studio for every lane at once. Old songs with a backing file open with it on a lane.",
+      "Put several audio files on lanes next to your tracks, each in its own colour (the stem colours by default), with its own mix and effects. Move, trim, split, glue and fade clips, give each its own pitch, sync the audio to the score, record plain audio takes, and open the studio for every lane at once. In the continuous view the lanes also show under the tabs, on the same bars. Old songs with a backing file open with it on a lane.",
     since: "1.3.0",
     tour: "audio-lanes",
   },

@@ -30,11 +30,25 @@ export interface LaneDropTarget {
   element: DropLaneElement;
 }
 
+/** How a lane element turns pixels from its left edge into audio timeline ms. */
+export type LaneResolver = (x: number) => number;
+
+const resolvers = new WeakMap<object, LaneResolver>();
+
+/**
+ * Lets a lane element read its own pixels (the lanes under the tabs, on the bars as the score
+ * draws them: bars differ in width, so neither bar nor time is linear in pixels). It wins over the
+ * lane's data attributes.
+ */
+export function registerLaneResolver(element: object, resolve: LaneResolver): void {
+  resolvers.set(element, resolve);
+}
+
 /**
  * The lane under a point of the window and the time there. A lane element says how to read its
- * pixels: `data-px-per-bar` (the track list, on the song's bars: `msAtBar` maps a bar to
- * ms) or `data-ms-per-px` (the lane editor and studio, plain time). `x` counts from the lane's
- * own left edge, which is where its clips start.
+ * pixels: a registered resolver (the lanes under the tabs), `data-px-per-bar` (the track list, on
+ * the song's bars: `msAtBar` maps a bar to ms) or `data-ms-per-px` (the lane editor and studio,
+ * plain time). `x` counts from the lane's own left edge, which is where its clips start.
  */
 export function laneDropTarget(
   point: DropPoint,
@@ -49,7 +63,8 @@ export function laneDropTarget(
   const x = Math.max(0, point.x - rect.left);
   const perBar = Number(lane.dataset.pxPerBar);
   const perPx = Number(lane.dataset.msPerPx);
-  const atMs = perBar > 0 ? msAtBar(x / perBar) : perPx > 0 ? x * perPx : 0;
+  const resolve = resolvers.get(lane);
+  const atMs = resolve ? resolve(x) : perBar > 0 ? msAtBar(x / perBar) : perPx > 0 ? x * perPx : 0;
   return { laneId, atMs: Math.max(0, atMs), rect, element: lane };
 }
 

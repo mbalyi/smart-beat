@@ -23,7 +23,9 @@ import { soundFontCounterId, track as trackUsage } from "@/lib/telemetry";
 import { LaneDropHighlight } from "@/components/audio-lanes/lane-drop-highlight";
 import { LaneEditorDock, type LaneEditorActions } from "@/components/audio-lanes/lane-editor-dock";
 import { RecordAudioDialog } from "@/components/audio-lanes/record-audio-dialog";
+import { ScoreLanesBand } from "@/components/audio-lanes/score-lanes-band";
 import { StudioView } from "@/components/audio-lanes/studio-view";
+import { useScoreBarBounds } from "@/components/audio-lanes/use-score-bar-bounds";
 import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { encodeWav } from "@/lib/export/wav";
@@ -1984,6 +1986,12 @@ export function ScoreWorkspace({
   useEffect(() => {
     lanesAudioRef.current = lanes.audio;
   }, [lanes.audio]);
+  // The lanes also show under the tabs in the continuous layout, on the bars as drawn there.
+  const barSpans = useScoreBarBounds(
+    playerRef,
+    playerEpoch,
+    isTauri() && layout === "horizontal" && lanes.audio.lanes.length > 0,
+  );
   /** Bars the score lacks for its audio: playback follows the score and stops at its end. */
   const missingBars = barsToFitAudio(lanes.audio, laneGrid, score.masterBars.length);
   const addMissingBars = () => editor.appendBars(missingBars);
@@ -3367,6 +3375,18 @@ export function ScoreWorkspace({
               overlay={overlay}
               problemRects={showProblems ? problemRects : []}
               describedBy={editing ? statusId : undefined}
+              band={
+                barSpans && (
+                  <ScoreLanesBand
+                    lanes={lanes}
+                    grid={laneGrid}
+                    spans={barSpans}
+                    playhead={playhead}
+                    scroller={viewportRef.current}
+                    onOpenEditor={setEditorLaneId}
+                  />
+                )
+              }
             />
           </ScoreContextMenu>
           {showInstrumentView && (

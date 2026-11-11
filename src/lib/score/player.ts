@@ -51,6 +51,7 @@ import {
 } from "@/lib/score/drum-tab";
 import { DRUM_TAB_LINES, drumLineAtY, tabLineAtY } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
+import type { BarSpan } from "@/lib/audio-lanes/bar-bounds";
 import type { Beat, Note } from "@/lib/score/model";
 import {
   playClick,
@@ -489,6 +490,7 @@ export class ScorePlayer {
       // alphaTab only redraws the loop highlight when clicks select ranges.
       if (this.loop && this.editing) this.highlightLoop();
       callbacks.onRendered?.();
+      for (const listener of this.layoutListeners) listener();
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
@@ -1739,6 +1741,41 @@ export class ScorePlayer {
     const start = this.api.tickCache?.getMasterBarStart(masterBar) ?? masterBar.start;
     const into = Math.min(1, Math.max(0, position - index));
     this.seekToTick(Math.round(start + into * masterBar.calculateDuration()));
+  }
+
+  private readonly layoutListeners = new Set<() => void>();
+
+  /**
+   * Calls `listener` after every draw of the notation (an edit, a zoom, a new layout or window
+   * size), when the bars may have moved. Returns the function that stops it.
+   */
+  onLayoutChange(listener: () => void): () => void {
+    this.layoutListeners.add(listener);
+    return () => {
+      this.layoutListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Where each bar is drawn in the continuous layout: its left edge and width in pixels from the
+   * left of the notation (the same x as the scrolled surface). Null in the page layout (bars wrap
+   * onto lines), before the first draw, and while a draw has not placed every bar.
+   */
+  barBounds(): BarSpan[] | null {
+    const lookup = this.api.boundsLookup;
+    if (this.layout !== "horizontal" || !lookup) return null;
+    const spans: BarSpan[] = [];
+    for (let i = 0; i < this.score.masterBars.length; i++) {
+      const bounds = lookup.findMasterBarByIndex(i)?.visualBounds;
+      if (!bounds) return null;
+      spans.push({ x: bounds.x, width: bounds.w });
+    }
+    return spans.length > 0 ? spans : null;
+  }
+
+  /** The box the notation scrolls in (sideways in the continuous layout). */
+  scrollContainer(): HTMLElement {
+    return this.scroller;
   }
 
   /** Moves the playback cursor to the start of a bar (0-based). */

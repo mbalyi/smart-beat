@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   laneDropTarget,
+  registerLaneResolver,
   sameDropTarget,
   type DropHit,
   type DropLaneElement,
@@ -41,6 +42,13 @@ describe("laneDropTarget", () => {
       over(lane({ laneId: "b", msPerPx: "10" })),
     );
     expect(target).toMatchObject({ laneId: "b", atMs: 3000 });
+  });
+
+  it("asks a lane that reads its own pixels (bars of different widths) before its attributes", () => {
+    const own = lane({ laneId: "c", pxPerBar: "20" });
+    registerLaneResolver(own, (x) => x * 7);
+    const target = laneDropTarget({ x: 160, y: 60 }, msAtBar, over(own));
+    expect(target).toMatchObject({ laneId: "c", atMs: 420 });
   });
 
   it("follows a lane scrolled off to the left", () => {
