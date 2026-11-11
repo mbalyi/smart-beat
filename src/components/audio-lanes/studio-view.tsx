@@ -3,6 +3,7 @@ import {
   AudioWaveformIcon,
   CircleIcon,
   DownloadIcon,
+  FileMusicIcon,
   FilePlusIcon,
   KeyboardIcon,
   PauseIcon,
@@ -16,6 +17,7 @@ import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
+import { EmptyLaneHint } from "@/components/audio-lanes/empty-lane-hint";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { LaneResizeHandle } from "@/components/audio-lanes/lane-resize-handle";
 import { MarkerList, MarkerRuler, MarkerToolbar } from "@/components/audio-lanes/marker-ruler";
@@ -262,7 +264,10 @@ export function StudioView({
             <Redo2Icon />
           </Button>
           <Button variant="outline" size="sm" onClick={lanes.commands.addLane}>
-            <PlusIcon /> Lane
+            <PlusIcon /> New audio lane
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void lanes.chooseFile()}>
+            <FileMusicIcon /> Import audio
           </Button>
           <Button
             variant="outline"
@@ -692,6 +697,7 @@ function StudioLane({
                 style={{ left: toX(range.startMs), width: toX(range.endMs - range.startMs) }}
               />
             )}
+            {lane.clips.length === 0 && <EmptyLaneHint />}
             {lane.clips.map((clip) => (
               <ClipView
                 key={clip.id}

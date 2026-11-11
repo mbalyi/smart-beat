@@ -32,4 +32,6 @@ export interface FileDragState {
   readonly store: FileDragStore;
   /** Every dragged file is audio (an mp3, wav…): it can go on a lane. */
   readonly audio: boolean;
+  /** How many files are dragged. */
+  readonly count: number;
 }

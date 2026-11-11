@@ -11,6 +11,7 @@ import { useCallback, useState, type MouseEvent } from "react";
 import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
+import { EmptyLaneHint } from "@/components/audio-lanes/empty-lane-hint";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { LaneColorPopover } from "@/components/audio-lanes/lane-color-popover";
 import { LanePlaybackNotice } from "@/components/audio-lanes/lane-playback-notice";
@@ -276,6 +277,7 @@ export function LaneRow({
               style={{ left: scoreWidth, width: width - scoreWidth }}
             />
           )}
+          {!lane.folder && lane.clips.length === 0 && <EmptyLaneHint />}
           {!lane.folder &&
             lane.clips.map((clip) => (
               <ClipView

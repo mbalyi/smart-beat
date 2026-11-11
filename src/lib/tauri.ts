@@ -55,6 +55,7 @@ export type MenuAction =
   | "toggle-fullscreen"
   | "add-track"
   | "add-audio-lane"
+  | "import-audio-file"
   | "duplicate-track"
   | "remove-track"
   | "track-settings"

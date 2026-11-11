@@ -23,10 +23,10 @@ async function openWithEngine(app: Page) {
   await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
 }
 
-/** Opens `file` as a new lane from the Track menu; returns its row. */
+/** Opens `file` as a new lane from the Track menu (Import Audio); returns its row. */
 async function addLane(app: Page, file: string) {
   await app.evaluate((path) => (window.__dialogResult = path), file);
-  await emitMenuAction(app, "add-audio-lane");
+  await emitMenuAction(app, "import-audio-file");
   const name = file
     .split("/")
     .pop()!
@@ -137,7 +137,26 @@ test.describe("files dragged from Finder onto a lane", () => {
 
     // While dragging, the lane under the pointer is marked and the lanes stay in view.
     await dropFiles(app, ["/Users/me/Music/new.mp3"], { position: at, hover: true });
-    await expect(app.getByTestId("lane-drop-highlight")).toContainText("Drop to add to other");
+    const highlight = app.getByTestId("lane-drop-highlight");
+    await expect(highlight).toHaveAttribute("data-drop-target", /.+/);
+    await expect(app.getByTestId("lane-drop-label")).toHaveText(/^Drop to add to other · \d:\d\d$/);
+    // The drop line sits at the pointer, across the lane's height.
+    const line = (await app.getByTestId("lane-drop-line").boundingBox())!;
+    expect(Math.abs(line.x + line.width / 2 - at.x)).toBeLessThanOrEqual(2);
+    expect(line.height).toBeGreaterThanOrEqual(box.height - 2);
+    // Moving the pointer along the lane moves the line and updates the time.
+    const further = { x: box.x + 70, y: at.y };
+    await app.evaluate(
+      (position) => window.__emitTauriEvent("tauri://drag-over", { position }),
+      further,
+    );
+    await expect
+      .poll(async () => (await app.getByTestId("lane-drop-line").boundingBox())!.x)
+      .toBeGreaterThan(line.x + 10);
+    await app.evaluate(
+      (position) => window.__emitTauriEvent("tauri://drag-over", { position }),
+      at,
+    );
     await expect(app.locator("[data-slot=drop-overlay]")).not.toContainText(
       "Drop a song to open it",
     );
@@ -204,12 +223,72 @@ test.describe("files dragged from Finder onto a lane", () => {
     const box = (await lane.boundingBox())!;
     const at = { x: box.x + 200, y: box.y + 20 };
     await dropFiles(app, ["/Users/me/Music/new.mp3"], { position: at, hover: true });
-    await expect(app.getByTestId("lane-drop-highlight")).toContainText("Drop to add to take");
+    await expect(app.getByTestId("lane-drop-label")).toContainText("Drop to add to take · ");
     await dropFiles(app, ["/Users/me/Music/new.mp3"], { position: at });
     await expect.poll(async () => (await clipStarts(app, 0))?.length).toBe(2);
     await expectDroppedAt(lane, 200, (await clipStarts(app, 0))![1]!);
     await expect(app.locator("[data-testid^='lane-row-']")).toHaveCount(1);
   });
+});
+
+test.describe("New audio lane and Import audio", () => {
+  const laneRows = (app: Page) => app.locator("[data-testid^='lane-row-']");
+
+  test("New audio lane makes an empty lane, without a file chooser", async ({ app }) => {
+    await openWithEngine(app);
+    // A chooser would pick this file: the empty lane must not have asked.
+    await app.evaluate(() => (window.__dialogResult = "/Users/me/Music/never.mp3"));
+    await app.getByRole("button", { name: "New audio lane" }).click();
+    await expect(laneRows(app)).toHaveCount(1);
+    await expect(laneRows(app).getByTestId("empty-lane")).toHaveText(
+      "Empty lane · drop audio here or use Import audio",
+    );
+    await expect(laneRows(app).getByRole("button", { name: /never\.mp3/ })).toHaveCount(0);
+    await expect
+      .poll(() =>
+        app.evaluate(() => window.__engineLanes?.audio.lanes.map((lane) => lane.clips.length)),
+      )
+      .toEqual([0]);
+    // The Track menu's New Audio Lane does the same.
+    await emitMenuAction(app, "add-audio-lane");
+    await expect(laneRows(app)).toHaveCount(2);
+    await expect(laneRows(app).getByTestId("empty-lane")).toHaveCount(2);
+  });
+
+  test("Import audio opens the file chooser and puts the file on a new lane", async ({ app }) => {
+    await openWithEngine(app);
+    await app.evaluate(() => (window.__dialogResult = "/Users/me/Music/imported.mp3"));
+    await app.getByRole("button", { name: "Import audio" }).click();
+    await expect(laneRows(app)).toHaveCount(1);
+    await expect(
+      laneRows(app).getByRole("button", { name: /imported\.mp3 on imported/ }),
+    ).toBeVisible();
+    await expect(laneRows(app).getByTestId("empty-lane")).toHaveCount(0);
+  });
+
+  test("several dragged files are counted in the drop label", async ({ app }) => {
+    await app.setViewportSize({ width: 1280, height: 1100 });
+    await openWithEngine(app);
+    const row = await addLane(app, "/Users/me/Music/take.mp3");
+    const box = (await row.locator("[data-lane-id]").boundingBox())!;
+    await dropFiles(app, ["/Users/me/Music/a.mp3", "/Users/me/Music/b.mp3"], {
+      position: { x: box.x + 60, y: box.y + box.height / 2 },
+      hover: true,
+    });
+    await expect(app.getByTestId("lane-drop-label")).toHaveText(
+      /^Drop to add 2 files to take · \d:\d\d$/,
+    );
+  });
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`the track list header has no WCAG violations in ${colorScheme} mode`, async ({ app }) => {
+      await app.emulateMedia({ colorScheme });
+      await openWithEngine(app);
+      await app.getByRole("button", { name: "New audio lane" }).click();
+      await expect(laneRows(app)).toHaveCount(1);
+      await expectNoA11yViolations(app, { popup: "[aria-label='Tracks and mixer']" });
+    });
+  }
 });
 
 test.describe("audio lanes (#185)", () => {

@@ -52,6 +52,7 @@ function setup(overrides: Partial<Parameters<typeof TrackList>[0]> = {}) {
 /** The track list with two audio lanes, run through the real lanes hook. */
 function renderLanes({
   onAdd = vi.fn(),
+  onImport = vi.fn(),
   onRecord = vi.fn(),
   onOpenEditor = vi.fn(),
   onEffects = vi.fn(),
@@ -66,6 +67,7 @@ function renderLanes({
   missingBars?: number;
   onAddMissingBars?: () => void;
   onAdd?: () => void;
+  onImport?: () => void;
   onRecord?: () => void;
   onOpenEditor?: (laneId: string) => void;
   onEffects?: (index: number) => void;
@@ -125,6 +127,7 @@ function renderLanes({
           lanes,
           grid,
           onAdd,
+          onImport,
           onRecord,
           onEffects,
           onOpenEditor,
@@ -564,13 +567,35 @@ describe("TrackList", () => {
 
   it("adds audio lanes and mixes each like a track", async () => {
     const onAdd = vi.fn();
+    const onImport = vi.fn();
     const onRecord = vi.fn();
     const onOpenEditor = vi.fn();
     const onEffects = vi.fn();
     const changes: MixerAction[] = [];
-    const { user, container } = renderLanes({ onAdd, onRecord, onOpenEditor, onEffects, changes });
-    await user.click(screen.getByRole("button", { name: "Add audio lane" }));
-    expect(onAdd).toHaveBeenCalled();
+    const { user, container } = renderLanes({
+      onAdd,
+      onImport,
+      onRecord,
+      onOpenEditor,
+      onEffects,
+      changes,
+    });
+    // Two buttons: an empty lane, and a file on a new lane.
+    await user.click(screen.getByRole("button", { name: "New audio lane" }));
+    expect(onAdd).toHaveBeenCalledOnce();
+    expect(onImport).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Import audio" }));
+    expect(onImport).toHaveBeenCalledOnce();
+    expect(onAdd).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "New audio lane" })).toHaveAttribute(
+      "data-tour",
+      "add-audio-lane",
+    );
+    expect(screen.getByRole("button", { name: "Import audio" })).toHaveAttribute(
+      "data-tour",
+      "import-audio",
+    );
+    expect(screen.queryByRole("button", { name: "Add audio lane" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Record audio" }));
     expect(onRecord).toHaveBeenCalled();
     const row = within(container).getByTestId("lane-row-lane-a");
@@ -584,6 +609,11 @@ describe("TrackList", () => {
     expect(onEffects).toHaveBeenCalledWith(0);
     // The clip shows on the bar grid, as a button with its file name.
     expect(within(row).getByRole("button", { name: /take\.mp3 on Vocals/ })).toBeInTheDocument();
+    // A lane without clips says so, and the one with a clip does not.
+    expect(
+      within(within(container).getByTestId("lane-row-lane-b")).getByTestId("empty-lane"),
+    ).toHaveTextContent("Empty lane · drop audio here or use Import audio");
+    expect(within(row).queryByTestId("empty-lane")).toBeNull();
     // Each lane takes the next stem colour by default.
     expect(
       within(container).getByTestId("lane-row-lane-b").querySelector("span[aria-hidden='true']"),

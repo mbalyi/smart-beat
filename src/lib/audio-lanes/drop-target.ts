@@ -1,3 +1,5 @@
+import { formatTime } from "@/lib/score/format";
+
 /** A point of the window, in CSS pixels. */
 export interface DropPoint {
   readonly x: number;
@@ -64,4 +66,10 @@ export function sameDropTarget(a: LaneDropTarget | null, b: LaneDropTarget | nul
     a.rect.width === b.rect.width &&
     a.rect.height === b.rect.height
   );
+}
+
+/** What the chip says: "Drop to add to Bass · 0:42" (several files: "Drop to add 3 files to…"). */
+export function dropLabel(laneName: string, ms: number, count = 1): string {
+  const what = count > 1 ? `${count} files` : "";
+  return `Drop to add ${what ? `${what} ` : ""}to ${laneName} · ${formatTime(ms)}`;
 }

@@ -875,7 +875,7 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     const { user, calls, player } = await setup({ path: "/songs/practice-song.gp" });
     expect(player.usesNativeEngine).toBe(false);
     backend.dialogResult = "/music/take.mp3";
-    await menu("add-audio-lane");
+    await menu("import-audio-file");
     // The file is only decoded, by the file-level command; the first try works, with no waiting.
     const row = await screen.findByTestId(/^lane-row-/);
     expect(screen.getAllByTestId(/^lane-row-/)).toHaveLength(1);
@@ -901,10 +901,24 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     expect(screen.queryByRole("region", { name: "Lane editor: take" })).toBeNull();
   });
 
+  it("New Audio Lane makes an empty lane without asking for a file", async () => {
+    const { calls } = await setup({ path: "/songs/practice-song.gp" });
+    backend.dialogResult = "/music/take.mp3";
+    await menu("add-audio-lane");
+    const row = await screen.findByTestId(/^lane-row-/);
+    expect(screen.getAllByTestId(/^lane-row-/)).toHaveLength(1);
+    expect(within(row).getByTestId("empty-lane")).toHaveTextContent(
+      "Empty lane · drop audio here or use Import audio",
+    );
+    // No file chooser and nothing decoded: the lane is just a lane.
+    expect(calls.some((c) => c.cmd === "plugin:dialog|open")).toBe(false);
+    expect(calls.some((c) => c.cmd === "audio_load_source")).toBe(false);
+  });
+
   it("says the lanes are silent with the SoundFonts and switches to the native engine on request", async () => {
     const { user } = await setup({ path: "/songs/practice-song.gp" });
     backend.dialogResult = "/music/take.mp3";
-    await menu("add-audio-lane");
+    await menu("import-audio-file");
     const row = await screen.findByTestId(/^lane-row-/);
     await user.click(within(row).getByRole("button", { name: /Lane take is silent here/ }));
     // The user's own pick: remembered.
@@ -925,7 +939,7 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
   it("replaces a lane's file with the SoundFonts engine", async () => {
     const { user, calls } = await setup({ path: "/songs/practice-song.gp" });
     backend.dialogResult = "/music/take.mp3";
-    await menu("add-audio-lane");
+    await menu("import-audio-file");
     const row = await screen.findByTestId(/^lane-row-/);
     await user.click(within(row).getByRole("button", { name: "Edit the lane take" }));
     const editor = await screen.findByRole("region", { name: "Lane editor: take" });
@@ -953,7 +967,7 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     player.usesNativeEngine = true;
     player.becomeReady();
     backend.dialogResult = "/music/take.wav";
-    await menu("add-audio-lane");
+    await menu("import-audio-file");
     const row = await screen.findByTestId(/^lane-row-/);
     expect(screen.queryAllByTestId("playhead")).toHaveLength(0);
     act(() => {
@@ -977,7 +991,7 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     FakeScorePlayer.last.usesNativeEngine = true;
     FakeScorePlayer.last.becomeReady();
     backend.dialogResult = "/music/notes.txt";
-    await menu("add-audio-lane");
+    await menu("import-audio-file");
     expect(
       await toastWith("“notes.txt” is not an audio file Smart Beat opens"),
     ).toBeInTheDocument();
