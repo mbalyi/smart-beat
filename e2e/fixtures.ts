@@ -287,9 +287,19 @@ export async function emitMenuAction(page: Page, action: MenuAction) {
     .toBeGreaterThan(0);
 }
 
-/** Simulates the OS dragging files onto the window and dropping them. */
-export async function dropFiles(page: Page, paths: string[]) {
-  const position = { x: 100, y: 100 };
+/**
+ * Simulates the OS dragging files onto the window (at `position` in CSS pixels, default
+ * (100, 100)) and dropping them there. `hover` leaves the files over the window instead of
+ * dropping them, for checking what the window shows while dragging.
+ */
+export async function dropFiles(
+  page: Page,
+  paths: string[],
+  {
+    position = { x: 100, y: 100 },
+    hover = false,
+  }: { position?: { x: number; y: number }; hover?: boolean } = {},
+) {
   await expect
     .poll(() =>
       page.evaluate((payload) => window.__emitTauriEvent("tauri://drag-enter", payload), {
@@ -298,6 +308,10 @@ export async function dropFiles(page: Page, paths: string[]) {
       }),
     )
     .toBeGreaterThan(0);
+  await page.evaluate((payload) => window.__emitTauriEvent("tauri://drag-over", payload), {
+    position,
+  });
+  if (hover) return;
   await page.evaluate((payload) => window.__emitTauriEvent("tauri://drag-drop", payload), {
     paths,
     position,

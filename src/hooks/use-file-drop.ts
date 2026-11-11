@@ -12,20 +12,33 @@ const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes("Files
 export function useFileDrop({
   onDropPaths,
   onDropFiles,
+  onEnter,
+  onOver,
 }: {
   onDropPaths: (paths: string[], position?: { x: number; y: number }) => void;
   onDropFiles: (files: File[]) => void;
+  /** Desktop app: files came over the window; `paths` says what they are (when known). */
+  onEnter?: (paths: string[]) => void;
+  /** Desktop app: the pointer moved while files are dragged (CSS pixels of the window). */
+  onOver?: (position: { x: number; y: number }) => void;
 }): boolean {
   const [dragging, setDragging] = useState(false);
   const dropPaths = useEffectEvent(onDropPaths);
   const dropFiles = useEffectEvent(onDropFiles);
+  const enter = useEffectEvent((paths: string[]) => onEnter?.(paths));
+  const over = useEffectEvent((position: { x: number; y: number }) => onOver?.(position));
 
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     onFileDrag((event) => {
+      if (event.type === "over") {
+        over(event.position);
+        return;
+      }
       setDragging(event.type === "enter");
+      if (event.type === "enter") enter(event.paths ?? []);
       if (event.type === "drop" && event.paths.length > 0) dropPaths(event.paths, event.position);
     })
       .then((stop) => {

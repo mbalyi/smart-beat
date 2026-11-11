@@ -196,6 +196,8 @@ describe("score files", () => {
     const unlisten = await onFileDrag((event) => events.push(event));
 
     await emitFileDrag({ type: "enter", paths: ["/a.gp5"] });
+    // The pointer moving over the window (device pixels), for marking the lane under it.
+    await emitFileDrag({ type: "over", position: { x: 40, y: 20 } });
     await emitFileDrag({ type: "leave" });
     await emitFileDrag({ type: "drop", paths: ["/a.gp5", "/b.txt"] });
     // Where the files landed (in device pixels), for dropping onto an audio lane.
@@ -204,7 +206,14 @@ describe("score files", () => {
     await emitFileDrag({ type: "drop", paths: ["/c.gp5"] });
 
     expect(events).toEqual([
-      { type: "enter" },
+      { type: "enter", paths: ["/a.gp5"] },
+      {
+        type: "over",
+        position: {
+          x: 40 / (window.devicePixelRatio || 1),
+          y: 20 / (window.devicePixelRatio || 1),
+        },
+      },
       { type: "leave" },
       {
         type: "drop",

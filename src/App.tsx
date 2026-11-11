@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AudioWaveformIcon } from "lucide-react";
 import { track } from "@/lib/telemetry";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ import { AppHeader } from "@/components/app-header";
 import { DocumentTabs } from "@/components/shell/document-tabs";
 import { DiscardDialog } from "@/components/discard-dialog";
 import { LeaveDialog } from "@/components/leave-dialog";
-import { DropOverlay } from "@/components/drop-overlay";
+import { DropOverlay, type DropKind } from "@/components/drop-overlay";
 import { SkipLink } from "@/components/skip-link";
 import { useCloudFlush } from "@/hooks/use-cloud-flush";
 import { useUsageNotice } from "@/hooks/use-usage-notice";
@@ -36,6 +36,7 @@ import { OpenStemsDialog } from "@/components/stems/open-stems-dialog";
 import { StemPage } from "@/components/stems/stem-page";
 import type { DroppedSong } from "@/components/stems/stem-dialog";
 import { useFileDrop } from "@/hooks/use-file-drop";
+import { FileDragStore } from "@/lib/file-drag-store";
 import { dispatchMenuAction, useMenuActions } from "@/hooks/use-menu-actions";
 import { useExternalOpen } from "@/hooks/use-external-open";
 import { useRecentFiles } from "@/hooks/use-recent-files";
@@ -520,11 +521,16 @@ export function App() {
   };
 
   const [droppedAudio, setDroppedAudio] = useState<{
-    path: string;
+    paths: string[];
     nonce: number;
     position?: { x: number; y: number };
   } | null>(null);
+  // What the OS is dragging over the window, and where (the lane under it is marked).
+  const [fileDragStore] = useState(() => new FileDragStore());
+  const [dragPaths, setDragPaths] = useState<string[] | null>(null);
   const dragging = useFileDrop({
+    onEnter: setDragPaths,
+    onOver: (position) => fileDragStore.set(position),
     onDropPaths: (paths, position) => {
       if (dialog === "stem-separation") {
         const dropped = paths[0];
@@ -542,12 +548,12 @@ export function App() {
         void openPath(score);
         return;
       }
-      // An mp3, wav… dropped on an open song goes on an audio lane (the one under the pointer, or a
-      // new one); an amp
-      // capture (.nam) goes to the sound library (the workspace decides).
-      const sound = song ? paths.find((p) => isAudioFile(p) || /\.nam$/i.test(p)) : undefined;
-      if (sound) {
-        setDroppedAudio((d) => ({ path: sound, nonce: (d?.nonce ?? 0) + 1, position }));
+      // Every mp3, wav… dropped on an open song goes on an audio lane (the one under the pointer,
+      // else one new lane each); an amp capture (.nam) goes to the sound library (the workspace
+      // decides).
+      const sounds = song ? paths.filter((p) => isAudioFile(p) || /\.nam$/i.test(p)) : [];
+      if (sounds.length > 0) {
+        setDroppedAudio((d) => ({ paths: sounds, nonce: (d?.nonce ?? 0) + 1, position }));
         return;
       }
       // Anything else: opening it reports why it is not a song.
@@ -565,6 +571,24 @@ export function App() {
       if (file) void openFile(file);
     },
   });
+  // Nothing is over the window any more: no lane is marked.
+  useEffect(() => {
+    if (!dragging) fileDragStore.set(null);
+  }, [dragging, fileDragStore]);
+  const dragAudio =
+    dragging &&
+    song !== null &&
+    dialog !== "audio-transcription" &&
+    dialog !== "stem-separation" &&
+    dragPaths !== null &&
+    dragPaths.length > 0 &&
+    dragPaths.every(isAudioFile);
+  // What the overlay says: only audio over an open song goes on lanes; unknown kinds stay neutral.
+  const dropKind: DropKind = dragAudio ? "audio" : dragPaths?.length === 0 ? "files" : "song";
+  const fileDrag = useMemo(
+    () => ({ store: fileDragStore, audio: dragAudio }),
+    [fileDragStore, dragAudio],
+  );
 
   useEffect(() => {
     const title = song
@@ -700,6 +724,7 @@ export function App() {
                     onReloadFromDisk={() => reloadFromDisk(s.id)}
                     startEditing={s.isNew}
                     droppedAudio={s.id === song?.id ? droppedAudio : null}
+                    fileDrag={s.id === song?.id ? fileDrag : null}
                     togetherIntent={s.id === song?.id ? togetherIntent : null}
                     onTogetherIntentHandled={() => setTogetherIntent(null)}
                     onOpenSettings={(from) => showDialog("settings", from)}
@@ -767,6 +792,7 @@ export function App() {
       />
       <DropOverlay
         visible={dragging && dialog !== "audio-transcription" && dialog !== "stem-separation"}
+        kind={dropKind}
       />
       <DiscardDialog
         songName={closing ? closing.summary.title || closing.name : ""}
