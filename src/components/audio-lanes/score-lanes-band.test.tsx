@@ -236,6 +236,41 @@ describe("the lanes band under the tabs", () => {
     expect(screen.getByTestId("band-position-line").style.left).toBe("90px");
   });
 
+  it("draws no row or clip for a lane hidden from the score", () => {
+    const audio = song();
+    renderBand({
+      ...audio,
+      lanes: audio.lanes.map((l) => (l.id === "lane-b" ? { ...l, hiddenInScore: true } : l)),
+    });
+    expect(screen.getByTestId("band-lane-lane-a")).toBeInTheDocument();
+    expect(screen.queryByTestId("band-lane-lane-b")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("clip-clip-c")).not.toBeInTheDocument();
+    expect(screen.getByTestId("clip-clip-a")).toBeInTheDocument();
+    // The lane is still in the song: only the band leaves it out.
+    expect(lanesNow().audio.lanes.map((l) => l.id)).toEqual(["lane-a", "lane-b"]);
+  });
+
+  it("mounts nothing when every lane is hidden", () => {
+    const audio = song();
+    renderBand({ ...audio, lanes: audio.lanes.map((l) => ({ ...l, hiddenInScore: true })) });
+    expect(screen.queryByTestId("score-lanes-band")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /Audio lanes under the score/ })).toBeNull();
+  });
+
+  it("shows a folder header only while one of its lanes is shown", () => {
+    const folder = { ...newLane("Stems", "folder"), folder: true };
+    const one = { ...newLane("One", "lane-one"), parent: "folder", hiddenInScore: true };
+    const two = { ...newLane("Two", "lane-two"), parent: "folder" };
+    const first = renderBand(song([folder, one, two]));
+    expect(screen.getByTestId("band-folder-folder")).toBeInTheDocument();
+    expect(screen.queryByTestId("band-lane-lane-one")).not.toBeInTheDocument();
+    expect(screen.getByTestId("band-lane-lane-two")).toBeInTheDocument();
+    first.unmount();
+    renderBand(song([folder, one, { ...two, hiddenInScore: true }]));
+    expect(screen.queryByTestId("band-folder-folder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("band-lane-lane-a")).toBeInTheDocument();
+  });
+
   it("hides the lanes of a closed folder, and shows the folder as a thin row", async () => {
     const folder = { ...newLane("Stems", "folder"), folder: true, collapsed: true };
     const inside = { ...newLane("Inside", "lane-in"), parent: "folder" };

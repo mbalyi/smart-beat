@@ -235,6 +235,9 @@ pub struct AudioLane {
     pub height: Option<f64>,
     #[serde(default)]
     pub clips: Vec<AudioClip>,
+    /// Hidden from under the tabs in the continuous view (the track list still shows the lane).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden_in_score: bool,
 }
 
 /// A bus that lane sends feed.
@@ -579,6 +582,7 @@ pub fn migrate_audio_track(track: &AudioTrack) -> AudioLanes {
         group: 0,
         height: None,
         clips: vec![clip],
+        hidden_in_score: false,
     };
     let mut sync = track.sync.clone();
     sync.sort_by_key(|p| p.bar);
@@ -845,6 +849,28 @@ mod tests {
         old["lanes"][0].as_object_mut().unwrap().remove("height");
         let read: AudioLanes = serde_json::from_value(old).unwrap();
         assert_eq!(read.lanes[0].height, None);
+    }
+
+    #[test]
+    fn hidden_in_score_round_trips_and_is_omitted_when_false() {
+        let mut audio = migrate_audio_track(&track());
+        let written = serde_json::to_value(&audio).unwrap();
+        assert!(written["lanes"][0].get("hiddenInScore").is_none());
+        audio.lanes[0].hidden_in_score = true;
+        let json = serde_json::to_string(&audio).unwrap();
+        assert!(json.contains(r#""hiddenInScore":true"#));
+        let read: AudioLanes = serde_json::from_str(&json).unwrap();
+        assert!(read.lanes[0].hidden_in_score);
+        assert_eq!(read, audio);
+        assert_eq!(read.validate(), Ok(()));
+        // A lane saved before the flag existed loads as shown.
+        let mut old = serde_json::to_value(&audio).unwrap();
+        old["lanes"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("hiddenInScore");
+        let read: AudioLanes = serde_json::from_value(old).unwrap();
+        assert!(!read.lanes[0].hidden_in_score);
     }
 
     #[test]

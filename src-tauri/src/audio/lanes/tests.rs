@@ -89,6 +89,7 @@ fn lane(id: &str, clips: Vec<AudioClip>) -> AudioLane {
         group: 0,
         height: None,
         clips,
+        hidden_in_score: false,
     }
 }
 

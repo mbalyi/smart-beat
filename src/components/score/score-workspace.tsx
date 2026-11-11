@@ -30,6 +30,7 @@ import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
+import { hasBandRows } from "@/lib/audio-lanes/band-rows";
 import { laneDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
 import { EMPTY_AUDIO } from "@/lib/audio-lanes/model";
 import type { FileDragState } from "@/lib/file-drag-store";
@@ -1990,7 +1991,7 @@ export function ScoreWorkspace({
   const barSpans = useScoreBarBounds(
     playerRef,
     playerEpoch,
-    isTauri() && layout === "horizontal" && lanes.audio.lanes.length > 0,
+    isTauri() && layout === "horizontal" && hasBandRows(lanes.audio),
   );
   /** Bars the score lacks for its audio: playback follows the score and stops at its end. */
   const missingBars = barsToFitAudio(lanes.audio, laneGrid, score.masterBars.length);
