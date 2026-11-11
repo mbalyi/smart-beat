@@ -562,7 +562,10 @@ export function TrackList({
   audio?: {
     lanes: AudioLanesController;
     grid: SongGrid;
+    /** Adds an empty lane (no file). */
     onAdd: () => void;
+    /** Opens the file chooser and puts the file on a new lane. */
+    onImport: () => void;
     onRecord: () => void;
     onEffects: (laneIndex: number) => void;
     onOpenEditor: (laneId: string) => void;
@@ -675,10 +678,22 @@ export function TrackList({
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="Add audio lane"
-                    title="Add audio lane (mp3, m4a, wav…)"
+                    aria-label="New audio lane"
+                    title="New audio lane (empty, to drop or record audio on)"
                     onClick={audio.onAdd}
                     data-tour="add-audio-lane"
+                  >
+                    <PlusIcon />
+                  </Button>
+                )}
+                {audio && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Import audio"
+                    title="Import audio file on a new lane (mp3, m4a, wav…)"
+                    onClick={audio.onImport}
+                    data-tour="import-audio"
                   >
                     <FileMusicIcon />
                   </Button>

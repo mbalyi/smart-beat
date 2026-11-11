@@ -39,6 +39,7 @@ type MenuAction =
   | "toggle-practice-view"
   | "add-track"
   | "add-audio-lane"
+  | "import-audio-file"
   | "duplicate-track"
   | "remove-track"
   | "track-settings"

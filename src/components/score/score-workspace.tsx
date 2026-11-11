@@ -28,7 +28,7 @@ import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
-import { laneDropTarget, sameDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
+import { laneDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
 import { EMPTY_AUDIO } from "@/lib/audio-lanes/model";
 import type { FileDragState } from "@/lib/file-drag-store";
 import {
@@ -2451,27 +2451,6 @@ export function ScoreWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [droppedAudio]);
 
-  // Audio files dragged over the window mark the lane they would land on.
-  const dragAudio = fileDrag?.audio ?? false;
-  const dragStore = fileDrag?.store;
-  const [dropHover, setDropHover] = useState<LaneDropTarget | null>(null);
-  useEffect(() => {
-    if (!dragStore || !dragAudio) return;
-    const follow = () => {
-      const point = dragStore.position;
-      const next = point
-        ? laneDropTarget(point, (bar) => timelineMsAtBar(lanesAudioRef.current, laneGrid, bar))
-        : null;
-      setDropHover((prev) => (sameDropTarget(prev, next) ? prev : next));
-    };
-    follow();
-    const stop = dragStore.subscribe(follow);
-    return () => {
-      stop();
-      setDropHover(null);
-    };
-  }, [dragStore, dragAudio, laneGrid]);
-
   // --- Monitor track ---------------------------------------------------------------
 
   useEffect(() => {
@@ -2976,6 +2955,9 @@ export function ScoreWorkspace({
         setTrackDialog({ mode: "add" });
         break;
       case "add-audio-lane":
+        lanes.commands.addLane();
+        break;
+      case "import-audio-file":
         void addAudioLane();
         break;
       case "duplicate-track":
@@ -3533,7 +3515,8 @@ export function ScoreWorkspace({
               ? {
                   lanes,
                   grid: laneGrid,
-                  onAdd: () => void addAudioLane(),
+                  onAdd: () => lanes.commands.addLane(),
+                  onImport: () => void addAudioLane(),
                   onRecord: () => setRecordAudioOpen(true),
                   onEffects: (laneIndex) => openPedalboard({ lane: laneIndex }),
                   onOpenEditor: (laneId) => setEditorLaneId(laneId),
@@ -3613,8 +3596,11 @@ export function ScoreWorkspace({
         onCancel={recordAudio.discard}
       />
       <LaneDropHighlight
-        target={dragAudio ? dropHover : null}
-        laneName={lanes.audio.lanes.find((l) => l.id === dropHover?.laneId)?.name ?? ""}
+        store={fileDrag?.audio ? fileDrag.store : undefined}
+        count={fileDrag?.count ?? 0}
+        msAtBar={(bar) => timelineMsAtBar(lanesAudioRef.current, laneGrid, bar)}
+        snapTo={lanes.snapTo}
+        laneName={(id) => lanes.audio.lanes.find((l) => l.id === id)?.name ?? ""}
       />
       <PracticeTogetherDialog
         open={togetherOpen}

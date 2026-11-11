@@ -586,8 +586,8 @@ export function App() {
   // What the overlay says: only audio over an open song goes on lanes; unknown kinds stay neutral.
   const dropKind: DropKind = dragAudio ? "audio" : dragPaths?.length === 0 ? "files" : "song";
   const fileDrag = useMemo(
-    () => ({ store: fileDragStore, audio: dragAudio }),
-    [fileDragStore, dragAudio],
+    () => ({ store: fileDragStore, audio: dragAudio, count: dragPaths?.length ?? 0 }),
+    [fileDragStore, dragAudio, dragPaths],
   );
 
   useEffect(() => {
