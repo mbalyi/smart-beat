@@ -25,7 +25,11 @@ const FIRST_DRUM = 27;
 
 interface Hit {
   value: number;
+  /** The top of the number. */
   y: number;
+  /** The middle of the number, to click on it. */
+  x: number;
+  cy: number;
 }
 
 /**
@@ -42,17 +46,22 @@ async function beatHits(page: Page, beat: number): Promise<Hit[]> {
         .filter((t) => !BAR_NUMBER_FILLS.includes(t.getAttribute("fill") ?? ""))
         .map((t) => {
           const box = t.getBoundingClientRect();
-          return { x: box.x + box.width / 2, y: box.y, value: Number(t.textContent!.trim()) };
+          return {
+            x: box.x + box.width / 2,
+            y: box.y,
+            cy: box.y + box.height / 2,
+            value: Number(t.textContent!.trim()),
+          };
         })
         .filter((hit) => hit.value >= first);
       // Bar 1 is the first row of the tab: the hits on the top staff, left to right.
       const top = Math.min(...hits.map((h) => h.y));
       const row = hits.filter((h) => h.y - top < 80);
-      const columns: { x: number; hits: { value: number; y: number }[] }[] = [];
+      const columns: { x: number; hits: typeof row }[] = [];
       for (const hit of row) {
         const column = columns.find((c) => Math.abs(c.x - hit.x) < 6);
-        if (column) column.hits.push({ value: hit.value, y: hit.y });
-        else columns.push({ x: hit.x, hits: [{ value: hit.value, y: hit.y }] });
+        if (column) column.hits.push(hit);
+        else columns.push({ x: hit.x, hits: [hit] });
       }
       return columns.sort((a, b) => a.x - b.x).map((c) => c.hits.sort((a, b) => a.y - b.y));
     }, FIRST_DRUM);
@@ -71,19 +80,27 @@ async function drumY(page: Page, beat: number, drum: number): Promise<number> {
   return hit!.y;
 }
 
-/** Shows a track as a drum tab (numbers on lines), laid out as pages, in edit mode. */
-async function editDrumTab(app: Page, track?: string) {
+/**
+ * Shows a track as a drum tab (numbers on lines, alone or under the drum staff), laid out as
+ * pages unless told otherwise, in edit mode.
+ */
+async function editDrumTab(
+  app: Page,
+  track?: string,
+  notation: "Tab" | "Score + tab" = "Tab",
+  layout: "Page" | "Continuous" = "Page",
+) {
   if (track) {
     await app.getByRole("combobox", { name: "Track" }).click();
     await app.getByRole("option", { name: track }).click();
   }
   await app
     .getByRole("radiogroup", { name: "Notation" })
-    .getByRole("radio", { name: "Tab", exact: true })
+    .getByRole("radio", { name: notation, exact: true })
     .click();
   await app
     .getByRole("radiogroup", { name: "Layout" })
-    .getByRole("radio", { name: "Page", exact: true })
+    .getByRole("radio", { name: layout, exact: true })
     .click();
   await app.getByRole("button", { name: "Edit" }).click();
   await expect(app.getByRole("toolbar", { name: "Edit" })).toBeVisible();
@@ -210,5 +227,105 @@ test.describe("typing on a written drum replaces it (#228)", () => {
       old: [42, "Hi-Hat (closed)"],
       typed: [46, "Hi-Hat (open)"],
     });
+  });
+});
+
+/** The line of the drum tab (1 = top) and the drum the status line reads for the cursor. */
+async function cursorLine(app: Page): Promise<{ line: number; drum: string }> {
+  const match = /line (\d) of the drum tab, ([^,]+)/.exec(await editorStatus(app));
+  return { line: Number(match?.[1] ?? 0), drum: match?.[2] ?? "" };
+}
+
+/** Clicks a drum number of the tab strip and returns the line (1 = top) it is on. */
+async function clickHit(app: Page, hit: Hit, name: string): Promise<number> {
+  await app.mouse.click(hit.x, hit.cy);
+  await expect.poll(async () => (await cursorLine(app)).drum).toBe(name);
+  return (await cursorLine(app)).line;
+}
+
+/**
+ * The tab strip's lines at a beat: where a line (1 = top) is drawn, and the lines holding a
+ * drum. Measured from two drums the status line places on their lines.
+ */
+async function tabLines(app: Page, beat: number) {
+  const hits = await beatHits(app, beat);
+  const hiHat = hits.find((h) => h.value === 42)!;
+  const snare = hits.find((h) => h.value === 38)!;
+  const hiHatLine = await clickHit(app, hiHat, "Hi-Hat (closed)");
+  const snareLine = await clickHit(app, snare, "Snare (hit)");
+  const spacing = (snare.cy - hiHat.cy) / (snareLine - hiHatLine);
+  expect(spacing).toBeGreaterThan(4);
+  const lineOf = (hit: Hit) => hiHatLine + Math.round((hit.cy - hiHat.cy) / spacing);
+  return {
+    x: hiHat.x,
+    y: (line: number) => hiHat.cy + (line - hiHatLine) * spacing,
+    spacing,
+    taken: new Set(hits.map(lineOf)),
+    snare,
+  };
+}
+
+test.describe("clicks and typing on the drum tab strip (#228)", () => {
+  // Beat 3 of bar 1 holds the closed hi-hat and the snare: the second line from the top is free.
+  const BEAT = 3;
+  const cases = [
+    { notation: "Score + tab", layout: "Page" },
+    { notation: "Score + tab", layout: "Continuous" },
+    { notation: "Tab", layout: "Page" },
+  ] as const;
+
+  for (const { notation, layout } of cases) {
+    test(`a click on an empty line puts the cursor on that line (${notation}, ${layout})`, async ({
+      app,
+    }) => {
+      await openSong(app, DRUM_LINES);
+      await editDrumTab(app, undefined, notation, layout);
+      await settledBeat(app, BEAT);
+      const lines = await tabLines(app, BEAT);
+      const target = [2, 1, 3, 4, 5, 6].find((line) => !lines.taken.has(line))!;
+      expect(target).toBe(2);
+
+      // Empty space on the second line from the top: the cursor goes exactly there.
+      await app.mouse.click(lines.x, lines.y(target));
+      await expect
+        .poll(() => editorStatus(app))
+        .toMatch(new RegExp(`^Bar 1, beat ${BEAT} of 4, line ${target} of the drum tab, empty`));
+      const frame = (await app.getByTestId("edit-cursor-note").first().boundingBox())!;
+      expect(Math.abs(frame.y + frame.height / 2 - lines.y(target))).toBeLessThan(
+        lines.spacing / 2,
+      );
+
+      // Editing goes on from there: a number typed is written on that line.
+      const before = await beatDrums(app, BEAT);
+      await app.keyboard.type("36");
+      await expect.poll(() => beatDrums(app, BEAT)).toEqual(sorted([...before, 36]));
+      await expect.poll(() => cursorLine(app)).toEqual({ line: target, drum: "Kick (hit)" });
+      expect(Math.abs((await drumY(app, BEAT, 36)) - (await drumY(app, BEAT, 42)))).toBeGreaterThan(
+        lines.spacing / 2,
+      );
+    });
+  }
+
+  test("numbers typed one after another on a drum keep replacing that one drum (Score + tab)", async ({
+    app,
+  }) => {
+    await openSong(app, DRUM_LINES);
+    await editDrumTab(app, undefined, "Score + tab");
+    const before = await settledBeat(app, BEAT);
+    const lines = await tabLines(app, BEAT); // leaves the cursor on the snare
+    const line = (await cursorLine(app)).line;
+    const others = before.filter((d) => d !== 38);
+
+    for (const [typed, name] of [
+      [49, "Crash high (hit)"],
+      [46, "Hi-Hat (open)"],
+      [51, "Ride (middle)"],
+    ] as const) {
+      await app.keyboard.type(String(typed));
+      await expect.poll(() => cursorLine(app)).toEqual({ line, drum: name });
+      // One drum where the snare was, the number typed last.
+      await expect.poll(() => beatDrums(app, BEAT)).toEqual(sorted([...others, typed]));
+    }
+    expect(Math.abs((await drumY(app, BEAT, 51)) - lines.snare.y)).toBeLessThan(2);
   });
 });

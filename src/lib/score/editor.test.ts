@@ -1249,23 +1249,64 @@ describe("ScoreEditor: drum numbers and rests", () => {
     expect(editor.message).toBe("Hi-Hat (open)");
   });
 
-  it("adds drums typed one after another; replaces only a drum the cursor was put on (#228)", () => {
+  it("replaces the drum the cursor sits on with every number typed, also one typed just before (#228)", () => {
     const editor = drumSong();
     editor.typeDigit(3, 1_000);
-    editor.typeDigit(8, 1_100); // snare
+    editor.typeDigit(8, 1_100); // snare: the cursor is now on it
     editor.typeDigit(3, 3_000);
-    editor.typeDigit(6, 3_100); // a kick with it, typed right away: added
-    expect(hits(editor)).toEqual([38, 36]);
+    editor.typeDigit(6, 3_100); // a kick typed right away takes the snare's place
+    expect(hits(editor)).toEqual([36]);
 
-    // On the snare's line by choice (Up/Down or a click): the next number replaces it.
-    editor.setCursorTo({ bar: 0, beat: 0, note: voice(editor, 0).beats[0]!.notes[0]! });
+    // A second drum goes on the beat from an empty line.
+    editor.setCursorTo({ bar: 0, beat: 0, line: 6 });
     editor.typeDigit(4, 5_000);
     editor.typeDigit(9, 5_100);
-    expect(hits(editor)).toEqual([49, 36]);
-    // Typed: the next number adds again.
+    expect(hits(editor)).toEqual([36, 49]);
+    // The cursor stays on the crash: the next number replaces it, not the kick.
     editor.typeDigit(4, 7_000);
     editor.typeDigit(2, 7_100);
-    expect(hits(editor)).toEqual([49, 36, 42]);
+    expect(hits(editor)).toEqual([36, 42]);
+  });
+
+  it("keeps replacing the same drum, number after number (#228)", () => {
+    const editor = drumSong();
+    editor.enterDrum(36); // kick: line 2
+    editor.enterDrum(42); // hi-hat: line 6
+    const kick = voice(editor, 0).beats[0]!.notes[0]!;
+    editor.setCursorTo({ bar: 0, beat: 0, note: kick }); // the user puts the cursor on the kick
+
+    for (const [typed, at] of [
+      [38, 1_000],
+      [49, 3_000],
+      [46, 5_000],
+    ] as const) {
+      editor.typeDigit(Math.floor(typed / 10), at);
+      editor.typeDigit(typed % 10, at + 100);
+      // One drum where the kick was, the number typed last; the hi-hat is left alone.
+      expect(hits(editor)).toEqual([typed, 42]);
+      expect([editor.cursor.line, editor.cursorDrum]).toEqual([2, typed]);
+    }
+    expect(editor.message).toBe("Crash high (hit) replaced by Hi-Hat (open)");
+    // Each replacement is its own undo step.
+    editor.undo();
+    expect(hits(editor)).toEqual([49, 42]);
+  });
+
+  it("follows a replacing drum whose usual line is another one, and replaces it again (#228)", () => {
+    const editor = drumSong();
+    editor.enterDrum(38); // snare: line 4
+    editor.setCursorTo({ bar: 0, beat: 0, line: 4 });
+
+    editor.typeDigit(4, 1_000);
+    editor.typeDigit(9, 1_100); // a crash, usually on the top line: it stays on the snare's line
+    expect(hits(editor)).toEqual([49]);
+    expect(drumLine(voice(editor, 0).beats[0]!.notes[0]!)).toBe(4);
+    expect([editor.cursor.line, editor.cursorDrum]).toEqual([4, 49]);
+
+    editor.typeDigit(3, 3_000);
+    editor.typeDigit(6, 3_100); // a kick (usually line 2) replaces the crash on that line
+    expect(hits(editor)).toEqual([36]);
+    expect([editor.cursor.line, editor.cursorDrum]).toEqual([4, 36]);
   });
 
   it("types three-digit numbers, with or without leading zeros", () => {

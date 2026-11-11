@@ -1271,6 +1271,34 @@ describe("ScorePlayer", () => {
       expect(callbacks.onBeatDrag).toHaveBeenCalledWith(beat);
     });
 
+    it("reports the drum tab line clicked whichever staff's beat alphaTab reports (#228)", async () => {
+      // "Score + tab": the drum staff above, its tab strip (the mirror) below.
+      const { api, score, callbacks, element } = await readySetup({ trackIndex: 2 });
+      const drums = score.tracks[2]!;
+      const beat = drums.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+      const mirror = mirrorOf(drums)!.bars[0]!.voices[0]!.beats[0]!;
+      // Six tab lines from y = 100 (top line, 6) to y = 150 (bottom line, 1).
+      api.boundsLookup = {
+        findBeats: vi.fn((b: unknown) =>
+          b === mirror ? [{ barBounds: { visualBounds: { x: 0, y: 100, w: 100, h: 50 } } }] : [],
+        ),
+      };
+      const click = async (clientY: number) => {
+        callbacks.onBeatClick.mockClear();
+        element.dispatchEvent(new PointerEvent("pointerdown", { clientY }));
+        // alphaTab picks the beat by x alone: a click on the tab strip reports the drum staff's.
+        api.beatMouseDown.trigger(beat);
+        await Promise.resolve();
+        return callbacks.onBeatClick.mock.calls[0]?.[0];
+      };
+
+      // The second line from the top, with nothing written on it.
+      expect(await click(111)).toEqual({ beat, note: null, extend: false, line: 5 });
+      expect((await click(149))?.line).toBe(1);
+      // On the drum staff above the tab strip: no line.
+      expect((await click(40))?.line).toBeNull();
+    });
+
     it("reports drags outside edit mode too, so the selection follows them (#53)", async () => {
       const { api, score, callbacks } = await readySetup();
       const beat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;

@@ -209,7 +209,7 @@ export const EDITOR_SHORTCUTS: { keys: string[]; spoken: string; label: string }
     keys: ["0–9"],
     spoken: "0 to 9",
     label:
-      "Drum track: type a drum number (46 = open hi-hat, 38 = snare); numbers typed in a row go on together, on a drum picked with ↑/↓ or a click it replaces it, the same number again removes it",
+      "Drum track: type a drum number (46 = open hi-hat, 38 = snare); on a drum it replaces it (each number typed there again), on an empty line it is added, the same number again removes it",
   },
   {
     keys: ["K", "0–9"],
