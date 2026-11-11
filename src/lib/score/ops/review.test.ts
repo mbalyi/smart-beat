@@ -79,6 +79,67 @@ describe("ops: what another computer sends is checked", () => {
   });
 });
 
+describe("ops: an id leads to one part", () => {
+  const VOICE = "m0:t0.s0.v0";
+  const beatOp = (u: string, p = VOICE): Op => ({
+    t: "ins",
+    k: "beat",
+    p,
+    a: null,
+    d: { u, k: "beat", p: {} },
+  });
+
+  it("lets an id be used again by another kind once its part was deleted in the batch", () => {
+    const score = practiceSong();
+    const ids = new IdRegistry("p");
+    ids.init(score);
+    const voice = ids.get(VOICE) as model.Voice;
+    const beats = voice.beats.length;
+
+    applyOps(ids, score, [{ t: "del", u: NOTE + ".n0" }, beatOp(NOTE + ".n0")]);
+
+    expect(ids.get(NOTE + ".n0")).toBeInstanceOf(model.Beat);
+    expect(voice.beats.length).toBe(beats + 1);
+  });
+
+  it("moves a part that is inserted again, even from another voice, and keeps one id", () => {
+    const score = practiceSong();
+    const ids = new IdRegistry("p");
+    ids.init(score);
+    const voice = ids.get(VOICE) as model.Voice;
+    const beat = ids.get(NOTE) as model.Beat;
+    const other = new model.Voice();
+    other.bar = voice.bar;
+    voice.bar.voices.push(other);
+    ids.adopt(other, "m0:t0.s0.v1");
+    const total = voice.beats.length;
+
+    applyOps(ids, score, [beatOp(NOTE, "m0:t0.s0.v1")]);
+
+    expect(voice.beats.length).toBe(total - 1);
+    expect(other.beats.length).toBe(1);
+    expect(ids.get(NOTE)).toBe(other.beats[0]);
+    expect(ids.get(NOTE)).not.toBe(beat);
+  });
+
+  it("refuses an id that a part of another kind carries, before anything changes", () => {
+    const score = practiceSong();
+    const ids = new IdRegistry("p");
+    ids.init(score);
+    const before = JSON.stringify(dumpOf(score, ids));
+    const ops: Op[] = [
+      { t: "set", u: NOTE, d: { dots: 1 } },
+      beatOp(NOTE + ".n0"),
+      { t: "set", u: NOTE + ".n0", d: { fret: 3 } },
+    ];
+
+    expect(() => applyOps(ids, score, ops)).toThrow();
+
+    expect(JSON.stringify(dumpOf(score, ids))).toBe(before);
+    expect(ids.get(NOTE + ".n0")).toBeInstanceOf(model.Note);
+  });
+});
+
 function deep(levels: number): unknown {
   let value: unknown = 1;
   for (let i = 0; i < levels; i += 1) value = [value];

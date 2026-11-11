@@ -2,10 +2,16 @@ import { scoreFingerprint } from "@/lib/practice-together/fingerprint";
 import type { EditBody } from "@/lib/practice-together/protocol";
 import { HostEditing, type HostLink } from "@/lib/practice-together/shared-editing";
 import { ScoreEditor } from "@/lib/score/editor";
+import { kindOf } from "@/lib/score/ops/fields";
+import { subtree } from "@/lib/score/ops/ids";
 import { practiceSong } from "@/test/shared-edit";
 
 const BEAT = "m0:t0.s0.v0.b0";
 const NOTE = "m0:t0.s0.v0.b0.n0";
+const VOICE = "m0:t0.s0.v0";
+const newBeat = (u: string, c?: unknown[]) => ({ u, k: "beat", p: {}, ...(c ? { c } : {}) });
+const newNote = (u: string) => ({ u, k: "note", p: {} });
+const insBeat = (node: unknown) => ({ t: "ins", k: "beat", p: VOICE, a: null, d: node });
 const UNDEFINED = { $u: 1 };
 
 /** A host with one admitted guest that has the tab and may edit. */
@@ -26,6 +32,18 @@ function hostWithGuest() {
 }
 
 const keyOf = async (editor: ScoreEditor) => (await scoreFingerprint(editor.score)).key;
+/** Every part with the id it carries, its kind, and whether the id leads back to it. */
+function registryOf(editor: ScoreEditor, host: HostEditing) {
+  const { ids } = host.sync;
+  const { score } = editor;
+  const parts = [...score.masterBars, ...score.tracks.flatMap((track) => [...subtree(track)])];
+  const known = parts.map((part) => {
+    const uid = ids.uid(part);
+    return [uid, kindOf(part), ids.get(uid) === part];
+  });
+  return { known, probes: [NOTE, BEAT, "x1", "x2"].map((uid) => kindOf(ids.get(uid)) ?? null) };
+}
+
 const ops = (...list: unknown[]): EditBody => ({ k: "ops", ops: list as never });
 const wire = (text: string): unknown => JSON.parse(text);
 
@@ -78,6 +96,40 @@ const HOSTILE: [string, EditBody][] = [
     ),
   ],
   [
+    "a beat that takes the id of a note, then a fret set on that id",
+    ops(insBeat(newBeat(NOTE)), { t: "set", u: NOTE, d: { fret: 3 } }),
+  ],
+  ["a beat that takes the id of a note", ops(insBeat(newBeat(NOTE)))],
+  ["a beat that takes the id of a track", ops(insBeat(newBeat("t0")))],
+  [
+    "a note inside a new beat with the id of another note",
+    ops(insBeat(newBeat("x1", [newNote(NOTE)]))),
+  ],
+  ["a note inside a new beat with the id of a beat", ops(insBeat(newBeat("x1", [newNote(BEAT)])))],
+  [
+    "two notes of a new beat with one id",
+    ops(insBeat(newBeat("x1", [newNote("x2"), newNote("x2")]))),
+  ],
+  ["a note with the id of the beat that holds it", ops(insBeat(newBeat("x1", [newNote("x1")])))],
+  [
+    "a beat made twice as different kinds in one batch",
+    ops(insBeat(newBeat("x1")), {
+      t: "ins",
+      k: "note",
+      p: BEAT,
+      a: null,
+      d: newNote("x1"),
+    }),
+  ],
+  [
+    "a fret on an id that a note was deleted from and a beat took over",
+    ops({ t: "del", u: NOTE }, insBeat(newBeat(NOTE)), { t: "set", u: NOTE, d: { fret: 3 } }),
+  ],
+  [
+    "a beat put where a voice is wanted",
+    ops({ t: "ins", k: "beat", p: BEAT, a: null, d: newBeat("x1") }),
+  ],
+  [
     "more operations than a batch may hold",
     ops(...Array.from({ length: 4001 }, () => ({ t: "reset" }))),
   ],
@@ -99,10 +151,12 @@ describe("the host does not trust what a guest sends", () => {
     async (_, body) => {
       const { editor, host, sent, reshared } = hostWithGuest();
       const before = await keyOf(editor);
+      const registry = registryOf(editor, host);
 
       expect(() => host.receive("g1", body)).not.toThrow();
 
       expect(await keyOf(editor)).toBe(before);
+      expect(registryOf(editor, host)).toEqual(registry);
       expect(host.seq).toBe(0);
       expect(sent.some((item) => item.k === "ops")).toBe(false);
       expect(reshared).toContain("g1");

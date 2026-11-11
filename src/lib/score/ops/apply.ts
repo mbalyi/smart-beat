@@ -11,7 +11,7 @@ import { model } from "@coderline/alphatab";
 
 import { assignProps, checkProps } from "@/lib/score/ops/codec";
 import { kindOf, type PartKind } from "@/lib/score/ops/fields";
-import type { IdRegistry, Part } from "@/lib/score/ops/ids";
+import { subtree, type IdRegistry, type Part } from "@/lib/score/ops/ids";
 import type { Node, Op } from "@/lib/score/ops/types";
 import { newBar, newVoice, placeholderBeats, type Score } from "@/lib/score/model";
 
@@ -197,23 +197,113 @@ function deleteTrack(ids: IdRegistry, score: Score, track: model.Track) {
   if (removeFrom(score.tracks, track) >= 0) ids.forget(track);
 }
 
-/** Throws when some property in the node (or inside it) cannot be written; notes what it holds. */
-function checkNode(node: Node, made: Map<string, PartKind>): void {
+/** The kind of part each kind of node lives in. */
+const PARENT_KIND: Partial<Record<PartKind, PartKind>> = {
+  voice: "bar",
+  beat: "voice",
+  note: "beat",
+};
+/** The kinds a `del` removes. */
+const DELETABLE: readonly PartKind[] = ["mbar", "track", "voice", "beat", "note"];
+
+/**
+ * The identities the score has while the batch is checked: what the registry holds, changed by
+ * the operations before the one being looked at. An id maps to the kind of part that carries it,
+ * or to nothing once the part is gone.
+ */
+class Identities {
+  private readonly changed = new Map<string, PartKind | null>();
+  /** For a node made in this batch: the ids of the nodes inside it. */
+  private readonly inside = new Map<string, string[]>();
+
+  private readonly ids: IdRegistry;
+  private readonly score: Score;
+
+  constructor(ids: IdRegistry, score: Score) {
+    this.ids = ids;
+    this.score = score;
+  }
+
+  kind(uid: string | null): PartKind | undefined {
+    if (uid === null) return undefined;
+    if (this.changed.has(uid)) return this.changed.get(uid) ?? undefined;
+    return kindOf(this.ids.get(uid));
+  }
+
+  /** The part that carries `uid` goes, with everything inside it. */
+  release(uid: string): void {
+    if (this.changed.has(uid)) {
+      for (const inner of this.inside.get(uid) ?? []) this.changed.set(inner, null);
+    } else {
+      for (const inner of this.heldBy(this.ids.get(uid))) {
+        if (!this.changed.has(inner)) this.changed.set(inner, null);
+      }
+    }
+    this.changed.set(uid, null);
+  }
+
+  /** Takes the ids in `node`; throws when one is already carried by a part (or twice in the node). */
+  claim(node: Node): string[] {
+    if (this.kind(node.u) !== undefined) throw new Error(`The id ${node.u} is already in use.`);
+    this.changed.set(node.u, node.k);
+    const held = (node.c ?? []).flatMap((child) => [child.u, ...this.claim(child)]);
+    this.inside.set(node.u, held);
+    return held;
+  }
+
+  /** The ids of the parts inside `part` (itself excluded) as the registry has them. */
+  private heldBy(part: Part | undefined): string[] {
+    if (!part) return [];
+    const inner: Part[] = [];
+    if (part instanceof model.MasterBar) {
+      const at = this.score.masterBars.indexOf(part);
+      for (const track of this.score.tracks) {
+        for (const staff of track.staves) {
+          const bar = staff.bars[at];
+          if (at >= 0 && bar) inner.push(...subtree(bar));
+        }
+      }
+    } else {
+      inner.push(...subtree(part));
+      inner.shift();
+    }
+    return inner.flatMap((item) => this.ids.uid(item) ?? []);
+  }
+}
+
+/** Throws when some property in the node (or inside it) cannot be written. */
+function checkNode(node: Node): void {
   checkProps(node.k, node.p);
-  made.set(node.u, node.k);
-  for (const child of node.c ?? []) checkNode(child, made);
+  for (const child of node.c ?? []) checkNode(child);
 }
 
 /**
- * Throws when an operation writes something that is not a data field of its target, or the wrong
- * kind of value. A target that is not there is skipped: the operation will be dropped.
+ * Throws when an operation writes something that is not a data field of its target, the wrong
+ * kind of value, or gives a part an id another part already has: ids are what later operations
+ * name, so each must lead to one part, and a `set` is judged by the part its id will lead to at
+ * that point of the batch. A target that is not there is skipped: the operation will be dropped.
  */
-function checkOps(ids: IdRegistry, ops: readonly Op[]): void {
-  const made = new Map<string, PartKind>();
+function checkOps(ids: IdRegistry, score: Score, ops: readonly Op[]): void {
+  const now = new Identities(ids, score);
   for (const op of ops) {
-    if (op.t === "ins") checkNode(op.d, made);
-    else if (op.t === "set") {
-      const kind = kindOf(ids.get(op.u)) ?? made.get(op.u);
+    if (op.t === "ins") {
+      checkNode(op.d);
+      const wanted = PARENT_KIND[op.k];
+      const parent = wanted ? now.kind(op.p) : undefined;
+      if (wanted && parent === undefined) continue; // no parent: dropped
+      if (wanted && parent !== wanted) throw new Error(`A ${op.k} does not go into a ${parent}.`);
+      const here = now.kind(op.d.u);
+      if (here !== undefined && here !== op.d.k) {
+        throw new Error(`The id ${op.d.u} belongs to a ${here}, not a ${op.d.k}.`);
+      }
+      // The same kind with the same id is the part again: it moves, taking its content along.
+      if (here !== undefined) now.release(op.d.u);
+      now.claim(op.d);
+    } else if (op.t === "del") {
+      const kind = now.kind(op.u);
+      if (kind && DELETABLE.includes(kind)) now.release(op.u);
+    } else if (op.t === "set") {
+      const kind = now.kind(op.u);
       if (kind) checkProps(kind, op.d);
     }
   }
@@ -224,7 +314,7 @@ function checkOps(ids: IdRegistry, ops: readonly Op[]): void {
  * anything, when an operation cannot be applied (malformed data from another computer).
  */
 export function applyOps(ids: IdRegistry, score: Score, ops: readonly Op[]): ApplyResult {
-  checkOps(ids, ops);
+  checkOps(ids, score, ops);
   for (const op of ops) {
     if (op.t === "reset") return "reset";
     if (op.t === "set") {
@@ -283,16 +373,14 @@ function keepOneBar(ids: IdRegistry, score: Score) {
 function insertInner(ids: IdRegistry, op: Extract<Op, { t: "ins" }>) {
   const parent = ids.get(op.p);
   if (!parent) return;
+  if (PARENT_KIND[op.k] !== kindOf(parent)) return;
   const existing = ids.get(op.d.u);
   if (existing) {
     // Already here (an earlier apply, or the sender's own copy): it moves to where the op says.
-    for (const list of [
-      parent instanceof model.Bar ? parent.voices : null,
-      parent instanceof model.Voice ? parent.beats : null,
-      parent instanceof model.Beat ? parent.notes : null,
-    ]) {
-      if (list && removeFrom(list as Part[], existing) >= 0) ids.forget(existing);
-    }
+    if (existing instanceof model.Voice) removeFrom(existing.bar.voices, existing);
+    else if (existing instanceof model.Beat) removeFrom(existing.voice.beats, existing);
+    else if (existing instanceof model.Note) removeFrom(existing.beat.notes, existing);
+    ids.forget(existing);
   }
   const part = build(ids, op.d);
   const anchor = ids.get(op.a);
