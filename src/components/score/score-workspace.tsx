@@ -1912,7 +1912,8 @@ export function ScoreWorkspace({
   const ensureEngine = () => {
     if (engineOn) return true;
     if (nativeEngineAvailable()) {
-      changeAudioEngine("native");
+      // The app switched by itself: only the user's own pick is remembered.
+      changeAudioEngine("native", false);
       toast.info("Switched to effects playback for the audio lanes");
       return false;
     }

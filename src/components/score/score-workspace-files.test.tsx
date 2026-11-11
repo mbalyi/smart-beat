@@ -836,7 +836,7 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
 
   it("opens an old song's audio track as one lane with one clip", async () => {
     mockTauri();
-    localStorage.setItem("smart-beat:audio-engine", "native");
+    localStorage.setItem("smart-beat:audio-engine:v2", "native");
     const song = await makeSong("/songs/practice-song.gp");
     song.mix = {
       ...song.mix,
@@ -878,6 +878,8 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     // The desktop app switches to the native engine by itself: lanes need it.
     expect(await toastWith("Switched to effects playback for the audio lanes")).toBeInTheDocument();
     await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
+    // The app switched by itself: only the user's own pick is remembered (#228).
+    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBeNull();
     const player = FakeScorePlayer.last;
     player.usesNativeEngine = true;
     player.becomeReady();
@@ -916,7 +918,7 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
 
   it("refuses files that are not audio", async () => {
     mockTauri();
-    localStorage.setItem("smart-beat:audio-engine", "native");
+    localStorage.setItem("smart-beat:audio-engine:v2", "native");
     const song = await makeSong("/songs/practice-song.gp");
     renderWithProviders(
       <>
