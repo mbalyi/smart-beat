@@ -283,9 +283,16 @@ export const tuningOf = (staff: Staff): number[] => staff.stringTuning.tunings;
  * default ones (e.g. 92 "Hi-Hat (half)").
  */
 export function drumNumber(note: Note): number {
-  const articulations = note.beat.voice.bar.staff.track.percussionArticulations;
-  const own = articulations[note.percussionArticulation];
-  if (!own) return note.percussionArticulation;
+  return drumNumberOf(note.beat.voice.bar.staff.track, note.percussionArticulation);
+}
+
+/**
+ * The drum number a `percussionArticulation` value stands for on a track (see `drumNumber`).
+ * Works for a detached note too, e.g. one on the clipboard.
+ */
+export function drumNumberOf(track: Track, value: number): number {
+  const own = track.percussionArticulations[value];
+  if (!own) return value;
   // A drum of its own that plays another's key keeps its number: the snare rim shot (91)
   // plays the snare's 38, but is still the rim shot (#229).
   return own.id !== own.outputMidiNumber && drumOutputKey(own.id) === own.outputMidiNumber
