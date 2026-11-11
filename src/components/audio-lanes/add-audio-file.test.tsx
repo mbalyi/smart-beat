@@ -28,7 +28,6 @@ const loadSource = vi.fn(async () => ({
   channels: 2,
   peaks: [],
 }));
-const engine = { loadSource } as never;
 
 const song = (): AudioLanesSettings => ({
   ...EMPTY_AUDIO,
@@ -58,12 +57,10 @@ function Lanes({ children }: { children: (lanes: AudioLanesController) => ReactN
   const lanes = useAudioLanes({
     mix,
     changeMix: (action) => setMix((m) => mixerReducer(m, action)),
-    loader: () => engine,
-    canLoad: true,
-    epoch: 1,
+    loadSource: loadSource as never,
+    epoch: null,
     songPath: null,
     grid,
-    ensureEngine: () => true,
   });
   useEffect(() => {
     latest.lanes = lanes;
