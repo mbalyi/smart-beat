@@ -62,6 +62,7 @@ import {
   placeholderBeats,
   refinish,
   drumNumber,
+  drumNumberOf,
   staffContent,
   tuningOf,
   type Bar,
@@ -2348,7 +2349,13 @@ export class ScoreEditor {
       if ((from === "drums") !== (to === "drums")) return;
       if (to === "drums") {
         // Another drum track may have another kit (or none): the drum is looked up there (#229).
-        if (track !== this.track) note.percussionArticulation = drumValueFor(this.track, drums[i]!);
+        // On the same track the saved kit index is kept (it is the very drum copied), but only
+        // while it still is that drum: an undo since the copy may have taken it out of the kit,
+        // and a drum entered later may have taken its index (#230).
+        const drum = drums[i]!;
+        const keep =
+          track === this.track && drumNumberOf(this.track, note.percussionArticulation) === drum;
+        if (!keep) note.percussionArticulation = drumValueFor(this.track, drum);
         copy.addNote(note);
       } else if (to === "pitched") {
         note.string = -1;

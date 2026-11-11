@@ -131,6 +131,47 @@ describe("drum kits (#229)", () => {
     expect(back.map((n) => kit[n.percussionArticulation]!.id).sort()).toEqual([36, 92]);
   });
 
+  describe("pasting on the same track after its kit changed (#230)", () => {
+    /** A drum track whose own kit is only a kick: crash 49 and snare 38 are added when entered. */
+    function kickOnlyKit() {
+      const score = drumSong();
+      score.tracks[1]!.percussionArticulations = [articulationForDrum(36)];
+      return { score, kit: () => score.tracks[1]!.percussionArticulations };
+    }
+    const pastedDrums = (score: Score) =>
+      score.tracks[1]!.staves[0]!.bars[1]!.voices[0]!.beats[0]!.notes.map(drumNumber);
+
+    it("keeps a copied crash a crash when undo removed it and a snare took its kit index", () => {
+      const { score } = kickOnlyKit();
+      const editor = new ScoreEditor(score, 1);
+      editor.enterDrum(49); // added to the kit at index 1
+      editor.copy();
+      editor.undo(); // the kit loses the crash, the clipboard keeps it
+      editor.enterDrum(38); // the snare is added at index 1 now
+      editor.setCursorTo({ bar: 1, beat: 0 });
+      editor.paste();
+      expect(pastedDrums(score)).toEqual([49]);
+    });
+
+    it("adds a copied crash back to the kit when undo removed it", () => {
+      const { score, kit } = kickOnlyKit();
+      const editor = new ScoreEditor(score, 1);
+      editor.enterDrum(49);
+      editor.copy();
+      editor.undo();
+      expect(kit()).toHaveLength(1);
+      editor.setCursorTo({ bar: 1, beat: 0 });
+      editor.paste();
+      expect(pastedDrums(score)).toEqual([49]);
+      expect(kit().map((a) => a.id)).toEqual([36, 49]);
+
+      // The paste's undo step takes the crash out of the kit again.
+      editor.undo();
+      expect(pastedDrums(score)).toEqual([]);
+      expect(kit().map((a) => a.id)).toEqual([36]);
+    });
+  });
+
   it("writes drum notes against a kit and puts the song back afterwards", () => {
     const score = drumSong();
     const editor = new ScoreEditor(score, 1);
