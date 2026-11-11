@@ -10,6 +10,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { useSharedEditing, type SharedEditing } from "@/hooks/use-shared-editing";
 import { useTabSharing, type ReceivedScore } from "@/hooks/use-tab-sharing";
 import { putHandoff, takeHandoff } from "@/lib/practice-together/handoff";
 import {
@@ -65,6 +66,7 @@ import {
 } from "@/lib/practice-together/quality-presets";
 import { hostOverInternet, joinOverInternet, rtcSupported } from "@/lib/practice-together/rtc";
 import { Session, type SessionState } from "@/lib/practice-together/session";
+import { EditInbox } from "@/lib/practice-together/shared-editing";
 import { SharedTransport, type TransportPlayer } from "@/lib/practice-together/shared-transport";
 import {
   clampLoop,
@@ -73,6 +75,7 @@ import {
 } from "@/lib/practice-together/protocol";
 import type { TabProgress } from "@/lib/practice-together/tab-transfer";
 import type { GuestAcceptor, PeerTransport } from "@/lib/practice-together/transport";
+import type { ScoreEditor } from "@/lib/score/editor";
 import type { Score } from "@/lib/score/model";
 import type { PracticeAction, PracticeState } from "@/lib/score/practice";
 import { isTauri, practiceSignalAvailable } from "@/lib/tauri";
@@ -115,8 +118,15 @@ export interface PracticeTogether {
   internetAvailable: boolean;
   /** The host's tab on its way to the guest (or a new version of it), for the dialog. */
   transfer?: TabProgress | null;
-  /** A guest follows the host's tab: it is not edited here until the session ends. */
+  /**
+   * A guest follows the host's tab and may not edit it: the host turned editing off, the host's
+   * app is older, or the tab is not up to date yet (#216). Otherwise a guest edits along.
+   */
   readOnly?: boolean;
+  /** This app is a guest in a session: the host sets the speed, loop, metronome and count-in. */
+  isGuest?: boolean;
+  /** Editing the tab together (#216): the host's switch, the other players' cursors. */
+  edit: SharedEditing;
   /**
    * A session is live in another tab of this app and this tab is not showing it (null: none, or
    * it is here). `tabs` counts the tabs in it, `here` says whether this tab is one of them.
@@ -160,9 +170,11 @@ interface Options {
   /** This tab is the one shown. */
   active?: boolean;
   /** This song is the host's tab, received in a session: its fingerprint and who sent it. */
-  received?: { key: string; from: string; origin?: number };
+  received?: { key: string; from: string; origin?: number; seq?: number };
   /** A guest got the host's tab: open it as a tab of its own (the session moves along). */
   onReceiveTab?: (tab: ReceivedScore) => void;
+  /** The editor of this tab: with it, the players of a session edit the tab together (#216). */
+  editor?: ScoreEditor | null;
 }
 
 const NAME_KEY = "smart-beat:practice-together:name";
@@ -221,6 +233,7 @@ export function usePracticeTogether({
   active = true,
   received,
   onReceiveTab,
+  editor,
 }: Options): PracticeTogether {
   const [state, setState] = useState<SessionState | null>(null);
   const [hostCode, setHostCode] = useState<PracticeTogether["hostCode"]>(null);
@@ -262,6 +275,12 @@ export function usePracticeTogether({
     const found = liveTabWithKey(key, origin);
     if (found !== null) liveWant(found);
   });
+  // Editing together (#216): what the other end says about it waits here until the editing that
+  // listens exists; the host's tab is numbered as it is written to a file.
+  const [inbox] = useState(() => new EditInbox());
+  const [snapshotRef] = useState<{ current: (() => { seq: number } | null) | undefined }>(() => ({
+    current: undefined,
+  }));
   const tabs = useTabSharing({
     idRef,
     scoreRef,
@@ -271,6 +290,7 @@ export function usePracticeTogether({
     receiveRef,
     haveRef,
     showRef,
+    snapshotRef,
   });
   const live = useSyncExternalStore(subscribeLive, liveSnapshot);
 
@@ -562,6 +582,7 @@ export function usePracticeTogether({
         return shared.hooks.schedule(cmd, localAt);
       },
       tab: tabs.hooks,
+      edit: { receive: (body: Parameters<typeof inbox.push>[0]) => inbox.push(body) },
       request: answer,
       approve: (guest: string, signal?: AbortSignal) =>
         new Promise<boolean>((resolve) => {
@@ -572,7 +593,7 @@ export function usePracticeTogether({
         }),
     };
     return { shared, hooks };
-  }, [playerRef, scoreRef, practiceRef, dispatchRef, tabs, answer, enqueue, settle]);
+  }, [playerRef, scoreRef, practiceRef, dispatchRef, tabs, answer, enqueue, settle, inbox]);
 
   /**
    * Builds the session. A host listens for guests (`acceptor`) and keeps a room; a guest talks
@@ -591,6 +612,8 @@ export function usePracticeTogether({
           },
     ) => {
       const takeOver = target.role === "guest" ? target.takeOver : undefined;
+      // A new session starts: nothing said in an earlier one is kept.
+      inbox.clear();
       const { shared, hooks } = makeHooks();
       const score =
         takeOver?.fingerprint ??
@@ -623,7 +646,18 @@ export function usePracticeTogether({
       setState(session.snapshot);
       if (target.role === "guest") (session as Session).start(target.link);
     },
-    [makeHooks, attach, scoreRef, revisionRef, nameRef, qualityRef, tabs, ownerRef, originFor],
+    [
+      makeHooks,
+      attach,
+      scoreRef,
+      revisionRef,
+      nameRef,
+      qualityRef,
+      tabs,
+      ownerRef,
+      originFor,
+      inbox,
+    ],
   );
 
   /** Claims the live session for this tab (the session moves here, nothing is left or asked again). */
@@ -894,6 +928,20 @@ export function usePracticeTogether({
   // The host's speed, loop, metronome and count-in follow to the guest.
   const lastShared = useRef<PracticeState | null>(null);
   const phase = state?.phase;
+  const edit = useSharedEditing({
+    editor,
+    session: liveSession(),
+    owns,
+    phase,
+    receivedSeq: received?.seq,
+    receivedKey: received?.key,
+    currentKey: async () =>
+      (await tabs.fingerprint(scoreRef.current, revisionRef.current, undefined)).key,
+    guestId: guestId(),
+    hostName: name,
+    inbox,
+    snapshotRef,
+  });
   useEffect(() => {
     const session = sessionRef.current;
     if (!session || session.role !== "host" || phase !== "synchronized") {
@@ -1012,6 +1060,10 @@ export function usePracticeTogether({
     }
   }, [claim]);
 
+  const isGuestHere =
+    (state?.role === "guest" && state.phase !== "closed" && state.phase !== "failed") ||
+    (live.live && live.role === "guest" && includedHere);
+
   return useMemo(
     () => ({
       state,
@@ -1025,10 +1077,11 @@ export function usePracticeTogether({
       error,
       internetAvailable,
       transfer: state?.transfer ?? null,
-      // A guest's tabs of the session follow the host's: none of them is edited until it ends.
-      readOnly:
-        (state?.role === "guest" && state.phase !== "closed" && state.phase !== "failed") ||
-        (live.live && live.role === "guest" && includedHere),
+      // A guest's tabs of the session follow the host's. A guest edits the one it shares with the
+      // host (the session's tab) along with the host, when the host allows it.
+      readOnly: isGuestHere && !edit.editable,
+      isGuest: isGuestHere,
+      edit,
       elsewhere,
       tabsInSession: live.live ? live.ids.length : 0,
       addToSession,
@@ -1075,11 +1128,11 @@ export function usePracticeTogether({
       ban,
       intercept,
       live.live,
-      live.role,
       live.ids.length,
-      includedHere,
       elsewhere,
       addToSession,
+      isGuestHere,
+      edit,
     ],
   );
 }

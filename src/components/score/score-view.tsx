@@ -12,6 +12,23 @@ import { cn } from "@/lib/utils";
 export interface EditOverlay {
   notes: NoteRect[];
   selection: Rect[];
+  /** The other players' cursors, in Practice together (#216). */
+  remote?: RemoteMark[];
+}
+
+/**
+ * Where another player is, marked like our own cursor but in their colour: a name and colour,
+ * their note (or empty spot) on each staff, and the range they selected on purpose.
+ */
+export interface RemoteMark {
+  id: string;
+  name: string;
+  /** Hue in degrees: every player has their own. */
+  hue: number;
+  /** The note or empty spot under their cursor, as for our own (`EditOverlay.notes`). */
+  notes: NoteRect[];
+  /** One rectangle per system row of a range; empty when they only have the note selected. */
+  selection: Rect[];
 }
 
 const box = ({ x, y, w, h }: Rect) => ({ left: x, top: y, width: w, height: h });
@@ -50,7 +67,7 @@ function keepInView(element: HTMLElement, viewport: HTMLElement) {
  */
 function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
   const anchorRef = useRef<HTMLDivElement>(null);
-  const { notes, selection } = overlay;
+  const { notes, selection, remote = [] } = overlay;
   // The outline goes on the tab; a score-only staff gets the outline on its notehead instead.
   const hasTab = notes.some((n) => n.staff === "tab");
   const outlines = notes.filter((n) => !hasTab || n.staff === "tab");
@@ -90,6 +107,70 @@ function EditOverlayLayer({ overlay }: { overlay: EditOverlay }) {
           style={box({ x: rect.x - 1, y: rect.y - 1, w: rect.w + 2, h: rect.h + 2 })}
         />
       ))}
+      {remote.map((mark) => (
+        <RemoteCursor key={mark.id} mark={mark} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Another player, marked the way our own cursor is (the same outline around the fret number or
+ * empty spot, the same ring on the notehead) in their own colour, with their name just above.
+ * A range is shaded only when they selected one, and the name then sits at its start.
+ */
+function RemoteCursor({ mark }: { mark: RemoteMark }) {
+  const hasTab = mark.notes.some((n) => n.staff === "tab");
+  const outlines = mark.notes.filter((n) => !hasTab || n.staff === "tab");
+  const heads = hasTab ? mark.notes.filter((n) => n.staff === "score") : [];
+  // Each player's own colour; the name's pill is dark enough for white text in both themes.
+  const line = `hsl(${mark.hue} 70% 50%)`;
+  const pill = `hsl(${mark.hue} 60% 30%)`;
+  const first = outlines[0]?.rect;
+  const anchor = mark.selection[0]
+    ? { x: mark.selection[0].x, y: mark.selection[0].y }
+    : first && { x: first.x - 2, y: first.y - 1 };
+  return (
+    <div data-testid="remote-cursor" data-player={mark.name}>
+      {mark.selection.map((rect, i) => (
+        <div
+          key={i}
+          data-testid="remote-selection"
+          className="absolute rounded-sm"
+          style={{ ...box(rect), backgroundColor: `hsl(${mark.hue} 70% 50% / 0.09)` }}
+        />
+      ))}
+      {outlines.map(({ rect }, i) => (
+        <div
+          key={i}
+          data-testid="remote-note"
+          className="absolute rounded-md border-2"
+          style={{
+            ...box({ x: rect.x - 2, y: rect.y - 1, w: rect.w + 4, h: rect.h + 2 }),
+            borderColor: line,
+          }}
+        />
+      ))}
+      {heads.map(({ rect }, i) => (
+        <div
+          key={i}
+          data-testid="remote-head"
+          className="absolute rounded-md"
+          style={{
+            ...box({ x: rect.x - 1, y: rect.y - 1, w: rect.w + 2, h: rect.h + 2 }),
+            boxShadow: `0 0 0 1px ${line}`,
+          }}
+        />
+      ))}
+      {anchor && (
+        <div
+          data-testid="remote-name"
+          className="absolute -translate-y-full rounded-t-md px-1.5 text-[10px] leading-4 font-semibold whitespace-nowrap text-white"
+          style={{ left: anchor.x, top: anchor.y, backgroundColor: pill }}
+        >
+          {mark.name}
+        </div>
+      )}
     </div>
   );
 }

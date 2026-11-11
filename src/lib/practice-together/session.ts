@@ -26,6 +26,7 @@ import {
   encode,
   negotiate,
   type Command,
+  type EditBody,
   type Message,
   type RequestAction,
   type RefuseReason,
@@ -157,6 +158,15 @@ export interface SessionHooks {
   request?(action: RequestAction, tick: number | undefined): void;
   /** Sharing the host's tab (#158). Without it the session works only on one shared file. */
   tab?: TabHooks;
+  /** Editing the tab together (#216). Without it a player's edits stay on their computer. */
+  edit?: EditHooks;
+}
+
+export interface EditHooks {
+  /** The other end said something about editing (see `EditBody`). */
+  receive(body: EditBody): void;
+  /** The host only: this guest was let in or came back (it says what it has with `since`). */
+  welcomed?(): void;
 }
 
 export interface TabHooks {
@@ -223,6 +233,13 @@ export const OFFER_DEBOUNCE_MS = 600;
 export const OFFER_RETRY_MS = 500;
 /** A version the guest could not take is offered this many times. */
 export const MAX_OFFER_TRIES = 2;
+/**
+ * While players edit together, the two tabs differ for a moment after every edit (it is on its
+ * way). Only a difference that stays this long is taken for a lost edit, and the tab is sent again.
+ */
+export const DIVERGENCE_MS = 6_000;
+/** How many times a lasting difference makes the host send the tab again while players edit. */
+export const MAX_DIVERGENCE_OFFERS = 3;
 
 const NO_QUALITY: SyncQuality = { errorMs: Infinity, bucket: "none" };
 
@@ -696,6 +713,8 @@ export class Session {
         return this.onTabDone(msg);
       case "tab-abort":
         return this.onTabAbort(msg);
+      case "edit":
+        return this.hooks.edit?.receive(msg.body);
       case "bye":
         if (this.role === "host") return this.guestGone();
         // The host says why when it removes this player.
@@ -765,6 +784,7 @@ export class Session {
     this.patch({ peerName: name, phase: "syncing", peer: null, problem: null });
     this.checkScore(0);
     this.beginSync();
+    this.hooks.edit?.welcomed?.();
   }
 
   private refuse(reason: RefuseReason) {
@@ -942,9 +962,43 @@ export class Session {
     if (this.peerKey === null) return;
     const same = this.peerKey === this.score.key && sameOrigin(this.peerOrigin, this.score.origin);
     if (!same) {
+      if (this.editLive && sameOrigin(this.peerOrigin, this.score.origin)) {
+        // Edits are on their way both ways. Only a difference that lasts is a lost edit, and the
+        // tab is sent again a few times at most: a difference that stays after that is how two
+        // apps write the same music, not a lost edit.
+        if (this.divergenceOffers < MAX_DIVERGENCE_OFFERS) {
+          this.offerSoon(Math.max(delay, DIVERGENCE_MS));
+        }
+        return;
+      }
       this.setProblem(problem("score"));
       this.offerSoon(delay);
-    } else if (this.state.problem?.kind === "score") this.setProblem(null);
+    } else {
+      if (this.editLive) clearTimeout(this.offerTimer);
+      if (this.state.problem?.kind === "score") this.setProblem(null);
+    }
+  }
+
+  /** While true, this guest edits the tab along with the host (see `shared-editing.ts`). */
+  private editLive = false;
+  private divergenceOffers = 0;
+
+  /** The host and this guest are editing together (or not any more). */
+  setEditLive(on: boolean) {
+    this.editLive = on;
+    if (!on) this.divergenceOffers = 0;
+  }
+
+  /** Whether the other end said it can edit together (a guest that is not older than this app). */
+  get peerEdits(): boolean {
+    return this.peerCaps.includes("edit");
+  }
+
+  /** Says something about editing to the other end. */
+  sendEdit(body: EditBody) {
+    const { phase } = this.state;
+    if (!this.wasWelcomed || phase === "closed" || phase === "failed") return;
+    this.send({ type: "edit", body });
   }
 
   // ----- sharing the tab -------------------------------------------------------------------
@@ -1008,6 +1062,7 @@ export class Session {
       const tries = this.attempts.get(tried) ?? 0;
       if (tries >= MAX_OFFER_TRIES) return;
       this.attempts.set(tried, tries + 1);
+      if (this.editLive && !force) this.divergenceOffers += 1;
       const sha = await fileKey(payload.bytes);
       if (!this.wasWelcomed || this.sender || epoch !== this.hookEpoch) return;
       this.sender = new TabSender((this.offerId += 1), payload, sha, {
@@ -1115,6 +1170,7 @@ export class Session {
       key: offer.key,
       bars: offer.bars,
       origin: offer.origin,
+      seq: offer.seq,
       from: this.state.peerName ?? "the host",
     };
     const epoch = this.hookEpoch;

@@ -49,7 +49,7 @@ import {
   pruneMirrors,
   removeMirrorNotes,
 } from "@/lib/score/drum-tab";
-import { DRUM_TAB_LINES, drumLineAtY } from "@/lib/score/drum-lines";
+import { DRUM_TAB_LINES, drumLineAtY, tabLineAtY } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
 import type { Beat, Note } from "@/lib/score/model";
 import {
@@ -307,6 +307,9 @@ function createSettings(options: ScorePlayerOptions): Settings {
 
 /** Edits closer together than this share one MIDI regeneration (ms). */
 const MIDI_DEBOUNCE_MS = 250;
+/** How long a shared start waits for the MIDI of an edit to load, and how often it looks. */
+const PREPARE_START_TIMEOUT_MS = 3000;
+const PREPARE_START_POLL_MS = 20;
 
 export class ScorePlayer {
   private readonly api: AlphaTabApi;
@@ -360,6 +363,8 @@ export class ScorePlayer {
    * at the next pause, never mid-song.
    */
   private midiPending = false;
+  /** A regenerated MIDI is loading: the song cannot start on time until alphaTab is ready again. */
+  private midiBusy = false;
   /** Bars to loop, or null. Applied once the MIDI is loaded. */
   private loop: LoopRange | null = null;
   /** Set while the adapter itself changes the playback range. */
@@ -375,7 +380,8 @@ export class ScorePlayer {
   private editing = false;
   /** Shift was held on the last pointer press in the score. */
   private shiftDown = false;
-  /** Where the last click landed, in the drawing's pixels (for clicks on the drum tab). */
+  /** Where the pointer last pressed or moved in the score, in the drawing's pixels. */
+  private pointerX: number | null = null;
   private pointerY: number | null = null;
   /** A SoundFont is loaded in the synthesizer (none right after a reset). */
   private hasSounds = false;
@@ -446,8 +452,15 @@ export class ScorePlayer {
       "pointerdown",
       (event) => {
         this.shiftDown = event.shiftKey;
-        const rect = options.element.getBoundingClientRect();
-        this.pointerY = event.clientY - rect.top;
+        this.rememberPointer(options.element, event);
+      },
+      { capture: true },
+    );
+    // A drag reports beats without the mouse event too.
+    options.element.addEventListener(
+      "pointermove",
+      (event) => {
+        if (event.buttons !== 0) this.rememberPointer(options.element, event);
       },
       { capture: true },
     );
@@ -540,7 +553,7 @@ export class ScorePlayer {
     // playedBeatChanged only fires during playback; a click moves the cursor while paused too.
     api.beatMouseDown.on((clicked) => {
       // A click on the drum tab is a click on the drum beat it shows.
-      const beat = realBeatOf(clicked);
+      const beat = this.beatUnderPointer() ?? realBeatOf(clicked);
       if (this.seekLocked && this.playing) {
         // Practice together: nobody moves the cursor while the song plays (the two computers
         // would play different places). A click still selects a beat for editing.
@@ -558,14 +571,17 @@ export class ScorePlayer {
       // alphaTab picks the beat by x alone among all the staves of a line, so with "Score + tab"
       // a click on the tab strip reports the drum staff's beat drawn at the same x (#228).
       // A click on the drum staff itself is too far above the tab strip to find a line there.
-      const line = this.drumLineAt(beat, this.pointerY);
+      // A guitar tab has its string lines in the beat's own tab staff.
+      const line = this.drumLineAt(beat, this.pointerY) ?? this.stringLineAt(beat, this.pointerY);
       queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend, line }));
     });
     api.noteMouseDown.on((note) => {
       this.clickedNote = realNoteOf(note);
     });
     // Dragging selects beats in both modes (alphaTab also highlights the range outside edit mode).
-    api.beatMouseMove.on((beat) => callbacks.onBeatDrag?.(realBeatOf(beat)));
+    api.beatMouseMove.on((beat) =>
+      callbacks.onBeatDrag?.(this.beatUnderPointer() ?? realBeatOf(beat)),
+    );
     api.midiEventsPlayed?.on((e) => {
       const click = this.ownClick;
       if (!click) return;
@@ -593,6 +609,7 @@ export class ScorePlayer {
     // mixer is applied last. It also runs again after every MIDI or SoundFont reload.
     player.readyForPlayback.on(() => {
       this.alphaTabReady = true;
+      this.midiBusy = false;
       // The native engine's sounds load separately (see setSoundFont).
       if (this.engine && !this.engine.soundFont) return;
       this.hasSounds = true;
@@ -791,6 +808,7 @@ export class ScorePlayer {
     // straight after pausing) it would still say "playing".
     // Kept locally: loading the MIDI can finish (and clear `resume`) at once.
     const resume = (this.resume ??= { tick: api.tickPosition, play: this.playing });
+    this.midiBusy = true;
     api.loadMidiForScore();
     api.tickPosition = resume.tick;
   }
@@ -1126,9 +1144,27 @@ export class ScorePlayer {
     return this.outputDelayMs();
   }
 
-  /** Whether the song is loaded, so Play starts it (Practice together asks before a start). */
+  /**
+   * Whether the song is loaded, so Play starts it (Practice together asks before a start).
+   * Not while the MIDI of an edit loads: a start then waits for the load and comes late.
+   */
   isReady(): boolean {
-    return this.ready;
+    return this.ready && !this.midiBusy;
+  }
+
+  /**
+   * Practice together: before a shared start, makes the MIDI of a recent edit now and waits until
+   * it is loaded. Otherwise `playPause` makes it at the agreed instant, and this computer starts
+   * late by the time that takes (the count-in, the metronome and the song all move together).
+   * Gives up after `timeoutMs`, so a load that never ends cannot hold a start for ever.
+   */
+  async prepareStart(timeoutMs = PREPARE_START_TIMEOUT_MS): Promise<boolean> {
+    this.flushMidi();
+    const until = performance.now() + timeoutMs;
+    while (!this.destroyed && this.midiBusy && performance.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, PREPARE_START_POLL_MS));
+    }
+    return this.isReady();
   }
 
   /**
@@ -1381,12 +1417,72 @@ export class ScorePlayer {
   }
 
   /**
+   * The string line of the guitar tab drawn at a height of a beat (1 = lowest string), or null
+   * when the point is not on the tab staff: the notation staff of "Score + tab" has no strings.
+   */
+  private stringLineAt(beat: Beat, y: number | null): number | null {
+    const staff = beat.voice?.bar?.staff;
+    const strings = staff && !staff.isPercussion ? staff.stringTuning.tunings.length : 0;
+    if (y === null || strings < 2) return null;
+    const found = this.api.boundsLookup?.findBeats?.(beat) ?? [];
+    const tab = withStaffKinds(beat, found).find((b) => b.staff === "tab");
+    return tab ? tabLineAtY(tab.bounds.barBounds.visualBounds, y, strings) : null;
+  }
+
+  /**
    * The beat drawn at a point of the score, in the drawing's own pixels (a beat of the drum tab
    * is its drum beat), or null. For the score's right-click menu (#228).
    */
   beatAt(x: number, y: number): Beat | null {
-    const beat = this.api.boundsLookup?.getBeatAtPos(x, y);
+    const beat = this.beatOfStaffAt(x, y) ?? this.api.boundsLookup?.getBeatAtPos(x, y);
     return beat ? realBeatOf(beat) : null;
+  }
+
+  /**
+   * Remembers where the pointer is, in the drawing's pixels: counted from the top left of the
+   * drawing surface, as alphaTab counts. The page layout centres the pages, so the surface is not
+   * always at the element's edge.
+   */
+  private rememberPointer(element: HTMLElement, event: PointerEvent) {
+    const rect = (
+      element.querySelector<HTMLElement>(".at-surface") ?? element
+    ).getBoundingClientRect();
+    this.pointerX = event.clientX - rect.left;
+    this.pointerY = event.clientY - rect.top;
+  }
+
+  /** The beat under the pointer's last press or move, found by height too; null if unknown. */
+  private beatUnderPointer(): Beat | null {
+    if (this.pointerX === null || this.pointerY === null) return null;
+    const beat = this.beatOfStaffAt(this.pointerX, this.pointerY);
+    return beat ? realBeatOf(beat) : null;
+  }
+
+  /**
+   * The beat at a point of the staff that is drawn there. alphaTab finds a beat by x alone among
+   * all the staves of a system, so with two tracks stacked in one system a click on one track's
+   * staff reports the other track's beat. This picks the staff by height (the nearest one when the
+   * point is between the staves) and then the beat by x. Null when the point is in no system.
+   */
+  private beatOfStaffAt(x: number, y: number): Beat | null {
+    const system = this.api.boundsLookup?.staffSystems?.find(
+      ({ realBounds: b }) => y >= b.y && y <= b.y + b.h,
+    );
+    const gapTo = ({ y: top, h }: { y: number; h: number }) => Math.max(top - y, y - (top + h), 0);
+    const bars = [...(system?.findBarAtPos(x)?.bars ?? [])].sort(
+      (a, b) => gapTo(a.visualBounds) - gapTo(b.visualBounds),
+    );
+    // One track only (also its score and tab staves, or a drum tab's mirror): alphaTab's own answer
+    // is the one the rest of the editor was made for, and the staves of one track place their beats
+    // a little differently, which matters for 64th notes. Only different tracks need the height.
+    const tracks = new Set(
+      bars.flatMap((bar) => {
+        const beat = bar.findBeatAtPos(x)?.beat;
+        return beat ? [realBeatOf(beat).voice?.bar?.staff?.track ?? beat] : [];
+      }),
+    );
+    if (tracks.size < 2) return null;
+    return bars[0]?.findBeatAtPos(x)?.beat ?? null;
   }
 
   /**

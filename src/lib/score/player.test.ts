@@ -1299,6 +1299,162 @@ describe("ScorePlayer", () => {
       expect((await click(40))?.line).toBeNull();
     });
 
+    describe("two tracks stacked in one system (#228)", () => {
+      // alphaTab picks a beat by x alone among all the staves of a system, so a click on the lower
+      // track's staff reports the upper track's beat. The player looks at the height too.
+      const stacked = async () => {
+        const setup = await readySetup();
+        const upper = setup.score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+        const lower = setup.score.tracks[1]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+        const bar = (y: number, beat: unknown) => ({
+          visualBounds: { x: 0, y, w: 200, h: 100 },
+          findBeatAtPos: () => ({ beat }),
+        });
+        setup.api.boundsLookup = {
+          getBeatAtPos: vi.fn(() => upper), // alphaTab: the beat with the largest x, whichever staff
+          staffSystems: [
+            {
+              realBounds: { x: 0, y: 0, w: 200, h: 400 },
+              findBarAtPos: () => ({ bars: [bar(0, upper), bar(200, lower)] }),
+            },
+            {
+              realBounds: { x: 0, y: 500, w: 200, h: 100 },
+              findBarAtPos: () => ({ bars: [bar(500, upper)] }),
+            },
+          ],
+        } as never;
+        return { ...setup, upper, lower };
+      };
+
+      it("reports the beat of the staff that was clicked", async () => {
+        const { api, callbacks, element, upper, lower } = await stacked();
+        const click = async (clientY: number) => {
+          callbacks.onBeatClick.mockClear();
+          element.dispatchEvent(new PointerEvent("pointerdown", { clientY }));
+          api.beatMouseDown.trigger(upper);
+          await Promise.resolve();
+          return callbacks.onBeatClick.mock.calls[0]?.[0].beat;
+        };
+
+        expect(await click(50)).toBe(upper);
+        expect(await click(250)).toBe(lower);
+        expect(await click(160)).toBe(lower); // between the staves: the nearer one
+        expect(await click(110)).toBe(upper);
+      });
+
+      it("measures the pointer from the drawing surface, which is not always at the element's edge", async () => {
+        // The page layout centres the pages: the surface starts 40 px in. alphaTab counts from
+        // the surface, so the beat found by x would be the neighbour's if the element's edge
+        // were used (64th notes are only a few pixels wide).
+        const { api, element, upper } = await stacked();
+        const surface = document.createElement("div");
+        surface.className = "at-surface";
+        surface.getBoundingClientRect = () => ({ left: 40, top: 10 }) as DOMRect;
+        element.append(surface);
+        const seen: { x: number }[] = [];
+        api.boundsLookup = {
+          getBeatAtPos: vi.fn(() => upper),
+          staffSystems: [
+            {
+              realBounds: { x: 0, y: 0, w: 400, h: 400 },
+              findBarAtPos: (x: number) => {
+                seen.push({ x });
+                return {
+                  bars: [
+                    {
+                      visualBounds: { x: 0, y: 0, w: 400, h: 400 },
+                      findBeatAtPos: () => ({ beat: upper }),
+                    },
+                  ],
+                };
+              },
+            },
+          ],
+        } as never;
+        element.dispatchEvent(new PointerEvent("pointerdown", { clientX: 140, clientY: 60 }));
+        api.beatMouseDown.trigger(upper);
+        expect(seen).toEqual([{ x: 100 }]);
+      });
+
+      it("leaves the staves of one track to alphaTab (their beats sit a little apart)", async () => {
+        const { api, callbacks, element, score, upper } = await stacked();
+        const sameTrack = score.tracks[0]!.staves[0]!.bars[1]!.voices[0]!.beats[0]!;
+        const bar = (y: number, beat: unknown) => ({
+          visualBounds: { x: 0, y, w: 200, h: 100 },
+          findBeatAtPos: () => ({ beat }),
+        });
+        api.boundsLookup = {
+          getBeatAtPos: vi.fn(() => upper),
+          staffSystems: [
+            {
+              realBounds: { x: 0, y: 0, w: 200, h: 400 },
+              findBarAtPos: () => ({ bars: [bar(0, upper), bar(200, sameTrack)] }),
+            },
+          ],
+        } as never;
+        element.dispatchEvent(new PointerEvent("pointerdown", { clientY: 250 }));
+        api.beatMouseDown.trigger(upper);
+        await Promise.resolve();
+        // Not the lower staff's own beat: alphaTab's answer (`upper`) stands.
+        expect(callbacks.onBeatClick.mock.calls[0]?.[0].beat).toBe(upper);
+      });
+
+      it("follows a drag onto the other staff", async () => {
+        const { api, callbacks, element, upper, lower } = await stacked();
+        element.dispatchEvent(new PointerEvent("pointerdown", { clientY: 50 }));
+        api.beatMouseDown.trigger(upper);
+        element.dispatchEvent(new PointerEvent("pointermove", { clientY: 250, buttons: 1 }));
+        api.beatMouseMove.trigger(upper);
+        expect(callbacks.onBeatDrag).toHaveBeenLastCalledWith(lower);
+      });
+
+      it("finds the beat at a point for the right-click menu", async () => {
+        const { player, upper, lower } = await stacked();
+        expect(player.beatAt(10, 50)).toBe(upper);
+        expect(player.beatAt(10, 250)).toBe(lower);
+        expect(player.beatAt(10, 550)).toBe(upper);
+        expect(player.beatAt(10, 450)).toBe(upper); // between the systems: alphaTab's answer
+      });
+    });
+
+    it("reports the string line clicked on a guitar tab, not on its notation staff (#228)", async () => {
+      const { api, score, callbacks, element } = await readySetup();
+      const beat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
+      const staff = beat.voice.bar.staff;
+      staff.showTablature = true;
+      staff.showStandardNotation = true;
+      const strings = staff.stringTuning.tunings.length;
+      // The notation staff above (y 20-60), the tab below: its top string at y = 100 and its
+      // lowest at y = 150, evenly spaced.
+      const bounds = (y: number, h: number) => ({
+        realBounds: { x: 10, y: 0, w: 20, h: 5 },
+        barBounds: { visualBounds: { x: 0, y, w: 100, h } },
+      });
+      api.boundsLookup = { findBeats: vi.fn(() => [bounds(100, 50), bounds(20, 40)]) };
+      const gap = 50 / (strings - 1);
+      const click = async (clientY: number) => {
+        callbacks.onBeatClick.mockClear();
+        element.dispatchEvent(new PointerEvent("pointerdown", { clientY }));
+        api.beatMouseDown.trigger(beat);
+        await Promise.resolve();
+        return callbacks.onBeatClick.mock.calls[0]?.[0];
+      };
+
+      expect((await click(100))?.line).toBe(strings); // the top line is the highest string
+      expect((await click(150))?.line).toBe(1);
+      expect((await click(100 + gap + 1))?.line).toBe(strings - 1);
+      // On the notation staff, or far from the tab: no line.
+      expect((await click(40))?.line).toBeNull();
+      expect((await click(190))?.line).toBeNull();
+      // A tab alone (no notation staff): its one staff is the tab.
+      staff.showStandardNotation = false;
+      api.boundsLookup = { findBeats: vi.fn(() => [bounds(100, 50)]) };
+      expect((await click(150))?.line).toBe(1);
+      // No tab drawn: no line.
+      staff.showTablature = false;
+      expect((await click(150))?.line).toBeNull();
+    });
+
     it("reports drags outside edit mode too, so the selection follows them (#53)", async () => {
       const { api, score, callbacks } = await readySetup();
       const beat = score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
@@ -1969,6 +2125,59 @@ describe("ScorePlayer: Practice together (#158)", () => {
     expect(player.isReady()).toBe(false);
     becomeReady();
     expect(player.isReady()).toBe(true);
+  });
+
+  describe("a shared start after an edit", () => {
+    const edited = async () => {
+      const setup = await readySetup();
+      vi.useFakeTimers();
+      setup.player.refresh({
+        trackIndex: 0,
+        view: { notation: "score-tab", rhythm: false },
+        mix: setup.mix,
+      });
+      return setup;
+    };
+
+    it("is not ready while the MIDI of an edit is still being loaded", async () => {
+      const { player, api, becomeReady } = await edited();
+      vi.advanceTimersByTime(300);
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+      expect(player.isReady()).toBe(false);
+      becomeReady();
+      expect(player.isReady()).toBe(true);
+    });
+
+    it("makes the waiting MIDI before the start, not inside it", async () => {
+      const { player, api, becomeReady } = await edited();
+      // The edit is a moment old: the MIDI has not been made yet.
+      expect(api.loadMidiForScore).not.toHaveBeenCalled();
+      const prepared = player.prepareStart();
+      expect(api.loadMidiForScore).toHaveBeenCalledOnce();
+      let done = false;
+      void prepared.then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(done).toBe(false);
+      becomeReady();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await prepared).toBe(true);
+    });
+
+    it("gives up when the MIDI never loads, instead of waiting for ever", async () => {
+      const { player } = await edited();
+      const prepared = player.prepareStart(500);
+      await vi.advanceTimersByTimeAsync(600);
+      expect(await prepared).toBe(false);
+    });
+
+    it("is ready at once when nothing was edited", async () => {
+      const { player, api } = await readySetup();
+      vi.useFakeTimers();
+      const prepared = player.prepareStart();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await prepared).toBe(true);
+      expect(api.loadMidiForScore).not.toHaveBeenCalled();
+    });
   });
 
   describe("the seek lock of a session", () => {

@@ -59,7 +59,7 @@ import { TogetherButton } from "@/components/practice-together/sync-quality";
 import { PracticeControls, SpeedTrainerDialog } from "@/components/score/practice-controls";
 import { FileMenu, ToolsMenu } from "@/components/score/song-menu";
 import { TransposeDialog, type TransposePreview } from "@/components/score/transpose-dialog";
-import { ScoreView, type EditOverlay } from "@/components/score/score-view";
+import { ScoreView, type EditOverlay, type RemoteMark } from "@/components/score/score-view";
 import { PrintDialog } from "@/components/score/print-dialog";
 import { TempoDialog, type TempoInitial } from "@/components/score/tempo-dialog";
 import { TextDialog } from "@/components/score/text-dialog";
@@ -77,6 +77,8 @@ import { NO_NOTE_EFFECTS, useMenuState } from "@/hooks/use-menu-state";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { useRestoreEditFocus } from "@/hooks/use-restore-edit-focus";
 import { useScoreEditor } from "@/hooks/use-score-editor";
+import { locate, type RemotePlayer } from "@/lib/practice-together/shared-editing";
+import type { EditSync } from "@/lib/score/ops/collab";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { usePianoModel } from "@/hooks/use-piano-model";
 import { onInstallerReturn } from "@/lib/ai/ai-store";
@@ -179,7 +181,7 @@ import {
   storeLayoutPrefs,
   type LayoutPrefs,
 } from "@/lib/score/layout";
-import { trackContent, type Beat, type Score, type Track } from "@/lib/score/model";
+import { trackContent, type Beat, type Note, type Score, type Track } from "@/lib/score/model";
 import type { InstrumentPreset } from "@/lib/score/music";
 import {
   ScorePlayer,
@@ -400,6 +402,17 @@ function rowRects(rects: Rect[]): Rect[] {
     else rows.push([rect]);
   }
   return rows.map((row) => union(row)).filter((r): r is Rect => r !== null);
+}
+
+/**
+ * Where a cursor is drawn on a beat: on its note, else (an empty spot) on its line, else on the
+ * beat's first staff. The same for our own cursor and another player's.
+ */
+function spotRects(player: ScorePlayer, beat: Beat, note: Note | null, line: Rect | null) {
+  if (note) return player.noteRects(note);
+  if (line) return [{ rect: line, staff: "tab" } satisfies NoteRect];
+  const rect = player.beatRects(beat)[0];
+  return rect ? [{ rect, staff: "score" } satisfies NoteRect] : [];
 }
 
 const isTextField = (element: Element | null) =>
@@ -808,31 +821,71 @@ export function ScoreWorkspace({
     },
   );
 
+  /** The other players of a shared editing session, whose cursors are drawn too (#216). */
+  const remoteRef = useRef<{ sync: EditSync | null; players: readonly RemotePlayer[] }>({
+    sync: null,
+    players: [],
+  });
+
   /** Where the edit cursor's note (or empty spot) and the selection are drawn now. */
   const updateOverlay = useEffectEvent(() => {
     const player = playerRef.current;
     if (!player) return;
+    const { sync, players } = remoteRef.current;
+    const remote: RemoteMark[] = [];
+    for (const other of sync ? players : []) {
+      const spot = other.cur && sync ? locate(sync, other.cur) : null;
+      if (!spot || spot.track !== trackObject) continue;
+      // Marked like our own cursor: the note on their string, else that string's line (#216).
+      const notes =
+        spot.line !== undefined
+          ? spotRects(player, spot.beat, null, player.drumLineRect(spot.beat, spot.line))
+          : spot.string === undefined
+            ? spotRects(player, spot.beat, null, null)
+            : spotRects(
+                player,
+                spot.beat,
+                spot.beat.getNoteOnString(spot.string),
+                player.stringLineRect(spot.beat, spot.string, editor.stringCount),
+              );
+      // The beats from the first to the last of their selection, in the voice they are on.
+      const bars = trackObject.staves[0]?.bars ?? [];
+      const selected = spot.sel
+        ? bars
+            .slice(spot.sel[0].voice.bar.index, spot.sel[1].voice.bar.index + 1)
+            .flatMap((bar) => bar.voices[spot.beat.voice.index]?.beats ?? [])
+            .filter((b) => {
+              const [first, last] = spot.sel!;
+              const at = b.voice.bar.index * 10000 + b.index;
+              return (
+                at >= first.voice.bar.index * 10000 + first.index &&
+                at <= last.voice.bar.index * 10000 + last.index
+              );
+            })
+        : [];
+      // A range is drawn only when they sent one (a note is marked alone).
+      const selection = rowRects(
+        selected.map((b) => union(player.beatRects(b))).filter((r): r is Rect => r !== null),
+      );
+      if (notes.length === 0 && selection.length === 0) continue;
+      remote.push({ id: other.id, name: other.name, hue: other.hue, notes, selection });
+    }
     // Outside edit mode only a range selected with Shift is drawn (#92).
     const beat = editing ? editor.cursorBeat() : null;
     const note = editing ? editor.cursorNote() : null;
-    let notes: NoteRect[] = [];
-    if (note) notes = player.noteRects(note);
-    else if (beat) {
-      // An empty spot: one outline on the cursor's line of the beat (#178), else on the beat.
-      const line =
-        editor.kind === "drums" && editor.cursor.line !== null
+    // An empty spot: one outline on the cursor's line of the beat (#178), else on the beat.
+    const line =
+      !beat || note
+        ? null
+        : editor.kind === "drums" && editor.cursor.line !== null
           ? player.drumLineRect(beat, editor.cursor.line)
           : editor.kind === "stringed"
             ? player.stringLineRect(beat, editor.cursor.string, editor.stringCount)
             : null;
-      if (line) notes = [{ rect: line, staff: "tab" }];
-      else {
-        const rect = player.beatRects(beat)[0];
-        if (rect) notes = [{ rect, staff: "score" }];
-      }
-    }
+    const notes: NoteRect[] = beat ? spotRects(player, beat, note, line) : [];
     setOverlay({
       notes,
+      remote,
       // Each beat's rectangle spans all its staves; the beats of a row then merge into one.
       selection: rowRects(
         editor
@@ -1700,6 +1753,7 @@ export function ScoreWorkspace({
 
   // Practice together (#158): with a session the host's transport is shared, a guest's is the host's.
   const together = usePracticeTogether({
+    editor,
     playerRef,
     practice,
     dispatchPractice: dispatchShared,
@@ -1726,9 +1780,18 @@ export function ScoreWorkspace({
             : {},
         )),
   });
+  // The other players' cursors: drawn again when they or the tab move.
+  const remoteVersion = together.edit.version;
+  const remoteSync = together.edit.sync;
+  const remotePlayers = together.edit.players;
+  useEffect(() => {
+    remoteRef.current = { sync: remoteSync, players: remotePlayers };
+    updateOverlay();
+  }, [remoteVersion, remoteSync, remotePlayers]);
   useEffect(() => {
     practiceLocked.current = (action) => {
-      if (!together.readOnly) return false;
+      // A guest edits the tab along with the host, but the host sets how it is played.
+      if (!together.isGuest) return false;
       if (!GUEST_LOCKED_ACTIONS.has(action.type)) return false;
       toast.info("The host sets the speed, loop, metronome and count-in.", {
         description: "They follow the host while you are in the session.",
@@ -1736,8 +1799,8 @@ export function ScoreWorkspace({
       });
       return true;
     };
-  }, [together.readOnly]);
-  // A guest follows the host's tab, so it is not edited here (the host's edits come over).
+  }, [together.isGuest]);
+  // A guest that may not edit follows the host's tab, so it is not edited here (the host's edits come over).
   const [wasReadOnly, setWasReadOnly] = useState(false);
   if (!!together.readOnly !== wasReadOnly) {
     setWasReadOnly(!!together.readOnly);
@@ -1746,10 +1809,17 @@ export function ScoreWorkspace({
   useEffect(() => {
     editingBlocked.current = () => {
       if (!together.readOnly) return false;
-      toast.info("You follow the host's tab, so it is read-only.", {
-        description: "Leave the Practice together session to edit your own copy.",
-        id: "together-readonly",
-      });
+      toast.info(
+        together.edit.live
+          ? "The host turned editing off for guests."
+          : "You follow the host's tab, so it is read-only.",
+        {
+          description: together.edit.live
+            ? "You can edit again when the host turns it on."
+            : "Leave the Practice together session to edit your own copy.",
+          id: "together-readonly",
+        },
+      );
       return true;
     };
     // Every change of the music goes through the editor: a guest's copy refuses all of them.
@@ -1757,7 +1827,7 @@ export function ScoreWorkspace({
     return () => {
       editor.blocked = null;
     };
-  }, [together.readOnly, editor]);
+  }, [together.readOnly, together.edit.live, editor]);
   // A session plays with the SoundFonts, and nobody moves the cursor with a click while its song
   // plays (the two computers would be at different places).
   useEffect(() => {

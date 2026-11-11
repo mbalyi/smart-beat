@@ -1,7 +1,8 @@
 import "@testing-library/jest-dom/vitest";
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach } from "vitest";
+import { toast } from "sonner";
+import { afterAll, afterEach, beforeEach } from "vitest";
 
 import { installMatchMedia } from "@/test/match-media";
 import { removeMediaDevices } from "@/test/media-devices";
@@ -32,4 +33,12 @@ afterEach(() => {
   removeMediaDevices();
   document.documentElement.className = "";
   document.documentElement.removeAttribute("style");
+});
+
+// A toast that closes just as a test file ends leaves a 200 ms timer inside sonner (it removes the
+// toast after its exit animation). On a slow machine that timer fires after the test environment
+// has gone and fails the run with "window is not defined". Files that showed a toast wait for it.
+afterAll(async () => {
+  if (toast.getHistory().length === 0) return;
+  await new Promise((resolve) => setTimeout(resolve, 300));
 });

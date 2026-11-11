@@ -54,7 +54,7 @@ export interface ScoreDocument {
    * The host's tab, received in a Practice together session (#158): who sent it and the score
    * fingerprint it matches. Saving it asks for a file, like any song made in memory.
    */
-  received?: { from: string; key: string; origin?: number };
+  received?: { from: string; key: string; origin?: number; seq?: number };
   /** Guitar Pro 3–5 files: the encoding the text was read with (#53). */
   encoding?: TextEncodingId;
   /** The encoding the user picked for this file, or "auto". */
@@ -381,7 +381,7 @@ export function useScoreDocuments() {
           score: tab.score,
           summary,
           mix: initialMix(summary, options.mix ?? null),
-          received: { from: tab.from, key: tab.key, origin: tab.origin },
+          received: { from: tab.from, key: tab.key, origin: tab.origin, seq: tab.seq },
         };
         const { replaceId } = options;
         if (replaceId !== undefined && songsRef.current.some((s) => s.id === replaceId)) {

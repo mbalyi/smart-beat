@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react";
 
+import { NO_SHARED_EDITING } from "@/hooks/use-shared-editing";
 import { DirectConnectionHelp } from "@/components/practice-together/direct-connection-help";
 import { PracticeTogetherDialog } from "@/components/practice-together/practice-together-dialog";
 import type { PracticeTogether } from "@/hooks/use-practice-together";
@@ -66,6 +67,7 @@ function together(): PracticeTogether {
     internetAvailable: true,
     transfer: null,
     readOnly: false,
+    edit: NO_SHARED_EDITING,
     setName: vi.fn(),
     setQuality: vi.fn(),
     host: vi.fn(async () => {}),

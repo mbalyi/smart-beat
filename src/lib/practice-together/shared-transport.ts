@@ -28,6 +28,11 @@ export interface TransportPlayer {
   outputLatencyMs(): number;
   /** Whether the song is loaded, so a start plays. */
   isReady(): boolean;
+  /**
+   * Makes the MIDI of a recent edit now and waits until it is loaded, so the start at the agreed
+   * instant does none of that work. Resolves whether a start would play.
+   */
+  prepareStart?(): Promise<boolean>;
 }
 
 /** The last milliseconds before a start are waited out in a tight loop: a timer is too coarse. */
@@ -112,7 +117,11 @@ export class SharedTransport {
     const player = this.options.player();
     if (!player) return false;
     // A start with nothing loaded would do nothing here: say so, instead of starting alone.
-    if (cmd.action === "play" && !player.isReady()) return false;
+    // After an edit the MIDI is made and loaded now, not inside the start: that would start late.
+    if (cmd.action === "play") {
+      const ready = player.prepareStart ? await player.prepareStart() : player.isReady();
+      if (!ready) return false;
+    }
     this.options.applySettings(cmd);
     this.speed = cmd.speed;
     // The settings reach the player through the app's state: give them a moment to land.

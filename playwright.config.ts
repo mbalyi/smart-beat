@@ -22,6 +22,9 @@ const ADDITIONAL_SPECS = [
   "**/audio-transcription.spec.ts",
   "**/model-dialogs.spec.ts",
   "**/practice-together*.spec.ts",
+  // The click and selection specs of #228 and #216 (the smoke group ran out of time in WebKit).
+  "**/tab-line-click.spec.ts",
+  "**/selection-multi-track.spec.ts",
 ];
 const group = process.env.E2E_GROUP || undefined;
 if (group !== undefined && group !== "smoke" && group !== "additional") {

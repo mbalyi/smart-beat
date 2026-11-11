@@ -20,15 +20,21 @@ type Score = model.Score;
 export const DRUM_TAB_LINES = 6;
 
 /**
- * The line of the drum tab nearest to a height in the drawing (6 = top line), where the bar
- * spans from the top line (`bar.y`) to the bottom one; null for a point more than half a line
- * gap above or below the staff (#228).
+ * The line (1 = bottom) of a tab staff of `lines` lines nearest to a height in the drawing, where
+ * the bar spans from the top line (`bar.y`) to the bottom one; null for a point more than half a
+ * line gap above or below the staff (#228).
  */
-export function drumLineAtY(bar: { y: number; h: number }, y: number): number | null {
-  const spacing = bar.h / (DRUM_TAB_LINES - 1);
+export function tabLineAtY(bar: { y: number; h: number }, y: number, lines: number): number | null {
+  if (lines < 2) return null;
+  const spacing = bar.h / (lines - 1);
   const fromTop = Math.round((y - bar.y) / spacing);
   if (y < bar.y - spacing / 2 || y > bar.y + bar.h + spacing / 2) return null;
-  return DRUM_TAB_LINES - Math.min(DRUM_TAB_LINES - 1, Math.max(0, fromTop));
+  return lines - Math.min(lines - 1, Math.max(0, fromTop));
+}
+
+/** The line of the drum tab nearest to a height in the drawing (6 = top line), or null. */
+export function drumLineAtY(bar: { y: number; h: number }, y: number): number | null {
+  return tabLineAtY(bar, y, DRUM_TAB_LINES);
 }
 
 const isLine = (value: number) => Number.isInteger(value) && value >= 1 && value <= DRUM_TAB_LINES;

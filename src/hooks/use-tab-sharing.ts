@@ -16,6 +16,8 @@ export interface ReceivedScore {
   origin?: number;
   /** The host's name. */
   from: string;
+  /** Shared editing: the host's edit number this file is from (see `EditBody`). */
+  seq?: number;
 }
 
 interface Options {
@@ -34,6 +36,8 @@ interface Options {
   haveRef?: RefObject<((key: string, origin?: number) => boolean) | undefined>;
   /** Shows the open tab with this key and moves the session to it. */
   showRef?: RefObject<((key: string, origin?: number) => void) | undefined>;
+  /** Shared editing (host): called as the tab is written to a file; returns the edit number it is from. */
+  snapshotRef?: { current: (() => { seq: number } | null) | undefined };
 }
 
 /**
@@ -51,6 +55,7 @@ export function useTabSharing({
   receiveRef,
   haveRef,
   showRef,
+  snapshotRef,
 }: Options) {
   const pending = useRef<ReceivedScore | null>(null);
   const trusted = useRef<{ key: string; revision: number } | null>(null);
@@ -79,11 +84,20 @@ export function useTabSharing({
         // alphaTab's writer is big: it loads when a tab is first shared.
         const { writeGp7 } = await import("@/lib/export/gp7");
         const score = scoreRef.current;
-        // The file and the fingerprint must describe the same edit: read both in this step.
+        // The file and the fingerprint must describe the same edit: read both in this step. The
+        // edit number (shared editing) is taken here too: it is what the guest asks "since" for.
+        const snapshot = snapshotRef?.current?.() ?? null;
         const bytes = writeGp7(score);
         const origin = idRef?.current;
         const { key, bars } = await fingerprint(score, revisionRef.current, origin);
-        return { name: titleRef.current, bytes, key, bars, origin };
+        return {
+          name: titleRef.current,
+          bytes,
+          key,
+          bars,
+          origin,
+          ...(snapshot ? { seq: snapshot.seq } : {}),
+        };
       },
       receive: async (tab) => {
         if (!receiveRef.current) return "unsupported";
@@ -96,6 +110,7 @@ export function useTabSharing({
             key: tab.key,
             origin: tab.origin,
             from: tab.from,
+            seq: tab.seq,
           };
           return null;
         } catch {
@@ -113,7 +128,18 @@ export function useTabSharing({
       have: (key, origin) => haveRef?.current?.(key, origin) ?? false,
       show: (key, origin) => showRef?.current?.(key, origin),
     }),
-    [idRef, scoreRef, titleRef, revisionRef, detachRef, receiveRef, haveRef, showRef, fingerprint],
+    [
+      idRef,
+      scoreRef,
+      titleRef,
+      revisionRef,
+      detachRef,
+      receiveRef,
+      haveRef,
+      showRef,
+      snapshotRef,
+      fingerprint,
+    ],
   );
 
   // One object for as long as its parts stand: the effects that list it do not run on every render.
