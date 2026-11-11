@@ -372,9 +372,15 @@ interface HistoryExtra {
 
 export type EditorChange = "model" | "cursor";
 
-/** An empty voice's stand-in: an invisible beat, or the rest filling an empty bar. */
+/**
+ * An empty voice's stand-in: an invisible beat, or the rest filling an empty bar. A lone
+ * shorter rest (from Insert rest, say) is music already written, not a stand-in, so the
+ * palette shows its value and a new note value changes it, like any other rest (#230).
+ */
 function isPlaceholder(beat: Beat): boolean {
-  return beat.isEmpty || (beat.notes.length === 0 && beat.voice.beats.length === 1);
+  if (beat.isEmpty) return true;
+  if (beat.notes.length > 0 || beat.voice.beats.length !== 1) return false;
+  return beatTicks(beat) >= barCapacity(beat.voice.bar.masterBar) - BAR_TOLERANCE;
 }
 
 /** Which note of a chord is "under the cursor" on a pitched or drum track. */
@@ -1555,11 +1561,10 @@ export class ScoreEditor {
       () => {
         const current = this.writableBeat();
         this._selection = null;
-        // Only an empty bar's stand-in (an invisible beat, or the rest filling the bar) is
-        // turned into the new rest: a single shorter rest is music already written.
-        const fillsBar =
-          beatTicks(current) >= barCapacity(current.voice.bar.masterBar) - BAR_TOLERANCE;
-        if (current.isEmpty || (isPlaceholder(current) && fillsBar)) {
+        // Only an empty bar's stand-in is turned into the new rest. Anything else, a single
+        // shorter rest included, is written music whose value the palette shows, so the new
+        // rest copies it: the same rule setDuration and beatInfo use (#230).
+        if (isPlaceholder(current)) {
           current.duration = this._entryDuration;
           current.dots = 0;
           current.tupletNumerator = 1;

@@ -209,6 +209,22 @@ describe("ScoreEditor: note entry", () => {
       expect(frets(editor)).toEqual(["r", "r", "r"]);
     });
 
+    it("takes the palette's note value after it changes beside a lone short rest", () => {
+      const { editor } = newSong();
+      editor.insertRest("after"); // the empty bar's rest becomes one quarter
+      editor.setDuration(Duration.Eighth);
+      // The palette, the rest under the cursor and the next inserted rest all agree.
+      expect(editor.beatInfo.duration).toBe(Duration.Eighth);
+      expect(voice(editor, 0).beats[0]!.duration).toBe(Duration.Eighth);
+      editor.insertRest("after");
+      editor.insertRest("before");
+      expect(voice(editor, 0).beats.map((b) => b.duration)).toEqual([
+        Duration.Eighth,
+        Duration.Eighth,
+        Duration.Eighth,
+      ]);
+    });
+
     it("is undone in one step and clears the selection", () => {
       const { editor } = newSong();
       editor.typeDigit(1);
