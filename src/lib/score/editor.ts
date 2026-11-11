@@ -434,8 +434,6 @@ export class ScoreEditor {
   private _selection: Selection | null = null;
   /** Length given to notes typed into an empty bar. */
   private _entryDuration: Duration = D.Quarter;
-  /** Drums: the cursor's line was picked (Up/Down, a click), not left there by typing (#228). */
-  private lineChosen = false;
   /** The first digit of a possible two-digit fret. */
   private pendingDigit: { digit: number; at: number; key: string } | null = null;
   /** Digits typed so far of a drum number on a drum track ("4", then "6" = 46). */
@@ -714,14 +712,8 @@ export class ScoreEditor {
     if (note?.isStringed) this._cursor.string = note.string;
     else if (note) {
       this._cursor.pitch = pitchOf(note);
-      if (this.kind === "drums") {
-        this._cursor.line = this.lineOfDrum(note);
-        this.lineChosen = true;
-      }
-    } else if (line !== null) {
-      this._cursor.line = line;
-      this.lineChosen = true;
-    }
+      if (this.kind === "drums") this._cursor.line = this.lineOfDrum(note);
+    } else if (line !== null) this._cursor.line = line;
     this.clamp();
     if (line !== null) {
       // An empty line too (#228): the next drum number typed is written on it.
@@ -863,7 +855,6 @@ export class ScoreEditor {
   /** Drums: puts the cursor on a line of the drum tab. */
   private putCursorOnLine(line: number) {
     this._cursor.line = line;
-    this.lineChosen = true;
     const note = this.noteAtCursor();
     this._cursor.pitch = note ? pitchOf(note) : null;
     this.moved();
@@ -1168,8 +1159,9 @@ export class ScoreEditor {
    * hi-hat (the General MIDI numbers of Guitar Pro's drum kit). Digits typed
    * within a moment of each other form one number; as soon as it is a known
    * drum it is entered. A number already on the beat is removed again; on a
-   * line that holds another drum it replaces that drum; on an empty line it is
-   * added to the beat, so two drums can sound together.
+   * line that holds another drum it replaces that drum (again and again: the
+   * cursor stays on the drum just written); on an empty line it is added to the
+   * beat, so two drums can sound together.
    */
   private typeDrumDigit(digit: number, now: number) {
     const c = this._cursor;
@@ -1200,11 +1192,11 @@ export class ScoreEditor {
   toggleDrum(sound: number) {
     const beat = this.beatAt();
     const line = this._cursor.line;
-    // Only a drum the cursor was put on (Up/Down, a click) is replaced: drums typed one after
-    // another all go in, as a kick under a crash (#228).
-    const chosen = this.lineChosen;
-    this.lineChosen = false;
-    const onLine = chosen && beat && line !== null ? this.drumOnLine(beat, line) : null;
+    // Whatever put the cursor on the line (Up/Down, a click, or the drum typed just before), the
+    // drum it sits on is the one replaced, every time: the cursor follows each new drum, so
+    // typing number after number keeps changing that one drum (#228). A second drum goes on the
+    // beat from an empty line.
+    const onLine = beat && line !== null ? this.drumOnLine(beat, line) : null;
     if (this.kind === "drums" && onLine && !this.isDrum(onLine, sound)) {
       this.replaceDrum(sound);
       return;

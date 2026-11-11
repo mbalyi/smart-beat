@@ -554,7 +554,11 @@ export class ScorePlayer {
       // The note (if any) is reported right after the beat: wait for it.
       const extend = this.shiftDown;
       this.clickedNote = null;
-      const line = clicked !== beat ? this.drumLineAt(beat, this.pointerY) : null;
+      // The line comes from the height of the click, not from which staff's beat was reported:
+      // alphaTab picks the beat by x alone among all the staves of a line, so with "Score + tab"
+      // a click on the tab strip reports the drum staff's beat drawn at the same x (#228).
+      // A click on the drum staff itself is too far above the tab strip to find a line there.
+      const line = this.drumLineAt(beat, this.pointerY);
       queueMicrotask(() => callbacks.onBeatClick?.({ beat, note: this.clickedNote, extend, line }));
     });
     api.noteMouseDown.on((note) => {
