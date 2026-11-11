@@ -16,6 +16,7 @@ import {
   pasteClips,
   removeClips,
   removeLane,
+  setLaneInScore,
   splitClip,
   trimClip,
   updateClip,
@@ -272,5 +273,30 @@ describe("review regressions", () => {
     const split = splitClip(song(["c", 0, 4000]), "c", 2000, ["l", "r"]);
     const muted = updateClip(split, "r", { mute: true });
     expect(glueClips(muted, ["l", "r"]).lanes[0]!.clips).toHaveLength(2);
+  });
+});
+
+describe("setLaneInScore", () => {
+  it("hides a lane with a flag and shows it by removing the key", () => {
+    const hidden = setLaneInScore(song(), "a", false);
+    expect(hidden.lanes[0]!.hiddenInScore).toBe(true);
+    expect(hidden.lanes[1]!.hiddenInScore).toBeUndefined();
+    const shown = setLaneInScore(hidden, "a", true);
+    expect("hiddenInScore" in shown.lanes[0]!).toBe(false);
+  });
+
+  it("does not change other lanes or a missing lane", () => {
+    const audio = song();
+    expect(setLaneInScore(audio, "nope", false)).toBe(audio);
+    expect(setLaneInScore(audio, "a", false).lanes[1]).toBe(audio.lanes[1]);
+  });
+
+  it("sets the children of a folder together, not the folder", () => {
+    const folder = makeFolder(song(), "Group", ["a", "b"], "f");
+    const hidden = setLaneInScore(folder, "f", false);
+    const flag = (id: string) => hidden.lanes.find((l) => l.id === id)!.hiddenInScore;
+    expect([flag("a"), flag("b"), flag("f")]).toEqual([true, true, undefined]);
+    const shown = setLaneInScore(hidden, "f", true);
+    expect(shown.lanes.some((l) => "hiddenInScore" in l)).toBe(false);
   });
 });

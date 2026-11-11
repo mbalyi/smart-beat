@@ -13,6 +13,7 @@ import {
   type AudioLanesController,
   type LanePlayback,
 } from "@/components/audio-lanes/use-audio-lanes";
+import { makeFolder } from "@/lib/audio-lanes/edits";
 import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 import type { SongGrid } from "@/lib/audio-lanes/sync";
 import { mixerReducer } from "@/lib/score/mixer";
@@ -536,5 +537,157 @@ describe("lane playback notice", () => {
     expect(screen.getByText("Plays with effects playback")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Lane Vocals is silent here/ }));
     expect(enable).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("LaneRow eye and Enabled item", () => {
+  const renderRows = (audio: AudioLanesSettings = song()) =>
+    renderWithProviders(
+      <Lanes audio={audio}>
+        {(lanes) => (
+          <ul>
+            {lanes.audio.lanes.map((lane, index) => (
+              <LaneRow
+                key={lane.id}
+                lanes={lanes}
+                lane={lane}
+                index={index}
+                barWidth={20}
+                barCount={8}
+                grid={grid}
+                playing={false}
+                onEffects={vi.fn()}
+                onOpenEditor={vi.fn()}
+              />
+            ))}
+          </ul>
+        )}
+      </Lanes>,
+    );
+  const laneFlags = () => lanesNow().audio.lanes.map((l) => l.hiddenInScore);
+
+  it("has an eye, pressed while the lane shows under the tabs, that hides and shows it", async () => {
+    const { user } = renderRows();
+    const eye = screen.getByRole("button", { name: "Hide lane Vocals from under the tabs" });
+    expect(eye).toHaveAttribute("aria-pressed", "true");
+    await user.hover(eye);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Hide this lane from under the tabs in the continuous view",
+    );
+    await user.unhover(eye);
+
+    await user.click(eye);
+    const hidden = screen.getByRole("button", { name: "Show lane Vocals under the tabs" });
+    expect(hidden).toHaveAttribute("aria-pressed", "false");
+    expect(laneFlags()).toEqual([true, undefined]);
+    // The other lane is untouched.
+    expect(
+      screen.getByRole("button", { name: "Hide lane Drums from under the tabs" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(hidden);
+    expect("hiddenInScore" in lanesNow().audio.lanes[0]!).toBe(false);
+  });
+
+  it("is one undoable edit", async () => {
+    const { user } = renderRows();
+    await user.click(screen.getByRole("button", { name: "Hide lane Vocals from under the tabs" }));
+    expect(laneFlags()[0]).toBe(true);
+    act(() => lanesNow().undo());
+    expect(laneFlags()[0]).toBeUndefined();
+  });
+
+  it("puts the eye in the eye column, with nothing else in it", () => {
+    renderRows();
+    const row = screen.getByTestId("lane-row-lane-a");
+    const eye = within(row).getByRole("button", { name: /under the tabs/ });
+    const cell = eye.closest("[data-testid='row-eye']")!;
+    const columns = cell.parentElement!;
+    // The same grid as the tab rows (name, eye, M/S, volume, pan, actions) and no pinned column.
+    expect(columns.className).toContain("var(--eye-col,2rem)");
+    expect(columns.className).not.toContain("[--eye-col");
+    expect(Array.from(columns.children).indexOf(cell)).toBe(1);
+    expect(within(row).queryByRole("switch")).toBeNull();
+    // No room kept for the tabs' handle while the list is not stacked.
+    expect(cell.querySelectorAll("span[aria-hidden]")).toHaveLength(0);
+  });
+
+  it("keeps the room of the tabs' handle in the stacked list", () => {
+    renderWithProviders(
+      <Lanes>
+        {(lanes) => (
+          <ul>
+            <LaneRow
+              lanes={lanes}
+              lane={lanes.audio.lanes[0]!}
+              index={0}
+              barWidth={20}
+              barCount={8}
+              grid={grid}
+              playing={false}
+              onEffects={vi.fn()}
+              onOpenEditor={vi.fn()}
+              stacking
+            />
+          </ul>
+        )}
+      </Lanes>,
+    );
+    const cell = screen.getByTestId("row-eye");
+    expect(cell.firstElementChild).toHaveAttribute("aria-hidden", "true");
+    expect(cell.firstElementChild).toHaveClass("size-6");
+  });
+
+  it("turns a lane on and off from the More menu, dimming the row while it is off", async () => {
+    const { user } = renderRows();
+    const row = screen.getByTestId("lane-row-lane-a");
+    await user.click(within(row).getByRole("button", { name: "More for Vocals" }));
+    const item = screen.getByRole("menuitemcheckbox", { name: "Enabled" });
+    expect(item).toHaveAttribute("aria-checked", "true");
+
+    await user.click(item);
+    expect(lanesNow().audio.lanes[0]!.enabled).toBe(false);
+    expect(row).toHaveClass("opacity-70");
+    // The eye still works on a lane that is off.
+    const eye = within(row).getByRole("button", { name: /Vocals (from under|under) the tabs/ });
+    expect(eye).toBeEnabled();
+    await user.click(eye);
+    expect(laneFlags()[0]).toBe(true);
+
+    await user.click(within(row).getByRole("button", { name: "More for Vocals" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: "Enabled" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  });
+
+  it("has one eye for a folder, for all the lanes in it", async () => {
+    const audio = makeFolder(song(), "Band", ["lane-a", "lane-b"], "folder");
+    const { user } = renderRows(audio);
+    const eye = () => screen.getByRole("button", { name: /(Hide|Show) folder Band/ });
+    expect(eye()).toHaveAccessibleName("Hide folder Band from under the tabs");
+
+    await user.click(eye());
+    expect(laneFlags()).toEqual([true, true, undefined]);
+    expect(eye()).toHaveAccessibleName("Show folder Band under the tabs");
+    expect(eye()).toHaveAttribute("aria-pressed", "false");
+
+    // One lane back on, and the folder shows again; its eye then hides both.
+    await user.click(screen.getByRole("button", { name: "Show lane Drums under the tabs" }));
+    expect(eye()).toHaveAttribute("aria-pressed", "true");
+    await user.click(eye());
+    expect(laneFlags()).toEqual([true, true, undefined]);
+  });
+
+  it("has nothing to show for an empty folder, and no accessibility violations in either theme", async () => {
+    renderRows(makeFolder(song(), "Empty", [], "folder"));
+    expect(screen.getByRole("button", { name: /(Hide|Show) folder Empty/ })).toBeDisabled();
+    await expectNoA11yViolations();
+    document.documentElement.classList.add("dark");
+    try {
+      await expectNoA11yViolations();
+    } finally {
+      document.documentElement.classList.remove("dark");
+    }
   });
 });

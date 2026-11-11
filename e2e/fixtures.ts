@@ -161,6 +161,8 @@ declare global {
           mute: boolean;
           filter: string;
           semitones: number;
+          /** Hidden from under the tabs in the continuous view. */
+          hiddenInScore?: boolean;
           clips: { startMs: number }[];
         }[];
         sources: { id: string; name: string; embedded: boolean }[];
