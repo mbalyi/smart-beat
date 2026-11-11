@@ -305,6 +305,7 @@ test.describe("audio lanes (#185)", () => {
   test("with the SoundFonts engine a lane is decoded and edited, and says it needs the native engine", async ({
     app,
   }) => {
+    test.slow(); // a song, a lane, the editor, the studio and an axe scan: long on CI's software renderer
     await openSong(app);
     const engineSwitch = app.getByRole("switch", { name: "Native engine with effects" });
     await expect(engineSwitch).not.toBeChecked();
