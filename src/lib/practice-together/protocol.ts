@@ -150,10 +150,12 @@ export type EditBody =
 export interface Presence {
   track: string;
   beat: string;
-  /** The ends of a selection (beats). */
+  /** The ends of a range selected on purpose (beats); none for a single position. */
   sel?: [string, string];
   /** The string, on a tab. */
   string?: number;
+  /** The line of the drum tab a drummer's cursor is on. */
+  line?: number;
 }
 
 export type RefuseReason = "version" | "score" | "declined" | "busy" | "full" | "banned";
@@ -211,7 +213,8 @@ function validPresence(p: unknown): p is Presence {
     isString(p.beat) &&
     (p.sel === undefined ||
       (Array.isArray(p.sel) && p.sel.length === 2 && p.sel.every(isString))) &&
-    (p.string === undefined || isNumber(p.string))
+    (p.string === undefined || isNumber(p.string)) &&
+    (p.line === undefined || isNumber(p.line))
   );
 }
 

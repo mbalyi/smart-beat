@@ -275,6 +275,97 @@ describe("shared editing: cursors", () => {
   });
 });
 
+describe("shared editing: a selected range in the cursor", () => {
+  const presence = async (selects: (editor: ScoreEditor) => void) => {
+    const t = setup();
+    const a = t.join("a");
+    await t.settle();
+    selects(a.editor);
+    return presenceOf(a.editor, a.edit.sync)!;
+  };
+
+  it("sends no range for a single position", async () => {
+    expect(await presence((e) => e.setCursorTo({ bar: 1, beat: 1 }))).not.toHaveProperty("sel");
+  });
+
+  it("sends the range the player selected with Shift, a click or select all", async () => {
+    expect(await presence((e) => e.moveBeat(1, true))).toHaveProperty("sel");
+    expect(await presence((e) => e.setCursorTo({ bar: 1, beat: 1 }, true))).toHaveProperty("sel");
+    expect(await presence((e) => e.selectAll())).toHaveProperty("sel");
+  });
+
+  it("sends no range once the player moved on without Shift or cleared it", async () => {
+    expect(
+      await presence((e) => {
+        e.moveBeat(1, true);
+        e.moveBeat(1);
+      }),
+    ).not.toHaveProperty("sel");
+    expect(
+      await presence((e) => {
+        e.selectAll();
+        e.clearSelection();
+      }),
+    ).not.toHaveProperty("sel");
+  });
+
+  it("sends no range when the selection is only what an edit left behind", async () => {
+    const typed = await presence((e) => {
+      e.moveBeat(1, true);
+      e.typeDigit(5);
+    });
+    expect(typed).not.toHaveProperty("sel");
+    const pasted = await presence((e) => {
+      e.moveBeat(1, true);
+      e.copy();
+      e.moveBar(1);
+      e.paste();
+    });
+    expect(pasted).not.toHaveProperty("sel");
+    const undone = await presence((e) => {
+      e.moveBeat(1, true);
+      e.moveBeat(1, true);
+      e.typeDigit(5);
+      e.undo();
+    });
+    expect(undone).not.toHaveProperty("sel");
+    expect(
+      await presence((e) => {
+        e.copyBar(0);
+      }),
+    ).not.toHaveProperty("sel");
+  });
+
+  it("sends the drum line of a drummer, and locate() gives it back", async () => {
+    const t = setup();
+    const a = t.join("a");
+    await t.settle();
+    // The test song has no drum track: a drummer's cursor is read from the editor's cursor, so
+    // fake the two things `presenceOf` reads.
+    const drums = Object.create(a.editor) as typeof a.editor;
+    Object.defineProperty(drums, "kind", { value: "drums" });
+    Object.defineProperty(drums, "cursor", { value: { ...a.editor.cursor, line: 3 } });
+    const cur = presenceOf(drums, a.edit.sync)!;
+    expect(cur).toMatchObject({ line: 3 });
+    expect(cur).not.toHaveProperty("string");
+    expect(locate(a.edit.sync, cur)).toMatchObject({ line: 3 });
+    // A guitarist sends a string, no line.
+    expect(presenceOf(a.editor, a.edit.sync)).not.toHaveProperty("line");
+  });
+
+  it("drops the range when another player's edit arrives", async () => {
+    const t = setup();
+    const a = t.join("a");
+    await t.settle();
+    a.editor.moveBeat(1, true);
+    expect(presenceOf(a.editor, a.edit.sync)).toHaveProperty("sel");
+    t.hostEditor.setCursorTo({ bar: 3, beat: 0 });
+    t.hostEditor.typeDigit(4);
+    await t.settle();
+    expect(presenceOf(a.editor, a.edit.sync)).not.toHaveProperty("sel");
+  });
+});
+
 describe("shared editing: big batches and the inbox", () => {
   it("splits a batch that does not fit a frame, and the other side puts it back together", async () => {
     const t = setup();

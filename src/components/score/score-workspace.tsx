@@ -181,7 +181,7 @@ import {
   storeLayoutPrefs,
   type LayoutPrefs,
 } from "@/lib/score/layout";
-import { trackContent, type Beat, type Score, type Track } from "@/lib/score/model";
+import { trackContent, type Beat, type Note, type Score, type Track } from "@/lib/score/model";
 import type { InstrumentPreset } from "@/lib/score/music";
 import {
   ScorePlayer,
@@ -402,6 +402,17 @@ function rowRects(rects: Rect[]): Rect[] {
     else rows.push([rect]);
   }
   return rows.map((row) => union(row)).filter((r): r is Rect => r !== null);
+}
+
+/**
+ * Where a cursor is drawn on a beat: on its note, else (an empty spot) on its line, else on the
+ * beat's first staff. The same for our own cursor and another player's.
+ */
+function spotRects(player: ScorePlayer, beat: Beat, note: Note | null, line: Rect | null) {
+  if (note) return player.noteRects(note);
+  if (line) return [{ rect: line, staff: "tab" } satisfies NoteRect];
+  const rect = player.beatRects(beat)[0];
+  return rect ? [{ rect, staff: "score" } satisfies NoteRect] : [];
 }
 
 const isTextField = (element: Element | null) =>
@@ -825,8 +836,18 @@ export function ScoreWorkspace({
     for (const other of sync ? players : []) {
       const spot = other.cur && sync ? locate(sync, other.cur) : null;
       if (!spot || spot.track !== trackObject) continue;
-      const beat = union(player.beatRects(spot.beat));
-      if (!beat) continue;
+      // Marked like our own cursor: the note on their string, else that string's line (#216).
+      const notes =
+        spot.line !== undefined
+          ? spotRects(player, spot.beat, null, player.drumLineRect(spot.beat, spot.line))
+          : spot.string === undefined
+            ? spotRects(player, spot.beat, null, null)
+            : spotRects(
+                player,
+                spot.beat,
+                spot.beat.getNoteOnString(spot.string),
+                player.stringLineRect(spot.beat, spot.string, editor.stringCount),
+              );
       // The beats from the first to the last of their selection, in the voice they are on.
       const bars = trackObject.staves[0]?.bars ?? [];
       const selected = spot.sel
@@ -842,35 +863,26 @@ export function ScoreWorkspace({
               );
             })
         : [];
-      remote.push({
-        id: other.id,
-        name: other.name,
-        hue: other.hue,
-        beat,
-        selection: rowRects(
-          selected.map((b) => union(player.beatRects(b))).filter((r): r is Rect => r !== null),
-        ),
-      });
+      // A range is drawn only when they sent one (a note is marked alone).
+      const selection = rowRects(
+        selected.map((b) => union(player.beatRects(b))).filter((r): r is Rect => r !== null),
+      );
+      if (notes.length === 0 && selection.length === 0) continue;
+      remote.push({ id: other.id, name: other.name, hue: other.hue, notes, selection });
     }
     // Outside edit mode only a range selected with Shift is drawn (#92).
     const beat = editing ? editor.cursorBeat() : null;
     const note = editing ? editor.cursorNote() : null;
-    let notes: NoteRect[] = [];
-    if (note) notes = player.noteRects(note);
-    else if (beat) {
-      // An empty spot: one outline on the cursor's line of the beat (#178), else on the beat.
-      const line =
-        editor.kind === "drums" && editor.cursor.line !== null
+    // An empty spot: one outline on the cursor's line of the beat (#178), else on the beat.
+    const line =
+      !beat || note
+        ? null
+        : editor.kind === "drums" && editor.cursor.line !== null
           ? player.drumLineRect(beat, editor.cursor.line)
           : editor.kind === "stringed"
             ? player.stringLineRect(beat, editor.cursor.string, editor.stringCount)
             : null;
-      if (line) notes = [{ rect: line, staff: "tab" }];
-      else {
-        const rect = player.beatRects(beat)[0];
-        if (rect) notes = [{ rect, staff: "score" }];
-      }
-    }
+    const notes: NoteRect[] = beat ? spotRects(player, beat, note, line) : [];
     setOverlay({
       notes,
       remote,

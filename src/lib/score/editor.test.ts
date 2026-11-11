@@ -1225,6 +1225,48 @@ describe("ScoreEditor: saved state", () => {
   });
 });
 
+describe("ScoreEditor: a click on a string line of the tab (#228)", () => {
+  it("puts the cursor on the clicked line, where nothing is written (1 = lowest string)", () => {
+    const { editor } = newSong();
+    editor.setCursorTo({ bar: 0, beat: 0, line: 3 });
+    expect(editor.cursor.string).toBe(3);
+    expect(editor.cursor.line).toBeNull(); // only a drum cursor sits on a line
+    expect(editor.describeCursor()).toContain("string 4 (");
+
+    editor.setCursorTo({ bar: 0, beat: 0, line: 6 }); // the top line of the staff
+    expect(editor.describeCursor()).toContain("string 1 (E)");
+    editor.setCursorTo({ bar: 0, beat: 0, line: 1 }); // the bottom line
+    expect(editor.cursor.string).toBe(1);
+  });
+
+  it("writes a typed fret on that string", () => {
+    const { editor } = newSong();
+    editor.setCursorTo({ bar: 0, beat: 0, line: 2 });
+    editor.typeDigit(7, 1_000);
+    expect(frets(editor)[0]).toBe("2:7");
+  });
+
+  it("also moves the string on a beat that has a note elsewhere, and keeps a selection extended", () => {
+    const { editor } = newSong();
+    editor.typeDigit(5, 1_000); // string 6: the top line
+    editor.setCursorTo({ bar: 0, beat: 0, line: 4 });
+    expect(editor.cursor.string).toBe(4);
+    editor.setCursorTo({ bar: 0, beat: 0, line: 5 }, true);
+    expect(editor.cursor.string).toBe(5);
+  });
+
+  it("lets a clicked note decide the string, and ignores a line outside the strings", () => {
+    const editor = practiceSong();
+    const note = voice(editor, 0).beats[0]!.notes[0]!;
+    editor.setCursorTo({ bar: 0, beat: 0, note, line: 1 });
+    expect(editor.cursor.string).toBe(note.string);
+    editor.setCursorTo({ bar: 0, beat: 0, line: null });
+    expect(editor.cursor.string).toBe(note.string);
+    editor.setCursorTo({ bar: 0, beat: 0, line: 99 });
+    expect(editor.cursor.string).toBe(editor.stringCount); // clamped to the staff
+  });
+});
+
 describe("ScoreEditor: drum numbers and rests", () => {
   /** A new song with an empty drum track, shown. */
   function drumSong() {
@@ -1686,5 +1728,68 @@ describe("a score that may not be changed (a Practice together guest's copy)", (
     editor.blocked = null;
     editor.undo();
     expect(frets(editor)).not.toEqual(["6:3"]);
+  });
+});
+
+describe("ScoreEditor: a range selected on purpose", () => {
+  it("is only a range the player chose, not any selection that is still held", () => {
+    const editor = practiceSong();
+    expect(editor.rangeSelected).toBe(false);
+
+    editor.moveBeat(1, true);
+    expect(editor.rangeSelected).toBe(true);
+    editor.moveBeat(1); // a plain move ends it
+    expect(editor.selection).toBeNull();
+    expect(editor.rangeSelected).toBe(false);
+
+    editor.setCursorTo({ bar: 2, beat: 3 }, true);
+    expect(editor.rangeSelected).toBe(true);
+    editor.clearSelection();
+    expect(editor.rangeSelected).toBe(false);
+
+    editor.selectAll();
+    expect(editor.rangeSelected).toBe(true);
+    editor.setTrack(0); // same track: nothing changes
+    expect(editor.rangeSelected).toBe(true);
+  });
+
+  it("ends with an edit, although the selection stays", () => {
+    const editor = practiceSong();
+    editor.moveBeat(1, true);
+    editor.typeDigit(5);
+    expect(editor.selection).not.toBeNull();
+    expect(editor.rangeSelected).toBe(false);
+  });
+
+  it("ends when the cursor moves to another string", () => {
+    const editor = practiceSong();
+    editor.moveBeat(1, true);
+    editor.moveString(1);
+    expect(editor.rangeSelected).toBe(false);
+    editor.moveBeat(1, true);
+    expect(editor.rangeSelected).toBe(true);
+    editor.setString(2);
+    expect(editor.rangeSelected).toBe(false);
+  });
+
+  it("is not set by a paste, an undo, a redo or a copied bar", () => {
+    const editor = practiceSong();
+    editor.moveBeat(1, true);
+    editor.copy();
+    editor.moveBar(1);
+    editor.paste(); // selects what it pasted
+    expect(editor.selection).not.toBeNull();
+    expect(editor.rangeSelected).toBe(false);
+
+    editor.moveBeat(1, true);
+    expect(editor.rangeSelected).toBe(true);
+    editor.undo(); // restores a selection the editor held before
+    expect(editor.rangeSelected).toBe(false);
+    editor.redo();
+    expect(editor.rangeSelected).toBe(false);
+
+    editor.copyBar(0); // selects the bar
+    expect(editor.selection).not.toBeNull();
+    expect(editor.rangeSelected).toBe(false);
   });
 });

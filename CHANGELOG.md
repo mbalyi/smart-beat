@@ -7,7 +7,7 @@ Release notes for every version. The release workflow publishes the section that
 ### New: edit the tab together (Practice together)
 
 - Everyone in a Practice together session can edit the same tab at the same time, and each change shows up on the other computers within a moment, in both directions. Two people can edit the same bar, and two people changing different notes of the same beat both keep their change.
-- You see where the others are: each player's cursor and selection on the tab, with their name and colour.
+- You see where the others are, marked the way you see your own cursor: the note or line they are on, in their colour, with their name above it. Their selection shows only when they selected a range on purpose.
 - Undo and Redo only take back your own edits, not the other players'.
 - Playback is not disturbed: an edit during playback does not move the shared clock or restart the song, and the host's metronome, count-in and speed stay as they are.
 - The host can turn editing off for guests with "Guests can edit the tab" in the session dialog (on by default). A guest that is removed or banned loses edit access at once, and a guest that drops and comes back gets the edits it missed.
@@ -28,6 +28,8 @@ Release notes for every version. The release workflow publishes the section that
 - Drum tab: a click on any line of the tab, also under the drum staff in Score + tab and where there is no note yet, puts the cursor on that line.
 - Tracks panel: clicking a bar in another track's lane opens that track at the bar (in Edit mode with the cursor on it).
 - Edit mode: Delete removes every selected beat, also rests, in one step.
+- Guitar tab: a click on any string line puts the cursor on that string, also where there is no note yet.
+- Two tracks shown together in the continuous view: a click lands on the track you clicked, not on the other one.
 - Edit mode: the score stays where it is while you delete or change notes. It only scrolls when the note you are on would leave the view, and then just far enough to show it.
 - Switching between open tabs in Edit mode puts the keyboard back where you were editing.
 - Pasting over a selection replaces it. When the pasted part is longer, it flows into new bars (a note crossing a bar line becomes two tied notes), so nothing after it is written over.

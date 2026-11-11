@@ -474,6 +474,12 @@ export class ScoreEditor {
   private readonly listeners = new Set<(change: EditorChange) => void>();
   private _cursor: Cursor;
   private _selection: Selection | null = null;
+  /**
+   * The selection (by identity) the player made on purpose: Shift with arrows, a click or drag,
+   * select all. Another way to a selection (paste, undo, copy bar) is a new object, so it does
+   * not count; edits and cursor moves that keep the selection reset this.
+   */
+  private _rangeIntent: Selection | null = null;
   /** Length given to notes typed into an empty bar. */
   private _entryDuration: Duration = D.Quarter;
   /** The first digit of a possible two-digit fret. */
@@ -507,6 +513,14 @@ export class ScoreEditor {
 
   get selection(): Readonly<Selection> | null {
     return this._selection;
+  }
+
+  /**
+   * A range of beats the player selected on purpose and that is still current. What others see
+   * of this player's selection: a selection that an edit, paste or undo left behind is not one.
+   */
+  get rangeSelected(): boolean {
+    return this._selection !== null && this._selection === this._rangeIntent;
   }
 
   get revision(): number {
@@ -765,7 +779,10 @@ export class ScoreEditor {
       beat: number;
       voice?: number;
       note?: Note | null;
-      /** Drums: the line of the drum tab that was clicked (1 = bottom), when no note was. */
+      /**
+       * The line of the tab that was clicked (1 = bottom, also the string of a stringed track),
+       * when no note was.
+       */
       line?: number | null;
     },
     extend = false,
@@ -776,6 +793,8 @@ export class ScoreEditor {
     if (target.voice !== undefined) this._cursor.voice = target.voice;
     const note = target.note;
     const line = this.kind === "drums" && !note ? (target.line ?? null) : null;
+    // A click on a string line of a guitar tab, where no note was hit (#228).
+    if (this.kind === "stringed" && !note && target.line != null) this._cursor.string = target.line;
     if (note?.isStringed) this._cursor.string = note.string;
     else if (note) {
       this._cursor.pitch = pitchOf(note);
@@ -799,6 +818,7 @@ export class ScoreEditor {
     }
     const anchor = this._selection?.anchor ?? from;
     this._selection = comparePositions(anchor, head) === 0 ? null : { anchor, head };
+    this._rangeIntent = this._selection;
   }
 
   /**
@@ -848,6 +868,7 @@ export class ScoreEditor {
 
   /** Up and down: the string (tab), or the next higher or lower note of the chord. */
   moveString(step: 1 | -1) {
+    this._rangeIntent = null;
     if (this.kind === "stringed") {
       // Up the screen is a higher string, which alphaTab numbers higher.
       this._cursor.string = Math.min(this.stringCount, Math.max(1, this._cursor.string + step));
@@ -979,6 +1000,7 @@ export class ScoreEditor {
   /** Puts the cursor on a string (1 = lowest), e.g. from a fretboard click. */
   setString(string: number) {
     if (this.kind !== "stringed") return;
+    this._rangeIntent = null;
     this._cursor.string = Math.min(this.stringCount, Math.max(1, string));
     this.moved();
   }
@@ -1010,6 +1032,7 @@ export class ScoreEditor {
       anchor: { bar: 0, beat: 0 },
       head: { bar: lastBar, beat: this.beatCount(lastBar) - 1 },
     };
+    this._rangeIntent = this._selection;
     this._cursor.bar = lastBar;
     this._cursor.beat = this.beatCount(lastBar) - 1;
     this.moved(`Selected the whole track, ${this.staff.bars.length} bars`);
@@ -1164,6 +1187,7 @@ export class ScoreEditor {
       ...(this._selection ? [this._selection.anchor, this._selection.head] : []),
     ]);
     apply();
+    this._rangeIntent = null;
     refinish(this.score);
     this._revision++;
     // Edits replayed to a guest that is still joining are not the guest's unsaved changes.
@@ -1194,6 +1218,8 @@ export class ScoreEditor {
   }
 
   private changed(message: string) {
+    // Whatever selection is left after an edit, undo or redo was not made on purpose.
+    this._rangeIntent = null;
     refinish(this.score);
     this._revision++;
     this.clamp();

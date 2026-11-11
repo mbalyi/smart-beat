@@ -138,7 +138,9 @@ export function presenceOf(editor: ScoreEditor, sync: EditSync): Presence | null
   const trackId = sync.idOf(editor.track);
   const beatId = beat && sync.idOf(beat);
   if (!beatId || !trackId) return null;
-  const range = editor.selectedBeatList();
+  // Only a range the player selected on purpose: one an edit, paste or undo left behind is not
+  // shown, so a player standing on one note is marked on that note only.
+  const range = editor.rangeSelected ? editor.selectedBeatList() : [];
   const first = range[0] && sync.idOf(range[0]);
   const last = range.at(-1) && sync.idOf(range.at(-1)!);
   return {
@@ -146,6 +148,7 @@ export function presenceOf(editor: ScoreEditor, sync: EditSync): Presence | null
     beat: beatId,
     ...(first && last && range.length > 1 ? { sel: [first, last] as [string, string] } : {}),
     ...(editor.kind === "stringed" ? { string: editor.cursor.string } : {}),
+    ...(editor.kind === "drums" && editor.cursor.line !== null ? { line: editor.cursor.line } : {}),
   };
 }
 
@@ -153,7 +156,7 @@ export function presenceOf(editor: ScoreEditor, sync: EditSync): Presence | null
 export function locate(
   sync: EditSync,
   cur: Presence,
-): { track: Track; beat: Beat; sel?: [Beat, Beat]; string?: number } | null {
+): { track: Track; beat: Beat; sel?: [Beat, Beat]; string?: number; line?: number } | null {
   const track = sync.find(cur.track) as Track | undefined;
   const beat = sync.find(cur.beat) as Beat | undefined;
   if (!track || !beat?.voice?.bar) return null;
@@ -164,6 +167,7 @@ export function locate(
     beat,
     ...(first?.voice?.bar && last?.voice?.bar ? { sel: [first, last] as [Beat, Beat] } : {}),
     ...(cur.string === undefined ? {} : { string: cur.string }),
+    ...(cur.line === undefined ? {} : { line: cur.line }),
   };
 }
 

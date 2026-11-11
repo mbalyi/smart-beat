@@ -182,6 +182,53 @@ test.describe("Practice together: editing the tab together", () => {
     await expect(cursor).toContainText("Ann");
   });
 
+  test("a guest with one note selected is marked on that note only, with no range", async ({
+    app,
+  }) => {
+    await hostWithEditingGuest(app);
+    await closeDialog(app);
+    await guestSays(app, {
+      k: "presence",
+      cur: { track: "t0", beat: "m0:t0.s0.v0.b1", string: 3 },
+    });
+    const cursor = app.getByTestId("remote-cursor");
+    await expect(cursor).toHaveCount(1);
+    // One small outline on a string of the tab, not a frame around the whole beat of the system.
+    const outline = cursor.getByTestId("remote-note");
+    await expect(outline).toHaveCount(1);
+    await expect(cursor.getByTestId("remote-selection")).toHaveCount(0);
+    const box = (await outline.boundingBox())!;
+    expect(box.height).toBeLessThan(40);
+    expect(box.width).toBeLessThan(60);
+    // The name sits right above that outline.
+    const name = (await cursor.getByTestId("remote-name").boundingBox())!;
+    expect(name.y + name.height).toBeLessThanOrEqual(box.y + 2);
+    expect(Math.abs(name.x - box.x)).toBeLessThanOrEqual(1);
+  });
+
+  test("a guest's range is shaded, and their name is at its start", async ({ app }) => {
+    await hostWithEditingGuest(app);
+    await closeDialog(app);
+    await guestSays(app, {
+      k: "presence",
+      cur: {
+        track: "t0",
+        beat: "m0:t0.s0.v0.b1",
+        sel: ["m0:t0.s0.v0.b0", "m0:t0.s0.v0.b1"],
+        string: 3,
+      },
+    });
+    const cursor = app.getByTestId("remote-cursor");
+    await expect(cursor).toHaveCount(1);
+    const range = cursor.getByTestId("remote-selection");
+    await expect(range).not.toHaveCount(0);
+    await expect(cursor.getByTestId("remote-note")).toHaveCount(1);
+    const start = (await range.first().boundingBox())!;
+    const name = (await cursor.getByTestId("remote-name").boundingBox())!;
+    expect(Math.abs(name.x - start.x)).toBeLessThanOrEqual(1);
+    expect(name.y + name.height).toBeLessThanOrEqual(start.y + 2);
+  });
+
   test("turning editing off for guests ignores their edits, and the switch tells the guest", async ({
     app,
   }) => {
@@ -234,7 +281,15 @@ test.describe("Practice together: editing the tab together", () => {
       await app.emulateMedia({ colorScheme });
       await hostWithEditingGuest(app);
       await closeDialog(app);
-      await guestSays(app, { k: "presence", cur: { track: "t0", beat: "m0:t0.s0.v0.b1" } });
+      await guestSays(app, {
+        k: "presence",
+        cur: {
+          track: "t0",
+          beat: "m0:t0.s0.v0.b1",
+          sel: ["m0:t0.s0.v0.b0", "m0:t0.s0.v0.b1"],
+          string: 3,
+        },
+      });
       await expect(app.getByTestId("remote-cursor")).toHaveCount(1);
       await expectNoA11yViolations(app);
     });

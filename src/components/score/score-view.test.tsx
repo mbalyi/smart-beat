@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
-import { ScoreView, type EditOverlay } from "@/components/score/score-view";
+import { ScoreView, type EditOverlay, type RemoteMark } from "@/components/score/score-view";
 
 function renderView(props: { editing?: boolean; playing?: boolean; overlay?: EditOverlay }) {
   return render(
@@ -92,6 +92,85 @@ describe("ScoreView", () => {
     expect(ranges).toHaveLength(2);
     expect(ranges[0]).toHaveClass("bg-brand/15", "border-brand/40", "rounded-sm");
     expect(ranges[1]).toHaveStyle({ left: "10px", top: "200px", width: "120px" });
+  });
+
+  describe("another player's cursor (#216)", () => {
+    const note = { x: 100, y: 80, w: 12, h: 14 };
+    const px = (value: string) => parseFloat(value);
+    const marks = (remote: RemoteMark[]) =>
+      renderView({ editing: true, overlay: { notes: [], selection: [], remote } });
+
+    it("marks only the note they have selected, like our own cursor", () => {
+      marks([
+        {
+          id: "ann",
+          name: "Ann",
+          hue: 200,
+          notes: [
+            { rect: note, staff: "tab" },
+            { rect: { x: 100, y: 10, w: 11, h: 9 }, staff: "score" },
+          ],
+          selection: [],
+        },
+      ]);
+
+      const cursor = screen.getByTestId("remote-cursor");
+      expect(cursor).toHaveAttribute("data-player", "Ann");
+      // One outline on the tab, the size of our own cursor's (the note and 2 px around it) ...
+      const outline = within(cursor).getByTestId("remote-note");
+      expect(outline.style).toMatchObject({
+        left: "98px",
+        top: "79px",
+        width: "16px",
+        height: "16px",
+      });
+      // ... a thin ring on the notehead of the standard staff, and no range at all.
+      const head = within(cursor).getByTestId("remote-head");
+      expect(head.style).toMatchObject({ left: "99px", top: "9px", width: "13px", height: "11px" });
+      expect(within(cursor).queryByTestId("remote-selection")).toBeNull();
+      // The name sits right above the outline, on a dark pill with white text.
+      const name = within(cursor).getByTestId("remote-name");
+      expect(name).toHaveTextContent("Ann");
+      expect(px(name.style.left)).toBe(98);
+      expect(px(name.style.top)).toBe(79);
+      expect(name).toHaveClass("-translate-y-full", "text-white");
+    });
+
+    it("draws a lighter range only when there is one, with the name at its start", () => {
+      marks([
+        {
+          id: "ann",
+          name: "Ann",
+          hue: 200,
+          notes: [{ rect: note, staff: "tab" }],
+          selection: [
+            { x: 100, y: 40, w: 300, h: 120 },
+            { x: 20, y: 240, w: 180, h: 120 },
+          ],
+        },
+      ]);
+
+      const cursor = screen.getByTestId("remote-cursor");
+      const rows = within(cursor).getAllByTestId("remote-selection");
+      expect(rows.map((row) => row.style.width)).toEqual(["300px", "180px"]);
+      expect(rows[0]!.style.backgroundColor).toContain("0.09");
+      expect(within(cursor).getAllByTestId("remote-note")).toHaveLength(1);
+      // The name tag is at the start of the range, not at the note.
+      const name = within(cursor).getByTestId("remote-name");
+      expect(px(name.style.left)).toBe(100);
+      expect(px(name.style.top)).toBe(40);
+    });
+
+    it("keeps one cursor per player, each in their own colour", () => {
+      marks([
+        { id: "ann", name: "Ann", hue: 200, notes: [{ rect: note, staff: "tab" }], selection: [] },
+        { id: "bob", name: "Bob", hue: 20, notes: [{ rect: note, staff: "tab" }], selection: [] },
+      ]);
+
+      const names = screen.getAllByTestId("remote-name");
+      expect(names.map((n) => n.textContent)).toEqual(["Ann", "Bob"]);
+      expect(names[0]!.style.backgroundColor).not.toBe(names[1]!.style.backgroundColor);
+    });
   });
 
   describe("keeping the edit cursor in view (#228)", () => {
