@@ -614,10 +614,15 @@ export async function emitStemBundleOpened(path: string) {
 export async function emitFileDrag(
   event:
     | { type: "enter"; paths: string[] }
+    | { type: "over"; position: { x: number; y: number } }
     | { type: "leave" }
     | { type: "drop"; paths: string[]; position?: { x: number; y: number } },
 ) {
-  const position = (event.type === "drop" && event.position) || { x: 10, y: 10 };
+  const position = (event.type !== "enter" && event.type !== "leave" && event.position) || {
+    x: 10,
+    y: 10,
+  };
   if (event.type === "leave") await emit("tauri://drag-leave", null);
+  else if (event.type === "over") await emit("tauri://drag-over", { position });
   else await emit(`tauri://drag-${event.type}`, { paths: event.paths, position });
 }

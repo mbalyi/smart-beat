@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { isEnabled } from "@/lib/features";
 import { soundFontCounterId, track as trackUsage } from "@/lib/telemetry";
 
+import { LaneDropHighlight } from "@/components/audio-lanes/lane-drop-highlight";
 import { LaneEditorDock, type LaneEditorActions } from "@/components/audio-lanes/lane-editor-dock";
 import { RecordAudioDialog } from "@/components/audio-lanes/record-audio-dialog";
 import { StudioView } from "@/components/audio-lanes/studio-view";
@@ -27,7 +28,9 @@ import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
+import { laneDropTarget, sameDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
 import { EMPTY_AUDIO } from "@/lib/audio-lanes/model";
+import type { FileDragState } from "@/lib/file-drag-store";
 import {
   barAtTimelineMs,
   barsToFitAudio,
@@ -496,6 +499,7 @@ export function ScoreWorkspace({
   onReloadFromDisk,
   startEditing = false,
   droppedAudio = null,
+  fileDrag = null,
   togetherIntent = null,
   onTogetherIntentHandled,
   onOpenSettings,
@@ -528,8 +532,10 @@ export function ScoreWorkspace({
   onEditedChange?: (edited: boolean) => void;
   /** Open in edit mode (new songs). */
   startEditing?: boolean;
-  /** An audio file dropped on the window while this song is shown (`nonce` changes per drop). */
-  droppedAudio?: { path: string; nonce: number; position?: { x: number; y: number } } | null;
+  /** Audio files dropped on the window while this song is shown (`nonce` changes per drop). */
+  droppedAudio?: { paths: string[]; nonce: number; position?: { x: number; y: number } } | null;
+  /** Files being dragged over the window from the OS (the lane under them is marked). */
+  fileDrag?: FileDragState | null;
   /**
    * Practice together was started from the start screen (this tab is the one to share, or a blank
    * tab to join with): the dialog opens when the tab is shown.
@@ -675,8 +681,6 @@ export function ScoreWorkspace({
       setRecordLatencyMs(Math.round((playerRef.current?.outputLatencySeconds() ?? 0) * 1000));
     setRecordAudioOpenState(open);
   };
-  /** Where a file dragged onto the window would land: a lane and a time, from the pointer. */
-  const dropTarget = useRef<{ laneId: string; atMs: number } | null>(null);
   /** When the score was last edited (undo goes to the lanes when they were edited later). */
   const scoreEditedAt = useRef(0);
   // Bars in playback order (repeats included), as the engine plays them.
@@ -2395,16 +2399,18 @@ export function ScoreWorkspace({
   };
 
   /**
-   * A file dropped on the window: a capture is always for the sound library; a
-   * WAV is a cabinet while the library is open, and the song's audio track
-   * otherwise.
+   * Files dropped on the window: a capture is always for the sound library; a WAV is a cabinet
+   * while the library is open; the rest are audio for the song's lanes. Audio dropped on a lane
+   * goes on that lane, one file after another from where it landed; elsewhere each file gets
+   * its own lane.
    */
-  const routeDroppedFile = (path: string) => {
-    if (recordEnabled && recording.dialogOpen) {
+  const routeDroppedFiles = (paths: string[], target: LaneDropTarget | null) => {
+    const first = paths[0];
+    if (recordEnabled && recording.dialogOpen && first) {
       // Record to Tab is open: the file is the recording to turn into tab.
-      void readDroppedAudio(path)
+      void readDroppedAudio(first)
         .then((bytes) => {
-          const file = new File([bytes], baseName(path));
+          const file = new File([bytes], baseName(first));
           setRecordDrop((d) => ({ file, nonce: (d?.nonce ?? 0) + 1 }));
         })
         .catch((error: unknown) =>
@@ -2412,35 +2418,47 @@ export function ScoreWorkspace({
         );
       return;
     }
-    if (/\.nam$/i.test(path)) void library.importPath(path, "amp");
-    else if (libraryOpen && /\.wav$/i.test(path)) void library.importPath(path, "cab");
-    else void addAudioLane(path, dropTarget.current?.laneId, dropTarget.current?.atMs);
-  };
-  /** The lane and time under a point of the window (a file dropped there lands there). */
-  const laneDropTarget = (point: {
-    x: number;
-    y: number;
-  }): { laneId: string; atMs: number } | null => {
-    const lane = document
-      .elementFromPoint?.(point.x, point.y)
-      ?.closest<HTMLElement>("[data-lane-id]");
-    const laneId = lane?.dataset.laneId;
-    if (!lane || !laneId) return null;
-    const x = point.x - lane.getBoundingClientRect().left;
-    const perBar = Number(lane.dataset.pxPerBar);
-    const perPx = Number(lane.dataset.msPerPx);
-    const atMs =
-      perBar > 0 ? timelineMsAtBar(lanes.audio, laneGrid, x / perBar) : perPx > 0 ? x * perPx : 0;
-    return { laneId, atMs };
+    const audio: string[] = [];
+    for (const path of paths) {
+      if (/\.nam$/i.test(path)) void library.importPath(path, "amp");
+      else if (libraryOpen && /\.wav$/i.test(path)) void library.importPath(path, "cab");
+      else audio.push(path);
+    }
+    if (audio.length > 0) void lanes.importFiles(audio, target?.laneId, target?.atMs);
   };
   const lastDrop = useRef<number | null>(null);
   useEffect(() => {
     if (!droppedAudio || droppedAudio.nonce === lastDrop.current) return;
     lastDrop.current = droppedAudio.nonce;
-    dropTarget.current = droppedAudio.position ? laneDropTarget(droppedAudio.position) : null;
-    routeDroppedFile(droppedAudio.path);
+    const target = droppedAudio.position
+      ? laneDropTarget(droppedAudio.position, (bar) =>
+          timelineMsAtBar(lanesAudioRef.current, laneGrid, bar),
+        )
+      : null;
+    routeDroppedFiles(droppedAudio.paths, target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [droppedAudio]);
+
+  // Audio files dragged over the window mark the lane they would land on.
+  const dragAudio = fileDrag?.audio ?? false;
+  const dragStore = fileDrag?.store;
+  const [dropHover, setDropHover] = useState<LaneDropTarget | null>(null);
+  useEffect(() => {
+    if (!dragStore || !dragAudio) return;
+    const follow = () => {
+      const point = dragStore.position;
+      const next = point
+        ? laneDropTarget(point, (bar) => timelineMsAtBar(lanesAudioRef.current, laneGrid, bar))
+        : null;
+      setDropHover((prev) => (sameDropTarget(prev, next) ? prev : next));
+    };
+    follow();
+    const stop = dragStore.subscribe(follow);
+    return () => {
+      stop();
+      setDropHover(null);
+    };
+  }, [dragStore, dragAudio, laneGrid]);
 
   // --- Monitor track ---------------------------------------------------------------
 
@@ -3581,6 +3599,10 @@ export function ScoreWorkspace({
         level={recordAudio.level}
         onStop={recordAudio.stop}
         onCancel={recordAudio.discard}
+      />
+      <LaneDropHighlight
+        target={dragAudio ? dropHover : null}
+        laneName={lanes.audio.lanes.find((l) => l.id === dropHover?.laneId)?.name ?? ""}
       />
       <PracticeTogetherDialog
         open={togetherOpen}

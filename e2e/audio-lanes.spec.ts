@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import {
   PRACTICE_SONG,
@@ -63,6 +63,154 @@ async function installMicrophone(app: Page) {
   await app.reload();
   await expect(app.getByRole("heading", { level: 1 })).toBeVisible();
 }
+
+/** The start of every clip on lane `index`, in ms. */
+const clipStarts = (app: Page, index: number) =>
+  app.evaluate((i) => window.__engineLanes?.audio.lanes[i]?.clips.map((c) => c.startMs), index);
+
+/**
+ * Whether a clip starting at `startMs` is where a file dropped `offsetX` px from a lane's left edge
+ * lands: within a beat of the pointer's time, on a half-beat grid at least (the clip is snapped).
+ * The track list counts in bars (the first ones are 4 s), the editor and studio in plain time.
+ */
+async function expectDroppedAt(lane: Locator, offsetX: number, startMs: number) {
+  const ms = await lane.evaluate((node, x) => {
+    const { pxPerBar, msPerPx } = (node as HTMLElement).dataset;
+    return pxPerBar ? (x / Number(pxPerBar)) * 4000 : x * Number(msPerPx);
+  }, offsetX);
+  expect(Math.abs(startMs - ms)).toBeLessThanOrEqual(1000);
+  expect(startMs % 500).toBe(0);
+}
+
+test.describe("add a file to a lane", () => {
+  test("from the lane's own menu, after its last clip", async ({ app }) => {
+    await openWithEngine(app);
+    const row = await addLane(app, "/Users/me/Music/take.mp3");
+    await expect.poll(() => clipStarts(app, 0)).toEqual([0]);
+    await app.evaluate((path) => (window.__dialogResult = path), "/Users/me/Music/more.mp3");
+    await row.getByRole("button", { name: "More for take" }).click();
+    await app.getByRole("menuitem", { name: "Add audio file…" }).click();
+    await expect.poll(async () => (await clipStarts(app, 0))?.length).toBe(2);
+    // The new clip follows the first: on the same lane, no new lane.
+    expect((await clipStarts(app, 0))![1]).toBeGreaterThan(0);
+    await expect(app.locator("[data-testid^='lane-row-']")).toHaveCount(1);
+  });
+
+  test("from the lane editor, next to Replace file", async ({ app }) => {
+    await openWithEngine(app);
+    const row = await addLane(app, "/Users/me/Music/take.mp3");
+    await row.getByRole("button", { name: "Edit the lane take" }).click();
+    const editor = app.getByRole("region", { name: "Lane editor: take" });
+    await expect(editor.getByRole("button", { name: "Replace file" })).toBeVisible();
+    await app.evaluate((path) => (window.__dialogResult = path), "/Users/me/Music/more.mp3");
+    await editor.getByRole("button", { name: "Add audio file" }).click();
+    await expect.poll(async () => (await clipStarts(app, 0))?.length).toBe(2);
+  });
+
+  test("from a lane header in the studio", async ({ app }) => {
+    await openWithEngine(app);
+    const row = await addLane(app, "/Users/me/Music/take.mp3");
+    await row.getByRole("button", { name: "Edit the lane take" }).click();
+    await app
+      .getByRole("region", { name: "Lane editor: take" })
+      .getByRole("button", { name: "Studio" })
+      .click();
+    const studio = app.getByRole("dialog", { name: "Studio" });
+    await app.evaluate((path) => (window.__dialogResult = path), "/Users/me/Music/more.mp3");
+    await studio.getByRole("button", { name: "Add audio file to take" }).click();
+    await expect.poll(async () => (await clipStarts(app, 0))?.length).toBe(2);
+  });
+});
+
+test.describe("files dragged from Finder onto a lane", () => {
+  test("a file dropped on a lane in the track list lands there, at the pointer", async ({
+    app,
+  }) => {
+    // Tall enough that both lanes are on screen (a drop lands on what is under the pointer).
+    await app.setViewportSize({ width: 1280, height: 1100 });
+    await openWithEngine(app);
+    await addLane(app, "/Users/me/Music/take.mp3");
+    const second = await addLane(app, "/Users/me/Music/other.mp3");
+    const lane = second.locator("[data-lane-id]");
+    const box = (await lane.boundingBox())!;
+    const at = { x: box.x + 50, y: box.y + box.height / 2 };
+
+    // While dragging, the lane under the pointer is marked and the lanes stay in view.
+    await dropFiles(app, ["/Users/me/Music/new.mp3"], { position: at, hover: true });
+    await expect(app.getByTestId("lane-drop-highlight")).toContainText("Drop to add to other");
+    await expect(app.locator("[data-slot=drop-overlay]")).not.toContainText(
+      "Drop a song to open it",
+    );
+    await app.evaluate(() => window.__emitTauriEvent("tauri://drag-leave", null));
+    await expect(app.getByTestId("lane-drop-highlight")).toHaveCount(0);
+
+    await dropFiles(app, ["/Users/me/Music/new.mp3"], { position: at });
+    await expect.poll(async () => (await clipStarts(app, 1))?.length).toBe(2);
+    expect(await clipStarts(app, 0)).toHaveLength(1);
+    await expectDroppedAt(lane, 50, (await clipStarts(app, 1))!.sort((a, b) => a - b)[1]!);
+    await expect(app.getByTestId("lane-drop-highlight")).toHaveCount(0);
+  });
+
+  test("several files dropped on a lane follow each other; outside a lane each gets a lane", async ({
+    app,
+  }) => {
+    await app.setViewportSize({ width: 1280, height: 1100 });
+    await openWithEngine(app);
+    const row = await addLane(app, "/Users/me/Music/take.mp3");
+    const box = (await row.locator("[data-lane-id]").boundingBox())!;
+    await dropFiles(app, ["/Users/me/Music/a.mp3", "/Users/me/Music/b.mp3"], {
+      position: { x: box.x + 60, y: box.y + box.height / 2 },
+    });
+    await expect.poll(async () => (await clipStarts(app, 0))?.length).toBe(3);
+    const starts = (await clipStarts(app, 0))!.sort((a, b) => a - b);
+    expect(starts[2]! - starts[1]!).toBeGreaterThan(0);
+
+    // Over the window's header, not a lane: one new lane per file.
+    await dropFiles(app, ["/Users/me/Music/c.mp3", "/Users/me/Music/d.mp3"], {
+      position: { x: 5, y: 5 },
+    });
+    await expect(app.locator("[data-testid^='lane-row-']")).toHaveCount(3);
+    await expect.poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes.length)).toBe(3);
+  });
+
+  test("a file dropped on a lane in the lane editor lands at the pointer", async ({ app }) => {
+    await openWithEngine(app);
+    const row = await addLane(app, "/Users/me/Music/take.mp3");
+    await row.getByRole("button", { name: "Edit the lane take" }).click();
+    const editor = app.getByRole("region", { name: "Lane editor: take" });
+    const lane = editor.locator("[data-lane-id]");
+    // The editor sits below the score: scroll to it, as a user would before dropping on it.
+    await lane.scrollIntoViewIfNeeded();
+    const box = (await lane.boundingBox())!;
+    await dropFiles(app, ["/Users/me/Music/new.mp3"], {
+      position: { x: box.x + 200, y: box.y + 20 },
+    });
+    await expect.poll(async () => (await clipStarts(app, 0))?.length).toBe(2);
+    await expectDroppedAt(lane, 200, (await clipStarts(app, 0))![1]!);
+    await expect(app.locator("[data-testid^='lane-row-']")).toHaveCount(1);
+  });
+
+  test("a file dropped on a lane in the studio lands at the pointer", async ({ app }) => {
+    await openWithEngine(app);
+    const row = await addLane(app, "/Users/me/Music/take.mp3");
+    await row.getByRole("button", { name: "Edit the lane take" }).click();
+    await app
+      .getByRole("region", { name: "Lane editor: take" })
+      .getByRole("button", { name: "Studio" })
+      .click();
+    const studio = app.getByRole("dialog", { name: "Studio" });
+    const lane = studio.locator("[data-lane-id]");
+    await expect(lane).toBeVisible();
+    const box = (await lane.boundingBox())!;
+    const at = { x: box.x + 200, y: box.y + 20 };
+    await dropFiles(app, ["/Users/me/Music/new.mp3"], { position: at, hover: true });
+    await expect(app.getByTestId("lane-drop-highlight")).toContainText("Drop to add to take");
+    await dropFiles(app, ["/Users/me/Music/new.mp3"], { position: at });
+    await expect.poll(async () => (await clipStarts(app, 0))?.length).toBe(2);
+    await expectDroppedAt(lane, 200, (await clipStarts(app, 0))![1]!);
+    await expect(app.locator("[data-testid^='lane-row-']")).toHaveCount(1);
+  });
+});
 
 test.describe("audio lanes (#185)", () => {
   test("a file dropped on the window becomes a lane, and the engine plays it", async ({ app }) => {

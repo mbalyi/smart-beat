@@ -894,10 +894,20 @@ export async function updateMenuState(state: MenuState): Promise<void> {
 }
 
 export type FileDragEvent =
-  | { type: "enter" }
+  /** `paths`: what is being dragged (the kinds of files), when the platform tells. */
+  | { type: "enter"; paths?: string[] }
+  /** The pointer moved while dragging, in CSS pixels of the window. */
+  | { type: "over"; position: { x: number; y: number } }
   | { type: "leave" }
   /** `position`: where the files were dropped, in CSS pixels of the window. */
   | { type: "drop"; paths: string[]; position?: { x: number; y: number } };
+
+/** A native drag position (device pixels) in the window's CSS pixels. */
+function cssPosition(at: { x: number; y: number } | undefined) {
+  if (!at) return undefined;
+  const scale = window.devicePixelRatio || 1;
+  return { x: at.x / scale, y: at.y / scale };
+}
 
 /**
  * Subscribes to files being dragged onto the window. The desktop app handles
@@ -907,17 +917,15 @@ export type FileDragEvent =
 export async function onFileDrag(handler: (event: FileDragEvent) => void): Promise<UnlistenFn> {
   if (!isTauri()) return () => {};
   return getCurrentWebview().onDragDropEvent(({ payload }) => {
-    if (payload.type === "enter") handler({ type: "enter" });
-    else if (payload.type === "leave") handler({ type: "leave" });
-    else if (payload.type === "drop") {
-      const scale = window.devicePixelRatio || 1;
-      const at = payload.position as { x: number; y: number } | undefined;
-      handler({
-        type: "drop",
-        paths: payload.paths,
-        ...(at && { position: { x: at.x / scale, y: at.y / scale } }),
-      });
+    if (payload.type === "leave") {
+      handler({ type: "leave" });
+      return;
     }
+    const position = cssPosition(payload.position as { x: number; y: number } | undefined);
+    if (payload.type === "enter") handler({ type: "enter", paths: payload.paths });
+    else if (payload.type === "over") {
+      if (position) handler({ type: "over", position });
+    } else handler({ type: "drop", paths: payload.paths, ...(position && { position }) });
   });
 }
 

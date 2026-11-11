@@ -34,7 +34,7 @@ import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
 import { makeFolder, moveLane, removeLane, trimClip, updateLane } from "@/lib/audio-lanes/edits";
-import { clipEndMs } from "@/lib/audio-lanes/model";
+import { clipEndMs, laneEndMs } from "@/lib/audio-lanes/model";
 import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
 import { barAtTimelineMs, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
 import { describeVolume } from "@/lib/score/mixer";
@@ -346,6 +346,11 @@ function LaneMenu({
         {!lane.folder && (
           <DropdownMenuItem onSelect={() => onOpenEditor(lane.id)}>
             Open the lane editor
+          </DropdownMenuItem>
+        )}
+        {!lane.folder && (
+          <DropdownMenuItem onSelect={() => void lanes.chooseFile(lane.id, laneEndMs(lane))}>
+            Add audio file…
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onSelect={onRename}>Rename…</DropdownMenuItem>

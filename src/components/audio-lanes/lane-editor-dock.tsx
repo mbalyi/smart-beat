@@ -1,4 +1,5 @@
 import {
+  FilePlusIcon,
   FolderOpenIcon,
   MaximizeIcon,
   PlusIcon,
@@ -28,7 +29,7 @@ import {
 import { Knob } from "@/components/ui/knob";
 import { Switch } from "@/components/ui/switch";
 import { removeLane, updateLane } from "@/lib/audio-lanes/edits";
-import { MAX_CENTS, MAX_SEMITONES } from "@/lib/audio-lanes/model";
+import { laneEndMs, MAX_CENTS, MAX_SEMITONES } from "@/lib/audio-lanes/model";
 import { clearSync, resetPadding, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
 import { selectionSpan, songSpan } from "@/lib/audio-lanes/zoom";
 import { FILTER_LABELS } from "@/lib/audio/audio-track";
@@ -179,6 +180,13 @@ export function LaneEditorDock({
           style={{ backgroundColor: color }}
         />
         <span className="max-w-48 truncate text-sm font-semibold">{lane.name}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void lanes.chooseFile(lane.id, laneEndMs(lane))}
+        >
+          <FilePlusIcon /> Add audio file
+        </Button>
         <Button variant="outline" size="sm" onClick={() => actions.replaceFile(lane.id)}>
           <FolderOpenIcon /> Replace file
         </Button>

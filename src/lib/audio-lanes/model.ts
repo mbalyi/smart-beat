@@ -135,6 +135,10 @@ export const activeTake = (clip: AudioClip) => clip.takes[clip.take] ?? clip.tak
 /** Where a clip ends on the timeline (its length is source time, played at its playrate). */
 export const clipEndMs = (clip: AudioClip): number => clip.startMs + clip.lengthMs / clip.playrate;
 
+/** Where a lane's last clip ends, in ms (0 for an empty lane). */
+export const laneEndMs = (lane: Pick<AudioLane, "clips">): number =>
+  lane.clips.reduce((end, clip) => Math.max(end, clipEndMs(clip)), 0);
+
 /** Where the last clip of any lane ends on the audio timeline, in ms (0 with no clips). */
 export function lanesEndMs(audio: AudioLanesSettings): number {
   return audio.lanes.reduce(

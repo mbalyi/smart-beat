@@ -3,6 +3,7 @@ import {
   AudioWaveformIcon,
   CircleIcon,
   DownloadIcon,
+  FilePlusIcon,
   KeyboardIcon,
   PauseIcon,
   PlayIcon,
@@ -36,7 +37,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
 import { deleteRange, findClip, moveRange, trimClip, updateLane } from "@/lib/audio-lanes/edits";
 import { COMPACT_LANE_HEIGHT, laneHeight } from "@/lib/audio-lanes/lane-height";
-import { MAX_BUSES, clipEndMs, newId } from "@/lib/audio-lanes/model";
+import { MAX_BUSES, clipEndMs, laneEndMs, newId } from "@/lib/audio-lanes/model";
 import { describeRange, normalizeRange, type TimeRange } from "@/lib/audio-lanes/range-edits";
 import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
 import { timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
@@ -440,6 +441,7 @@ export function StudioView({
                   index={audio.lanes.indexOf(lane)}
                   toX={toX}
                   toMs={toMs}
+                  pps={pps}
                   inRange={inRange.includes(lane.id)}
                   onRangeToggle={() =>
                     lanes.setRangeLanes(
@@ -531,6 +533,7 @@ function StudioLane({
   index,
   toX,
   toMs,
+  pps,
   inRange,
   onRangeToggle,
   onEffects,
@@ -543,6 +546,8 @@ function StudioLane({
   index: number;
   toX: (ms: number) => number;
   toMs: (x: number) => number;
+  /** Pixels per second of the studio's zoom. */
+  pps: number;
   inRange: boolean;
   onRangeToggle: () => void;
   onEffects: (index: number) => void;
@@ -583,7 +588,9 @@ function StudioLane({
         )}
         style={{ width: HEADER_PX, boxShadow: `inset 3px 0 0 ${color}` }}
       >
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div
+          className={cn("flex min-w-0 items-center gap-1.5", !lane.folder && !compact && "w-full")}
+        >
           {lane.folder && (
             <Button
               variant="ghost"
@@ -597,6 +604,17 @@ function StudioLane({
           )}
           <span className="truncate text-sm font-semibold">{lane.name}</span>
           {lane.group > 0 && <span className="rounded bg-muted px-1 text-[10px]">group</span>}
+          {!lane.folder && !compact && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto h-6 shrink-0 px-1.5 text-xs"
+              aria-label={`Add audio file to ${lane.name}`}
+              onClick={() => void lanes.chooseFile(lane.id, laneEndMs(lane))}
+            >
+              <FilePlusIcon /> Add audio file
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <Toggle
@@ -661,6 +679,7 @@ function StudioLane({
             role="presentation"
             className="relative flex-1"
             data-lane-id={lane.id}
+            data-ms-per-px={1000 / pps}
             {...marquee.handlers}
           >
             {range && (

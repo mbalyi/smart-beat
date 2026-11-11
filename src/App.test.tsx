@@ -586,6 +586,27 @@ describe("App", () => {
     expect(overlay).toHaveAttribute("data-visible", "false");
   });
 
+  it("keeps the song view and says nothing about songs when only audio is dragged over a song", async () => {
+    await renderApp();
+    backend.files.set(SONG, fixtureBytes("practice-song.gp"));
+    await act(() => emitFileDrag({ type: "drop", paths: [SONG] }));
+    await screen.findByRole("heading", { level: 1, name: "Practice Song" });
+
+    const overlay = document.querySelector("[data-slot=drop-overlay]");
+    await act(() => emitFileDrag({ type: "enter", paths: ["/music/a.wav", "/music/b.mp3"] }));
+    expect(overlay).toHaveAttribute("data-visible", "true");
+    expect(overlay).toHaveAttribute("data-kind", "audio");
+    expect(overlay).not.toHaveTextContent("Drop a song to open it");
+    await act(() => emitFileDrag({ type: "leave" }));
+
+    // Scores keep the full overlay; files of an unknown kind get a neutral text.
+    await act(() => emitFileDrag({ type: "enter", paths: ["/songs/b.gp5"] }));
+    expect(overlay).toHaveAttribute("data-kind", "song");
+    await act(() => emitFileDrag({ type: "leave" }));
+    await act(() => emitFileDrag({ type: "enter", paths: [] }));
+    expect(overlay).toHaveTextContent("Drop files");
+  });
+
   it("explains why a damaged file can't be opened", async () => {
     await renderApp();
     backend.files.set("/songs/corrupt.gp5", fixtureBytes("corrupt.gp5"));
