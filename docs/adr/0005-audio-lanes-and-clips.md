@@ -18,7 +18,7 @@ Until 1.2 a song had at most one audio track: one file, one set of mix settings 
 
 **Lanes of clips on one audio timeline.**
 
-- A song has up to 16 lanes. A lane has a name, a colour (the stem colours by default), mix settings (volume, pan, mute, solo, EQ, a filter, pitch), an effect chain with automation and auto-bypass, sends to up to four buses, a folder, and an edit group.
+- A song has up to 16 lanes. A lane has a name, a colour (the stem colours by default), mix settings (volume, pan, mute, solo, EQ, a filter, pitch), an effect chain with automation and auto-bypass, sends to up to four buses, a folder, and an edit group. A lane can be hidden from under the tabs; the flag `hiddenInScore` is saved with the song.
 - A lane holds clips. A clip plays a range of a source file (or of one of its takes) from a point of the timeline, with gain, fades (linear, equal power, S-curve), a gain envelope, stretch markers, playrate (with or without keeping the pitch), pitch, mute, lock and reverse.
 - Positions are milliseconds on the **audio timeline**. The song's sync points (per bar, or per beat) map the score onto that timeline. The speed trainer, tempo changes and sync are handled once for every clip, by the same `SyncMap` the old track used.
 

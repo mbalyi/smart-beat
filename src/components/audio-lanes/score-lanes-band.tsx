@@ -4,6 +4,7 @@ import { BandFolder, BandLane, type BandView } from "@/components/audio-lanes/ba
 import { SelectionStatus } from "@/components/audio-lanes/selection-overlay";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { createBarBounds, type BarBounds, type BarSpan } from "@/lib/audio-lanes/bar-bounds";
+import { bandRows } from "@/lib/audio-lanes/band-rows";
 import { lanesEndMs } from "@/lib/audio-lanes/model";
 import type { SongGrid } from "@/lib/audio-lanes/sync";
 import { usePlayheadBar, type PlayheadStore } from "@/lib/score/playhead";
@@ -119,10 +120,8 @@ export function ScoreLanesBand({
   if (!bounds) return null;
 
   const width = Math.max(bounds.end, bounds.msToX(lanesEndMs(audio))) + TAIL_PX;
-  const shown = audio.lanes.flatMap((lane, index) => {
-    const folder = lane.parent ? audio.lanes.find((l) => l.id === lane.parent) : undefined;
-    return folder?.collapsed ? [] : [{ lane, index }];
-  });
+  const shown = bandRows(audio);
+  if (shown.length === 0) return null;
   const bars = spans.flatMap((span, bar) =>
     !view || (span.x >= view.from && span.x <= view.to) ? [{ bar, x: span.x }] : [],
   );

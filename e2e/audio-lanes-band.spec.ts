@@ -8,6 +8,11 @@ import { emitMenuAction, expect, expectNoA11yViolations, openSong, test } from "
  * edited in place. Decoding and playback are in the (mocked) engine.
  */
 
+/** The part of a saved mix the tests below reach into. */
+interface SavedMix {
+  audio?: { lanes: { hiddenInScore?: boolean }[] };
+}
+
 /** Opens the practice song with the native engine on (the lanes play there). */
 async function openWithEngine(app: Page) {
   await openSong(app);
@@ -146,6 +151,52 @@ test.describe("lanes under the tabs in the continuous layout", () => {
     // The cursor and the position line run through the band.
     await expect(band.getByTestId("band-edit-cursor")).toBeVisible();
     await expect(band.getByTestId("band-position-line")).toBeVisible();
+  });
+
+  /** Saves the song's mix with the lanes at `indexes` hidden from the band, and opens it again. */
+  async function reopenWithHidden(app: Page, indexes: number[]) {
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () => (([...window.__mixes.values()][0] ?? {}) as SavedMix).audio?.lanes.length,
+        ),
+      )
+      .toBe(2);
+    await app.evaluate((hidden) => {
+      for (const mix of window.__mixes.values()) {
+        (mix as SavedMix).audio?.lanes.forEach((lane, i) => {
+          if (hidden.includes(i)) lane.hiddenInScore = true;
+        });
+      }
+    }, indexes);
+    await openSong(app);
+    await app.getByRole("switch", { name: "Native engine with effects" }).click();
+  }
+
+  test("a lane saved as hidden has no row under the tabs but stays in the track list", async ({
+    app,
+  }) => {
+    await openWithBand(app);
+    await reopenWithHidden(app, [1]);
+    const band = app.getByTestId("score-lanes-band");
+    await expect(band).toBeVisible();
+    await expect(
+      band.getByRole("group", { name: /Audio lane take under the score/ }),
+    ).toBeVisible();
+    await expect(band.getByRole("group", { name: /Audio lane other under the score/ })).toHaveCount(
+      0,
+    );
+    await expect(band.getByRole("button", { name: /other\.mp3 on other/ })).toHaveCount(0);
+    // The lane is still part of the song: the track list shows it and the engine plays it.
+    await expect(app.getByRole("button", { name: "Edit the lane other" })).toBeVisible();
+    await expect.poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes.length)).toBe(2);
+  });
+
+  test("with every lane hidden the band is not drawn at all", async ({ app }) => {
+    await openWithBand(app);
+    await reopenWithHidden(app, [0, 1]);
+    await expect(app.getByRole("button", { name: "Edit the lane take" })).toBeVisible();
+    await expect(app.getByTestId("score-lanes-band")).toHaveCount(0);
   });
 
   for (const colorScheme of ["light", "dark"] as const) {
