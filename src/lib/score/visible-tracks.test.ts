@@ -68,6 +68,9 @@ describe("the tracks stacked in the continuous view", () => {
     expect(stackForEditing([guitar, bass], bass)).toEqual([guitar, bass]);
     // A single track is not a stack: the new one just takes over.
     expect(stackForEditing([guitar], drums)).toEqual([drums]);
+    // Outside the continuous view the new one takes the place of the track that was edited.
+    expect(stackForEditing([guitar, bass], drums, guitar)).toEqual([drums, bass]);
+    expect(stackForEditing([guitar, bass], bass, guitar)).toEqual([guitar, bass]);
   });
 
   it("moves a stacked track without leaving the ends", () => {

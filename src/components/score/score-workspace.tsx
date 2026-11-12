@@ -1464,7 +1464,9 @@ export function ScoreWorkspace({
     }
     // Another track becomes the one being edited; a stacked view keeps its tracks and adds the
     // new one after the last when it was not in it (#231).
-    switchTrack(index, stackForEditing(stackRef.current, next));
+    // In the page layout the view is not on show: the track just takes the place of the old one.
+    const replacing = layoutRef.current === "horizontal" ? undefined : trackObject;
+    switchTrack(index, stackForEditing(stackRef.current, next, replacing));
   };
 
   /** Makes the track at `index` the edited one, with `stacked` as the view. */
@@ -1609,6 +1611,8 @@ export function ScoreWorkspace({
     instrumentView: boolean;
     editing: boolean;
     track: number;
+    /** The tracks in the continuous view, which the tour's own track changes must not leave behind. */
+    stack: Track[];
     practice: PracticeState;
   } | null>(null);
   const onTourPanels = useEffectEvent((message: TourBusMessage) => {
@@ -1640,7 +1644,8 @@ export function ScoreWorkspace({
       setInstrumentView(saved.instrumentView);
       setEditing(saved.editing);
       restorePractice(saved.practice);
-      changeTrack(saved.track);
+      const back = score.tracks[saved.track];
+      if (back) switchTrack(saved.track, reconcileStack(saved.stack, score.tracks, back));
       return;
     }
     tourSnapshot.current ??= {
@@ -1650,6 +1655,7 @@ export function ScoreWorkspace({
       instrumentView,
       editing,
       track: trackIndex,
+      stack: stackRef.current,
       practice,
     };
     leavePracticeView();
@@ -2901,7 +2907,7 @@ export function ScoreWorkspace({
     const switching =
       !!target &&
       track !== trackIndex &&
-      !(layout === "horizontal" && stackRef.current.includes(target));
+      !(layout === "horizontal" && !tabsHiddenRef.current && stackRef.current.includes(target));
     if (switching) changeTrack(track);
     // Editing goes on at the clicked bar of the newly opened track (#228).
     if (switching && editing) editor.setCursorTo({ bar: index, beat: 0, voice: 0 });

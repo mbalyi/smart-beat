@@ -57,11 +57,11 @@ jobs:
   e2e:
     # The browser integration tests, one job per group and browser: the groups are defined in
     # e2e/groups.ts (the `smoke-*` themes are the core flows, the rest are feature groups), so a
-    # slow group never runs out of time. The tests play real audio and render in software (WebKit),
-    # so every job has its own runner. `workers` is how many tests run at once inside a job: the runner of a public
-    # repo has 4 vCPUs. A group that flakes with two goes back to one here. Keep the group ids equal
-    # to CI_GROUPS in e2e/groups.ts (scripts/e2e-groups.test.mjs checks it), and the check names
-    # below in the "Protect main" ruleset.
+    # slow group never runs out of time. The tests play real audio and render in software
+    # (WebKit), so every job has its own runner. `workers` is how many tests run at once inside a
+    # job: the runner of a public repo has 4 vCPUs. A group that flakes with two goes back to one
+    # here. Keep the group ids equal to CI_GROUPS in e2e/groups.ts (scripts/e2e-groups.test.mjs
+    # checks it), and the check names below in the "Protect main" ruleset.
     name: E2E ${{ matrix.group.title }} (${{ matrix.browser }})
     runs-on: ubuntu-latest
     # The official Playwright image has the browsers and their system libraries, so nothing is

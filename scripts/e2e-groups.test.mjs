@@ -48,6 +48,14 @@ describe("e2e groups", () => {
     expect(unassigned).toEqual([]);
   });
 
+  it("has a package.json script for every smoke theme", () => {
+    const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts;
+    const wrong = Object.keys(SMOKE_GROUPS).filter(
+      (id) => scripts[`test:e2e:${id}`] !== `E2E_GROUP=${id} playwright test`,
+    );
+    expect(wrong).toEqual([]);
+  });
+
   it("keeps feature specs out of the smoke themes", () => {
     const stray = SPECS.filter(
       (spec) => groupsOf(spec).length > 0 && groupsIn(SMOKE_GROUPS, spec).length > 0,

@@ -111,6 +111,9 @@ test.describe("lanes under the tabs in the continuous layout", () => {
       "aria-pressed",
       "false",
     );
+    await expect
+      .poll(async () => (await app.locator("[data-tabs-hidden]").boundingBox())?.height ?? -1)
+      .toBe(0);
 
     // A second lane goes underneath the first.
     await app.getByRole("button", { name: "Show lane other under the tabs" }).click();

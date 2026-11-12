@@ -289,6 +289,30 @@ describe("ScoreWorkspace", () => {
       }
     });
 
+    it("does not grow the view with tracks that are only visited in the page layout (#231)", async () => {
+      const { user } = await setup();
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+      await user.click(screen.getByRole("radio", { name: "Page" }));
+
+      // Bass is picked for editing in the page layout: it takes the place of the track edited.
+      await user.click(screen.getByRole("button", { name: /^Show Bass/ }));
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+
+      expect(screen.getByRole("button", { name: "Visible: Bass" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(screen.getByRole("button", { name: "Visible: Drums" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(screen.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
     it("makes a stacked track the active one when its notes are clicked, and ignores others", async () => {
       const { user, player, song } = await setup();
       await user.click(screen.getByRole("radio", { name: "Continuous" }));

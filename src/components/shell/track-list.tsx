@@ -839,7 +839,8 @@ export function TrackList({
               stacking && stack && position >= 0 ? { position, of: stack.indexes.length } : null;
             // Any track can be taken out of the view, the edited one included (#231); only the
             // last one stays.
-            const lastInView = stacked && !!stack && stack.indexes.length < 2 && !stack.hasBand;
+            const alone = stacked && !!stack && stack.indexes.length < 2;
+            const lastInView = alone && !stack?.hasBand;
             const automation = trackAutomation(mix, i);
             const lane = lanes[i] ?? "volume";
             const focused = mix.focus === i;
@@ -940,9 +941,11 @@ export function TrackList({
                             ? lastInView
                               ? "The last track stays in the view"
                               : stacked
-                                ? isShown
-                                  ? "Take out of the continuous view (editing moves to the next track)"
-                                  : "Take out of the continuous view"
+                                ? alone
+                                  ? "Hide the tab, only the audio lanes stay (editing stops)"
+                                  : isShown
+                                    ? "Take out of the continuous view (editing moves to the next track)"
+                                    : "Take out of the continuous view"
                                 : "Show in the continuous view"
                             : "Show in the score"
                         }

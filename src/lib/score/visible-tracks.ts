@@ -36,10 +36,16 @@ export function toggleInStack(stack: readonly Track[], track: Track, active: Tra
   return { stack: rest, active: track === active ? rest[0]! : active };
 }
 
-/** Where a track chosen for editing goes: unchanged when stacked, otherwise after the last one. */
-export function stackForEditing(stack: readonly Track[], next: Track): Track[] {
+/**
+ * Where a track chosen for editing goes: unchanged when stacked, otherwise after the last one.
+ * Outside the continuous view the stack is not on show, so there `replacing` (the track that was
+ * edited) hands its place over instead of the view growing with every track visited.
+ */
+export function stackForEditing(stack: readonly Track[], next: Track, replacing?: Track): Track[] {
   if (stack.length < 2) return [next];
-  return stack.includes(next) ? [...stack] : [...stack, next];
+  if (stack.includes(next)) return [...stack];
+  if (replacing && stack.includes(replacing)) return stack.map((t) => (t === replacing ? next : t));
+  return [...stack, next];
 }
 
 /** Moves a stacked track by `delta` places (clamped to the ends). */
