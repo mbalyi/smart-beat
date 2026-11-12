@@ -56,9 +56,9 @@ jobs:
 
   e2e:
     # The browser integration tests, one job per group and browser: the groups are defined in
-    # e2e/groups.ts ("smoke" is the core flows, the rest are feature groups), so a slow group never
-    # runs out of time. The tests play real audio and render in software (WebKit), so every job has
-    # its own runner. `workers` is how many tests run at once inside a job: the runner of a public
+    # e2e/groups.ts (the `smoke-*` themes are the core flows, the rest are feature groups), so a
+    # slow group never runs out of time. The tests play real audio and render in software (WebKit),
+    # so every job has its own runner. `workers` is how many tests run at once inside a job: the runner of a public
     # repo has 4 vCPUs. A group that flakes with two goes back to one here. Keep the group ids equal
     # to CI_GROUPS in e2e/groups.ts (scripts/e2e-groups.test.mjs checks it), and the check names
     # below in the "Protect main" ruleset.
@@ -77,7 +77,13 @@ jobs:
         group:
           # One worker: the core flows include tests of real-time playback, which a second test
           # running at once pushes past their tolerance (score.spec.ts "keeps real time").
-          - { id: smoke, title: smoke tests, workers: 1 }
+          - { id: smoke-ui, title: smoke UI tests, workers: 1 }
+          - { id: smoke-files, title: smoke files tests, workers: 1 }
+          - { id: smoke-score, title: smoke score tests, workers: 1 }
+          - { id: smoke-drums, title: smoke drums tests, workers: 1 }
+          - { id: smoke-sound, title: smoke sound tests, workers: 1 }
+          - { id: smoke-practice, title: smoke practice tests, workers: 1 }
+          - { id: smoke-app, title: smoke app tests, workers: 1 }
           - { id: record-import, title: Record to tab and Import from Audio, workers: 2 }
           - { id: stems, title: stem separation, workers: 2 }
           - { id: practice-together, title: Practice together, workers: 2 }

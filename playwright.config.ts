@@ -1,6 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { CI_GROUPS, FEATURE_GROUPS, FEATURE_SPECS, type FeatureGroup } from "./e2e/groups";
+import {
+  CI_GROUPS,
+  FEATURE_GROUPS,
+  FEATURE_SPECS,
+  SMOKE_GROUPS,
+  type FeatureGroup,
+  type SmokeGroup,
+} from "./e2e/groups";
 
 const PORT = 1420;
 // Explicit IPv4 host: "localhost" may resolve to ::1 only, which stalls the readiness check.
@@ -10,26 +17,30 @@ const isCI = Boolean(process.env.CI);
 /**
  * CI runs one job per group and browser, so a slow group never runs out of time (one serial run
  * of everything took over an hour in WebKit, and a single "additional" group of the feature specs
- * later did the same). The groups are in `e2e/groups.ts`: "smoke" is every spec in no feature
- * group (the core flows); a feature group is a list of spec globs. `E2E_GROUP` picks one;
- * "additional" is a local shortcut for all the feature groups together; unset runs everything
- * (local `pnpm test:e2e`).
+ * later did the same). The groups are in `e2e/groups.ts`: the core flows ("smoke") are every spec
+ * in no feature group, split by theme into the `smoke-*` groups; a feature group is a list of spec
+ * globs. `E2E_GROUP` picks one; "smoke" is a local shortcut for all the smoke themes together and
+ * "additional" for all the feature groups together; unset runs everything (local
+ * `pnpm test:e2e`).
  */
 const group = process.env.E2E_GROUP || undefined;
-if (group !== undefined && group !== "additional" && !CI_GROUPS.includes(group)) {
+const LOCAL_SHORTCUTS = ["smoke", "additional"];
+if (group !== undefined && !LOCAL_SHORTCUTS.includes(group) && !CI_GROUPS.includes(group)) {
   throw new Error(
-    `E2E_GROUP must be "additional" or one of ${CI_GROUPS.join(", ")}, not "${group}".`,
+    `E2E_GROUP must be "smoke", "additional" or one of ${CI_GROUPS.join(", ")}, not "${group}".`,
   );
 }
-/** The specs a feature group runs (undefined for smoke and for a run of everything). */
+/** The specs one group runs (undefined for the smoke shortcut and for a run of everything). */
 const groupSpecs =
   group === "additional"
     ? FEATURE_SPECS
     : group !== undefined && group in FEATURE_GROUPS
       ? [...FEATURE_GROUPS[group as FeatureGroup]]
-      : undefined;
+      : group !== undefined && group in SMOKE_GROUPS
+        ? [...SMOKE_GROUPS[group as SmokeGroup]]
+        : undefined;
 // A CI group has a 65 minute job limit; the local shortcuts run many groups in one go.
-const GLOBAL_TIMEOUT_MINUTES = group === undefined || group === "additional" ? 75 : 60;
+const GLOBAL_TIMEOUT_MINUTES = group === undefined || LOCAL_SHORTCUTS.includes(group) ? 75 : 60;
 /** Playwright workers on CI: the job sets it per group (a group that flakes goes back to 1). */
 const ciWorkers = Number(process.env.E2E_WORKERS ?? 1);
 
