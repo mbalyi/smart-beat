@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bandRows, hasBandRows } from "@/lib/audio-lanes/band-rows";
+import { bandRows, bandSelectableLanes, hasBandRows } from "@/lib/audio-lanes/band-rows";
 import { EMPTY_AUDIO, newLane } from "@/lib/audio-lanes/model";
 import type { AudioLane } from "@/lib/tauri";
 
@@ -57,6 +57,21 @@ describe("bandRows", () => {
 
   it("keeps no header for a folder that has no lanes yet", () => {
     expect(ids([folder("f")])).toEqual([]);
+  });
+});
+
+describe("bandSelectableLanes", () => {
+  it("lists the shown lanes only: not a hidden one, a folder or a lane in a closed folder", () => {
+    const lanes = [
+      shown(newLane("A", "a")),
+      newLane("B", "b"),
+      shown(newLane("C", "c")),
+      folder("f", { collapsed: true }),
+      inside("x", "f", { shownInScore: true }),
+      folder("g"),
+      inside("y", "g", { shownInScore: true }),
+    ];
+    expect(bandSelectableLanes(audio(lanes)).map((l) => l.id)).toEqual(["a", "c", "y"]);
   });
 });
 

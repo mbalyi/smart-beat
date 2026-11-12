@@ -29,6 +29,17 @@ export function bandRows(audio: Pick<AudioLanesSettings, "lanes">): BandRow[] {
     });
 }
 
+/**
+ * The lanes whose clips the band draws, in lane order: what a click or a Shift-click range there
+ * can reach. A lane that is hidden under the tabs is left out, so a range never takes in clips
+ * the user cannot see (and so cannot cut or delete by accident).
+ */
+export function bandSelectableLanes(audio: Pick<AudioLanesSettings, "lanes">): AudioLane[] {
+  return bandRows(audio)
+    .filter(({ lane }) => !lane.folder)
+    .map(({ lane }) => lane);
+}
+
 /** Whether the band under the tabs has anything to draw (otherwise it is not mounted at all). */
 export function hasBandRows(audio: Pick<AudioLanesSettings, "lanes">): boolean {
   return bandRows(audio).length > 0;

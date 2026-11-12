@@ -392,6 +392,38 @@ describe("editing in the band, through the bars' own widths", () => {
     await waitFor(() => expect(clipsOf("lane-b")).toHaveLength(1));
   });
 
+  it("keeps a Shift-click range, and a Delete, to the lanes shown under the tabs", async () => {
+    // Vocals and Drums are shown, a lane between them is not, and its clip starts inside the range.
+    const base = song();
+    renderBand({
+      ...base,
+      lanes: [
+        base.lanes[0]!,
+        {
+          ...newLane("Hidden", "lane-h"),
+          clips: [newClip(SOURCE.id, "secret.wav", 1000, 500, "clip-h")],
+        },
+        base.lanes[1]!,
+      ],
+    });
+    const press = (name: RegExp, keys: { shiftKey?: boolean } = {}) =>
+      fireEvent.pointerDown(clipButton(name), {
+        button: 0,
+        pointerId: 1,
+        clientX: 0,
+        clientY: 0,
+        ...keys,
+      });
+    press(/verse\.wav on Vocals/);
+    press(/fill\.wav on Drums/, { shiftKey: true });
+    // clip-a (0 s) to clip-c (2 s): the hidden lane's clip (1 s) is not part of it.
+    expect([...lanesNow().selection].sort()).toEqual(["clip-a", "clip-c"]);
+    fireEvent.keyDown(clipButton(/fill\.wav on Drums/), { key: "Delete" });
+    await waitFor(() => expect(clipsOf("lane-b")).toHaveLength(0));
+    expect(clipsOf("lane-a").map((c) => c.id)).toEqual(["clip-b"]);
+    expect(clipsOf("lane-h").map((c) => c.id)).toEqual(["clip-h"]);
+  });
+
   it("opens the lane editor from a double-click on a clip", () => {
     const { onOpenEditor } = renderBand();
     fireEvent.doubleClick(clipButton(/verse\.wav/));

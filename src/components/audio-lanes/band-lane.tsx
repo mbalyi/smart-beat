@@ -16,7 +16,8 @@ import { registerLaneResolver } from "@/lib/audio-lanes/drop-target";
 import { trimClip, updateLane } from "@/lib/audio-lanes/edits";
 import { COMPACT_LANE_HEIGHT, laneHeight } from "@/lib/audio-lanes/lane-height";
 import { clipEndMs } from "@/lib/audio-lanes/model";
-import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
+import { bandSelectableLanes } from "@/lib/audio-lanes/band-rows";
+import { clickSelection } from "@/lib/audio-lanes/selection";
 import { laneColor } from "@/lib/score/track-colors";
 import type { AudioClip, AudioLane } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -209,7 +210,7 @@ export function BandLane({
                 compact={compact}
                 onSelect={(mode, alone) =>
                   lanes.select(
-                    clickSelection(lanes.selection, clip.id, mode, selectableLanes(audio)),
+                    clickSelection(lanes.selection, clip.id, mode, bandSelectableLanes(audio)),
                     alone,
                   )
                 }
