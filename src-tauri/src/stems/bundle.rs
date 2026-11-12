@@ -327,17 +327,17 @@ fn read_entry<R: Read + std::io::Seek>(
 }
 
 /// Emits a fraction at most about once per percent.
-struct Throttle<'a> {
+pub(super) struct Throttle<'a> {
     last: f32,
     emit: &'a mut dyn FnMut(f32),
 }
 
 impl<'a> Throttle<'a> {
-    fn new(emit: &'a mut dyn FnMut(f32)) -> Self {
+    pub(super) fn new(emit: &'a mut dyn FnMut(f32)) -> Self {
         Self { last: -1.0, emit }
     }
 
-    fn at(&mut self, fraction: f32) {
+    pub(super) fn at(&mut self, fraction: f32) {
         let fraction = fraction.clamp(0.0, 1.0);
         if fraction - self.last >= 0.01 || fraction >= 1.0 {
             self.last = fraction;
@@ -348,7 +348,7 @@ impl<'a> Throttle<'a> {
 
 /// Whether `e` (or what caused it) is a full disk. A full disk is the one write failure with a
 /// remedy the user knows, so it gets its own message.
-fn is_disk_full<E: std::error::Error + 'static>(e: &E) -> bool {
+pub(super) fn is_disk_full<E: std::error::Error + 'static>(e: &E) -> bool {
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(e);
     while let Some(error) = current {
         if let Some(io) = error.downcast_ref::<std::io::Error>()
@@ -379,13 +379,13 @@ fn write_err<E: std::error::Error + 'static>(e: &E) -> CommandError {
 /// A file being written next to its destination. Removed unless it is renamed into place.
 /// In a folder a cloud client watches, the name is one such clients skip: hidden (leading dot)
 /// and `.tmp` (`.Song.sbstems.1234-0.tmp`); the rename into place is what they upload.
-struct TempFile {
-    path: PathBuf,
-    keep: bool,
+pub(super) struct TempFile {
+    pub(super) path: PathBuf,
+    pub(super) keep: bool,
 }
 
 impl TempFile {
-    fn beside(dest: &Path) -> Self {
+    pub(super) fn beside(dest: &Path) -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let name = format!(".{}.{}-{n}.tmp", file_name(dest), std::process::id());

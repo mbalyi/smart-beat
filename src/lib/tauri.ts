@@ -2011,6 +2011,115 @@ export async function saveStemBundle(
   );
 }
 
+/** Sent while stems are exported as audio files (Rust `stems::export::PROGRESS_EVENT`). */
+const STEMS_EXPORT_PROGRESS_EVENT = "stems-export-progress";
+
+/** The audio formats stems can be exported in; both are lossless. */
+export type StemExportFormat = "wav" | "flac";
+
+/** Mirrors `MixedRequest`: the chosen stems added up into one file at `dest`. */
+export interface StemExportMixedRequest {
+  /** The song in the library. */
+  id: string;
+  kinds: StemKindId[];
+  format: StemExportFormat;
+  dest: string;
+}
+
+/** Mirrors `BatchRequest`: one file per chosen stem, in a new folder inside `dir`. */
+export interface StemExportBatchRequest {
+  id: string;
+  kinds: StemKindId[];
+  format: StemExportFormat;
+  dir: string;
+}
+
+/** Mirrors `ExportResult`. */
+export interface StemExportResult {
+  /** The files written, in the order of the stems. */
+  paths: string[];
+  /** The folder of a batch. */
+  folder: string | null;
+  /** The sum was louder than full scale somewhere and was limited there (mixed export only). */
+  clipped: boolean;
+}
+
+export interface StemExportProgress {
+  stage: "mixing" | "writing";
+  /** 0 to 1 of the whole export. */
+  fraction: number;
+}
+
+/** Native Save dialog for the mixed export; resolves to the path, or `null` if cancelled. */
+export async function pickStemExportFile(
+  defaultName: string,
+  format: StemExportFormat,
+): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return saveDialog({
+    title: "Export the mix",
+    defaultPath: `${defaultName}.${format}`,
+    filters: [{ name: format === "wav" ? "WAV audio" : "FLAC audio", extensions: [format] }],
+  });
+}
+
+/** Native folder dialog for the batch export; resolves to the path, or `null` if cancelled. */
+export async function pickStemExportFolder(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({ title: "Choose where the stem files go", multiple: false, directory: true });
+}
+
+async function withExportProgress<T>(
+  onProgress: ((progress: StemExportProgress) => void) | undefined,
+  job: () => Promise<T>,
+): Promise<T> {
+  const stopListening = onProgress
+    ? await listen<StemExportProgress>(STEMS_EXPORT_PROGRESS_EVENT, (event) =>
+        onProgress(event.payload),
+      )
+    : () => {};
+  try {
+    return await job();
+  } finally {
+    stopListening();
+  }
+}
+
+/**
+ * Adds the chosen stems up into one audio file. `cancelStemSeparation` stops it (the error then
+ * satisfies {@link isStemFileStopped}) and nothing is written.
+ */
+export async function exportStemsMixed(
+  request: StemExportMixedRequest,
+  onProgress?: (progress: StemExportProgress) => void,
+): Promise<StemExportResult> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withExportProgress(onProgress, () =>
+    invoke<StemExportResult>("stems_export_mixed", { request }),
+  );
+}
+
+/**
+ * Writes one audio file per chosen stem into a new folder inside `request.dir`.
+ * `cancelStemSeparation` stops it and removes what was written.
+ */
+export async function exportStemsBatch(
+  request: StemExportBatchRequest,
+  onProgress?: (progress: StemExportProgress) => void,
+): Promise<StemExportResult> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return withExportProgress(onProgress, () =>
+    invoke<StemExportResult>("stems_export_batch", { request }),
+  );
+}
+
+/**
+ * Loads one stem of a song in the library as an audio file the lanes can play (decoded once in
+ * the engine, embedded when the tab is saved).
+ */
+export const stemAudioSource = (id: string, kind: StemKindId) =>
+  call<SourceInfo>("stems_audio_source", { id, kind });
+
 /** Reads a `.sbstems` file into the library and returns its song. */
 export async function openStemBundle(
   path: string,

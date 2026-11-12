@@ -412,6 +412,36 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           );
           return { path: dest, bytes: 24_000_000, originalIncluded: includeOriginal };
         }
+        // Exporting writes nothing in tests: the answer says where the files would go.
+        case "stems_export_mixed": {
+          const { dest } = (args as { request: { dest: string } }).request;
+          return { paths: [dest], folder: null, clipped: false };
+        }
+        case "stems_export_batch": {
+          const { dir, kinds, format } = (
+            args as { request: { dir: string; kinds: string[]; format: string } }
+          ).request;
+          const folder = `${dir}/Neon Nights stems`;
+          return {
+            paths: kinds.map((kind) => `${folder}/${kind} - Neon Nights.${format}`),
+            folder,
+            clipped: false,
+          };
+        }
+        // A stem loaded as a lane's audio file: one source per stem, 3:35 long.
+        case "stems_audio_source": {
+          const { id, kind } = args as { id: string; kind: string };
+          return {
+            id: `${id}${kind}`.padEnd(64, "0"),
+            name: `${kind} - Neon Nights.wav`,
+            ext: "wav",
+            durationMs: 215_000,
+            sampleRate: 44_100,
+            channels: 2,
+            peaks: [0.5, 0.25],
+            peaksPerSecond: 20,
+          };
+        }
         case "stems_open_bundle": {
           const opened = { ...backend.bundleSong, savedPath: (args as { path: string }).path };
           backend.stemSongs = [opened, ...backend.stemSongs.filter((s) => s.id !== opened.id)];

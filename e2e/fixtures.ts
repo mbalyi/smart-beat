@@ -129,6 +129,8 @@ declare global {
       /** The guests the host kicked (`ban`: also turned their address away). */
       kicked: { conn: number; ban: boolean }[];
       auto: boolean;
+      /** What the app's `practice_send` calls: records the frame and answers it. */
+      receive: (text: string, conn?: number) => void;
       frame: (msg: Record<string, unknown>, conn?: number) => number;
       state: (
         state: "connecting" | "open" | "reconnecting" | "closed",

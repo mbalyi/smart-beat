@@ -14,6 +14,7 @@
 pub mod bundle;
 pub mod cloud;
 pub mod codec;
+pub mod export;
 pub mod mix;
 pub mod model_files;
 pub mod models;
@@ -181,12 +182,14 @@ fn error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
 }
 
-/// The stop switches of the running separation and of the running save or open of a `.sbstems`
-/// file. A new job stops the old one of its own kind; [`StemsRun::cancel`] stops both.
+/// The stop switches of the running separation, of the running save or open of a `.sbstems`
+/// file and of the running export of audio files. A new job stops the old one of its own kind;
+/// [`StemsRun::cancel`] stops them all.
 #[derive(Default)]
 pub struct StemsRun {
     job: Mutex<Option<Arc<AtomicBool>>>,
     bundle: Mutex<Option<Arc<AtomicBool>>>,
+    export: Mutex<Option<Arc<AtomicBool>>>,
     tempo: Mutex<Option<Arc<AtomicBool>>>,
 }
 
@@ -225,6 +228,13 @@ impl StemsRun {
     pub fn finish_bundle(&self, stop: &Arc<AtomicBool>) {
         finish_in(&self.bundle, stop);
     }
+    /// An export of the stems as audio files. It does not stop a separation.
+    pub fn start_export(&self) -> Arc<AtomicBool> {
+        start_in(&self.export)
+    }
+    pub fn finish_export(&self, stop: &Arc<AtomicBool>) {
+        finish_in(&self.export, stop);
+    }
     /// A separation is running (its model file may be open).
     pub fn separating(&self) -> bool {
         self.job.lock().unwrap_or_else(|e| e.into_inner()).is_some()
@@ -237,7 +247,7 @@ impl StemsRun {
         finish_in(&self.tempo, stop);
     }
     pub fn cancel(&self) {
-        for slot in [&self.job, &self.bundle, &self.tempo] {
+        for slot in [&self.job, &self.bundle, &self.export, &self.tempo] {
             if let Some(stop) = slot.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 stop.store(true, Ordering::Relaxed);
             }

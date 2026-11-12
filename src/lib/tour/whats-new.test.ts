@@ -94,6 +94,18 @@ describe("the editing features in the registry (#228)", () => {
   });
 });
 
+describe("stem export in the registry (#223)", () => {
+  it("is announced in 1.3.0 and shown with the audio lanes tour", () => {
+    const entry = FEATURE_REGISTRY.find((x) => x.id === "stem-export");
+    expect(entry).toMatchObject({ since: "1.3.0", tour: "audio-lanes" });
+    expect(entry?.summary).toMatch(/WAV or FLAC/);
+    expect(pendingFeatures("1.2.0", "1.3.0", FEATURE_REGISTRY).map((x) => x.id)).toContain(
+      "stem-export",
+    );
+    expect(pendingFeatures("1.3.0", "1.3.0", FEATURE_REGISTRY)).toEqual([]);
+  });
+});
+
 describe("sharing in the registry (#201)", () => {
   it("is announced in 1.2.0, without a tour", () => {
     const entry = FEATURE_REGISTRY.find((x) => x.id === "cloud-share");

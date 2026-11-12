@@ -1,13 +1,17 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 
 import { ScoreWorkspace } from "@/components/score/score-workspace";
 import type { ScoreDocument } from "@/hooks/use-score-document";
 import { fileKey } from "@/lib/score/format";
+import { addStemsToTab } from "@/lib/stems/lane-targets";
+import type { StemLaneItem } from "@/lib/stems/stem-lanes";
+import type { StemKindId } from "@/lib/tauri";
 import { mixFromScore } from "@/lib/score/mixer";
 import { parseScore } from "@/lib/score/score";
 import { FakeScorePlayer } from "@/test/fake-score-player";
 import { renderWithProviders } from "@/test/render";
 import { fixtureBytes } from "@/test/score";
+import { mockTauri } from "@/test/tauri";
 
 vi.mock("@/lib/score/player", async () => ({
   ScorePlayer: (await import("@/test/fake-score-player")).FakeScorePlayer,
@@ -114,5 +118,98 @@ describe("ScoreWorkspace track lanes", () => {
     expect(player.seekToBar).toHaveBeenCalledExactlyOnceWith(3);
     player.emit("onRendered");
     expect(player.seekToBar).toHaveBeenCalledOnce();
+  });
+});
+
+/** Stems added from the stem page become audio lanes of the open tab (#223). */
+describe("ScoreWorkspace stems as audio lanes", () => {
+  const stems = (...kinds: StemKindId[]): StemLaneItem[] =>
+    kinds.map((kind) => ({
+      kind,
+      info: {
+        id: kind.padEnd(64, "0"),
+        name: `${kind} - Song.wav`,
+        ext: "wav",
+        durationMs: 10_000,
+        sampleRate: 44_100,
+        channels: 2,
+        peaks: [0.4, 0.2],
+        peaksPerSecond: 20,
+      },
+    }));
+
+  async function open() {
+    // Audio lanes are listed in the desktop app only.
+    mockTauri();
+    const bytes = fixtureBytes("practice-song.gp");
+    const { score, summary } = parseScore(bytes);
+    const song: ScoreDocument = {
+      id: 41,
+      name: "practice-song.gp",
+      path: null,
+      fileKey: await fileKey(bytes),
+      score,
+      summary,
+      mix: mixFromScore(summary),
+    };
+    const onEditedChange = vi.fn();
+    const utils = renderWithProviders(
+      <ScoreWorkspace song={song} onOpen={vi.fn()} onEditedChange={onEditedChange} />,
+    );
+    FakeScorePlayer.last.becomeReady();
+    return {
+      ...utils,
+      onEditedChange,
+      tracks: () => screen.getByRole("region", { name: "Tracks and mixer" }),
+    };
+  }
+
+  it("adds a lane per stem named after the stem and the model, and marks the tab unsaved", async () => {
+    const { tracks, onEditedChange } = await open();
+    expect(
+      within(tracks()).queryByRole("button", { name: "Mute the lane Drums · HTDemucs" }),
+    ).toBeNull();
+    onEditedChange.mockClear();
+
+    act(() => addStemsToTab(41, { engine: "htdemucs" }, stems("drums", "vocals")));
+
+    expect(
+      await within(tracks()).findByRole("button", { name: "Mute the lane Drums · HTDemucs" }),
+    ).toBeInTheDocument();
+    expect(
+      within(tracks()).getByRole("button", { name: "Mute the lane Vocals · HTDemucs" }),
+    ).toBeInTheDocument();
+    expect(onEditedChange).toHaveBeenCalledWith(true);
+    // The song's own tracks are all still there.
+    for (const name of ["Guitar", "Bass", "Drums", "Piano"]) {
+      expect(within(tracks()).getAllByText(new RegExp(`^${name}`)).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("refuses stems that do not fit and changes nothing", async () => {
+    const { tracks, onEditedChange } = await open();
+    act(() =>
+      addStemsToTab(41, { engine: "fast" }, stems("drums", "bass", "vocals", "panned", "other")),
+    );
+    expect(
+      await within(tracks()).findByRole("button", {
+        name: "Mute the lane Other (not separated) · Fast",
+      }),
+    ).toBeInTheDocument();
+    onEditedChange.mockClear();
+    // 16 lanes fit; fill the rest, then one more is too many.
+    for (let i = 0; i < 11; i += 1) {
+      act(() => addStemsToTab(41, { engine: "scnet" }, [stems("bass")[0]!]));
+    }
+    expect(() => addStemsToTab(41, { engine: "scnet" }, stems("drums", "bass"))).toThrow(
+      /no room|already has the most/,
+    );
+    expect(onEditedChange).toHaveBeenCalledTimes(11);
+  });
+
+  it("is not a target any more once the tab is closed", async () => {
+    const { unmount } = await open();
+    unmount();
+    expect(() => addStemsToTab(41, { engine: "fast" }, stems("bass"))).toThrow("not open any more");
   });
 });

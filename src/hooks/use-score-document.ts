@@ -25,6 +25,7 @@ import {
   readProjectSettings,
   readScoreFile,
   removeRecentFile,
+  type AudioLanesSettings,
   type CommandError,
   type MixerSettings,
 } from "@/lib/tauri";
@@ -190,9 +191,9 @@ export function useScoreDocuments() {
     songsRef.current = songs;
   }, [songs]);
 
-  const add = useCallback((song: ScoreDocument) => {
+  const add = useCallback((song: ScoreDocument, show = true) => {
     setSongs((list) => [...list, song]);
-    setActiveId(song.id);
+    if (show) setActiveId(song.id);
   }, []);
 
   /** Where each open song was read from, to read it again (Reopen with encoding). */
@@ -363,6 +364,43 @@ export function useScoreDocuments() {
   );
 
   /**
+   * Starts a new, empty song whose audio lanes are `audio` (stems added to "a new tab"). It is
+   * unsaved until the first save, which embeds the audio in the file. It opens in the
+   * background (the stem page stays shown) and its id is returned.
+   */
+  const newSongWithAudio = useCallback(
+    async (name: string, audio: AudioLanesSettings) => {
+      const id = ++counter.current;
+      try {
+        const [{ createSong }, { summarizeScore }] = await Promise.all([
+          import("@/lib/score/tracks"),
+          import("@/lib/score/score"),
+        ]);
+        const score = createSong();
+        const summary = summarizeScore(score);
+        add(
+          {
+            id,
+            name,
+            path: null,
+            fileKey: null,
+            score,
+            summary,
+            mix: { ...mixFromScore(summary), audio },
+            unsaved: true,
+          },
+          false,
+        );
+        return id;
+      } catch (error) {
+        toast.error(`Couldn't create “${name}”`, { description: String(error) });
+        return null;
+      }
+    },
+    [add],
+  );
+
+  /**
    * Opens the host's tab (Practice together) as a tab of its own, marked as received. `replaceId`
    * is the tab of an earlier version of it: this one takes its place. `mix` is the guest's own
    * mute, solo and volume, kept when the tracks are the same.
@@ -464,6 +502,7 @@ export function useScoreDocuments() {
     openPath,
     openFile,
     newSong,
+    newSongWithAudio,
     openScore,
     openReceived,
     markSaved,

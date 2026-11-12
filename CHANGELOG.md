@@ -4,6 +4,12 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### New: export stems and use them as audio tracks
+
+- On a stem page, **Export stems** (the download button next to Save) takes the stems you choose out of Smart Beat: **one mixed file** (the chosen stems added up), or **one file per stem** in a new folder called "<song> stems", named "<stem> - <song>". Files are WAV or FLAC, both lossless, with the length and sample rate of the stems. It works the same for every separation model, from the fast engine to the six-part model.
+- Export shows its progress and can be cancelled; a cancelled export leaves no file behind. With no stem chosen, Export is off and says why. If a mix is louder than a file can hold, the result says that the loudest peaks were limited.
+- **Add to a tab** puts each chosen stem on a lane of its own in an open tab or in a new tab, in one step that Undo takes back. Each lane starts at the beginning of the tab, has the stem's colour and is named after the stem and the model ("Vocals · SCNet XL"). The audio is saved inside the tab's file and comes back when you open it. The notes and the other tracks are not touched. A tab holds up to 16 audio lanes.
+
 ### New: edit the tab together (Practice together)
 
 - Everyone in a Practice together session can edit the same tab at the same time, and each change shows up on the other computers within a moment, in both directions. Two people can edit the same bar, and two people changing different notes of the same beat both keep their change.

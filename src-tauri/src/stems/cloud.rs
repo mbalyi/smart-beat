@@ -71,7 +71,7 @@ fn stop_as_stopped(error: CommandError) -> CommandError {
 }
 
 /// A file name made of the song's name: no path parts, no characters a drive refuses.
-fn safe_base(name: &str) -> String {
+pub(super) fn safe_base(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .map(|c| {

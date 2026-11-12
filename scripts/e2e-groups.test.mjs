@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,5 +66,26 @@ describe("e2e groups", () => {
 
   it("keeps smoke as the rest: some specs are in no feature group", () => {
     expect(SPECS.filter((spec) => groupsOf(spec).length === 0).length).toBeGreaterThan(0);
+  });
+
+  it("has a package.json script that runs the CI jobs three at a time", () => {
+    const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts;
+    expect(scripts["test:e2e:queue"]).toBe(
+      "node scripts/e2e-jobs.mjs | xargs -P 3 -L 1 scripts/e2e-job.sh",
+    );
+  });
+
+  it("lists one job per CI group and browser, with the workers CI gives the group", () => {
+    const ci = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+    const workers = Object.fromEntries(
+      [...ci.matchAll(/^\s+- \{ id: ([a-z-]+),.*workers: (\d+) \}/gm)].map((m) => [m[1], m[2]]),
+    );
+    const jobs = execFileSync("node", ["scripts/e2e-jobs.mjs"], { cwd: ROOT, encoding: "utf8" })
+      .trim()
+      .split("\n");
+    const expected = CI_GROUPS.flatMap((group) =>
+      ["chromium", "webkit"].map((browser) => `${group} ${browser} ${workers[group]}`),
+    );
+    expect([...jobs].sort()).toEqual([...expected].sort());
   });
 });

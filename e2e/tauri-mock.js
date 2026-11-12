@@ -151,6 +151,23 @@
    * the paths that were opened. `hold` keeps a save or an open running until `release()` or
    * `abort()`; `fail` makes the next one reject.
    */
+  /**
+   * Exporting stems as audio files (#223): the requests of `stems_export_mixed` and
+   * `stems_export_batch`, and the stems `stems_audio_source` loaded as lane audio. `hold` keeps an
+   * export running until `release()`; `stems_cancel` calls `abort()`, which fails the export the
+   * way Rust does when it is stopped. `fail` makes it fail with that message; `clipped` is what
+   * a mixed export reports.
+   */
+  window.__stemExports = {
+    mixed: [],
+    batch: [],
+    sources: [],
+    hold: false,
+    fail: null,
+    clipped: false,
+    release: null,
+    abort: null,
+  };
   window.__stemBundles = {
     saves: [],
     opens: [],
@@ -1209,6 +1226,52 @@
         window.__emitTauriEvent("stems-bundle-progress", { stage: "writing", fraction: 1 });
         return { path: dest, bytes, originalIncluded };
       }
+      case "stems_export_mixed":
+      case "stems_export_batch": {
+        const exports = window.__stemExports;
+        const batch = cmd === "stems_export_batch";
+        (batch ? exports.batch : exports.mixed).push(args.request);
+        window.__emitTauriEvent("stems-export-progress", { stage: "mixing", fraction: 0.4 });
+        if (exports.hold) {
+          await new Promise((resolve, reject) => {
+            exports.release = resolve;
+            exports.abort = () => reject({ kind: "audio", message: "Stem file stopped." });
+          });
+        }
+        if (exports.fail) throw { kind: "io", message: exports.fail };
+        window.__emitTauriEvent("stems-export-progress", { stage: "writing", fraction: 1 });
+        const { id, kinds, format } = args.request;
+        const song = window.__stems.songs.find((item) => item.id === id);
+        if (!batch) {
+          return { paths: [args.request.dest], folder: null, clipped: exports.clipped };
+        }
+        const labels = { panned: "Guitars and keys" };
+        const folder = `${args.request.dir}/${song.name} stems`;
+        const paths = kinds.map((kind) => {
+          const label = labels[kind] ?? kind[0].toUpperCase() + kind.slice(1);
+          return `${folder}/${label} - ${song.name}.${format}`;
+        });
+        return { paths, folder, clipped: false };
+      }
+      case "stems_audio_source": {
+        const { id, kind } = args;
+        const song = window.__stems.songs.find((item) => item.id === id);
+        const name = `${kind} - ${song.name}.wav`;
+        // A stable fake content id per stem (the real one is the SHA-256 of the file).
+        const sourceId = (id + kind).padEnd(64, "0").slice(0, 64);
+        window.__engineSources[sourceId] = { type: "stem", id, kind };
+        window.__stemExports.sources.push({ id, kind });
+        return {
+          id: sourceId,
+          name,
+          ext: "wav",
+          durationMs: 6000,
+          sampleRate: 44100,
+          channels: 2,
+          peaks: Array.from({ length: 60 }, (_, i) => 0.2 + 0.6 * Math.abs(Math.sin(i / 5))),
+          peaksPerSecond: 10,
+        };
+      }
       case "stems_open_bundle": {
         const bundles = window.__stemBundles;
         bundles.opens.push(args.path);
@@ -1371,6 +1434,7 @@
       case "stems_cancel":
         window.__stems.cancelled += 1;
         window.__stems.abort?.();
+        window.__stemExports.abort?.();
         window.__drives.abort?.();
         return null;
       case "stems_separate": {
@@ -1458,7 +1522,7 @@
    * Practice together (#158): the other players. A host's guests are told apart by connection
    * number (`conn`, 1 unless a test says otherwise; 0 is the link itself). `sent` holds every frame
    * the app sent (decoded; `sentTo` has the connection of each). With `auto` on, a guest behaves
-   * like a healthy one: it answers pings with pongs (a 2 ms wire), reports its own sync quality
+   * like a healthy one: it answers pings with pongs at once (a quick, steady wire), reports its own sync quality
    * and says ready to every command.
    */
   const together = (window.__practiceTogether = {
@@ -1480,11 +1544,15 @@
       if (!together.auto) return;
       const msg = frame.msg;
       if (msg.type === "ping") {
-        setTimeout(() => {
+        // Answered in the same task, not after a timer: a timer waits behind whatever else the
+        // page is doing, and on a slow CI runner that made the answer late. A late answer is a
+        // slow wire to the clock sync ("The connection is too unsteady", #236); the simulated
+        // wire is meant to be a quick and steady one.
+        queueMicrotask(() => {
           const t1 = performance.now();
           together.frame({ type: "pong", id: msg.id, t0: msg.t0, t1, t2: t1 }, conn);
           together.frame({ type: "report", errorMs: 2, rtt: 3, driftMs: 0 }, conn);
-        }, 1);
+        });
       } else if (msg.type === "cmd") {
         setTimeout(() => together.frame({ type: "ready", id: msg.cmd.id, ok: true }, conn), 1);
       }

@@ -68,7 +68,7 @@ The macOS and Windows buttons start the download of the newest release's install
     <td valign="top" width="33%">
       <img src="src/assets/features/stem-separation.png" alt="Stem separation" width="100%">
       <p><b>🟣 Beta</b></p>
-      <p>Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Save the stems to a file or your cloud folder and open them again later. Perfect for covers and practice.</p>
+      <p>Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Save the stems to a file or your cloud folder and open them again later, export them as WAV or FLAC files (mixed or one per stem), or add them to a tab as audio tracks. Perfect for covers and practice.</p>
       <p><sub>* Limitations: see <a href="#stem-separation-beta">Stem separation (beta)</a> under More about the features, below.</sub></p>
     </td>
     <td valign="top" width="33%">
@@ -236,6 +236,7 @@ pnpm tauri dev      # desktop app with hot reload
 | `pnpm typecheck`                                                                            | TypeScript project check                                                                                                                                           |
 | `pnpm test` / `pnpm test:watch` / `pnpm test:coverage`                                      | Vitest unit and integration tests (UI)                                                                                                                             |
 | `pnpm test:e2e`                                                                             | Playwright browser integration tests (Chromium and WebKit, a11y and responsive checks). Run `pnpm exec playwright install chromium webkit` once first              |
+| `pnpm test:e2e:server` then `pnpm test:e2e:queue`                                           | Every e2e group and browser as a CI-style job, three at a time (logs in `playwright-queue/`); the first command is the shared dev server, run in its own terminal  |
 | `pnpm test:e2e:smoke` / `pnpm test:e2e:additional`                                          | `pnpm test:e2e` for the core flows only (all seven smoke themes), and for all the feature groups together (CI runs each group as its own job, see `e2e/groups.ts`) |
 | `pnpm test:e2e:smoke-ui` (also `-files`, `-score`, `-drums`, `-sound`, `-practice`, `-app`) | One smoke theme of the core flows, as CI runs it                                                                                                                   |
 | `pnpm rust:test` / `pnpm rust:lint` / `pnpm rust:fmt`                                       | Rust tests, clippy (`-D warnings`), rustfmt check                                                                                                                  |

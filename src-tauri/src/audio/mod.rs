@@ -1333,7 +1333,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 /// Decodes `bytes` (once per content) into the source pool and describes it.
-fn add_source(
+pub(crate) fn add_source(
     state: &AudioState,
     name: String,
     bytes: Vec<u8>,

@@ -32,7 +32,9 @@ import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
 import { hasBandRows } from "@/lib/audio-lanes/band-rows";
 import { laneDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
-import { EMPTY_AUDIO, lanesOf } from "@/lib/audio-lanes/model";
+import { EMPTY_AUDIO, MAX_LANES, lanesOf } from "@/lib/audio-lanes/model";
+import { registerStemLaneTarget, type StemLaneHandler } from "@/lib/stems/lane-targets";
+import { addStemLanes, freeLanes } from "@/lib/stems/stem-lanes";
 import type { FileDragState } from "@/lib/file-drag-store";
 import {
   barAtTimelineMs,
@@ -2041,6 +2043,21 @@ export function ScoreWorkspace({
   useEffect(() => {
     lanesAudioRef.current = lanes.audio;
   }, [lanes.audio]);
+  // Stems from the stem page (#223): each becomes an audio lane of this tab, all in one undo step.
+  // The tab is unsaved afterwards, as after any other edit: the lanes are saved with the file.
+  const takeStems = useEffectEvent<StemLaneHandler>((stemSong, items) => {
+    const free = freeLanes(lanesAudioRef.current);
+    if (items.length > free) {
+      throw new Error(
+        free === 0
+          ? `This tab already has the most audio tracks it can hold (${MAX_LANES}).`
+          : `This tab has room for ${free} more audio ${free === 1 ? "track" : "tracks"} (up to ${MAX_LANES}), and ${items.length} were chosen.`,
+      );
+    }
+    lanes.apply((audio) => addStemLanes(audio, stemSong, items));
+    onEditedChange?.(true);
+  });
+  useEffect(() => registerStemLaneTarget(song.id, (...args) => takeStems(...args)), [song.id]);
   // A lane's eye shows it under the tabs in the continuous layout, on the bars as drawn there.
   // The band only exists in that layout: turning a lane on switches to it and keeps the page
   // layout off until the last one is hidden again.

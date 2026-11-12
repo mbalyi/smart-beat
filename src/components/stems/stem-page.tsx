@@ -1,5 +1,6 @@
 import {
   CheckIcon,
+  DownloadIcon,
   FilePlusIcon,
   FolderOpenIcon,
   InfoIcon,
@@ -15,6 +16,12 @@ import { LabeledSlider } from "@/components/labeled-slider";
 import { MetronomeControl } from "@/components/shell/metronome-control";
 import { SpeedSelect } from "@/components/shell/speed-select";
 import { TransportButtons } from "@/components/shell/transport-buttons";
+import {
+  ExportStemsDialog,
+  type StemsAdded,
+  type StemTabChoice,
+  type StemTabTarget,
+} from "@/components/stems/export-stems-dialog";
 import { SaveStemsDialog } from "@/components/stems/save-stems-dialog";
 import { StemRow } from "@/components/stems/stem-row";
 import { engineLabel } from "@/components/stems/stem-engines";
@@ -81,6 +88,8 @@ export function StemPage({
   onSaved,
   savedPath: knownPath,
   onOpenCloudSettings,
+  openTabs,
+  onAddToTab,
   createPlayer = createSongPlayer,
   detectTempo,
 }: {
@@ -99,6 +108,14 @@ export function StemPage({
   savedPath?: string;
   /** Opens Settings on the cloud folder section (from the Save dialog's hint). */
   onOpenCloudSettings?: () => void;
+  /** The open tabs the stems can be added to as audio tracks (Export stems). */
+  openTabs?: readonly StemTabTarget[];
+  /** Adds the chosen stems to a tab (or a new one) as audio tracks. */
+  onAddToTab?: (
+    target: StemTabChoice,
+    song: StemSong,
+    kinds: readonly StemKindId[],
+  ) => Promise<StemsAdded>;
   /** Where the sound comes from; tests give a fake. */
   createPlayer?: (song: StemSong) => StemPlayer | null;
   /** Finds the tempo; tests give a fake. */
@@ -130,6 +147,8 @@ export function StemPage({
   const [saving, setSaving] = useState(false);
   const goingToSettings = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const exportButton = useRef<HTMLButtonElement>(null);
 
   const tempo = useStemTempo(song.id, detectTempo);
   const [metronome, changeMetronome] = useMetronomeSettings();
@@ -188,6 +207,17 @@ export function StemPage({
           title="Save stems"
         >
           <SaveIcon />
+        </Button>
+        <Button
+          ref={exportButton}
+          variant="outline"
+          size="icon-sm"
+          onClick={() => setExporting(true)}
+          aria-label="Export stems"
+          title="Export stems as audio files, or add them to a tab"
+          data-tour="stem-export"
+        >
+          <DownloadIcon />
         </Button>
         {savedPath && (
           <span
@@ -293,6 +323,18 @@ export function StemPage({
             // Settings takes the focus when the dialog closes to open it.
             if (!goingToSettings.current) saveButton.current?.focus();
             goingToSettings.current = false;
+          }}
+        />
+
+        <ExportStemsDialog
+          song={song}
+          open={exporting}
+          onOpenChange={setExporting}
+          tabs={openTabs}
+          onAddToTab={onAddToTab}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            exportButton.current?.focus();
           }}
         />
 
