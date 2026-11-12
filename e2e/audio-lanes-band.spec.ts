@@ -204,13 +204,19 @@ test.describe("lanes under the tabs in the continuous layout", () => {
 
   /** Saves the song's mix with only the lanes at `indexes` shown under the tabs, and opens it again. */
   async function reopenWithShown(app: Page, indexes: number[]) {
+    // The app saves a changed mix after a short delay, and right away when the song closes. Wait
+    // until what is saved is what the lanes are now (both eyes), or that late save would write the
+    // old flags over the ones set below, as the song closes to be opened again.
     await expect
       .poll(() =>
-        app.evaluate(
-          () => (([...window.__mixes.values()][0] ?? {}) as SavedMix).audio?.lanes.length,
-        ),
+        app.evaluate(() => {
+          const flags = (lanes?: { shownInScore?: boolean }[]) =>
+            JSON.stringify(lanes?.map((l) => !!l.shownInScore));
+          const saved = ([...window.__mixes.values()][0] as SavedMix | undefined)?.audio?.lanes;
+          return saved?.length === 2 && flags(saved) === flags(window.__engineLanes?.audio.lanes);
+        }),
       )
-      .toBe(2);
+      .toBe(true);
     await app.evaluate((shown) => {
       for (const mix of window.__mixes.values()) {
         (mix as SavedMix).audio?.lanes.forEach((lane, i) => {
