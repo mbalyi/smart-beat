@@ -6,7 +6,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 import type { MixerSettings } from "@/lib/tauri";
 
-import { ScoreWorkspace } from "@/components/score/score-workspace";
+import { SAVE_DELAY_MS, ScoreWorkspace } from "@/components/score/score-workspace";
 import { Toaster } from "@/components/ui/sonner";
 import type { SavedAs, ScoreDocument } from "@/hooks/use-score-document";
 import { defaultEffect } from "@/lib/audio/effects";
@@ -916,11 +916,12 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
   });
 
   /** A song with one lane (a clip on it), shown under the tabs or not. */
-  async function renderWithLane(shown: boolean) {
-    mockTauri();
+  async function renderWithLane(shown: boolean, extraMix: { tabsHidden?: boolean } = {}) {
+    const calls = mockTauri();
     const song = await makeSong("/songs/practice-song.gp");
     song.mix = {
       ...song.mix,
+      ...extraMix,
       audio: {
         ...EMPTY_AUDIO,
         sources: [
@@ -935,10 +936,15 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
         ],
       },
     };
-    const view = renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
+    const view = renderWithProviders(
+      <>
+        <ScoreWorkspace song={song} onOpen={vi.fn()} />
+        <Toaster />
+      </>,
+    );
     FakeScorePlayer.last.becomeReady();
     await screen.findByTestId("lane-row-lane");
-    return { ...view, player: FakeScorePlayer.last };
+    return { ...view, player: FakeScorePlayer.last, song, calls };
   }
 
   it("keeps a lane out from under the tabs until its eye is on, and then needs the continuous layout", async () => {
@@ -960,6 +966,88 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     await user.click(screen.getByRole("radio", { name: "Page" }));
     expect(screen.getByRole("radio", { name: "Page" })).toBeChecked();
     expect(player.setLayout).toHaveBeenLastCalledWith("page");
+  });
+
+  it("shows the lane alone when its eye is turned on from the page layout, and tabs after it (#231)", async () => {
+    const { user } = await renderWithLane(false);
+    expect(screen.getByRole("region", { name: "Score: Guitar" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show lane Take under the tabs" }));
+
+    // No tab track in the view: only the lane. The tab eyes are off.
+    expect(screen.getByRole("region", { name: "Score: audio lanes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "Visible: Guitar" })).toBeEnabled();
+
+    // A tab turned on joins the lane, and can go again while the lane stays.
+    await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+    expect(screen.getByRole("region", { name: "Score: Bass" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visible: Bass" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+    expect(screen.getByRole("region", { name: "Score: audio lanes" })).toBeInTheDocument();
+
+    // The last lane hidden: the tab comes back, so the view is never empty.
+    await user.click(screen.getByRole("button", { name: "Hide lane Take from under the tabs" }));
+    expect(screen.getByRole("region", { name: /^Score: (?!audio lanes)/ })).toBeInTheDocument();
+  });
+
+  it("saves that the tabs are hidden, and opens a song saved so with the lane alone (#231)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { user, calls } = await renderWithLane(false);
+      const savedMix = () =>
+        calls.filter((c) => c.cmd === "save_mixer_settings").at(-1)?.args as
+          { settings: { tabsHidden?: boolean } } | undefined;
+      await user.click(screen.getByRole("button", { name: "Show lane Take under the tabs" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS + 50);
+      });
+      expect(savedMix()?.settings.tabsHidden).toBe(true);
+
+      // A tab turned on: saved as shown again.
+      await user.click(screen.getByRole("button", { name: "Visible: Guitar" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS + 50);
+      });
+      expect(savedMix()?.settings.tabsHidden).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens a song saved with the tabs hidden on the lane alone (#231)", async () => {
+    await renderWithLane(true, { tabsHidden: true });
+
+    expect(screen.getByRole("region", { name: "Score: audio lanes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("does not edit while no tab is in the view, and says why (#231)", async () => {
+    const { user } = await renderWithLane(true, { tabsHidden: true });
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(await toastWith("Turn on a tab track to edit it")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Score: audio lanes" })).not.toHaveAttribute(
+      "data-editing",
+    );
+  });
+
+  it("keeps the tab in the view when the lane is turned on in the continuous layout (#231)", async () => {
+    const { user } = await renderWithLane(false);
+    await user.click(screen.getByRole("radio", { name: "Continuous" }));
+
+    await user.click(screen.getByRole("button", { name: "Show lane Take under the tabs" }));
+
+    expect(screen.getByRole("region", { name: "Score: Guitar" })).toBeInTheDocument();
+    // With a lane in the view, the last tab can be taken out.
+    expect(screen.getByRole("button", { name: "Visible: Guitar" })).toBeEnabled();
   });
 
   it("opens a song with a lane shown under the tabs in the continuous layout", async () => {

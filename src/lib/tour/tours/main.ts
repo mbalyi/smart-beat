@@ -73,7 +73,7 @@ export const mainTour: TourDefinition = {
       id: "stack",
       target: "tracks",
       title: "Show several tracks at once",
-      body: "In the continuous layout, the eye next to a track adds it to the score, bar-aligned under the others, so you can write a bass line with the drums in view. The track you edit stays bright; the others are context. Drag the grip, or press Alt with the Up or Down arrow on a track's name, to change the order.",
+      body: "In the continuous layout, the eye next to a track adds it to the score, bar-aligned under the others, so you can write a bass line with the drums in view. Any track can be added or taken out, and they stack in the order you added them, the first one on top. You edit one track at a time: if you take out the one you edit, editing moves to the next track in the view. Drag the grip, or press Alt with the Up or Down arrow on a track's name, to change the order.",
       needsSong: true,
       show: { mixer: true },
       placement: "top",

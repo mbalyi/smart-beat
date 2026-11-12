@@ -571,6 +571,8 @@ export interface MixerSettings {
   visibleTracks?: number[];
   /** The track being edited when several are stacked (restored with them; #157). */
   activeTrack?: number;
+  /** The continuous view shows only the audio lanes, no tab; the edited track stays remembered (#231). */
+  tabsHidden?: boolean;
 }
 
 /** The drum-tab line (1 bottom … 6 top) of the drum note at a position (0-based indices). */

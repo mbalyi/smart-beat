@@ -108,6 +108,10 @@ pub struct MixerSettings {
     /// The track being edited while several are stacked (#157), as a score index.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_track: Option<u32>,
+    /// The continuous view shows only the audio lanes, no tab (#231). The tab track being edited
+    /// stays remembered in `active_track`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tabs_hidden: bool,
 }
 
 /// The drum-tab line of one drum note, by its position in the score (0-based
@@ -640,6 +644,7 @@ mod tests {
             drum_lines: Vec::new(),
             visible_tracks: Vec::new(),
             active_track: None,
+            tabs_hidden: false,
         }
     }
 
@@ -833,6 +838,7 @@ mod tests {
             }],
             visible_tracks: vec![1, 0],
             active_track: Some(1),
+            tabs_hidden: true,
             ..settings()
         }
     }

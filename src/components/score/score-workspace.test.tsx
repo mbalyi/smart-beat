@@ -235,6 +235,84 @@ describe("ScoreWorkspace", () => {
       expect(screen.getByRole("region", { name: "Score: Drums" })).toBeInTheDocument();
     });
 
+    it("adds a track chosen by name at the bottom of the view instead of swapping it in (#231)", async () => {
+      const { user, player } = await setup();
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+
+      await user.click(screen.getByRole("button", { name: /^Show Bass/ }));
+
+      expect(player.showTrack).toHaveBeenLastCalledWith(1, expect.anything(), {
+        indexes: [0, 2, 1],
+        views: expect.any(Array),
+      });
+      expect(screen.getByRole("region", { name: "Score: Bass" })).toBeInTheDocument();
+    });
+
+    it("moves editing to the top remaining track when the edited one is taken out (#231)", async () => {
+      const { user } = await setup();
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+
+      await user.click(screen.getByRole("button", { name: "Visible: Guitar" }));
+
+      expect(screen.getByRole("region", { name: "Score: Drums" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(screen.getByRole("button", { name: "Visible: Drums" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+
+    it("saves the track that is left after the first one is taken out of the view (#231)", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const { user, calls } = await setup({ desktop: true });
+        await user.click(screen.getByRole("radio", { name: "Continuous" }));
+        await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+        await user.click(screen.getByRole("button", { name: "Visible: Guitar" }));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS + 50);
+        });
+
+        const saved = calls.filter((c) => c.cmd === "save_mixer_settings").at(-1)!;
+        expect((saved.args as { settings: object }).settings).toMatchObject({
+          visibleTracks: [2],
+          activeTrack: 2,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not grow the view with tracks that are only visited in the page layout (#231)", async () => {
+      const { user } = await setup();
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+      await user.click(screen.getByRole("button", { name: "Visible: Drums" }));
+      await user.click(screen.getByRole("radio", { name: "Page" }));
+
+      // Bass is picked for editing in the page layout: it takes the place of the track edited.
+      await user.click(screen.getByRole("button", { name: /^Show Bass/ }));
+      await user.click(screen.getByRole("radio", { name: "Continuous" }));
+
+      expect(screen.getByRole("button", { name: "Visible: Bass" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(screen.getByRole("button", { name: "Visible: Drums" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(screen.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
     it("makes a stacked track the active one when its notes are clicked, and ignores others", async () => {
       const { user, player, song } = await setup();
       await user.click(screen.getByRole("radio", { name: "Continuous" }));

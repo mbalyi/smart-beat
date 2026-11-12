@@ -23,7 +23,7 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     id: "audio-lanes",
     title: "Audio lanes",
     summary:
-      "Put several audio files on lanes next to your tracks, each in its own colour (the stem colours by default), with its own mix and effects. Move, trim, split, glue and fade clips, give each its own pitch, sync the audio to the score, record plain audio takes, and open the studio for every lane at once. The eye on a lane shows it under the tabs, on the same bars (the continuous layout). Old songs with a backing file open with it on a lane.",
+      "Put several audio files on lanes next to your tracks, each in its own colour (the stem colours by default), with its own mix and effects. Move, trim, split, glue and fade clips, give each its own pitch, sync the audio to the score, record plain audio takes, and open the studio for every lane at once. The eye on a lane shows it on the same bars as the notes (the continuous layout), alone at first; turn on a track to put its tab above the lanes. Old songs with a backing file open with it on a lane.",
     since: "1.3.0",
     tour: "audio-lanes",
   },
@@ -127,6 +127,14 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     summary:
       "In the continuous layout, show more than one track under each other, bar-aligned, and reorder them. You still edit one track at a time.",
     since: "1.1.0",
+    tour: "main",
+  },
+  {
+    id: "stacked-tracks-any",
+    title: "Pick any tracks for the continuous view",
+    summary:
+      "Add or take out any track in the continuous layout, the first one too. Tracks stack in the order you added them, the first one on top.",
+    since: "1.3.0",
     tour: "main",
   },
   {

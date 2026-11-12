@@ -67,7 +67,7 @@ export const audioLanesTour: TourDefinition = {
       id: "band",
       target: "lanes-band",
       title: "Lanes under the tabs",
-      body: "Click the eye on a lane to show it right under the tabs, on the same bars, so you can see the audio against the notes. That needs the continuous layout, so the app switches to it and the Page layout waits until you hide the lanes again. Move, trim, split and fade clips there as in the track list. (Shown when a lane is on under the tabs.)",
+      body: "Click the eye on a lane to show it on the same bars as the notes. That needs the continuous layout, so the app switches to it and the Page layout waits until you hide the lanes again. The lane shows alone at first; turn on a track with its eye to put its tab above the lanes, so you can see the audio against the notes. Move, trim, split and fade clips there as in the track list. (Shown when a lane is on under the tabs.)",
       needsSong: true,
       show: MIXER,
       placement: "top",

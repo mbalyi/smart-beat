@@ -191,6 +191,7 @@ export function ScoreView({
   problemRects = [],
   describedBy,
   band,
+  tabsHidden = false,
 }: {
   viewportRef: Ref<HTMLDivElement>;
   surfaceRef: Ref<HTMLDivElement>;
@@ -212,6 +213,11 @@ export function ScoreView({
   describedBy?: string;
   /** The audio lanes under the notation (continuous layout): in the paper's flow, below the staves. */
   band?: ReactNode;
+  /**
+   * Only the audio lanes show (#231): the staves stay laid out, so the bars keep their places for
+   * the lanes, but take no room and are not read.
+   */
+  tabsHidden?: boolean;
 }) {
   return (
     // `isolate`: alphaTab puts its cursor at z-index 1000; keep that inside the
@@ -246,9 +252,14 @@ export function ScoreView({
           )}
         >
           <div className="relative">
-            <div ref={surfaceRef} />
+            <div
+              ref={surfaceRef}
+              data-tabs-hidden={tabsHidden || undefined}
+              aria-hidden={tabsHidden || undefined}
+              className={cn(tabsHidden && "h-0 overflow-hidden")}
+            />
             {band}
-            {problemRects.length > 0 && (
+            {problemRects.length > 0 && !tabsHidden && (
               <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden="true">
                 {problemRects.map((rect, i) => (
                   <div

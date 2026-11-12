@@ -541,7 +541,12 @@ export function TrackList({
    * The tracks stacked in the continuous view, in display order, and whether that layout is on
    * (otherwise the eye just shows the track, as before; #157).
    */
-  stack?: { indexes: number[]; stacking: boolean };
+  stack?: {
+    indexes: number[];
+    stacking: boolean;
+    /** Audio lanes are in the view: the last tab may go, only the lanes stay (#231). */
+    hasBand?: boolean;
+  };
   mix: MixerSettings;
   onChange: MixerChange;
   onReset: () => void;
@@ -832,6 +837,10 @@ export function TrackList({
             const stacked = stacking && position >= 0;
             const place =
               stacking && stack && position >= 0 ? { position, of: stack.indexes.length } : null;
+            // Any track can be taken out of the view, the edited one included (#231); only the
+            // last one stays.
+            const alone = stacked && !!stack && stack.indexes.length < 2;
+            const lastInView = alone && !stack?.hasBand;
             const automation = trackAutomation(mix, i);
             const lane = lanes[i] ?? "volume";
             const focused = mix.focus === i;
@@ -920,7 +929,7 @@ export function TrackList({
                       </div>
                       <RowEye
                         pressed={stacking ? stacked : isShown}
-                        disabled={stacking && isShown}
+                        disabled={lastInView}
                         onPressedChange={() =>
                           stacking && actions.onToggleVisible
                             ? actions.onToggleVisible(i)
@@ -929,10 +938,14 @@ export function TrackList({
                         label={`Visible: ${track.name}`}
                         title={
                           stacking
-                            ? isShown
-                              ? "The track you edit is always in the view"
+                            ? lastInView
+                              ? "The last track stays in the view"
                               : stacked
-                                ? "Take out of the continuous view"
+                                ? alone
+                                  ? "Hide the tab, only the audio lanes stay (editing stops)"
+                                  : isShown
+                                    ? "Take out of the continuous view (editing moves to the next track)"
+                                    : "Take out of the continuous view"
                                 : "Show in the continuous view"
                             : "Show in the score"
                         }

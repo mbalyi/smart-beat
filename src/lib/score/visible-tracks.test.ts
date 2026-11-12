@@ -4,6 +4,7 @@ import { moveTrack } from "@/lib/score/tracks";
 import {
   moveInStack,
   reconcileStack,
+  stackForEditing,
   stackFromIndexes,
   stackToIndexes,
   toggleInStack,
@@ -21,15 +22,55 @@ describe("the tracks stacked in the continuous view", () => {
     const { guitar, bass, drums } = load();
 
     const two = toggleInStack([guitar], drums, guitar);
-    expect(two).toEqual([guitar, drums]);
-    expect(toggleInStack(two, bass, guitar)).toEqual([guitar, drums, bass]);
-    expect(toggleInStack(two, drums, guitar)).toEqual([guitar]);
+    expect(two).toEqual({ stack: [guitar, drums], active: guitar });
+    expect(toggleInStack(two.stack, bass, guitar)).toEqual({
+      stack: [guitar, drums, bass],
+      active: guitar,
+    });
+    expect(toggleInStack(two.stack, drums, guitar)).toEqual({ stack: [guitar], active: guitar });
   });
 
-  it("never takes out the track being edited", () => {
-    const { guitar, bass } = load();
+  it("puts a track that is added again at the bottom", () => {
+    const { guitar, bass, drums } = load();
 
-    expect(toggleInStack([guitar, bass], guitar, guitar)).toEqual([guitar, bass]);
+    const out = toggleInStack([guitar, bass, drums], bass, guitar);
+    expect(out.stack).toEqual([guitar, drums]);
+    expect(toggleInStack(out.stack, bass, out.active).stack).toEqual([guitar, drums, bass]);
+  });
+
+  it("moves editing to the top remaining track when the edited one is taken out", () => {
+    const { guitar, bass, drums } = load();
+
+    expect(toggleInStack([guitar, bass, drums], guitar, guitar)).toEqual({
+      stack: [bass, drums],
+      active: bass,
+    });
+    expect(toggleInStack([bass, guitar, drums], guitar, guitar)).toEqual({
+      stack: [bass, drums],
+      active: bass,
+    });
+    expect(toggleInStack([drums, bass, guitar], guitar, guitar)).toEqual({
+      stack: [drums, bass],
+      active: drums,
+    });
+  });
+
+  it("keeps the last track in the view", () => {
+    const { guitar } = load();
+
+    expect(toggleInStack([guitar], guitar, guitar)).toEqual({ stack: [guitar], active: guitar });
+  });
+
+  it("adds a track chosen for editing at the bottom instead of swapping it in", () => {
+    const { guitar, bass, drums } = load();
+
+    expect(stackForEditing([guitar, bass], drums)).toEqual([guitar, bass, drums]);
+    expect(stackForEditing([guitar, bass], bass)).toEqual([guitar, bass]);
+    // A single track is not a stack: the new one just takes over.
+    expect(stackForEditing([guitar], drums)).toEqual([drums]);
+    // Outside the continuous view the new one takes the place of the track that was edited.
+    expect(stackForEditing([guitar, bass], drums, guitar)).toEqual([drums, bass]);
+    expect(stackForEditing([guitar, bass], bass, guitar)).toEqual([guitar, bass]);
   });
 
   it("moves a stacked track without leaving the ends", () => {

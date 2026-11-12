@@ -2,7 +2,8 @@
  * The tracks stacked in the continuous view (#157): a display order, kept
  * apart from the order of the tracks in the file. Tracks are held by identity
  * (like the mix), so the list follows them through reordering, removal and
- * undo. The active track (the one being edited) is always in the stack.
+ * undo. The active track (the one being edited) is always in the stack; it can be taken
+ * out, which moves editing to another stacked track (#231).
  */
 import type { Track } from "@/lib/score/model";
 
@@ -17,11 +18,34 @@ export function reconcileStack(
   return kept.includes(active) ? kept : [active, ...kept];
 }
 
-/** Shows `track` in the stack, after the last one, or hides it. The active track cannot be hidden. */
-export function toggleInStack(stack: readonly Track[], track: Track, active: Track): Track[] {
-  if (stack.includes(track))
-    return track === active ? [...stack] : stack.filter((t) => t !== track);
-  return [...stack, track];
+/** The stack after a toggle, and the track that is edited afterwards. */
+export interface StackToggle {
+  stack: Track[];
+  active: Track;
+}
+
+/**
+ * Shows `track` in the stack, after the last one, or hides it (#231). Any track can be hidden,
+ * the one being edited included: editing then moves to the top remaining track, so the edited
+ * track stays in the stack. The last track in the view cannot be hidden.
+ */
+export function toggleInStack(stack: readonly Track[], track: Track, active: Track): StackToggle {
+  if (!stack.includes(track)) return { stack: [...stack, track], active };
+  if (stack.length < 2) return { stack: [...stack], active };
+  const rest = stack.filter((t) => t !== track);
+  return { stack: rest, active: track === active ? rest[0]! : active };
+}
+
+/**
+ * Where a track chosen for editing goes: unchanged when stacked, otherwise after the last one.
+ * Outside the continuous view the stack is not on show, so there `replacing` (the track that was
+ * edited) hands its place over instead of the view growing with every track visited.
+ */
+export function stackForEditing(stack: readonly Track[], next: Track, replacing?: Track): Track[] {
+  if (stack.length < 2) return [next];
+  if (stack.includes(next)) return [...stack];
+  if (replacing && stack.includes(replacing)) return stack.map((t) => (t === replacing ? next : t));
+  return [...stack, next];
 }
 
 /** Moves a stacked track by `delta` places (clamped to the ends). */

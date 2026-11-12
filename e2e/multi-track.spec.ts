@@ -92,8 +92,43 @@ test.describe("several tracks in the continuous view (#157)", () => {
       "aria-pressed",
       "true",
     );
-    // The track being edited cannot be taken out of the view.
-    await expect(mixer(app).getByRole("button", { name: "Visible: Bass" })).toBeDisabled();
+    // The track being edited can be taken out too, while another track stays in the view.
+    await expect(mixer(app).getByRole("button", { name: "Visible: Bass" })).toBeEnabled();
+  });
+
+  test("stacks the tracks in the order they were added and lets any of them go, the first too (#231)", async ({
+    app,
+  }) => {
+    await openSong(app);
+    await stack(app, "Drums", "Bass");
+    await expect.poll(() => drawnOrder(app)).toEqual(["Guitar", "Drums", "Bass"]);
+
+    // Taking out the edited (first) track moves editing to the top remaining track.
+    await mixer(app).getByRole("button", { name: "Visible: Guitar" }).click();
+    await expect.poll(() => drawnOrder(app)).toEqual(["Drums", "Bass"]);
+    await expect(scoreRegion(app)).toHaveAccessibleName("Score: Drums");
+
+    // Added again, it goes to the bottom.
+    await mixer(app).getByRole("button", { name: "Visible: Guitar" }).click();
+    await expect.poll(() => drawnOrder(app)).toEqual(["Drums", "Bass", "Guitar"]);
+
+    // Down to one track: the last one stays.
+    await mixer(app).getByRole("button", { name: "Visible: Bass" }).click();
+    await mixer(app).getByRole("button", { name: "Visible: Guitar" }).click();
+    await expect.poll(() => drawnOrder(app)).toEqual(["Drums"]);
+    await expect(mixer(app).getByRole("button", { name: "Visible: Drums" })).toBeDisabled();
+  });
+
+  test("adds a track chosen for editing at the bottom of the view (#231)", async ({ app }) => {
+    await openSong(app);
+    await stack(app, "Bass");
+
+    await mixer(app)
+      .getByRole("button", { name: /^Show Drums/ })
+      .click();
+
+    await expect(scoreRegion(app)).toHaveAccessibleName("Score: Drums");
+    await expect.poll(() => drawnOrder(app)).toEqual(["Guitar", "Bass", "Drums"]);
   });
 
   test("remembers the stacked tracks and their order when the song is opened again", async ({

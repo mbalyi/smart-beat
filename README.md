@@ -228,23 +228,24 @@ pnpm tauri dev      # desktop app with hot reload
 
 ## Scripts
 
-| Command                                                  | What it does                                                                                                                                          |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm tauri dev`                                         | Run the desktop app in development mode                                                                                                               |
-| `pnpm tauri build`                                       | Build installers for the current OS (see [Packaging](#packaging))                                                                                     |
-| `pnpm lint` / `pnpm format` / `pnpm format:check`        | ESLint / Prettier                                                                                                                                     |
-| `pnpm typecheck`                                         | TypeScript project check                                                                                                                              |
-| `pnpm test` / `pnpm test:watch` / `pnpm test:coverage`   | Vitest unit and integration tests (UI)                                                                                                                |
-| `pnpm test:e2e`                                          | Playwright browser integration tests (Chromium and WebKit, a11y and responsive checks). Run `pnpm exec playwright install chromium webkit` once first |
-| `pnpm test:e2e:smoke` / `pnpm test:e2e:additional`       | `pnpm test:e2e` for the core flows only, and for all the feature groups together (CI runs each group as its own job, see `e2e/groups.ts`)             |
-| `pnpm rust:test` / `pnpm rust:lint` / `pnpm rust:fmt`    | Rust tests, clippy (`-D warnings`), rustfmt check                                                                                                     |
-| `pnpm licenses:check`                                    | Enforce the license policy for npm packages and Rust crates                                                                                           |
-| `pnpm licenses:generate`                                 | Regenerate `public/third-party-licenses.txt` (runs automatically before `tauri build`)                                                                |
-| `pnpm soundfonts:fetch`                                  | Download the FluidR3 SoundFont into `public/soundfont/` (runs automatically before `tauri dev` and `tauri build`)                                     |
-| `pnpm docs:check`                                        | Fail on a stale contact address or repository URL, or a broken relative link in the Markdown docs                                                     |
-| `pnpm version:check`                                     | Check that `package.json`, `Cargo.toml` and `Cargo.lock` carry the same version                                                                       |
-| `pnpm release:patch` / `release:minor` / `release:major` | Bump the version everywhere and start the changelog section (see [`docs/release.md`](docs/release.md#versions))                                       |
-| `pnpm check`                                             | Everything CI runs, except Playwright and the license gate                                                                                            |
+| Command                                                                                     | What it does                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm tauri dev`                                                                            | Run the desktop app in development mode                                                                                                                            |
+| `pnpm tauri build`                                                                          | Build installers for the current OS (see [Packaging](#packaging))                                                                                                  |
+| `pnpm lint` / `pnpm format` / `pnpm format:check`                                           | ESLint / Prettier                                                                                                                                                  |
+| `pnpm typecheck`                                                                            | TypeScript project check                                                                                                                                           |
+| `pnpm test` / `pnpm test:watch` / `pnpm test:coverage`                                      | Vitest unit and integration tests (UI)                                                                                                                             |
+| `pnpm test:e2e`                                                                             | Playwright browser integration tests (Chromium and WebKit, a11y and responsive checks). Run `pnpm exec playwright install chromium webkit` once first              |
+| `pnpm test:e2e:smoke` / `pnpm test:e2e:additional`                                          | `pnpm test:e2e` for the core flows only (all seven smoke themes), and for all the feature groups together (CI runs each group as its own job, see `e2e/groups.ts`) |
+| `pnpm test:e2e:smoke-ui` (also `-files`, `-score`, `-drums`, `-sound`, `-practice`, `-app`) | One smoke theme of the core flows, as CI runs it                                                                                                                   |
+| `pnpm rust:test` / `pnpm rust:lint` / `pnpm rust:fmt`                                       | Rust tests, clippy (`-D warnings`), rustfmt check                                                                                                                  |
+| `pnpm licenses:check`                                                                       | Enforce the license policy for npm packages and Rust crates                                                                                                        |
+| `pnpm licenses:generate`                                                                    | Regenerate `public/third-party-licenses.txt` (runs automatically before `tauri build`)                                                                             |
+| `pnpm soundfonts:fetch`                                                                     | Download the FluidR3 SoundFont into `public/soundfont/` (runs automatically before `tauri dev` and `tauri build`)                                                  |
+| `pnpm docs:check`                                                                           | Fail on a stale contact address or repository URL, or a broken relative link in the Markdown docs                                                                  |
+| `pnpm version:check`                                                                        | Check that `package.json`, `Cargo.toml` and `Cargo.lock` carry the same version                                                                                    |
+| `pnpm release:patch` / `release:minor` / `release:major`                                    | Bump the version everywhere and start the changelog section (see [`docs/release.md`](docs/release.md#versions))                                                    |
+| `pnpm check`                                                                                | Everything CI runs, except Playwright and the license gate                                                                                                         |
 
 ## Testing
 
@@ -318,7 +319,7 @@ docs/                Licensing, code signing, releases and updates, ADRs
 
 - **[CI](.github/workflows/ci.yml)** runs on every PR and every push to `main`:
   - lint, format, types and Vitest with coverage;
-  - Playwright, in nine groups so none is too slow (**E2E smoke tests** for the core flows, and one group each for Record to tab and Import from Audio, stem separation, Practice together, audio lanes, edit tests, guided tours, the AI installer and model dialogs, and cloud share), each with one job per browser (Chromium and WebKit); the groups are in `e2e/groups.ts`;
+  - Playwright, in fifteen groups so none is too slow (seven **E2E smoke** groups for the core flows by theme: UI, files, score, drums, sound, practice and app; and one group each for Record to tab and Import from Audio, stem separation, Practice together, audio lanes, edit tests, guided tours, the AI installer and model dialogs, and cloud share), each with one job per browser (Chromium and WebKit); the groups are in `e2e/groups.ts`;
   - Rust fmt, clippy and tests, plus an app compile on **macOS, Windows and Linux**;
   - the license policy (npm and cargo-deny, including advisories);
   - a secret scan of the files and the full git history ([gitleaks](https://github.com/gitleaks/gitleaks), settings in [`.gitleaks.toml`](.gitleaks.toml)).
