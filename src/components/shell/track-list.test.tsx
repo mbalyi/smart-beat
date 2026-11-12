@@ -839,6 +839,12 @@ describe("TrackList", () => {
       expect(guitar).toBeDisabled();
     });
 
+    it("lets the last track go while audio lanes are in the view (#231)", () => {
+      setup({ stack: { indexes: [0], stacking: true, hasBand: true }, actions: stackActions() });
+
+      expect(screen.getByRole("button", { name: "Visible: Guitar" })).toBeEnabled();
+    });
+
     it("adds and removes tracks from the eye", async () => {
       const actions = stackActions();
       const { user } = setup({ stack: stacking, actions });

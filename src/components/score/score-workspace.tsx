@@ -613,6 +613,13 @@ export function ScoreWorkspace({
       ? "horizontal"
       : "page",
   );
+  // The continuous view shows only the audio lanes, no tab, until a tab track is turned on (#231).
+  // The track that was edited stays remembered in `trackIndex` and `stack`.
+  const [tabsHidden, setTabsHidden] = useState(
+    () => !!song.mix.tabsHidden && isTauri() && hasBandRows(lanesOf(song.mix)),
+  );
+  const tabsHiddenRef = useRef(tabsHidden);
+  tabsHiddenRef.current = tabsHidden;
   /** A stack for the player; only several tracks make one. */
   const stackArg = (tracks: readonly Track[]) => (tracks.length > 1 ? stackFor(tracks) : undefined);
   /** The stack as the player takes it (score indexes and the notation of each track). */
@@ -1148,7 +1155,7 @@ export function ScoreWorkspace({
   useEffect(() => playerRef.current?.setLoopCountIn(loopCountIn), [loopCountIn]);
 
   // The stacked tracks and the one being edited are saved with the song (as score indexes).
-  const stackKey = `${stackToIndexes(stack, score.tracks).join(",")}|${trackIndex}`;
+  const stackKey = `${stackToIndexes(stack, score.tracks).join(",")}|${trackIndex}|${tabsHidden}`;
   useEffect(() => {
     // A single track is saved too when it is not the first one: after taking the first track out
     // of the view the song reopens on the track it was left on (#231).
@@ -1157,7 +1164,8 @@ export function ScoreWorkspace({
     const saved = mixRef.current;
     if (
       (saved.visibleTracks ?? []).join(",") === (visible ?? []).join(",") &&
-      (visible ? saved.activeTrack === trackIndex : saved.activeTrack === undefined)
+      (visible ? saved.activeTrack === trackIndex : saved.activeTrack === undefined) &&
+      !!saved.tabsHidden === tabsHidden
     ) {
       return;
     }
@@ -1165,11 +1173,13 @@ export function ScoreWorkspace({
       ...saved,
       visibleTracks: visible,
       activeTrack: visible ? trackIndex : undefined,
+      tabsHidden: tabsHidden || undefined,
     };
     if (!visible) {
       delete next.visibleTracks;
       delete next.activeTrack;
     }
+    if (!tabsHidden) delete next.tabsHidden;
     mixRef.current = next;
     setMix(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the saved form of the stack
@@ -1446,6 +1456,12 @@ export function ScoreWorkspace({
   const changeTrack = (index: number) => {
     const next = score.tracks[index];
     if (!next) return;
+    // With the tabs hidden, choosing a track shows it alone, below nothing but the lanes.
+    if (tabsHiddenRef.current) {
+      setTabsHidden(false);
+      switchTrack(index, [next]);
+      return;
+    }
     // Another track becomes the one being edited; a stacked view keeps its tracks and adds the
     // new one after the last when it was not in it (#231).
     switchTrack(index, stackForEditing(stackRef.current, next));
@@ -1464,6 +1480,12 @@ export function ScoreWorkspace({
     else playerRef.current?.showTrack(index, shownView);
   };
 
+  /** Shows only the audio lanes: the tab leaves the view and editing stops. */
+  const hideTabs = () => {
+    setTabsHidden(true);
+    setEditing(false);
+  };
+
   /**
    * Adds a track to the continuous view or takes it out. Taking out the edited track moves
    * editing to the top remaining track (#231).
@@ -1471,7 +1493,17 @@ export function ScoreWorkspace({
   const toggleStacked = (index: number) => {
     const target = score.tracks[index];
     if (!target) return;
+    if (tabsHiddenRef.current) {
+      // The first tab turned on after the lanes: it is the only one in the view at first.
+      changeTrack(index);
+      return;
+    }
     const before = stackRef.current;
+    if (before.length < 2 && before[0] === target && bandWanted) {
+      // The last tab can go while audio lanes are in the view: only the lanes stay.
+      hideTabs();
+      return;
+    }
     const { stack: next, active } = toggleInStack(before, target, trackObject);
     if (active !== trackObject) switchTrack(score.tracks.indexOf(active), next);
     else applyStack(next);
@@ -1858,6 +1890,10 @@ export function ScoreWorkspace({
   }
   useEffect(() => {
     editingBlocked.current = () => {
+      if (tabsHidden) {
+        toast.info("Turn on a tab track to edit it", { id: "tabs-hidden" });
+        return true;
+      }
       if (!together.readOnly) return false;
       toast.info(
         together.edit.live
@@ -1877,7 +1913,7 @@ export function ScoreWorkspace({
     return () => {
       editor.blocked = null;
     };
-  }, [together.readOnly, together.edit.live, editor]);
+  }, [together.readOnly, together.edit.live, editor, tabsHidden]);
   // A session plays with the SoundFonts, and nobody moves the cursor with a click while its song
   // plays (the two computers would be at different places).
   useEffect(() => {
@@ -2006,9 +2042,17 @@ export function ScoreWorkspace({
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   useEffect(() => {
-    if (!bandWanted || layoutRef.current === "horizontal") return;
+    if (!bandWanted) {
+      // The last lane is hidden: the tabs always have something to show again.
+      if (tabsHiddenRef.current) setTabsHidden(false);
+      return;
+    }
+    if (layoutRef.current === "horizontal") return;
+    // Coming from the page layout the view starts with the lane alone; tabs are turned on after.
     setLayout("horizontal");
     playerRef.current?.setLayout("horizontal");
+    setTabsHidden(true);
+    setEditing(false);
   }, [bandWanted]);
   const barSpans = useScoreBarBounds(playerRef, playerEpoch, layout === "horizontal" && bandWanted);
   /** Bars the score lacks for its audio: playback follows the score and stops at its end. */
@@ -3373,7 +3417,8 @@ export function ScoreWorkspace({
             <ScoreView
               viewportRef={viewportRef}
               surfaceRef={surfaceRef}
-              label={`Score: ${track.name}`}
+              label={tabsHidden ? "Score: audio lanes" : `Score: ${track.name}`}
+              tabsHidden={tabsHidden}
               layout={layout}
               rendering={rendering}
               editing={editing}
@@ -3541,8 +3586,9 @@ export function ScoreWorkspace({
           tracks={summary.tracks}
           shown={trackIndex}
           stack={{
-            indexes: stackToIndexes(stack, score.tracks),
+            indexes: tabsHidden ? [] : stackToIndexes(stack, score.tracks),
             stacking: layout === "horizontal",
+            hasBand: bandWanted,
           }}
           mix={mix}
           onChange={changeMix}

@@ -98,8 +98,46 @@ test.describe("lanes under the tabs in the continuous layout", () => {
     await expect(page).toBeChecked();
   });
 
+  test("a lane turned on from the page layout is alone in the view, and tabs and lanes stack in the order they were added (#231)", async ({
+    app,
+  }) => {
+    await openWithLanes(app);
+    await app.getByRole("button", { name: "Show lane take under the tabs" }).click();
+    await expect(app.getByRole("radio", { name: "Continuous" })).toBeChecked();
+    await expect(app.getByTestId("score-lanes-band")).toBeVisible();
+    // No tab in the view: the staves take no room and the band is at the top.
+    await expect(app.getByRole("region", { name: "Score: audio lanes" })).toBeVisible();
+    await expect(app.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    // A second lane goes underneath the first.
+    await app.getByRole("button", { name: "Show lane other under the tabs" }).click();
+    const band = app.getByTestId("score-lanes-band");
+    const first = (await band
+      .getByTestId(/^band-lane-[^n]/)
+      .first()
+      .boundingBox())!;
+    const second = (await band
+      .getByTestId(/^band-lane-[^n]/)
+      .nth(1)
+      .boundingBox())!;
+    expect(second.y).toBeGreaterThanOrEqual(first.y + first.height - 1);
+
+    // A tab turned on goes above the lanes; with the lanes still on it can be taken out again.
+    await app.getByRole("button", { name: "Visible: Guitar" }).click();
+    await expect(app.getByRole("region", { name: "Score: Guitar" })).toBeVisible();
+    const surface = (await app.locator(".at-surface").first().boundingBox())!;
+    expect((await band.boundingBox())!.y).toBeGreaterThanOrEqual(surface.y + surface.height - 1);
+    await app.getByRole("button", { name: "Visible: Guitar" }).click();
+    await expect(app.getByRole("region", { name: "Score: audio lanes" })).toBeVisible();
+  });
+
   test("shows under the tabs, one row per lane, and not in the page layout", async ({ app }) => {
     const band = await openWithBand(app);
+    // The lanes start alone; turning a tab on puts it above them.
+    await app.getByRole("button", { name: "Visible: Guitar" }).click();
     await expect(
       band.getByRole("group", { name: /Audio lane take under the score/ }),
     ).toBeVisible();

@@ -962,6 +962,43 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     expect(player.setLayout).toHaveBeenLastCalledWith("page");
   });
 
+  it("shows the lane alone when its eye is turned on from the page layout, and tabs after it (#231)", async () => {
+    const { user } = await renderWithLane(false);
+    expect(screen.getByRole("region", { name: "Score: Guitar" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show lane Take under the tabs" }));
+
+    // No tab track in the view: only the lane. The tab eyes are off.
+    expect(screen.getByRole("region", { name: "Score: audio lanes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visible: Guitar" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "Visible: Guitar" })).toBeEnabled();
+
+    // A tab turned on joins the lane, and can go again while the lane stays.
+    await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+    expect(screen.getByRole("region", { name: "Score: Bass" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visible: Bass" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Visible: Bass" }));
+    expect(screen.getByRole("region", { name: "Score: audio lanes" })).toBeInTheDocument();
+
+    // The last lane hidden: the tab comes back, so the view is never empty.
+    await user.click(screen.getByRole("button", { name: "Hide lane Take from under the tabs" }));
+    expect(screen.getByRole("region", { name: /^Score: (?!audio lanes)/ })).toBeInTheDocument();
+  });
+
+  it("keeps the tab in the view when the lane is turned on in the continuous layout (#231)", async () => {
+    const { user } = await renderWithLane(false);
+    await user.click(screen.getByRole("radio", { name: "Continuous" }));
+
+    await user.click(screen.getByRole("button", { name: "Show lane Take under the tabs" }));
+
+    expect(screen.getByRole("region", { name: "Score: Guitar" })).toBeInTheDocument();
+    // With a lane in the view, the last tab can be taken out.
+    expect(screen.getByRole("button", { name: "Visible: Guitar" })).toBeEnabled();
+  });
+
   it("opens a song with a lane shown under the tabs in the continuous layout", async () => {
     const { player } = await renderWithLane(true);
     expect(player.options.layout).toBe("horizontal");

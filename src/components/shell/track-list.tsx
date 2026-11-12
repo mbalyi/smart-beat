@@ -541,7 +541,12 @@ export function TrackList({
    * The tracks stacked in the continuous view, in display order, and whether that layout is on
    * (otherwise the eye just shows the track, as before; #157).
    */
-  stack?: { indexes: number[]; stacking: boolean };
+  stack?: {
+    indexes: number[];
+    stacking: boolean;
+    /** Audio lanes are in the view: the last tab may go, only the lanes stay (#231). */
+    hasBand?: boolean;
+  };
   mix: MixerSettings;
   onChange: MixerChange;
   onReset: () => void;
@@ -834,7 +839,7 @@ export function TrackList({
               stacking && stack && position >= 0 ? { position, of: stack.indexes.length } : null;
             // Any track can be taken out of the view, the edited one included (#231); only the
             // last one stays.
-            const lastInView = stacked && !!stack && stack.indexes.length < 2;
+            const lastInView = stacked && !!stack && stack.indexes.length < 2 && !stack.hasBand;
             const automation = trackAutomation(mix, i);
             const lane = lanes[i] ?? "volume";
             const focused = mix.focus === i;
