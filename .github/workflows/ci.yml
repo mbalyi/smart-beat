@@ -54,49 +54,15 @@ jobs:
           path: coverage/
           retention-days: 14
 
-  e2e-smoke:
-    # The core flows. One runner per browser: the tests play real audio and render
-    # in software, and two browsers sharing a 2-core runner starve each other (see
-    # playwright.config.ts).
-    name: E2E smoke tests (${{ matrix.browser }})
-    runs-on: ubuntu-latest
-    # The official Playwright image has the browsers and their system libraries, so nothing is
-    # installed from the Ubuntu mirror (which once stalled for an hour). Keep the tag equal to the
-    # exact @playwright/test version in package.json.
-    container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
-    timeout-minutes: 70
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [chromium, webkit]
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Browser integration tests (Playwright + axe)
-        run: pnpm test:e2e:smoke --project=${{ matrix.browser }}
-
-      - name: Upload Playwright report
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-report-smoke-${{ matrix.browser }}
-          path: playwright-report/
-          retention-days: 14
-
-  e2e-additional:
-    # The guided-tour, AI installer, Record to tab, Import from Audio, stem separation, cloud storage and Practice together tests, in their own job so the smoke job
-    # stays short (the groups are defined in playwright.config.ts).
-    name: E2E additional functions (${{ matrix.browser }})
+  e2e:
+    # The browser integration tests, one job per group and browser: the groups are defined in
+    # e2e/groups.ts ("smoke" is the core flows, the rest are feature groups), so a slow group never
+    # runs out of time. The tests play real audio and render in software (WebKit), so every job has
+    # its own runner. `workers` is how many tests run at once inside a job: the runner of a public
+    # repo has 4 vCPUs. A group that flakes with two goes back to one here. Keep the group ids equal
+    # to CI_GROUPS in e2e/groups.ts (scripts/e2e-groups.test.mjs checks it), and the check names
+    # below in the "Protect main" ruleset.
+    name: E2E ${{ matrix.group.title }} (${{ matrix.browser }})
     runs-on: ubuntu-latest
     # The official Playwright image has the browsers and their system libraries, so nothing is
     # installed from the Ubuntu mirror (which once stalled for an hour). Keep the tag equal to the
@@ -108,6 +74,18 @@ jobs:
       fail-fast: false
       matrix:
         browser: [chromium, webkit]
+        group:
+          # One worker: the core flows include tests of real-time playback, which a second test
+          # running at once pushes past their tolerance (score.spec.ts "keeps real time").
+          - { id: smoke, title: smoke tests, workers: 1 }
+          - { id: record-import, title: Record to tab and Import from Audio, workers: 2 }
+          - { id: stems, title: stem separation, workers: 2 }
+          - { id: practice-together, title: Practice together, workers: 2 }
+          - { id: audio-lanes, title: audio lanes, workers: 2 }
+          - { id: edit, title: edit tests, workers: 2 }
+          - { id: tours, title: guided tours, workers: 2 }
+          - { id: ai-dialogs, title: AI installer and model dialogs, workers: 2 }
+          - { id: cloud-share, title: cloud share, workers: 2 }
     steps:
       - uses: actions/checkout@v7
 
@@ -121,13 +99,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Browser integration tests (Playwright + axe)
-        run: pnpm test:e2e:additional --project=${{ matrix.browser }}
+        run: pnpm test:e2e --project=${{ matrix.browser }}
+        env:
+          E2E_GROUP: ${{ matrix.group.id }}
+          E2E_WORKERS: ${{ matrix.group.workers }}
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report-additional-${{ matrix.browser }}
+          name: playwright-report-${{ matrix.group.id }}-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 14
 

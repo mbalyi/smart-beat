@@ -1,6 +1,7 @@
 //! Smart Beat desktop core: native window, menu bar, file access and IPC commands.
 
 pub mod audio;
+pub mod audio_lanes;
 pub mod cloud;
 pub mod cloud_commands;
 pub mod cloud_folder;
@@ -225,9 +226,16 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::audio_set_automation,
             audio::audio_set_track_eq,
             audio::audio_set_drum_mix,
-            audio::audio_load_backing,
-            audio::audio_set_backing,
-            audio::audio_clear_backing,
+            audio::audio_load_source,
+            audio::audio_add_take,
+            audio::audio_forget_sources,
+            audio::audio_set_lanes,
+            audio::audio_zero_crossing,
+            audio::audio_extract_source,
+            audio::audio_spectrogram,
+            audio::audio_detect_beats,
+            audio::audio_loudness,
+            audio::audio_silent_regions,
             audio::audio_set_monitor,
             audio::audio_set_monitor_chain,
             audio::audio_input_channels,

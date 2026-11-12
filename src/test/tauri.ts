@@ -519,6 +519,30 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           return null;
         case "audio_input_channels":
           return 2;
+        // Opening a file for the lanes only decodes it: no engine is involved (a 4 s file whose
+        // content id follows its name).
+        case "audio_load_source": {
+          const { location } = args as {
+            location: { type: "file"; path: string } | { type: "embedded"; entry: string };
+          };
+          const path = location.type === "file" ? location.path : location.entry;
+          const name = path.split(/[\\/]/).pop() ?? path;
+          let hash = 7;
+          for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
+          return {
+            id: hash.toString(16).padStart(8, "0").repeat(8),
+            name,
+            ext: name.split(".").pop()?.toLowerCase() ?? "wav",
+            durationMs: 4000,
+            sampleRate: 44100,
+            channels: 2,
+            peaks: [0.4, 0.8, 0.5, 0.9],
+            peaksPerSecond: 1,
+          };
+        }
+        // One quiet second, 1 s into every file; tests override it for other shapes.
+        case "audio_silent_regions":
+          return [{ startMs: 1000, endMs: 2000 }];
         case "audio_set_monitor":
           backend.monitor = (args as { monitor: MockMonitor | null }).monitor;
           return backend.monitor
@@ -609,9 +633,17 @@ export async function emitStemBundleOpened(path: string) {
 
 /** Simulates the OS dragging files onto the window (Tauri webview events). */
 export async function emitFileDrag(
-  event: { type: "enter"; paths: string[] } | { type: "leave" } | { type: "drop"; paths: string[] },
+  event:
+    | { type: "enter"; paths: string[] }
+    | { type: "over"; position: { x: number; y: number } }
+    | { type: "leave" }
+    | { type: "drop"; paths: string[]; position?: { x: number; y: number } },
 ) {
-  const position = { x: 10, y: 10 };
+  const position = (event.type !== "enter" && event.type !== "leave" && event.position) || {
+    x: 10,
+    y: 10,
+  };
   if (event.type === "leave") await emit("tauri://drag-leave", null);
+  else if (event.type === "over") await emit("tauri://drag-over", { position });
   else await emit(`tauri://drag-${event.type}`, { paths: event.paths, position });
 }

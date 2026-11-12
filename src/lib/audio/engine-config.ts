@@ -7,15 +7,14 @@
  * than once: automation and sound switches apply on every pass (as in Guitar
  * Pro, where automation belongs to the bar), sync points to the first pass.
  */
+import { lanesOf } from "@/lib/audio-lanes/model";
 import { engineDrumMix } from "@/lib/audio/drum-elements";
 import { monitorParams } from "@/lib/audio/monitor";
 import type { EngineExtras, MonitorInputChoice } from "@/lib/audio/native-engine";
 import type { Score } from "@/lib/score/model";
 import { soundChains, trackAutomation, trackEq, trackSoundsOf } from "@/lib/score/mixer";
 import type {
-  AudioTrackSettings,
   AutomationPoint,
-  BackingParams,
   EngineAutomation,
   MixerSettings,
   SyncPoint,
@@ -27,22 +26,34 @@ export interface BarOccurrence {
   bar: number;
   start: number;
   end: number;
+  /** Beats in the bar (the time signature's numerator); a bar's length in quarters when absent. */
+  beats?: number;
 }
 
 /** What alphaTab's tick lookup provides (only the parts used here). */
 export interface TickLookupLike {
-  masterBars: { start: number; end: number; masterBar: { index: number } }[];
+  masterBars: {
+    start: number;
+    end: number;
+    masterBar: { index: number; timeSignatureNumerator?: number };
+  }[];
 }
 
 /** Every bar pass in playback order (from alphaTab's lookup, else straight through). */
 export function barOccurrences(score: Score, lookup: TickLookupLike | null): BarOccurrence[] {
   if (lookup && lookup.masterBars.length > 0) {
-    return lookup.masterBars.map((m) => ({ bar: m.masterBar.index, start: m.start, end: m.end }));
+    return lookup.masterBars.map((m) => ({
+      bar: m.masterBar.index,
+      start: m.start,
+      end: m.end,
+      beats: m.masterBar.timeSignatureNumerator,
+    }));
   }
   return score.masterBars.map((m) => ({
     bar: m.index,
     start: m.start,
     end: m.start + m.calculateDuration(),
+    beats: m.timeSignatureNumerator || 4,
   }));
 }
 
@@ -170,7 +181,19 @@ export function engineSounds(
   return { chains: soundChains(mix, track), switches: soundSwitchTicks(mix, track, occurrences) };
 }
 
-/** Sync points in ticks (first pass through each bar). */
+/** The tick `beat` beats into a bar pass, clamped inside it. */
+function syncTick(o: BarOccurrence, beat: number): number {
+  if (beat <= 0) return o.start;
+  const length = o.end - o.start;
+  const beats = o.beats || Math.max(1, Math.round(length / 960));
+  return Math.min(o.start + Math.round((length * beat) / beats), Math.max(o.start, o.end - 1));
+}
+
+/**
+ * Sync points in ticks (first pass through each bar). A point on a beat sits that many beats into
+ * the bar (the bar's ticks split by its time signature's numerator, as the lanes grid counts them),
+ * kept inside the bar so it never lands on the next bar's start.
+ */
 export function syncTicks(
   sync: readonly SyncPoint[],
   occurrences: readonly BarOccurrence[],
@@ -178,7 +201,7 @@ export function syncTicks(
   const first = firstOccurrence(occurrences);
   return sync.flatMap((p) => {
     const o = first.get(p.bar);
-    return o ? [{ tick: o.start, ms: p.ms }] : [];
+    return o ? [{ tick: syncTick(o, p.beat ?? 0), ms: p.ms }] : [];
   });
 }
 
@@ -200,7 +223,7 @@ export function barTimesMs(score: Score, occurrences: readonly BarOccurrence[]):
   return times.map((t) => (Number.isNaN(t) ? last : (last = t)));
 }
 
-/** Song ms → recording ms through the sync points (mirrors `SyncMap` in `backing.rs`). */
+/** Song ms → audio timeline ms through the sync points (mirrors `SyncMap` in `backing.rs`). */
 export function audioMsAt(
   points: readonly { songMs: number; ms: number }[],
   songMs: number,
@@ -253,21 +276,6 @@ export function syncPointsFromTempo(
   return [...byBar.values()].sort((a, b) => a.bar - b.bar);
 }
 
-/** The audio track's playback settings (without file and sync details). */
-export function backingParams(audio: AudioTrackSettings): BackingParams {
-  return {
-    enabled: audio.enabled,
-    volume: audio.volume,
-    pan: audio.pan,
-    mute: audio.mute,
-    solo: audio.solo,
-    eq: audio.eq,
-    semitones: audio.semitones,
-    cents: audio.cents,
-    filter: audio.filter,
-  };
-}
-
 /**
  * Everything the native engine plays besides the notes, for this mix. `input` is the audio input
  * the monitor track plays (Settings › Audio).
@@ -288,8 +296,8 @@ export function engineExtras(
     }),
     kits: mix.tracks.map((_, i) => mix.drumKits?.[i] ?? null),
     masterPan: mix.masterPan ?? 0,
-    backing: mix.audioTrack
-      ? { params: backingParams(mix.audioTrack), sync: syncTicks(mix.audioTrack.sync, occurrences) }
+    lanes: lanesOf(mix).lanes.length
+      ? { audio: lanesOf(mix), sync: syncTicks(lanesOf(mix).sync, occurrences), transpose: 0 }
       : null,
     monitor: mix.monitor
       ? { params: monitorParams(mix.monitor), effects: mix.monitor.effects, ...input }

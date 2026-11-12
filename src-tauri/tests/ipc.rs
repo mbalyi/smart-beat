@@ -270,7 +270,7 @@ fn mixer_settings_round_trip_over_ipc() {
     let app = app_with_mixer_dir(dir.path());
     let window = main_window(&app);
     let settings = json!({
-        "version": 1,
+        "version": 3,
         "master": 0.5,
         "tracks": [{ "volume": 0.25, "pan": -1.0, "mute": true, "solo": false }],
     });
@@ -836,7 +836,7 @@ fn wav_file(path: &Path, seconds: f32) {
     writer.finalize().unwrap();
 }
 
-fn project_settings() -> Value {
+fn project_settings(source: &str) -> Value {
     json!({
         "version": 2,
         "master": 0.8,
@@ -846,16 +846,28 @@ fn project_settings() -> Value {
         "automation": [{ "enabled": true, "volume": [{ "bar": 0.0, "value": 1.0 }], "pan": [], "mute": [] }],
         "focus": 0,
         "drumLines": [{ "track": 0, "bar": 1, "voice": 0, "beat": 0, "note": 2, "line": 5 }],
-        "audioTrack": {
-            "name": "take.wav", "embedded": true, "enabled": true, "volume": 0.7, "pan": 0.0,
-            "mute": false, "solo": false, "semitones": 2, "cents": 0, "filter": "off",
-            "sync": [{ "bar": 0, "ms": 250.0 }]
-        }
+        "audio": lanes(source),
+    })
+}
+
+/// One lane playing `source` (a loaded file's id) in one clip, embedded in the song.
+fn lanes(source: &str) -> Value {
+    json!({
+        "lanes": [{
+            "id": "lane-1", "name": "Take", "color": "#19b6ff", "enabled": true, "volume": 0.7,
+            "pan": 0.0, "mute": false, "solo": false, "semitones": 2, "cents": 0, "filter": "midBoost",
+            "clips": [{
+                "id": "clip-1", "takes": [{ "name": "take", "sourceId": source, "offsetMs": 0.0 }],
+                "startMs": 250.0, "lengthMs": 900.0
+            }]
+        }],
+        "sources": [{ "id": source, "name": "take.wav", "ext": "wav", "embedded": true }],
+        "sync": [{ "bar": 0, "ms": 250.0 }]
     })
 }
 
 #[test]
-fn project_settings_and_the_recording_travel_inside_gp_files() {
+fn project_settings_and_lane_audio_travel_inside_gp_files() {
     let dir = tempfile::tempdir().unwrap();
     let app = app_with_audio(dir.path());
     let window = main_window(&app);
@@ -870,132 +882,159 @@ fn project_settings_and_the_recording_travel_inside_gp_files() {
             .deserialize::<Value>()
             .unwrap()
     };
+    let write = |settings: Value| {
+        invoke_with(
+            &window,
+            "write_project_settings",
+            json!({ "path": song, "settings": settings }),
+        )
+    };
     assert_eq!(read(&song), Value::Null);
 
-    // Embedding needs the recording to be loaded.
-    let error = invoke_with(
-        &window,
-        "write_project_settings",
-        json!({ "path": song, "settings": project_settings(), "embedAudio": true }),
-    )
-    .unwrap_err();
-    assert_eq!(error["kind"], "audio");
+    // Embedding needs the file to be loaded.
+    let unloaded = "c".repeat(64);
+    assert_eq!(
+        write(project_settings(&unloaded)).unwrap_err()["kind"],
+        "audio"
+    );
 
     let info = invoke_with(
         &window,
-        "audio_load_backing",
-        json!({ "source": { "type": "file", "path": wav } }),
+        "audio_load_source",
+        json!({ "location": { "type": "file", "path": wav } }),
     )
     .unwrap()
     .deserialize::<Value>()
     .unwrap();
+    let id = info["id"].as_str().unwrap().to_string();
+    assert_eq!(id.len(), 64, "the content hash");
     assert_eq!(info["name"], "take.wav");
     assert!((info["durationMs"].as_f64().unwrap() - 1000.0).abs() < 1.0);
     assert_eq!(info["peaks"].as_array().unwrap().len(), 100);
 
-    invoke_with(
-        &window,
-        "write_project_settings",
-        json!({ "path": song, "settings": project_settings(), "embedAudio": true }),
-    )
-    .unwrap();
+    write(project_settings(&id)).unwrap();
     let back = read(&song);
+    assert_eq!(back["version"], 3);
     assert_eq!(back["masterPan"], 0.25);
-    assert_eq!(back["audioTrack"]["semitones"], 2);
+    assert_eq!(back["audio"]["lanes"][0]["semitones"], 2);
+    assert_eq!(back["audio"]["lanes"][0]["filter"], "midBoost");
+    assert_eq!(back["audio"]["lanes"][0]["clips"][0]["startMs"], 250.0);
     assert_eq!(back["eq"][0]["lowDb"], 3.0);
     // Drum notes placed on a chosen line of the drum tab (#53).
     assert_eq!(back["drumLines"][0]["line"], 5);
     assert_eq!(back["drumLines"][0]["note"], 2);
 
-    // The embedded recording opens from the song file.
+    // The embedded file opens from the song file once the original is gone.
     std::fs::remove_file(&wav).unwrap();
     let info = invoke_with(
         &window,
-        "audio_load_backing",
-        json!({ "source": { "type": "embedded", "scorePath": song, "name": "take.wav" } }),
+        "audio_load_source",
+        json!({ "location": { "type": "embedded", "scorePath": song, "entry": format!("{id}.wav") } }),
     )
     .unwrap()
     .deserialize::<Value>()
     .unwrap();
-    assert_eq!(info["name"], "take.wav");
+    assert_eq!(info["id"], id.as_str(), "the same content, the same id");
 
     // Out-of-range settings are refused and leave the file alone.
-    let mut bad_line = project_settings();
+    let mut bad_line = project_settings(&id);
     bad_line["drumLines"][0]["line"] = json!(9);
-    let error = invoke_with(
-        &window,
-        "write_project_settings",
-        json!({ "path": song, "settings": bad_line, "embedAudio": false }),
-    )
-    .unwrap_err();
-    assert_eq!(error["kind"], "invalid-settings");
-
-    let mut bad = project_settings();
+    assert_eq!(write(bad_line).unwrap_err()["kind"], "invalid-settings");
+    let mut bad = project_settings(&id);
     bad["masterPan"] = json!(5.0);
-    let error = invoke_with(
-        &window,
-        "write_project_settings",
-        json!({ "path": song, "settings": bad, "embedAudio": false }),
-    )
-    .unwrap_err();
-    assert_eq!(error["kind"], "invalid-settings");
+    assert_eq!(write(bad).unwrap_err()["kind"], "invalid-settings");
     assert_eq!(read(&song)["masterPan"], 0.25);
 }
 
 #[test]
-fn audio_track_commands_check_their_input() {
+fn audio_lane_commands_check_their_input() {
     let dir = tempfile::tempdir().unwrap();
     let app = app_with_audio(dir.path());
     let window = main_window(&app);
-    let backing = json!({ "params": { "volume": 0.5 }, "sync": [] });
-    assert_eq!(
-        invoke_with(&window, "audio_set_backing", backing.clone()).unwrap_err()["kind"],
-        "audio",
-        "nothing is loaded yet"
-    );
     let text = dir.path().join("notes.txt");
     std::fs::write(&text, "x").unwrap();
-    let error = invoke_with(
-        &window,
-        "audio_load_backing",
-        json!({ "source": { "type": "file", "path": text } }),
-    )
-    .unwrap_err();
-    assert_eq!(error["kind"], "unsupported-type");
+    let load = |path: &Path| {
+        invoke_with(
+            &window,
+            "audio_load_source",
+            json!({ "location": { "type": "file", "path": path } }),
+        )
+    };
+    assert_eq!(load(&text).unwrap_err()["kind"], "unsupported-type");
     let fake = dir.path().join("fake.mp3");
     std::fs::write(&fake, "not audio").unwrap();
-    let error = invoke_with(
-        &window,
-        "audio_load_backing",
-        json!({ "source": { "type": "file", "path": fake } }),
-    )
-    .unwrap_err();
-    assert_eq!(error["kind"], "audio");
+    assert_eq!(load(&fake).unwrap_err()["kind"], "audio");
 
     let wav = dir.path().join("a.wav");
     wav_file(&wav, 0.5);
+    let id = load(&wav).unwrap().deserialize::<Value>().unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let set = |audio: Value| {
+        invoke_with(
+            &window,
+            "audio_set_lanes",
+            json!({ "lanes": { "audio": audio, "sync": [{ "tick": 0, "ms": 100.0 }], "transpose": -2 } }),
+        )
+    };
+    set(lanes(&id)).unwrap();
+    // A clip that plays an unknown file, or a pitch out of range, is refused.
+    let mut bad = lanes(&id);
+    bad["lanes"][0]["clips"][0]["takes"][0]["sourceId"] = json!("d".repeat(64));
+    assert_eq!(set(bad).unwrap_err()["kind"], "audio");
+    let mut bad = lanes(&id);
+    bad["lanes"][0]["cents"] = json!(900);
+    assert_eq!(set(bad).unwrap_err()["kind"], "audio");
+    invoke_with(&window, "audio_set_lanes", json!({ "lanes": null })).unwrap();
+
+    // Zero crossings and analysis need a loaded file.
+    let ms = invoke_with(
+        &window,
+        "audio_zero_crossing",
+        json!({ "source": id, "ms": 100.0 }),
+    )
+    .unwrap()
+    .deserialize::<f64>()
+    .unwrap();
+    assert!((ms - 100.0).abs() <= 10.0);
+    assert_eq!(
+        invoke_with(
+            &window,
+            "audio_zero_crossing",
+            json!({ "source": "e".repeat(64), "ms": 1.0 })
+        )
+        .unwrap_err()["kind"],
+        "audio"
+    );
+    let columns = invoke_with(
+        &window,
+        "audio_spectrogram",
+        json!({ "source": id, "startMs": 0.0, "endMs": 400.0, "columns": 8, "bins": 32 }),
+    )
+    .unwrap()
+    .deserialize::<Vec<Vec<f32>>>()
+    .unwrap();
+    assert_eq!((columns.len(), columns[0].len()), (8, 32));
+    // Extract writes the original bytes, or a WAV.
+    let out = dir.path().join("copy.wav");
     invoke_with(
         &window,
-        "audio_load_backing",
-        json!({ "source": { "type": "file", "path": wav } }),
+        "audio_extract_source",
+        json!({ "source": id, "path": out, "asWav": true }),
     )
     .unwrap();
-    invoke_with(
-        &window,
-        "audio_set_backing",
-        json!({ "params": { "volume": 0.5, "semitones": -3, "filter": "centreCut" },
-                "sync": [{ "tick": 0, "ms": 100.0 }, { "tick": 3840, "ms": 2100.0 }] }),
-    )
-    .unwrap();
-    let error = invoke_with(
-        &window,
-        "audio_set_backing",
-        json!({ "params": { "cents": 900 }, "sync": [] }),
-    )
-    .unwrap_err();
-    assert_eq!(error["kind"], "audio");
-    invoke(&window, "audio_clear_backing").unwrap();
-    assert!(invoke_with(&window, "audio_set_backing", backing).is_err());
+    assert_eq!(&std::fs::read(&out).unwrap()[..4], b"RIFF");
+    // Forgetting files frees them.
+    invoke_with(&window, "audio_forget_sources", json!({ "keep": [] })).unwrap();
+    assert!(
+        invoke_with(
+            &window,
+            "audio_zero_crossing",
+            json!({ "source": id, "ms": 1.0 })
+        )
+        .is_err()
+    );
 }
 
 #[test]

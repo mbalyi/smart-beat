@@ -101,11 +101,7 @@ Not allowed: Guitarix, ChowDSP BYOD, dm-TubeScreamer, AmpForge (GPL-3), LSP (LGP
   - Several sounds (chains) per track. Automation switches them at bars with a 30 ms crossfade.
   - Channel EQ (three bands or ten), volume, pan and mute automation with click-free gain ramps, a focus trim, and master pan.
   - Per-drum-element buses: a drum track can be split into kit pieces. Each piece is its own synthesizer (16 voices), with fader, pan, mute, solo and meter, plus a mono switch.
-  - The audio track:
-    - Symphonia decodes the recording (MPL-2.0, unmodified).
-    - A sync map ties bars to times in the recording, so seeks and loops stay aligned.
-    - A WSOLA time-stretcher with windowed-sinc reads follows the speed trainer without changing pitch, and transposes by semitones and cents.
-    - Filters: bass only, guitar range, centre cut.
+  - The audio track: replaced by audio lanes with clips in [ADR 0005](0005-audio-lanes-and-clips.md). Its parts live on there: Symphonia decoding, the sync map, the WSOLA stretcher and the filters.
   - Automation, sound switches and sync points are converted from bars to ticks in the UI, along the bars as they are played (repeats included).
 - **Not yet in the native engine:** count-in.
 - Two players must stay in step:

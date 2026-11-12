@@ -1,5 +1,6 @@
 import { model } from "@coderline/alphatab";
 import { fireEvent, screen, within } from "@testing-library/react";
+import { useState } from "react";
 
 import {
   BAR_PX,
@@ -9,7 +10,10 @@ import {
 } from "@/components/shell/track-list";
 import { PlayheadStore } from "@/lib/score/playhead";
 import { shortText } from "@/lib/score/tempo";
-import { mixFromScore } from "@/lib/score/mixer";
+import { mixFromScore, mixerReducer, type MixerAction } from "@/lib/score/mixer";
+import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
+import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
+import type { MixerSettings } from "@/lib/tauri";
 import { parseScore } from "@/lib/score/score";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -43,6 +47,100 @@ function setup(overrides: Partial<Parameters<typeof TrackList>[0]> = {}) {
     ...overrides,
   };
   return { ...renderWithProviders(<TrackList {...props} />), ...props };
+}
+
+/** The track list with two audio lanes, run through the real lanes hook. */
+function renderLanes({
+  onAdd = vi.fn(),
+  onImport = vi.fn(),
+  onRecord = vi.fn(),
+  onOpenEditor = vi.fn(),
+  onEffects = vi.fn(),
+  changes = [] as MixerAction[],
+  playhead,
+  playing = false,
+  clipMs = 3000,
+  missingBars = 0,
+  onAddMissingBars = vi.fn(),
+  stack,
+}: {
+  stack?: { indexes: number[]; stacking: boolean };
+  clipMs?: number;
+  missingBars?: number;
+  onAddMissingBars?: () => void;
+  onAdd?: () => void;
+  onImport?: () => void;
+  onRecord?: () => void;
+  onOpenEditor?: (laneId: string) => void;
+  onEffects?: (index: number) => void;
+  changes?: MixerAction[];
+  playhead?: PlayheadStore;
+  playing?: boolean;
+} = {}) {
+  const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
+  const audio = {
+    ...EMPTY_AUDIO,
+    sources: [{ id: "s", name: "take.mp3", ext: "mp3", embedded: false }],
+    lanes: [
+      { ...newLane("Vocals", "lane-a"), clips: [newClip("s", "take.mp3", 0, clipMs, "clip-a")] },
+      newLane("Drums", "lane-b"),
+    ],
+  };
+  const grid = {
+    barTimes: score.masterBars.map((_, i) => i * 2000),
+    beats: score.masterBars.map(() => 4),
+  };
+  function Harness() {
+    const [mix, setMix] = useState<MixerSettings>({ ...mixFromScore(summary), audio });
+    const lanes = useAudioLanes({
+      mix,
+      changeMix: (action) => {
+        changes.push(action);
+        setMix((m) => mixerReducer(m, action));
+      },
+      loadSource: () => new Promise(() => {}),
+      songPath: null,
+      grid,
+    });
+    return (
+      <TrackList
+        score={score}
+        revision={0}
+        tracks={summary.tracks}
+        shown={0}
+        mix={mix}
+        onChange={vi.fn()}
+        onReset={vi.fn()}
+        actions={{
+          onShow: vi.fn(),
+          onMove: vi.fn(),
+          onDuplicate: vi.fn(),
+          onRemove: vi.fn(),
+          onSettings: vi.fn(),
+          onLyrics: vi.fn(),
+          onAdd: vi.fn(),
+        }}
+        bar={1}
+        onSeekBar={vi.fn()}
+        saved={false}
+        playing={playing}
+        playhead={playhead}
+        stack={stack}
+        audio={{
+          lanes,
+          grid,
+          onAdd,
+          onImport,
+          onRecord,
+          onEffects,
+          onOpenEditor,
+          missingBars,
+          onAddMissingBars,
+        }}
+      />
+    );
+  }
+  return { ...renderWithProviders(<Harness />), score };
 }
 
 describe("TrackList", () => {
@@ -470,93 +568,90 @@ describe("TrackList", () => {
     expect(screen.getByRole("button", { name: "Mastering effects" })).toBeDisabled();
   });
 
-  it("adds an audio track, then mixes it like a track", async () => {
-    const onChange = vi.fn();
+  it("adds audio lanes and mixes each like a track", async () => {
     const onAdd = vi.fn();
-    const onEdit = vi.fn();
-    const onRemove = vi.fn();
-    const audio = { info: null, barTimes: [0, 2000, 4000], onAdd, onEdit, onRemove };
-    const first = setup({ onChange, audio });
-    await first.user.click(screen.getByRole("button", { name: "Add audio track" }));
-    expect(onAdd).toHaveBeenCalled();
-    first.unmount();
-    const mix = first.mix;
-    const audioTrack = {
-      name: "take.mp3",
-      path: "/take.mp3",
-      embedded: false,
-      enabled: true,
-      volume: 0.8,
-      pan: 0,
-      mute: false,
-      solo: false,
-      eq: { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 },
-      semitones: 0,
-      cents: 0,
-      filter: "off" as const,
-      sync: [],
-    };
-    const { user, container } = setup({ onChange, audio, mix: { ...mix, audioTrack } });
-    const row = within(container).getByTestId("audio-track-row");
-    expect(within(row).getByText("Recording not loaded")).toBeInTheDocument();
-    await user.click(within(row).getByRole("button", { name: "Mute the audio track" }));
-    expect(onChange).toHaveBeenLastCalledWith({
-      type: "audio-track",
-      value: { ...audioTrack, mute: true },
+    const onImport = vi.fn();
+    const onRecord = vi.fn();
+    const onOpenEditor = vi.fn();
+    const onEffects = vi.fn();
+    const changes: MixerAction[] = [];
+    const { user, container } = renderLanes({
+      onAdd,
+      onImport,
+      onRecord,
+      onOpenEditor,
+      onEffects,
+      changes,
     });
-    await user.click(within(row).getByRole("button", { name: "Edit the audio track take.mp3" }));
-    expect(onEdit).toHaveBeenCalled();
-    // Regression: the row had no way to delete the track (only the editor panel did).
-    await user.click(within(row).getByRole("button", { name: "Remove the audio track" }));
-    expect(onRemove).toHaveBeenCalledTimes(1);
-    expect(within(container).queryByRole("button", { name: "Add audio track" })).toBeNull();
+    // Two buttons: an empty lane, and a file on a new lane.
+    await user.click(screen.getByRole("button", { name: "New audio lane" }));
+    expect(onAdd).toHaveBeenCalledOnce();
+    expect(onImport).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Import audio" }));
+    expect(onImport).toHaveBeenCalledOnce();
+    expect(onAdd).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "New audio lane" })).toHaveAttribute(
+      "data-tour",
+      "add-audio-lane",
+    );
+    expect(screen.getByRole("button", { name: "Import audio" })).toHaveAttribute(
+      "data-tour",
+      "import-audio",
+    );
+    expect(screen.queryByRole("button", { name: "Add audio lane" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Record audio" }));
+    expect(onRecord).toHaveBeenCalled();
+    const row = within(container).getByTestId("lane-row-lane-a");
+    await user.click(within(row).getByRole("button", { name: "Mute the lane Vocals" }));
+    const last = changes.at(-1);
+    expect(last?.type).toBe("audio");
+    expect(last?.type === "audio" && last.value?.lanes[0]?.mute).toBe(true);
+    await user.click(within(row).getByRole("button", { name: "Edit the lane Vocals" }));
+    expect(onOpenEditor).toHaveBeenCalledWith("lane-a");
+    await user.click(within(row).getByRole("button", { name: "Effects of Vocals" }));
+    expect(onEffects).toHaveBeenCalledWith(0);
+    // The clip shows on the bar grid, as a button with its file name.
+    expect(within(row).getByRole("button", { name: /take\.mp3 on Vocals/ })).toBeInTheDocument();
+    // A lane without clips says so, and the one with a clip does not.
+    expect(
+      within(within(container).getByTestId("lane-row-lane-b")).getByTestId("empty-lane"),
+    ).toHaveTextContent("Empty lane · drop audio here or use Import audio");
+    expect(within(row).queryByTestId("empty-lane")).toBeNull();
+    // Each lane takes the next stem colour by default.
+    expect(
+      within(container).getByTestId("lane-row-lane-b").querySelector("span[aria-hidden='true']"),
+    ).toHaveStyle({
+      backgroundColor: "var(--stem-drums)",
+    });
   });
 
-  it("draws a playhead in the bars of every track and in the audio track while playing", () => {
+  it("draws all of a clip that runs past the score, and offers the bars it needs", async () => {
+    const onAddMissingBars = vi.fn();
+    // The test grid has 2 s bars: a clip 6 bars longer than the score.
+    const bars = parseScore(fixtureBytes("practice-song.gp")).score.masterBars.length;
+    const { user, container } = renderLanes({
+      clipMs: (bars + 6) * 2000,
+      missingBars: 6,
+      onAddMissingBars,
+    });
+    const row = within(container).getByTestId("lane-row-lane-a");
+    const timeline = row.querySelector("[data-lane-id]") as HTMLElement;
+    expect(timeline).toHaveStyle({ width: `${(bars + 6) * BAR_PX}px` });
+    expect(within(row).getByTestId("past-score")).toHaveStyle({ left: `${bars * BAR_PX}px` });
+    const notice = within(container).getByTestId("audio-past-score");
+    expect(notice).toHaveTextContent("The audio runs 6 bars past the end of the score");
+    await user.click(within(notice).getByRole("button", { name: "Add 6 bars" }));
+    expect(onAddMissingBars).toHaveBeenCalled();
+    await expectNoA11yViolations();
+  });
+
+  it("draws a playhead in the bars of every track and every lane while playing", () => {
     const playhead = new PlayheadStore();
     playhead.set(1.5);
-    const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
-    const audioTrack = {
-      name: "take.mp3",
-      path: "/take.mp3",
-      embedded: false,
-      enabled: true,
-      volume: 0.8,
-      pan: 0,
-      mute: false,
-      solo: false,
-      eq: { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 },
-      semitones: 0,
-      cents: 0,
-      filter: "off" as const,
-      sync: [],
-    };
-    const info = {
-      name: "take.mp3",
-      durationMs: 4000,
-      sampleRate: 44_100,
-      channels: 2,
-      peaks: [0.2, 0.5],
-      peaksPerSecond: 1,
-    };
-    const { container } = setup({
-      playing: true,
-      playhead,
-      mix: { ...mixFromScore(summary), audioTrack },
-      audio: {
-        info,
-        barTimes: [0, 2000, 4000],
-        onAdd: vi.fn(),
-        onEdit: vi.fn(),
-        onRemove: vi.fn(),
-      },
-    });
+    const { container, score } = renderLanes({ playhead, playing: true });
     const heads = within(container).getAllByTestId("playhead");
-    // One in each track's bars and one in the audio track's waveform.
-    expect(heads).toHaveLength(score.tracks.length + 1);
+    expect(heads).toHaveLength(score.tracks.length + 2);
     for (const head of heads) expect(head).toHaveStyle({ left: `${1.5 * BAR_PX}px` });
-    const row = within(container).getByTestId("audio-track-row");
-    expect(within(row).getByTestId("playhead")).toBeInTheDocument();
   });
 
   it("shows no playhead before playback starts", () => {
@@ -787,6 +882,71 @@ describe("TrackList", () => {
 
     it("has no accessibility violations while stacking", async () => {
       setup({ stack: stacking, actions: stackActions() });
+      await expectNoA11yViolations();
+    });
+  });
+
+  describe("the eye of an audio lane", () => {
+    const eyeCell = (button: HTMLElement) =>
+      button.closest<HTMLElement>("[data-testid='row-eye']")!;
+
+    it("sits in the eye column of the tab rows, in the plain list", async () => {
+      renderLanes();
+      const tab = eyeCell(screen.getByRole("button", { name: "Visible: Guitar" }));
+      const lane = eyeCell(
+        screen.getByRole("button", { name: /Vocals (from under|under) the tabs/ }),
+      );
+      // The same component in the same grid (name, eye, M/S, volume, pan, actions), column two.
+      expect(lane.parentElement!.className).toBe(tab.parentElement!.className);
+      expect(Array.from(lane.parentElement!.children).indexOf(lane)).toBe(1);
+      expect(Array.from(tab.parentElement!.children).indexOf(tab)).toBe(1);
+      // The same size, shape and states: one component.
+      expect(lane.querySelector("button")!.className).toBe(tab.querySelector("button")!.className);
+    });
+
+    it("keeps the handle's room, like the stacked tabs, so the eyes line up", () => {
+      renderLanes({ stack: { indexes: [0, 2], stacking: true } });
+      const handled = eyeCell(screen.getByRole("button", { name: "Visible: Guitar" }));
+      const plain = eyeCell(screen.getByRole("button", { name: "Visible: Bass" }));
+      const lane = eyeCell(
+        screen.getByRole("button", { name: /Vocals (from under|under) the tabs/ }),
+      );
+      for (const cell of [handled, plain, lane]) {
+        expect(cell.firstElementChild).toHaveClass("size-6", "mr-0.5", "shrink-0");
+        expect(cell.children).toHaveLength(2);
+      }
+      expect(handled.firstElementChild).toHaveAttribute("data-testid", "view-handle");
+      expect(lane.firstElementChild).toHaveAttribute("aria-hidden", "true");
+    });
+
+    it("shows a lane under the tabs and hides it again, in the track list", async () => {
+      const changes: MixerAction[] = [];
+      const { user } = renderLanes({ changes });
+      await user.click(screen.getByRole("button", { name: "Show lane Vocals under the tabs" }));
+      const audio = changes.at(-1);
+      expect(audio?.type === "audio" && audio.value?.lanes[0]?.shownInScore).toBe(true);
+      // The lane stays in the list either way.
+      expect(screen.getByTestId("lane-row-lane-a")).toBeInTheDocument();
+      await user.click(
+        screen.getByRole("button", { name: "Hide lane Vocals from under the tabs" }),
+      );
+      const back = changes.at(-1);
+      expect(
+        back?.type === "audio" && back.value?.lanes[0] && "shownInScore" in back.value.lanes[0],
+      ).toBe(false);
+    });
+
+    it("has no accessibility violations in the plain and the stacked list, light and dark", async () => {
+      const { unmount } = renderLanes({ stack: { indexes: [0, 2], stacking: true } });
+      await expectNoA11yViolations();
+      document.documentElement.classList.add("dark");
+      try {
+        await expectNoA11yViolations();
+      } finally {
+        document.documentElement.classList.remove("dark");
+      }
+      unmount();
+      renderLanes();
       await expectNoA11yViolations();
     });
   });

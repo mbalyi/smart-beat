@@ -54,7 +54,8 @@ export type MenuAction =
   | "zoom-reset"
   | "toggle-fullscreen"
   | "add-track"
-  | "add-audio-track"
+  | "add-audio-lane"
+  | "import-audio-file"
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
@@ -149,8 +150,18 @@ export const SCORE_EXTENSIONS = [
   "txt",
 ] as const;
 
-/** Mirrors `AUDIO_EXTENSIONS` in `src-tauri/src/audio/backing.rs`: audio track files. */
-export const AUDIO_EXTENSIONS = ["mp3", "wav", "flac", "ogg", "oga", "aif", "aiff"] as const;
+/** Mirrors `AUDIO_EXTENSIONS` in `src-tauri/src/audio/backing.rs`: audio lane files. */
+export const AUDIO_EXTENSIONS = [
+  "mp3",
+  "m4a",
+  "mp4",
+  "wav",
+  "flac",
+  "ogg",
+  "oga",
+  "aif",
+  "aiff",
+] as const;
 
 /** Mirrors `WRITE_EXTENSIONS` in `src-tauri/src/score_write.rs`. */
 export const SAVE_EXTENSIONS = [
@@ -212,7 +223,7 @@ export interface TrackMix {
 }
 
 /** Mirrors `mixer::VERSION` in `src-tauri/src/mixer.rs`. */
-export const MIXER_SETTINGS_VERSION = 2;
+export const MIXER_SETTINGS_VERSION = 3;
 /** Mirrors `mixer::MIN_VERSION`: older settings files that still load. */
 export const MIXER_SETTINGS_MIN_VERSION = 1;
 
@@ -276,7 +287,17 @@ export interface DrumMixer {
 }
 
 /** Mirrors `BackingFilter` in `src-tauri/src/audio/backing.rs`. */
-export type BackingFilter = "off" | "bassIsolate" | "guitarBand" | "centreCut";
+export type BackingFilter =
+  | "off"
+  | "bassIsolate"
+  | "guitarBand"
+  | "centreCut"
+  | "bassBoost"
+  | "bassCut"
+  | "midBoost"
+  | "midCut"
+  | "highBoost"
+  | "highCut";
 
 /** Mirrors `BackingParams`: how the audio track plays. */
 export interface BackingParams {
@@ -295,6 +316,172 @@ export interface BackingParams {
 export interface SyncPoint {
   bar: number;
   ms: number;
+  /** The beat in the bar (0-based) the point is on; missing: the bar's first beat. */
+  beat?: number;
+}
+
+/** Mirrors `FadeShape` in `src-tauri/src/mixer.rs`: the curve of a clip fade. */
+export type FadeShape = "linear" | "equalPower" | "sCurve";
+
+/** A clip fade: its length and curve. */
+export interface ClipFade {
+  /** Length in ms of source time. */
+  ms: number;
+  shape: FadeShape;
+  /** Made by an overlap with a neighbour (a crossfade): it goes when the overlap goes. */
+  auto?: boolean;
+}
+
+/** A point of a clip's gain envelope: `at` 0…1 along the clip, gain in dB. */
+export interface GainPoint {
+  at: number;
+  db: number;
+}
+
+/** A stretch marker: source time `sourceMs` plays at `clipMs` into the clip. */
+export interface StretchMarker {
+  sourceMs: number;
+  clipMs: number;
+}
+
+/** One recorded pass of a clip (take lanes and comping). */
+export interface AudioTake {
+  name: string;
+  sourceId: string;
+  /** Where the take starts in its source, in ms. */
+  offsetMs: number;
+}
+
+/**
+ * Mirrors `AudioClip`: a piece of a source on a lane. Positions are on the audio timeline, which
+ * the song's sync points map onto the score (so clips follow the speed trainer and stay on the
+ * bar grid).
+ */
+export interface AudioClip {
+  id: string;
+  /** Takes of the clip; `take` is the one heard. A plain clip has one take. */
+  takes: AudioTake[];
+  take: number;
+  /** Where the clip starts on the audio timeline, in ms. */
+  startMs: number;
+  /** How long the clip plays, in ms of source time at playrate 1. */
+  lengthMs: number;
+  gainDb: number;
+  mute: boolean;
+  locked: boolean;
+  reversed: boolean;
+  semitones: number;
+  cents: number;
+  /** Playback speed of the clip (1 = as recorded). */
+  playrate: number;
+  /** A playrate other than 1 keeps the pitch. */
+  preservePitch: boolean;
+  fadeIn: ClipFade;
+  fadeOut: ClipFade;
+  envelope: GainPoint[];
+  stretch: StretchMarker[];
+  /** Clips with the same group id move, nudge, delete and select together. */
+  groupId?: string;
+}
+
+/** Mirrors `AudioSource`: an audio file that clips play. */
+export interface AudioSource {
+  /** The SHA-256 of the file's bytes (hex). */
+  id: string;
+  name: string;
+  /** The file extension, lower case, without the dot. */
+  ext: string;
+  /** Where the file is on disk (when it is not embedded). */
+  path?: string;
+  /** Stored inside the song file, under `SmartBeat/audio/<id>.<ext>`. */
+  embedded: boolean;
+  /** The entry name an old single audio track used (`SmartBeat/audio/<name>`), read until the next save. */
+  legacyEntry?: string;
+}
+
+/** Mirrors `EffectAutomation`: one effect parameter changed along the song. */
+export interface EffectAutomation {
+  /** The effect's place in the lane chain. */
+  slot: number;
+  param: string;
+  points: { tick: number; value: number }[];
+}
+
+/** Mirrors `LaneSend`: part of a lane sent to a bus. */
+export interface LaneSend {
+  bus: string;
+  /** 0 … 1. */
+  level: number;
+}
+
+/** Mirrors `AudioLane`: a lane of audio clips next to the tab tracks. */
+export interface AudioLane extends BackingParams {
+  id: string;
+  name: string;
+  /** A colour chosen by the user, `#rrggbb` (null: the stem colour by position). */
+  color: string | null;
+  /** Clip pitch also follows the song's transposition. */
+  followTransposition: boolean;
+  effects: EffectSlot[];
+  /** Effects stop while the lane is silent. */
+  autoBypass: boolean;
+  automation: EffectAutomation[];
+  sends: LaneSend[];
+  /** The folder lane this lane sits in. */
+  parent?: string;
+  /** A folder lane: no clips of its own; its volume, mute and solo apply to its children. */
+  folder: boolean;
+  collapsed: boolean;
+  /** Edit group: lanes in one group move, split and trim together (0: none). */
+  group: number;
+  /** The studio row's height, 40 to 240 px (unset: the default). */
+  height?: number;
+  clips: AudioClip[];
+  /** Shown under the tabs in the continuous view (off by default; the track list shows every lane). */
+  shownInScore?: boolean;
+}
+
+/** Mirrors `AudioBus`: a bus that lane sends feed (a reverb or delay return). */
+export interface AudioBus {
+  id: string;
+  name: string;
+  volume: number;
+  mute: boolean;
+  effects: EffectSlot[];
+}
+
+/** Ripple editing: moving or deleting a clip moves the later ones. */
+export type RippleMode = "off" | "lane" | "all";
+
+/** Mirrors `AudioMarker`: a named point the user put on the audio timeline. */
+export interface AudioMarker {
+  id: string;
+  ms: number;
+  name: string;
+}
+
+/** Mirrors `AudioRegion`: a named span of the audio timeline. */
+export interface AudioRegion {
+  id: string;
+  startMs: number;
+  endMs: number;
+  name: string;
+}
+
+/** The audio side of a song (settings version 3). */
+export interface AudioLanesSettings {
+  lanes: AudioLane[];
+  sources: AudioSource[];
+  buses: AudioBus[];
+  /** Song-wide sync points: bar (0-based) to audio timeline ms. */
+  sync: SyncPoint[];
+  /** The play zone brackets, in bars (end null: the end of the song). */
+  zone: { start: number; end: number | null };
+  ripple: RippleMode;
+  /** User markers in time order (absent in older files). */
+  markers?: AudioMarker[];
+  /** Regions in start order (absent in older files). */
+  regions?: AudioRegion[];
 }
 
 /** Mirrors `AudioTrack` in `src-tauri/src/mixer.rs`. */
@@ -370,7 +557,10 @@ export interface MixerSettings {
   drumKits?: (string | null)[];
   /** A colour chosen for each track, `#rrggbb` (null: the default one; #83). */
   trackColors?: (string | null)[];
+  /** The old single audio track (settings version 1 and 2): read once and turned into a lane. */
   audioTrack?: AudioTrackSettings;
+  /** Audio lanes, clips and sources (settings version 3). */
+  audio?: AudioLanesSettings;
   /** The monitor track: the audio input, played live. */
   monitor?: MonitorTrackSettings;
   /** Effect chain presets saved with the song. */
@@ -694,11 +884,11 @@ export const readProjectSettings = (path: string) =>
   call<MixerSettings | null>("read_project_settings", { path });
 
 /**
- * Stores mixer settings inside a `.gp` file that was just written. With
- * `embedAudio`, the loaded audio track's recording goes in too.
+ * Stores mixer settings inside a `.gp` file that was just written, with every embedded audio
+ * file a clip plays (files no clip plays any more are dropped).
  */
-export const writeProjectSettings = (path: string, settings: MixerSettings, embedAudio: boolean) =>
-  call<void>("write_project_settings", { path, settings, embedAudio });
+export const writeProjectSettings = (path: string, settings: MixerSettings) =>
+  call<void>("write_project_settings", { path, settings });
 
 /** Updates the native menu bar (labels, check marks, enabled items). No-op in a browser. */
 export async function updateMenuState(state: MenuState): Promise<void> {
@@ -707,7 +897,20 @@ export async function updateMenuState(state: MenuState): Promise<void> {
 }
 
 export type FileDragEvent =
-  { type: "enter" } | { type: "leave" } | { type: "drop"; paths: string[] };
+  /** `paths`: what is being dragged (the kinds of files), when the platform tells. */
+  | { type: "enter"; paths?: string[] }
+  /** The pointer moved while dragging, in CSS pixels of the window. */
+  | { type: "over"; position: { x: number; y: number } }
+  | { type: "leave" }
+  /** `position`: where the files were dropped, in CSS pixels of the window. */
+  | { type: "drop"; paths: string[]; position?: { x: number; y: number } };
+
+/** A native drag position (device pixels) in the window's CSS pixels. */
+function cssPosition(at: { x: number; y: number } | undefined) {
+  if (!at) return undefined;
+  const scale = window.devicePixelRatio || 1;
+  return { x: at.x / scale, y: at.y / scale };
+}
 
 /**
  * Subscribes to files being dragged onto the window. The desktop app handles
@@ -717,9 +920,15 @@ export type FileDragEvent =
 export async function onFileDrag(handler: (event: FileDragEvent) => void): Promise<UnlistenFn> {
   if (!isTauri()) return () => {};
   return getCurrentWebview().onDragDropEvent(({ payload }) => {
-    if (payload.type === "enter") handler({ type: "enter" });
-    else if (payload.type === "leave") handler({ type: "leave" });
-    else if (payload.type === "drop") handler({ type: "drop", paths: payload.paths });
+    if (payload.type === "leave") {
+      handler({ type: "leave" });
+      return;
+    }
+    const position = cssPosition(payload.position as { x: number; y: number } | undefined);
+    if (payload.type === "enter") handler({ type: "enter", paths: payload.paths });
+    else if (payload.type === "over") {
+      if (position) handler({ type: "over", position });
+    } else handler({ type: "drop", paths: payload.paths, ...(position && { position }) });
   });
 }
 
@@ -775,8 +984,8 @@ export interface EngineMeters {
   master: number;
   /** Per track: the levels of its drum elements (empty unless split). */
   drums?: number[][];
-  /** The audio track. */
-  backing?: number;
+  /** Each audio lane after its fader: (lane id, level). */
+  lanes?: [string, number][];
   /** The monitor track, after its effects and fader. */
   monitor?: number;
   /** The audio input of the monitor track, before its effects. */
@@ -814,19 +1023,28 @@ export interface EngineDrumMix {
   other: BusMix;
 }
 
-/** Mirrors `BackingSource`: where the audio track comes from. */
-export type BackingSource =
-  { type: "file"; path: string } | { type: "embedded"; scorePath: string; name: string };
+/** Mirrors `SourceLocation`: where an audio file for a lane comes from. */
+export type SourceLocation =
+  { type: "file"; path: string } | { type: "embedded"; scorePath: string; entry: string };
 
-/** Mirrors `BackingInfo`: what the engine learnt about a recording. */
-export interface BackingInfo {
+/** Mirrors `SourceInfo`: what the engine learnt about an audio file. */
+export interface SourceInfo {
+  /** SHA-256 of the file: the id clips use. */
+  id: string;
   name: string;
+  ext: string;
   durationMs: number;
   sampleRate: number;
   channels: number;
   /** Loudest sample per 1/`peaksPerSecond` s (0…1). */
   peaks: number[];
   peaksPerSecond: number;
+}
+
+/** Mirrors `BeatInfo`: a detected tempo and where its beats fall in the file (ms). */
+export interface BeatInfo {
+  bpm: number;
+  beats: number[];
 }
 
 /** Mirrors `EngineStatus` in `src-tauri/src/audio/mod.rs`. */
@@ -947,15 +1165,74 @@ export const setEngineTrackEq = (track: number, eq: TrackEq) =>
 export const setEngineDrumMix = (track: number, drums: EngineDrumMix | null) =>
   call<void>("audio_set_drum_mix", { track, drums });
 
-/** Opens a recording as the audio track. */
-export const loadEngineBacking = (source: BackingSource) =>
-  call<BackingInfo>("audio_load_backing", { source });
+/** Opens an audio file for the lanes (decoded once, identified by its content hash). */
+export const loadAudioSource = (location: SourceLocation) =>
+  call<SourceInfo>("audio_load_source", { location });
 
-/** Audio track settings and sync points (`tick`: start of the synced bar). */
-export const setEngineBacking = (params: BackingParams, sync: { tick: number; ms: number }[]) =>
-  call<void>("audio_set_backing", { params, sync });
+/** Adds a recorded take (a WAV file) to the lanes' audio files. */
+export async function addAudioTake(name: string, wav: Uint8Array): Promise<SourceInfo> {
+  if (!isTauri()) throw new Error("Recording needs the desktop app");
+  return invoke<SourceInfo>("audio_add_take", wav, { headers: { "x-name": name } });
+}
 
-export const clearEngineBacking = () => call<void>("audio_clear_backing");
+/** Lets go of every loaded audio file not listed in `keep`. */
+export const forgetAudioSources = (keep: string[]) => call<void>("audio_forget_sources", { keep });
+
+/** The lanes as the engine plays them (`null`: none); `sync` in score ticks. */
+export interface EngineLanes {
+  audio: AudioLanesSettings;
+  sync: { tick: number; ms: number }[];
+  /** Song transposition in semitones. */
+  transpose: number;
+}
+export const setEngineLanes = (lanes: EngineLanes | null) =>
+  call<void>("audio_set_lanes", { lanes });
+
+/** The nearest zero crossing to `ms` in a loaded file (within 10 ms). */
+export const audioZeroCrossing = (source: string, ms: number) =>
+  call<number>("audio_zero_crossing", { source, ms });
+
+/** Saves a loaded audio file: its original bytes, or a 16-bit WAV. */
+export const extractAudioSource = (source: string, path: string, asWav: boolean) =>
+  call<void>("audio_extract_source", { source, path, asWav });
+
+/** A spectrogram of part of a file: `columns` × `bins` magnitudes in dB (−100 … 0). */
+export const audioSpectrogram = (
+  source: string,
+  startMs: number,
+  endMs: number,
+  columns: number,
+  bins: number,
+) => call<number[][]>("audio_spectrogram", { source, startMs, endMs, columns, bins });
+
+/** Mirrors `Loudness`: integrated and short-term LUFS and the sample peak (−70: silence). */
+export interface Loudness {
+  integrated: number;
+  shortTermMax: number;
+  peakDb: number;
+}
+
+/** The loudness of part of a loaded file. */
+export const audioLoudness = (source: string, startMs: number, endMs: number) =>
+  call<Loudness>("audio_loudness", { source, startMs, endMs });
+
+/** The tempo of a file and where its beats fall. */
+export const detectAudioBeats = (source: string) =>
+  call<BeatInfo>("audio_detect_beats", { source });
+
+/** Mirrors `SilentRegion`: a quiet part of a file, in ms of the file. */
+export interface SilentRegion {
+  startMs: number;
+  endMs: number;
+}
+
+/** The quiet parts of a loaded file, each shrunk by `padMs` on both sides. */
+export const audioSilentRegions = (
+  sourceId: string,
+  thresholdDb: number,
+  minSilenceMs: number,
+  padMs: number,
+) => call<SilentRegion[]>("audio_silent_regions", { sourceId, thresholdDb, minSilenceMs, padMs });
 
 /**
  * The monitor track (null removes it): its settings, and the input it plays. `device` is the
@@ -1358,22 +1635,25 @@ export const setPluginsEnabled = (enabled: boolean) =>
 
 export const getPluginsEnabled = () => call<boolean>("plugins_enabled");
 
+/** Whose effect chain: a track index, the monitor track, an audio lane, or (null) the master bus. */
+export type ChainTarget = number | "monitor" | { lane: number } | null;
+
 /**
  * Opens the plugin's own editor window (owned by the helper process).
  * Resolves to the editor size in pixels.
  */
-export const openPluginEditor = (track: number | "monitor" | null, sound: number, index: number) =>
+export const openPluginEditor = (track: ChainTarget, sound: number, index: number) =>
   call<[number, number]>("plugin_open_editor", { track, sound, index });
 
-export const closePluginEditor = (track: number | "monitor" | null, sound: number, index: number) =>
+export const closePluginEditor = (track: ChainTarget, sound: number, index: number) =>
   call<void>("plugin_close_editor", { track, sound, index });
 
 /** Saves the plugin's current settings as base64 (stored in the block). */
-export const savePluginState = (track: number | "monitor" | null, sound: number, index: number) =>
+export const savePluginState = (track: ChainTarget, sound: number, index: number) =>
   call<string>("plugin_save_state", { track, sound, index });
 
 /** Live status of every plugin block of a chain. */
-export const pluginInfo = (track: number | "monitor" | null, sound: number) =>
+export const pluginInfo = (track: ChainTarget, sound: number) =>
   call<PluginSlotInfo[]>("audio_plugin_info", { track, sound });
 
 // --- Practice together -------------------------------------------------------

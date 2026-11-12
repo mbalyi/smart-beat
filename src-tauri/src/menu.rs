@@ -70,7 +70,8 @@ pub enum MenuAction {
     ZoomReset,
     ToggleFullscreen,
     AddTrack,
-    AddAudioTrack,
+    AddAudioLane,
+    ImportAudioFile,
     DuplicateTrack,
     RemoveTrack,
     TrackSettings,
@@ -116,7 +117,7 @@ pub enum MenuAction {
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 82] = [
+    pub const ALL: [Self; 83] = [
         Self::NewSong,
         Self::Open,
         Self::OpenCloud,
@@ -156,7 +157,8 @@ impl MenuAction {
         Self::ZoomReset,
         Self::ToggleFullscreen,
         Self::AddTrack,
-        Self::AddAudioTrack,
+        Self::AddAudioLane,
+        Self::ImportAudioFile,
         Self::DuplicateTrack,
         Self::RemoveTrack,
         Self::TrackSettings,
@@ -243,7 +245,8 @@ impl MenuAction {
             Self::ZoomReset => "view.zoom-reset",
             Self::ToggleFullscreen => "view.toggle-fullscreen",
             Self::AddTrack => "track.add",
-            Self::AddAudioTrack => "track.add-audio",
+            Self::AddAudioLane => "track.add-audio-lane",
+            Self::ImportAudioFile => "track.import-audio-file",
             Self::DuplicateTrack => "track.duplicate",
             Self::RemoveTrack => "track.remove",
             Self::TrackSettings => "track.settings",
@@ -331,7 +334,8 @@ impl MenuAction {
             | Self::ZoomReset
             | Self::ToggleFullscreen => "View",
             Self::AddTrack
-            | Self::AddAudioTrack
+            | Self::AddAudioLane
+            | Self::ImportAudioFile
             | Self::DuplicateTrack
             | Self::RemoveTrack
             | Self::TrackSettings
@@ -417,7 +421,8 @@ impl MenuAction {
             Self::ZoomReset => "Actual Size",
             Self::ToggleFullscreen => "Toggle Full Screen",
             Self::AddTrack => "Add Track",
-            Self::AddAudioTrack => "Add Audio Track",
+            Self::AddAudioLane => "New Audio Lane",
+            Self::ImportAudioFile => "Import Audio",
             Self::DuplicateTrack => "Duplicate Track",
             Self::RemoveTrack => "Remove Track",
             Self::TrackSettings => "Track Settings",
@@ -497,7 +502,8 @@ impl MenuAction {
             Self::Settings => Some("CmdOrCtrl+,"),
             // The note effects have plain keys in the score (H, P, L...); menu
             // accelerators would take those keys away from text fields.
-            Self::AddAudioTrack
+            Self::AddAudioLane
+            | Self::ImportAudioFile
             | Self::RecordModels
             | Self::StemModels
             | Self::ImportAudio
@@ -647,7 +653,8 @@ impl MenuAction {
                 | Self::ToggleInspector
                 | Self::TogglePracticeView
                 | Self::AddTrack
-                | Self::AddAudioTrack
+                | Self::AddAudioLane
+                | Self::ImportAudioFile
                 | Self::DuplicateTrack
                 | Self::RemoveTrack
                 | Self::TrackSettings
@@ -988,7 +995,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let track = SubmenuBuilder::new(app, "Track")
         .item(&item(app, AddTrack)?)
-        .item(&item(app, AddAudioTrack)?)
+        .separator()
+        .item(&item(app, AddAudioLane)?)
+        .item(&item(app, ImportAudioFile)?)
+        .separator()
         .item(&item(app, DuplicateTrack)?)
         .item(&item(app, RemoveTrack)?)
         .separator()
@@ -1277,6 +1287,29 @@ mod tests {
             assert!(!action.is_native());
             assert_eq!(action.accelerator_for("macos"), None);
         }
+    }
+
+    #[test]
+    fn the_track_menu_has_a_new_empty_lane_and_a_separate_audio_import() {
+        assert_eq!(MenuAction::AddAudioLane.id(), "track.add-audio-lane");
+        assert_eq!(MenuAction::AddAudioLane.label(), "New Audio Lane");
+        assert_eq!(MenuAction::ImportAudioFile.id(), "track.import-audio-file");
+        assert_eq!(MenuAction::ImportAudioFile.label(), "Import Audio");
+        assert_eq!(
+            MenuAction::from_id("track.import-audio-file"),
+            Some(MenuAction::ImportAudioFile)
+        );
+        assert_eq!(MenuAction::ImportAudioFile.menu(), "Track");
+        assert_eq!(
+            serde_json::to_string(&MenuAction::ImportAudioFile).unwrap(),
+            "\"import-audio-file\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MenuAction::AddAudioLane).unwrap(),
+            "\"add-audio-lane\""
+        );
+        // The transcription dialog stays a separate item of the AI menu.
+        assert_eq!(MenuAction::ImportAudio.menu(), "AI");
     }
 
     #[test]

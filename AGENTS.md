@@ -15,7 +15,7 @@ Use English for replies, issues, pull requests, commits and docs.
 ## Commands
 
 - `pnpm check`: lint, format check, types, Vitest, rustfmt, clippy (`-D warnings`), cargo tests.
-- `pnpm test:e2e`: Playwright on Chromium and WebKit (includes axe scans). CI runs it as two jobs, `pnpm test:e2e:smoke` (core flows) and `pnpm test:e2e:additional` (the `tour*.spec.ts` guided-tour tests, `ai-install.spec.ts`, the stem-separation specs and the `practice-together*.spec.ts` specs); new specs go in smoke unless they belong to one of those (groups: `playwright.config.ts`).
+- `pnpm test:e2e`: Playwright on Chromium and WebKit (includes axe scans). CI runs it as one job per group and browser (`E2E_GROUP=<group> pnpm test:e2e`): `smoke` is the core flows (every spec in no feature group) and the feature groups are Record to tab and Import from Audio, stem separation, Practice together, audio lanes, edit, guided tours, the AI installer and model dialogs, and cloud share. The groups are in `e2e/groups.ts`: an e2e spec written for new feature work goes into its feature group (add its name to a glob there, or add a group there and to the matrix in `.github/workflows/ci.yml`; `pnpm test` checks that the two lists match and that no spec is in two groups), only core-flow specs stay in smoke. `pnpm test:e2e:smoke` and `pnpm test:e2e:additional` (all the feature groups together) run them locally.
 - `pnpm licenses:check`: licence policy (npm and cargo-deny). Disallowed licences fail CI.
 - `pnpm tauri build`: macOS bundle.
 

@@ -4,7 +4,8 @@
  * has one, the tour that shows it. Add an entry whenever a feature is added or changed in a way
  * the user should be shown: the `implement-issues` skill asks for it.
  */
-export type TourId = "main" | "editing" | "speed-trainer" | "effects" | "record-to-tab";
+export type TourId =
+  "main" | "editing" | "speed-trainer" | "effects" | "record-to-tab" | "audio-lanes";
 
 export interface FeatureEntry {
   id: string;
@@ -18,6 +19,14 @@ export interface FeatureEntry {
 }
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
+  {
+    id: "audio-lanes",
+    title: "Audio lanes",
+    summary:
+      "Put several audio files on lanes next to your tracks, each in its own colour (the stem colours by default), with its own mix and effects. Move, trim, split, glue and fade clips, give each its own pitch, sync the audio to the score, record plain audio takes, and open the studio for every lane at once. The eye on a lane shows it under the tabs, on the same bars (the continuous layout). Old songs with a backing file open with it on a lane.",
+    since: "1.3.0",
+    tour: "audio-lanes",
+  },
   {
     id: "practice-together-editing",
     title: "Edit the tab together",

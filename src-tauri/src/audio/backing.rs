@@ -27,8 +27,10 @@ use super::dsp::biquad::{Biquad, Coefficients, FilterKind};
 use super::dsp::eq::Eq;
 use super::mixing::{TrackEq, mix_into, pan_gains};
 
-/// File types the audio track opens. Mirrored by `AUDIO_EXTENSIONS` in `src/lib/tauri.ts`.
-pub const AUDIO_EXTENSIONS: [&str; 7] = ["mp3", "wav", "flac", "ogg", "oga", "aif", "aiff"];
+/// File types the audio lanes open. Mirrored by `AUDIO_EXTENSIONS` in `src/lib/tauri.ts`.
+pub const AUDIO_EXTENSIONS: [&str; 9] = [
+    "mp3", "m4a", "mp4", "wav", "flac", "ogg", "oga", "aif", "aiff",
+];
 /// Longest recording accepted (memory: about 10 MB per stereo minute at 44.1 kHz).
 pub const MAX_SECONDS: f64 = 30.0 * 60.0;
 /// Largest encoded file accepted.
@@ -377,8 +379,25 @@ impl Stretcher {
                 target
             }
             Some(natural) => self.best_start(audio, natural, target),
-            None => target,
+            None => {
+                // A fresh start (or after a seek): prime with the grain one hop earlier, so the
+                // first output already overlaps two windows and starts at full level. Without
+                // it, a clip that starts where another ends would fade in over one grain.
+                let early = target - self.hop as f64 * self.step;
+                self.overlap_grain(audio, early);
+                for a in &mut self.acc {
+                    a.copy_within(self.hop.., 0);
+                    a[self.hop..].fill(0.0);
+                }
+                target
+            }
         };
+        self.overlap_grain(audio, start);
+        self.prev_start = Some(start);
+        self.ready = self.hop;
+    }
+
+    fn overlap_grain(&mut self, audio: &DecodedAudio, start: f64) {
         for (channel, samples) in [&audio.left, &audio.right].into_iter().enumerate() {
             let acc = &mut self.acc[channel];
             for (i, w) in self.window.iter().enumerate() {
@@ -386,8 +405,6 @@ impl Stretcher {
                 acc[i] += w * self.interpolator.read(samples, pos);
             }
         }
-        self.prev_start = Some(start);
-        self.ready = self.hop;
     }
 
     /// The start near `target` whose first half looks most like `natural`'s
@@ -437,7 +454,23 @@ pub enum BackingFilter {
     GuitarBand,
     /// Remove what is panned to the centre (usually vocals and solo).
     CentreCut,
+    /// Lift the low end (bass and kick) by a low shelf.
+    BassBoost,
+    /// Lower the low end.
+    BassCut,
+    /// Lift the middle (voice, guitar, snare) by a wide peak.
+    MidBoost,
+    /// Lower the middle.
+    MidCut,
+    /// Lift the highs (cymbals, presence) by a high shelf.
+    HighBoost,
+    /// Lower the highs.
+    HighCut,
 }
+
+/// How much the enhance filters lift and the attenuate filters lower, in dB.
+pub const FILTER_BOOST_DB: f32 = 9.0;
+pub const FILTER_CUT_DB: f32 = -12.0;
 
 /// Settings of the audio track. Mirrored by `AudioTrackSettings` in `src/lib/tauri.ts`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -494,15 +527,27 @@ impl BackingParams {
     }
 }
 
-struct FilterBank {
+pub(crate) struct FilterBank {
     kind: BackingFilter,
     filters: [[Biquad; 2]; 2],
 }
 
 impl FilterBank {
-    fn new(kind: BackingFilter, rate: f32) -> Self {
+    pub(crate) fn new(kind: BackingFilter, rate: f32) -> Self {
         let c = |k, f| Coefficients::new(k, f, 0.707, 0.0, rate);
+        let eq = |k, f, db| {
+            [
+                Coefficients::new(k, f, 0.707, db, rate),
+                Coefficients::IDENTITY,
+            ]
+        };
         let pair = match kind {
+            BackingFilter::BassBoost => eq(FilterKind::LowShelf, 200.0, FILTER_BOOST_DB),
+            BackingFilter::BassCut => eq(FilterKind::LowShelf, 200.0, FILTER_CUT_DB),
+            BackingFilter::MidBoost => eq(FilterKind::Peak, 1_000.0, FILTER_BOOST_DB),
+            BackingFilter::MidCut => eq(FilterKind::Peak, 1_000.0, FILTER_CUT_DB),
+            BackingFilter::HighBoost => eq(FilterKind::HighShelf, 4_000.0, FILTER_BOOST_DB),
+            BackingFilter::HighCut => eq(FilterKind::HighShelf, 4_000.0, FILTER_CUT_DB),
             BackingFilter::Off => [Coefficients::IDENTITY; 2],
             BackingFilter::BassIsolate => [c(FilterKind::LowPass, 250.0); 2],
             BackingFilter::GuitarBand => [
@@ -520,7 +565,7 @@ impl FilterBank {
         Self { kind, filters }
     }
 
-    fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+    pub(crate) fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         match self.kind {
             BackingFilter::Off => {}
             BackingFilter::CentreCut => {
@@ -545,7 +590,7 @@ impl FilterBank {
         }
     }
 
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.filters.iter_mut().flatten().for_each(Biquad::reset);
     }
 }
@@ -737,6 +782,20 @@ mod tests {
     }
 
     #[test]
+    fn decodes_the_m4a_fixture() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../e2e/fixtures/lane-a440.m4a");
+        let audio = decode(std::fs::read(path).unwrap(), Some("m4a")).unwrap();
+        assert!(
+            (audio.duration() - 2.0).abs() < 0.15,
+            "{}",
+            audio.duration()
+        );
+        let middle = &audio.left[audio.rate as usize / 2..audio.rate as usize];
+        let f = frequency(middle, audio.rate as f64);
+        assert!((f - 440.0).abs() < 5.0, "{f} Hz");
+    }
+
+    #[test]
     fn decodes_the_mp3_fixture() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -890,6 +949,51 @@ mod tests {
             .skip(hop)
         {
             assert!((a - b).abs() < 1e-3, "sample {i}");
+        }
+    }
+
+    /// Peak level of a sine after a filter, settled.
+    fn filtered_peak(kind: BackingFilter, freq: f32) -> f32 {
+        let mut bank = FilterBank::new(kind, RATE);
+        let tone: Vec<f32> = (0..48_000)
+            .map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / RATE).sin() * 0.25)
+            .collect();
+        let (mut l, mut r) = (tone.clone(), tone);
+        bank.process(&mut l, &mut r);
+        l[24_000..].iter().fold(0.0f32, |a, b| a.max(b.abs()))
+    }
+
+    #[test]
+    fn enhance_and_attenuate_filters_change_their_band_only() {
+        let open = |f| filtered_peak(BackingFilter::Off, f);
+        let db = |kind, f| 20.0 * (filtered_peak(kind, f) / open(f)).log10();
+        for (boost, cut, inside, outside) in [
+            (
+                BackingFilter::BassBoost,
+                BackingFilter::BassCut,
+                60.0,
+                6_000.0,
+            ),
+            (
+                BackingFilter::MidBoost,
+                BackingFilter::MidCut,
+                1_000.0,
+                60.0,
+            ),
+            (
+                BackingFilter::HighBoost,
+                BackingFilter::HighCut,
+                12_000.0,
+                60.0,
+            ),
+        ] {
+            assert!(db(boost, inside) > 6.0, "{boost:?} lifts {inside} Hz");
+            assert!(db(cut, inside) < -8.0, "{cut:?} lowers {inside} Hz");
+            assert!(
+                db(boost, outside).abs() < 2.0,
+                "{boost:?} leaves {outside} Hz"
+            );
+            assert!(db(cut, outside).abs() < 2.0, "{cut:?} leaves {outside} Hz");
         }
     }
 

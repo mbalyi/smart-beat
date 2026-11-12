@@ -99,7 +99,7 @@ fn a_gp_file_with_settings_round_trips_byte_for_byte() {
     let folder = tempfile::tempdir().unwrap();
     let path = folder.path().join("song.gp");
     std::fs::write(&path, gp_bytes()).unwrap();
-    project::write_settings(&path, &settings(), None).unwrap();
+    project::write_settings(&path, &settings(), &Default::default()).unwrap();
     let saved = std::fs::read(&path).unwrap();
 
     // The cloud list offers it, and its stamp hashes exactly those bytes.

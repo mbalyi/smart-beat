@@ -90,6 +90,15 @@ Install the bundled app with "Native engine with effects" on. Plug in an audio i
 - Close the song: the guitar is no longer heard. Open another song and add a monitor track: it starts with the same pedalboard, level and EQ.
 - Unplug the interface while listening: the row says the input stopped. Plug it back in and switch the row off and on.
 
+### 2g. Audio lanes (#185)
+
+1. Open a song with the native engine. Add two lanes: an mp3 and an m4a. Each one takes a stem colour. Both play in time with the score.
+2. Transpose one clip by +2 semitones, and give another clip a playrate of 0.8 with "Keep the pitch" on. Listen for warble or clicks on chords and on a solo voice, at 100 % and at 70 % in the speed trainer.
+3. Split a clip, move the second piece, then glue them back. The joined clip must sound exactly like it did before the split.
+4. Record audio from the playhead with your interface, then punch in over two selected bars. The takes land on the beat, and the delay readout is taken out.
+5. Open the studio with sixteen lanes and several pitched clips each. Playback must stay free of dropouts on Apple Silicon (watch the engine's load readout).
+6. Save as `.gp`, reopen, and open the file in the score app: it must open (it ignores Smart Beat's entries).
+
 ### 3. The right drum for every drum number
 
 [drum-midi-support.md](drum-midi-support.md) says which numbers sound, not whether the sample is the right instrument. Judge by ear:

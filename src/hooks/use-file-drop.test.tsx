@@ -32,8 +32,32 @@ describe("useFileDrop in the desktop app", () => {
     expect(result.current).toBe(false);
 
     await act(() => emitFileDrag({ type: "drop", paths: ["/a.gp5"] }));
-    expect(onDropPaths).toHaveBeenCalledWith(["/a.gp5"]);
+    // With where it was dropped (CSS pixels), so a file can land on an audio lane.
+    expect(onDropPaths).toHaveBeenCalledWith(
+      ["/a.gp5"],
+      expect.objectContaining({ x: expect.any(Number) }),
+    );
     expect(result.current).toBe(false);
+  });
+
+  it("tells what is dragged in and where the pointer is while it moves", async () => {
+    mockTauri();
+    const onEnter = vi.fn();
+    const onOver = vi.fn();
+    const { result } = renderHook(() =>
+      useFileDrop({ onDropPaths: vi.fn(), onDropFiles: vi.fn(), onEnter, onOver }),
+    );
+
+    await waitFor(async () => {
+      await act(() => emitFileDrag({ type: "enter", paths: ["/a.wav", "/b.mp3"] }));
+      expect(result.current).toBe(true);
+    });
+    expect(onEnter).toHaveBeenCalledWith(["/a.wav", "/b.mp3"]);
+
+    await act(() => emitFileDrag({ type: "over", position: { x: 40, y: 60 } }));
+    expect(onOver).toHaveBeenCalledWith({ x: expect.any(Number), y: expect.any(Number) });
+    // Moving does not change whether files are over the window.
+    expect(result.current).toBe(true);
   });
 
   it("stops listening on unmount", async () => {

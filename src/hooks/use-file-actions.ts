@@ -126,6 +126,15 @@ function reportWarnings(title: string, { warnings }: ExportResult) {
  * exports write MusicXML, MIDI, alphaTex, ASCII tab and audio without changing
  * which file the song belongs to.
  */
+/** The mix with every audio file kept as a reference (when one cannot be embedded). */
+function referenceOnly(mix: MixerSettings): MixerSettings {
+  if (!mix.audio) return mix;
+  return {
+    ...mix,
+    audio: { ...mix.audio, sources: mix.audio.sources.map((s) => ({ ...s, embedded: false })) },
+  };
+}
+
 export function useFileActions({
   song,
   editor,
@@ -187,11 +196,11 @@ export function useFileActions({
     const drumLines = collectDrumLines(editor.score);
     const mix = { ...getMix(), ...(drumLines.length > 0 && { drumLines }) };
     try {
-      return await embedProject(bytes, mix, !!mix.audioTrack?.embedded);
+      return await embedProject(bytes, mix, true);
     } catch (error) {
       if (!(isCommandError(error) && error.kind === "audio")) throw error;
-      toast.warning("The recording was not embedded", { description: errorText(error) });
-      return embedProject(bytes, mix, false);
+      toast.warning("Some audio files were not embedded", { description: errorText(error) });
+      return embedProject(bytes, referenceOnly(mix), false);
     }
   }
 
@@ -218,21 +227,21 @@ export function useFileActions({
   }
 
   /**
-   * Puts the mix (effects, sounds, EQ, automation, drum mixer, audio track,
-   * presets) inside a saved `.gp` file, with the recording when the audio
-   * track says so. Returns the file's final content key.
+   * Puts the mix (effects, sounds, EQ, automation, drum mixer, audio lanes,
+   * presets) inside a saved `.gp` file, with the embedded audio files its
+   * clips play. Returns the file's final content key.
    */
   async function storeSettings(path: string, bytes: Uint8Array): Promise<string> {
     // Drum-tab lines have no place in Guitar Pro 7+ files: they go with the settings (#53).
     const drumLines = collectDrumLines(editor.score);
     const mix = { ...getMix(), ...(drumLines.length > 0 && { drumLines }) };
     try {
-      await writeProjectSettings(path, mix, !!mix.audioTrack?.embedded);
+      await writeProjectSettings(path, mix);
     } catch (error) {
       if (!(isCommandError(error) && error.kind === "audio")) throw error;
-      // The recording is not loaded: save it as a reference only.
-      await writeProjectSettings(path, mix, false);
-      toast.warning("The recording was not embedded", { description: errorText(error) });
+      // An audio file is not loaded: keep the files as references only.
+      await writeProjectSettings(path, referenceOnly(mix));
+      toast.warning("Some audio files were not embedded", { description: errorText(error) });
     }
     try {
       return await fileKey(await readScoreFile(path));

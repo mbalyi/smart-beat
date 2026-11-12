@@ -5,13 +5,13 @@ import { createMeterStore, FALL, meterPosition, useMeter } from "@/lib/audio/met
 describe("meter store", () => {
   it("falls back smoothly between peaks", () => {
     const store = createMeterStore();
-    store.set({ tracks: [1, 0.5], master: 0.8, drums: [[0.4]], backing: 0.2 });
-    store.set({ tracks: [0, 0.9], master: 0, drums: [[0]], backing: 0 });
+    store.set({ tracks: [1, 0.5], master: 0.8, drums: [[0.4]], lanes: [["a", 0.2]] });
+    store.set({ tracks: [0, 0.9], master: 0, drums: [[0]], lanes: [["a", 0]] });
     const m = store.get();
     expect(m.tracks).toEqual([FALL, 0.9]);
     expect(m.master).toBeCloseTo(0.8 * FALL);
     expect(m.drums![0]![0]).toBeCloseTo(0.4 * FALL);
-    expect(m.backing).toBeCloseTo(0.2 * FALL);
+    expect(m.lanes![0]![1]).toBeCloseTo(0.2 * FALL);
     for (let i = 0; i < 100; i++) store.set({ tracks: [], master: 0 });
     expect(store.get().master).toBe(0);
   });

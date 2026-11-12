@@ -46,7 +46,7 @@ nam-rs = "0.4"
 vst3-host = { version = "0.10", default-features = false, features = ["process-isolation"] }
 clack-host = "0.2"
 clack-extensions = { version = "0.2", features = ["audio-ports", "gui", "latency", "state", "clack-host"] }
-symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "aiff"] }
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "flac", "ogg", "vorbis", "aiff", "isomp4", "aac"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # Saved stem separations (`.sbstems`, src/stems/codec.rs) store each stem as lossless FLAC. Pure
 # Rust (Apache-2.0); decoding goes through symphonia's flac feature above.

@@ -1,36 +1,37 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { CI_GROUPS, FEATURE_GROUPS, FEATURE_SPECS, type FeatureGroup } from "./e2e/groups";
+
 const PORT = 1420;
 // Explicit IPv4 host: "localhost" may resolve to ::1 only, which stalls the readiness check.
 const HOST = "127.0.0.1";
 const isCI = Boolean(process.env.CI);
 
 /**
- * CI runs two jobs per browser so neither hits a timeout (one serial run of everything took
- * over an hour in WebKit): "smoke" is the core flows, "additional" the guided-tour tests, the AI
- * installer and model dialogs, Record to tab, Import from Audio, stem separation, cloud storage and
- * Practice together (the smoke group had grown past its limit in WebKit).
- * `E2E_GROUP` picks one; unset runs everything (local `pnpm test:e2e`).
+ * CI runs one job per group and browser, so a slow group never runs out of time (one serial run
+ * of everything took over an hour in WebKit, and a single "additional" group of the feature specs
+ * later did the same). The groups are in `e2e/groups.ts`: "smoke" is every spec in no feature
+ * group (the core flows); a feature group is a list of spec globs. `E2E_GROUP` picks one;
+ * "additional" is a local shortcut for all the feature groups together; unset runs everything
+ * (local `pnpm test:e2e`).
  */
-const ADDITIONAL_SPECS = [
-  "**/tour*.spec.ts",
-  "**/ai-install.spec.ts",
-  "**/stem-separation.spec.ts",
-  "**/stem-cloud.spec.ts",
-  "**/cloud-share.spec.ts",
-  "**/record-to-tab.spec.ts",
-  "**/audio-transcription.spec.ts",
-  "**/model-dialogs.spec.ts",
-  "**/practice-together*.spec.ts",
-  // The click and selection specs of #228 and #216 (the smoke group ran out of time in WebKit).
-  "**/tab-line-click.spec.ts",
-  "**/selection-multi-track.spec.ts",
-];
 const group = process.env.E2E_GROUP || undefined;
-if (group !== undefined && group !== "smoke" && group !== "additional") {
-  throw new Error(`E2E_GROUP must be "smoke" or "additional", not "${group}".`);
+if (group !== undefined && group !== "additional" && !CI_GROUPS.includes(group)) {
+  throw new Error(
+    `E2E_GROUP must be "additional" or one of ${CI_GROUPS.join(", ")}, not "${group}".`,
+  );
 }
-const GROUP_TIMEOUT_MINUTES = { smoke: 62, additional: 55 } as const;
+/** The specs a feature group runs (undefined for smoke and for a run of everything). */
+const groupSpecs =
+  group === "additional"
+    ? FEATURE_SPECS
+    : group !== undefined && group in FEATURE_GROUPS
+      ? [...FEATURE_GROUPS[group as FeatureGroup]]
+      : undefined;
+// A CI group has a 65 minute job limit; the local shortcuts run many groups in one go.
+const GLOBAL_TIMEOUT_MINUTES = group === undefined || group === "additional" ? 75 : 60;
+/** Playwright workers on CI: the job sets it per group (a group that flakes goes back to 1). */
+const ciWorkers = Number(process.env.E2E_WORKERS ?? 1);
 
 /**
  * Browser integration tests. They run the real UI in Chromium (Windows uses
@@ -41,16 +42,16 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: isCI,
-  // The whole run. WebKit on CI renders in software, one test at a time: about an hour for
-  // everything, so CI runs the two groups as separate jobs.
-  globalTimeout: (group ? GROUP_TIMEOUT_MINUTES[group] : 75) * 60_000,
-  ...(group === "smoke" && { testIgnore: ADDITIONAL_SPECS }),
-  ...(group === "additional" && { testMatch: ADDITIONAL_SPECS }),
+  // The whole run. WebKit on CI renders in software, a test at a time: about an hour for
+  // everything, so CI runs the groups as separate jobs.
+  globalTimeout: GLOBAL_TIMEOUT_MINUTES * 60_000,
+  ...(group === "smoke" && { testIgnore: FEATURE_SPECS }),
+  ...(groupSpecs && { testMatch: groupSpecs }),
   retries: isCI ? 2 : 0,
-  // One test at a time on CI: every song test synthesizes audio in real time,
-  // and parallel tests on a 2-core runner starve each other's audio and
-  // rendering (in WebKit's software renderer especially).
-  workers: isCI ? 1 : undefined,
+  // Every song test synthesizes audio in real time, so parallel tests can starve each other's
+  // audio and rendering (in WebKit's software renderer especially). CI starts with one test at a
+  // time and the job raises it (`E2E_WORKERS`): the runner of a public repo has 4 vCPUs.
+  workers: isCI ? ciWorkers : undefined,
   reporter: isCI ? [["github"], ["html", { open: "never" }]] : [["list"]],
   use: {
     baseURL: `http://${HOST}:${PORT}`,

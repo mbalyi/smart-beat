@@ -1,6 +1,6 @@
-import { CheckIcon } from "lucide-react";
 import { useId } from "react";
 
+import { ColorSwatches } from "@/components/color/color-swatches";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { TRACK_PALETTE, isTrackColor, trackColor } from "@/lib/score/track-colors";
-import { cn } from "@/lib/utils";
 
 /**
  * Chooses the colour of a track's strip and bars in the mixer (#83): a palette, any colour of
@@ -65,29 +64,13 @@ export function TrackColorDialog({
               {chosen ? `Custom colour ${chosen}` : "Default colour"}
             </span>
           </div>
-          <div role="group" aria-label="Colours" className="grid grid-cols-6 gap-2">
-            {TRACK_PALETTE.map((swatch) => {
-              const on = chosen === swatch.hex;
-              return (
-                <button
-                  key={swatch.hex}
-                  type="button"
-                  aria-pressed={on}
-                  aria-label={swatch.name}
-                  title={swatch.name}
-                  onClick={() => onChange(swatch.hex)}
-                  className={cn(
-                    "flex size-9 items-center justify-center rounded-md border-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-                    on ? "border-foreground" : "border-transparent hover:border-muted-foreground",
-                  )}
-                  style={{ backgroundColor: trackColor(index, swatch.hex) }}
-                >
-                  {/* The tick shows the choice without relying on the colours. */}
-                  {on && <CheckIcon className="size-5 text-black" aria-hidden="true" />}
-                </button>
-              );
-            })}
-          </div>
+          <ColorSwatches
+            label="Colours"
+            swatches={TRACK_PALETTE}
+            chosen={chosen}
+            onChoose={onChange}
+            display={(hex) => trackColor(index, hex)}
+          />
           <div className="flex items-center gap-2">
             <label htmlFor={pickerId} className="text-sm">
               Another colour

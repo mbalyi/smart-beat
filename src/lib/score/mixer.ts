@@ -12,10 +12,11 @@ import {
 } from "@/lib/score/interpretation";
 import type { ScoreSummary } from "@/lib/score/score";
 import { isTrackColor } from "@/lib/score/track-colors";
+import { normalizeAudio } from "@/lib/audio-lanes/model";
 import {
   MIXER_SETTINGS_MIN_VERSION,
   MIXER_SETTINGS_VERSION,
-  type AudioTrackSettings,
+  type AudioLanesSettings,
   type AutomationLaneKind,
   type AutomationPoint,
   type DrumMixer,
@@ -61,7 +62,8 @@ export type MixerAction =
   | { type: "drums"; track: number; drums: DrumMixer | null }
   /** Plays a drum track with an imported kit (#40; null: the SoundFont's own). */
   | { type: "drum-kit"; track: number; kit: string | null }
-  | { type: "audio-track"; value: AudioTrackSettings | null }
+  /** The audio lanes, clips and files (built with `src/lib/audio-lanes/edits.ts`). */
+  | { type: "audio"; value: AudioLanesSettings | null }
   /** The monitor track (null removes it). */
   | { type: "monitor"; value: MonitorTrackSettings | null }
   | { type: "presets"; presets: SongPreset[] }
@@ -317,9 +319,10 @@ export function mixerReducer(mix: MixerSettings, action: MixerAction): MixerSett
         drumKits: perTrack(mix, mix.drumKits, action.track, action.kit, () => null),
       };
     }
-    case "audio-track": {
-      if (!action.value) return without(mix, "audioTrack");
-      return { ...mix, audioTrack: normalizeAudioTrack(action.value) };
+    case "audio": {
+      if (!action.value || action.value.lanes.length === 0)
+        return without(without(mix, "audio"), "audioTrack");
+      return { ...without(mix, "audioTrack"), audio: normalizeAudio(action.value) };
     }
     case "monitor": {
       if (!action.value) return without(mix, "monitor");
@@ -358,7 +361,7 @@ function normalizeSounds(value: TrackSounds | null): TrackSounds | null {
   return { sounds, switches };
 }
 
-function normalizeEq(eq: TrackEq): TrackEq {
+export function normalizeEq(eq: TrackEq): TrackEq {
   const gain = (g: number) => clamp(Number.isFinite(g) ? g : 0, -15, 15);
   const next: TrackEq = {
     lowDb: gain(eq.lowDb),
@@ -393,23 +396,6 @@ function normalizeAutomation(a: TrackAutomation): TrackAutomation {
     volume: normalizeLane("volume", a.volume),
     pan: normalizeLane("pan", a.pan),
     mute: normalizeLane("mute", a.mute),
-  };
-}
-
-function normalizeAudioTrack(a: AudioTrackSettings): AudioTrackSettings {
-  const sync = a.sync
-    .filter((p) => p.bar >= 0 && Number.isFinite(p.ms) && p.ms >= 0)
-    .map((p) => ({ bar: Math.round(p.bar), ms: p.ms }))
-    .sort((x, y) => x.bar - y.bar)
-    .filter((p, i, all) => all[i + 1]?.bar !== p.bar);
-  return {
-    ...a,
-    volume: clamp(a.volume, 0, 1),
-    pan: clamp(a.pan, -1, 1),
-    semitones: clamp(Math.round(a.semitones), -24, 24),
-    cents: clamp(Math.round(a.cents), -100, 100),
-    eq: normalizeEq(a.eq),
-    sync,
   };
 }
 
@@ -493,12 +479,15 @@ export function heardMix(mix: MixerSettings): MixerSettings {
         ? { ...t, mute: true, solo: false }
         : t,
   );
-  const audio = mix.audioTrack;
+  const audio = mix.audio;
   return {
     ...mix,
     tracks,
-    // The recording is a backing too: silent while practising alone.
-    ...(audio && mode === "onlyMe" && { audioTrack: { ...audio, mute: true, solo: false } }),
+    // The audio lanes are a backing too: silent while practising alone.
+    ...(audio &&
+      mode === "onlyMe" && {
+        audio: { ...audio, lanes: audio.lanes.map((l) => ({ ...l, mute: true, solo: false })) },
+      }),
   };
 }
 
@@ -554,14 +543,19 @@ export function removeSound(mix: MixerSettings, track: number, sound: number): T
   };
 }
 
+/** Whether an audio lane is soloed (a lane in a soloed folder counts). */
+export function anyLaneSolo(mix: MixerSettings): boolean {
+  return !!mix.audio?.lanes.some((l) => l.enabled && l.solo);
+}
+
 /**
- * Whether a track is heard: not muted, and soloed if any track (or the audio track, or the
+ * Whether a track is heard: not muted, and soloed if any track (or an audio lane, or the
  * monitor track) is.
  */
 export function isAudible(mix: MixerSettings, index: number): boolean {
   const track = mix.tracks[index];
   if (!track || track.mute) return false;
-  const audioSolo = !!mix.audioTrack?.enabled && !!mix.audioTrack.solo;
+  const audioSolo = anyLaneSolo(mix);
   const monitorSolo = !!mix.monitor?.enabled && !!mix.monitor.solo;
   return track.solo || (!mix.tracks.some((t) => t.solo) && !audioSolo && !monitorSolo);
 }
@@ -570,7 +564,7 @@ export function isAudible(mix: MixerSettings, index: number): boolean {
 export function isMonitorAudible(mix: MixerSettings): boolean {
   const monitor = mix.monitor;
   if (!monitor?.enabled || monitor.mute) return false;
-  const audioSolo = !!mix.audioTrack?.enabled && !!mix.audioTrack.solo;
+  const audioSolo = anyLaneSolo(mix);
   return monitor.solo || (!mix.tracks.some((t) => t.solo) && !audioSolo);
 }
 

@@ -1,3 +1,5 @@
+import { STEM_COLOR_ORDER, stemColor } from "@/lib/stems/colors";
+
 /** How many colours tracks cycle through (`--track-1` … `--track-8` in index.css). */
 export const TRACK_COLOR_COUNT = 8;
 
@@ -54,4 +56,15 @@ export function trackColor(index: number, custom?: string | null): string {
   if (!isTrackColor(custom)) return `var(--track-${(index % TRACK_COLOR_COUNT) + 1})`;
   const { l, c, h } = hexToOklch(custom);
   return `oklch(clamp(var(--track-l-min), ${l.toFixed(3)}, var(--track-l-max)) ${c.toFixed(3)} ${h.toFixed(1)})`;
+}
+
+/**
+ * The colour of an audio lane: the user's choice, or else the stem colours in turn (guitar,
+ * drums, bass, vocals, piano, …) by the lane's position. A chosen colour is held to the same
+ * lightness range as a chosen track colour.
+ */
+export function laneColor(index: number, custom?: string | null): string {
+  if (isTrackColor(custom)) return trackColor(index, custom);
+  const order = STEM_COLOR_ORDER;
+  return stemColor(order[((index % order.length) + order.length) % order.length]!);
 }

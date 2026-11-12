@@ -14,7 +14,7 @@ export interface MeterStore {
   subscribe: (listener: () => void) => () => void;
 }
 
-const SILENT: EngineMeters = { tracks: [], master: 0, drums: [], backing: 0 };
+const SILENT: EngineMeters = { tracks: [], master: 0, drums: [], lanes: [] };
 
 /** How fast a meter falls back (share kept per update, ~40 updates per second). */
 export const FALL = 0.82;
@@ -30,7 +30,10 @@ export function smoothMeters(next: EngineMeters, previous: EngineMeters): Engine
     tracks: next.tracks.map((v, i) => fall(v, previous.tracks[i])),
     master: fall(next.master, previous.master),
     drums: (next.drums ?? []).map((row, t) => row.map((v, e) => fall(v, previous.drums?.[t]?.[e]))),
-    backing: fall(next.backing, previous.backing),
+    lanes: (next.lanes ?? []).map(([id, v]) => [
+      id,
+      fall(v, previous.lanes?.find(([pid]) => pid === id)?.[1]),
+    ]),
     ...(next.monitor !== undefined && { monitor: fall(next.monitor, previous.monitor) }),
     ...(next.monitorInput !== undefined && {
       monitorInput: fall(next.monitorInput, previous.monitorInput),

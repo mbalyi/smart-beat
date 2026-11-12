@@ -18,6 +18,7 @@ import { defaultEffect } from "@/lib/audio/effects";
 import type { Score } from "@/lib/score/model";
 import { MIXER_SETTINGS_VERSION, type MixerSettings } from "@/lib/tauri";
 import { texScore } from "@/test/playback";
+import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 
 const BAR = 3840; // 4/4 at 960 ticks per quarter
 
@@ -48,8 +49,8 @@ describe("bar passes", () => {
     expect(barOccurrences(score, lookup)).toEqual(REPEATED);
     const straight = barOccurrences(texScore(":4 c4 c4 c4 c4 | c4 c4 c4 c4"), null);
     expect(straight).toEqual([
-      { bar: 0, start: 0, end: BAR },
-      { bar: 1, start: BAR, end: 2 * BAR },
+      { bar: 0, start: 0, end: BAR, beats: 4 },
+      { bar: 1, start: BAR, end: 2 * BAR, beats: 4 },
     ]);
   });
 
@@ -144,6 +145,45 @@ describe("audio track", () => {
     ]);
   });
 
+  it("puts a point on a beat that many beats into the bar, beside the bar-start point", () => {
+    expect(
+      syncTicks(
+        [
+          { bar: 0, ms: 1000 },
+          { bar: 0, beat: 2, ms: 1200 },
+          { bar: 1, beat: 1, ms: 2500 },
+        ],
+        REPEATED,
+      ),
+    ).toEqual([
+      { tick: 0, ms: 1000 },
+      { tick: 1920, ms: 1200 },
+      { tick: BAR + 960, ms: 2500 },
+    ]);
+  });
+
+  it("counts beats by the time signature's numerator", () => {
+    const threeFour: BarOccurrence[] = [{ bar: 0, start: 0, end: 2880, beats: 3 }];
+    expect(syncTicks([{ bar: 0, beat: 2, ms: 5 }], threeFour)).toEqual([{ tick: 1920, ms: 5 }]);
+    // 6/8 is 6 beats in 2880 ticks: 480 ticks each.
+    const sixEight: BarOccurrence[] = [{ bar: 0, start: 2880, end: 5760, beats: 6 }];
+    expect(syncTicks([{ bar: 0, beat: 3, ms: 5 }], sixEight)).toEqual([
+      { tick: 2880 + 1440, ms: 5 },
+    ]);
+    // The score's bars carry their numerator.
+    const score = texScore("\\ts 6 8 :8 c4 c4 c4 c4 c4 c4 | \\ts 3 4 :4 c4 c4 c4");
+    expect(barOccurrences(score, null).map((o) => o.beats)).toEqual([6, 3]);
+  });
+
+  it("keeps a point past the bar's last beat inside the bar", () => {
+    expect(syncTicks([{ bar: 1, beat: 9, ms: 7 }], REPEATED)).toEqual([
+      { tick: 2 * BAR - 1, ms: 7 },
+    ]);
+    expect(syncTicks([{ bar: 1, beat: 4, ms: 7 }], REPEATED)).toEqual([
+      { tick: 2 * BAR - 1, ms: 7 },
+    ]);
+  });
+
   it("maps song time to recording time like the engine", () => {
     const points = [
       { songMs: 0, ms: 1000 },
@@ -178,18 +218,10 @@ describe("engineExtras", () => {
       masterPan: 0.25,
       eq: [{ lowDb: 2, midDb: 0, midHz: 1000, highDb: 0 }],
       drums: [{ stereo: false, elements: [] }],
-      audioTrack: {
-        name: "a.mp3",
-        embedded: false,
-        enabled: true,
-        volume: 0.5,
-        pan: 0,
-        mute: false,
-        solo: false,
-        eq: { lowDb: 0, midDb: 0, midHz: 1000, highDb: 0 },
-        semitones: 1,
-        cents: 0,
-        filter: "off",
+      audio: {
+        ...EMPTY_AUDIO,
+        sources: [{ id: "s", name: "a.mp3", ext: "mp3", embedded: false }],
+        lanes: [{ ...newLane("A", "a"), semitones: 1, clips: [newClip("s", "a", 0, 1000, "c")] }],
         sync: [{ bar: 0, ms: 10 }],
       },
     });
@@ -200,10 +232,30 @@ describe("engineExtras", () => {
     expect(extras.eq[0]!.lowDb).toBe(2);
     expect(extras.drums[0]!.stereo).toBe(false);
     expect(extras.drums[0]!.elements.length).toBeGreaterThan(10);
-    expect(extras.backing!.params).not.toHaveProperty("name");
-    expect(extras.backing!.params.semitones).toBe(1);
-    expect(extras.backing!.sync).toEqual([{ tick: 0, ms: 10 }]);
-    expect(engineExtras(mix(), REPEATED).backing).toBeNull();
+    expect(extras.lanes!.audio.lanes[0]!.semitones).toBe(1);
+    expect(extras.lanes!.sync).toEqual([{ tick: 0, ms: 10 }]);
+    expect(extras.lanes!.transpose).toBe(0);
+    expect(engineExtras(mix(), REPEATED).lanes).toBeNull();
+  });
+
+  it("sends beat sync points at their beat's tick", () => {
+    const m = mix({
+      audio: {
+        ...EMPTY_AUDIO,
+        sources: [{ id: "s", name: "a.mp3", ext: "mp3", embedded: false }],
+        lanes: [{ ...newLane("A", "a"), clips: [newClip("s", "a", 0, 1000, "c")] }],
+        sync: [
+          { bar: 0, ms: 1000 },
+          { bar: 0, beat: 2, ms: 1200 },
+          { bar: 2, beat: 1, ms: 9000 },
+        ],
+      },
+    });
+    expect(engineExtras(m, REPEATED).lanes!.sync).toEqual([
+      { tick: 0, ms: 1000 },
+      { tick: 1920, ms: 1200 },
+      { tick: 4 * BAR + 960, ms: 9000 },
+    ]);
   });
 
   it("sends the monitor track with the input chosen in Settings", () => {

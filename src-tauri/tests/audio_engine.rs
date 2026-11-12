@@ -586,11 +586,17 @@ fn drum_elements_have_their_own_mix_and_meters() {
     assert!(l.iter().zip(&r).all(|(a, b)| (a - b).abs() < 1e-6));
 }
 
-#[test]
-fn the_audio_track_follows_sync_points_and_solo() {
-    use smart_beat_lib::audio::backing::{Backing, BackingParams, DecodedAudio, SyncMap};
+/// Audio lanes in the engine: one clip of a 330 Hz tone on a soloed lane, through the song's
+/// sync map.
+fn lane_engine(solo: bool, clip_ms: f64) -> Engine {
+    use smart_beat_lib::audio::backing::{BackingParams, DecodedAudio, SyncMap};
+    use smart_beat_lib::audio::lanes::{LaneInputs, prepare};
+    use smart_beat_lib::audio_lanes::{
+        AudioClip, AudioLane, AudioLanes, AudioSource, AudioTake, ClipFade,
+    };
+    use std::collections::HashMap;
     let rate = 44_100u32;
-    let tone: Vec<f32> = (0..rate as usize * 6)
+    let tone: Vec<f32> = (0..rate as usize * 30)
         .map(|i| 0.5 * (std::f32::consts::TAU * 330.0 * i as f32 / rate as f32).sin())
         .collect();
     let audio = Arc::new(DecodedAudio {
@@ -599,48 +605,115 @@ fn the_audio_track_follows_sync_points_and_solo() {
         left: tone.clone(),
         right: tone,
     });
-    let backing = |solo| {
-        let mut b = Backing::new(audio.clone(), RATE, BLOCK);
-        b.set(
-            BackingParams {
+    let id = "b".repeat(64);
+    let lanes = AudioLanes {
+        sources: vec![AudioSource {
+            id: id.clone(),
+            name: "t.wav".into(),
+            ext: "wav".into(),
+            path: None,
+            embedded: true,
+            legacy_entry: None,
+        }],
+        lanes: vec![AudioLane {
+            id: "lane".into(),
+            name: "Tone".into(),
+            color: None,
+            params: BackingParams {
                 solo,
                 ..Default::default()
             },
-            SyncMap::new(vec![(0.0, 0.5)]),
-        );
-        b
+            follow_transposition: true,
+            effects: vec![],
+            auto_bypass: false,
+            automation: vec![],
+            sends: vec![],
+            parent: None,
+            folder: false,
+            collapsed: false,
+            group: 0,
+            height: None,
+            shown_in_score: false,
+            clips: vec![AudioClip {
+                id: "clip".into(),
+                takes: vec![AudioTake {
+                    name: "t".into(),
+                    source_id: id.clone(),
+                    offset_ms: 0.0,
+                }],
+                take: 0,
+                start_ms: 0.0,
+                length_ms: clip_ms,
+                gain_db: 0.0,
+                mute: false,
+                locked: false,
+                reversed: false,
+                semitones: 0,
+                cents: 0,
+                playrate: 1.0,
+                preserve_pitch: true,
+                fade_in: ClipFade::default(),
+                fade_out: ClipFade::default(),
+                envelope: vec![],
+                stretch: vec![],
+                group_id: None,
+            }],
+        }],
+        ..Default::default()
     };
-    let mut engine = playing_engine(|e| {
-        e.set_backing(Some(backing(true)));
+    let sources = HashMap::from([(id, audio)]);
+    let reversed = HashMap::new();
+    let build = |_: Option<usize>, _: &[EffectSlot]| Chain::empty();
+    let seconds_at = |t: f64| t;
+    let prepared = prepare(&LaneInputs {
+        audio: &lanes,
+        sources: &sources,
+        reversed: &reversed,
+        transpose: 0,
+        sync: SyncMap::new(vec![(0.0, 0.5)]),
+        output_rate: RATE,
+        max_block: BLOCK,
+        build_chain: &build,
+        seconds_at: &seconds_at,
     });
+    playing_engine(move |e| {
+        drop(e.set_lanes(Some(prepared)));
+    })
+}
+
+#[test]
+fn audio_lanes_follow_sync_points_solo_and_play_past_the_song_end() {
+    let mut engine = lane_engine(true, 5_000.0);
     let (l, _) = render(&mut engine, 1.0);
-    // Solo on the audio track silences the score, so only the 330 Hz tone is left.
+    // Solo on the lane silences the score, so only the 330 Hz tone is left.
     let crossings = l[4_800..]
         .windows(2)
         .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
         .count();
     let freq = crossings as f32 * RATE / (l.len() - 4_800) as f32;
     assert!((freq - 330.0).abs() < 5.0, "{freq} Hz");
-    assert!(engine.take_meters().backing > 0.3);
-    // Paused: the audio track stops too.
+    let meters = engine.take_meters();
+    assert_eq!(meters.lanes.len(), 1);
+    assert!(meters.lanes[0].1 > 0.3);
+    // Paused: the lanes stop too.
     engine.pause();
     let (paused, _) = render(&mut engine, 0.2);
     assert!(rms(&paused) < 1e-4);
-    // Offline renders include it.
-    let mut offline = playing_engine(|e| {
-        e.set_backing(Some(backing(false)));
-    });
+    // Offline renders include the lanes, and keep going until the last clip ends, even when
+    // that is after the end of the song.
+    let song_end = lane_engine(false, 1_000.0).duration();
+    let mut offline = lane_engine(false, (song_end + 6.0) * 1000.0);
     let bytes = smart_beat_lib::audio::render_offline(
         &mut offline,
-        48_000 * 60,
+        48_000 * 120,
         &smart_beat_lib::audio::plugin::PluginPool::default(),
     )
     .unwrap();
-    assert!(bytes.len() / 8 > 4 * 48_000);
-    // Sync map: song second 1 is recording second 1.5.
-    let map = SyncMap::new(vec![(0.0, 0.5)]);
-    assert_eq!(map.audio_at(1.0), 1.5);
-    let _ = BackingParams::default();
+    let seconds = bytes.len() as f64 / 8.0 / 48_000.0;
+    assert!(
+        seconds > song_end + 5.0,
+        "{seconds} s for a {song_end} s song"
+    );
 }
 
 /// The mastering chain (#39): EQ, compressor and limiter keep the song under

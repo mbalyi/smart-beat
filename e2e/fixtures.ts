@@ -38,7 +38,8 @@ type MenuAction =
   | "toggle-inspector"
   | "toggle-practice-view"
   | "add-track"
-  | "add-audio-track"
+  | "add-audio-lane"
+  | "import-audio-file"
   | "duplicate-track"
   | "remove-track"
   | "track-settings"
@@ -152,13 +153,29 @@ declare global {
       /** The imported drum kit of each track (#40). */
       kits: Record<string, string | null>;
     };
-    __engineBacking: {
-      source: { type: string; path?: string };
-      params: { semitones: number; filter: string } | null;
+    __engineLanes: {
+      audio: {
+        lanes: {
+          id: string;
+          name: string;
+          mute: boolean;
+          filter: string;
+          semitones: number;
+          /** Shown under the tabs in the continuous view (off by default). */
+          shownInScore?: boolean;
+          clips: { startMs: number }[];
+        }[];
+        sources: { id: string; name: string; embedded: boolean }[];
+        sync: { bar: number; ms: number }[];
+      };
       sync: { tick: number; ms: number }[];
     } | null;
-    __projectSettings: Record<string, { audioTrack?: { name: string; sync: unknown[] } }>;
-    __embeddedAudio: boolean;
+    __engineSources: Record<string, { type: string; path?: string; entry?: string }>;
+    __extracted?: { source: string; path: string; asWav: boolean };
+    __projectSettings: Record<
+      string,
+      { version?: number; audio?: { lanes: { name: string }[]; sources: { embedded: boolean }[] } }
+    >;
     __engineMonitor?: {
       params: { enabled: boolean };
       device: string | null;
@@ -273,9 +290,19 @@ export async function emitMenuAction(page: Page, action: MenuAction) {
     .toBeGreaterThan(0);
 }
 
-/** Simulates the OS dragging files onto the window and dropping them. */
-export async function dropFiles(page: Page, paths: string[]) {
-  const position = { x: 100, y: 100 };
+/**
+ * Simulates the OS dragging files onto the window (at `position` in CSS pixels, default
+ * (100, 100)) and dropping them there. `hover` leaves the files over the window instead of
+ * dropping them, for checking what the window shows while dragging.
+ */
+export async function dropFiles(
+  page: Page,
+  paths: string[],
+  {
+    position = { x: 100, y: 100 },
+    hover = false,
+  }: { position?: { x: number; y: number }; hover?: boolean } = {},
+) {
   await expect
     .poll(() =>
       page.evaluate((payload) => window.__emitTauriEvent("tauri://drag-enter", payload), {
@@ -284,6 +311,10 @@ export async function dropFiles(page: Page, paths: string[]) {
       }),
     )
     .toBeGreaterThan(0);
+  await page.evaluate((payload) => window.__emitTauriEvent("tauri://drag-over", payload), {
+    position,
+  });
+  if (hover) return;
   await page.evaluate((payload) => window.__emitTauriEvent("tauri://drag-drop", payload), {
     paths,
     position,

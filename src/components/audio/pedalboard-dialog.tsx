@@ -34,6 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DIALOG_NEON, DialogArt } from "@/components/ai/dialog-art";
 import { Input } from "@/components/ui/input";
 import { Knob } from "@/components/ui/knob";
 import {
@@ -87,6 +88,7 @@ import {
   matchingDynamicsPreset,
 } from "@/lib/audio/dynamics-presets";
 import type {
+  ChainTarget,
   AssetKind,
   BlockProblem,
   EngineMeters,
@@ -342,8 +344,8 @@ function PedalControls({
 }
 
 export interface PedalboardTarget {
-  /** Track index, "monitor" for the monitor track, or null for the master bus. */
-  track: number | "monitor" | null;
+  /** Track index, "monitor" for the monitor track, an audio lane, or null for the master bus. */
+  track: ChainTarget;
   /** "Rhythm guitar", "Master". */
   name: string;
   presetTarget: PresetTarget;
@@ -878,587 +880,617 @@ export function PedalboardDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="full" className={cn((dragging || armed) && "select-none")}>
-        <DialogHeader>
-          <DialogTitle>Pedalboard: {target.name}</DialogTitle>
-          <DialogDescription>
-            Up to {limit} effects, played from left to right.{" "}
-            {target.track === null
-              ? "The mastering chain processes the whole mix. Drag effects from the library onto the board, or use their Add buttons."
-              : target.track === "monitor"
-                ? "Your audio input plays live through these effects. Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."
-                : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          {onTargetChange && trackName && (
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              size="sm"
-              value={target.track === null ? "master" : "track"}
-              onValueChange={(v) => v && onTargetChange(v === "master")}
-              aria-label="Chain to edit"
-              data-tour="pedalboard-target"
-              className="self-start"
-            >
-              <ToggleGroupItem value="track">Current track: {trackName}</ToggleGroupItem>
-              <ToggleGroupItem value="master">Mastering</ToggleGroupItem>
-            </ToggleGroup>
-          )}
-
-          <EffectsPlaybackNotice engineOn={engineOn} onEnable={onEnableEngine} />
-
-          {sounds && target.track !== null && <SoundsBar sounds={sounds} />}
-
-          <div className="flex flex-wrap items-end gap-2" data-tour="pedalboard-presets">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground" id={`${ids}-genre`}>
-                Genre
-              </span>
-              <Select value={genre} onValueChange={(v) => setGenre(v as Genre | "all")}>
-                <SelectTrigger size="sm" aria-labelledby={`${ids}-genre`} className="w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All genres</SelectItem>
-                  {GENRES.map((g) => (
-                    <SelectItem key={g} value={g}>
-                      {GENRE_LABELS[g]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex min-w-48 flex-1 flex-col gap-1">
-              <span className="text-xs text-muted-foreground" id={`${ids}-preset`}>
-                {TARGET_LABELS[target.presetTarget]} presets
-              </span>
-              <Select
-                value=""
-                onValueChange={(id) => {
-                  const own = id.startsWith("song:") ? ownPresets[Number(id.slice(5))] : undefined;
-                  const preset = presets.find((p) => p.id === id);
-                  const next = own ? structuredClone(own.effects) : preset ? chainOf(preset) : null;
-                  if (next) {
-                    track("effect_pedal");
-                    onChange(next.slice(0, limit));
-                    setSelected(0);
-                  }
-                }}
+      <DialogContent
+        size="full"
+        className={cn(
+          DIALOG_NEON,
+          "h-[min(52rem,calc(100dvh-2rem))]",
+          (dragging || armed) && "select-none",
+        )}
+      >
+        {/* The house dialog layout: the art behind, only the body scrolls. */}
+        <div className="relative isolate flex min-h-0 flex-1 flex-col">
+          <DialogArt name="pedalboard" />
+          <DialogHeader className="px-6 md:px-9">
+            <DialogTitle className="text-2xl font-bold">Pedalboard: {target.name}</DialogTitle>
+            <DialogDescription>
+              Up to {limit} effects, played from left to right.{" "}
+              {target.track === null
+                ? "The mastering chain processes the whole mix. Drag effects from the library onto the board, or use their Add buttons."
+                : typeof target.track === "object"
+                  ? "This audio lane's clips play through these effects. Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."
+                  : target.track === "monitor"
+                    ? "Your audio input plays live through these effects. Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."
+                    : "Drag effects from the library onto the board, or use their Add buttons. Drag a pedal to reorder it, or drag it back to the library to remove it."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="gap-3 px-6 pb-4 md:px-9">
+            {onTargetChange && trackName && (
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={target.track === null ? "master" : "track"}
+                onValueChange={(v) => v && onTargetChange(v === "master")}
+                aria-label="Chain to edit"
+                data-tour="pedalboard-target"
+                className="self-start"
               >
-                <SelectTrigger size="sm" aria-labelledby={`${ids}-preset`} className="w-full">
-                  <SelectValue placeholder="Load a preset…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ownPresets.length > 0 && (
+                <ToggleGroupItem value="track">Current track: {trackName}</ToggleGroupItem>
+                <ToggleGroupItem value="master">Mastering</ToggleGroupItem>
+              </ToggleGroup>
+            )}
+
+            <EffectsPlaybackNotice engineOn={engineOn} onEnable={onEnableEngine} />
+
+            {sounds && target.track !== null && <SoundsBar sounds={sounds} />}
+
+            <div className="flex flex-wrap items-end gap-2" data-tour="pedalboard-presets">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground" id={`${ids}-genre`}>
+                  Genre
+                </span>
+                <Select value={genre} onValueChange={(v) => setGenre(v as Genre | "all")}>
+                  <SelectTrigger size="sm" aria-labelledby={`${ids}-genre`} className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All genres</SelectItem>
+                    {GENRES.map((g) => (
+                      <SelectItem key={g} value={g}>
+                        {GENRE_LABELS[g]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex min-w-48 flex-1 flex-col gap-1">
+                <span className="text-xs text-muted-foreground" id={`${ids}-preset`}>
+                  {TARGET_LABELS[target.presetTarget]} presets
+                </span>
+                <Select
+                  value=""
+                  onValueChange={(id) => {
+                    const own = id.startsWith("song:")
+                      ? ownPresets[Number(id.slice(5))]
+                      : undefined;
+                    const preset = presets.find((p) => p.id === id);
+                    const next = own
+                      ? structuredClone(own.effects)
+                      : preset
+                        ? chainOf(preset)
+                        : null;
+                    if (next) {
+                      track("effect_pedal");
+                      onChange(next.slice(0, limit));
+                      setSelected(0);
+                    }
+                  }}
+                >
+                  <SelectTrigger size="sm" aria-labelledby={`${ids}-preset`} className="w-full">
+                    <SelectValue placeholder="Load a preset…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ownPresets.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>In this song</SelectLabel>
+                        {ownPresets.map((p, i) => (
+                          <SelectItem key={`song:${i}`} value={`song:${i}`}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
                     <SelectGroup>
-                      <SelectLabel>In this song</SelectLabel>
-                      {ownPresets.map((p, i) => (
-                        <SelectItem key={`song:${i}`} value={`song:${i}`}>
+                      <SelectLabel>Library</SelectLabel>
+                      {presets.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
                           {p.name}
+                          <span className="text-muted-foreground"> · {p.description}</span>
                         </SelectItem>
                       ))}
                     </SelectGroup>
-                  )}
-                  <SelectGroup>
-                    <SelectLabel>Library</SelectLabel>
-                    {presets.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                        <span className="text-muted-foreground"> · {p.description}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            {onBrowsePresets && (
-              <Button variant="outline" size="sm" onClick={onBrowsePresets}>
-                <LibraryBigIcon data-icon="inline-start" />
-                Browse presets
-              </Button>
-            )}
-            <form
-              className="flex items-end gap-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const name = presetName.trim();
-                if (!name) return;
-                const inSong =
-                  (event.nativeEvent as SubmitEvent).submitter?.dataset.where === "song";
-                if (inSong && onSongPresetsChange) {
-                  const others = songPresets.filter(
-                    (p) => !(p.name === name && p.target === target.presetTarget),
-                  );
-                  onSongPresetsChange([
-                    ...others,
-                    { name, target: target.presetTarget, effects: structuredClone(chain) },
-                  ]);
-                } else {
-                  saveUserPreset(name, target.presetTarget, chain);
-                }
-                setPresetName("");
-              }}
-            >
-              <div className="flex flex-col gap-1">
-                <label htmlFor={`${ids}-name`} className="text-xs text-muted-foreground">
-                  Save as preset
-                </label>
-                <Input
-                  id={`${ids}-name`}
-                  value={presetName}
-                  onChange={(e) => setPresetName(e.target.value)}
-                  placeholder="Name"
-                  className="h-8 w-36"
-                  maxLength={60}
-                />
+                  </SelectContent>
+                </Select>
               </div>
-              <Button
-                type="submit"
-                size="icon-sm"
-                variant="outline"
-                aria-label="Save the preset to my presets"
-                title="Save to my presets"
-                data-where="library"
-                disabled={!presetName.trim() || chain.length === 0}
+              {onBrowsePresets && (
+                <Button variant="outline" size="sm" onClick={onBrowsePresets}>
+                  <LibraryBigIcon data-icon="inline-start" />
+                  Browse presets
+                </Button>
+              )}
+              <form
+                className="flex items-end gap-1"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const name = presetName.trim();
+                  if (!name) return;
+                  const inSong =
+                    (event.nativeEvent as SubmitEvent).submitter?.dataset.where === "song";
+                  if (inSong && onSongPresetsChange) {
+                    const others = songPresets.filter(
+                      (p) => !(p.name === name && p.target === target.presetTarget),
+                    );
+                    onSongPresetsChange([
+                      ...others,
+                      { name, target: target.presetTarget, effects: structuredClone(chain) },
+                    ]);
+                  } else {
+                    saveUserPreset(name, target.presetTarget, chain);
+                  }
+                  setPresetName("");
+                }}
               >
-                <SaveIcon />
-              </Button>
-              {onSongPresetsChange && (
+                <div className="flex flex-col gap-1">
+                  <label htmlFor={`${ids}-name`} className="text-xs text-muted-foreground">
+                    Save as preset
+                  </label>
+                  <Input
+                    id={`${ids}-name`}
+                    value={presetName}
+                    onChange={(e) => setPresetName(e.target.value)}
+                    placeholder="Name"
+                    className="h-8 w-36"
+                    maxLength={60}
+                  />
+                </div>
                 <Button
                   type="submit"
-                  size="sm"
+                  size="icon-sm"
                   variant="outline"
-                  data-where="song"
+                  aria-label="Save the preset to my presets"
+                  title="Save to my presets"
+                  data-where="library"
                   disabled={!presetName.trim() || chain.length === 0}
                 >
-                  Save in this song
+                  <SaveIcon />
                 </Button>
-              )}
-            </form>
-          </div>
+                {onSongPresetsChange && (
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    data-where="song"
+                    disabled={!presetName.trim() || chain.length === 0}
+                  >
+                    Save in this song
+                  </Button>
+                )}
+              </form>
+            </div>
 
-          <div
-            className="grid min-w-0 gap-3 md:grid-cols-[14rem_1fr]"
-            onPointerMove={onDragPointerMove}
-            // Leaving the board and the library cancels the drag: the pointer is
-            // no longer over anything that can take the drop.
-            onPointerLeave={() => {
-              if (!dragged.current) return;
-              zone.current = null;
-              setDropZone(null);
-            }}
-          >
-            {/* Dropping a pedal here removes it (a mouse shortcut for its Remove button). */}
-            <section
-              aria-labelledby={`${ids}-library`}
-              data-drop-zone="library"
-              data-testid="effect-library"
-              data-tour="pedalboard-library"
-              className={cn(
-                "flex flex-col gap-2 rounded-md border p-2",
-                dragging?.kind === "move" && "border-dashed border-destructive bg-destructive/5",
-              )}
+            <div
+              className="grid min-w-0 gap-3 md:grid-cols-[14rem_1fr]"
+              onPointerMove={onDragPointerMove}
+              // Leaving the board and the library cancels the drag: the pointer is
+              // no longer over anything that can take the drop.
+              onPointerLeave={() => {
+                if (!dragged.current) return;
+                zone.current = null;
+                setDropZone(null);
+              }}
             >
-              <div className="flex items-center justify-between gap-2">
-                <h3 id={`${ids}-library`} className="text-xs font-semibold tracking-wide uppercase">
-                  Library
-                </h3>
-                <Button variant="ghost" size="xs" onClick={onManageLibrary}>
-                  <LibraryIcon data-icon="inline-start" />
-                  Sounds
-                </Button>
-              </div>
-              <h4 className="text-xs font-semibold tracking-wide uppercase">My sounds</h4>
-              {mySounds.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Import amp captures (.nam) and cabinets (.wav) with Sounds, then drag them here.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-1" aria-label="Your amps and cabinets">
-                  {mySounds.map((item) => {
-                    const asset = { kind: item.kind, id: item.id };
-                    const label = `${item.kind === "amp" ? "amp" : "cabinet"} ${item.name}`;
-                    return (
-                      // Dragging is a mouse shortcut; the Add button does the same.
-                      <li
-                        key={item.id}
-                        onPointerDown={(e) =>
-                          onDragPointerDown(e, { kind: "asset", asset, name: item.name })
-                        }
-                        data-testid="library-asset"
-                        className={cn(
-                          "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
-                          !full && "cursor-grab",
-                          dragging?.kind === "asset" &&
-                            dragging.asset.id === item.id &&
-                            "opacity-40",
-                        )}
-                        title={item.tags.length > 0 ? item.tags.join(", ") : undefined}
-                      >
-                        <GripVerticalIcon
-                          className="size-3.5 shrink-0 text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                        <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {item.kind === "amp" ? "Amp" : "Cab"}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          disabled={full}
-                          aria-label={`Add ${label}`}
-                          onClick={() => addAsset(asset)}
+              {/* Dropping a pedal here removes it (a mouse shortcut for its Remove button). */}
+              <section
+                aria-labelledby={`${ids}-library`}
+                data-drop-zone="library"
+                data-testid="effect-library"
+                data-tour="pedalboard-library"
+                className={cn(
+                  "flex flex-col gap-2 rounded-md border p-2",
+                  dragging?.kind === "move" && "border-dashed border-destructive bg-destructive/5",
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3
+                    id={`${ids}-library`}
+                    className="text-xs font-semibold tracking-wide uppercase"
+                  >
+                    Library
+                  </h3>
+                  <Button variant="ghost" size="xs" onClick={onManageLibrary}>
+                    <LibraryIcon data-icon="inline-start" />
+                    Sounds
+                  </Button>
+                </div>
+                <h4 className="text-xs font-semibold tracking-wide uppercase">My sounds</h4>
+                {mySounds.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Import amp captures (.nam) and cabinets (.wav) with Sounds, then drag them here.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-1" aria-label="Your amps and cabinets">
+                    {mySounds.map((item) => {
+                      const asset = { kind: item.kind, id: item.id };
+                      const label = `${item.kind === "amp" ? "amp" : "cabinet"} ${item.name}`;
+                      return (
+                        // Dragging is a mouse shortcut; the Add button does the same.
+                        <li
+                          key={item.id}
+                          onPointerDown={(e) =>
+                            onDragPointerDown(e, { kind: "asset", asset, name: item.name })
+                          }
+                          data-testid="library-asset"
+                          className={cn(
+                            "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
+                            !full && "cursor-grab",
+                            dragging?.kind === "asset" &&
+                              dragging.asset.id === item.id &&
+                              "opacity-40",
+                          )}
+                          title={item.tags.length > 0 ? item.tags.join(", ") : undefined}
                         >
-                          <PlusIcon />
+                          <GripVerticalIcon
+                            className="size-3.5 shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {item.kind === "amp" ? "Amp" : "Cab"}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            disabled={full}
+                            aria-label={`Add ${label}`}
+                            onClick={() => addAsset(asset)}
+                          >
+                            <PlusIcon />
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <h4 className="mt-1 text-xs font-semibold tracking-wide uppercase">Plugins</h4>
+                {!plugins.available ? (
+                  <p className="text-xs text-muted-foreground">
+                    Third-party plugins need the desktop app.
+                  </p>
+                ) : (
+                  <>
+                    <span className="flex items-center justify-between gap-2 text-xs">
+                      Third-party plugins
+                      <Switch
+                        checked={plugins.enabled}
+                        onCheckedChange={plugins.setEnabled}
+                        disabled={plugins.applying}
+                        aria-label="Use third-party plugins"
+                      />
+                    </span>
+                    {plugins.applying && (
+                      <p className="text-xs text-muted-foreground">Loading plugins…</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Your own VST3 and CLAP plugins (amp sims, pedals, cabinets). Each runs
+                      isolated outside the app, so a crashing plugin cannot take your song down.
+                    </p>
+                    {plugins.enabled && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={plugins.scanning}
+                          onClick={plugins.refresh}
+                        >
+                          {plugins.scanning
+                            ? "Scanning…"
+                            : plugins.scanned.length === 0
+                              ? "Scan for plugins"
+                              : "Scan again"}
                         </Button>
+                        {plugins.scanned.length === 0 && !plugins.scanning ? (
+                          <p className="text-xs text-muted-foreground">
+                            No plugins scanned yet. Install a VST3 or CLAP plugin, then scan.
+                          </p>
+                        ) : (
+                          <ul className="flex flex-col gap-1" aria-label="Installed plugins">
+                            {plugins.scanned.map((item: ScannedPlugin) => {
+                              const plugin = {
+                                format: item.format,
+                                path: item.path,
+                                name: item.name,
+                              };
+                              const label = `plugin ${item.name}`;
+                              return (
+                                // Dragging is a mouse shortcut; the Add button does the same.
+                                <li
+                                  key={`${item.format}:${item.path}`}
+                                  onPointerDown={(e) =>
+                                    onDragPointerDown(e, { kind: "plugin", plugin })
+                                  }
+                                  data-testid="library-plugin"
+                                  className={cn(
+                                    "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
+                                    !full && "cursor-grab",
+                                    dragging?.kind === "plugin" &&
+                                      dragging.plugin.path === item.path &&
+                                      "opacity-40",
+                                  )}
+                                  title={`${item.vendor} ${item.version}`.trim()}
+                                >
+                                  <GripVerticalIcon
+                                    className="size-3.5 shrink-0 text-muted-foreground"
+                                    aria-hidden="true"
+                                  />
+                                  <span className="min-w-0 flex-1 truncate text-sm">
+                                    {item.name}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground uppercase">
+                                    {item.format}
+                                  </span>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    disabled={full}
+                                    aria-label={`Add ${label}`}
+                                    onClick={() => addPlugin(plugin)}
+                                  >
+                                    <PlusIcon />
+                                  </Button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                        {plugins.skipped.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {plugins.skipped.length} file{plugins.skipped.length === 1 ? "" : "s"}{" "}
+                            could not load and {plugins.skipped.length === 1 ? "was" : "were"}{" "}
+                            skipped.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+                <h4 className="mt-1 text-xs font-semibold tracking-wide uppercase">Effects</h4>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger size="sm" aria-label="Effect category" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All categories</SelectItem>
+                    {EFFECT_CATEGORIES.map((c) => (
+                      <SelectItem key={c.label} value={c.label}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {dragging?.kind === "move" && (
+                  <p className="text-center text-xs text-destructive">Drop here to remove</p>
+                )}
+                <ul className="flex flex-col gap-1" aria-label="Effects">
+                  {libraryTypes.map((type) => (
+                    // Dragging is a mouse shortcut; the Add button does the same.
+                    <li
+                      key={type}
+                      onPointerDown={(e) => onDragPointerDown(e, { kind: "new", type })}
+                      data-testid="library-effect"
+                      className={cn(
+                        "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
+                        !full && "cursor-grab",
+                        dragging?.kind === "new" && dragging.type === type && "opacity-40",
+                      )}
+                      title={EFFECT_DESCRIPTIONS[type]}
+                    >
+                      <GripVerticalIcon
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm">{EFFECT_LABELS[type]}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        disabled={full}
+                        aria-label={`Add ${EFFECT_LABELS[type]}`}
+                        onClick={() => add(type)}
+                      >
+                        <PlusIcon />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section
+                aria-labelledby={`${ids}-board`}
+                data-tour="pedalboard-chain"
+                className="flex min-w-0 flex-col gap-2"
+              >
+                <h3 id={`${ids}-board`} className="text-xs font-semibold tracking-wide uppercase">
+                  Signal chain{" "}
+                  <span className="font-normal text-muted-foreground normal-case">
+                    ({chain.length} of {limit})
+                  </span>
+                  {!engineOn && (
+                    <span className="ml-2 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[0.7rem] font-medium tracking-normal text-amber-800 normal-case dark:text-amber-300">
+                      Not audible yet
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Keyboard: focus a pedal, Alt+←/→ moves it and Delete removes it. Add effects with
+                  the library's Add buttons.
+                </p>
+                {/* Dropping on the board is a mouse shortcut for the Add buttons. */}
+                <ol
+                  ref={boardRef}
+                  aria-labelledby={`${ids}-board`}
+                  data-drop-zone="board"
+                  data-testid="pedalboard"
+                  className={cn(
+                    "flex min-h-40 flex-wrap items-start gap-2 rounded-md border border-dashed p-2",
+                    // The pedals can be edited, but nothing is heard until the engine is on.
+                    !engineOn && "border-amber-500/60",
+                    dropZone?.kind === "board" && "border-primary",
+                  )}
+                >
+                  {chain.length === 0 && (
+                    <li className="m-auto text-sm text-muted-foreground">
+                      No effects yet. Drag one here, add one from the library, or load a preset.
+                    </li>
+                  )}
+                  {chain.map((slot, i) => {
+                    const problem = problemOf(i);
+                    const pedalName =
+                      slot.type === "plugin" && slot.name ? slot.name : EFFECT_LABELS[slot.type];
+                    const name = `${pedalName} ${i + 1}`;
+                    return (
+                      // A pedal is focusable so Delete and Alt+←/→ work on it; the
+                      // header and grip drag it (its controls keep their own pointers).
+                      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+                      <li
+                        key={i}
+                        data-pedal
+                        data-drop-zone="pedal"
+                        data-drop-index={i}
+                        data-testid="effect-block"
+                        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+                        tabIndex={0}
+                        aria-label={`${name}${slot.enabled ? "" : " (off)"}`}
+                        aria-current={i === selected ? "true" : undefined}
+                        aria-keyshortcuts="Delete Alt+ArrowLeft Alt+ArrowRight"
+                        onPointerDown={(e) => onDragPointerDown(e, { kind: "move", from: i })}
+                        onFocus={() => setSelected(i)}
+                        onClick={() => setSelected(i)}
+                        onKeyDown={(e) => onPedalKeyDown(e, i)}
+                        className={cn(
+                          "flex flex-col gap-2 rounded-lg border-2 bg-card p-2 shadow-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                          slot.type === "eq" ? "w-[19rem]" : "w-[13.5rem]",
+                          i === selected ? "border-primary" : "border-border",
+                          !slot.enabled && "opacity-60",
+                          dragging?.kind === "move" && dragging.from === i && "opacity-40",
+                          dropZone?.kind === "board" &&
+                            dropZone.index === i &&
+                            "border-l-4 border-l-primary",
+                        )}
+                      >
+                        <div className="flex items-center gap-1">
+                          <GripVerticalIcon
+                            data-testid="pedal-grip"
+                            className="size-4 shrink-0 cursor-grab text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                            {i + 1}. {pedalName}
+                          </span>
+                          <Switch
+                            checked={slot.enabled}
+                            onCheckedChange={(enabled) =>
+                              onChange(replaceEffect(chain, i, { ...slot, enabled }))
+                            }
+                            aria-label={`${name} on`}
+                          />
+                        </div>
+                        {problem && (
+                          <p
+                            role="alert"
+                            className="flex gap-1 text-xs text-amber-700 dark:text-amber-400"
+                          >
+                            <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                            {problem}
+                          </p>
+                        )}
+                        {slot.type === "plugin" ? (
+                          <PluginPedalControls
+                            slot={slot}
+                            index={i}
+                            plugins={plugins}
+                            onChange={(next) => onChange(replaceEffect(chain, i, next))}
+                          />
+                        ) : (
+                          <PedalControls
+                            slot={slot}
+                            name={name}
+                            reduction={(m) =>
+                              (target.track === null
+                                ? m.reduction?.master[i]
+                                : target.track === "monitor"
+                                  ? m.reduction?.monitor?.[i]
+                                  : typeof target.track === "number"
+                                    ? m.reduction?.tracks[target.track]?.[i]
+                                    : 0) ?? 0
+                            }
+                            library={library}
+                            onChange={(next) => onChange(replaceEffect(chain, i, next))}
+                            onImport={onImport}
+                          />
+                        )}
+                        <div className="flex items-center justify-between">
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Move ${name} left`}
+                            disabled={i === 0}
+                            onClick={() => move(i, i - 1)}
+                          >
+                            <ArrowLeftIcon />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Remove ${name}`}
+                            onClick={() => remove(i)}
+                          >
+                            <Trash2Icon />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Move ${name} right`}
+                            disabled={i === chain.length - 1}
+                            onClick={() => move(i, i + 1)}
+                          >
+                            <ArrowRightIcon />
+                          </Button>
+                        </div>
                       </li>
                     );
                   })}
-                </ul>
-              )}
-              <h4 className="mt-1 text-xs font-semibold tracking-wide uppercase">Plugins</h4>
-              {!plugins.available ? (
-                <p className="text-xs text-muted-foreground">
-                  Third-party plugins need the desktop app.
-                </p>
-              ) : (
-                <>
-                  <span className="flex items-center justify-between gap-2 text-xs">
-                    Third-party plugins
-                    <Switch
-                      checked={plugins.enabled}
-                      onCheckedChange={plugins.setEnabled}
-                      disabled={plugins.applying}
-                      aria-label="Use third-party plugins"
-                    />
-                  </span>
-                  {plugins.applying && (
-                    <p className="text-xs text-muted-foreground">Loading plugins…</p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Your own VST3 and CLAP plugins (amp sims, pedals, cabinets). Each runs isolated
-                    outside the app, so a crashing plugin cannot take your song down.
-                  </p>
-                  {plugins.enabled && (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={plugins.scanning}
-                        onClick={plugins.refresh}
-                      >
-                        {plugins.scanning
-                          ? "Scanning…"
-                          : plugins.scanned.length === 0
-                            ? "Scan for plugins"
-                            : "Scan again"}
-                      </Button>
-                      {plugins.scanned.length === 0 && !plugins.scanning ? (
-                        <p className="text-xs text-muted-foreground">
-                          No plugins scanned yet. Install a VST3 or CLAP plugin, then scan.
-                        </p>
-                      ) : (
-                        <ul className="flex flex-col gap-1" aria-label="Installed plugins">
-                          {plugins.scanned.map((item: ScannedPlugin) => {
-                            const plugin = {
-                              format: item.format,
-                              path: item.path,
-                              name: item.name,
-                            };
-                            const label = `plugin ${item.name}`;
-                            return (
-                              // Dragging is a mouse shortcut; the Add button does the same.
-                              <li
-                                key={`${item.format}:${item.path}`}
-                                onPointerDown={(e) =>
-                                  onDragPointerDown(e, { kind: "plugin", plugin })
-                                }
-                                data-testid="library-plugin"
-                                className={cn(
-                                  "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
-                                  !full && "cursor-grab",
-                                  dragging?.kind === "plugin" &&
-                                    dragging.plugin.path === item.path &&
-                                    "opacity-40",
-                                )}
-                                title={`${item.vendor} ${item.version}`.trim()}
-                              >
-                                <GripVerticalIcon
-                                  className="size-3.5 shrink-0 text-muted-foreground"
-                                  aria-hidden="true"
-                                />
-                                <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
-                                <span className="text-[10px] text-muted-foreground uppercase">
-                                  {item.format}
-                                </span>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-xs"
-                                  disabled={full}
-                                  aria-label={`Add ${label}`}
-                                  onClick={() => addPlugin(plugin)}
-                                >
-                                  <PlusIcon />
-                                </Button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                      {plugins.skipped.length > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          {plugins.skipped.length} file{plugins.skipped.length === 1 ? "" : "s"}{" "}
-                          could not load and {plugins.skipped.length === 1 ? "was" : "were"}{" "}
-                          skipped.
-                        </p>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-              <h4 className="mt-1 text-xs font-semibold tracking-wide uppercase">Effects</h4>
-              <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger size="sm" aria-label="Effect category" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All categories</SelectItem>
-                  {EFFECT_CATEGORIES.map((c) => (
-                    <SelectItem key={c.label} value={c.label}>
-                      {c.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {dragging?.kind === "move" && (
-                <p className="text-center text-xs text-destructive">Drop here to remove</p>
-              )}
-              <ul className="flex flex-col gap-1" aria-label="Effects">
-                {libraryTypes.map((type) => (
-                  // Dragging is a mouse shortcut; the Add button does the same.
-                  <li
-                    key={type}
-                    onPointerDown={(e) => onDragPointerDown(e, { kind: "new", type })}
-                    data-testid="library-effect"
-                    className={cn(
-                      "flex items-center gap-1 rounded-md border bg-card px-2 py-1",
-                      !full && "cursor-grab",
-                      dragging?.kind === "new" && dragging.type === type && "opacity-40",
+                  {dragging &&
+                    chain.length > 0 &&
+                    dropZone?.kind === "board" &&
+                    dropZone.index === chain.length && (
+                      <li
+                        aria-hidden="true"
+                        data-testid="drop-indicator"
+                        className="w-1 self-stretch rounded bg-primary"
+                      />
                     )}
-                    title={EFFECT_DESCRIPTIONS[type]}
-                  >
-                    <GripVerticalIcon
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm">{EFFECT_LABELS[type]}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      disabled={full}
-                      aria-label={`Add ${EFFECT_LABELS[type]}`}
-                      onClick={() => add(type)}
-                    >
-                      <PlusIcon />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </section>
+                </ol>
+                {full && (
+                  <p className="text-xs text-muted-foreground">
+                    The chain is full ({limit} effects).
+                  </p>
+                )}
+              </section>
+            </div>
 
-            <section
-              aria-labelledby={`${ids}-board`}
-              data-tour="pedalboard-chain"
-              className="flex min-w-0 flex-col gap-2"
+            {sounds && target.track !== null && sounds.names.length > 1 && (
+              <SoundAutomation sounds={sounds} />
+            )}
+          </DialogBody>
+          <DialogFooter className="mt-0 flex-row justify-between border-t-0 bg-transparent px-6 pt-2 pb-5 md:px-9">
+            <Button
+              variant="outline"
+              size="lg"
+              className="min-w-28 bg-card"
+              onClick={() => {
+                for (const slot of chain)
+                  track("pedal_remove", slot.type === "ampSim" ? "amp_sim" : slot.type);
+                onChange([]);
+              }}
+              disabled={chain.length === 0}
             >
-              <h3 id={`${ids}-board`} className="text-xs font-semibold tracking-wide uppercase">
-                Signal chain{" "}
-                <span className="font-normal text-muted-foreground normal-case">
-                  ({chain.length} of {limit})
-                </span>
-                {!engineOn && (
-                  <span className="ml-2 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[0.7rem] font-medium tracking-normal text-amber-800 normal-case dark:text-amber-300">
-                    Not audible yet
-                  </span>
-                )}
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Keyboard: focus a pedal, Alt+←/→ moves it and Delete removes it. Add effects with
-                the library's Add buttons.
-              </p>
-              {/* Dropping on the board is a mouse shortcut for the Add buttons. */}
-              <ol
-                ref={boardRef}
-                aria-labelledby={`${ids}-board`}
-                data-drop-zone="board"
-                data-testid="pedalboard"
-                className={cn(
-                  "flex min-h-40 flex-wrap items-start gap-2 rounded-md border border-dashed p-2",
-                  // The pedals can be edited, but nothing is heard until the engine is on.
-                  !engineOn && "border-amber-500/60",
-                  dropZone?.kind === "board" && "border-primary",
-                )}
-              >
-                {chain.length === 0 && (
-                  <li className="m-auto text-sm text-muted-foreground">
-                    No effects yet. Drag one here, add one from the library, or load a preset.
-                  </li>
-                )}
-                {chain.map((slot, i) => {
-                  const problem = problemOf(i);
-                  const pedalName =
-                    slot.type === "plugin" && slot.name ? slot.name : EFFECT_LABELS[slot.type];
-                  const name = `${pedalName} ${i + 1}`;
-                  return (
-                    // A pedal is focusable so Delete and Alt+←/→ work on it; the
-                    // header and grip drag it (its controls keep their own pointers).
-                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-                    <li
-                      key={i}
-                      data-pedal
-                      data-drop-zone="pedal"
-                      data-drop-index={i}
-                      data-testid="effect-block"
-                      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-                      tabIndex={0}
-                      aria-label={`${name}${slot.enabled ? "" : " (off)"}`}
-                      aria-current={i === selected ? "true" : undefined}
-                      aria-keyshortcuts="Delete Alt+ArrowLeft Alt+ArrowRight"
-                      onPointerDown={(e) => onDragPointerDown(e, { kind: "move", from: i })}
-                      onFocus={() => setSelected(i)}
-                      onClick={() => setSelected(i)}
-                      onKeyDown={(e) => onPedalKeyDown(e, i)}
-                      className={cn(
-                        "flex flex-col gap-2 rounded-lg border-2 bg-card p-2 shadow-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-                        slot.type === "eq" ? "w-[19rem]" : "w-[13.5rem]",
-                        i === selected ? "border-primary" : "border-border",
-                        !slot.enabled && "opacity-60",
-                        dragging?.kind === "move" && dragging.from === i && "opacity-40",
-                        dropZone?.kind === "board" &&
-                          dropZone.index === i &&
-                          "border-l-4 border-l-primary",
-                      )}
-                    >
-                      <div className="flex items-center gap-1">
-                        <GripVerticalIcon
-                          data-testid="pedal-grip"
-                          className="size-4 shrink-0 cursor-grab text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {i + 1}. {pedalName}
-                        </span>
-                        <Switch
-                          checked={slot.enabled}
-                          onCheckedChange={(enabled) =>
-                            onChange(replaceEffect(chain, i, { ...slot, enabled }))
-                          }
-                          aria-label={`${name} on`}
-                        />
-                      </div>
-                      {problem && (
-                        <p
-                          role="alert"
-                          className="flex gap-1 text-xs text-amber-700 dark:text-amber-400"
-                        >
-                          <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden="true" />
-                          {problem}
-                        </p>
-                      )}
-                      {slot.type === "plugin" ? (
-                        <PluginPedalControls
-                          slot={slot}
-                          index={i}
-                          plugins={plugins}
-                          onChange={(next) => onChange(replaceEffect(chain, i, next))}
-                        />
-                      ) : (
-                        <PedalControls
-                          slot={slot}
-                          name={name}
-                          reduction={(m) =>
-                            (target.track === null
-                              ? m.reduction?.master[i]
-                              : target.track === "monitor"
-                                ? m.reduction?.monitor?.[i]
-                                : m.reduction?.tracks[target.track]?.[i]) ?? 0
-                          }
-                          library={library}
-                          onChange={(next) => onChange(replaceEffect(chain, i, next))}
-                          onImport={onImport}
-                        />
-                      )}
-                      <div className="flex items-center justify-between">
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`Move ${name} left`}
-                          disabled={i === 0}
-                          onClick={() => move(i, i - 1)}
-                        >
-                          <ArrowLeftIcon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`Remove ${name}`}
-                          onClick={() => remove(i)}
-                        >
-                          <Trash2Icon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`Move ${name} right`}
-                          disabled={i === chain.length - 1}
-                          onClick={() => move(i, i + 1)}
-                        >
-                          <ArrowRightIcon />
-                        </Button>
-                      </div>
-                    </li>
-                  );
-                })}
-                {dragging &&
-                  chain.length > 0 &&
-                  dropZone?.kind === "board" &&
-                  dropZone.index === chain.length && (
-                    <li
-                      aria-hidden="true"
-                      data-testid="drop-indicator"
-                      className="w-1 self-stretch rounded bg-primary"
-                    />
-                  )}
-              </ol>
-              {full && (
-                <p className="text-xs text-muted-foreground">
-                  The chain is full ({limit} effects).
-                </p>
-              )}
-            </section>
-          </div>
-
-          {sounds && target.track !== null && sounds.names.length > 1 && (
-            <SoundAutomation sounds={sounds} />
-          )}
-        </DialogBody>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => {
-              for (const slot of chain)
-                track("pedal_remove", slot.type === "ampSim" ? "amp_sim" : slot.type);
-              onChange([]);
-            }}
-            disabled={chain.length === 0}
-          >
-            Clear
-          </Button>
-          <Button onClick={() => onOpenChange(false)}>Done</Button>
-        </DialogFooter>
+              Clear
+            </Button>
+            <Button size="lg" className="min-w-52" onClick={() => onOpenChange(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </div>
         {dragging && dragAt && (
           <div
             aria-hidden="true"

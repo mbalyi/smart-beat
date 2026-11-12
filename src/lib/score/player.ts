@@ -51,6 +51,7 @@ import {
 } from "@/lib/score/drum-tab";
 import { DRUM_TAB_LINES, drumLineAtY, tabLineAtY } from "@/lib/score/drum-lines";
 import { approximateSilentEffects, remapSilentDrums } from "@/lib/score/effect-sound";
+import type { BarSpan } from "@/lib/audio-lanes/bar-bounds";
 import type { Beat, Note } from "@/lib/score/model";
 import {
   playClick,
@@ -79,8 +80,8 @@ import {
 } from "@/lib/score/mixer";
 import {
   renderEngineAudio,
-  type BackingInfo,
-  type BackingSource,
+  type SourceInfo,
+  type SourceLocation,
   type EngineMeters,
   type MixerSettings,
   type MonitorStatus,
@@ -489,6 +490,7 @@ export class ScorePlayer {
       // alphaTab only redraws the loop highlight when clicks select ranges.
       if (this.loop && this.editing) this.highlightLoop();
       callbacks.onRendered?.();
+      for (const listener of this.layoutListeners) listener();
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
@@ -1322,15 +1324,10 @@ export class ScorePlayer {
   }
 
   /** Whether the native engine makes the sound. */
-  /** Opens a recording as the audio track (native engine only). */
-  loadBacking(source: BackingSource): Promise<BackingInfo> {
-    if (!this.engine)
-      return Promise.reject(new Error("The audio track needs the native audio engine."));
-    return this.engine.loadBacking(source);
-  }
-
-  clearBacking(): Promise<void> {
-    return this.engine?.clearBacking() ?? Promise.resolve();
+  /** Opens an audio file for the lanes (native engine only). */
+  loadSource(location: SourceLocation): Promise<SourceInfo> {
+    if (!this.engine) return Promise.reject(new Error("Audio lanes need the native audio engine."));
+    return this.engine.loadSource(location);
   }
 
   /** The audio input the monitor track plays (Settings › Audio). */
@@ -1732,6 +1729,55 @@ export class ScorePlayer {
     return restart;
   }
 
+  /**
+   * Moves the playback cursor into a bar: `position` is a fractional bar (2.5 is halfway through
+   * the third bar), as the audio lanes place their position line.
+   */
+  seekToBarPosition(position: number) {
+    const bars = this.score.masterBars;
+    if (bars.length === 0 || !Number.isFinite(position)) return;
+    const index = Math.min(bars.length - 1, Math.max(0, Math.floor(position)));
+    const masterBar = bars[index]!;
+    const start = this.api.tickCache?.getMasterBarStart(masterBar) ?? masterBar.start;
+    const into = Math.min(1, Math.max(0, position - index));
+    this.seekToTick(Math.round(start + into * masterBar.calculateDuration()));
+  }
+
+  private readonly layoutListeners = new Set<() => void>();
+
+  /**
+   * Calls `listener` after every draw of the notation (an edit, a zoom, a new layout or window
+   * size), when the bars may have moved. Returns the function that stops it.
+   */
+  onLayoutChange(listener: () => void): () => void {
+    this.layoutListeners.add(listener);
+    return () => {
+      this.layoutListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Where each bar is drawn in the continuous layout: its left edge and width in pixels from the
+   * left of the notation (the same x as the scrolled surface). Null in the page layout (bars wrap
+   * onto lines), before the first draw, and while a draw has not placed every bar.
+   */
+  barBounds(): BarSpan[] | null {
+    const lookup = this.api.boundsLookup;
+    if (this.layout !== "horizontal" || !lookup) return null;
+    const spans: BarSpan[] = [];
+    for (let i = 0; i < this.score.masterBars.length; i++) {
+      const bounds = lookup.findMasterBarByIndex(i)?.visualBounds;
+      if (!bounds) return null;
+      spans.push({ x: bounds.x, width: bounds.w });
+    }
+    return spans.length > 0 ? spans : null;
+  }
+
+  /** The box the notation scrolls in (sideways in the continuous layout). */
+  scrollContainer(): HTMLElement {
+    return this.scroller;
+  }
+
   /** Moves the playback cursor to the start of a bar (0-based). */
   seekToBar(barIndex: number) {
     const masterBar = this.score.masterBars[barIndex];
@@ -1775,8 +1821,9 @@ export class ScorePlayer {
       throw new Error("The instrument sounds are still loading. Try again in a moment.");
     this.pause();
     if (this.engine) {
-      // Rendered by the engine, with the effect chains.
+      // Rendered by the engine, with the effect chains, once the latest mix has reached it.
       onProgress?.(0);
+      await this.engine.settled();
       const samples = await renderEngineAudio(EXPORT_SAMPLE_RATE);
       onProgress?.(1);
       return { samples, sampleRate: EXPORT_SAMPLE_RATE, channels: 2 };

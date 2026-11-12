@@ -21,11 +21,11 @@ use super::kits::LoadedKit;
 use super::kits::sampler::SfzSampler;
 use serde::{Deserialize, Serialize};
 
-use super::backing::Backing;
 use super::chain::{Chain, ChainPlayer, EffectSlot, MAX_MASTER_EFFECTS};
 use super::dsp::Effect;
 use super::dsp::db_to_gain;
 use super::dsp::eq::Eq;
+use super::lanes::{LaneMixer, PreparedLanes};
 use super::mixing::{Automation, TrackEq, mix_into, pan_gains};
 use super::monitor::Monitor;
 use super::song::Song;
@@ -446,8 +446,8 @@ pub struct Meters {
     pub master: f32,
     /// Per track: the levels of its drum elements (empty unless split).
     pub drums: Vec<Vec<f32>>,
-    /// The audio track.
-    pub backing: f32,
+    /// Each audio lane after its fader, by lane id (folders left out).
+    pub lanes: Vec<(String, f32)>,
     /// The monitor track, after its fader.
     pub monitor: f32,
     /// The monitor track's input, before its effects (is anything coming in?).
@@ -476,7 +476,7 @@ pub struct Engine {
     master_volume: f32,
     master_pan: f32,
     master_gains: (f32, f32),
-    backing: Option<Backing>,
+    lanes: Option<LaneMixer>,
     /// The live input with its own chain (none: no monitor track).
     monitor: Option<Monitor>,
     /// Song time in seconds.
@@ -529,7 +529,7 @@ impl Engine {
             master_volume: 1.0,
             master_pan: 0.0,
             master_gains: (1.0, 1.0),
-            backing: None,
+            lanes: None,
             monitor: None,
             position: 0.0,
             next_event: 0,
@@ -920,16 +920,32 @@ impl Engine {
         self.master.replace(chain)
     }
 
-    pub fn set_backing(&mut self, backing: Option<Backing>) -> Option<Backing> {
-        let mut backing = backing;
-        if let Some(b) = &mut backing {
-            b.reset();
+    /// Installs, replaces or removes (`None`) the audio lanes; returns what to drop off the
+    /// audio thread.
+    pub fn set_lanes(
+        &mut self,
+        prepared: Option<PreparedLanes>,
+    ) -> Vec<Box<dyn std::any::Any + Send>> {
+        match (prepared, &mut self.lanes) {
+            (Some(prepared), Some(lanes)) => lanes.replace(prepared),
+            (Some(prepared), None) => {
+                let mut lanes = LaneMixer::new(prepared, self.sample_rate);
+                lanes.reset();
+                self.lanes = Some(lanes);
+                Vec::new()
+            }
+            (None, _) => self
+                .lanes
+                .take()
+                .map(|l| Box::new(l) as Box<dyn std::any::Any + Send>)
+                .into_iter()
+                .collect(),
         }
-        std::mem::replace(&mut self.backing, backing)
     }
 
-    pub fn backing_mut(&mut self) -> Option<&mut Backing> {
-        self.backing.as_mut()
+    /// Where the last clip ends, in song seconds (export renders until then).
+    pub fn lanes_end(&self) -> f64 {
+        self.lanes.as_ref().map_or(0.0, LaneMixer::end_song_seconds)
     }
 
     /// Adds, replaces or removes the monitor track; returns the old one to
@@ -962,8 +978,8 @@ impl Engine {
             track.active = track.sound_at(seconds);
         }
         self.master.reset();
-        if let Some(backing) = &mut self.backing {
-            backing.reset();
+        if let Some(lanes) = &mut self.lanes {
+            lanes.reset();
         }
         let index = song.events.partition_point(|e| e.time < seconds);
         for event in &song.events[..index] {
@@ -1001,7 +1017,7 @@ impl Engine {
 
     fn any_solo(&self) -> bool {
         self.tracks.iter().any(|t| t.mix.solo)
-            || self.backing.as_ref().is_some_and(Backing::is_solo)
+            || self.lanes.as_ref().is_some_and(LaneMixer::any_solo)
             || self.monitor.as_ref().is_some_and(Monitor::is_solo)
     }
 
@@ -1107,13 +1123,15 @@ impl Engine {
             bus.peak = bus.peak.max(peak);
         }
 
-        if let Some(backing) = &mut self.backing {
-            let audible = !solo || backing.is_solo();
-            backing.render(
+        if let Some(lanes) = &mut self.lanes {
+            let others_solo = self.tracks.iter().any(|t| t.mix.solo)
+                || self.monitor.as_ref().is_some_and(Monitor::is_solo);
+            lanes.render(
                 block_start,
                 self.rate,
                 self.playing,
-                audible,
+                true,
+                others_solo,
                 (&mut *out_l, &mut *out_r),
             );
         }
@@ -1180,7 +1198,7 @@ impl Engine {
                 if let Some((beats, beat)) = self.loop_count_in {
                     self.start_count_in(beats.min(32), beat / self.rate);
                 }
-            } else if self.position >= self.duration() + TAIL_SECONDS {
+            } else if self.position >= self.duration().max(self.lanes_end()) + TAIL_SECONDS {
                 self.playing = false;
                 self.position = self.duration();
             }
@@ -1260,10 +1278,10 @@ impl Engine {
             master: std::mem::take(&mut self.master_peak),
             drums,
             reduction,
-            backing: self
-                .backing
+            lanes: self
+                .lanes
                 .as_mut()
-                .map_or(0.0, |b| std::mem::take(&mut b.peak)),
+                .map_or_else(Vec::new, LaneMixer::take_peaks),
             monitor: self
                 .monitor
                 .as_mut()

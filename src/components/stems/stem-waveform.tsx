@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 
 import { usePosition, useStemState } from "@/components/stems/use-stem-player";
 import type { StemLoop, StemPlayer } from "@/lib/stems/player";
+import { stemColor } from "@/lib/stems/colors";
 import { waveformPath } from "@/lib/stems/waveform";
 import { cn } from "@/lib/utils";
 
@@ -102,9 +103,11 @@ export function StemWaveform({
         viewBox={`0 0 ${BUCKETS} 100`}
         preserveAspectRatio="none"
         className={cn(
-          "absolute inset-0 size-full text-primary transition-opacity motion-reduce:transition-none",
+          "absolute inset-0 size-full transition-opacity motion-reduce:transition-none",
           quiet && "opacity-30",
         )}
+        style={{ color: stemColor(kind) }}
+        data-testid={`waveform-path-${kind}`}
       >
         <path d={path} fill="currentColor" />
       </svg>

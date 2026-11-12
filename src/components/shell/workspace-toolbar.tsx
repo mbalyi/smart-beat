@@ -18,9 +18,11 @@ import { TransportButtons } from "@/components/shell/transport-buttons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EDIT_PRESSED } from "@/components/ui/mixer-toggle-styles";
+import { ControlTip } from "@/components/ui/tip";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Layout, PlaybackPosition } from "@/lib/score/player";
+import { cn } from "@/lib/utils";
 import { ZOOM_STEPS } from "@/lib/score/zoom";
 import type { NotationView, ScoreSummary, TrackView } from "@/lib/score/score";
 
@@ -53,6 +55,7 @@ export function WorkspaceToolbar({
   onViewChange,
   layout,
   onLayoutChange,
+  pageLayoutLocked,
   zoom,
   onZoomChange,
   onOpen,
@@ -99,6 +102,8 @@ export function WorkspaceToolbar({
   onViewChange: (view: TrackView) => void;
   layout: Layout;
   onLayoutChange: (layout: Layout) => void;
+  /** Why the page layout cannot be chosen now (undefined: it can). */
+  pageLayoutLocked?: string;
   /** Percent. */
   zoom: number;
   onZoomChange: (percent: number) => void;
@@ -340,11 +345,30 @@ export function WorkspaceToolbar({
             value={layout}
             onValueChange={(value) => isLayout(value) && onLayoutChange(value)}
           >
-            {LAYOUTS.map((l) => (
-              <ToggleGroupItem key={l.value} value={l.value}>
-                {l.label}
-              </ToggleGroupItem>
-            ))}
+            {LAYOUTS.map((l) => {
+              const locked = l.value === "page" && !!pageLayoutLocked;
+              const item = (
+                <ToggleGroupItem
+                  key={l.value}
+                  value={l.value}
+                  disabled={locked}
+                  // Wrapped for its tooltip, the item is its own last child: keep the joined edge.
+                  className={cn(
+                    locked &&
+                      "group-data-horizontal/toggle-group:data-[spacing=0]:last:rounded-r-none",
+                  )}
+                >
+                  {l.label}
+                </ToggleGroupItem>
+              );
+              return locked ? (
+                <ControlTip key={l.value} label={pageLayoutLocked} disabled>
+                  {item}
+                </ControlTip>
+              ) : (
+                item
+              );
+            })}
           </ToggleGroup>
 
           <div role="group" aria-label="Zoom" className="flex items-center gap-1">

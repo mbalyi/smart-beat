@@ -44,6 +44,8 @@ export function useEditorKeys(
 ): void {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing) return;
+    // The audio lanes under the tabs have their own keys (a clip is focused there).
+    if (event.target instanceof Element && event.target.closest("[data-lane-band]")) return;
     const mod = isMac() ? event.metaKey : event.ctrlKey;
     const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
     const key = event.key;

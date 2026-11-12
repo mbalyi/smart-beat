@@ -1,5 +1,6 @@
 import type { TourId } from "@/lib/tour/feature-registry";
 import type { TourDefinition } from "@/lib/tour/tour-types";
+import { audioLanesTour } from "@/lib/tour/tours/audio-lanes";
 import { editingTour } from "@/lib/tour/tours/editing";
 import { effectsTour } from "@/lib/tour/tours/effects";
 import { mainTour } from "@/lib/tour/tours/main";
@@ -14,6 +15,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
   "speed-trainer": speedTrainerTour,
   effects: effectsTour,
   "record-to-tab": recordToTabTour,
+  "audio-lanes": audioLanesTour,
 };
 
 export const TOUR_LIST: readonly TourDefinition[] = Object.values(TOURS);

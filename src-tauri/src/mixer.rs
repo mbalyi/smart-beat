@@ -17,11 +17,12 @@ use crate::audio::chain::{EffectSlot, MAX_MASTER_EFFECTS, MAX_TRACK_EFFECTS};
 use crate::audio::engine::MAX_SOUNDS;
 use crate::audio::mixing::TrackEq;
 use crate::audio::monitor::MonitorParams;
+use crate::audio_lanes::{AudioLanes, migrate_audio_track};
 use crate::error::{CommandError, ErrorKind};
 
 /// Current settings format. Version 1 files (before sounds, EQ, automation,
 /// the drum mixer and the audio track) still load; other versions are ignored.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 /// Oldest version still read.
 pub const MIN_VERSION: u32 = 1;
 /// Upper bounds that keep a damaged file from exhausting memory.
@@ -78,8 +79,12 @@ pub struct MixerSettings {
     /// Drum mixer of each track (`null` for tracks that are not drums or not split).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drums: Vec<Option<DrumMixer>>,
+    /// The old single audio track (versions 1 and 2): read once by `migrate`, never written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_track: Option<AudioTrack>,
+    /// Audio lanes, clips and their files (version 3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioLanes>,
     /// The monitor track: the live input with its own effects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor: Option<MonitorTrack>,
@@ -190,6 +195,9 @@ pub struct DrumMixer {
 pub struct SyncPoint {
     pub bar: u32,
     pub ms: f64,
+    /// The beat in the bar (0-based); missing: the first beat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beat: Option<u32>,
 }
 
 /// The audio track of a song.
@@ -290,6 +298,18 @@ pub struct TrackMix {
 }
 
 impl MixerSettings {
+    /// Turns an old single audio track into one lane with one clip (one way) and marks the
+    /// settings as the current version. Lanes already present win over a stale old field.
+    pub fn migrate(mut self) -> Self {
+        if let Some(track) = self.audio_track.take()
+            && self.audio.is_none()
+        {
+            self.audio = Some(migrate_audio_track(&track));
+        }
+        self.version = VERSION;
+        self
+    }
+
     /// Checks the version and that every value is in range.
     pub fn validate(&self) -> Result<(), String> {
         if !(MIN_VERSION..=VERSION).contains(&self.version) {
@@ -406,6 +426,9 @@ impl MixerSettings {
                     return Err(format!("track {index}: drum mixer out of range"));
                 }
             }
+        }
+        if let Some(audio) = &self.audio {
+            audio.validate()?;
         }
         if let Some(audio) = &self.audio_track {
             check_name(&audio.name, "audio file")?;
@@ -535,7 +558,7 @@ impl MixerStore {
         };
         let settings = serde_json::from_str::<MixerSettings>(&json)
             .map_err(|error| error.to_string())
-            .and_then(|settings| settings.validate().map(|()| settings));
+            .and_then(|settings| settings.validate().map(|()| settings.migrate()));
         match settings {
             Ok(settings) => Ok(Some(settings)),
             Err(reason) => {
@@ -609,6 +632,7 @@ mod tests {
             focus_mode: None,
             drums: Vec::new(),
             audio_track: None,
+            audio: None,
             monitor: None,
             presets: Vec::new(),
             drum_kits: Vec::new(),
@@ -773,10 +797,12 @@ mod tests {
                     SyncPoint {
                         bar: 0,
                         ms: 1_200.0,
+                        beat: None,
                     },
                     SyncPoint {
                         bar: 8,
                         ms: 17_000.0,
+                        beat: None,
                     },
                 ],
             }),
@@ -1032,7 +1058,7 @@ mod tests {
         assert!(s.validate().unwrap_err().contains("track 0: pan"));
 
         let mut s = settings();
-        s.version = 3;
+        s.version = VERSION + 1;
         assert!(s.validate().unwrap_err().contains("version"));
         s.version = 1;
         assert_eq!(s.validate(), Ok(()), "version 1 files still load");
