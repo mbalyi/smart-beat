@@ -368,8 +368,10 @@ test.describe("audio lanes (#185)", () => {
       .toMatchObject({ name: "drums" });
     await app.keyboard.press("Escape");
     // Focus goes back to the colour chip, which shows its tooltip; a click on an empty spot of the
-    // lane (it moves the edit cursor) puts it away, as a user would.
+    // lane (it moves the edit cursor) puts it away, as a user would. WebKit on Linux can leave the
+    // focus on the chip after that click, so the focus is also taken off it explicitly.
     await drums.locator("[data-lane-id]").click({ position: { x: 70, y: 40 } });
+    await app.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await app.mouse.move(2, 2);
     await expect(app.locator("[data-radix-popper-content-wrapper]")).toHaveCount(0);
     // That click scrolled the track list; scrolled rows pass under its sticky header row, which
