@@ -130,6 +130,14 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     tour: "main",
   },
   {
+    id: "stacked-tracks-any",
+    title: "Pick any tracks for the continuous view",
+    summary:
+      "Add or take out any track in the continuous layout, the first one too. Tracks stack in the order you added them, the first one on top.",
+    since: "1.3.0",
+    tour: "main",
+  },
+  {
     id: "guided-tour",
     title: "A guided tour",
     summary:

@@ -277,6 +277,7 @@ import {
 import {
   moveInStack,
   reconcileStack,
+  stackForEditing,
   stackFromIndexes,
   stackToIndexes,
   toggleInStack,
@@ -1149,7 +1150,10 @@ export function ScoreWorkspace({
   // The stacked tracks and the one being edited are saved with the song (as score indexes).
   const stackKey = `${stackToIndexes(stack, score.tracks).join(",")}|${trackIndex}`;
   useEffect(() => {
-    const visible = stack.length > 1 ? stackToIndexes(stack, score.tracks) : undefined;
+    // A single track is saved too when it is not the first one: after taking the first track out
+    // of the view the song reopens on the track it was left on (#231).
+    const visible =
+      stack.length > 1 || trackIndex !== 0 ? stackToIndexes(stack, score.tracks) : undefined;
     const saved = mixRef.current;
     if (
       (saved.visibleTracks ?? []).join(",") === (visible ?? []).join(",") &&
@@ -1442,14 +1446,15 @@ export function ScoreWorkspace({
   const changeTrack = (index: number) => {
     const next = score.tracks[index];
     if (!next) return;
-    // Another track becomes the one being edited; a stacked view keeps its tracks (the new one
-    // takes the place of the old one when it was not in it).
-    const current = stackRef.current;
-    const nextStack =
-      current.length < 2 || current.includes(next)
-        ? current
-        : current.map((t) => (t === trackObject ? next : t));
-    const stacked = current.length < 2 ? [next] : nextStack;
+    // Another track becomes the one being edited; a stacked view keeps its tracks and adds the
+    // new one after the last when it was not in it (#231).
+    switchTrack(index, stackForEditing(stackRef.current, next));
+  };
+
+  /** Makes the track at `index` the edited one, with `stacked` as the view. */
+  const switchTrack = (index: number, stacked: Track[]) => {
+    const next = score.tracks[index];
+    if (!next) return;
     setStackedTracks(stacked);
     stackRef.current = stacked;
     editor.setTrack(index);
@@ -1459,13 +1464,17 @@ export function ScoreWorkspace({
     else playerRef.current?.showTrack(index, shownView);
   };
 
-  /** Adds a track to the continuous view or takes it out (the one being edited stays). */
+  /**
+   * Adds a track to the continuous view or takes it out. Taking out the edited track moves
+   * editing to the top remaining track (#231).
+   */
   const toggleStacked = (index: number) => {
     const target = score.tracks[index];
     if (!target) return;
     const before = stackRef.current;
-    const next = toggleInStack(before, target, trackObject);
-    applyStack(next);
+    const { stack: next, active } = toggleInStack(before, target, trackObject);
+    if (active !== trackObject) switchTrack(score.tracks.indexOf(active), next);
+    else applyStack(next);
     if (before.length < 2 && next.length > 1) trackUsage("multi_track_view");
   };
 

@@ -820,13 +820,31 @@ describe("TrackList", () => {
       expect(screen.queryByTestId("view-handle")).not.toBeInTheDocument();
     });
 
-    it("adds and removes tracks from the eye, and keeps the edited one", async () => {
+    it("lets the edited track be taken out while others stay in the view", async () => {
+      const actions = stackActions();
+      const { user } = setup({ stack: stacking, actions });
+
+      const guitar = screen.getByRole("button", { name: "Visible: Guitar" });
+      expect(guitar).toBeEnabled();
+
+      await user.click(guitar);
+
+      expect(actions.onToggleVisible).toHaveBeenCalledWith(0);
+    });
+
+    it("keeps the last track in the view", () => {
+      setup({ stack: { indexes: [0], stacking: true }, actions: stackActions() });
+
+      const guitar = screen.getByRole("button", { name: "Visible: Guitar" });
+      expect(guitar).toBeDisabled();
+    });
+
+    it("adds and removes tracks from the eye", async () => {
       const actions = stackActions();
       const { user } = setup({ stack: stacking, actions });
 
       const guitar = screen.getByRole("button", { name: "Visible: Guitar" });
       expect(guitar).toHaveAttribute("aria-pressed", "true");
-      expect(guitar).toBeDisabled();
       expect(screen.getByRole("button", { name: "Visible: Bass" })).toHaveAttribute(
         "aria-pressed",
         "false",
