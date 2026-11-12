@@ -75,7 +75,9 @@ jobs:
       matrix:
         browser: [chromium, webkit]
         group:
-          - { id: smoke, title: smoke tests, workers: 2 }
+          # One worker: the core flows include tests of real-time playback, which a second test
+          # running at once pushes past their tolerance (score.spec.ts "keeps real time").
+          - { id: smoke, title: smoke tests, workers: 1 }
           - { id: record-import, title: Record to tab and Import from Audio, workers: 2 }
           - { id: stems, title: stem separation, workers: 2 }
           - { id: practice-together, title: Practice together, workers: 2 }
