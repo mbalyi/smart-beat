@@ -85,26 +85,35 @@ const CHANGING_TEMPO: MockTempo = {
 
 /**
  * Makes the tempo detection answer with `tempo` (or fail), whatever the shared mock does, and
- * records the songs it was asked about in `window.__tempoAsks`.
+ * records the songs it was asked about in `window.__tempoAsks`. With `hold` the answer waits
+ * until the test calls `window.__tempoRelease()`: a delay of a fixed time can run out before a
+ * slow machine looks, so a test that checks the "Finding the tempo…" state holds the call instead.
  */
-async function mockTempo(app: Page, tempo: MockTempo | "fail", delayMs = 0) {
+async function mockTempo(app: Page, tempo: MockTempo | "fail", hold = false) {
   await app.evaluate(
-    ([answer, delay]) => {
+    ([answer, holdAnswer]) => {
       const w = window as unknown as {
         __tempoAsks: string[];
+        __tempoRelease: () => void;
         __TAURI_INTERNALS__: { invoke: (cmd: string, ...rest: unknown[]) => Promise<unknown> };
       };
       w.__tempoAsks = [];
+      let released = false;
+      const waiting: (() => void)[] = [];
+      w.__tempoRelease = () => {
+        released = true;
+        for (const release of waiting.splice(0)) release();
+      };
       const real = w.__TAURI_INTERNALS__.invoke.bind(w.__TAURI_INTERNALS__);
       w.__TAURI_INTERNALS__.invoke = async (cmd, ...rest) => {
         if (cmd !== "stems_detect_tempo") return real(cmd, ...rest);
         w.__tempoAsks.push(String((rest[0] as { id?: string } | undefined)?.id));
-        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        if (holdAnswer && !released) await new Promise<void>((resolve) => waiting.push(resolve));
         if (answer === "fail") throw new Error("No tempo.");
         return answer;
       };
     },
-    [tempo, delayMs] as const,
+    [tempo, hold] as const,
   );
 }
 
@@ -320,11 +329,14 @@ test.describe("Stem separation (#186)", () => {
   }
 
   test("says it is finding the tempo, then shows it in the details", async ({ app }) => {
-    await mockTempo(app, STEADY_TEMPO, 600);
+    await mockTempo(app, STEADY_TEMPO, true);
     await separate(app);
     await expect(app.getByText("Finding the tempo…")).toBeVisible();
     // Playing is not held back.
     await expect(app.getByRole("button", { name: "Play" })).toBeEnabled();
+    await app.evaluate(() =>
+      (window as unknown as { __tempoRelease: () => void }).__tempoRelease(),
+    );
     await expect(app.getByTestId("stem-tempo")).toHaveText("92 BPM");
     await expect(app.getByTestId("stems-info")).toContainText(/engine · \d parts · 92 BPM/);
     await expect(app.getByTestId("stem-tempo-changes")).toHaveCount(0);
