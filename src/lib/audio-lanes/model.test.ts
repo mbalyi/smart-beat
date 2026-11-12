@@ -140,24 +140,24 @@ describe("normalize", () => {
     expect(audio.lanes[1]!.clips).toHaveLength(1);
   });
 
-  it("keeps hiddenInScore only when it is true", () => {
+  it("keeps shownInScore only when it is true", () => {
     const sources = new Set<string>();
-    const hidden = normalizeLane({ ...newLane("A", "a"), hiddenInScore: true }, sources);
-    expect(hidden.hiddenInScore).toBe(true);
+    const shown = normalizeLane({ ...newLane("A", "a"), shownInScore: true }, sources);
+    expect(shown.shownInScore).toBe(true);
     for (const value of [false, undefined, "true", 1, null]) {
       const lane = normalizeLane(
-        { ...newLane("A", "a"), hiddenInScore: value } as AudioLane,
+        { ...newLane("A", "a"), shownInScore: value } as AudioLane,
         sources,
       );
-      expect(JSON.parse(JSON.stringify(lane))).not.toHaveProperty("hiddenInScore");
+      expect(JSON.parse(JSON.stringify(lane))).not.toHaveProperty("shownInScore");
     }
-    expect(normalizeLane(newLane("A", "a"), sources)).not.toHaveProperty("hiddenInScore");
+    expect(normalizeLane(newLane("A", "a"), sources)).not.toHaveProperty("shownInScore");
   });
 
-  it("keeps the hidden lanes of a whole song through normalizeAudio", () => {
-    const lanes = [{ ...newLane("A", "a"), hiddenInScore: true }, newLane("B", "b")];
+  it("keeps the lanes shown under the tabs of a whole song through normalizeAudio", () => {
+    const lanes = [{ ...newLane("A", "a"), shownInScore: true }, newLane("B", "b")];
     const audio = normalizeAudio({ ...EMPTY_AUDIO, lanes });
-    expect(audio.lanes.map((l) => l.hiddenInScore)).toEqual([true, undefined]);
+    expect(audio.lanes.map((l) => l.shownInScore)).toEqual([true, undefined]);
   });
 
   it("drops a parent that is not a folder and sends to unknown buses", () => {

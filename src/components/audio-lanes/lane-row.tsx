@@ -101,8 +101,8 @@ export function LaneRow({
   const label = lane.folder ? `folder ${lane.name}` : `lane ${lane.name}`;
   const childLanes = lane.folder ? audio.lanes.filter((l) => l.parent === lane.id) : [];
   const children = childLanes.length;
-  // A folder is shown while any lane in it is; an empty folder has nothing to show.
-  const inScore = lane.folder ? childLanes.some((l) => !l.hiddenInScore) : !lane.hiddenInScore;
+  // A folder is on while any lane in it is; an empty folder has nothing to show.
+  const inScore = lane.folder ? childLanes.some((l) => l.shownInScore) : !!lane.shownInScore;
 
   const drop = (drag: ClipDrag) => {
     if (dropCopyOrSlip(lanes, drag)) return;

@@ -437,8 +437,8 @@ export interface AudioLane extends BackingParams {
   /** The studio row's height, 40 to 240 px (unset: the default). */
   height?: number;
   clips: AudioClip[];
-  /** Hidden from under the tabs in the continuous view (the track list still shows the lane). */
-  hiddenInScore?: boolean;
+  /** Shown under the tabs in the continuous view (off by default; the track list shows every lane). */
+  shownInScore?: boolean;
 }
 
 /** Mirrors `AudioBus`: a bus that lane sends feed (a reverb or delay return). */

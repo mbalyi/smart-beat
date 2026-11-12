@@ -17,18 +17,12 @@ const inside = (id: string, parent: string, extra: Partial<AudioLane> = {}): Aud
   ...extra,
 });
 
-describe("bandRows", () => {
-  it("lists every lane in order, with its place among all the lanes", () => {
-    const rows = bandRows(audio([newLane("A", "a"), newLane("B", "b")]));
-    expect(rows.map((r) => [r.lane.id, r.index])).toEqual([
-      ["a", 0],
-      ["b", 1],
-    ]);
-  });
+const shown = (lane: AudioLane): AudioLane => ({ ...lane, shownInScore: true });
 
-  it("skips a hidden lane but keeps the place of the others", () => {
+describe("bandRows", () => {
+  it("lists the shown lanes in order, with their place among all the lanes", () => {
     const rows = bandRows(
-      audio([newLane("A", "a"), { ...newLane("B", "b"), hiddenInScore: true }, newLane("C", "c")]),
+      audio([shown(newLane("A", "a")), newLane("B", "b"), shown(newLane("C", "c"))]),
     );
     expect(rows.map((r) => [r.lane.id, r.index])).toEqual([
       ["a", 0],
@@ -36,36 +30,40 @@ describe("bandRows", () => {
     ]);
   });
 
-  it("treats hiddenInScore false like absent", () => {
-    expect(ids([{ ...newLane("A", "a"), hiddenInScore: false }])).toEqual(["a"]);
+  it("shows no lane by default", () => {
+    expect(ids([newLane("A", "a"), newLane("B", "b")])).toEqual([]);
+  });
+
+  it("treats shownInScore false like absent", () => {
+    expect(ids([{ ...newLane("A", "a"), shownInScore: false }])).toEqual([]);
   });
 
   it("shows a folder header only while one of its lanes is shown", () => {
-    const lanes = [folder("f"), inside("x", "f", { hiddenInScore: true }), inside("y", "f")];
+    const lanes = [folder("f"), inside("x", "f"), inside("y", "f", { shownInScore: true })];
     expect(ids(lanes)).toEqual(["f", "y"]);
-    expect(ids([folder("f"), inside("x", "f", { hiddenInScore: true })])).toEqual([]);
+    expect(ids([folder("f"), inside("x", "f")])).toEqual([]);
   });
 
   it("keeps a closed folder's header while a lane inside is shown, and drops the lanes", () => {
-    expect(ids([folder("f", { collapsed: true }), inside("x", "f")])).toEqual(["f"]);
-    const allHidden = [folder("f", { collapsed: true }), inside("x", "f", { hiddenInScore: true })];
-    expect(ids(allHidden)).toEqual([]);
+    expect(
+      ids([folder("f", { collapsed: true }), inside("x", "f", { shownInScore: true })]),
+    ).toEqual(["f"]);
+    expect(ids([folder("f", { collapsed: true }), inside("x", "f")])).toEqual([]);
   });
 
-  it("hides the lanes inside a hidden folder with it", () => {
-    const lanes = [folder("f", { hiddenInScore: true }), inside("x", "f"), newLane("Z", "z")];
-    expect(ids(lanes)).toEqual(["z"]);
+  it("ignores the flag on a folder itself: it follows the lanes inside", () => {
+    expect(ids([folder("f", { shownInScore: true }), inside("x", "f")])).toEqual([]);
   });
 
-  it("keeps the header of a folder that has no lanes yet", () => {
-    expect(ids([folder("f")])).toEqual(["f"]);
+  it("keeps no header for a folder that has no lanes yet", () => {
+    expect(ids([folder("f")])).toEqual([]);
   });
 });
 
 describe("hasBandRows", () => {
-  it("is false for no lanes and when every lane is hidden", () => {
+  it("is false for no lanes and when no lane is shown, true once one is", () => {
     expect(hasBandRows(audio([]))).toBe(false);
-    expect(hasBandRows(audio([{ ...newLane("A", "a"), hiddenInScore: true }]))).toBe(false);
-    expect(hasBandRows(audio([newLane("A", "a")]))).toBe(true);
+    expect(hasBandRows(audio([newLane("A", "a")]))).toBe(false);
+    expect(hasBandRows(audio([shown(newLane("A", "a"))]))).toBe(true);
   });
 });

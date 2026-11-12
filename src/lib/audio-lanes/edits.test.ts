@@ -277,26 +277,26 @@ describe("review regressions", () => {
 });
 
 describe("setLaneInScore", () => {
-  it("hides a lane with a flag and shows it by removing the key", () => {
-    const hidden = setLaneInScore(song(), "a", false);
-    expect(hidden.lanes[0]!.hiddenInScore).toBe(true);
-    expect(hidden.lanes[1]!.hiddenInScore).toBeUndefined();
-    const shown = setLaneInScore(hidden, "a", true);
-    expect("hiddenInScore" in shown.lanes[0]!).toBe(false);
+  it("shows a lane with a flag and hides it by removing the key", () => {
+    const shown = setLaneInScore(song(), "a", true);
+    expect(shown.lanes[0]!.shownInScore).toBe(true);
+    expect(shown.lanes[1]!.shownInScore).toBeUndefined();
+    const hidden = setLaneInScore(shown, "a", false);
+    expect("shownInScore" in hidden.lanes[0]!).toBe(false);
   });
 
   it("does not change other lanes or a missing lane", () => {
     const audio = song();
-    expect(setLaneInScore(audio, "nope", false)).toBe(audio);
-    expect(setLaneInScore(audio, "a", false).lanes[1]).toBe(audio.lanes[1]);
+    expect(setLaneInScore(audio, "nope", true)).toBe(audio);
+    expect(setLaneInScore(audio, "a", true).lanes[1]).toBe(audio.lanes[1]);
   });
 
   it("sets the children of a folder together, not the folder", () => {
     const folder = makeFolder(song(), "Group", ["a", "b"], "f");
-    const hidden = setLaneInScore(folder, "f", false);
-    const flag = (id: string) => hidden.lanes.find((l) => l.id === id)!.hiddenInScore;
+    const shown = setLaneInScore(folder, "f", true);
+    const flag = (id: string) => shown.lanes.find((l) => l.id === id)!.shownInScore;
     expect([flag("a"), flag("b"), flag("f")]).toEqual([true, true, undefined]);
-    const shown = setLaneInScore(hidden, "f", true);
-    expect(shown.lanes.some((l) => "hiddenInScore" in l)).toBe(false);
+    const hidden = setLaneInScore(shown, "f", false);
+    expect(hidden.lanes.some((l) => "shownInScore" in l)).toBe(false);
   });
 });

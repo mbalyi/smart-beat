@@ -26,6 +26,9 @@ export class FakeScorePlayer {
   setView = vi.fn();
   setStack = vi.fn();
   setLayout = vi.fn();
+  /** Where the score draws each bar (none: the fake draws nothing). */
+  barBounds = vi.fn((): { x: number; width: number }[] | null => null);
+  onLayoutChange = vi.fn((_listener: () => void) => () => {});
   setMix = vi.fn();
   setFocusCut = vi.fn();
   setSoundFont = vi.fn();

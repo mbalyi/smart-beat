@@ -206,10 +206,10 @@ export function normalizeClip(clip: AudioClip): AudioClip {
 
 /** A lane with every value in range; clips that point at no source are dropped. */
 export function normalizeLane(lane: AudioLane, sources: ReadonlySet<string>): AudioLane {
-  const { hiddenInScore, ...rest } = lane;
+  const { shownInScore, ...rest } = lane;
   return {
     ...rest,
-    ...(hiddenInScore === true && { hiddenInScore: true }),
+    ...(shownInScore === true && { shownInScore: true }),
     color: isTrackColor(lane.color) ? lane.color.toLowerCase() : null,
     volume: clamp(lane.volume, 0, 1),
     pan: clamp(lane.pan, -1, 1),

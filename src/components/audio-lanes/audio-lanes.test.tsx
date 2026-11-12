@@ -564,34 +564,36 @@ describe("LaneRow eye and Enabled item", () => {
         )}
       </Lanes>,
     );
-  const laneFlags = () => lanesNow().audio.lanes.map((l) => l.hiddenInScore);
+  const laneFlags = () => lanesNow().audio.lanes.map((l) => l.shownInScore);
 
-  it("has an eye, pressed while the lane shows under the tabs, that hides and shows it", async () => {
+  it("has an eye, off at first, that shows the lane under the tabs and hides it again", async () => {
     const { user } = renderRows();
-    const eye = screen.getByRole("button", { name: "Hide lane Vocals from under the tabs" });
-    expect(eye).toHaveAttribute("aria-pressed", "true");
+    const eye = screen.getByRole("button", { name: "Show lane Vocals under the tabs" });
+    expect(eye).toHaveAttribute("aria-pressed", "false");
+    expect(laneFlags()).toEqual([undefined, undefined]);
     await user.hover(eye);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "Hide this lane from under the tabs in the continuous view",
+      "Show this lane under the tabs in the continuous view",
     );
     await user.unhover(eye);
 
     await user.click(eye);
-    const hidden = screen.getByRole("button", { name: "Show lane Vocals under the tabs" });
-    expect(hidden).toHaveAttribute("aria-pressed", "false");
+    const shown = screen.getByRole("button", { name: "Hide lane Vocals from under the tabs" });
+    expect(shown).toHaveAttribute("aria-pressed", "true");
     expect(laneFlags()).toEqual([true, undefined]);
     // The other lane is untouched.
-    expect(
-      screen.getByRole("button", { name: "Hide lane Drums from under the tabs" }),
-    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Show lane Drums under the tabs" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
 
-    await user.click(hidden);
-    expect("hiddenInScore" in lanesNow().audio.lanes[0]!).toBe(false);
+    await user.click(shown);
+    expect("shownInScore" in lanesNow().audio.lanes[0]!).toBe(false);
   });
 
   it("is one undoable edit", async () => {
     const { user } = renderRows();
-    await user.click(screen.getByRole("button", { name: "Hide lane Vocals from under the tabs" }));
+    await user.click(screen.getByRole("button", { name: "Show lane Vocals under the tabs" }));
     expect(laneFlags()[0]).toBe(true);
     act(() => lanesNow().undo());
     expect(laneFlags()[0]).toBeUndefined();
@@ -665,18 +667,19 @@ describe("LaneRow eye and Enabled item", () => {
     const audio = makeFolder(song(), "Band", ["lane-a", "lane-b"], "folder");
     const { user } = renderRows(audio);
     const eye = () => screen.getByRole("button", { name: /(Hide|Show) folder Band/ });
-    expect(eye()).toHaveAccessibleName("Hide folder Band from under the tabs");
-
-    await user.click(eye());
-    expect(laneFlags()).toEqual([true, true, undefined]);
     expect(eye()).toHaveAccessibleName("Show folder Band under the tabs");
     expect(eye()).toHaveAttribute("aria-pressed", "false");
 
-    // One lane back on, and the folder shows again; its eye then hides both.
-    await user.click(screen.getByRole("button", { name: "Show lane Drums under the tabs" }));
-    expect(eye()).toHaveAttribute("aria-pressed", "true");
     await user.click(eye());
     expect(laneFlags()).toEqual([true, true, undefined]);
+    expect(eye()).toHaveAccessibleName("Hide folder Band from under the tabs");
+    expect(eye()).toHaveAttribute("aria-pressed", "true");
+
+    // One lane off, and the folder is still on; its eye then hides both.
+    await user.click(screen.getByRole("button", { name: "Hide lane Drums from under the tabs" }));
+    expect(eye()).toHaveAttribute("aria-pressed", "true");
+    await user.click(eye());
+    expect(laneFlags()).toEqual([undefined, undefined, undefined]);
   });
 
   it("has nothing to show for an empty folder, and no accessibility violations in either theme", async () => {

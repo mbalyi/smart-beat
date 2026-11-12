@@ -37,7 +37,10 @@ const SOURCE = {
 };
 const ROW_PX = 80;
 
-/** Vocals: clip-a at bar 1, clip-b at bar 3. Drums: clip-c from bar 2 to the start of bar 4. */
+/**
+ * Vocals: clip-a at bar 1, clip-b at bar 3. Drums: clip-c from bar 2 to the start of bar 4. Both
+ * are shown under the tabs (a lane is not, until its eye is on); `extra` lanes are as given.
+ */
 function song(extra: AudioLane[] = []): AudioLanesSettings {
   return {
     ...EMPTY_AUDIO,
@@ -45,6 +48,7 @@ function song(extra: AudioLane[] = []): AudioLanesSettings {
     lanes: [
       {
         ...newLane("Vocals", "lane-a"),
+        shownInScore: true,
         clips: [
           newClip(SOURCE.id, "verse.wav", 0, 2000, "clip-a"),
           newClip(SOURCE.id, "chorus.wav", 4000, 2000, "clip-b"),
@@ -52,6 +56,7 @@ function song(extra: AudioLane[] = []): AudioLanesSettings {
       },
       {
         ...newLane("Drums", "lane-b"),
+        shownInScore: true,
         clips: [newClip(SOURCE.id, "fill.wav", 2000, 4000, "clip-c")],
       },
       ...extra,
@@ -236,11 +241,11 @@ describe("the lanes band under the tabs", () => {
     expect(screen.getByTestId("band-position-line").style.left).toBe("90px");
   });
 
-  it("draws no row or clip for a lane hidden from the score", () => {
+  it("draws no row or clip for a lane that is not shown under the tabs", () => {
     const audio = song();
     renderBand({
       ...audio,
-      lanes: audio.lanes.map((l) => (l.id === "lane-b" ? { ...l, hiddenInScore: true } : l)),
+      lanes: audio.lanes.map((l) => (l.id === "lane-b" ? { ...l, shownInScore: false } : l)),
     });
     expect(screen.getByTestId("band-lane-lane-a")).toBeInTheDocument();
     expect(screen.queryByTestId("band-lane-lane-b")).not.toBeInTheDocument();
@@ -250,30 +255,30 @@ describe("the lanes band under the tabs", () => {
     expect(lanesNow().audio.lanes.map((l) => l.id)).toEqual(["lane-a", "lane-b"]);
   });
 
-  it("mounts nothing when every lane is hidden", () => {
+  it("mounts nothing when no lane is shown", () => {
     const audio = song();
-    renderBand({ ...audio, lanes: audio.lanes.map((l) => ({ ...l, hiddenInScore: true })) });
+    renderBand({ ...audio, lanes: audio.lanes.map((l) => ({ ...l, shownInScore: false })) });
     expect(screen.queryByTestId("score-lanes-band")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /Audio lanes under the score/ })).toBeNull();
   });
 
   it("shows a folder header only while one of its lanes is shown", () => {
     const folder = { ...newLane("Stems", "folder"), folder: true };
-    const one = { ...newLane("One", "lane-one"), parent: "folder", hiddenInScore: true };
-    const two = { ...newLane("Two", "lane-two"), parent: "folder" };
+    const one = { ...newLane("One", "lane-one"), parent: "folder" };
+    const two = { ...newLane("Two", "lane-two"), parent: "folder", shownInScore: true };
     const first = renderBand(song([folder, one, two]));
     expect(screen.getByTestId("band-folder-folder")).toBeInTheDocument();
     expect(screen.queryByTestId("band-lane-lane-one")).not.toBeInTheDocument();
     expect(screen.getByTestId("band-lane-lane-two")).toBeInTheDocument();
     first.unmount();
-    renderBand(song([folder, one, { ...two, hiddenInScore: true }]));
+    renderBand(song([folder, one, { ...two, shownInScore: false }]));
     expect(screen.queryByTestId("band-folder-folder")).not.toBeInTheDocument();
     expect(screen.getByTestId("band-lane-lane-a")).toBeInTheDocument();
   });
 
   it("hides the lanes of a closed folder, and shows the folder as a thin row", async () => {
     const folder = { ...newLane("Stems", "folder"), folder: true, collapsed: true };
-    const inside = { ...newLane("Inside", "lane-in"), parent: "folder" };
+    const inside = { ...newLane("Inside", "lane-in"), parent: "folder", shownInScore: true };
     const { user } = renderBand(song([folder, inside]));
     expect(screen.getByTestId("band-folder-folder")).toBeInTheDocument();
     expect(screen.queryByTestId("band-lane-lane-in")).not.toBeInTheDocument();

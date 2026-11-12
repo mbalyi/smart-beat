@@ -32,7 +32,7 @@ import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
 import { hasBandRows } from "@/lib/audio-lanes/band-rows";
 import { laneDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
-import { EMPTY_AUDIO } from "@/lib/audio-lanes/model";
+import { EMPTY_AUDIO, lanesOf } from "@/lib/audio-lanes/model";
 import type { FileDragState } from "@/lib/file-drag-store";
 import {
   barAtTimelineMs,
@@ -606,8 +606,11 @@ export function ScoreWorkspace({
   const stack = reconcileStack(stackedTracks, score.tracks, trackObject);
   const stackRef = useRef(stack);
   stackRef.current = stack;
+  // Lanes shown under the tabs need the continuous layout, so a song saved with some opens in it.
   const [layout, setLayout] = useState<Layout>(() =>
-    (song.mix.visibleTracks?.length ?? 0) > 1 ? "horizontal" : "page",
+    (song.mix.visibleTracks?.length ?? 0) > 1 || (isTauri() && hasBandRows(lanesOf(song.mix)))
+      ? "horizontal"
+      : "page",
   );
   /** A stack for the player; only several tracks make one. */
   const stackArg = (tracks: readonly Track[]) => (tracks.length > 1 ? stackFor(tracks) : undefined);
@@ -1987,12 +1990,18 @@ export function ScoreWorkspace({
   useEffect(() => {
     lanesAudioRef.current = lanes.audio;
   }, [lanes.audio]);
-  // The lanes also show under the tabs in the continuous layout, on the bars as drawn there.
-  const barSpans = useScoreBarBounds(
-    playerRef,
-    playerEpoch,
-    isTauri() && layout === "horizontal" && hasBandRows(lanes.audio),
-  );
+  // A lane's eye shows it under the tabs in the continuous layout, on the bars as drawn there.
+  // The band only exists in that layout: turning a lane on switches to it and keeps the page
+  // layout off until the last one is hidden again.
+  const bandWanted = isTauri() && hasBandRows(lanes.audio);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  useEffect(() => {
+    if (!bandWanted || layoutRef.current === "horizontal") return;
+    setLayout("horizontal");
+    playerRef.current?.setLayout("horizontal");
+  }, [bandWanted]);
+  const barSpans = useScoreBarBounds(playerRef, playerEpoch, layout === "horizontal" && bandWanted);
   /** Bars the score lacks for its audio: playback follows the score and stops at its end. */
   const missingBars = barsToFitAudio(lanes.audio, laneGrid, score.masterBars.length);
   const addMissingBars = () => editor.appendBars(missingBars);
@@ -3196,6 +3205,11 @@ export function ScoreWorkspace({
         onViewChange={changeView}
         layout={layout}
         onLayoutChange={changeLayout}
+        pageLayoutLocked={
+          bandWanted
+            ? "Audio lanes are shown under the tabs, which needs the continuous layout. Hide them to use the page layout."
+            : undefined
+        }
         zoom={zoom}
         onZoomChange={changeZoom}
         onOpen={onOpen}

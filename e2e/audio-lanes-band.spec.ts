@@ -10,7 +10,7 @@ import { emitMenuAction, expect, expectNoA11yViolations, openSong, test } from "
 
 /** The part of a saved mix the tests below reach into. */
 interface SavedMix {
-  audio?: { lanes: { hiddenInScore?: boolean }[] };
+  audio?: { lanes: { shownInScore?: boolean }[] };
 }
 
 /** Opens the practice song with the native engine on (the lanes play there). */
@@ -38,12 +38,18 @@ const clipStarts = (app: Page, index: number) =>
 test.describe("lanes under the tabs in the continuous layout", () => {
   test.use({ viewport: { width: 1280, height: 1000 } });
 
-  /** Two lanes of one four-second clip each, with the score drawn continuously. */
-  async function openWithBand(app: Page) {
+  /** Two lanes of one four-second clip each, in the track list with their eyes off. */
+  async function openWithLanes(app: Page) {
     await openWithEngine(app);
     await addLane(app, "/Users/me/Music/take.mp3");
     await addLane(app, "/Users/me/Music/other.mp3");
-    await app.getByRole("radio", { name: "Continuous" }).click();
+  }
+
+  /** The two lanes with their eyes on: under the tabs, which switches to the continuous layout. */
+  async function openWithBand(app: Page) {
+    await openWithLanes(app);
+    await app.getByRole("button", { name: "Show lane take under the tabs" }).click();
+    await app.getByRole("button", { name: "Show lane other under the tabs" }).click();
     const band = app.getByTestId("score-lanes-band");
     await expect(band).toBeVisible();
     return band;
@@ -51,6 +57,46 @@ test.describe("lanes under the tabs in the continuous layout", () => {
 
   const clipOf = (band: Locator, name: string) =>
     band.getByRole("button", { name: new RegExp(`${name}\\.mp3 on ${name}`) });
+
+  test("a lane is not under the tabs until its eye is on", async ({ app }) => {
+    await openWithLanes(app);
+    await expect(app.getByTestId("score-lanes-band")).toHaveCount(0);
+    for (const name of ["take", "other"]) {
+      await expect(
+        app.getByRole("button", { name: `Show lane ${name} under the tabs` }),
+      ).toHaveAttribute("aria-pressed", "false");
+    }
+    await expect
+      .poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes.map((l) => l.shownInScore)))
+      .toEqual([undefined, undefined]);
+    await expect(app.getByRole("radio", { name: "Page" })).toBeChecked();
+  });
+
+  test("an eye switches the page layout to the continuous one and keeps the page layout off until the last lane is hidden", async ({
+    app,
+  }) => {
+    await openWithLanes(app);
+    await expect(app.getByRole("radio", { name: "Page" })).toBeEnabled();
+    await app.getByRole("button", { name: "Show lane take under the tabs" }).click();
+    await expect(app.getByRole("radio", { name: "Continuous" })).toBeChecked();
+    await expect(app.getByTestId("score-lanes-band")).toBeVisible();
+    const page = app.getByRole("radio", { name: "Page" });
+    await expect(page).toBeDisabled();
+
+    // A second lane on, the first off: one is still shown, so the page layout stays off.
+    await app.getByRole("button", { name: "Show lane other under the tabs" }).click();
+    await app.getByRole("button", { name: "Hide lane take from under the tabs" }).click();
+    await expect(page).toBeDisabled();
+    await expect(app.getByTestId("score-lanes-band")).toBeVisible();
+
+    // The last one off: the band goes, the layout stays, and the page layout can be chosen.
+    await app.getByRole("button", { name: "Hide lane other from under the tabs" }).click();
+    await expect(app.getByTestId("score-lanes-band")).toHaveCount(0);
+    await expect(page).toBeEnabled();
+    await expect(app.getByRole("radio", { name: "Continuous" })).toBeChecked();
+    await page.click();
+    await expect(page).toBeChecked();
+  });
 
   test("shows under the tabs, one row per lane, and not in the page layout", async ({ app }) => {
     const band = await openWithBand(app);
@@ -76,10 +122,13 @@ test.describe("lanes under the tabs in the continuous layout", () => {
       .boundingBox())!;
     expect(second.y).toBeGreaterThanOrEqual(first.y + first.height - 1);
 
+    // The page layout has no band: it is off while lanes are shown, and without them it is plain.
+    await expect(app.getByRole("radio", { name: "Page" })).toBeDisabled();
+    await app.getByRole("button", { name: "Hide lane take from under the tabs" }).click();
+    await app.getByRole("button", { name: "Hide lane other from under the tabs" }).click();
+    await expect(app.getByTestId("score-lanes-band")).toHaveCount(0);
     await app.getByRole("radio", { name: "Page" }).click();
     await expect(app.getByTestId("score-lanes-band")).toHaveCount(0);
-    await app.getByRole("radio", { name: "Continuous" }).click();
-    await expect(app.getByTestId("score-lanes-band")).toBeVisible();
   });
 
   test("a clip lines up with the bars of the score", async ({ app }) => {
@@ -153,8 +202,8 @@ test.describe("lanes under the tabs in the continuous layout", () => {
     await expect(band.getByTestId("band-position-line")).toBeVisible();
   });
 
-  /** Saves the song's mix with the lanes at `indexes` hidden from the band, and opens it again. */
-  async function reopenWithHidden(app: Page, indexes: number[]) {
+  /** Saves the song's mix with only the lanes at `indexes` shown under the tabs, and opens it again. */
+  async function reopenWithShown(app: Page, indexes: number[]) {
     await expect
       .poll(() =>
         app.evaluate(
@@ -162,10 +211,11 @@ test.describe("lanes under the tabs in the continuous layout", () => {
         ),
       )
       .toBe(2);
-    await app.evaluate((hidden) => {
+    await app.evaluate((shown) => {
       for (const mix of window.__mixes.values()) {
         (mix as SavedMix).audio?.lanes.forEach((lane, i) => {
-          if (hidden.includes(i)) lane.hiddenInScore = true;
+          if (shown.includes(i)) lane.shownInScore = true;
+          else delete lane.shownInScore;
         });
       }
     }, indexes);
@@ -173,13 +223,15 @@ test.describe("lanes under the tabs in the continuous layout", () => {
     await app.getByRole("switch", { name: "Native engine with effects" }).click();
   }
 
-  test("a lane saved as hidden has no row under the tabs but stays in the track list", async ({
+  test("a lane saved as shown has a row under the tabs, the others only the track list", async ({
     app,
   }) => {
     await openWithBand(app);
-    await reopenWithHidden(app, [1]);
+    await reopenWithShown(app, [0]);
     const band = app.getByTestId("score-lanes-band");
     await expect(band).toBeVisible();
+    // The song opens in the continuous layout, where the band is.
+    await expect(app.getByRole("radio", { name: "Continuous" })).toBeChecked();
     await expect(
       band.getByRole("group", { name: /Audio lane take under the score/ }),
     ).toBeVisible();
@@ -192,11 +244,13 @@ test.describe("lanes under the tabs in the continuous layout", () => {
     await expect.poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes.length)).toBe(2);
   });
 
-  test("with every lane hidden the band is not drawn at all", async ({ app }) => {
+  test("with no lane shown the band is not drawn at all", async ({ app }) => {
     await openWithBand(app);
-    await reopenWithHidden(app, [0, 1]);
+    await reopenWithShown(app, []);
     await expect(app.getByRole("button", { name: "Edit the lane take" })).toBeVisible();
     await expect(app.getByTestId("score-lanes-band")).toHaveCount(0);
+    // Nothing is shown under the tabs, so the page layout can be chosen.
+    await expect(app.getByRole("radio", { name: "Page" })).toBeEnabled();
   });
 
   test("a lane's eye hides it from under the tabs and shows it again, and the lane stays listed", async ({
@@ -218,14 +272,14 @@ test.describe("lanes under the tabs in the continuous layout", () => {
       app.getByRole("button", { name: "Show lane take under the tabs" }),
     ).toHaveAttribute("aria-pressed", "false");
     await expect
-      .poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes[0]?.hiddenInScore))
-      .toBe(true);
+      .poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes[0]?.shownInScore))
+      .toBeUndefined();
 
     await app.getByRole("button", { name: "Show lane take under the tabs" }).click();
     await expect(take).toBeVisible();
     await expect
-      .poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes[0]?.hiddenInScore))
-      .toBeUndefined();
+      .poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes[0]?.shownInScore))
+      .toBe(true);
   });
 
   test("a lane's eye is in the same column as a tab's eye", async ({ app }) => {
@@ -242,9 +296,12 @@ test.describe("lanes under the tabs in the continuous layout", () => {
     for (const track of ["Guitar", "Bass", "Drums", "Piano"]) {
       expect(Math.abs((await centre(`Visible: ${track}`)) - lane)).toBeLessThan(1);
     }
-    // And in the page layout, where the column is narrower and has no handles.
+    // And in the page layout (open once the lanes are off the band), where the column is narrower
+    // and has no handles.
+    await app.getByRole("button", { name: "Hide lane take from under the tabs" }).click();
+    await app.getByRole("button", { name: "Hide lane other from under the tabs" }).click();
     await app.getByRole("radio", { name: "Page" }).click();
-    const plainLane = await centre("Hide lane take from under the tabs");
+    const plainLane = await centre("Show lane take under the tabs");
     for (const track of ["Guitar", "Bass"]) {
       expect(Math.abs((await centre(`Visible: ${track}`)) - plainLane)).toBeLessThan(1);
     }

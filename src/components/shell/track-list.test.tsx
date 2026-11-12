@@ -919,20 +919,20 @@ describe("TrackList", () => {
       expect(lane.firstElementChild).toHaveAttribute("aria-hidden", "true");
     });
 
-    it("hides a lane from under the tabs and brings it back, in the track list", async () => {
+    it("shows a lane under the tabs and hides it again, in the track list", async () => {
       const changes: MixerAction[] = [];
       const { user } = renderLanes({ changes });
+      await user.click(screen.getByRole("button", { name: "Show lane Vocals under the tabs" }));
+      const audio = changes.at(-1);
+      expect(audio?.type === "audio" && audio.value?.lanes[0]?.shownInScore).toBe(true);
+      // The lane stays in the list either way.
+      expect(screen.getByTestId("lane-row-lane-a")).toBeInTheDocument();
       await user.click(
         screen.getByRole("button", { name: "Hide lane Vocals from under the tabs" }),
       );
-      const audio = changes.at(-1);
-      expect(audio?.type === "audio" && audio.value?.lanes[0]?.hiddenInScore).toBe(true);
-      // The lane stays in the list.
-      expect(screen.getByTestId("lane-row-lane-a")).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Show lane Vocals under the tabs" }));
       const back = changes.at(-1);
       expect(
-        back?.type === "audio" && back.value?.lanes[0] && "hiddenInScore" in back.value.lanes[0],
+        back?.type === "audio" && back.value?.lanes[0] && "shownInScore" in back.value.lanes[0],
       ).toBe(false);
     });
 

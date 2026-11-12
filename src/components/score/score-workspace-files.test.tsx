@@ -915,6 +915,60 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     expect(calls.some((c) => c.cmd === "audio_load_source")).toBe(false);
   });
 
+  /** A song with one lane (a clip on it), shown under the tabs or not. */
+  async function renderWithLane(shown: boolean) {
+    mockTauri();
+    const song = await makeSong("/songs/practice-song.gp");
+    song.mix = {
+      ...song.mix,
+      audio: {
+        ...EMPTY_AUDIO,
+        sources: [
+          { id: "a".repeat(64), name: "take.mp3", ext: "mp3", path: "/take.mp3", embedded: true },
+        ],
+        lanes: [
+          {
+            ...newLane("Take", "lane"),
+            ...(shown && { shownInScore: true }),
+            clips: [newClip("a".repeat(64), "take.mp3", 0, 1000, "c")],
+          },
+        ],
+      },
+    };
+    const view = renderWithProviders(<ScoreWorkspace song={song} onOpen={vi.fn()} />);
+    FakeScorePlayer.last.becomeReady();
+    await screen.findByTestId("lane-row-lane");
+    return { ...view, player: FakeScorePlayer.last };
+  }
+
+  it("keeps a lane out from under the tabs until its eye is on, and then needs the continuous layout", async () => {
+    const { user, player } = await renderWithLane(false);
+    expect(screen.getByRole("radio", { name: "Page" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Page" })).toBeEnabled();
+    expect(player.options.layout).toBe("page");
+
+    await user.click(screen.getByRole("button", { name: "Show lane Take under the tabs" }));
+    // Under the tabs only exists in the continuous layout: it is switched to, and page is off.
+    expect(screen.getByRole("radio", { name: "Continuous" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Page" })).toBeDisabled();
+    expect(player.setLayout).toHaveBeenCalledWith("horizontal");
+
+    // The last lane hidden again: the layout stays, and the page layout can be chosen.
+    await user.click(screen.getByRole("button", { name: "Hide lane Take from under the tabs" }));
+    expect(screen.getByRole("radio", { name: "Continuous" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Page" })).toBeEnabled();
+    await user.click(screen.getByRole("radio", { name: "Page" }));
+    expect(screen.getByRole("radio", { name: "Page" })).toBeChecked();
+    expect(player.setLayout).toHaveBeenLastCalledWith("page");
+  });
+
+  it("opens a song with a lane shown under the tabs in the continuous layout", async () => {
+    const { player } = await renderWithLane(true);
+    expect(player.options.layout).toBe("horizontal");
+    expect(screen.getByRole("radio", { name: "Continuous" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Page" })).toBeDisabled();
+  });
+
   it("says the lanes are silent with the SoundFonts and switches to the native engine on request", async () => {
     const { user } = await setup({ path: "/songs/practice-song.gp" });
     backend.dialogResult = "/music/take.mp3";

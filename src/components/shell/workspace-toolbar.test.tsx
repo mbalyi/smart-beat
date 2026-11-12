@@ -90,3 +90,27 @@ describe("WorkspaceToolbar: Practice together (#158)", () => {
     expect(screen.getByRole("button", { name: "Chip here" })).toBeInTheDocument();
   });
 });
+
+describe("WorkspaceToolbar: the layout choice", () => {
+  it("offers both layouts, and says why the page layout is off while it is locked", async () => {
+    const onLayoutChange = vi.fn();
+    const { unmount } = renderToolbar({ layout: "horizontal", onLayoutChange });
+    expect(screen.getByRole("radio", { name: "Page" })).toBeEnabled();
+    unmount();
+
+    const reason = "Audio lanes are shown under the tabs, which needs the continuous layout.";
+    const locked = renderToolbar({
+      layout: "horizontal",
+      onLayoutChange,
+      pageLayoutLocked: reason,
+    });
+    const page = screen.getByRole("radio", { name: "Page" });
+    expect(page).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Continuous" })).toBeEnabled();
+    await locked.user.click(page);
+    expect(onLayoutChange).not.toHaveBeenCalled();
+    // The reason shows on hover, even though a disabled control gets no pointer events itself.
+    await locked.user.hover(page.parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(reason);
+  });
+});
