@@ -114,7 +114,7 @@ async function addHostLane(app: Page): Promise<string> {
 const HOST_LANE_ID = "lane-from-host";
 const HOST_FILE_ID = "c".repeat(64);
 
-/** The shared lane the simulated host sends: one lane with one clip of one file. */
+/** The shared lane the simulated host sends: a lane, then its clip (a lane never carries clips), of one file. */
 const snapshot = () => [
   { t: "a-reset" },
   { t: "a-src-add", source: { id: HOST_FILE_ID, name: "host-drums.wav", ext: "wav" } },
@@ -130,27 +130,29 @@ const snapshot = () => [
       group: 0,
       semitones: 0,
       cents: 0,
-      clips: [
-        {
-          id: "clip-from-host",
-          takes: [{ name: "host-drums.wav", sourceId: HOST_FILE_ID, offsetMs: 0 }],
-          take: 0,
-          startMs: 0,
-          lengthMs: 4000,
-          gainDb: 0,
-          mute: false,
-          locked: false,
-          reversed: false,
-          semitones: 0,
-          cents: 0,
-          playrate: 1,
-          preservePitch: true,
-          fadeIn: { ms: 0, shape: "linear" },
-          fadeOut: { ms: 0, shape: "linear" },
-          envelope: [],
-          stretch: [],
-        },
-      ],
+    },
+  },
+  {
+    t: "a-clip-set",
+    lane: HOST_LANE_ID,
+    clip: {
+      id: "clip-from-host",
+      takes: [{ name: "host-drums.wav", sourceId: HOST_FILE_ID, offsetMs: 0 }],
+      take: 0,
+      startMs: 0,
+      lengthMs: 4000,
+      gainDb: 0,
+      mute: false,
+      locked: false,
+      reversed: false,
+      semitones: 0,
+      cents: 0,
+      playrate: 1,
+      preservePitch: true,
+      fadeIn: { ms: 0, shape: "linear" },
+      fadeOut: { ms: 0, shape: "linear" },
+      envelope: [],
+      stretch: [],
     },
   },
 ];
