@@ -1,16 +1,24 @@
 import {
+  ArrowLeftRightIcon,
+  AudioWaveformIcon,
   CheckIcon,
+  DrumIcon,
   FolderOpenIcon,
+  GuitarIcon,
   LayersIcon,
+  MicIcon,
   MusicIcon,
+  PianoIcon,
   PlusIcon,
   SplitIcon,
+  UploadIcon,
+  type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { DIALOG_NEON } from "@/components/ai/dialog-art";
+import logo from "@/assets/export-stems/logo.webp";
+import { DIALOG_NEON, DialogArt, DialogLogo } from "@/components/ai/dialog-art";
 import { STEM_HINTS, stemName } from "@/components/stems/stem-labels";
-import { TargetArt } from "@/components/target-cards";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -64,6 +72,20 @@ const NEW_TAB = "new";
 const CHOICE_BUTTON =
   "h-9 gap-2 rounded-md border border-border bg-card px-4 text-sm font-semibold data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_55%,transparent)]";
 
+/** The picture of each stem on its card. */
+const STEM_ICONS: Record<StemKindId, LucideIcon> = {
+  drums: DrumIcon,
+  bass: GuitarIcon,
+  vocals: MicIcon,
+  guitar: GuitarIcon,
+  piano: PianoIcon,
+  panned: ArrowLeftRightIcon,
+  other: AudioWaveformIcon,
+};
+
+/** The heading of a part of the dialog. */
+const HEADING = "text-lg font-bold";
+
 /** What the user sees when nothing is chosen. */
 export const NO_STEMS_MESSAGE = "Choose at least one stem to export.";
 
@@ -99,11 +121,14 @@ export function ExportStemsDialog({
   onOpenChange,
   tabs = [],
   onAddToTab,
+  initialKinds,
   onCloseAutoFocus,
 }: {
   song: StemSong;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The stems that are chosen when the dialog opens (the stem a row's button is on); all when missing. */
+  initialKinds?: readonly StemKindId[];
   /** The open tabs the stems can be added to. */
   tabs?: readonly StemTabTarget[];
   /** Adds the stems to a tab as audio tracks; without it the dialog only exports files. */
@@ -132,6 +157,7 @@ export function ExportStemsDialog({
             song={song}
             tabs={tabs}
             onAddToTab={onAddToTab}
+            initialKinds={initialKinds}
             onBusy={setBusy}
             onClose={() => onOpenChange(false)}
           />
@@ -147,11 +173,13 @@ function ExportFlow({
   song,
   tabs,
   onAddToTab,
+  initialKinds,
   onBusy,
   onClose,
 }: {
   song: StemSong;
   tabs: readonly StemTabTarget[];
+  initialKinds?: readonly StemKindId[];
   onAddToTab?: (
     target: StemTabChoice,
     song: StemSong,
@@ -162,7 +190,10 @@ function ExportFlow({
 }) {
   const available = songKinds(song);
   const [phase, setPhase] = useState<Phase>("options");
-  const [chosen, setChosen] = useState<ReadonlySet<StemKindId>>(() => new Set(available));
+  const [chosen, setChosen] = useState<ReadonlySet<StemKindId>>(() => {
+    const first = initialKinds?.filter((kind) => available.includes(kind)) ?? [];
+    return new Set(first.length > 0 ? first : available);
+  });
   const [action, setAction] = useState<Action>("mix");
   const [format, setFormat] = useState<StemExportFormat>("wav");
   // The tab the stems go to: the open tab that was shown last is not known here, so a new tab
@@ -181,6 +212,7 @@ function ExportFlow({
 
   const picked = available.filter((kind) => chosen.has(kind));
   const none = picked.length === 0;
+  const all = picked.length === available.length;
   const actions = onAddToTab ? ACTIONS : ACTIONS.filter((a) => a.value !== "tab");
   const toggle = (kind: StemKindId, on: boolean) =>
     setChosen((now) => {
@@ -244,10 +276,11 @@ function ExportFlow({
         void run();
       }}
     >
-      <TargetArt />
-      <DialogHeader className="px-6 pt-2 pr-14 md:px-9">
-        <DialogTitle className="text-2xl font-bold">Export stems</DialogTitle>
-        <DialogDescription className="text-sm sm:text-base">
+      <DialogArt name="export-stems" />
+      <DialogHeader className="gap-2 px-6 pt-3 md:flex-row md:items-center md:gap-6 md:px-9">
+        <DialogLogo src={logo} testId="export-stems-logo" className="h-[104px] md:h-[116px]" />
+        <DialogTitle className="sr-only">Export stems</DialogTitle>
+        <DialogDescription className="text-sm md:max-w-[19rem] md:pr-12 md:text-base">
           {phase === "options"
             ? `Take “${song.name}” into your music software, or into a tab as audio tracks.`
             : phase === "working"
@@ -262,57 +295,61 @@ function ExportFlow({
           <>
             <fieldset className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-3">
-                <legend className="text-sm font-semibold">Stems</legend>
-                <div className="flex gap-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setChosen(new Set(available))}
-                    disabled={picked.length === available.length}
-                  >
-                    All
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setChosen(new Set())}
-                    disabled={none}
-                  >
-                    None
-                  </Button>
+                <legend className={HEADING}>Stems</legend>
+                <div className="flex gap-4" role="group" aria-label="Choose stems">
+                  {[
+                    { label: "All", on: all, set: () => setChosen(new Set(available)) },
+                    { label: "None", on: none, set: () => setChosen(new Set<StemKindId>()) },
+                  ].map(({ label, on, set }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={set}
+                      className={cn(
+                        "rounded-sm px-1 text-base font-semibold underline-offset-8 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/60",
+                        on
+                          ? "text-brand underline decoration-2 dark:text-[#e29bff]"
+                          : "text-foreground",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <ul className="grid gap-2 sm:grid-cols-2">
-                {available.map((kind) => (
-                  <li
-                    key={kind}
-                    className="flex items-start gap-3 rounded-xl border bg-card/85 px-3 py-2"
-                  >
-                    <Checkbox
-                      id={`export-stem-${kind}`}
-                      data-testid={`export-stem-${kind}`}
-                      checked={chosen.has(kind)}
-                      onCheckedChange={(on) => toggle(kind, on === true)}
-                      className="mt-0.5"
-                    />
-                    <label
-                      htmlFor={`export-stem-${kind}`}
-                      className="flex min-w-0 flex-1 cursor-pointer flex-col"
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {available.map((kind) => {
+                  const Icon = STEM_ICONS[kind];
+                  return (
+                    <li
+                      key={kind}
+                      className="flex items-center gap-3 rounded-xl border bg-card/85 px-3 py-2.5 transition-colors has-[[data-state=checked]]:border-primary/70 has-[[data-state=checked]]:shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_30%,transparent)]"
                     >
-                      <span className="flex items-center gap-2 font-semibold">
-                        <span
+                      <Checkbox
+                        id={`export-stem-${kind}`}
+                        data-testid={`export-stem-${kind}`}
+                        checked={chosen.has(kind)}
+                        onCheckedChange={(on) => toggle(kind, on === true)}
+                      />
+                      <label
+                        htmlFor={`export-stem-${kind}`}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
+                      >
+                        <Icon
                           aria-hidden="true"
-                          className="size-2.5 shrink-0 rounded-full"
-                          style={{ background: STEM_COLOR_HEX[kind] }}
+                          strokeWidth={1.5}
+                          className="size-9 shrink-0 text-foreground"
+                          style={kind === "other" ? { color: STEM_COLOR_HEX.other } : undefined}
                         />
-                        {stemName(kind, song.engine)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{STEM_HINTS[kind]}</span>
-                    </label>
-                  </li>
-                ))}
+                        <span className="flex min-w-0 flex-col">
+                          <span className="font-semibold">{stemName(kind, song.engine)}</span>
+                          <span className="text-xs text-muted-foreground">{STEM_HINTS[kind]}</span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
               </ul>
               {none && (
                 <p
@@ -326,7 +363,7 @@ function ExportFlow({
             </fieldset>
 
             <div className="flex flex-col gap-2">
-              <span id="export-stems-what" className="text-sm font-semibold">
+              <span id="export-stems-what" className={HEADING}>
                 What to make
               </span>
               <ToggleGroup
@@ -355,7 +392,7 @@ function ExportFlow({
 
             {action !== "tab" ? (
               <div className="flex flex-col gap-2">
-                <span id="export-stems-format" className="text-sm font-semibold">
+                <span id="export-stems-format" className={HEADING}>
                   File format
                 </span>
                 <ToggleGroup
@@ -380,7 +417,7 @@ function ExportFlow({
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                <span id="export-stems-tab" className="text-sm font-semibold">
+                <span id="export-stems-tab" className={HEADING}>
                   Which tab
                 </span>
                 <ToggleGroup
@@ -436,7 +473,7 @@ function ExportFlow({
           </p>
         )}
       </DialogBody>
-      <DialogFooter className="mt-0 flex-row justify-between border-t-0 bg-transparent px-6 pt-2 pb-5 md:px-9">
+      <DialogFooter className="mt-0 flex-row justify-between border-t-0 bg-transparent px-6 pt-2 pb-5 max-sm:bg-popover/95 max-sm:backdrop-blur-sm md:px-9">
         {phase === "done" ? (
           <>
             <Button
@@ -470,10 +507,15 @@ function ExportFlow({
             <Button
               type="submit"
               size="lg"
-              className="min-w-40 sm:min-w-52"
+              className="min-w-40 rounded-xl bg-[#d81b7a] text-base text-white shadow-[0_0_18px_color-mix(in_oklab,#ff2fa0_60%,transparent)] ring-[3px] ring-black hover:bg-[#e6208a] sm:min-w-52"
               disabled={none || phase === "working"}
               data-testid="export-stems-run"
             >
+              {action === "tab" ? (
+                <PlusIcon aria-hidden="true" data-icon="inline-start" />
+              ) : (
+                <UploadIcon aria-hidden="true" data-icon="inline-start" />
+              )}
               {verb}
             </Button>
           </>

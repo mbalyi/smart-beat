@@ -1,4 +1,4 @@
-import { addStemsToTab, registerStemLaneTarget } from "@/lib/stems/lane-targets";
+import { addStemsToTab, addStemsWhenOpen, registerStemLaneTarget } from "@/lib/stems/lane-targets";
 
 describe("stem lane targets", () => {
   it("calls the handler of the tab with the song and the stems", () => {
@@ -32,6 +32,28 @@ describe("stem lane targets", () => {
     first();
     addStemsToTab(10, { engine: "fast" }, []);
     expect(second).toHaveBeenCalled();
+    stop();
+  });
+
+  it("adds stems for a tab that is still opening as soon as it registers, once", () => {
+    const items = [{ kind: "bass" as const, info: {} as never }];
+    addStemsWhenOpen(21, { engine: "fast" }, items);
+    const handler = vi.fn();
+    const stop = registerStemLaneTarget(21, handler);
+    expect(handler).toHaveBeenCalledExactlyOnceWith({ engine: "fast" }, items);
+    stop();
+    // The same tab registering again (a re-render) gets nothing more.
+    const again = vi.fn();
+    const stopAgain = registerStemLaneTarget(21, again);
+    expect(again).not.toHaveBeenCalled();
+    stopAgain();
+  });
+
+  it("adds stems at once to a tab that is open already", () => {
+    const handler = vi.fn();
+    const stop = registerStemLaneTarget(22, handler);
+    addStemsWhenOpen(22, { engine: "fast" }, []);
+    expect(handler).toHaveBeenCalledOnce();
     stop();
   });
 });

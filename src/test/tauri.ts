@@ -553,14 +553,24 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         // content id follows its name).
         case "audio_load_source": {
           const { location } = args as {
-            location: { type: "file"; path: string } | { type: "embedded"; entry: string };
+            location:
+              | { type: "file"; path: string }
+              | { type: "embedded"; entry: string }
+              | { type: "pool"; id: string; name: string };
           };
-          const path = location.type === "file" ? location.path : location.entry;
+          // A file that was only loaded (a stem put on a lane) is described under its own id.
+          const path =
+            location.type === "file"
+              ? location.path
+              : location.type === "embedded"
+                ? location.entry
+                : location.name;
           const name = path.split(/[\\/]/).pop() ?? path;
           let hash = 7;
           for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
           return {
-            id: hash.toString(16).padStart(8, "0").repeat(8),
+            id:
+              location.type === "pool" ? location.id : hash.toString(16).padStart(8, "0").repeat(8),
             name,
             ext: name.split(".").pop()?.toLowerCase() ?? "wav",
             durationMs: 4000,

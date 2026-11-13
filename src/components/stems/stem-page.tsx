@@ -147,8 +147,16 @@ export function StemPage({
   const [saving, setSaving] = useState(false);
   const goingToSettings = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
+  // Export stems: open for all the stems (the header button) or for the one a row's button is on.
   const [exporting, setExporting] = useState(false);
+  const [exportOnly, setExportOnly] = useState<StemKindId | null>(null);
   const exportButton = useRef<HTMLButtonElement>(null);
+  const exportOpener = useRef<HTMLElement | null>(null);
+  const openExport = (kind: StemKindId | null, opener: HTMLElement | null) => {
+    exportOpener.current = opener;
+    setExportOnly(kind);
+    setExporting(true);
+  };
 
   const tempo = useStemTempo(song.id, detectTempo);
   const [metronome, changeMetronome] = useMetronomeSettings();
@@ -212,7 +220,7 @@ export function StemPage({
           ref={exportButton}
           variant="outline"
           size="icon-sm"
-          onClick={() => setExporting(true)}
+          onClick={(event) => openExport(null, event.currentTarget)}
           aria-label="Export stems"
           title="Export stems as audio files, or add them to a tab"
           data-tour="stem-export"
@@ -301,7 +309,14 @@ export function StemPage({
             Loading the stems…
           </p>
         )}
-        {player && <Stems song={song} kinds={kinds} player={player} />}
+        {player && (
+          <Stems
+            song={song}
+            kinds={kinds}
+            player={player}
+            onExport={(kind, opener) => openExport(kind, opener)}
+          />
+        )}
 
         <SaveStemsDialog
           song={song}
@@ -332,9 +347,10 @@ export function StemPage({
           onOpenChange={setExporting}
           tabs={openTabs}
           onAddToTab={onAddToTab}
+          initialKinds={exportOnly ? [exportOnly] : undefined}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            exportButton.current?.focus();
+            (exportOpener.current ?? exportButton.current)?.focus();
           }}
         />
 
@@ -357,10 +373,12 @@ function Stems({
   song,
   kinds,
   player,
+  onExport,
 }: {
   song: StemSong;
   kinds: StemKindId[];
   player: StemPlayer;
+  onExport: (kind: StemKindId, opener: HTMLElement) => void;
 }) {
   const state = useStemState(player);
   const [mixer, dispatch] = useReducer(mixerReducer, kinds, initMixer);
@@ -395,6 +413,7 @@ function Stems({
             loop={state.loop}
             onSeek={seek}
             onLoop={loopFromDrag}
+            onExport={onExport}
           />
         ))}
       </ul>

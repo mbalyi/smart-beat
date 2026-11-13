@@ -2,11 +2,9 @@ import { act, renderHook, screen, waitFor } from "@testing-library/react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { firstScoreFile, useScoreDocuments } from "@/hooks/use-score-document";
-import { EMPTY_AUDIO } from "@/lib/audio-lanes/model";
 import { cloudItemName } from "@/lib/cloud-items";
 import { fileKey } from "@/lib/score/format";
 import { mixFromScore } from "@/lib/score/mixer";
-import { addStemLanes } from "@/lib/stems/stem-lanes";
 import { renderWithProviders } from "@/test/render";
 import { fixtureBytes, SUMMARY } from "@/test/score";
 import { exportScore } from "@/lib/export";
@@ -357,30 +355,12 @@ describe("useScoreDocuments: a score made in memory", () => {
   });
 });
 
-describe("useScoreDocuments: a new song made of stems", () => {
-  const audio = addStemLanes(
-    EMPTY_AUDIO,
-    { engine: "htdemucs" },
-    (["drums", "bass"] as const).map((kind) => ({
-      kind,
-      info: {
-        id: kind.padEnd(64, "0"),
-        name: `${kind}.wav`,
-        ext: "wav",
-        durationMs: 1000,
-        sampleRate: 44_100,
-        channels: 2,
-        peaks: [],
-        peaksPerSecond: 20,
-      },
-    })),
-  );
-
-  it("is an unsaved, empty song with the stems as audio lanes, opened in the background", async () => {
+describe("useScoreDocuments: a new song for stems", () => {
+  it("is an unsaved, empty song with no audio lanes yet, shown at once, and gives its id", async () => {
     const { result } = setup();
     let id: number | null = null;
     await act(async () => {
-      id = await result.current.newSongWithAudio("Neon stems", audio);
+      id = await result.current.newNamedSong("Neon stems");
     });
     expect(id).not.toBeNull();
     expect(result.current.songs).toHaveLength(1);
@@ -392,15 +372,11 @@ describe("useScoreDocuments: a new song made of stems", () => {
       fileKey: null,
       unsaved: true,
     });
-    expect(made.mix.audio?.lanes.map((l) => l.name)).toEqual([
-      "Drums · HTDemucs",
-      "Bass · HTDemucs",
-    ]);
-    expect(made.mix.audio?.sources.every((s) => s.embedded)).toBe(true);
-    // No notes: the song is the empty one a File > New makes.
+    // The stems come as an edit the tab can undo, so the tab starts without lanes.
+    expect(made.mix.audio).toBeUndefined();
     expect(made.summary.tracks).toHaveLength(1);
-    // The page that asked stays shown: nothing was brought to the front.
-    expect(result.current.song).toBeNull();
+    // The tab is the one shown.
+    expect(result.current.song?.id).toBe(id);
   });
 });
 

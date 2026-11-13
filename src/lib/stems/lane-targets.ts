@@ -12,13 +12,40 @@ export type StemLaneHandler = (
 ) => void;
 
 const targets = new Map<number, StemLaneHandler>();
+/** Stems for a tab that is opening and has not registered yet. */
+const waiting = new Map<
+  number,
+  { song: Pick<StemSong, "engine">; items: readonly StemLaneItem[] }
+>();
 
-/** Lets the tab `id` take stems. Returns what to call when the tab closes. */
+/**
+ * Lets the tab `id` take stems. Stems that were waiting for it (see {@link addStemsWhenOpen}) are
+ * added at once, as one edit the tab can undo. Returns what to call when the tab closes.
+ */
 export function registerStemLaneTarget(id: number, handler: StemLaneHandler): () => void {
   targets.set(id, handler);
+  const early = waiting.get(id);
+  if (early) {
+    waiting.delete(id);
+    handler(early.song, early.items);
+  }
   return () => {
     if (targets.get(id) === handler) targets.delete(id);
   };
+}
+
+/**
+ * Adds the stems to the tab `id` when it is open: now, or as soon as the tab that is just opening
+ * registers. A new tab gets its stems this way, so that Undo takes them back like in any tab.
+ */
+export function addStemsWhenOpen(
+  id: number,
+  song: Pick<StemSong, "engine">,
+  items: readonly StemLaneItem[],
+): void {
+  const handler = targets.get(id);
+  if (handler) handler(song, items);
+  else waiting.set(id, { song, items });
 }
 
 /**

@@ -232,14 +232,24 @@ fn with_extension(dest: &str, format: ExportFormat) -> PathBuf {
     }
 }
 
-/// Writes `bytes` to a hidden file beside `dest` and renames it into place.
-fn write_atomic(dest: &Path, bytes: &[u8]) -> Result<(), CommandError> {
+/// Writes `bytes` to `path` block by block, ending with [`bundle::STOPPED`] when `stop` is set.
+fn write_block_wise(path: &Path, bytes: &[u8], stop: &AtomicBool) -> Result<(), CommandError> {
+    let mut file = File::create(path).map_err(|e| write_err(&e))?;
+    for block in bytes.chunks(COPY_BLOCK) {
+        check_stop(stop)?;
+        file.write_all(block).map_err(|e| write_err(&e))?;
+    }
+    file.flush().map_err(|e| write_err(&e))
+}
+
+/// Writes `bytes` to a hidden file beside `dest` and renames it into place. The write goes block
+/// by block and a set `stop` ends it, also right before the rename: a stopped export never
+/// leaves a file, and never replaces one that was there.
+fn write_atomic(dest: &Path, bytes: &[u8], stop: &AtomicBool) -> Result<(), CommandError> {
+    check_stop(stop)?;
     let mut temp = TempFile::beside(dest);
-    let mut file = File::create(&temp.path).map_err(|e| write_err(&e))?;
-    file.write_all(bytes)
-        .and_then(|()| file.flush())
-        .map_err(|e| write_err(&e))?;
-    drop(file);
+    write_block_wise(&temp.path, bytes, stop)?;
+    check_stop(stop)?;
     fs::rename(&temp.path, dest).map_err(|e| write_err(&e))?;
     temp.keep = true;
     Ok(())
@@ -272,12 +282,12 @@ pub fn export_mixed(
     match request.format {
         ExportFormat::Wav => {
             emit("writing", mixing_share);
-            write_atomic(&dest, &wav_bytes)?;
+            write_atomic(&dest, &wav_bytes, stop)?;
         }
         ExportFormat::Flac => {
             // The encoder reads a WAV file: the sum goes to a hidden one first.
             let staged = TempFile::beside(&dest);
-            fs::write(&staged.path, &wav_bytes).map_err(|e| write_err(&e))?;
+            write_block_wise(&staged.path, &wav_bytes, stop)?;
             drop(wav_bytes);
             let frames = Pcm16::open(&staged.path).map_err(audio_err)?.frames.max(1);
             let mut progress_emit = |f: f32| {
@@ -288,7 +298,7 @@ pub fn export_mixed(
                 throttle.at(done as f32 / frames as f32);
             })
             .map_err(audio_err)?;
-            write_atomic(&dest, &encoded.bytes)?;
+            write_atomic(&dest, &encoded.bytes, stop)?;
         }
     }
     emit("writing", 1.0);
@@ -364,6 +374,7 @@ fn copy_wav(
     }
     output.flush().map_err(|e| write_err(&e))?;
     drop(output);
+    check_stop(stop)?;
     fs::rename(&temp.path, dest).map_err(|e| write_err(&e))?;
     temp.keep = true;
     Ok(())
@@ -410,7 +421,7 @@ pub fn export_batch(
                     throttle.at(done as f32 / frames as f32);
                 })
                 .map_err(audio_err)?;
-                write_atomic(&dest, &encoded.bytes)?;
+                write_atomic(&dest, &encoded.bytes, stop)?;
             }
         }
         made.files.push(dest);
@@ -1149,5 +1160,86 @@ mod tests {
         .unwrap_err();
         assert!(error.message.contains("too short"), "{}", error.message);
         assert_eq!(names_in(dir.path()), vec!["stems"]);
+    }
+
+    #[test]
+    fn a_stopped_write_leaves_no_temporary_file_and_keeps_the_file_that_was_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("out.wav");
+        fs::write(&dest, b"old").unwrap();
+        let error =
+            write_atomic(&dest, &vec![7u8; COPY_BLOCK * 3], &AtomicBool::new(true)).unwrap_err();
+        assert_eq!(error.message, bundle::STOPPED);
+        assert_eq!(fs::read(&dest).unwrap(), b"old");
+        assert_eq!(names_in(dir.path()), vec!["out.wav"]);
+        // Not stopped: the file is replaced.
+        write_atomic(&dest, b"new", &never()).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"new");
+        assert_eq!(names_in(dir.path()), vec!["out.wav"]);
+    }
+
+    #[test]
+    fn a_mixed_export_stopped_while_it_writes_keeps_the_old_file_and_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(dir.path());
+        cached(&store, StemEngine::Htdemucs, "Band Song", &two_stems());
+        let kinds = [StemKind::Drums, StemKind::Other];
+        for format in [ExportFormat::Wav, ExportFormat::Flac] {
+            let dest = dir.path().join(format!("mix.{}", format.extension()));
+            fs::write(&dest, b"old").unwrap();
+            let stop = AtomicBool::new(false);
+            // Cancel is pressed once the writing stage has begun (the mixing is done).
+            let error = export_mixed(
+                &store,
+                &mixed(ID, &kinds, format, &dest),
+                &stop,
+                &mut |stage, _| {
+                    if stage == "writing" {
+                        stop.store(true, Ordering::Relaxed);
+                    }
+                },
+            )
+            .unwrap_err();
+            assert_eq!(error.message, bundle::STOPPED, "{format:?}");
+            assert_eq!(fs::read(&dest).unwrap(), b"old", "{format:?}");
+            let mut kept = names_in(dir.path());
+            kept.retain(|n| n.starts_with("mix."));
+            assert_eq!(kept.len(), 1, "{format:?}: {kept:?}");
+            assert!(
+                !names_in(dir.path()).iter().any(|n| n.ends_with(".tmp")),
+                "{format:?}"
+            );
+            fs::remove_file(&dest).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_batch_stopped_at_the_end_of_its_last_file_removes_every_file_and_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(dir.path());
+        cached(&store, StemEngine::Htdemucs, "Band Song", &two_stems());
+        let out = dir.path().join("out");
+        fs::create_dir(&out).unwrap();
+        for format in [ExportFormat::Wav, ExportFormat::Flac] {
+            let stop = AtomicBool::new(false);
+            let error = export_batch(
+                &store,
+                &batch(ID, &[StemKind::Drums, StemKind::Other], format, &out),
+                &stop,
+                // The progress reaches the end while the last file is written.
+                &mut |_, fraction| {
+                    if fraction >= 0.99 {
+                        stop.store(true, Ordering::Relaxed);
+                    }
+                },
+            )
+            .unwrap_err();
+            assert_eq!(error.message, bundle::STOPPED, "{format:?}");
+            assert!(
+                names_in(&out).is_empty(),
+                "{format:?}: {:?}",
+                names_in(&out)
+            );
+        }
     }
 }

@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { ScoreWorkspace } from "@/components/score/score-workspace";
 import type { ScoreDocument } from "@/hooks/use-score-document";
@@ -140,7 +140,7 @@ describe("ScoreWorkspace stems as audio lanes", () => {
 
   async function open() {
     // Audio lanes are listed in the desktop app only.
-    mockTauri();
+    const calls = mockTauri();
     const bytes = fixtureBytes("practice-song.gp");
     const { score, summary } = parseScore(bytes);
     const song: ScoreDocument = {
@@ -159,6 +159,7 @@ describe("ScoreWorkspace stems as audio lanes", () => {
     FakeScorePlayer.last.becomeReady();
     return {
       ...utils,
+      calls,
       onEditedChange,
       tracks: () => screen.getByRole("region", { name: "Tracks and mixer" }),
     };
@@ -184,6 +185,24 @@ describe("ScoreWorkspace stems as audio lanes", () => {
     for (const name of ["Guitar", "Bass", "Drums", "Piano"]) {
       expect(within(tracks()).getAllByText(new RegExp(`^${name}`)).length).toBeGreaterThan(0);
     }
+  });
+
+  it("shows the waveform of a stem right away, asking the loaded copy because no file has it yet", async () => {
+    const { tracks, calls } = await open();
+    act(() => addStemsToTab(41, { engine: "htdemucs" }, stems("drums")));
+    await within(tracks()).findByRole("button", { name: "Mute the lane Drums · HTDemucs" });
+    // The stem is in no song file yet (and the song has no path): the loaded copy describes it.
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        cmd: "audio_load_source",
+        args: {
+          location: { type: "pool", id: stems("drums")[0]!.info.id, name: "drums - Song.wav" },
+        },
+      }),
+    );
+    // So the clip is not flagged as missing, and its waveform is drawn.
+    await waitFor(() => expect(tracks().querySelector("svg path[d]")).not.toBeNull());
+    expect(screen.queryByTitle(/cannot be found/)).toBeNull();
   });
 
   it("refuses stems that do not fit and changes nothing", async () => {

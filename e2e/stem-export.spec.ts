@@ -77,6 +77,29 @@ test.describe("Export stems (#223)", () => {
     await expect(run(dialog)).toHaveText("Export mix");
   });
 
+  test("exports one stem from the button after Solo on its row", async ({ app }) => {
+    await separate(app);
+    const vocals = app.getByTestId("stem-vocals");
+    const button = vocals.getByRole("button", { name: "Export Vocals" });
+    await button.click();
+    const dialog = app.getByRole("dialog", { name: "Export stems" });
+    await expect(dialog).toBeVisible();
+    // Only that stem is chosen.
+    await expect(dialog.getByRole("checkbox", { name: /^Vocals/ })).toBeChecked();
+    await expect(dialog.getByRole("checkbox", { name: /^Drums/ })).not.toBeChecked();
+    await expect(dialog.getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await dialog.getByRole("radio", { name: "One file per stem" }).click();
+    await app.evaluate((path) => (window.__dialogResult = path), FOLDER);
+    await run(dialog).click();
+    await expect(dialog.getByText("Exported 1 file")).toBeVisible();
+    expect(await batchRequests(app)).toMatchObject([{ kinds: ["vocals"], dir: FOLDER }]);
+    await dialog.getByRole("button", { name: "Close" }).last().click();
+    await expect(button).toBeFocused();
+  });
+
   test("exports the chosen stems mixed into one WAV file", async ({ app }) => {
     await separate(app);
     const dialog = await openExport(app);
@@ -261,26 +284,29 @@ test.describe("Export stems (#223)", () => {
     await expect(run(dialog)).toHaveText("Add to tab");
     await run(dialog).click();
 
-    await expect(dialog.getByText("Added 4 audio tracks")).toBeVisible();
-    await expect(dialog.getByTestId("export-stems-added")).toContainText("Practice Song");
+    // The tab with the new tracks opens, and a message says what was added.
+    await expect(app.getByText("Added 4 audio tracks")).toBeVisible();
+    await expect(tabBar(app).getByRole("button", { name: /^Practice Song/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
     expect(await app.evaluate(() => window.__stemExports.sources.map((s) => s.kind))).toEqual([
       "drums",
       "bass",
       "vocals",
       "panned",
     ]);
-    await expect(dialog.getByRole("button", { name: "Show in folder" })).toHaveCount(0);
-    await scan(app);
-    await dialog.getByRole("button", { name: "Close" }).last().click();
-
-    // The song now has a lane per stem, named after the stem and the model, and is unsaved.
-    await tabBar(app)
-      .getByRole("button", { name: /^Practice Song/ })
-      .click();
+    // The song has a lane per stem, named after the stem and the model, and is unsaved.
     for (const stem of ["Drums", "Bass", "Vocals", "Guitars and keys"]) {
       await expect(laneButton(app, `${stem} · Fast`)).toBeVisible();
     }
     await expect(laneButton(app, "Other (not separated) · Fast")).toHaveCount(0);
+    // The waveforms are drawn, and no clip says its file cannot be found (the song has no file
+    // for the stems yet: the loaded copy describes them).
+    await expect(app.getByTitle(/cannot be found/)).toHaveCount(0);
+    await expect(
+      app.locator("[data-testid^='lane-row-'] svg[viewBox$=' 100'] path[d]").first(),
+    ).toBeVisible();
     await expect(tabBar(app).getByRole("button", { name: "Practice Song (edited)" })).toBeVisible();
 
     await emitMenuAction(app, "save");
@@ -299,18 +325,13 @@ test.describe("Export stems (#223)", () => {
       });
   });
 
-  test("takes all the lanes back with one undo", async ({ app }) => {
+  test("takes all the lanes of an open tab back with one undo", async ({ app }) => {
     await openSong(app);
     await app.getByRole("button", { name: "Smart Beat", exact: true }).click();
     await separate(app);
     const dialog = await openExport(app);
     await dialog.getByRole("radio", { name: "Add to a tab" }).click();
     await run(dialog).click();
-    await expect(dialog.getByText("Added 5 audio tracks")).toBeVisible();
-    await dialog.getByRole("button", { name: "Close" }).last().click();
-    await tabBar(app)
-      .getByRole("button", { name: /^Practice Song/ })
-      .click();
     await expect(laneButton(app, "Drums · Fast")).toBeVisible();
 
     await emitMenuAction(app, "undo");
@@ -320,24 +341,34 @@ test.describe("Export stems (#223)", () => {
     await expect(laneButton(app, "Other (not separated) · Fast")).toHaveCount(0);
   });
 
-  test("adds the stems to a new tab, next to the stem page", async ({ app }) => {
+  test("adds the stems to a new tab, which opens, and one undo takes them all back", async ({
+    app,
+  }) => {
     await separate(app);
     const dialog = await openExport(app);
     await dialog.getByRole("radio", { name: "Add to a tab" }).click();
     // No tab is open: a new one is the choice.
     await expect(dialog.getByRole("radio", { name: "A new tab" })).toBeChecked();
     await run(dialog).click();
-    await expect(dialog.getByText("Added 5 audio tracks")).toBeVisible();
-    await expect(dialog.getByTestId("export-stems-added")).toContainText("neon-nights stems");
-    await dialog.getByRole("button", { name: "Close" }).last().click();
 
-    // The stem page stays; the new tab is in the bar, unsaved, with a lane per stem.
-    await expect(app.getByRole("heading", { level: 1, name: "neon-nights" })).toBeVisible();
-    const made = tabBar(app).getByRole("button", { name: /^neon-nights stems/ });
-    await expect(made).toBeVisible();
-    await made.click();
+    // The new tab opens (the stem page makes room for it), unsaved, with a lane per stem.
+    await expect(app.getByText("Added 5 audio tracks")).toBeVisible();
+    await expect(tabBar(app).getByRole("button", { name: /^neon-nights stems/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
     for (const stem of ["Drums", "Bass", "Vocals", "Guitars and keys", "Other (not separated)"]) {
       await expect(laneButton(app, `${stem} · Fast`)).toBeVisible();
+    }
+    await expect(app.getByTitle(/cannot be found/)).toHaveCount(0);
+    await expect(
+      app.locator("[data-testid^='lane-row-'] svg[viewBox$=' 100'] path[d]").first(),
+    ).toBeVisible();
+
+    // Undo takes all five back in one step, like in any tab.
+    await emitMenuAction(app, "undo");
+    for (const stem of ["Drums", "Bass", "Vocals", "Guitars and keys", "Other (not separated)"]) {
+      await expect(laneButton(app, `${stem} · Fast`)).toHaveCount(0);
     }
   });
 

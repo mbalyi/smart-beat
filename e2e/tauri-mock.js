@@ -834,6 +834,30 @@
         return null;
       case "audio_load_source": {
         const location = args.location;
+        if (location.type === "pool") {
+          // A file that is loaded already (a stem put on a lane): described by its id.
+          if (!window.__engineSources[location.id]) {
+            throw { kind: "not-found", message: `“${location.name}” is not loaded any more.` };
+          }
+          return {
+            id: location.id,
+            name: location.name,
+            ext: location.name.split(".").pop().toLowerCase(),
+            durationMs: 6000,
+            sampleRate: 44100,
+            channels: 2,
+            peaks: Array.from({ length: 60 }, (_, i) => 0.2 + 0.6 * Math.abs(Math.sin(i / 5))),
+            peaksPerSecond: 10,
+          };
+        }
+        // A stem put on a lane is in no song file until the song is saved: the song file does
+        // not have it (the real command says not found), so the loaded copy has to describe it.
+        if (location.type === "embedded") {
+          const entryId = location.entry.replace(/\.[^.]+$/, "");
+          if (window.__engineSources[entryId]?.type === "stem") {
+            throw { kind: "not-found", message: `“${location.entry}” is not in the song file.` };
+          }
+        }
         const path = location.type === "file" ? location.path : location.entry;
         if (path.includes("missing")) {
           throw { kind: "not-found", message: `“${path}” does not exist.` };

@@ -1,8 +1,10 @@
+import { SquareArrowOutUpRightIcon } from "lucide-react";
 import type { Dispatch } from "react";
 
 import { StemWaveform } from "@/components/stems/stem-waveform";
 import { stemLimit, stemName } from "@/components/stems/stem-labels";
 import { LabeledSlider } from "@/components/labeled-slider";
+import { Button } from "@/components/ui/button";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
 import {
@@ -13,7 +15,7 @@ import {
   type StemMixer,
 } from "@/lib/stems/mixer";
 import type { StemLoop, StemPlayer } from "@/lib/stems/player";
-import type { StemEngine } from "@/lib/tauri";
+import type { StemEngine, StemKindId } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 /** The buttons are 44 px on a phone and 36 px with a mouse. */
@@ -30,6 +32,7 @@ export function StemRow({
   loop,
   onSeek,
   onLoop,
+  onExport,
 }: {
   player: StemPlayer;
   engine: StemEngine;
@@ -40,6 +43,8 @@ export function StemRow({
   loop: StemLoop | null;
   onSeek: (seconds: number) => void;
   onLoop: (loop: StemLoop) => void;
+  /** Opens Export stems with only this stem chosen (the button after Solo); no button without it. */
+  onExport?: (kind: StemKindId, opener: HTMLElement) => void;
 }) {
   const { kind } = channel;
   const name = stemName(kind, engine);
@@ -76,6 +81,19 @@ export function StemRow({
         >
           Solo
         </Toggle>
+        {onExport && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={(event) => onExport(kind, event.currentTarget)}
+            aria-label={`Export ${name}`}
+            title={`Export ${name}`}
+            data-testid={`stem-export-${kind}`}
+            className="h-9 w-9 px-0 max-sm:h-11 max-sm:w-11"
+          >
+            <SquareArrowOutUpRightIcon aria-hidden="true" />
+          </Button>
+        )}
       </div>
       <div className="flex items-center gap-2 max-sm:min-h-11">
         <LabeledSlider

@@ -25,7 +25,6 @@ import {
   readProjectSettings,
   readScoreFile,
   removeRecentFile,
-  type AudioLanesSettings,
   type CommandError,
   type MixerSettings,
 } from "@/lib/tauri";
@@ -191,9 +190,9 @@ export function useScoreDocuments() {
     songsRef.current = songs;
   }, [songs]);
 
-  const add = useCallback((song: ScoreDocument, show = true) => {
+  const add = useCallback((song: ScoreDocument) => {
     setSongs((list) => [...list, song]);
-    if (show) setActiveId(song.id);
+    setActiveId(song.id);
   }, []);
 
   /** Where each open song was read from, to read it again (Reopen with encoding). */
@@ -364,12 +363,12 @@ export function useScoreDocuments() {
   );
 
   /**
-   * Starts a new, empty song whose audio lanes are `audio` (stems added to "a new tab"). It is
-   * unsaved until the first save, which embeds the audio in the file. It opens in the
-   * background (the stem page stays shown) and its id is returned.
+   * Starts a new, empty song called `name` and shows it (Export stems › Add to a new tab: the
+   * stems are then added to it as one undoable edit). It is unsaved until the first save. Returns
+   * its id, or null when it could not be made.
    */
-  const newSongWithAudio = useCallback(
-    async (name: string, audio: AudioLanesSettings) => {
+  const newNamedSong = useCallback(
+    async (name: string) => {
       const id = ++counter.current;
       try {
         const [{ createSong }, { summarizeScore }] = await Promise.all([
@@ -378,19 +377,16 @@ export function useScoreDocuments() {
         ]);
         const score = createSong();
         const summary = summarizeScore(score);
-        add(
-          {
-            id,
-            name,
-            path: null,
-            fileKey: null,
-            score,
-            summary,
-            mix: { ...mixFromScore(summary), audio },
-            unsaved: true,
-          },
-          false,
-        );
+        add({
+          id,
+          name,
+          path: null,
+          fileKey: null,
+          score,
+          summary,
+          mix: mixFromScore(summary),
+          unsaved: true,
+        });
         return id;
       } catch (error) {
         toast.error(`Couldn't create “${name}”`, { description: String(error) });
@@ -502,7 +498,7 @@ export function useScoreDocuments() {
     openPath,
     openFile,
     newSong,
-    newSongWithAudio,
+    newNamedSong,
     openScore,
     openReceived,
     markSaved,

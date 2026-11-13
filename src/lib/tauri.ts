@@ -1027,7 +1027,10 @@ export interface EngineDrumMix {
 
 /** Mirrors `SourceLocation`: where an audio file for a lane comes from. */
 export type SourceLocation =
-  { type: "file"; path: string } | { type: "embedded"; scorePath: string; entry: string };
+  | { type: "file"; path: string }
+  | { type: "embedded"; scorePath: string; entry: string }
+  /** A file that is loaded already (a recorded take, a stem on a lane): described by its id. */
+  | { type: "pool"; id: string; name: string };
 
 /** Mirrors `SourceInfo`: what the engine learnt about an audio file. */
 export interface SourceInfo {

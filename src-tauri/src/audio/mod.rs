@@ -134,6 +134,10 @@ pub enum SourceLocation {
     /// Embedded in a saved song file, under `SmartBeat/audio/<entry>`.
     #[serde(rename_all = "camelCase")]
     Embedded { score_path: PathBuf, entry: String },
+    /// A file that is loaded already (a recorded take, a stem put on a lane) and was never
+    /// written anywhere a song file could read it from: it is described from the loaded copy,
+    /// by its content id. `name` is what the lane calls it.
+    Pool { id: String, name: String },
 }
 
 /// What the UI learns about a loaded audio file.
@@ -1313,6 +1317,9 @@ fn read_source(location: &SourceLocation) -> Result<(String, Vec<u8>), CommandEr
             let bytes = crate::project::read_embedded_audio(score_path, entry)?;
             Ok((entry.clone(), bytes))
         }
+        SourceLocation::Pool { name, .. } => Err(audio_error(format!(
+            "“{name}” is not a file: it is described from the loaded audio"
+        ))),
     }
 }
 
@@ -1366,16 +1373,25 @@ pub(crate) fn add_source(
             audio
         }
     };
-    Ok(SourceInfo {
+    Ok(describe(id, name, &ext, &audio))
+}
+
+/// What the page learns about a loaded audio file.
+fn describe(id: String, name: String, ext: &str, audio: &DecodedAudio) -> SourceInfo {
+    SourceInfo {
         id,
         name,
-        ext: if ext.is_empty() { "wav".into() } else { ext },
+        ext: if ext.is_empty() {
+            "wav".into()
+        } else {
+            ext.to_owned()
+        },
         duration_ms: audio.duration() * 1000.0,
         sample_rate: audio.rate,
         channels: audio.channels,
         peaks: audio.peaks(),
         peaks_per_second: PEAKS_PER_SECOND,
-    })
+    }
 }
 
 /// Opens an audio file for the lanes (decoded once, kept by its content hash).
@@ -1384,6 +1400,27 @@ pub fn audio_load_source(
     location: SourceLocation,
     state: State<'_, AudioState>,
 ) -> Result<SourceInfo, CommandError> {
+    if let SourceLocation::Pool { id, name } = &location {
+        let audio = state
+            .inner
+            .lock()
+            .unwrap()
+            .sources
+            .get(id)
+            .map(|s| s.audio.clone())
+            .ok_or_else(|| {
+                CommandError::new(
+                    ErrorKind::NotFound,
+                    format!("“{name}” is not loaded any more."),
+                )
+            })?;
+        return Ok(describe(
+            id.clone(),
+            name.clone(),
+            &extension_of(name),
+            &audio,
+        ));
+    }
     let (name, bytes) = read_source(&location)?;
     add_source(&state, name, bytes)
 }

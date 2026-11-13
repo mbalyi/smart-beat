@@ -50,9 +50,8 @@ import {
   useScoreDocuments,
 } from "@/hooks/use-score-document";
 import type { ReceivedScore } from "@/hooks/use-tab-sharing";
-import { EMPTY_AUDIO } from "@/lib/audio-lanes/model";
-import { addStemsToTab } from "@/lib/stems/lane-targets";
-import { addStemLanes, type StemLaneItem } from "@/lib/stems/stem-lanes";
+import { addStemsToTab, addStemsWhenOpen } from "@/lib/stems/lane-targets";
+import type { StemLaneItem } from "@/lib/stems/stem-lanes";
 import { stemAudioSource, type MixerSettings, type StemKindId } from "@/lib/tauri";
 import { useTheme } from "@/hooks/use-theme";
 import { useUpdater } from "@/hooks/use-updater";
@@ -131,7 +130,7 @@ export function App() {
     openPath,
     openFile,
     newSong,
-    newSongWithAudio,
+    newNamedSong,
     openScore,
     openReceived,
     markSaved,
@@ -277,15 +276,25 @@ export function App() {
   ): Promise<StemsAdded> => {
     const items: StemLaneItem[] = [];
     for (const kind of kinds) items.push({ kind, info: await stemAudioSource(from.id, kind) });
+    let tab: string;
     if (choice === "new") {
-      const name = `${from.name} stems`;
-      const id = await newSongWithAudio(name, addStemLanes(EMPTY_AUDIO, from, items));
+      // A new, empty tab is shown, and the stems are added to it as one edit once it is open.
+      tab = `${from.name} stems`;
+      const id = await newNamedSong(tab);
       if (id === null) throw new Error("The new tab could not be created.");
-      return { tab: name, count: items.length };
+      addStemsWhenOpen(id, from, items);
+    } else {
+      const target = songs.find((s) => s.id === choice);
+      tab = target ? songTitle(target) : "the tab";
+      addStemsToTab(choice, from, items);
+      // The tab with the new tracks is the one to look at.
+      activate(choice);
     }
-    const target = songs.find((s) => s.id === choice);
-    addStemsToTab(choice, from, items);
-    return { tab: target ? songTitle(target) : "the tab", count: items.length };
+    toast.success(
+      items.length === 1 ? "Added 1 audio track" : `Added ${items.length} audio tracks`,
+      { description: `To “${tab}”. Undo takes them back in one step.` },
+    );
+    return { tab, count: items.length };
   };
 
   const closeStem = (id: string) => {

@@ -303,6 +303,27 @@ fn a_stem_becomes_a_lane_audio_file_of_the_same_length_and_rate() {
     .unwrap();
     assert_eq!(again["id"], info["id"]);
 
+    // The tab that got the stem has no file for it yet, so it asks the loaded copy: the same
+    // description, waveform included, by the content id.
+    let described = json_of(
+        &window,
+        "audio_load_source",
+        json!({ "location": { "type": "pool", "id": info["id"], "name": info["name"] } }),
+    )
+    .expect("a loaded file is described by its id");
+    assert_eq!(described, info);
+    assert!(!described["peaks"].as_array().unwrap().is_empty());
+    let unknown = json_of(
+        &window,
+        "audio_load_source",
+        json!({ "location": { "type": "pool", "id": "0".repeat(64), "name": "Gone.wav" } }),
+    )
+    .expect_err("an id that was never loaded");
+    assert!(
+        unknown.to_string().contains("not loaded any more"),
+        "{unknown}"
+    );
+
     let missing = json_of(
         &window,
         "stems_audio_source",

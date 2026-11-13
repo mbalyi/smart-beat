@@ -416,6 +416,35 @@ describe("Stem page: exporting", () => {
     expect(button).toHaveFocus();
   });
 
+  it("has an Export button after Solo on every stem row, which opens the dialog with only that stem", async () => {
+    mockTauri();
+    const { user } = setup();
+    for (const kind of ["drums", "bass", "vocals", "panned", "other"]) {
+      const group = within(row(kind)).getByRole("group", { name: /controls$/ });
+      const buttons = within(group).getAllByRole("button");
+      // Mute, Solo, then Export.
+      expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+        expect.stringMatching(/^Mute /),
+        expect.stringMatching(/^Solo /),
+        expect.stringMatching(/^Export /),
+      ]);
+    }
+    const button = within(row("bass")).getByRole("button", { name: "Export Bass" });
+    await user.click(button);
+    const dialog = screen.getByRole("dialog", { name: "Export stems" });
+    expect(within(dialog).getByRole("checkbox", { name: /^Bass/ })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: /^Drums/ })).not.toBeChecked();
+    // Closing gives the focus back to the row's button; the header button opens it for all.
+    await user.click(within(dialog).getAllByRole("button", { name: "Close" })[0]!);
+    expect(button).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Export stems" }));
+    expect(
+      within(screen.getByRole("dialog", { name: "Export stems" })).getByRole("checkbox", {
+        name: /^Drums/,
+      }),
+    ).toBeChecked();
+  });
+
   it("offers Add to a tab with the open tabs when the app can add stems", async () => {
     mockTauri();
     const onAddToTab = vi.fn(async () => ({ tab: "Riff.gp", count: 5 }));

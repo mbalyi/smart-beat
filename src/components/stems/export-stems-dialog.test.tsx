@@ -38,12 +38,14 @@ function setup({
   tabs = TABS,
   onAddToTab = vi.fn<AddToTab>(async () => ({ tab: "Neon Nights.gp", count: 3 })),
   withTabs = true,
+  initialKinds,
 }: {
   song?: StemSong;
   overrides?: Parameters<typeof mockTauri>[0];
   tabs?: StemTabTarget[];
   onAddToTab?: AddToTab;
   withTabs?: boolean;
+  initialKinds?: StemKindId[];
 } = {}) {
   const calls = mockTauri(overrides);
   backend.saveResult = FILE;
@@ -55,6 +57,7 @@ function setup({
       open
       onOpenChange={onOpenChange}
       tabs={tabs}
+      initialKinds={initialKinds}
       onAddToTab={withTabs ? onAddToTab : undefined}
     />,
   );
@@ -106,6 +109,37 @@ describe("Export stems dialog", () => {
     expect(run()).toHaveTextContent("Export mix");
   });
 
+  it("has the Export stems logo in the header, a picture on every card and the pink Export button", () => {
+    setup();
+    const header = screen.getByTestId("export-stems-logo");
+    expect(header).toHaveAttribute("alt", "");
+    expect(header).toHaveAttribute("aria-hidden", "true");
+    // The title stays for screen readers, and the description is next to the logo.
+    expect(dialog()).toBeInTheDocument();
+    expect(screen.getByText(/Take “Neon Nights” into your music software/)).toBeInTheDocument();
+    for (const kind of ["drums", "bass", "vocals", "panned", "other"]) {
+      expect(stem(kind).closest("li")!.querySelector("svg")).not.toBeNull();
+    }
+    expect(run().querySelector("svg")).not.toBeNull();
+  });
+
+  it("opens with only the stem a row's button was on, and offers the others to tick", async () => {
+    const { user } = setup({ initialKinds: ["bass"] });
+    expect(stem("bass")).toBeChecked();
+    for (const kind of ["drums", "vocals", "panned", "other"]) expect(stem(kind)).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "All" }));
+    expect(stem("drums")).toBeChecked();
+  });
+
+  it("falls back to every stem when the stem asked for is not in the song", () => {
+    setup({ initialKinds: ["piano"] });
+    expect(stem("drums")).toBeChecked();
+    expect(
+      screen.getAllByRole("checkbox").filter((box) => box.getAttribute("data-state") === "checked"),
+    ).toHaveLength(5);
+  });
+
   it("disables Export with a clear message when no stem is chosen, and brings it back", async () => {
     const { user, calls } = setup();
     await user.click(screen.getByRole("button", { name: "None" }));
@@ -113,7 +147,9 @@ describe("Export stems dialog", () => {
     expect(screen.getByTestId("export-stems-none")).toHaveTextContent(
       "Choose at least one stem to export.",
     );
-    expect(screen.getByRole("button", { name: "None" })).toBeDisabled();
+    // The state of the choice is shown on All and None.
+    expect(screen.getByRole("button", { name: "None" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
     // Every mode is held back the same way, even when the form is submitted with Enter.
     await user.click(choose("One file per stem"));
     expect(run()).toBeDisabled();
@@ -129,7 +165,8 @@ describe("Export stems dialog", () => {
     expect(screen.queryByTestId("export-stems-none")).toBeNull();
     await user.click(screen.getByRole("button", { name: "All" }));
     expect(stem("drums")).toBeChecked();
-    expect(screen.getByRole("button", { name: "All" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "None" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("passes the axe scan with the options and the tab choices", async () => {
