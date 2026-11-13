@@ -300,11 +300,12 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const base = baseline.current;
     const s = sharingRef.current;
     if (!base || !s?.active) return;
-    const ops = diffAudio(base, audioRef.current);
+    const current = audioRef.current;
+    const ops = diffAudio(base, current);
     if (ops.length === 0) return;
-    // Whether or not it fitted: a batch that did not makes the others take the tab again.
-    baseline.current = audioRef.current;
-    s.send(ops);
+    // The baseline moves only when the batch went: one that could not (this player may not send
+    // just now) is made again from the same baseline with the next change, so nothing is lost.
+    if (s.send(ops)) baseline.current = current;
   }, []);
   const commit = useCallback(
     (next: AudioLanesSettings) =>
@@ -320,6 +321,15 @@ export function useAudioLanes(options: AudioLanesOptions) {
     for (const id of [...ghosts.current.keys()].slice(0, -GHOSTS)) ghosts.current.delete(id);
     seenLanes.current = now;
   }, [audio]);
+
+  // Changes that could not be sent (this player could not send then) go when it can.
+  const sharingActive = sharing?.active ?? false;
+  useEffect(() => {
+    const base = baseline.current;
+    if (!sharingActive || !base || shareTimer.current !== undefined) return;
+    if (diffAudio(base, audioRef.current).length === 0) return;
+    shareTimer.current = setTimeout(flushShared, SHARE_DELAY_MS);
+  }, [sharingActive, flushShared]);
 
   // Every change of the lanes, from whatever edit, goes to the other players a moment later.
   useEffect(() => {

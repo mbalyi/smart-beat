@@ -568,40 +568,49 @@ function TransferLine({ transfer }: { transfer: PracticeTogether["transfer"] }) 
  */
 function AudioFilesLine({ sources }: { sources: PracticeTogether["sources"] }) {
   const { transfers, failed, complete } = sources.state;
-  if (transfers.length === 0 && failed.length === 0 && complete) return null;
+  const waiting = !complete && failed.length === 0;
+  const idle = transfers.length === 0 && failed.length === 0 && complete;
   return (
-    <div className="flex flex-col gap-1.5" data-testid="audio-files">
-      <ul className="flex flex-col gap-1.5">
-        {transfers.map((t) => {
-          const percent = t.size > 0 ? Math.min(100, Math.floor((t.done / t.size) * 100)) : 0;
-          const label =
-            t.direction === "out"
-              ? `Sending ${t.name}… ${percent} %`
-              : `Getting ${t.name}… ${percent} %`;
-          return (
-            <li key={`${t.direction}:${t.peer}:${t.id}`} className="flex flex-col gap-1">
-              <span className="text-sm">{label}</span>
-              <progress
-                aria-label={label}
-                value={t.done}
-                max={Math.max(t.size, 1)}
-                className="h-2 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary"
-              />
-            </li>
-          );
-        })}
-        {failed.map((f) => (
-          <li key={f.id} role="alert" className="text-sm text-destructive">
-            Couldn&apos;t share {f.name}: {sourceReasonText(f.reason)}.
-          </li>
-        ))}
-      </ul>
-      {!complete && failed.length === 0 && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Waiting for the audio files. Nobody starts until everyone has every file.
-        </p>
+    <>
+      {/* Always there, so a change of its text is announced (a region that appears with its text is often not). */}
+      <p role="status" className="sr-only" data-testid="audio-files-status">
+        {waiting ? "Waiting for the audio files." : ""}
+      </p>
+      {!idle && (
+        <div className="flex flex-col gap-1.5" data-testid="audio-files">
+          <ul className="flex flex-col gap-1.5">
+            {transfers.map((t) => {
+              const percent = t.size > 0 ? Math.min(100, Math.floor((t.done / t.size) * 100)) : 0;
+              const label =
+                t.direction === "out"
+                  ? `Sending ${t.name}… ${percent} %`
+                  : `Getting ${t.name}… ${percent} %`;
+              return (
+                <li key={`${t.direction}:${t.peer}:${t.id}`} className="flex flex-col gap-1">
+                  <span className="text-sm">{label}</span>
+                  <progress
+                    aria-label={label}
+                    value={t.done}
+                    max={Math.max(t.size, 1)}
+                    className="h-2 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary"
+                  />
+                </li>
+              );
+            })}
+            {failed.map((f) => (
+              <li key={f.id} role="alert" className="text-sm text-destructive">
+                Couldn&apos;t share {f.name}: {sourceReasonText(f.reason)}.
+              </li>
+            ))}
+          </ul>
+          {waiting && (
+            <p className="text-sm text-muted-foreground">
+              Waiting for the audio files. Nobody starts until everyone has every file.
+            </p>
+          )}
+        </div>
       )}
-    </div>
+    </>
   );
 }
 

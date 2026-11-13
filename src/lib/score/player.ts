@@ -446,6 +446,7 @@ export class ScorePlayer {
             synthLatencyMs: () => outputLatencyMs(this.latencyInfo, 0),
             fetchSoundFont: downloadSoundFont,
             onError: (error) => callbacks.onError?.(error),
+            onMeters: (meters) => callbacks.onMeters?.(meters),
           })
         : null;
     // The native engine reports what is heard (its output latency is already

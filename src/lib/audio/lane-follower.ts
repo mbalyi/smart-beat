@@ -25,7 +25,13 @@ export interface LaneFollowerOptions {
 }
 
 /** The notes and the lanes may differ this much (ms) before the lanes are moved. */
-export const DRIFT_LIMIT_MS = 120;
+export const DRIFT_LIMIT_MS = 40;
+/**
+ * A difference over the limit but under this is moved only when it is seen twice in a row: the
+ * notes' position reports come in bursts, and one late report must not seek the lanes (a seek
+ * restarts their voices). A bigger jump (a seek, a loop restart) is moved at once.
+ */
+const JUMP_MS = 200;
 /** After a start or a correction the lanes are left alone for this long (ms). */
 const SETTLE_MS = 600;
 /** Corrections are at least this far apart (ms). */
@@ -57,6 +63,10 @@ export class LaneFollower {
   private timer: ReturnType<typeof setInterval> | undefined;
   private settledAt = 0;
   private fixedAt = -Infinity;
+  /** How many position reports in a row were over the limit. */
+  private strikes = 0;
+  /** The loop in song time (ms): the lanes engine loops by itself, so the two wrap alike. */
+  private loop: { startMs: number; endMs: number } | null = null;
   /** The engine's last report: the song position that is heard, and when it was read. */
   private heard: { ms: number; at: number; playing: boolean } | null = null;
 
@@ -137,6 +147,7 @@ export class LaneFollower {
     this.engine.playbackRate = speed;
     this.playing = true;
     this.fixedAt = -Infinity;
+    this.strikes = 0;
     const at = this.now();
     this.settledAt = at + SETTLE_MS;
     const clock = this.calibration;
@@ -167,10 +178,47 @@ export class LaneFollower {
     this.engine.pause();
   }
 
-  /** The notes moved to `positionMs` (a click, a bar, a restart of the loop). */
+  /**
+   * The loop both engines play, in song time (null: none). The notes player and the lanes engine
+   * each wrap at the end of it, at moments a latency apart: around a wrap the positions differ by
+   * the loop's length, which is not a drift.
+   */
+  setLoop(range: { startMs: number; endMs: number } | null) {
+    this.loop = range && range.endMs > range.startMs ? range : null;
+  }
+
+  /**
+   * The notes moved to `positionMs` (a click, a bar, a restart of the loop). While playing, the
+   * lanes go where the notes are heard, as in {@link follow}; while paused, the position is only
+   * shown, so it is the position itself.
+   */
   seek(positionMs: number) {
     this.settledAt = this.now() + SETTLE_MS / 2;
-    this.engine.seekTo(positionMs);
+    this.strikes = 0;
+    if (!this.playing) return void this.engine.seekTo(positionMs);
+    const latency = this.calibration?.latencyMs ?? 0;
+    this.engine.seekTo(
+      this.intoLoop(positionMs - this.options.synthLatencyMs() * this.speed) + latency * this.speed,
+    );
+  }
+
+  /** `ms` brought into the loop (a position a little before its start is the end of the last pass). */
+  private intoLoop(ms: number): number {
+    const loop = this.loop;
+    if (!loop || ms >= loop.startMs) return ms;
+    const length = loop.endMs - loop.startMs;
+    return loop.endMs - ((((loop.startMs - ms) % length) + length) % length || length);
+  }
+
+  /** `a - b`, taking a loop into account: the shortest way round it. */
+  private difference(a: number, b: number): number {
+    const loop = this.loop;
+    const raw = a - b;
+    if (!loop) return raw;
+    const length = loop.endMs - loop.startMs;
+    // Only positions inside (or just before) the loop can have wrapped.
+    if (a < loop.startMs - length || b < loop.startMs - length) return raw;
+    return ((((raw + length / 2) % length) + length) % length) - length / 2;
   }
 
   setSpeed(speed: number) {
@@ -216,9 +264,16 @@ export class LaneFollower {
     ) {
       return;
     }
-    const synthHeard = synthMs - this.options.synthLatencyMs() * this.speed;
+    const synthHeard = this.intoLoop(synthMs - this.options.synthLatencyMs() * this.speed);
     const lanesHeard = heard.ms + (at - heard.at) * this.speed;
-    if (Math.abs(lanesHeard - synthHeard) <= DRIFT_LIMIT_MS) return;
+    const off = Math.abs(this.difference(lanesHeard, synthHeard));
+    if (off <= DRIFT_LIMIT_MS) {
+      this.strikes = 0;
+      return;
+    }
+    this.strikes += 1;
+    if (off < JUMP_MS && this.strikes < 2) return;
+    this.strikes = 0;
     this.fixedAt = at;
     this.settledAt = at + SETTLE_MS / 2;
     // The engine reports what is heard: it has to render ahead of that by its latency.

@@ -336,3 +336,68 @@ describe("audio lane sharing: mix changes", () => {
     expect(mixChanges(base, base)).toEqual([]);
   });
 });
+
+describe("audio lane sharing: what is kept of another player's operation", () => {
+  it("keeps only the keys a clip, a lane, a file and a marker have", () => {
+    const clip = { ...newClip(SRC.id, "x", 0, 1000, "c1"), evil: "<script>", __proto__x: 1 };
+    const ops = validAudioOps([
+      { t: "a-lane-add", at: 0, lane: { ...sharedLane(newLane("L", "l1")), extra: 1 } },
+      { t: "a-clip-set", lane: "l1", clip: { ...clip, takes: [{ ...clip.takes[0], more: 1 }] } },
+      { t: "a-src-add", source: { id: "a".repeat(64), name: "n", ext: "wav", path: "/etc/x" } },
+      { t: "a-mark-set", marker: { id: "m", ms: 1, name: "m", junk: 1 } },
+    ] as never);
+    // An extra key on a lane is refused outright; take the lane without it to see the others cleaned.
+    expect(ops).toBeNull();
+    const cleaned = validAudioOps([
+      { t: "a-clip-set", lane: "l1", clip: { ...clip, takes: [{ ...clip.takes[0], more: 1 }] } },
+      { t: "a-src-add", source: { id: "a".repeat(64), name: "n", ext: "wav", path: "/etc/x" } },
+      { t: "a-mark-set", marker: { id: "m", ms: 1, name: "m", junk: 1 } },
+    ] as never)!;
+    const text = JSON.stringify(cleaned);
+    expect(text).not.toContain("evil");
+    expect(text).not.toContain("more");
+    expect(text).not.toContain("/etc/x");
+    expect(text).not.toContain("junk");
+  });
+
+  it("does not take ids that name something on every object", () => {
+    for (const id of ["__proto__", "constructor", "prototype"]) {
+      expect(validAudioOps([{ t: "a-lane-del", id }])).toBeNull();
+      expect(validAudioOps([{ t: "a-clip-del", lane: "l", id }])).toBeNull();
+      expect(validAudioOps([{ t: "a-mark-del", id }])).toBeNull();
+    }
+    expect(validAudioOps([{ t: "a-lane-del", id: "protocol" }])).not.toBeNull();
+  });
+
+  it("two clips that differ only in the order of their keys are the same clip", () => {
+    const a = song();
+    const reordered = {
+      ...a,
+      lanes: a.lanes.map((l) => ({
+        ...l,
+        clips: l.clips.map((c) => Object.fromEntries(Object.entries(c).reverse()) as typeof c),
+      })),
+    };
+    expect(diffAudio(a, reordered)).toEqual([]);
+  });
+});
+
+describe("audio lane sharing: what the editor can make always passes the check", () => {
+  it("cuts a 255-character file name, take name and lane name instead of being refused", () => {
+    const long = "n".repeat(255);
+    const source = { ...SRC, name: `${long}.wav` };
+    const lane = newLane(long, "lane-long");
+    const state = addClip(
+      addLane(addSource(EMPTY_AUDIO, source), lane),
+      "lane-long",
+      newClip(SRC.id, long, 0, 4_000, "clip-long"),
+    );
+    const ops = diffAudio(EMPTY_AUDIO, state);
+    // The file, the lane and the clip are all there (none is dropped), each within the limits.
+    expect(ops.map((o) => o.t)).toEqual(["a-src-add", "a-lane-add", "a-clip-set"]);
+    expect(validAudioOps(ops)).not.toBeNull();
+    const there = applyAudioOps(EMPTY_AUDIO, ops);
+    expect(there.lanes[0]!.clips).toHaveLength(1);
+    expect(there.sources).toHaveLength(1);
+  });
+});

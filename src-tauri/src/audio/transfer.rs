@@ -6,18 +6,29 @@
 //! against the file's SHA-256 (its id) and loaded like any other file ([`audio_stage_finish`]).
 //! A transfer that stops can start again where it stopped: the staged file says how far it got.
 
+use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, SystemTime};
 
 use tauri::State;
 
-use super::{AudioState, SourceInfo, add_source, audio_error, backing, sha256_hex};
+use super::{AudioState, SourceInfo, add_source, audio_error, backing};
 use crate::error::{CommandError, ErrorKind};
 
 /// The most bytes one piece carries.
 const MAX_PIECE: usize = 1024 * 1024;
+
+/// The most bytes of unfinished incoming files this run of the app keeps on disk at once (files
+/// are taken in a few at a time, each up to [`backing::MAX_FILE_BYTES`]): a peer that offers many
+/// files and never finishes them cannot fill the disk.
+pub const MAX_STAGED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Unfinished incoming files left behind by a run of the app that ended badly are removed when
+/// they have not been touched for this long (another app running now keeps its own alive).
+const STALE_AFTER: Duration = Duration::from_secs(60 * 60);
 
 /// How much decoded audio the app holds before it takes in more files from other players. A file
 /// that other players send is decoded in full (up to [`backing::MAX_SECONDS`], about 0.7 GB), and
@@ -38,12 +49,83 @@ fn checked_id(id: &str) -> Result<(), CommandError> {
     }
 }
 
+/// One lock for each file being received: two commands of the same file (a piece being written
+/// while the transfer starts over, a finish while another piece arrives) never run together.
+fn id_lock(id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut map = LOCKS.get_or_init(Mutex::default).lock().unwrap();
+    // Locks nobody holds any more are dropped, so the map stays as small as what is in flight.
+    map.retain(|_, lock| Arc::strong_count(lock) > 1);
+    map.entry(id.to_owned()).or_default().clone()
+}
+
+/// The newest time anything in `dir` (and the folder itself) was touched.
+fn last_touched(dir: &Path) -> Option<SystemTime> {
+    let mut newest = std::fs::metadata(dir).ok()?.modified().ok()?;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        if let Ok(modified) = entry.metadata().and_then(|m| m.modified()) {
+            newest = newest.max(modified);
+        }
+    }
+    Some(newest)
+}
+
+/// Removes the staging folders of earlier runs that were left behind (a crash or a power cut in
+/// the middle of a transfer): `smart-beat-incoming-*` in `parent`, untouched for `max_age`.
+fn sweep_stale(parent: &Path, max_age: Duration, keep: &Path) {
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_ours = entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("smart-beat-incoming-");
+        // Only real folders: a link with that name is left alone, never followed.
+        let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+        if !is_ours || !is_dir || path == keep {
+            continue;
+        }
+        let old = last_touched(&path)
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age >= max_age);
+        if old {
+            std::fs::remove_dir_all(&path).ok();
+        }
+    }
+}
+
+/// The bytes of unfinished incoming files in `dir`.
+fn staged_total(dir: &Path) -> u64 {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
+                .filter_map(|e| e.metadata().ok())
+                .filter(|m| m.is_file())
+                .map(|m| m.len())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
 /// Where unfinished incoming files are kept: a folder with a random name, only this user can
 /// enter (mode 0700 on Unix), made once per run of the app. A name anyone could guess, in a
 /// temporary folder other users can write to, would let them plant a link there.
 pub fn staging_dir() -> PathBuf {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
+        let dir = make_staging_dir();
+        sweep_stale(&std::env::temp_dir(), STALE_AFTER, &dir);
+        dir
+    })
+    .clone()
+}
+
+fn make_staging_dir() -> PathBuf {
+    {
         let mut builder = tempfile::Builder::new();
         builder.prefix("smart-beat-incoming-");
         #[cfg(unix)]
@@ -58,8 +140,7 @@ pub fn staging_dir() -> PathBuf {
             .unwrap_or_else(|_| {
                 std::env::temp_dir().join(format!("smart-beat-incoming-{}", std::process::id()))
             })
-    })
-    .clone()
+    }
 }
 
 fn stage_dir() -> PathBuf {
@@ -128,16 +209,26 @@ fn stage_begin(dir: &Path, id: &str, size: u64) -> Result<u64, CommandError> {
             "The audio file is empty or too large",
         ));
     }
+    let lock = id_lock(id);
+    let _guard = lock.lock().unwrap();
     std::fs::create_dir_all(dir).map_err(|e| audio_error(format!("No room for the file: {e}")))?;
     let path = part_path(dir, id);
     if is_link(&path) {
         std::fs::remove_file(&path).ok();
     }
-    let have = std::fs::metadata(&path).map_or(0, |m| m.len());
+    let mut have = std::fs::metadata(&path).map_or(0, |m| m.len());
     if have > size {
         // Not a part of this file: start over.
         std::fs::remove_file(&path).ok();
-        return Ok(0);
+        have = 0;
+    }
+    // What is staged already (this file's part included) and what this file still needs must fit.
+    let others = staged_total(dir).saturating_sub(have);
+    if others.saturating_add(size) > MAX_STAGED_BYTES {
+        return Err(CommandError::new(
+            ErrorKind::TooLarge,
+            "Too many audio files are being received at once",
+        ));
     }
     Ok(have)
 }
@@ -148,6 +239,8 @@ fn stage_append(dir: &Path, id: &str, offset: u64, bytes: &[u8]) -> Result<u64, 
     if bytes.is_empty() || bytes.len() > MAX_PIECE {
         return Err(audio_error("The piece of the file has a wrong size"));
     }
+    let lock = id_lock(id);
+    let _guard = lock.lock().unwrap();
     let path = part_path(dir, id);
     if is_link(&path) {
         std::fs::remove_file(&path).ok();
@@ -165,6 +258,12 @@ fn stage_append(dir: &Path, id: &str, offset: u64, bytes: &[u8]) -> Result<u64, 
         return Err(CommandError::new(
             ErrorKind::TooLarge,
             "The audio file is too large",
+        ));
+    }
+    if staged_total(dir).saturating_add(bytes.len() as u64) > MAX_STAGED_BYTES {
+        return Err(CommandError::new(
+            ErrorKind::TooLarge,
+            "Too many audio files are being received at once",
         ));
     }
     let mut file = OpenOptions::new()
@@ -185,15 +284,27 @@ fn stage_finish(
     name: &str,
 ) -> Result<SourceInfo, CommandError> {
     checked_id(id)?;
+    let lock = id_lock(id);
+    let _guard = lock.lock().unwrap();
     let path = part_path(dir, id);
     if is_link(&path) {
         std::fs::remove_file(&path).ok();
         return Err(audio_error("The staged file is not a plain file"));
     }
-    let bytes = std::fs::read(&path)
-        .map_err(|e| audio_error(format!("The received file cannot be read: {e}")))?;
-    // Whatever happens next, the staged file is not kept.
+    let result = finish_staged(state, &path, id, name);
+    // Whatever happened, the staged file is not kept.
     std::fs::remove_file(&path).ok();
+    result
+}
+
+/// The staged file at `path`: hashed from the disk in small steps (a damaged or wrong file is
+/// found without holding it in memory), then read once and loaded.
+fn finish_staged(
+    state: &AudioState,
+    path: &Path,
+    id: &str,
+    name: &str,
+) -> Result<SourceInfo, CommandError> {
     // A file another player sent is decoded in full: not when the app already holds a lot.
     if decoded_bytes(state) > MAX_PEER_DECODED_BYTES {
         return Err(CommandError::new(
@@ -201,12 +312,37 @@ fn stage_finish(
             "Too much audio is loaded to take in another file",
         ));
     }
-    if sha256_hex(&bytes) != id {
+    if hash_file(path)? != id {
         return Err(audio_error(
             "The received audio file is not the file that was offered",
         ));
     }
+    let bytes = std::fs::read(path)
+        .map_err(|e| audio_error(format!("The received file cannot be read: {e}")))?;
     add_source(state, name.to_owned(), bytes)
+}
+
+/// The SHA-256 of a file (hex), read in pieces.
+fn hash_file(path: &Path) -> Result<String, CommandError> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| audio_error(format!("The received file cannot be read: {e}")))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let n = file
+            .read(&mut buffer)
+            .map_err(|e| audio_error(format!("The received file cannot be read: {e}")))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// The size of a loaded audio file (to offer it to the other players).
@@ -269,6 +405,8 @@ pub fn audio_stage_abort(id: Option<String>) -> Result<(), CommandError> {
     match id {
         Some(id) => {
             checked_id(&id)?;
+            let lock = id_lock(&id);
+            let _guard = lock.lock().unwrap();
             std::fs::remove_file(part_path(&stage_dir(), &id)).ok();
         }
         None => {
@@ -280,6 +418,7 @@ pub fn audio_stage_abort(id: Option<String>) -> Result<(), CommandError> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::sha256_hex;
     use super::*;
     use std::io::Cursor;
 
@@ -483,6 +622,76 @@ mod tests {
         // Nothing was decoded, and the staged file is gone.
         assert!(source_size(&receiver, &info.id).is_err());
         assert!(!part_path(dir.path(), &info.id).exists());
+    }
+
+    #[test]
+    fn pieces_of_one_file_written_at_once_never_overlap() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "9".repeat(64);
+        stage_begin(dir.path(), &id, 4_000).unwrap();
+        // Many threads race to write the piece at offset 0: exactly one wins, the file is not
+        // doubled, and the rest are told the piece does not follow.
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..16)
+                .map(|_| scope.spawn(|| stage_append(dir.path(), &id, 0, &[5; 1_000])))
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+        assert_eq!(part_path(dir.path(), &id).metadata().unwrap().len(), 1_000);
+    }
+
+    #[test]
+    fn unfinished_files_are_capped_together() {
+        let dir = tempfile::tempdir().unwrap();
+        // A staged part already as big as the limit leaves no room for another file.
+        let first = "1".repeat(64);
+        let second = "2".repeat(64);
+        let part = part_path(dir.path(), &first);
+        let file = std::fs::File::create(&part).unwrap();
+        file.set_len(MAX_STAGED_BYTES - 10).unwrap();
+        assert!(stage_begin(dir.path(), &second, 1_000).is_err());
+        assert!(stage_append(dir.path(), &second, 0, &[0; 100]).is_err());
+        // The part of the same file is not counted against itself.
+        assert!(stage_begin(dir.path(), &first, 1_000).is_ok());
+    }
+
+    #[test]
+    fn folders_left_by_an_earlier_run_go_and_a_recent_one_stays() {
+        let parent = tempfile::tempdir().unwrap();
+        let old = parent.path().join("smart-beat-incoming-old");
+        let recent = parent.path().join("smart-beat-incoming-recent");
+        let other = parent.path().join("something-else");
+        let current = parent.path().join("smart-beat-incoming-now");
+        for dir in [&old, &recent, &other, &current] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("x.part"), b"1").unwrap();
+        }
+        let long_ago = SystemTime::now() - Duration::from_secs(10 * 60 * 60);
+        for path in [
+            old.join("x.part"),
+            old.clone(),
+            current.join("x.part"),
+            current.clone(),
+        ] {
+            let file = std::fs::File::open(&path).unwrap();
+            file.set_modified(long_ago).unwrap();
+        }
+        sweep_stale(parent.path(), STALE_AFTER, &current);
+        assert!(!old.exists());
+        assert!(recent.exists());
+        // A folder that is not ours, and the one this run uses, are never touched.
+        assert!(other.exists());
+        assert!(current.exists());
+    }
+
+    #[test]
+    fn a_big_file_is_hashed_from_the_disk_in_pieces() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let path = dir.path().join("big.part");
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(hash_file(&path).unwrap(), sha256_hex(&bytes));
     }
 
     #[test]

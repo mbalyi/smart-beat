@@ -90,6 +90,10 @@ describe("audio file messages are checked like every frame", () => {
     expect(wire({ type: "src-have", ids: Array.from({ length: 101 }, () => ID) })).toBeNull();
     expect(wire({ type: "src-have", ids: ["x"] })).toBeNull();
     expect(wire({ type: "src-done", id: ID, ok: "yes" })).toBeNull();
+    // A size or an offset is a whole number of bytes.
+    expect(wire({ type: "src-offer", id: ID, size: 10.5 })).toBeNull();
+    expect(wire({ type: "src-ack", id: ID, n: 0.5 })).toBeNull();
+    expect(wire({ type: "src-chunk", id: ID, off: 1.25, data: "AA" })).toBeNull();
     expect(wire({ type: "src-offer", id: ID, size: 0, refuse: "everything" })).toBeNull();
   });
 });

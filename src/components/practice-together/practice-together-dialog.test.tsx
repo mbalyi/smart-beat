@@ -740,6 +740,28 @@ describe("PracticeTogetherDialog: the audio files of the lanes", () => {
     expect(screen.queryByTestId("audio-files")).not.toBeInTheDocument();
   });
 
+  it("keeps one live region mounted, and its text changes when a file is waited for", () => {
+    const view = renderDialog(
+      together({ state: session({ role: "host", phase: "synchronized" }) }),
+    );
+    const region = screen.getByTestId("audio-files-status");
+    expect(region).toHaveAttribute("role", "status");
+    expect(region).toBeEmptyDOMElement();
+    view.rerender(
+      <PracticeTogetherDialog
+        open
+        onOpenChange={() => {}}
+        together={together({
+          state: session({ role: "host", phase: "synchronized" }),
+          sources: sources({ complete: false }),
+        })}
+      />,
+    );
+    // The same element, now with a message: a screen reader announces the change.
+    expect(screen.getByTestId("audio-files-status")).toBe(region);
+    expect(region).toHaveTextContent("Waiting for the audio files.");
+  });
+
   it("shows the chip how far the files are", () => {
     renderWithProviders(
       <TogetherButton

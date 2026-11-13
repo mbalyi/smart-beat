@@ -79,7 +79,9 @@ describe("LaneFollower", () => {
     follower.setSpeed(0.75);
     follower.seek(4_000);
     follower.pause();
-    expect(calls).toEqual(["rate 0.75", "seek 4000", "pause"]);
+    // While playing a seek goes where the notes are heard: 60 ms of the notes' latency at 0.75
+    // speed is 45 ms of the song (the engine's clock is not read yet here).
+    expect(calls).toEqual(["rate 0.75", "seek 3955", "pause"]);
     expect(follower.isPlaying).toBe(false);
   });
 
@@ -322,8 +324,82 @@ describe("LaneFollower", () => {
       expect(calls).toEqual(["pause"]);
     });
 
-    it("stays within the limit it advertises", () => {
-      expect(DRIFT_LIMIT_MS).toBeGreaterThanOrEqual(60);
+    it("keeps the two within what can be heard as a flam", () => {
+      expect(DRIFT_LIMIT_MS).toBeLessThanOrEqual(60);
+    });
+
+    it("moves the lanes for a small drift only when it is seen twice in a row", async () => {
+      const { follower, calls, advance } = await playing();
+      // 70 ms apart: over the limit, under a jump. One late report is not enough.
+      follower.onStatus({ positionMs: 1_000, playing: true });
+      follower.follow(1_130); // heard 1 070; lanes 1 000
+      expect(calls).toEqual([]);
+      // Back in step: the count starts again.
+      follower.onStatus({ positionMs: 1_070, playing: true });
+      follower.follow(1_130);
+      expect(calls).toEqual([]);
+      follower.onStatus({ positionMs: 1_000, playing: true });
+      follower.follow(1_130);
+      advance(10);
+      follower.onStatus({ positionMs: 1_010, playing: true });
+      follower.follow(1_140);
+      // 1 070 + 10 heard by the notes, plus the 20 ms the engine renders ahead.
+      expect(calls).toEqual(["seek 1100"]);
+    });
+
+    it("a seek while playing goes where the notes are heard, not where they are rendered", async () => {
+      const { follower, calls } = await playing();
+      follower.seek(4_000);
+      // The notes render 60 ms ahead of what is heard; the engine 20 ms.
+      expect(calls).toEqual(["seek 3960"]);
+    });
+
+    it("a seek while paused is the position itself", () => {
+      const { follower, calls } = setup();
+      follower.seek(4_000);
+      expect(calls).toEqual(["seek 4000"]);
+    });
+
+    describe("in a loop", () => {
+      /** A loop from 1 000 to 3 000 ms; both engines wrap at its end. */
+      async function looping() {
+        const s = await playing();
+        s.follower.setLoop({ startMs: 1_000, endMs: 3_000 });
+        return s;
+      }
+
+      it("does not take the two engines wrapping a moment apart for a drift", async () => {
+        const { follower, calls } = await looping();
+        // The notes wrapped (rendered 1 030, so heard at the end of the last pass: 970 before the
+        // start = 2 970), the lanes engine is still at 2 960 of the last pass.
+        follower.onStatus({ positionMs: 2_960, playing: true });
+        follower.follow(1_030);
+        expect(calls).toEqual([]);
+        // The other way round: the lanes wrapped first.
+        follower.onStatus({ positionMs: 1_010, playing: true });
+        follower.follow(2_990);
+        expect(calls).toEqual([]);
+      });
+
+      it("still moves the lanes for a real drift inside the loop, to a place inside it", async () => {
+        const { follower, calls } = await looping();
+        follower.onStatus({ positionMs: 1_500, playing: true });
+        follower.follow(2_500); // heard 2 440, lanes 1 500: a jump
+        expect(calls).toEqual(["seek 2460"]);
+      });
+
+      it("puts the lanes in the last pass when a seek lands just before the loop's start", async () => {
+        const { follower, calls } = await looping();
+        follower.seek(1_030); // heard 970 = 2 970 of the last pass, plus the engine's 20 ms
+        expect(calls).toEqual(["seek 2990"]);
+      });
+
+      it("without a loop the same wrap is a jump the lanes follow", async () => {
+        const { follower, calls } = await playing();
+        follower.onStatus({ positionMs: 2_960, playing: true });
+        follower.follow(1_030);
+        expect(calls).toEqual(["seek 990"]);
+      });
     });
   });
 });

@@ -10,6 +10,7 @@ import { addClip, addLane, addSource } from "@/lib/audio-lanes/edits";
 import { mixFromScore } from "@/lib/score/mixer";
 import { ScorePlayer } from "@/lib/score/player";
 import { parseScore } from "@/lib/score/score";
+import { NativeEngine } from "@/lib/audio/native-engine";
 import * as tauri from "@/lib/tauri";
 import { FakeAlphaTabApi } from "@/test/fake-alphatab";
 import { fixtureBytes } from "@/test/score";
@@ -26,6 +27,8 @@ vi.mock("@/lib/audio/engine-preference", async (importOriginal) => ({
 }));
 
 let clock = 0;
+/** The levels the lanes engine reports while it plays. */
+let laneLevels: [string, number][] = [];
 /** The engine is closed until a player starts it. */
 let running = false;
 vi.mock("@/lib/tauri", async (importOriginal) => {
@@ -47,6 +50,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
         durationMs: 8_000,
         positionMs: 0,
         playing: false,
+        meters: { tracks: [], master: 0.9, lanes: laneLevels },
       }),
     ),
     engineTransport: vi.fn(() => Promise.resolve()),
@@ -96,6 +100,7 @@ async function setup(laneMix = true) {
   );
   const { score, summary } = parseScore(fixtureBytes("practice-song.gp"));
   const onError = vi.fn();
+  const onMeters = vi.fn();
   const base = mixFromScore(summary);
   const mix = laneMix ? withLane(base) : base;
   const player = new ScorePlayer(
@@ -110,10 +115,10 @@ async function setup(laneMix = true) {
       soundFontUrl: "/soundfont/sonivox.sf3",
       audioEngine: "alphatab",
     },
-    { onError },
+    { onError, onMeters },
   );
   const api = FakeAlphaTabApi.last;
-  return { player, api, mix, onError };
+  return { player, api, mix, onError, onMeters };
 }
 
 /** alphaTab's MIDI: 120 beats a minute, 960 ticks a quarter, 4 bars. */
@@ -213,6 +218,66 @@ describe("ScorePlayer: audio lanes with the SoundFonts synthesizer (hybrid)", ()
     expect(seeks()[0]).toBeCloseTo(4_000, 3);
   });
 
+  it("the lanes engine plays no clicks: the song has none and the metronome volume is 0", async () => {
+    const { api } = await setup();
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    const file = midiFile();
+    // The notes' MIDI has clicks (the SoundFonts player has its own).
+    file.addEvent(new midi.AlphaTabMetronomeEvent(0, 0, 0, 960, 500));
+    api.midiLoad.trigger(file);
+    await vi.waitFor(() => expect(mocked.loadEngineSong).toHaveBeenCalled());
+    expect(mocked.loadEngineSong.mock.calls[0]![0]).toMatchObject({ metronome: [] });
+    // Whatever volume the engine's last owner left, this one silences it.
+    await vi.waitFor(() => expect(transports()).toContainEqual({ type: "metronome", volume: 0 }));
+  });
+
+  it("a position report while paused does not take the engine from a song in another tab", async () => {
+    const { api } = await setup();
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(() => expect(mocked.setEngineLanes).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Another tab's song loads and holds the engine (it is the one that plays).
+    const other = new NativeEngine({});
+    await other.loadSong(midiFile(), [[0]]);
+    mocked.engineTransport.mockClear();
+    mocked.loadEngineSong.mockClear();
+
+    // This tab's page reports positions while paused (a background reload does that).
+    api.playerPositionChanged.trigger({ currentTick: 960 * 4, currentTime: 2_000, endTime: 8_000 });
+    api.playerPositionChanged.trigger({ currentTick: 960 * 8, currentTime: 4_000, endTime: 8_000 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(seeks()).toEqual([]);
+    expect(mocked.loadEngineSong).not.toHaveBeenCalled();
+
+    // The user presses Play here: now this song takes the engine and starts.
+    api.tickPosition = 960 * 8;
+    api.playerStateChanged.trigger({ state: PlayerState.Playing, stopped: false });
+    await vi.waitFor(() => expect(mocked.loadEngineSong).toHaveBeenCalled());
+    await vi.waitFor(() => expect(seeks().length).toBeGreaterThan(0));
+    other.destroy();
+  });
+
+  it("the same paused position is sent to the engine once", async () => {
+    const { api } = await setup();
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(() => expect(mocked.setEngineLanes).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    mocked.engineTransport.mockClear();
+    for (let i = 0; i < 3; i++) {
+      api.playerPositionChanged.trigger({
+        currentTick: 960 * 8,
+        currentTime: 4_000,
+        endTime: 8_000,
+      });
+    }
+    await vi.waitFor(() => expect(seeks()).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seeks()).toHaveLength(1);
+  });
+
   it("opens lane files with the lanes engine, and says nothing plays lanes outside the desktop app", async () => {
     const { player } = await setup();
     const info = await player.loadSource({ type: "file", path: "/music/a.wav" });
@@ -283,6 +348,30 @@ describe("ScorePlayer: audio lanes with the SoundFonts synthesizer (hybrid)", ()
     release();
     await vi.waitFor(() => expect(ready).toBe(true));
     expect(mocked.setEngineLanes).toHaveBeenCalled();
+  });
+
+  it("shows the levels of the lanes while they play, and lets them fall when paused", async () => {
+    laneLevels = [["lane-1", 0.6]];
+    const { api, onMeters } = await setup();
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(() => expect(mocked.setEngineLanes).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    api.playerStateChanged.trigger({ state: PlayerState.Playing, stopped: false });
+    // Only the lanes are measured here: the notes' levels and the master are not this engine's.
+    await vi.waitFor(() =>
+      expect(onMeters).toHaveBeenCalledWith({
+        tracks: [],
+        master: 0,
+        drums: [],
+        lanes: [["lane-1", 0.6]],
+      }),
+    );
+    api.playerStateChanged.trigger({ state: PlayerState.Paused, stopped: false });
+    await vi.waitFor(() =>
+      expect(onMeters).toHaveBeenLastCalledWith({ tracks: [], master: 0, drums: [], lanes: [] }),
+    );
+    laneLevels = [];
   });
 
   it("stays off with lanes: false", async () => {

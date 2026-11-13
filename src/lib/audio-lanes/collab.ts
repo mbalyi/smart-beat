@@ -23,6 +23,10 @@ import {
 import { MAX_MARKERS, MAX_MARKER_NAME, MAX_REGIONS } from "@/lib/audio-lanes/markers";
 import { isTrackColor } from "@/lib/score/track-colors";
 import type {
+  AudioTake,
+  ClipFade,
+  GainPoint,
+  StretchMarker,
   AudioClip,
   AudioLane,
   AudioLanesSettings,
@@ -102,11 +106,20 @@ export const MAX_SHARED_SOURCES = 512;
 export const MAX_AUDIO_OPS = 4_000;
 /** The longest lane name that is shared (characters). */
 export const MAX_LANE_NAME = 120;
+/** The longest file, take or clip name that is shared (characters). */
+export const MAX_SOURCE_NAME = 200;
 /** A clip bigger than this (as JSON) is not shared (its gain envelope or stretch markers are huge). */
 export const MAX_CLIP_JSON = 8_000;
 
-const same = (a: unknown, b: unknown): boolean =>
-  a === b || JSON.stringify(a) === JSON.stringify(b);
+/** JSON with the keys of every object in order, so two equal values compare equal whatever order they were built in. */
+const stable = (value: unknown): string =>
+  JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
+      : v,
+  );
+
+const same = (a: unknown, b: unknown): boolean => a === b || stable(a) === stable(b);
 
 /** The lane's shared fields, with a missing parent left out (so "none" compares equal). */
 function sharedFields(lane: AudioLane): Pick<AudioLane, SharedField> {
@@ -127,11 +140,24 @@ export function sharedLane(lane: AudioLane): SharedLane {
 
 /** What goes to the other players for a file; null for a file nobody else can get by its id. */
 export function sharedSource(source: AudioSource): SharedSource | null {
-  return SOURCE_ID.test(source.id) ? { id: source.id, name: source.name, ext: source.ext } : null;
+  // A file name can be 255 characters long: the other end refuses a name over its limit, which
+  // would drop the file and every clip that plays it, so the name is cut, not refused.
+  return SOURCE_ID.test(source.id)
+    ? { id: source.id, name: source.name.slice(0, MAX_SOURCE_NAME), ext: source.ext }
+    : null;
+}
+
+/** A clip as it goes to the other players: the names of its takes cut to what they accept. */
+function sharedClip(clip: AudioClip): AudioClip {
+  return clip.takes.some((t) => t.name.length > MAX_SOURCE_NAME)
+    ? { ...clip, takes: clip.takes.map((t) => ({ ...t, name: t.name.slice(0, MAX_SOURCE_NAME) })) }
+    : clip;
 }
 
 const SOURCE_ID = /^[0-9a-f]{64}$/;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,80}$/;
+/** Ids that name something on every object (never a lane, clip or marker of anyone). */
+const RESERVED_IDS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
 
 const syncKey = (p: SyncPoint) => `${p.bar}:${p.beat ?? 0}`;
 
@@ -157,7 +183,9 @@ export function diffAudio(prev: AudioLanesSettings, next: AudioLanesSettings): A
     if (!before) {
       ops.push({ t: "a-lane-add", lane: sharedLane(lane), at });
       // The clips follow one by one: a lane with many clips would not fit in one message.
-      for (const clip of lane.clips) ops.push({ t: "a-clip-set", lane: lane.id, clip });
+      for (const clip of lane.clips) {
+        ops.push({ t: "a-clip-set", lane: lane.id, clip: sharedClip(clip) });
+      }
       return;
     }
     const was = sharedFields(before);
@@ -175,7 +203,9 @@ export function diffAudio(prev: AudioLanesSettings, next: AudioLanesSettings): A
       if (!nextClips.has(clip.id)) ops.push({ t: "a-clip-del", lane: lane.id, id: clip.id });
     }
     for (const clip of lane.clips) {
-      if (!same(prevClips.get(clip.id), clip)) ops.push({ t: "a-clip-set", lane: lane.id, clip });
+      if (!same(prevClips.get(clip.id), clip)) {
+        ops.push({ t: "a-clip-set", lane: lane.id, clip: sharedClip(clip) });
+      }
     }
   });
   // The order only matters among lanes both ends have: say it when it changed.
@@ -377,7 +407,8 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isStr = (v: unknown, max = 200): v is string => typeof v === "string" && v.length <= max;
 const isBool = (v: unknown): v is boolean => typeof v === "boolean";
-const isId = (v: unknown): v is string => typeof v === "string" && SAFE_ID.test(v);
+const isId = (v: unknown): v is string =>
+  typeof v === "string" && SAFE_ID.test(v) && !RESERVED_IDS.has(v);
 const MAX_MS = 86_400_000;
 const inMs = (v: unknown): v is number => isNum(v) && v >= 0 && v <= MAX_MS;
 
@@ -400,7 +431,7 @@ function validClip(c: unknown): c is AudioClip {
     c.takes.every(
       (t) =>
         isObject(t) &&
-        isStr(t.name, 200) &&
+        isStr(t.name, MAX_SOURCE_NAME) &&
         isStr(t.sourceId, 80) &&
         isNum(t.offsetMs) &&
         inMs(t.offsetMs),
@@ -437,7 +468,7 @@ function validLaneFields(f: Record<string, unknown>, complete: boolean): boolean
   if (Object.keys(f).some((key) => !allowed.includes(key))) return false;
   const need = (key: SharedField, ok: boolean) => (key in f ? ok : !complete);
   return (
-    need("name", isStr(f.name, 120)) &&
+    need("name", isStr(f.name, MAX_LANE_NAME)) &&
     need("color", f.color === null || isTrackColor(f.color)) &&
     need("followTransposition", isBool(f.followTransposition)) &&
     ("parent" in f ? f.parent === null || f.parent === undefined || isId(f.parent) : true) &&
@@ -448,10 +479,109 @@ function validLaneFields(f: Record<string, unknown>, complete: boolean): boolean
   );
 }
 
+const pick = <T extends object>(from: Record<string, unknown>, keys: readonly string[]): T => {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) if (key in from && from[key] !== undefined) out[key] = from[key];
+  return out as T;
+};
+
+const fadeOf = (f: unknown): ClipFade =>
+  pick<ClipFade>(f as Record<string, unknown>, ["ms", "shape", "auto"]);
+
+/**
+ * A checked clip rebuilt from the keys a clip has, so nothing else another player put on it is
+ * kept, saved or sent on to the others.
+ */
+function cleanClip(c: AudioClip): AudioClip {
+  const clip = pick<AudioClip>(c as unknown as Record<string, unknown>, [
+    "id",
+    "take",
+    "startMs",
+    "lengthMs",
+    "gainDb",
+    "mute",
+    "locked",
+    "reversed",
+    "semitones",
+    "cents",
+    "playrate",
+    "preservePitch",
+    "groupId",
+  ]);
+  return {
+    ...clip,
+    takes: c.takes.map((t) =>
+      pick<AudioTake>(t as unknown as Record<string, unknown>, ["name", "sourceId", "offsetMs"]),
+    ),
+    fadeIn: fadeOf(c.fadeIn),
+    fadeOut: fadeOf(c.fadeOut),
+    envelope: c.envelope.map((p) =>
+      pick<GainPoint>(p as unknown as Record<string, unknown>, ["at", "db"]),
+    ),
+    stretch: c.stretch.map((m) =>
+      pick<StretchMarker>(m as unknown as Record<string, unknown>, ["sourceMs", "clipMs"]),
+    ),
+  };
+}
+
+/** A checked operation rebuilt from the keys it has (the same check passed it). */
+function cleanOp(op: Record<string, unknown>): AudioOp {
+  switch (op.t) {
+    case "a-src-add":
+      return {
+        t: "a-src-add",
+        source: pick(op.source as Record<string, unknown>, ["id", "name", "ext"]),
+      };
+    case "a-lane-add":
+      return {
+        t: "a-lane-add",
+        lane: pick(op.lane as Record<string, unknown>, ["id", ...SHARED_LANE_FIELDS]),
+        at: op.at as number,
+      };
+    case "a-lane-set":
+      return {
+        t: "a-lane-set",
+        id: op.id as string,
+        set: pick(op.set as Record<string, unknown>, SHARED_LANE_FIELDS),
+      };
+    case "a-lane-order":
+      return { t: "a-lane-order", ids: [...(op.ids as string[])] };
+    case "a-clip-set":
+      return { t: "a-clip-set", lane: op.lane as string, clip: cleanClip(op.clip as AudioClip) };
+    case "a-clip-del":
+      return { t: "a-clip-del", lane: op.lane as string, id: op.id as string };
+    case "a-sync-set":
+      return {
+        t: "a-sync-set",
+        point: pick(op.point as Record<string, unknown>, ["bar", "ms", "beat"]),
+      };
+    case "a-sync-del":
+      return { t: "a-sync-del", bar: op.bar as number, beat: op.beat as number };
+    case "a-mark-set":
+      return {
+        t: "a-mark-set",
+        marker: pick(op.marker as Record<string, unknown>, ["id", "ms", "name"]),
+      };
+    case "a-region-set":
+      return {
+        t: "a-region-set",
+        region: pick(op.region as Record<string, unknown>, ["id", "startMs", "endMs", "name"]),
+      };
+    case "a-src-del":
+    case "a-lane-del":
+    case "a-mark-del":
+    case "a-region-del":
+      return { t: op.t, id: op.id as string } as AudioOp;
+    default:
+      return { t: "a-reset" };
+  }
+}
+
 /**
  * Operations from another player, checked before they touch anything: the right shape, sizes and
- * ranges, and not more than the song may hold. Returns them typed, or null when anything is wrong
- * (a modified app could send anything).
+ * ranges, and not more than the song may hold. Returns them typed and rebuilt from the keys each
+ * kind of operation has (so an extra key never gets past), or null when anything is wrong (a
+ * modified app could send anything).
  */
 export function validAudioOps(raw: readonly unknown[]): AudioOp[] | null {
   if (raw.length > MAX_AUDIO_OPS) return null;
@@ -467,7 +597,7 @@ export function validAudioOps(raw: readonly unknown[]): AudioOp[] | null {
           isObject(s) &&
           isStr(s.id, 80) &&
           SOURCE_ID.test(s.id as string) &&
-          isStr(s.name, 200) &&
+          isStr(s.name, MAX_SOURCE_NAME) &&
           typeof s.ext === "string" &&
           /^[a-z0-9]{1,5}$/.test(s.ext);
         break;
@@ -531,7 +661,7 @@ export function validAudioOps(raw: readonly unknown[]): AudioOp[] | null {
     }
     if (!ok) return null;
   }
-  return raw as unknown as AudioOp[];
+  return (raw as unknown as Record<string, unknown>[]).map(cleanOp);
 }
 
 /**

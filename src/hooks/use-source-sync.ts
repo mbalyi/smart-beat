@@ -29,6 +29,8 @@ export interface SourceSharing {
   complete(): boolean;
   /** Who still lacks what (the host only), for the message that holds Play back. */
   lacking(): { peer: string; id: string; name: string }[];
+  /** Tries a file that failed again, from any player that has it. */
+  retry(id: string): void;
 }
 
 const NO_FILES: ReadonlySet<string> = new Set();
@@ -45,6 +47,7 @@ export const NO_SOURCE_SHARING: SourceSharing = {
   setNeeded: () => {},
   complete: () => true,
   lacking: () => [],
+  retry: () => {},
 };
 
 /** The audio engine of this app, as the transfer uses it. */
@@ -182,9 +185,10 @@ export function useSourceSync({
   );
   const complete = useCallback(() => syncRef.current?.complete ?? true, []);
   const lacking = useCallback(() => syncRef.current?.lacking() ?? [], []);
+  const retry = useCallback((id: string) => syncRef.current?.retry(id), []);
 
   return useMemo(
-    () => ({ state: sync ? state : NO_SOURCE_STATE, setNeeded, complete, lacking }),
-    [sync, state, setNeeded, complete, lacking],
+    () => ({ state: sync ? state : NO_SOURCE_STATE, setNeeded, complete, lacking, retry }),
+    [sync, state, setNeeded, complete, lacking, retry],
   );
 }

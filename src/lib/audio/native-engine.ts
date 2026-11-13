@@ -186,8 +186,9 @@ export interface EngineClock {
 }
 
 /**
- * A song for an engine that only plays audio lanes: the tempo map, the clicks and the length of
- * the MIDI, with no tracks and no notes (the SoundFonts player plays those).
+ * A song for an engine that only plays audio lanes: the tempo map and the length of the MIDI, with
+ * no tracks, no notes and no clicks (the SoundFonts player plays those, and its own click: the
+ * engine's metronome volume is the previous owner's, so clicks here would sound twice).
  */
 export function clockSongFromMidi(file: midi.MidiFile): EngineSong {
   const song: EngineSong = {
@@ -202,9 +203,6 @@ export function clockSongFromMidi(file: midi.MidiFile): EngineSong {
     // The length is the notes' too: every event counts.
     song.endTick = Math.max(song.endTick, event.tick);
     if (event instanceof TempoChangeEvent) song.tempos.push([event.tick, event.beatsPerMinute]);
-    else if (event instanceof AlphaTabMetronomeEvent) {
-      song.metronome.push([event.tick, event.metronomeNumerator === 0]);
-    }
   }
   return song;
 }
@@ -329,6 +327,11 @@ export class NativeEngine implements synth.IExternalMediaHandler {
    */
   private get ownsOrFree() {
     return owner === null || owner === this;
+  }
+
+  /** Another song holds the engine (it is the one playing, or about to): this one must not take it. */
+  get heldByOther(): boolean {
+    return owner !== null && owner !== this && !this.destroyed;
   }
 
   private claim() {

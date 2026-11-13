@@ -81,6 +81,7 @@ function LaneChip({ lane, color }: { lane: AudioLane; color: string }) {
         />
         <span className="truncate font-medium">{lane.name}</span>
         <span
+          role="img"
           aria-label={lane.mute ? "Muted" : "Not muted"}
           data-on={lane.mute || undefined}
           className="rounded px-1 text-[10px] leading-4 font-semibold text-muted-foreground data-[on]:bg-amber-500 data-[on]:text-black"
@@ -88,6 +89,7 @@ function LaneChip({ lane, color }: { lane: AudioLane; color: string }) {
           M
         </span>
         <span
+          role="img"
           aria-label={lane.solo ? "Soloed" : "Not soloed"}
           data-on={lane.solo || undefined}
           className="rounded px-1 text-[10px] leading-4 font-semibold text-muted-foreground data-[on]:bg-sky-500 data-[on]:text-black"

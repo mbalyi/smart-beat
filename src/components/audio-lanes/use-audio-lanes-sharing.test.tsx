@@ -274,3 +274,63 @@ describe("useAudioLanes in a Practice together session", () => {
     expect(sent).toEqual([[{ t: "a-lane-set", id: "lane-a", set: { color: "#00ff00" } }]]);
   });
 });
+
+describe("useAudioLanes: a batch that could not be sent", () => {
+  it("is made again from the same baseline, and goes once sending is possible", async () => {
+    const sent: AudioOp[][] = [];
+    let accept = false;
+    const make = (active: boolean): LaneSharing => ({
+      active,
+      send: (ops) => {
+        sent.push(ops);
+        return accept;
+      },
+      blocked: () => false,
+      attach: (bridge) => {
+        latest.bridge = bridge;
+      },
+      waiting: new Set(),
+    });
+    const view = renderWithProviders(<Lanes sharing={make(true)} />);
+    await act(async () => latest.bridge!.begin(true));
+    act(() => lanesNow().apply((a) => updateLane(a, "lane-a", { name: "One" })));
+    await later();
+    expect(sent).toHaveLength(1);
+    // It did not go (this player could not send): the next change carries both changes.
+    accept = true;
+    act(() => lanesNow().apply((a) => updateLane(a, "lane-b", { name: "Two" })));
+    await later();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(
+      expect.arrayContaining([
+        { t: "a-lane-set", id: "lane-a", set: { name: "One" } },
+        { t: "a-lane-set", id: "lane-b", set: { name: "Two" } },
+      ]),
+    );
+    // And once it went, nothing is sent again.
+    await later();
+    expect(sent).toHaveLength(2);
+    view.unmount();
+  });
+
+  it("is sent when sending becomes possible, without another change", async () => {
+    const sent: AudioOp[][] = [];
+    const sharing = (active: boolean): LaneSharing => ({
+      active,
+      send: (ops) => (sent.push(ops), true),
+      blocked: () => false,
+      attach: (bridge) => {
+        latest.bridge = bridge;
+      },
+      waiting: new Set(),
+    });
+    const view = renderWithProviders(<Lanes sharing={sharing(false)} />);
+    await act(async () => latest.bridge!.begin(true));
+    act(() => lanesNow().apply((a) => updateLane(a, "lane-a", { name: "Early" })));
+    await later();
+    expect(sent).toEqual([]);
+    view.rerender(<Lanes sharing={sharing(true)} />);
+    await later();
+    expect(sent).toEqual([[{ t: "a-lane-set", id: "lane-a", set: { name: "Early" } }]]);
+  });
+});

@@ -392,7 +392,10 @@ export class HostEditing implements RoomEditHooks {
   /** The host's own audio lane edits: numbered and sent like any other edit. */
   sendLanes(ops: AudioOp[]): boolean {
     if (this.ended) return false;
-    return this.publish("host", ops as EditOp[]);
+    // A batch that cannot be sent in frames makes every guest take the tab again, which brings
+    // them the lanes as they are: it has reached them either way.
+    this.publish("host", ops as EditOp[]);
+    return true;
   }
 
   private onPresence(id: string, seat: Seat, cur: Presence | null) {

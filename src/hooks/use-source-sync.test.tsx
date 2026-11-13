@@ -111,4 +111,52 @@ describe("useSourceSync", () => {
     expect(guestSent).toContainEqual({ type: "src-want", id: ID });
     vi.clearAllMocks();
   });
+
+  it("a failed file can be tried again from the hook, and does nothing without a session", async () => {
+    const { result: idle } = renderHook(() =>
+      useSourceSync({
+        session: null,
+        owns: true,
+        phase: undefined,
+        inbox: new SourceInbox(),
+        paused: () => false,
+        io,
+      }),
+    );
+    expect(() => idle.current.retry(ID)).not.toThrow();
+
+    const inbox = new SourceInbox();
+    const guestSent: SourceMessage[] = [];
+    const session = {
+      role: "guest",
+      peerLanes: true,
+      sendSource: (msg: SourceMessage) => guestSent.push(msg),
+    } as never;
+    const failingIo: SourceIo = {
+      ...io,
+      stageBegin: async () => {
+        throw new Error("No space left on device");
+      },
+    };
+    const { result } = renderHook(() =>
+      useSourceSync({
+        session,
+        owns: true,
+        phase: "synchronized",
+        inbox,
+        paused: () => false,
+        io: failingIo,
+      }),
+    );
+    act(() => result.current.setNeeded([{ id: ID, name: "Drums" }], []));
+    await act(async () => inbox.push({ type: "src-have", ids: [ID] }));
+    // The host offers it; the disk error is tried again later, so it is still waited for.
+    await act(async () => inbox.push({ type: "src-offer", id: ID, size: 100 }));
+    expect(result.current.state.waiting.has(ID)).toBe(true);
+    const wants = () => guestSent.filter((m) => m.type === "src-want").length;
+    const before = wants();
+    // "Retry" asks again at once, without waiting for the backoff.
+    act(() => result.current.retry(ID));
+    expect(wants()).toBeGreaterThan(before);
+  });
 });

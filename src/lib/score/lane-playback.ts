@@ -9,7 +9,7 @@ import {
 } from "@/lib/audio/native-engine";
 import { tempoMap, tickToMs, type TempoMap } from "@/lib/audio/tempo-map";
 import { SOUNDFONTS } from "@/lib/score/soundfonts";
-import { engineState, type SourceInfo, type SourceLocation } from "@/lib/tauri";
+import { engineState, type EngineMeters, type SourceInfo, type SourceLocation } from "@/lib/tauri";
 
 export interface LanePlaybackOptions {
   /** How long after the notes player renders something it is heard (ms). */
@@ -17,6 +17,8 @@ export interface LanePlaybackOptions {
   /** Downloads the bytes of the SoundFont the engine opens with. */
   fetchSoundFont: (url: string) => Promise<Uint8Array>;
   onError: (error: Error) => void;
+  /** The levels of the audio lanes, while they play (the notes' synthesizer has none of its own). */
+  onMeters?: (meters: EngineMeters) => void;
 }
 
 /**
@@ -39,6 +41,10 @@ export class LanePlayback {
   private readonly busy = new Set<Promise<unknown>>();
   /** The song has lanes, so a start needs the engine. */
   private hasLanes = false;
+  /** The loop of the notes, in ticks (the follower needs it in song time). */
+  private loopTicks: { startTick: number; endTick: number } | null = null;
+  /** Where the engine was last put while paused (the same place is not sent again). */
+  private pausedAt: number | null = null;
 
   private readonly options: LanePlaybackOptions;
 
@@ -46,6 +52,9 @@ export class LanePlayback {
     this.options = options;
     this.engine = new NativeEngine({
       onStatus: (status) => this.follower.onStatus(status),
+      // Only the lanes are measured here: the notes' levels and the master are the other engine's.
+      onMeters: (meters) =>
+        options.onMeters?.({ tracks: [], master: 0, drums: [], lanes: meters.lanes ?? [] }),
       onError: (error) => options.onError(error),
     });
     this.follower = new LaneFollower(this.engine, { synthLatencyMs: options.synthLatencyMs });
@@ -108,6 +117,7 @@ export class LanePlayback {
     this.hasLanes = extras.lanes !== null;
     const song = clockSongFromMidi(file);
     this.tempo = tempoMap(song.division, song.tempos);
+    this.applyLoopToFollower();
     this.engine.prepare(extras);
     // An engine that nobody plays lanes with is not opened for nothing.
     if (!extras.lanes && !this.loaded && !this.starting) return;
@@ -122,6 +132,9 @@ export class LanePlayback {
       throw error;
     }
     this.loaded = true;
+    // This engine plays no clicks (the notes' player has its own): the volume the last owner left
+    // would sound them twice. A later takeover sends it again.
+    this.engine.setMetronome(0);
     await this.follower.calibrate();
   }
 
@@ -150,18 +163,30 @@ export class LanePlayback {
   /** The notes start playing at `tick`. */
   play(tick: number, speed: number) {
     if (!this.loaded) return;
+    this.pausedAt = null;
     this.follower.start(this.ms(tick), speed);
   }
 
   pause() {
     if (this.loaded) this.follower.pause();
+    this.pausedAt = null;
+    // The meters fall back to nothing: no report comes while the lanes are paused.
+    this.options.onMeters?.({ tracks: [], master: 0, drums: [], lanes: [] });
   }
 
-  /** The notes are at `tick`: the lanes follow while playing, and go there while paused. */
+  /**
+   * The notes are at `tick`: the lanes follow while playing, and go there while paused. A paused
+   * position is only worth sending when it is new and nobody else holds the engine: a song in
+   * another tab that is playing (or reloads its MIDI in the background) must not lose the engine to
+   * a position report. A start moves the lanes to where the notes are anyway.
+   */
   position(tick: number, playing: boolean) {
     if (!this.loaded) return;
-    if (playing) this.follower.follow(this.ms(tick));
-    else this.follower.seek(this.ms(tick));
+    const ms = this.ms(tick);
+    if (playing) return this.follower.follow(ms);
+    if (this.engine.heldByOther || ms === this.pausedAt) return;
+    this.pausedAt = ms;
+    this.follower.seek(ms);
   }
 
   setSpeed(speed: number) {
@@ -173,7 +198,19 @@ export class LanePlayback {
   }
 
   setLoop(range: { startTick: number; endTick: number } | null) {
+    this.loopTicks = range;
     this.engine.setLoop(range, null);
+    this.applyLoopToFollower();
+  }
+
+  /** The follower compares positions in song time: it needs the loop there. */
+  private applyLoopToFollower() {
+    const range = this.loopTicks;
+    this.follower.setLoop(
+      range && this.tempo
+        ? { startMs: this.ms(range.startTick), endMs: this.ms(range.endTick) }
+        : null,
+    );
   }
 
   /** Whether the engine runs (another tab may have opened it). */

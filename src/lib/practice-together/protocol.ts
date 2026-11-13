@@ -241,6 +241,9 @@ const isString = (value: unknown): value is string => typeof value === "string";
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+/** A whole number of bytes: a size or an offset is never fractional. */
+const isCount = (value: unknown): value is number => isNumber(value) && Number.isInteger(value);
+
 const isSourceId = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 
@@ -410,7 +413,7 @@ function validMessage(m: unknown): m is Message {
     case "src-offer":
       return (
         isSourceId(m.id) &&
-        isNumber(m.size) &&
+        isCount(m.size) &&
         m.size >= 0 &&
         m.size <= MAX_SOURCE_BYTES &&
         (m.refuse === undefined || m.refuse === "quota")
@@ -418,7 +421,7 @@ function validMessage(m: unknown): m is Message {
     case "src-ack":
       return (
         isSourceId(m.id) &&
-        isNumber(m.n) &&
+        isCount(m.n) &&
         m.n >= 0 &&
         m.n <= MAX_SOURCE_BYTES &&
         (m.rewind === undefined || typeof m.rewind === "boolean")
@@ -426,7 +429,7 @@ function validMessage(m: unknown): m is Message {
     case "src-chunk":
       return (
         isSourceId(m.id) &&
-        isNumber(m.off) &&
+        isCount(m.off) &&
         m.off >= 0 &&
         m.off < MAX_SOURCE_BYTES &&
         isString(m.data) &&
