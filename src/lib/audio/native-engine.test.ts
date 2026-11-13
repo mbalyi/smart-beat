@@ -25,6 +25,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
         durationMs: 8_000,
         playing: true,
         latencyMs: 10,
+        clockFrames: 0,
         dropouts: 0,
         faults: 0,
         loops: 0,
@@ -243,6 +244,7 @@ describe("NativeEngine", () => {
       durationMs: 8_000,
       playing: true,
       latencyMs: 10,
+      clockFrames: 0,
       dropouts: 0,
       faults,
       loops: 0,
@@ -425,6 +427,7 @@ describe("NativeEngine", () => {
       channels: 2,
       sampleRate: 48_000,
       latencyMs: 9,
+      clockFrames: 0,
       error: null,
     };
 

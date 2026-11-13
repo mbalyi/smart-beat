@@ -66,17 +66,6 @@ export type SnapMode = "bar" | "beat" | "off";
 /** Opens an audio file: decodes it and returns its description (waveform peaks included). */
 export type SourceLoader = (location: SourceLocation) => Promise<SourceInfo>;
 
-/**
- * Whether the lanes can be heard. Lanes are decoded and edited with any engine, but only the
- * native audio engine plays them; with the SoundFonts the lanes are silent.
- */
-export interface LanePlayback {
-  /** The native audio engine makes the sound. */
-  engineOn: boolean;
-  /** Switches to the native audio engine (undefined: it cannot be used here). */
-  enable?: () => void;
-}
-
 export interface AudioLanesOptions {
   mix: MixerSettings;
   changeMix: (action: MixerAction) => void;
@@ -94,8 +83,6 @@ export interface AudioLanesOptions {
   /** The song file, for files embedded in it (`.gp` only). */
   songPath: string | null;
   grid: SongGrid;
-  /** Whether the lanes are heard (see {@link LanePlayback}); shown next to the lanes. */
-  playback?: LanePlayback;
   /** The user moved the edit cursor (a click in a lane): the score can follow it there. */
   onCursorMove?: (ms: number) => void;
   /**
@@ -108,7 +95,6 @@ export interface AudioLanesOptions {
 }
 
 /** What {@link useAudioLanes} assumes when the host says nothing: no notice is shown. */
-const NO_NOTICE: LanePlayback = { engineOn: true };
 
 /** The fraction of the file name after the last dot, lower case. */
 const extensionOf = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
@@ -173,7 +159,6 @@ export function useAudioLanes(options: AudioLanesOptions) {
     epoch = null,
     songPath,
     grid,
-    playback = NO_NOTICE,
     onCursorMove,
     positionMs,
     onTimeRangeChange,
@@ -544,7 +529,6 @@ export function useAudioLanes(options: AudioLanesOptions) {
     chooseFile,
     commands,
     /** Whether the lanes are heard with the engine in use. */
-    playback,
   };
 }
 

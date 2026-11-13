@@ -8,11 +8,7 @@ import { LaneEditorDock, type LaneEditorActions } from "@/components/audio-lanes
 import { LaneRow } from "@/components/audio-lanes/lane-row";
 import { RecordAudioDialog } from "@/components/audio-lanes/record-audio-dialog";
 import { StudioView } from "@/components/audio-lanes/studio-view";
-import {
-  useAudioLanes,
-  type AudioLanesController,
-  type LanePlayback,
-} from "@/components/audio-lanes/use-audio-lanes";
+import { useAudioLanes, type AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { makeFolder } from "@/lib/audio-lanes/edits";
 import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 import type { SongGrid } from "@/lib/audio-lanes/sync";
@@ -53,11 +49,9 @@ function song(): AudioLanesSettings {
 function Lanes({
   children,
   audio = song(),
-  playback,
 }: {
   children: (lanes: AudioLanesController) => ReactNode;
   audio?: AudioLanesSettings;
-  playback?: LanePlayback;
 }) {
   const [mix, setMix] = useState<MixerSettings>({ version: 3, master: 1, tracks: [], audio });
   const lanes = useAudioLanes({
@@ -66,7 +60,6 @@ function Lanes({
     loadSource: () => new Promise(() => {}),
     songPath: null,
     grid,
-    playback,
   });
   useEffect(() => {
     latest.lanes = lanes;
@@ -454,89 +447,6 @@ describe("normalizeGainDb", () => {
     // Peaks already carry the clip's gain: +6 dB with a 0.5 peak means the file peaks at 0.25.
     expect(normalizeGainDb([0.5], 6)).toBeCloseTo(12, 0);
     expect(normalizeGainDb([], 3)).toBe(3);
-  });
-});
-
-describe("lane playback notice", () => {
-  const renderRow = (playback: LanePlayback) =>
-    renderWithProviders(
-      <Lanes playback={playback}>
-        {(lanes) => (
-          <ul>
-            {lanes.audio.lanes.map((lane, index) => (
-              <LaneRow
-                key={lane.id}
-                lanes={lanes}
-                lane={lane}
-                index={index}
-                barWidth={20}
-                barCount={8}
-                grid={grid}
-                playing={false}
-                onEffects={vi.fn()}
-                onOpenEditor={vi.fn()}
-              />
-            ))}
-          </ul>
-        )}
-      </Lanes>,
-    );
-
-  it("tells a lane with clips that it is silent here, and switches on request", async () => {
-    const enable = vi.fn();
-    const { user } = renderRow({ engineOn: false, enable });
-    // Only the lane with a clip says it; the empty one has nothing to play.
-    const buttons = screen.getAllByRole("button", { name: /is silent here: switch/ });
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveAccessibleName(
-      "Lane Vocals is silent here: switch to the native audio engine",
-    );
-    await user.click(buttons[0]!);
-    expect(enable).toHaveBeenCalledTimes(1);
-    await expectNoA11yViolations();
-  });
-
-  it("is quiet while the native engine plays the lanes, or cannot be switched on", () => {
-    const { unmount } = renderRow({ engineOn: true, enable: vi.fn() });
-    expect(screen.queryByTestId("lane-playback-notice")).toBeNull();
-    unmount();
-    renderRow({ engineOn: false });
-    expect(screen.queryByTestId("lane-playback-notice")).toBeNull();
-  });
-
-  it("shows in the lane editor too", async () => {
-    const enable = vi.fn();
-    const { user } = renderWithProviders(
-      <Lanes playback={{ engineOn: false, enable }}>
-        {(lanes) => (
-          <LaneEditorDock
-            lanes={lanes}
-            lane={lanes.audio.lanes[0]!}
-            index={0}
-            grid={grid}
-            scoreBpmAt={() => 120}
-            playing={false}
-            selectedBars={null}
-            onSelectBars={vi.fn()}
-            onSeekBar={vi.fn()}
-            actions={{
-              syncFromScoreTempo: vi.fn(() => []),
-              tempoFromSync: vi.fn(),
-              syncFromBeats: vi.fn(),
-              replaceFile: vi.fn(),
-              extract: vi.fn(),
-              addBar: vi.fn(),
-              effects: vi.fn(),
-              openStudio: vi.fn(),
-              close: vi.fn(),
-            }}
-          />
-        )}
-      </Lanes>,
-    );
-    expect(screen.getByText("Plays with effects playback")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Lane Vocals is silent here/ }));
-    expect(enable).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -14,7 +14,6 @@ import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { EmptyLaneHint } from "@/components/audio-lanes/empty-lane-hint";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { LaneColorPopover } from "@/components/audio-lanes/lane-color-popover";
-import { LanePlaybackNotice } from "@/components/audio-lanes/lane-playback-notice";
 import { MarqueeBox, SelectionStatus } from "@/components/audio-lanes/selection-overlay";
 import { useMarquee } from "@/components/audio-lanes/use-marquee";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
@@ -192,9 +191,6 @@ export function LaneRow({
                 {lane.folder && <FolderIcon className="mr-1 inline size-3.5" aria-hidden="true" />}
                 {lane.name}
               </button>
-            )}
-            {!lane.folder && lane.clips.length > 0 && (
-              <LanePlaybackNotice playback={lanes.playback} laneName={lane.name} compact />
             )}
           </div>
           <RowEye

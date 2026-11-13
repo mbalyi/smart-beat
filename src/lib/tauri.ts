@@ -1060,6 +1060,8 @@ export interface EngineStatus {
   durationMs: number;
   playing: boolean;
   latencyMs: number;
+  /** Frames the engine has rendered since it started: its clock, for `playAtFrame`. */
+  clockFrames: number;
   dropouts: number;
   /** Times a sound crashed in the audio callback (effects were switched off, playback stopped). */
   faults: number;
@@ -1088,6 +1090,8 @@ export type TransportCommand =
   /** Clicks `beats` times, `beatSeconds` apart, then plays. */
   | { type: "countIn"; beats: number; beatSeconds: number }
   | { type: "pause" }
+  /** Starts when the engine's clock (`EngineStatus.clockFrames`) reaches `frame`. */
+  | { type: "playAtFrame"; frame: number }
   | { type: "seek"; ms: number }
   | { type: "rate"; value: number }
   | {

@@ -5,7 +5,6 @@ import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
-import { LanePlaybackNotice } from "@/components/audio-lanes/lane-playback-notice";
 import { MarqueeBox } from "@/components/audio-lanes/selection-overlay";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { useMarquee } from "@/components/audio-lanes/use-marquee";
@@ -63,17 +62,9 @@ export function BandFolder({ lanes, lane }: { lanes: AudioLanesController; lane:
 /**
  * The name of a lane at the left of its row, like the track rows: its colour strip, its name and
  * whether it is muted or soloed. It stays at the left edge of the view while the score scrolls, and
- * lets the pointer through to the clips under it (except on the "silent here" button).
+ * lets the pointer through to the clips under it.
  */
-function LaneChip({
-  lanes,
-  lane,
-  color,
-}: {
-  lanes: AudioLanesController;
-  lane: AudioLane;
-  color: string;
-}) {
+function LaneChip({ lane, color }: { lane: AudioLane; color: string }) {
   return (
     <div className="pointer-events-none sticky top-0 left-1 z-30 h-0 w-0">
       <div
@@ -103,11 +94,6 @@ function LaneChip({
         >
           S
         </span>
-        {lane.clips.length > 0 && (
-          <span className="pointer-events-auto">
-            <LanePlaybackNotice playback={lanes.playback} laneName={lane.name} compact />
-          </span>
-        )}
       </div>
     </div>
   );
@@ -176,7 +162,7 @@ export function BandLane({
       className="relative border-b"
       style={{ height }}
     >
-      <LaneChip lanes={lanes} lane={lane} color={color} />
+      <LaneChip lane={lane} color={color} />
       <LaneContextMenu lanes={lanes} lane={lane} toMs={toMs} onOpenEditor={onOpenEditor}>
         <div
           ref={laneRef}

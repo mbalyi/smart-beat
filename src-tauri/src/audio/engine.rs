@@ -496,6 +496,10 @@ pub struct Engine {
     click_forced: Option<f32>,
     /// Clicks before the song starts (see [`Engine::start_count_in`]).
     count_in: Option<CountIn>,
+    /// Frames rendered since the engine started: its clock, for starts at an exact moment.
+    frames_rendered: u64,
+    /// The frame at which the song starts to play (see [`Engine::play_at`]).
+    pending_start: Option<u64>,
     /// Clicks before every loop (#83): beats, and a beat's length in the song at normal
     /// speed (seconds). The speed in force when the loop starts again sets the real length.
     loop_count_in: Option<(u32, f64)>,
@@ -545,6 +549,8 @@ impl Engine {
             click_forced: None,
             count_in: None,
             loop_count_in: None,
+            frames_rendered: 0,
+            pending_start: None,
             loops: 0,
             master_peak: 0.0,
             sound_fade: ((SOUND_FADE_MS * 0.001 * sample_rate) as usize).max(1),
@@ -699,9 +705,26 @@ impl Engine {
     }
 
     pub fn play(&mut self) {
+        self.pending_start = None;
         if self.song.is_some() {
             self.playing = true;
         }
+    }
+
+    /// Frames rendered since the engine started (its clock).
+    pub fn clock_frames(&self) -> u64 {
+        self.frames_rendered
+    }
+
+    /// Starts playing when the engine's clock reaches `frame`, at that exact frame (a moment
+    /// that has passed: at once). A player that plays the notes with another synthesizer starts
+    /// the audio lanes this way, in time with it. Pause, play and a count-in cancel it.
+    pub fn play_at(&mut self, frame: u64) {
+        if self.song.is_none() {
+            return;
+        }
+        self.count_in = None;
+        self.pending_start = Some(frame);
     }
 
     /// Clicks `beats` times, `beat_seconds` apart (real time), then plays. The
@@ -715,6 +738,7 @@ impl Engine {
             return;
         }
         self.playing = false;
+        self.pending_start = None;
         self.count_in = Some(CountIn {
             clicks_left: beats,
             total: beats,
@@ -730,6 +754,7 @@ impl Engine {
 
     pub fn pause(&mut self) {
         self.count_in = None;
+        self.pending_start = None;
         self.playing = false;
         for track in &mut self.tracks {
             track.synth.note_off_all(false);
@@ -1031,8 +1056,17 @@ impl Engine {
         }
         let mut done = 0;
         while done < left.len() {
-            let n = (left.len() - done).min(BLOCK);
+            let mut n = (left.len() - done).min(BLOCK);
+            if let Some(at) = self.pending_start {
+                if self.frames_rendered >= at {
+                    self.play();
+                } else {
+                    // A block ends where the start is, so the song starts on that frame.
+                    n = n.min((at - self.frames_rendered) as usize);
+                }
+            }
             self.render_block(&mut left[done..done + n], &mut right[done..done + n]);
+            self.frames_rendered += n as u64;
             done += n;
         }
     }

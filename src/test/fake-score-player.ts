@@ -50,6 +50,10 @@ export class FakeScorePlayer {
   previewNote = vi.fn();
   /** Whether the native engine plays (as the real player: when it was asked for). */
   usesNativeEngine = false;
+  /** Whether the audio lanes are played here (the native engine, with either way of playing notes). */
+  get playsLanes(): boolean {
+    return this.usesNativeEngine;
+  }
   loadSource = vi.fn(async (location: { type: string; path?: string; entry?: string }) => {
     const name = (location.path ?? location.entry ?? "take.wav").split(/[\\/]/).pop()!;
     // A stable fake content id per file name (the real one is a SHA-256 of the bytes).

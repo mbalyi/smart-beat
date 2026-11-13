@@ -1997,20 +1997,16 @@ export function ScoreWorkspace({
    */
   const loadLaneSource = useCallback((location: SourceLocation) => {
     const player = playerRef.current;
-    return player?.usesNativeEngine ? player.loadSource(location) : loadAudioSource(location);
+    return player?.playsLanes ? player.loadSource(location) : loadAudioSource(location);
   }, []);
   const lanes = useAudioLanes({
     mix,
     changeMix,
     loadSource: loadLaneSource,
-    epoch: engineOn ? playerEpoch : null,
+    // The native engine plays the lanes in the desktop app, whoever plays the notes (hybrid).
+    epoch: nativeEngineAvailable() ? playerEpoch : null,
     songPath: song.path ?? null,
     grid: laneGrid,
-    // Lanes are heard with the native audio engine only (a bridge until the SoundFonts play them).
-    playback: {
-      engineOn,
-      enable: nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined,
-    },
     // Split and Paste act at the line the user sees: the playhead while playing.
     positionMs: () =>
       playing ? timelineMsAtBar(lanesAudioRef.current, laneGrid, playhead.get()) : null,

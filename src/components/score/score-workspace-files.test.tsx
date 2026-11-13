@@ -1057,27 +1057,6 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     expect(screen.getByRole("radio", { name: "Page" })).toBeDisabled();
   });
 
-  it("says the lanes are silent with the SoundFonts and switches to the native engine on request", async () => {
-    const { user } = await setup({ path: "/songs/practice-song.gp" });
-    backend.dialogResult = "/music/take.mp3";
-    await menu("import-audio-file");
-    const row = await screen.findByTestId(/^lane-row-/);
-    await user.click(within(row).getByRole("button", { name: /Lane take is silent here/ }));
-    // The user's own pick: remembered.
-    await waitFor(() => expect(FakeScorePlayer.last.options.audioEngine).toBe("native"));
-    expect(localStorage.getItem("smart-beat:audio-engine:v2")).toBe("native");
-    FakeScorePlayer.last.usesNativeEngine = true;
-    FakeScorePlayer.last.becomeReady();
-    await waitFor(() => expect(within(row).queryByTestId("lane-playback-notice")).toBeNull());
-    // The native engine takes the file again, so it knows where it came from.
-    await waitFor(() =>
-      expect(FakeScorePlayer.last.loadSource).toHaveBeenCalledWith({
-        type: "file",
-        path: "/music/take.mp3",
-      }),
-    );
-  });
-
   it("replaces a lane's file with the SoundFonts engine", async () => {
     const { user, calls } = await setup({ path: "/songs/practice-song.gp" });
     backend.dialogResult = "/music/take.mp3";

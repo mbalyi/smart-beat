@@ -592,6 +592,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
                 channels: 2,
                 sampleRate: 48000,
                 latencyMs: 5,
+                clockFrames: 0,
                 error: null,
               }
             : null;

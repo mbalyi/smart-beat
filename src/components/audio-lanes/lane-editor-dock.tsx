@@ -11,7 +11,6 @@ import {
 import { useCallback, useRef, useState } from "react";
 
 import { EditorTimeline } from "@/components/audio-lanes/editor-timeline";
-import { LanePlaybackNotice } from "@/components/audio-lanes/lane-playback-notice";
 import { EqPopover } from "@/components/audio/eq-popover";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { useMarkers } from "@/components/audio-lanes/use-markers";
@@ -181,7 +180,6 @@ export function LaneEditorDock({
           style={{ backgroundColor: color }}
         />
         <span className="max-w-48 truncate text-sm font-semibold">{lane.name}</span>
-        <LanePlaybackNotice playback={lanes.playback} laneName={lane.name} />
         <Button
           variant="outline"
           size="sm"
