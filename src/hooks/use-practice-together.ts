@@ -127,6 +127,8 @@ export interface PracticeTogether {
   isGuest?: boolean;
   /** Editing the tab together (#216): the host's switch, the other players' cursors. */
   edit: SharedEditing;
+  /** Audio files other players sent that have not arrived here yet (source ids). */
+  audioWaiting: ReadonlySet<string>;
   /**
    * A session is live in another tab of this app and this tab is not showing it (null: none, or
    * it is here). `tabs` counts the tabs in it, `here` says whether this tab is one of them.
@@ -177,6 +179,8 @@ interface Options {
   editor?: ScoreEditor | null;
 }
 
+/** No audio file is on its way (a session without other players, or an older app). */
+const NO_AUDIO_WAITING: ReadonlySet<string> = new Set();
 const NAME_KEY = "smart-beat:practice-together:name";
 
 /** Ends after which the session is not offered again: it is over, or this guest is not welcome. */
@@ -1082,6 +1086,7 @@ export function usePracticeTogether({
       readOnly: isGuestHere && !edit.editable,
       isGuest: isGuestHere,
       edit,
+      audioWaiting: NO_AUDIO_WAITING,
       elsewhere,
       tabsInSession: live.live ? live.ids.length : 0,
       addToSession,

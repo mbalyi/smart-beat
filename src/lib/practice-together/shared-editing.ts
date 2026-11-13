@@ -18,6 +18,7 @@ import {
   type EditOp,
   type Presence,
 } from "@/lib/practice-together/protocol";
+import { isAudioOp, type AudioOp, type LaneBridge } from "@/lib/audio-lanes/collab";
 import type { RoomEditHooks } from "@/lib/practice-together/host-room";
 import type { ScoreEditor } from "@/lib/score/editor";
 import { EditSync } from "@/lib/score/ops/collab";
@@ -176,7 +177,8 @@ export function locate(
 
 /** What the host's room offers shared editing. */
 export interface HostLink {
-  seats(): { id: string; name: string }[];
+  /** `lanes`: the guest's app shares audio lanes too (an older one only has the tab). */
+  seats(): { id: string; name: string; lanes?: boolean }[];
   send(seat: string, body: EditBody): void;
   setLive(seat: string, on: boolean): void;
   shareTab(seat: string): void;
@@ -186,8 +188,14 @@ interface Seat {
   name: string;
   live: boolean;
   canEdit: boolean;
+  /** The guest shares audio lanes. */
+  lanes: boolean;
   incoming: Reassembler;
 }
+
+/** The operations a seat understands: an app without audio lanes gets the tab's only. */
+const forSeat = (seat: Seat, ops: EditOp[]): EditOp[] =>
+  seat.lanes ? ops : ops.filter((op) => !isAudioOp(op));
 
 export interface HostEditingOptions {
   /** The host's name, shown on its cursor. */
@@ -196,6 +204,8 @@ export interface HostEditingOptions {
   currentKey(): Promise<string>;
   /** Something about the players changed (who edits, who may). */
   changed?(): void;
+  /** The audio lanes of this tab (null: not ready), shared along with the tab. */
+  lanes?(): LaneBridge | null;
 }
 
 export class HostEditing implements RoomEditHooks {
@@ -292,6 +302,7 @@ export class HostEditing implements RoomEditHooks {
       name: this.link.seats().find((s) => s.id === id)?.name ?? "A player",
       live: false,
       canEdit: this.canEditByDefault,
+      lanes: this.link.seats().find((s) => s.id === id)?.lanes ?? false,
       incoming: new Reassembler(),
     };
     this.seats.set(id, seat);
@@ -336,16 +347,30 @@ export class HostEditing implements RoomEditHooks {
     if (found.status === "broken") return this.resyncSeat(id, seat);
     // What a guest sends is checked before it touches the host's tab: a modified app could send
     // anything, and an edit that fails half way would leave the host's tab changed and unshared.
-    const ops = validOps(found.ops);
+    // The tab's operations and the audio lanes' come in one batch and are handled apart.
+    const audioOps = seat.lanes ? found.ops.filter(isAudioOp) : [];
+    const tabOps = found.ops.filter((op) => !isAudioOp(op));
+    if (found.ops.length !== audioOps.length + tabOps.length) return this.resyncSeat(id, seat);
+    const ops = validOps(tabOps);
     if (!ops) return this.resyncSeat(id, seat);
     let result: ReturnType<EditSync["receive"]>;
+    if (audioOps.length > 0) {
+      // Checked and applied before anything is sent on: a refused batch is not shared.
+      if (!this.options.lanes?.()?.apply(audioOps, false)) return this.resyncSeat(id, seat);
+    }
     try {
-      result = this.sync.receive(ops, false);
+      result = ops.length > 0 || audioOps.length === 0 ? this.sync.receive(ops, false) : "applied";
     } catch {
       return this.resyncAll();
     }
     if (result === "reset") return this.resyncAll();
-    this.publish(id, ops as EditOp[]);
+    this.publish(id, [...(ops as EditOp[]), ...audioOps]);
+  }
+
+  /** The host's own audio lane edits: numbered and sent like any other edit. */
+  sendLanes(ops: AudioOp[]): boolean {
+    if (this.ended) return false;
+    return this.publish("host", ops as EditOp[]);
   }
 
   private onPresence(id: string, seat: Seat, cur: Presence | null) {
@@ -370,18 +395,38 @@ export class HostEditing implements RoomEditHooks {
       return false;
     }
     for (const [id, seat] of this.seats) {
-      if (seat.live) this.sendOps(id, from, this.seq, parts);
+      if (seat.live) this.sendEntry(id, seat, from, this.seq, ops, parts);
     }
     return true;
   }
 
-  private sendOps(id: string, from: string, seq: number, parts: EditOp[][]) {
+  /**
+   * One edit to one seat. A seat that does not share audio lanes gets only the tab's part, and,
+   * when that is nothing, an empty batch: it still counts the edits one by one.
+   */
+  private sendEntry(
+    id: string,
+    seat: Seat,
+    from: string,
+    seq: number,
+    ops: EditOp[],
+    parts: EditOp[][],
+  ) {
+    if (seat.lanes) return this.sendOps(id, from, seq, parts);
+    const own = forSeat(seat, ops);
+    if (own.length === 0) return this.sendOps(id, from, seq, [[]]);
+    const split = splitOps(own);
+    if (!split) return this.resyncSeat(id, seat);
+    this.sendOps(id, from, seq, split);
+  }
+
+  private sendOps(id: string, from: string, seq: number | undefined, parts: EditOp[][]) {
     parts.forEach((ops, i) =>
       this.link.send(id, {
         k: "ops",
         ops,
         from,
-        seq,
+        ...(seq !== undefined && { seq }),
         ...(parts.length > 1 && { part: [i, parts.length] as [number, number] }),
       }),
     );
@@ -432,11 +477,19 @@ export class HostEditing implements RoomEditHooks {
         seq: this.seq,
       });
     }
+    // The audio lanes as they are now come first: the edits after them (which the file does not
+    // have either) are all absolute, so going through them again ends at the same lanes.
+    const bridge = this.options.lanes?.();
+    if (seat.lanes && bridge && !since.resume) {
+      const parts = splitOps(bridge.snapshot() as EditOp[]);
+      if (!parts) return this.resyncSeat(id, seat);
+      this.sendOps(id, "host", undefined, parts);
+    }
     for (const entry of this.log) {
       if (entry.seq <= from) continue;
       const parts = splitOps(entry.ops);
       if (!parts) return this.resyncSeat(id, seat);
-      this.sendOps(id, entry.from, entry.seq, parts);
+      this.sendEntry(id, seat, entry.from, entry.seq, entry.ops, parts);
     }
     seat.live = true;
     this.link.setLive(id, true);
@@ -510,6 +563,10 @@ export interface GuestEditingOptions {
   key: string;
   /** Rights or the live state changed. */
   changed?(): void;
+  /** The audio lanes of this tab (null: not ready), shared along with the tab. */
+  lanes?(): LaneBridge | null;
+  /** The host's app shares audio lanes (an older one does not). */
+  hostLanes?: boolean;
 }
 
 export class GuestEditing {
@@ -588,6 +645,12 @@ export class GuestEditing {
     for (const listener of [...this.listeners]) listener();
   }
 
+  /** This guest's own audio lane edits, sent to the host (false: not now, or not understood there). */
+  sendLanes(ops: AudioOp[]): boolean {
+    if (this.ended || !this.editable || !this.options.hostLanes) return false;
+    return this.sendOps(ops as EditOp[]);
+  }
+
   private sendOps(ops: EditOp[]): boolean {
     const parts = splitOps(ops);
     if (!parts) return false;
@@ -634,7 +697,16 @@ export class GuestEditing {
         }
         // The host's order is final: the echo of this guest's own edit puts it back in place.
         try {
-          const result = this.sync.receive(found.ops as Op[], body.from === this.options.guest);
+          const own = body.from === this.options.guest;
+          const audioOps = found.ops.filter(isAudioOp);
+          const tabOps = found.ops.filter((op) => !isAudioOp(op));
+          if (audioOps.length > 0 && !this.options.lanes?.()?.apply(audioOps, own)) {
+            return void this.link.send({ k: "resync" });
+          }
+          const result =
+            tabOps.length > 0 || audioOps.length === 0
+              ? this.sync.receive(tabOps as Op[], own)
+              : "applied";
           if (result === "reset") this.link.send({ k: "resync" });
         } catch {
           // A batch that does not fit this tab is refused before anything is written: ask for the tab.

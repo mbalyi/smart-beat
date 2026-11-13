@@ -27,6 +27,7 @@ import { ScoreLanesBand } from "@/components/audio-lanes/score-lanes-band";
 import { StudioView } from "@/components/audio-lanes/studio-view";
 import { useScoreBarBounds } from "@/components/audio-lanes/use-score-bar-bounds";
 import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
+import type { LaneSharing } from "@/lib/audio-lanes/collab";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
@@ -1999,9 +2000,31 @@ export function ScoreWorkspace({
     const player = playerRef.current;
     return player?.playsLanes ? player.loadSource(location) : loadAudioSource(location);
   }, []);
+  // Practice together shares the audio lanes along with the tab (ADR 0005).
+  const laneLink = together.edit.lanes;
+  const sharedLanes = useMemo<LaneSharing>(
+    () => ({
+      active: laneLink.active,
+      send: laneLink.send,
+      attach: laneLink.attach,
+      blocked: () => {
+        if (!together.readOnly) return false;
+        toast.info(
+          together.edit.live
+            ? "The host turned editing off for guests."
+            : "You follow the host's tab, so it is read-only.",
+          { id: "together-readonly" },
+        );
+        return true;
+      },
+      waiting: together.audioWaiting,
+    }),
+    [laneLink, together.readOnly, together.edit.live, together.audioWaiting],
+  );
   const lanes = useAudioLanes({
     mix,
     changeMix,
+    sharing: sharedLanes,
     loadSource: loadLaneSource,
     // The native engine plays the lanes in the desktop app, whoever plays the notes (hybrid).
     epoch: nativeEngineAvailable() ? playerEpoch : null,

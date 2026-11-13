@@ -2,6 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
+  applyAudioOps,
+  diffAudio,
+  receiveAudioOps,
+  snapshotOps,
+  type AudioOp,
+  type LaneBridge,
+  type LaneSharing,
+} from "@/lib/audio-lanes/collab";
+import {
   freshGroups,
   groupClips,
   groupLeaders,
@@ -92,7 +101,14 @@ export interface AudioLanesOptions {
   positionMs?: () => number | null;
   /** The time selection changed (null: cleared): the score loops the bars it covers. */
   onTimeRangeChange?: (range: TimeRange | null) => void;
+  /** A Practice together session shares the lanes (missing: no session). */
+  sharing?: LaneSharing;
 }
+
+/** How long changes are gathered before they are sent to the other players. */
+const SHARE_DELAY_MS = 80;
+/** Nothing is shared and nothing is waited for. */
+const NO_FILES: ReadonlySet<string> = new Set();
 
 /** What {@link useAudioLanes} assumes when the host says nothing: no notice is shown. */
 
@@ -162,6 +178,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
     onCursorMove,
     positionMs,
     onTimeRangeChange,
+    sharing,
   } = options;
   const audio = useMemo(() => lanesOf(mix), [mix.audio, mix.audioTrack]); // eslint-disable-line react-hooks/exhaustive-deps
   const audioRef = useRef(audio);
@@ -221,49 +238,153 @@ export function useAudioLanes(options: AudioLanesOptions) {
   /** The epoch each source was loaded in (or is being loaded in), by source id. */
   const loadedIn = useRef(new Map<string, number | null>());
 
+  // ----- sharing with a Practice together session ---------------------------------------------
+  const sharingRef = useRef(sharing);
+  useEffect(() => {
+    sharingRef.current = sharing;
+  });
+  /**
+   * The shared parts as the other players last had them (null: not in a session). What this
+   * player changed since is what {@link flushShared} sends.
+   */
+  const baseline = useRef<AudioLanesSettings | null>(null);
+  const shareTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** In a session undo takes back this player's own edits as patches, not whole states. */
+  const patches = useRef<{ past: AudioOp[][]; future: AudioOp[][] }>({ past: [], future: [] });
+  /** A drag that is going on in a session: the state it started from (its patch is made at its end). */
+  const gesture = useRef<AudioLanesSettings | null>(null);
+  const inSession = useCallback(() => baseline.current !== null, []);
+  const rememberPatches = useCallback((next: { past: AudioOp[][]; future: AudioOp[][] }) => {
+    patches.current = next;
+    setSteps({ undo: next.past.length, redo: next.future.length });
+  }, []);
+  /** The drag is over (the next edit, undo or redo says so): it becomes one undo step. */
+  const finishGesture = useCallback(() => {
+    const from = gesture.current;
+    gesture.current = null;
+    if (!from || !inSession()) return;
+    const inverse = diffAudio(audioRef.current, from);
+    if (inverse.length === 0) return;
+    rememberPatches({ past: [...patches.current.past, inverse].slice(-HISTORY), future: [] });
+  }, [inSession, rememberPatches]);
+  const flushShared = useCallback(() => {
+    shareTimer.current = undefined;
+    const base = baseline.current;
+    const s = sharingRef.current;
+    if (!base || !s?.active) return;
+    const ops = diffAudio(base, audioRef.current);
+    if (ops.length === 0) return;
+    // Whether or not it fitted: a batch that did not makes the others take the tab again.
+    baseline.current = audioRef.current;
+    s.send(ops);
+  }, []);
+  const hasUnsent = useCallback(
+    () =>
+      shareTimer.current !== undefined ||
+      (baseline.current !== null && diffAudio(baseline.current, audioRef.current).length > 0),
+    [],
+  );
+
   const commit = useCallback(
     (next: AudioLanesSettings) =>
       changeMix({ type: "audio", value: next.lanes.length ? next : null }),
     [changeMix],
   );
 
+  // Every change of the lanes, from whatever edit, goes to the other players a moment later.
+  useEffect(() => {
+    if (!baseline.current || shareTimer.current !== undefined) return;
+    if (diffAudio(baseline.current, audio).length === 0) return;
+    shareTimer.current = setTimeout(flushShared, SHARE_DELAY_MS);
+  }, [audio, flushShared]);
+
+  /** Whether the session refuses this player's edit now (it says why). */
+  const blocked = useCallback(
+    () => (inSession() && sharingRef.current?.blocked()) || false,
+    [inSession],
+  );
+
   /** Applies an edit and remembers the state before it for undo. */
   const apply = useCallback(
     (edit: (audio: AudioLanesSettings) => AudioLanesSettings) => {
       const before = audioRef.current;
+      if (blocked()) return;
       const edited = edit(before);
       if (edited === before) return;
       // A clip group left with one clip (after a delete, glue or lane removal) goes.
       const next = pruneGroups(edited);
-      remember({ past: [...history.current.past, before].slice(-HISTORY), future: [] });
+      if (inSession()) {
+        finishGesture();
+        const inverse = diffAudio(next, before);
+        if (inverse.length > 0) {
+          rememberPatches({ past: [...patches.current.past, inverse].slice(-HISTORY), future: [] });
+        }
+      } else {
+        remember({ past: [...history.current.past, before].slice(-HISTORY), future: [] });
+      }
       setLastEditAt(Date.now());
       audioRef.current = next;
       commit(next);
     },
-    [commit],
+    [blocked, commit, finishGesture, inSession, rememberPatches],
   );
 
   /** Starts a drag that changes the lanes many times: undo takes it back in one step. */
   const beginGesture = useCallback(() => {
-    remember({
-      past: [...history.current.past, audioRef.current].slice(-HISTORY),
-      future: [],
-    });
+    if (blocked()) return;
+    if (inSession()) {
+      finishGesture();
+      gesture.current = audioRef.current;
+    } else {
+      remember({
+        past: [...history.current.past, audioRef.current].slice(-HISTORY),
+        future: [],
+      });
+    }
     setLastEditAt(Date.now());
-  }, []);
+  }, [blocked, finishGesture, inSession]);
 
   /** An edit inside a gesture (no undo step of its own). */
   const applyQuiet = useCallback(
     (edit: (audio: AudioLanesSettings) => AudioLanesSettings) => {
+      if (blocked()) return;
       const next = edit(audioRef.current);
       if (next === audioRef.current) return;
       audioRef.current = next;
       commit(next);
     },
-    [commit],
+    [blocked, commit],
+  );
+
+  /**
+   * Takes back (or does again) this player's last edit in a session, as a patch on what the lanes
+   * are now: the other players' edits since stay.
+   */
+  const stepPatches = useCallback(
+    (from: "past" | "future") => {
+      finishGesture();
+      const stack = patches.current[from];
+      const patch = stack[stack.length - 1];
+      if (!patch) return false;
+      const current = audioRef.current;
+      const target = applyAudioOps(current, patch);
+      const opposite = diffAudio(target, current);
+      const other = from === "past" ? "future" : "past";
+      rememberPatches({
+        [from]: stack.slice(0, -1),
+        [other]: [...patches.current[other], opposite].slice(-HISTORY),
+      } as { past: AudioOp[][]; future: AudioOp[][] });
+      audioRef.current = target;
+      commit(target);
+      setLastEditAt(Date.now());
+      return true;
+    },
+    [commit, finishGesture, rememberPatches],
   );
 
   const undo = useCallback(() => {
+    if (blocked()) return false;
+    if (inSession()) return stepPatches("past");
     const { past, future } = history.current;
     const previous = past[past.length - 1];
     if (!previous) return false;
@@ -272,9 +393,11 @@ export function useAudioLanes(options: AudioLanesOptions) {
     commit(previous);
     setLastEditAt(Date.now());
     return true;
-  }, [commit]);
+  }, [blocked, commit, inSession, stepPatches]);
 
   const redo = useCallback(() => {
+    if (blocked()) return false;
+    if (inSession()) return stepPatches("future");
     const { past, future } = history.current;
     const next = future[0];
     if (!next) return false;
@@ -283,12 +406,53 @@ export function useAudioLanes(options: AudioLanesOptions) {
     commit(next);
     setLastEditAt(Date.now());
     return true;
-  }, [commit]);
+  }, [blocked, commit, inSession, stepPatches]);
+
+  // The session's end of the lanes: what it needs to read and to apply.
+  useEffect(() => {
+    const bridge: LaneBridge = {
+      snapshot: () => snapshotOps(audioRef.current),
+      apply: (ops, own) => {
+        // An echo of this player's own edit while there are newer changes not sent: skip it.
+        if (own && hasUnsent()) return true;
+        const next = receiveAudioOps(audioRef.current, ops);
+        if (!next) return false;
+        const base = baseline.current;
+        baseline.current = base ? (receiveAudioOps(base, ops) ?? next) : next;
+        audioRef.current = next;
+        commit(next);
+        return true;
+      },
+      begin: (host) => {
+        baseline.current = host ? audioRef.current : null;
+        // A guest is "in" the session once it has the host's lanes: until then it only receives.
+        if (!host) baseline.current = null;
+        remember({ past: [], future: [] });
+        patches.current = { past: [], future: [] };
+        gesture.current = null;
+      },
+      end: () => {
+        clearTimeout(shareTimer.current);
+        shareTimer.current = undefined;
+        baseline.current = null;
+        patches.current = { past: [], future: [] };
+        gesture.current = null;
+        remember({ past: [], future: [] });
+      },
+    };
+    const attach = sharing?.attach;
+    attach?.(bridge);
+    return () => attach?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharing?.attach, commit]);
 
   // Loads every file the lanes play when the song opens or a file is added. Decoding needs no
   // audio engine; a new native engine gets the files again (it must know where they came from).
+  const waiting = sharing?.waiting ?? NO_FILES;
   useEffect(() => {
     for (const source of audio.sources) {
+      // A file another player is still sending is opened when it has arrived.
+      if (waiting.has(source.id)) continue;
       const loaded = loadedIn.current;
       if (loaded.has(source.id) && (epoch === null || loaded.get(source.id) === epoch)) continue;
       loaded.set(source.id, epoch);
@@ -319,7 +483,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
         });
       })();
     }
-  }, [audio.sources, epoch, loadSource, songPath, commit]);
+  }, [audio.sources, epoch, loadSource, songPath, commit, waiting]);
 
   const snapTo = useCallback(
     (ms: number) =>

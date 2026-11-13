@@ -1211,6 +1211,8 @@ export class ScorePlayer {
     while (!this.destroyed && this.midiBusy && performance.now() < until) {
       await new Promise((resolve) => setTimeout(resolve, PREPARE_START_POLL_MS));
     }
+    // The lanes of the song play from their own engine: it must have the song before the start.
+    if (this.lanePlayback && !(await this.lanePlayback.ready())) return false;
     return this.isReady();
   }
 

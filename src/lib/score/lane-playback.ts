@@ -35,6 +35,10 @@ export class LanePlayback {
   private loaded = false;
   /** The last MIDI: the song the engine gets when the first lane is added. */
   private file: midi.MidiFile | null = null;
+  /** Loads and configurations that are still on their way to the engine. */
+  private readonly busy = new Set<Promise<unknown>>();
+  /** The song has lanes, so a start needs the engine. */
+  private hasLanes = false;
 
   private readonly options: LanePlaybackOptions;
 
@@ -67,9 +71,39 @@ export class LanePlayback {
     return this.engine.loadSource(location);
   }
 
+  /** Keeps track of a load or configuration, so a start can wait for it. */
+  private track<T>(work: Promise<T>): Promise<T> {
+    this.busy.add(work);
+    const done = () => this.busy.delete(work);
+    work.then(done, done);
+    return work;
+  }
+
+  /**
+   * Whether a start can go ahead: waits for what is loading (up to `timeoutMs`), then says whether
+   * the engine has the song when the song has lanes. A song without lanes is always ready.
+   */
+  async ready(timeoutMs = 5000): Promise<boolean> {
+    if (this.destroyed) return false;
+    if (this.busy.size > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      });
+      await Promise.race([Promise.allSettled([...this.busy]), timeout]);
+      clearTimeout(timer);
+    }
+    return !this.hasLanes || (this.loaded && this.busy.size === 0);
+  }
+
   /** The score was generated (again): the lanes engine gets its tempo map, then the lanes. */
-  async load(file: midi.MidiFile, extras: EngineExtras): Promise<void> {
+  load(file: midi.MidiFile, extras: EngineExtras): Promise<void> {
+    return this.track(this.doLoad(file, extras));
+  }
+
+  private async doLoad(file: midi.MidiFile, extras: EngineExtras): Promise<void> {
     this.file = file;
+    this.hasLanes = extras.lanes !== null;
     const song = clockSongFromMidi(file);
     this.tempo = tempoMap(song.division, song.tempos);
     this.engine.prepare(extras);
@@ -83,12 +117,17 @@ export class LanePlayback {
   }
 
   /** The lanes changed (or the mix did): only what changed is sent. */
-  async configure(extras: EngineExtras): Promise<EffectProblems | null> {
+  configure(extras: EngineExtras): Promise<EffectProblems | null> {
+    return this.track(this.doConfigure(extras));
+  }
+
+  private async doConfigure(extras: EngineExtras): Promise<EffectProblems | null> {
     if (this.destroyed) return null;
+    this.hasLanes = extras.lanes !== null;
     this.engine.prepare(extras);
     if (!this.loaded) {
       // The first lane of the song: the engine opens now.
-      if (extras.lanes && this.file) await this.load(this.file, extras);
+      if (extras.lanes && this.file) await this.doLoad(this.file, extras);
       return null;
     }
     return this.engine.configure(extras);

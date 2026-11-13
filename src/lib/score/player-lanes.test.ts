@@ -214,6 +214,26 @@ describe("ScorePlayer: audio lanes with the SoundFonts synthesizer (hybrid)", ()
     expect(mocked.loadAudioSource).toHaveBeenCalledWith({ type: "file", path: "/music/a.wav" });
   });
 
+  it("a shared start waits until the lanes engine has the song, and is ready for a song without lanes", async () => {
+    const { player, api } = await setup();
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    let release: () => void = () => {};
+    mocked.loadEngineSong.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(() => expect(mocked.loadEngineSong).toHaveBeenCalled());
+    let ready: boolean | null = null;
+    void player.prepareStart(2_000).then((value) => (ready = value));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(ready).toBeNull();
+    release();
+    await vi.waitFor(() => expect(ready).not.toBeNull());
+  });
+
   it("stays off with lanes: false", async () => {
     vi.stubGlobal(
       "fetch",

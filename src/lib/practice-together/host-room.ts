@@ -281,10 +281,14 @@ export class HostRoom {
   }
 
   /** The guests that are in the session and can edit together, by id. */
-  editSeats(): { id: string; name: string }[] {
+  editSeats(): { id: string; name: string; lanes: boolean }[] {
     return [...this.seats.values()]
       .filter((seat) => !seat.retiring && seat.session.welcomed && seat.session.peerEdits)
-      .map((seat) => ({ id: seat.id, name: seat.session.snapshot.peerName ?? seat.name }));
+      .map((seat) => ({
+        id: seat.id,
+        name: seat.session.snapshot.peerName ?? seat.name,
+        lanes: seat.session.peerLanes,
+      }));
   }
 
   /** Says something about editing to one guest. */

@@ -994,6 +994,11 @@ export class Session {
     return this.peerCaps.includes("edit");
   }
 
+  /** Whether the other end shares audio lanes too. */
+  get peerLanes(): boolean {
+    return this.peerCaps.includes("lanes");
+  }
+
   /** Says something about editing to the other end. */
   sendEdit(body: EditBody) {
     const { phase } = this.state;
