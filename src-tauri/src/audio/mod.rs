@@ -22,6 +22,7 @@ pub mod plugin_wire;
 pub mod sf3;
 pub mod song;
 pub mod soundfonts;
+pub mod transfer;
 
 /// Synthetic assets for the unit tests (the integration tests build their own).
 #[cfg(test)]

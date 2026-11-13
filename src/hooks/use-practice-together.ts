@@ -67,6 +67,8 @@ import {
 import { hostOverInternet, joinOverInternet, rtcSupported } from "@/lib/practice-together/rtc";
 import { Session, type SessionState } from "@/lib/practice-together/session";
 import { EditInbox } from "@/lib/practice-together/shared-editing";
+import { SourceInbox, sourceReasonText } from "@/lib/practice-together/source-transfer";
+import { useSourceSync, type SourceSharing } from "@/hooks/use-source-sync";
 import { SharedTransport, type TransportPlayer } from "@/lib/practice-together/shared-transport";
 import {
   clampLoop,
@@ -127,8 +129,8 @@ export interface PracticeTogether {
   isGuest?: boolean;
   /** Editing the tab together (#216): the host's switch, the other players' cursors. */
   edit: SharedEditing;
-  /** Audio files other players sent that have not arrived here yet (source ids). */
-  audioWaiting: ReadonlySet<string>;
+  /** The audio files of the shared lanes: what is on its way, and the setting of what is needed. */
+  sources: SourceSharing;
   /**
    * A session is live in another tab of this app and this tab is not showing it (null: none, or
    * it is here). `tabs` counts the tabs in it, `here` says whether this tab is one of them.
@@ -179,9 +181,26 @@ interface Options {
   editor?: ScoreEditor | null;
 }
 
-/** No audio file is on its way (a session without other players, or an older app). */
-const NO_AUDIO_WAITING: ReadonlySet<string> = new Set();
 const NAME_KEY = "smart-beat:practice-together:name";
+
+/** Play is held back: some audio file of the lanes is not at every player yet. */
+function toastFilesMissing(sources: SourceSharing | null) {
+  const failed = sources?.state.failed[0];
+  if (failed) {
+    toast.error("An audio file could not be shared, so nobody can start", {
+      description: `“${failed.name}”: ${sourceReasonText(failed.reason)}. Take its lane out of the tab, or add the file again.`,
+      id: "together-files",
+    });
+    return;
+  }
+  const names = [...new Set((sources?.lacking() ?? []).map((l) => l.name))];
+  toast.info("Waiting for the audio files", {
+    description: names.length
+      ? `Nobody starts until everyone has every file: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""} still on the way.`
+      : "Nobody starts until everyone has every file.",
+    id: "together-files",
+  });
+}
 
 /** Ends after which the session is not offered again: it is over, or this guest is not welcome. */
 const FORGET_KINDS = new Set(["peer-left", "banned", "declined", "version"]);
@@ -282,6 +301,9 @@ export function usePracticeTogether({
   // Editing together (#216): what the other end says about it waits here until the editing that
   // listens exists; the host's tab is numbered as it is written to a file.
   const [inbox] = useState(() => new EditInbox());
+  const [sourceInbox] = useState(() => new SourceInbox());
+  /** The audio file sharing of this tab's session (for the gate in `makeHooks`). */
+  const sourcesRef = useRef<SourceSharing | null>(null);
   const [snapshotRef] = useState<{ current: (() => { seq: number } | null) | undefined }>(() => ({
     current: undefined,
   }));
@@ -477,6 +499,11 @@ export function usePracticeTogether({
     (action: RequestAction, tick: number) => {
       const session = sessionRef.current;
       if (session?.role !== "host") return;
+      // Nobody starts until everyone has every audio file of the lanes.
+      if (action === "play" && !sourcesRef.current?.complete()) {
+        toastFilesMissing(sourcesRef.current);
+        return;
+      }
       lastCommand.current = { action, at: Date.now() };
       const sent = session.command(commandOf(action, tick, practiceRef.current));
       // A session that moves to another tab waits for this to go out first (see `owner.pause`).
@@ -571,6 +598,8 @@ export function usePracticeTogether({
   const makeHooks = useCallback(() => {
     const shared = new SharedTransport({
       player: () => playerRef.current,
+      // Nobody starts until everyone has every audio file of the lanes.
+      filesReady: () => sourcesRef.current?.complete() ?? true,
       applySettings: (cmd) => {
         // The host's loop is kept inside this score's bars.
         const loop = clampLoop(cmd.loop, scoreRef.current.masterBars.length);
@@ -587,6 +616,7 @@ export function usePracticeTogether({
       },
       tab: tabs.hooks,
       edit: { receive: (body: Parameters<typeof inbox.push>[0]) => inbox.push(body) },
+      source: { receive: (msg: Parameters<typeof sourceInbox.push>[0]) => sourceInbox.push(msg) },
       request: answer,
       approve: (guest: string, signal?: AbortSignal) =>
         new Promise<boolean>((resolve) => {
@@ -597,7 +627,18 @@ export function usePracticeTogether({
         }),
     };
     return { shared, hooks };
-  }, [playerRef, scoreRef, practiceRef, dispatchRef, tabs, answer, enqueue, settle, inbox]);
+  }, [
+    playerRef,
+    scoreRef,
+    practiceRef,
+    dispatchRef,
+    tabs,
+    answer,
+    enqueue,
+    settle,
+    inbox,
+    sourceInbox,
+  ]);
 
   /**
    * Builds the session. A host listens for guests (`acceptor`) and keeps a room; a guest talks
@@ -618,6 +659,7 @@ export function usePracticeTogether({
       const takeOver = target.role === "guest" ? target.takeOver : undefined;
       // A new session starts: nothing said in an earlier one is kept.
       inbox.clear();
+      sourceInbox.clear();
       const { shared, hooks } = makeHooks();
       const score =
         takeOver?.fingerprint ??
@@ -661,6 +703,7 @@ export function usePracticeTogether({
       ownerRef,
       originFor,
       inbox,
+      sourceInbox,
     ],
   );
 
@@ -946,6 +989,17 @@ export function usePracticeTogether({
     inbox,
     snapshotRef,
   });
+  const sources = useSourceSync({
+    session: liveSession(),
+    owns,
+    phase,
+    inbox: sourceInbox,
+    // The audio files wait while the song plays: its timing comes first.
+    paused: () => playerRef.current?.isPlaying() ?? false,
+  });
+  useEffect(() => {
+    sourcesRef.current = sources;
+  }, [sources]);
   useEffect(() => {
     const session = sessionRef.current;
     if (!session || session.role !== "host" || phase !== "synchronized") {
@@ -1038,6 +1092,11 @@ export function usePracticeTogether({
           tick = player.barStartTick(request.bar);
           break;
       }
+      // Guests check their own files too: the host would hold the start back anyway.
+      if (action === "play" && !isHost && !sourcesRef.current?.complete()) {
+        toastFilesMissing(sourcesRef.current);
+        return true;
+      }
       if (isHost) startFor(action, tick ?? player.getTick());
       else if (!session.request(action, tick)) {
         // The clocks are being synced again: the host would not act on it.
@@ -1086,7 +1145,7 @@ export function usePracticeTogether({
       readOnly: isGuestHere && !edit.editable,
       isGuest: isGuestHere,
       edit,
-      audioWaiting: NO_AUDIO_WAITING,
+      sources,
       elsewhere,
       tabsInSession: live.live ? live.ids.length : 0,
       addToSession,
@@ -1138,6 +1197,7 @@ export function usePracticeTogether({
       addToSession,
       isGuestHere,
       edit,
+      sources,
     ],
   );
 }

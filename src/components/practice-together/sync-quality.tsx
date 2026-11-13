@@ -39,11 +39,15 @@ export function SyncQualityBadge({ quality }: { quality: SyncQuality }) {
 export function TogetherButton({
   state,
   onOpen,
+  files,
 }: {
   state: SessionState | null;
   onOpen: () => void;
+  files?: FilesProgress;
 }) {
-  if (state && state.phase !== "closed") return <TogetherChip state={state} onOpen={onOpen} />;
+  if (state && state.phase !== "closed") {
+    return <TogetherChip state={state} onOpen={onOpen} files={files} />;
+  }
   return (
     <Tip label="Practice together">
       <Button
@@ -64,9 +68,11 @@ export function TogetherButton({
 export function TogetherChip({
   state,
   onOpen,
+  files,
 }: {
   state: SessionState | null;
   onOpen: () => void;
+  files?: FilesProgress;
 }) {
   if (!state || state.phase === "closed") return null;
   const quality = state.role === "host" ? peerQuality(state) : state.quality;
@@ -78,12 +84,13 @@ export function TogetherChip({
       : state.phase === "failed"
         ? "Practice together: the session ended"
         : "Practice together: connecting";
+  const filesText = files ? filesLabel(files) : null;
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={label}
-      title={label}
+      aria-label={filesText ? `${label}. ${filesText}` : label}
+      title={filesText ? `${label}. ${filesText}` : label}
       data-tour="practice-together"
       data-testid="together-chip"
       data-phase={state.phase}
@@ -94,8 +101,23 @@ export function TogetherChip({
       <span aria-hidden="true" className="tabular-nums max-xl:sr-only">
         {synced ? errorText(quality) : state.phase === "failed" ? "Ended" : "…"}
       </span>
+      {filesText && (
+        <span data-testid="together-files" className="tabular-nums">
+          {files?.percent === null ? "Files…" : `Files ${files?.percent} %`}
+        </span>
+      )}
     </button>
   );
+}
+
+/** Where the audio files of the lanes stand: nothing to show (null), or how far they are. */
+export type FilesProgress = { percent: number | null; failed: boolean } | null;
+
+function filesLabel(files: NonNullable<FilesProgress>): string {
+  if (files.failed) return "An audio file could not be shared.";
+  return files.percent === null
+    ? "Waiting for the audio files."
+    : `Sharing the audio files: ${files.percent} %.`;
 }
 
 /** What the host knows about the sync: the guest's own estimate. */

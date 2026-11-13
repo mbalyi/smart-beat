@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 
 import { NO_SHARED_EDITING } from "@/hooks/use-shared-editing";
+import { NO_SOURCE_SHARING } from "@/hooks/use-source-sync";
 import { PracticeTogetherDialog } from "@/components/practice-together/practice-together-dialog";
 import {
   SyncQualityBadge,
@@ -54,6 +55,7 @@ function together(over: Partial<PracticeTogether> = {}): PracticeTogether {
     transfer: null,
     readOnly: false,
     edit: NO_SHARED_EDITING,
+    sources: NO_SOURCE_SHARING,
     setName: vi.fn(),
     setQuality: vi.fn(),
     host: vi.fn(async () => {}),
@@ -681,6 +683,75 @@ describe("PracticeTogetherDialog: the tab on its way", () => {
   it("shows nothing without a transfer", () => {
     renderDialog(together({ state: session({ phase: "syncing" }) }));
     expect(screen.queryByTestId("tab-transfer")).not.toBeInTheDocument();
+  });
+});
+
+describe("PracticeTogetherDialog: the audio files of the lanes", () => {
+  const sources = (state: Partial<PracticeTogether["sources"]["state"]>) => ({
+    ...NO_SOURCE_SHARING,
+    state: { ...NO_SOURCE_SHARING.state, ...state },
+  });
+
+  it("shows each file on its way with its progress, and says nobody starts yet", () => {
+    renderDialog(
+      together({
+        state: session({ role: "host", phase: "synchronized" }),
+        sources: sources({
+          complete: false,
+          transfers: [
+            {
+              id: "a".repeat(64),
+              name: "Drums · HTDemucs",
+              direction: "out",
+              peer: "g1",
+              done: 45,
+              size: 100,
+            },
+            { id: "b".repeat(64), name: "Bass", direction: "in", peer: "g1", done: 10, size: 100 },
+          ],
+        }),
+      }),
+    );
+    expect(screen.getByText("Sending Drums · HTDemucs… 45 %")).toBeVisible();
+    expect(screen.getByRole("progressbar", { name: "Getting Bass… 10 %" })).toHaveAttribute(
+      "value",
+      "10",
+    );
+    expect(screen.getByText(/Nobody starts until everyone has every file/)).toBeVisible();
+  });
+
+  it("says when a file could not be shared", () => {
+    renderDialog(
+      together({
+        state: session({ role: "host", phase: "synchronized" }),
+        sources: sources({
+          complete: false,
+          failed: [{ id: "a".repeat(64), name: "Drums", reason: "quota" }],
+        }),
+      }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't share Drums: too much audio has been sent in this session.",
+    );
+  });
+
+  it("shows nothing when every file is there", () => {
+    renderDialog(together({ state: session({ role: "host", phase: "synchronized" }) }));
+    expect(screen.queryByTestId("audio-files")).not.toBeInTheDocument();
+  });
+
+  it("shows the chip how far the files are", () => {
+    renderWithProviders(
+      <TogetherButton
+        state={session({ role: "host", phase: "synchronized" })}
+        onOpen={() => {}}
+        files={{ percent: 45, failed: false }}
+      />,
+    );
+    expect(screen.getByTestId("together-files")).toHaveTextContent("Files 45 %");
+    expect(screen.getByTestId("together-chip")).toHaveAccessibleName(
+      /Sharing the audio files: 45 %/,
+    );
   });
 });
 

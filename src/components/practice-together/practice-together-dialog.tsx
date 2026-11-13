@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ConnectionKind, PracticeTogether } from "@/hooks/use-practice-together";
 import { MAX_PLAYERS } from "@/lib/practice-together/protocol";
+import { sourceReasonText } from "@/lib/practice-together/source-transfer";
 import {
   QUALITY_CHOICES,
   QUALITY_HINTS,
@@ -381,6 +382,7 @@ function ConnectStep({ together, onClose }: { together: PracticeTogether; onClos
               </p>
             )}
             <TransferLine transfer={together.transfer} />
+            <AudioFilesLine sources={together.sources} />
             {state.problem && <Problem message={state.problem.message} />}
           </div>
         </TogetherContent>
@@ -560,6 +562,49 @@ function TransferLine({ transfer }: { transfer: PracticeTogether["transfer"] }) 
   );
 }
 
+/**
+ * The audio files of the lanes on their way between the computers (each file moves once). Nobody
+ * starts until everyone has every file, so what is still missing is said here.
+ */
+function AudioFilesLine({ sources }: { sources: PracticeTogether["sources"] }) {
+  const { transfers, failed, complete } = sources.state;
+  if (transfers.length === 0 && failed.length === 0 && complete) return null;
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="audio-files">
+      <ul className="flex flex-col gap-1.5">
+        {transfers.map((t) => {
+          const percent = t.size > 0 ? Math.min(100, Math.floor((t.done / t.size) * 100)) : 0;
+          const label =
+            t.direction === "out"
+              ? `Sending ${t.name}… ${percent} %`
+              : `Getting ${t.name}… ${percent} %`;
+          return (
+            <li key={`${t.direction}:${t.peer}:${t.id}`} className="flex flex-col gap-1">
+              <span className="text-sm">{label}</span>
+              <progress
+                aria-label={label}
+                value={t.done}
+                max={Math.max(t.size, 1)}
+                className="h-2 w-full overflow-hidden rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary"
+              />
+            </li>
+          );
+        })}
+        {failed.map((f) => (
+          <li key={f.id} role="alert" className="text-sm text-destructive">
+            Couldn&apos;t share {f.name}: {sourceReasonText(f.reason)}.
+          </li>
+        ))}
+      </ul>
+      {!complete && failed.length === 0 && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Waiting for the audio files. Nobody starts until everyone has every file.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Problem({ message }: { message: string }) {
   return (
     <p
@@ -656,6 +701,7 @@ function PlayStep({ together, onClose }: { together: PracticeTogether; onClose: 
               />
             </dl>
             <TransferLine transfer={together.transfer} />
+            <AudioFilesLine sources={together.sources} />
             {(together.tabsInSession ?? 0) > 1 && (
               <p className="text-sm text-muted-foreground" data-testid="tabs-in-session">
                 {together.tabsInSession} tabs are in this session.{" "}

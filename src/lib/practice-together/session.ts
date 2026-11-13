@@ -27,6 +27,7 @@ import {
   negotiate,
   type Command,
   type EditBody,
+  type SourceMessage,
   type Message,
   type RequestAction,
   type RefuseReason,
@@ -160,6 +161,15 @@ export interface SessionHooks {
   tab?: TabHooks;
   /** Editing the tab together (#216). Without it a player's edits stay on their computer. */
   edit?: EditHooks;
+  /** Sharing the audio files of the lanes. Without it a player's files stay on their computer. */
+  source?: SourceHooks;
+}
+
+export interface SourceHooks {
+  /** The other end said something about audio files (see `SourceMessage`). */
+  receive(msg: SourceMessage): void;
+  /** The host only: this guest was let in or came back. */
+  welcomed?(): void;
 }
 
 export interface EditHooks {
@@ -715,6 +725,13 @@ export class Session {
         return this.onTabAbort(msg);
       case "edit":
         return this.hooks.edit?.receive(msg.body);
+      case "src-have":
+      case "src-want":
+      case "src-offer":
+      case "src-ack":
+      case "src-chunk":
+      case "src-done":
+        return this.hooks.source?.receive(msg);
       case "bye":
         if (this.role === "host") return this.guestGone();
         // The host says why when it removes this player.
@@ -785,6 +802,7 @@ export class Session {
     this.checkScore(0);
     this.beginSync();
     this.hooks.edit?.welcomed?.();
+    this.hooks.source?.welcomed?.();
   }
 
   private refuse(reason: RefuseReason) {
@@ -997,6 +1015,13 @@ export class Session {
   /** Whether the other end shares audio lanes too. */
   get peerLanes(): boolean {
     return this.peerCaps.includes("lanes");
+  }
+
+  /** Says something about audio files to the other end. */
+  sendSource(msg: SourceMessage) {
+    const { phase } = this.state;
+    if (!this.wasWelcomed || phase === "closed" || phase === "failed") return;
+    this.send(msg);
   }
 
   /** Says something about editing to the other end. */

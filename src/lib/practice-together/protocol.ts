@@ -26,6 +26,21 @@ export const MAX_TAB_BYTES = 12 * 1024 * 1024;
 /** How many pieces may be on the way before the receiver has said it got the first of them. */
 export const TAB_WINDOW = 12;
 
+/**
+ * One piece of a shared audio file is this many bytes (about 13.6 K characters as base64, under a
+ * frame).
+ */
+export const SOURCE_CHUNK_BYTES = 10 * 1024;
+/** How many pieces of one file may be on the way before the receiver has said it got the first. */
+export const SOURCE_WINDOW = 16;
+/** The most file ids in one `src-have` message. */
+export const SOURCE_IDS_PER_MESSAGE = 100;
+/** The biggest audio file that is shared, in bytes (the file limit of the audio lanes). */
+export const MAX_SOURCE_BYTES = 512 * 1024 * 1024;
+/** The most audio files a session shares, and the most bytes it moves (one direction, per player). */
+export const MAX_SOURCE_FILES = 512;
+export const SESSION_SOURCE_QUOTA = 2 * 1024 * 1024 * 1024;
+
 /** Which score a peer has open. Two apps only start together on the same one. */
 export interface ScoreFingerprint {
   /** SHA-256 of the file, or of the exported tab when it has unsaved edits. */
@@ -117,7 +132,26 @@ export type Message =
   /** Either side stops offer `id`. */
   | { type: "tab-abort"; id: number; reason: string }
   // ----- editing the tab together (both ways, see shared-editing.ts) -----
-  | { type: "edit"; body: EditBody };
+  | { type: "edit"; body: EditBody }
+  // ----- sharing the audio files of the lanes (both ways, see source-transfer.ts) -----
+  /** The ids of the audio files this player has (a few messages for many files). */
+  | { type: "src-have"; ids: string[] }
+  /** "Send me file `id`." */
+  | { type: "src-want"; id: string }
+  /** The answer: its size in bytes (0: this player does not have it). */
+  | { type: "src-offer"; id: string; size: number }
+  /**
+   * The receiver has the file up to byte `n`: the sender sends on from there. `rewind`: a piece
+   * went missing, so the sender goes back to `n` even though it sent more.
+   */
+  | { type: "src-ack"; id: string; n: number; rewind?: boolean }
+  /** The bytes of file `id` from `off`, as base64. */
+  | { type: "src-chunk"; id: string; off: number; data: string }
+  /** The receiver has the whole file (or could not take it). */
+  | { type: "src-done"; id: string; ok: boolean; reason?: string };
+
+/** The messages that share audio files. */
+export type SourceMessage = Extract<Message, { type: `src-${string}` }>;
 
 /** An operation of shared editing (see `Op` in score/ops/types.ts); checked loosely here. */
 export type EditOp = { t: string; [key: string]: unknown };
@@ -190,6 +224,9 @@ const isNumber = (value: unknown): value is number =>
 const isString = (value: unknown): value is string => typeof value === "string";
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+const isSourceId = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 
 const ACTIONS: readonly string[] = ["play", "pause", "stop", "seek", "settings"];
 const REQUEST_ACTIONS: readonly string[] = ["play", "pause", "stop", "seek"];
@@ -343,6 +380,37 @@ function validMessage(m: unknown): m is Message {
       return isNumber(m.id) && isString(m.reason);
     case "edit":
       return validEdit(m.body);
+    case "src-have":
+      return (
+        Array.isArray(m.ids) && m.ids.length <= SOURCE_IDS_PER_MESSAGE && m.ids.every(isSourceId)
+      );
+    case "src-want":
+      return isSourceId(m.id);
+    case "src-offer":
+      return isSourceId(m.id) && isNumber(m.size) && m.size >= 0 && m.size <= MAX_SOURCE_BYTES;
+    case "src-ack":
+      return (
+        isSourceId(m.id) &&
+        isNumber(m.n) &&
+        m.n >= 0 &&
+        m.n <= MAX_SOURCE_BYTES &&
+        (m.rewind === undefined || typeof m.rewind === "boolean")
+      );
+    case "src-chunk":
+      return (
+        isSourceId(m.id) &&
+        isNumber(m.off) &&
+        m.off >= 0 &&
+        m.off < MAX_SOURCE_BYTES &&
+        isString(m.data) &&
+        m.data.length <= Math.ceil((SOURCE_CHUNK_BYTES * 4) / 3) + 4
+      );
+    case "src-done":
+      return (
+        isSourceId(m.id) &&
+        typeof m.ok === "boolean" &&
+        (m.reason === undefined || (isString(m.reason) && m.reason.length <= 200))
+      );
     default:
       return false;
   }

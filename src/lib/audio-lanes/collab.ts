@@ -437,9 +437,9 @@ function validLaneFields(f: Record<string, unknown>, complete: boolean): boolean
  * ranges, and not more than the song may hold. Returns them typed, or null when anything is wrong
  * (a modified app could send anything).
  */
-export function validAudioOps(raw: readonly { t: string }[]): AudioOp[] | null {
+export function validAudioOps(raw: readonly unknown[]): AudioOp[] | null {
   if (raw.length > MAX_AUDIO_OPS) return null;
-  for (const op of raw as Record<string, unknown>[]) {
+  for (const op of raw as unknown as Record<string, unknown>[]) {
     let ok = false;
     switch (op.t) {
       case "a-reset":
@@ -522,7 +522,7 @@ export function validAudioOps(raw: readonly { t: string }[]): AudioOp[] | null {
     }
     if (!ok) return null;
   }
-  return raw as AudioOp[];
+  return raw as unknown as AudioOp[];
 }
 
 /**
@@ -546,7 +546,7 @@ export function withinLimits(audio: AudioLanesSettings): boolean {
  */
 export function receiveAudioOps(
   audio: AudioLanesSettings,
-  raw: readonly { t: string }[],
+  raw: readonly unknown[],
 ): AudioLanesSettings | null {
   const ops = validAudioOps(raw);
   if (!ops) return null;
@@ -578,7 +578,7 @@ export interface LaneBridge {
    * skipped while this player has changes not sent yet, so a drag does not jump back. False: the
    * batch was refused, ask for the lanes again.
    */
-  apply(ops: { t: string }[], own: boolean): boolean;
+  apply(ops: readonly unknown[], own: boolean): boolean;
   /** A session starts: the host's lanes are the shared ones now; a guest waits for the snapshot. */
   begin(host: boolean): void;
   /** The session ended. */
@@ -597,4 +597,29 @@ export interface LaneSharing {
   attach(bridge: LaneBridge | null): void;
   /** Files other players sent that are not here yet (their clips wait for them). */
   waiting: ReadonlySet<string>;
+  /** The shared lanes' files changed (other players' operations were applied). */
+  sourcesChanged?(sources: readonly AudioSource[]): void;
+}
+
+/** A file as the transfer lists it: the name a lane calls it (to show) and the name it is loaded under. */
+export interface SourceEntry {
+  id: string;
+  name: string;
+  file: string;
+}
+
+/** The name with the file's extension, as the audio engine reads the type from it. */
+export const fileNameOf = (source: Pick<AudioSource, "name" | "ext">): string =>
+  source.name.toLowerCase().endsWith(`.${source.ext}`)
+    ? source.name
+    : `${source.name}.${source.ext}`;
+
+/** The files of the lanes, each shown under the name of the first lane that plays it. */
+export function sourceEntries(audio: AudioLanesSettings): SourceEntry[] {
+  return audio.sources.map((source) => {
+    const lane = audio.lanes.find((l) =>
+      l.clips.some((c) => c.takes.some((t) => t.sourceId === source.id)),
+    );
+    return { id: source.id, name: lane?.name ?? source.name, file: fileNameOf(source) };
+  });
 }

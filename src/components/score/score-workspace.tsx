@@ -27,7 +27,7 @@ import { ScoreLanesBand } from "@/components/audio-lanes/score-lanes-band";
 import { StudioView } from "@/components/audio-lanes/studio-view";
 import { useScoreBarBounds } from "@/components/audio-lanes/use-score-bar-bounds";
 import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
-import type { LaneSharing } from "@/lib/audio-lanes/collab";
+import { fileNameOf, sourceEntries, type LaneSharing } from "@/lib/audio-lanes/collab";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
@@ -2017,9 +2017,14 @@ export function ScoreWorkspace({
         );
         return true;
       },
-      waiting: together.audioWaiting,
+      waiting: together.sources.state.waiting,
+      sourcesChanged: (sources) =>
+        together.sources.setNeeded(
+          sources.map((s) => ({ id: s.id, name: s.name, file: fileNameOf(s) })),
+          [],
+        ),
     }),
-    [laneLink, together.readOnly, together.edit.live, together.audioWaiting],
+    [laneLink, together.readOnly, together.edit.live, together.sources],
   );
   const lanes = useAudioLanes({
     mix,
@@ -2051,6 +2056,19 @@ export function ScoreWorkspace({
   });
   // While stopped, the edit cursor is where playback is: a seek or a pause moves it along, so
   // Split and Paste work at the line the user sees.
+  // The shared lanes' files and which of them are open here: the session moves what is missing.
+  const setNeededFiles = together.sources.setNeeded;
+  useEffect(() => {
+    setNeededFiles(sourceEntries(lanes.audio), lanes.infos.keys());
+  }, [lanes.audio, lanes.infos, setNeededFiles]);
+  const sourcesState = together.sources.state;
+  const filesProgress = useMemo(() => {
+    if (sourcesState.failed.length > 0) return { percent: null, failed: true };
+    if (sourcesState.complete) return null;
+    const size = sourcesState.transfers.reduce((n, t) => n + t.size, 0);
+    const done = sourcesState.transfers.reduce((n, t) => n + t.done, 0);
+    return { percent: size > 0 ? Math.floor((done / size) * 100) : null, failed: false };
+  }, [sourcesState]);
   const followPlayback = lanes.followPosition;
   useEffect(() => {
     if (playing) return;
@@ -3342,7 +3360,11 @@ export function ScoreWorkspace({
           }
         }}
         together={
-          <TogetherButton state={together.state} onOpen={() => openTogether("host", "toolbar")} />
+          <TogetherButton
+            state={together.state}
+            onOpen={() => openTogether("host", "toolbar")}
+            files={filesProgress}
+          />
         }
         practice={
           <PracticeControls

@@ -421,6 +421,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
         baseline.current = base ? (receiveAudioOps(base, ops) ?? next) : next;
         audioRef.current = next;
         commit(next);
+        // The files these lanes play are asked for at once, before anything tries to open them.
+        sharingRef.current?.sourcesChanged?.(next.sources);
         return true;
       },
       begin: (host) => {
