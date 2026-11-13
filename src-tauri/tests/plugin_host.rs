@@ -12,7 +12,7 @@ use smart_beat_lib::audio::plugin::{
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -57,29 +57,69 @@ struct Fixture {
     _dir: tempfile::TempDir,
     path: PathBuf,
 }
+/// The newest `libclap_sys-*.rlib` Cargo built for this test, and every folder with dependency
+/// rlibs for `rustc -L`. Older Cargo puts them in `target/<profile>/deps`; Cargo 1.100 keeps them
+/// in `target/<profile>/build/<crate>/<hash>/out` (the test itself runs from such a folder).
+fn dependency_libs() -> (PathBuf, Vec<PathBuf>) {
+    fn walk(dir: &Path, depth: usize, rlibs: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                if depth > 0 {
+                    walk(&path, depth - 1, rlibs);
+                }
+            } else if path.extension().is_some_and(|e| e == "rlib") {
+                rlibs.push(path);
+            }
+        }
+    }
+    let exe_dir = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let mut rlibs = Vec::new();
+    walk(&exe_dir, 0, &mut rlibs);
+    // The `build` folder of the profile: the one the test runs from (Cargo 1.100), or next to
+    // `deps` (older Cargo).
+    if let Some(build) = exe_dir
+        .ancestors()
+        .find(|a| a.file_name().is_some_and(|n| n == "build"))
+    {
+        walk(build, 3, &mut rlibs);
+    }
+    if let Some(profile) = exe_dir.parent() {
+        walk(&profile.join("build"), 3, &mut rlibs);
+    }
+    rlibs.sort();
+    rlibs.dedup();
+    let abi = rlibs
+        .iter()
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("libclap_sys-")
+        })
+        .max_by_key(|p| p.metadata().unwrap().modified().unwrap())
+        .expect("clap-sys rlib is built by Cargo")
+        .clone();
+    let mut libs: Vec<PathBuf> = rlibs
+        .iter()
+        .filter_map(|p| p.parent().map(Path::to_path_buf))
+        .collect();
+    libs.sort();
+    libs.dedup();
+    (abi, libs)
+}
 fn fixture() -> &'static Fixture {
     static FIXTURE: OnceLock<Fixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
         // Reference the ABI dependency so Cargo builds its rlib for this target.
         assert!(size_of::<clap_sys::plugin::clap_plugin>() > 0);
-        let deps = std::env::current_exe()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        let abi = std::fs::read_dir(&deps)
-            .unwrap()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                p.file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .starts_with("libclap_sys-")
-                    && p.extension().is_some_and(|e| e == "rlib")
-            })
-            .max_by_key(|p| p.metadata().unwrap().modified().unwrap())
-            .expect("clap-sys rlib is built by Cargo");
+        let (abi, libs) = dependency_libs();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Synthetic.clap");
         let output = Command::new("rustc")
@@ -92,8 +132,10 @@ fn fixture() -> &'static Fixture {
             ])
             .arg("--extern")
             .arg(format!("clap_sys={}", abi.display()))
-            .arg("-L")
-            .arg(format!("dependency={}", deps.display()))
+            .args(
+                libs.iter()
+                    .flat_map(|dir| ["-L".to_string(), format!("dependency={}", dir.display())]),
+            )
             .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tiny_plugin.rs"))
             .arg("-o")
             .arg(&path)
