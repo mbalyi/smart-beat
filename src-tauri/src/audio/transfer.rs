@@ -9,6 +9,7 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use tauri::State;
 
@@ -17,6 +18,12 @@ use crate::error::{CommandError, ErrorKind};
 
 /// The most bytes one piece carries.
 const MAX_PIECE: usize = 1024 * 1024;
+
+/// How much decoded audio the app holds before it takes in more files from other players. A file
+/// that other players send is decoded in full (up to [`backing::MAX_SECONDS`], about 0.7 GB), and
+/// a tiny, highly compressed file decodes to a lot: the encoded size alone says little about the
+/// cost, so the cost is capped on its own. Files the user opens themselves are not limited.
+pub const MAX_PEER_DECODED_BYTES: usize = 3 * 1024 * 1024 * 1024;
 
 /// A file's id is its SHA-256 in lower case hex: nothing else is ever a path component here.
 fn valid_id(id: &str) -> bool {
@@ -31,9 +38,51 @@ fn checked_id(id: &str) -> Result<(), CommandError> {
     }
 }
 
-/// Where unfinished incoming files are kept (this run of the app only).
+/// Where unfinished incoming files are kept: a folder with a random name, only this user can
+/// enter (mode 0700 on Unix), made once per run of the app. A name anyone could guess, in a
+/// temporary folder other users can write to, would let them plant a link there.
+pub fn staging_dir() -> PathBuf {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("smart-beat-incoming-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        builder
+            .tempdir()
+            .map(tempfile::TempDir::keep)
+            // No private folder: a name of this run's own, which the commands create when needed.
+            .unwrap_or_else(|_| {
+                std::env::temp_dir().join(format!("smart-beat-incoming-{}", std::process::id()))
+            })
+    })
+    .clone()
+}
+
 fn stage_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("smart-beat-incoming-{}", std::process::id()))
+    staging_dir()
+}
+
+/// Whether `path` is a link: a staged part never is, and is not followed if it became one.
+fn is_link(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// The decoded size, in bytes, of what the loaded files hold (left and right as 32-bit floats).
+fn decoded_bytes(state: &AudioState) -> usize {
+    let inner = state.inner.lock().unwrap();
+    inner
+        .sources
+        .values()
+        .map(|s| {
+            s.audio
+                .frames()
+                .saturating_mul(2 * std::mem::size_of::<f32>())
+        })
+        .fold(0usize, usize::saturating_add)
 }
 
 fn part_path(dir: &Path, id: &str) -> PathBuf {
@@ -81,6 +130,9 @@ fn stage_begin(dir: &Path, id: &str, size: u64) -> Result<u64, CommandError> {
     }
     std::fs::create_dir_all(dir).map_err(|e| audio_error(format!("No room for the file: {e}")))?;
     let path = part_path(dir, id);
+    if is_link(&path) {
+        std::fs::remove_file(&path).ok();
+    }
     let have = std::fs::metadata(&path).map_or(0, |m| m.len());
     if have > size {
         // Not a part of this file: start over.
@@ -97,6 +149,10 @@ fn stage_append(dir: &Path, id: &str, offset: u64, bytes: &[u8]) -> Result<u64, 
         return Err(audio_error("The piece of the file has a wrong size"));
     }
     let path = part_path(dir, id);
+    if is_link(&path) {
+        std::fs::remove_file(&path).ok();
+        return Err(audio_error("The staged file is not a plain file"));
+    }
     let have = std::fs::metadata(&path).map_or(0, |m| m.len());
     if have != offset {
         return Err(audio_error(format!(
@@ -130,10 +186,21 @@ fn stage_finish(
 ) -> Result<SourceInfo, CommandError> {
     checked_id(id)?;
     let path = part_path(dir, id);
+    if is_link(&path) {
+        std::fs::remove_file(&path).ok();
+        return Err(audio_error("The staged file is not a plain file"));
+    }
     let bytes = std::fs::read(&path)
         .map_err(|e| audio_error(format!("The received file cannot be read: {e}")))?;
     // Whatever happens next, the staged file is not kept.
     std::fs::remove_file(&path).ok();
+    // A file another player sent is decoded in full: not when the app already holds a lot.
+    if decoded_bytes(state) > MAX_PEER_DECODED_BYTES {
+        return Err(CommandError::new(
+            ErrorKind::TooLarge,
+            "Too much audio is loaded to take in another file",
+        ));
+    }
     if sha256_hex(&bytes) != id {
         return Err(audio_error(
             "The received audio file is not the file that was offered",
@@ -343,6 +410,79 @@ mod tests {
         stage_append(dir.path(), &id, 0, &[7; 50]).unwrap();
         // The same id is offered again with a smaller size: the old part cannot be of it.
         assert_eq!(stage_begin(dir.path(), &id, 10).unwrap(), 0);
+    }
+
+    #[test]
+    fn the_staging_folder_is_random_private_and_the_same_all_run() {
+        let a = staging_dir();
+        assert_eq!(a, staging_dir());
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        // More than a process id: a name nobody can guess.
+        assert!(name.starts_with("smart-beat-incoming-"));
+        assert!(name.len() > "smart-beat-incoming-".len() + 5, "{name}");
+        assert_ne!(name, format!("smart-beat-incoming-{}", std::process::id()));
+        std::fs::create_dir_all(&a).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&a).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_staged_part_that_is_a_link_is_not_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "e".repeat(64);
+        let target = dir.path().join("elsewhere");
+        std::fs::write(&target, b"keep").unwrap();
+        std::os::unix::fs::symlink(&target, part_path(dir.path(), &id)).unwrap();
+        assert!(stage_append(dir.path(), &id, 4, &[1, 2, 3]).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"keep");
+        // Starting the file again removes the link and starts a plain one.
+        std::os::unix::fs::symlink(&target, part_path(dir.path(), &id)).unwrap();
+        assert_eq!(stage_begin(dir.path(), &id, 10).unwrap(), 0);
+        assert_eq!(stage_append(dir.path(), &id, 0, &[1, 2, 3]).unwrap(), 3);
+        assert_eq!(std::fs::read(&target).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn a_file_is_not_decoded_when_the_app_already_holds_too_much_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let receiver = state(dir.path());
+        let sender = state(&dir.path().join("a"));
+        let bytes = wav();
+        let info = add_source(&sender, "tone.wav".into(), bytes.clone()).unwrap();
+        stage_begin(dir.path(), &info.id, bytes.len() as u64).unwrap();
+        stage_append(dir.path(), &info.id, 0, &bytes).unwrap();
+        // A pool that already holds more decoded audio than the budget (a made-up big source).
+        {
+            let mut inner = receiver.inner.lock().unwrap();
+            let big = super::super::backing::DecodedAudio {
+                rate: 48_000,
+                channels: 2,
+                left: Vec::new(),
+                right: Vec::new(),
+            };
+            let frames = MAX_PEER_DECODED_BYTES / 8 + 1;
+            let mut audio = big;
+            audio.left = vec![0.0; frames];
+            audio.right = vec![0.0; frames];
+            inner.sources.insert(
+                "f".repeat(64),
+                super::super::LoadedSource {
+                    bytes: std::sync::Arc::new(Vec::new()),
+                    audio: std::sync::Arc::new(audio),
+                    reversed: None,
+                },
+            );
+        }
+        let err = stage_finish(&receiver, dir.path(), &info.id, "tone.wav").unwrap_err();
+        assert!(err.message.contains("Too much audio"), "{}", err.message);
+        // Nothing was decoded, and the staged file is gone.
+        assert!(source_size(&receiver, &info.id).is_err());
+        assert!(!part_path(dir.path(), &info.id).exists());
     }
 
     #[test]

@@ -29,6 +29,7 @@ function setup({ synthLatency = 60, engineLatency = 20, clock = true } = {}) {
   const follower = new LaneFollower(engine, {
     synthLatencyMs: () => synthLatency,
     now: () => time,
+    refreshMs: 0,
   });
   return {
     follower,
@@ -80,6 +81,187 @@ describe("LaneFollower", () => {
     follower.pause();
     expect(calls).toEqual(["rate 0.75", "seek 4000", "pause"]);
     expect(follower.isPlaying).toBe(false);
+  });
+
+  describe("the engine's clock", () => {
+    /** An engine whose clock the test can restart, speed up or make slow to answer. */
+    function drifting() {
+      let time = 1_000;
+      let offsetFrames = 0;
+      let rate = 48_000;
+      let rtt = 2;
+      let latency = 20;
+      let reads = 0;
+      const calls: string[] = [];
+      const engine: FollowerEngine = {
+        seekTo: (ms) => calls.push(`seek ${Math.round(ms)}`),
+        play: () => calls.push("play"),
+        playAt: (frame) => calls.push(`playAt ${Math.round(frame)}`),
+        pause: () => calls.push("pause"),
+        set playbackRate(_value: number) {},
+        get playbackRate() {
+          return 1;
+        },
+        clock: async () => {
+          reads += 1;
+          return {
+            frames: (time / 1000) * rate + offsetFrames,
+            sampleRate: rate,
+            latencyMs: latency,
+            at: time,
+            rtt,
+          };
+        },
+      };
+      const follower = new LaneFollower(engine, {
+        synthLatencyMs: () => 60,
+        now: () => time,
+        refreshMs: 0,
+      });
+      return {
+        follower,
+        calls,
+        reads: () => reads,
+        advance: (ms: number) => (time += ms),
+        // The engine restarted: its frame counter begins again.
+        restart: () => (offsetFrames = -(time / 1000) * rate),
+        setRate: (value: number) => (rate = value),
+        setRtt: (value: number) => (rtt = value),
+        setLatency: (value: number) => (latency = value),
+      };
+    }
+
+    it("does not aim a start with a reading that is old: it starts at once and reads again", async () => {
+      const t = drifting();
+      await t.follower.calibrate();
+      // The user paused for a minute: the reading is too old to aim with.
+      t.advance(60_000);
+      t.calls.length = 0;
+      const reads = t.reads();
+      t.follower.start(2_000, 1);
+      expect(t.calls.filter((c) => c.startsWith("playAt"))).toEqual([]);
+      expect(t.calls).toContain("play");
+      await vi.waitFor(() => expect(t.reads()).toBeGreaterThan(reads));
+    });
+
+    it("aims with a fresh reading again after it has read the clock", async () => {
+      const t = drifting();
+      await t.follower.calibrate();
+      t.advance(60_000);
+      t.follower.start(0, 1);
+      // The start's own reading (two reads) has landed.
+      await vi.waitFor(() => expect(t.reads()).toBeGreaterThanOrEqual(5));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      t.follower.pause();
+      t.calls.length = 0;
+      t.follower.start(0, 1);
+      expect(t.calls.some((c) => c.startsWith("playAt"))).toBe(true);
+    });
+
+    it("forgets the reading when the engine restarted (its frame counter went back) and reads again", async () => {
+      const t = drifting();
+      await t.follower.calibrate();
+      const before = t.reads();
+      t.advance(1_000);
+      t.restart();
+      // The engine's status shows a clock far from the one the reading predicts.
+      t.follower.onStatus({
+        positionMs: 0,
+        playing: false,
+        clockFrames: 100,
+        sampleRate: 48_000,
+      });
+      await vi.waitFor(() => expect(t.reads()).toBeGreaterThanOrEqual(before + 2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      t.calls.length = 0;
+      t.follower.start(0, 1);
+      // A start aims at the restarted counter (about a second of frames), not 50 000 frames ahead.
+      const frame = Number(t.calls.find((c) => c.startsWith("playAt"))?.split(" ")[1]);
+      expect(frame).toBeGreaterThan(0);
+      expect(frame).toBeLessThan(3_000);
+    });
+
+    it("forgets the reading when the output's sample rate changed", async () => {
+      const t = drifting();
+      await t.follower.calibrate();
+      const before = t.reads();
+      t.setRate(44_100);
+      t.follower.onStatus({
+        positionMs: 0,
+        playing: false,
+        clockFrames: (1_000 / 1000) * 44_100,
+        sampleRate: 44_100,
+      });
+      await vi.waitFor(() => expect(t.reads()).toBeGreaterThan(before));
+    });
+
+    it("keeps the reading while the engine's clock does what it predicts", async () => {
+      const t = drifting();
+      await t.follower.calibrate();
+      const before = t.reads();
+      t.advance(500);
+      t.follower.onStatus({
+        positionMs: 0,
+        playing: false,
+        clockFrames: (1_500 / 1000) * 48_000 + 480, // 10 ms off: a late poll
+        sampleRate: 48_000,
+      });
+      await Promise.resolve();
+      expect(t.reads()).toBe(before);
+    });
+
+    it("a better reading replaces an old one, a worse one does not replace a fresh one", async () => {
+      const t = drifting();
+      t.setRtt(2);
+      await t.follower.calibrate(1);
+      t.advance(100);
+      t.setRtt(40);
+      t.setLatency(35);
+      await t.follower.calibrate(1);
+      // Fresh and better: kept (the latency of the first reading is still what a start uses).
+      t.calls.length = 0;
+      t.follower.start(0, 1);
+      expect(t.calls.some((c) => c.startsWith("playAt"))).toBe(true);
+      // 60 - 20 = 40 ms later than now (1 100 ms): frame 1.14 s * 48 000.
+      expect(t.calls.find((c) => c.startsWith("playAt"))).toBe(
+        `playAt ${Math.round(1.14 * 48_000)}`,
+      );
+    });
+
+    it("reads the clock now and then by itself, so a start after a pause is still aimed", async () => {
+      vi.useFakeTimers();
+      try {
+        let time = 1_000;
+        let reads = 0;
+        const engine: FollowerEngine = {
+          seekTo: () => {},
+          play: () => {},
+          playAt: () => {},
+          pause: () => {},
+          playbackRate: 1,
+          clock: async () => {
+            reads += 1;
+            return { frames: time * 48, sampleRate: 48_000, latencyMs: 20, at: time, rtt: 2 };
+          },
+        };
+        const follower = new LaneFollower(engine, {
+          synthLatencyMs: () => 60,
+          now: () => time,
+          refreshMs: 1_000,
+        });
+        await follower.calibrate(1);
+        const before = reads;
+        time += 1_000;
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(reads).toBeGreaterThan(before);
+        follower.dispose();
+        const after = reads;
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(reads).toBe(after);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("while playing", () => {

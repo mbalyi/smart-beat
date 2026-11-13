@@ -38,18 +38,28 @@ export const PRESENCE_MS = 100;
 /** Operations in one frame stay below this many characters. */
 const FRAME_BUDGET = Math.floor(MAX_FRAME_CHARS * 0.7);
 
-/** Splits a batch of operations into frames that fit; null when one operation alone is too big. */
+/**
+ * Splits a batch of operations into frames that fit; null when one operation of the tab alone is
+ * too big. An audio lane operation never makes it null: those are small by construction (a clip is
+ * kept under 8 K characters), and one that is not is left out, because asking everyone to take the
+ * tab again would only bring the same operation back.
+ */
 export function splitOps(batch: readonly EditOp[]): EditOp[][] | null {
   const parts: EditOp[][] = [];
   let current: EditOp[] = [];
   let size = 0;
   // A big insert (pasted bars) is cut into small ones first.
   const ops = batch.flatMap((op) =>
-    JSON.stringify(op).length > FRAME_BUDGET ? (explode(op as Op) as EditOp[]) : [op],
+    !isAudioOp(op) && JSON.stringify(op).length > FRAME_BUDGET
+      ? (explode(op as Op) as EditOp[])
+      : [op],
   );
   for (const op of ops) {
     const length = JSON.stringify(op).length + 1;
-    if (length > FRAME_BUDGET) return null;
+    if (length > FRAME_BUDGET) {
+      if (isAudioOp(op)) continue;
+      return null;
+    }
     if (size + length > FRAME_BUDGET && current.length > 0) {
       parts.push(current);
       current = [];
@@ -190,8 +200,13 @@ interface Seat {
   canEdit: boolean;
   /** The guest shares audio lanes. */
   lanes: boolean;
+  /** How many of its lane batches were refused (after a few, its lane operations are ignored). */
+  laneRefusals: number;
   incoming: Reassembler;
 }
+
+/** A player whose lane batches are refused this many times is not asked to start over again. */
+export const MAX_LANE_REFUSALS = 3;
 
 /** The operations a seat understands: an app without audio lanes gets the tab's only. */
 const forSeat = (seat: Seat, ops: EditOp[]): EditOp[] =>
@@ -303,6 +318,7 @@ export class HostEditing implements RoomEditHooks {
       live: false,
       canEdit: this.canEditByDefault,
       lanes: this.link.seats().find((s) => s.id === id)?.lanes ?? false,
+      laneRefusals: 0,
       incoming: new Reassembler(),
     };
     this.seats.set(id, seat);
@@ -355,8 +371,14 @@ export class HostEditing implements RoomEditHooks {
     if (!ops) return this.resyncSeat(id, seat);
     let result: ReturnType<EditSync["receive"]>;
     if (audioOps.length > 0) {
+      // A player whose batches keep being refused is ignored: starting over for it every time
+      // would never end when the two ends disagree about what is allowed.
+      if (seat.laneRefusals >= MAX_LANE_REFUSALS) return;
       // Checked and applied before anything is sent on: a refused batch is not shared.
-      if (!this.options.lanes?.()?.apply(audioOps, false)) return this.resyncSeat(id, seat);
+      if (!this.options.lanes?.()?.apply(audioOps, false)) {
+        seat.laneRefusals += 1;
+        return this.resyncSeat(id, seat);
+      }
     }
     try {
       result = ops.length > 0 || audioOps.length === 0 ? this.sync.receive(ops, false) : "applied";
@@ -578,6 +600,8 @@ export class GuestEditing {
   /** The line dropped and this guest asked for what it missed: edits ahead of the gap wait for it. */
   private resuming = false;
   private lastSeq: number;
+  /** Lane batches the host sent that this end refused: after a few it stops asking to start over. */
+  private laneRefusals = 0;
   private readonly incoming = new Reassembler();
   private sentId = 0;
   private presenceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -645,9 +669,14 @@ export class GuestEditing {
     for (const listener of [...this.listeners]) listener();
   }
 
+  /** The host's lane operations were refused too often: this guest no longer takes part in the lanes. */
+  get lanesOff(): boolean {
+    return this.laneRefusals >= MAX_LANE_REFUSALS;
+  }
+
   /** This guest's own audio lane edits, sent to the host (false: not now, or not understood there). */
   sendLanes(ops: AudioOp[]): boolean {
-    if (this.ended || !this.editable || !this.options.hostLanes?.()) return false;
+    if (this.ended || this.lanesOff || !this.editable || !this.options.hostLanes?.()) return false;
     return this.sendOps(ops as EditOp[]);
   }
 
@@ -700,8 +729,12 @@ export class GuestEditing {
           const own = body.from === this.options.guest;
           const audioOps = found.ops.filter(isAudioOp);
           const tabOps = found.ops.filter((op) => !isAudioOp(op));
-          if (audioOps.length > 0 && !this.options.lanes?.()?.apply(audioOps, own)) {
-            return void this.link.send({ k: "resync" });
+          if (audioOps.length > 0 && !this.lanesOff) {
+            if (!this.options.lanes?.()?.apply(audioOps, own)) {
+              this.laneRefusals += 1;
+              this.notify();
+              return void this.link.send({ k: "resync" });
+            }
           }
           const result =
             tabOps.length > 0 || audioOps.length === 0

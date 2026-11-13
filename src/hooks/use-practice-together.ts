@@ -992,6 +992,16 @@ export function usePracticeTogether({
     inbox,
     snapshotRef,
   });
+  // The host's lane changes were refused too often (they do not fit this app): say so once.
+  const lanesOff = edit.lanesOff;
+  useEffect(() => {
+    if (!lanesOff) return;
+    toast.warning("The audio tracks are not shared with you any more", {
+      description:
+        "The host's audio track changes could not be applied here. The tab and the playback keep working; leave and join again to get the audio tracks back.",
+      id: "together-lanes-off",
+    });
+  }, [lanesOff]);
   const sources = useSourceSync({
     session: liveSession(),
     owns,

@@ -17,6 +17,7 @@
 import {
   MAX_SOURCE_BYTES,
   MAX_SOURCE_FILES,
+  SESSION_DECODED_QUOTA,
   SESSION_SOURCE_QUOTA,
   SOURCE_CHUNK_BYTES,
   SOURCE_IDS_PER_MESSAGE,
@@ -34,8 +35,11 @@ export interface SourceIo {
   stageBegin(id: string, size: number): Promise<number>;
   /** Adds the piece at `offset`: the bytes staged now. */
   stageAppend(id: string, offset: number, bytes: Uint8Array): Promise<number>;
-  /** Checks the staged file against its id and loads it. */
-  stageFinish(id: string, name: string): Promise<void>;
+  /**
+   * Checks the staged file against its id and loads it. Resolves with the bytes the decoded file
+   * holds, when known (the session counts them against {@link SESSION_DECODED_QUOTA}).
+   */
+  stageFinish(id: string, name: string): Promise<number | undefined | void>;
   stageAbort(id?: string): Promise<void>;
 }
 
@@ -56,8 +60,10 @@ export interface SourceSyncOptions {
   /** A file arrived and is loaded here. */
   arrived?: (id: string) => void;
   now?: () => number;
-  /** The most bytes taken in, and sent out, in a session (default {@link SESSION_SOURCE_QUOTA}). */
+  /** The most bytes taken in from, and sent to, each player in a session (default {@link SESSION_SOURCE_QUOTA}). */
   quota?: number;
+  /** The most decoded audio taken in (default {@link SESSION_DECODED_QUOTA}). */
+  decodedQuota?: number;
   /** How often stuck transfers are looked at (ms). */
   watchMs?: number;
 }
@@ -103,7 +109,7 @@ export interface TransferInfo {
 export interface SourceSyncState {
   /** Files the lanes need that are not loaded here and are on their way (or will be). */
   waiting: ReadonlySet<string>;
-  /** Files that could not be moved, with why. */
+  /** Files that could not be moved, with why (each file once; a player's failure counts too). */
   failed: { id: string; name: string; reason: string }[];
   transfers: TransferInfo[];
   /** The host: whether every player has every file. A guest: whether this player has them all. */
@@ -116,9 +122,24 @@ const REASONS: Record<string, string> = {
   "too-big": "the file is too large",
   unavailable: "nobody has it",
   checksum: "it arrived damaged",
+  failed: "it could not be taken in",
 };
 
+/** How many files are taken in at once. */
+export const MAX_PARALLEL_DOWNLOADS = 2;
+
+/** How long a file that nobody has stays "on the way" before it is reported as lost. */
+export const MISSING_GRACE_MS = 8_000;
+
 export const sourceReasonText = (reason: string): string => REASONS[reason] ?? reason;
+
+/** The short code a failure is told to the other end as (never a message with a path in it). */
+function codeOf(reason: string): string {
+  if (reason in REASONS) return reason;
+  if (/damaged|not the file that was offered/i.test(reason)) return "checksum";
+  if (/too much audio/i.test(reason)) return "quota";
+  return "failed";
+}
 
 export class SourceSync {
   private readonly io: SourceIo;
@@ -127,6 +148,7 @@ export class SourceSync {
   private readonly options: SourceSyncOptions;
   private readonly now: () => number;
   private readonly quota: number;
+  private readonly decodedQuota: number;
 
   /** What the shared lanes need (id to the name a lane calls it). */
   private needed = new Map<string, string>();
@@ -140,9 +162,16 @@ export class SourceSync {
   private readonly downloads = new Map<string, Download>();
   private readonly uploads = new Map<string, Upload>();
   private readonly failed = new Map<string, string>();
-  /** Bytes taken in and sent out (the session's quota). */
+  /** The host: a file that a player could not take in (`peer:id`), as that player said. */
+  private readonly peerFailed = new Map<string, { peer: string; id: string; reason: string }>();
+  /** The host: since when a needed file has nobody who can provide it. */
+  private readonly missingSince = new Map<string, number>();
+  /** Bytes taken in (the session's quota) and the decoded audio they came to. */
   private bytesIn = 0;
-  private bytesOut = 0;
+  private decodedIn = 0;
+  /** Bytes sent to each player, and how far each file was sent to each (a resend is not new). */
+  private readonly bytesOut = new Map<string, number>();
+  private readonly charged = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private ended = false;
   private cached: SourceSyncState | null = null;
@@ -156,6 +185,7 @@ export class SourceSync {
     this.role = options.role;
     this.now = options.now ?? (() => Date.now());
     this.quota = options.quota ?? SESSION_SOURCE_QUOTA;
+    this.decodedQuota = options.decodedQuota ?? SESSION_DECODED_QUOTA;
     this.timer = setInterval(() => this.watch(), options.watchMs ?? 2_000);
   }
 
@@ -201,7 +231,14 @@ export class SourceSync {
     this.needed = next;
     this.files = files;
     for (const id of [...this.failed.keys()]) if (!next.has(id)) this.failed.delete(id);
-    for (const id of loaded) this.have.add(id);
+    for (const [key, failure] of this.peerFailed)
+      if (!next.has(failure.id)) this.peerFailed.delete(key);
+    for (const id of [...this.missingSince.keys()]) if (!next.has(id)) this.missingSince.delete(id);
+    for (const id of loaded) {
+      this.have.add(id);
+      // The file turned up here after all (it only took a while to open).
+      if (this.failed.get(id) === "unavailable") this.failed.delete(id);
+    }
     // A file a lane no longer plays is not transferred any more.
     for (const [id, download] of this.downloads) {
       if (!next.has(id)) this.dropDownload(id, download);
@@ -221,6 +258,8 @@ export class SourceSync {
     this.peers.delete(peer);
     this.theirHave.delete(peer);
     this.told.delete(peer);
+    for (const [key, failure] of this.peerFailed)
+      if (failure.peer === peer) this.peerFailed.delete(key);
     for (const [key, upload] of this.uploads) if (upload.peer === peer) this.uploads.delete(key);
     for (const [id, download] of this.downloads) {
       if (download.peer === peer) this.dropDownload(id, download);
@@ -243,7 +282,10 @@ export class SourceSync {
       if (this.have.has(id) || this.downloads.has(id) || this.failed.has(id)) continue;
       const peer = [...this.peers].find((p) => this.theirHave.get(p)?.has(id));
       if (peer === undefined) continue;
-      if (this.bytesIn >= this.quota) {
+      // A few files at a time: the next one starts when one ends, so the quotas are checked with
+      // what the earlier ones came to (hundreds announced at once would all pass the check).
+      if (this.downloads.size >= MAX_PARALLEL_DOWNLOADS) break;
+      if (this.bytesIn >= this.quota || this.decodedIn >= this.decodedQuota) {
         this.failed.set(id, "quota");
         continue;
       }
@@ -286,22 +328,34 @@ export class SourceSync {
       case "src-have": {
         const set = this.theirHave.get(peer) ?? new Set<string>();
         this.theirHave.set(peer, set);
-        for (const id of msg.ids) set.add(id);
+        for (const id of msg.ids) {
+          set.add(id);
+          // This player has it now: whatever went wrong before is over, and a file nobody had is found.
+          this.peerFailed.delete(`${peer}:${id}`);
+          if (this.failed.get(id) === "unavailable") this.failed.delete(id);
+        }
         this.reconcile();
         return;
       }
       case "src-want":
         return void this.serve(peer, msg.id);
       case "src-offer":
-        return void this.onOffer(peer, msg.id, msg.size);
+        return void this.onOffer(peer, msg.id, msg.size, msg.refuse);
       case "src-ack":
         return this.onAck(peer, msg.id, msg.n, msg.rewind === true);
       case "src-chunk":
         return this.onChunk(peer, msg.id, msg.off, msg.data);
-      case "src-done":
+      case "src-done": {
         this.uploads.delete(`${peer}:${msg.id}`);
+        const key = `${peer}:${msg.id}`;
+        if (msg.ok) this.peerFailed.delete(key);
+        // A player that gave a file up because no lane plays it any more has not failed.
+        else if (msg.reason !== "cancelled" && this.needed.has(msg.id)) {
+          this.peerFailed.set(key, { peer, id: msg.id, reason: codeOf(msg.reason ?? "failed") });
+        }
         this.changed();
         return;
+      }
     }
   }
 
@@ -309,8 +363,14 @@ export class SourceSync {
   private async serve(peer: string, id: string) {
     const size = this.have.has(id) ? await this.io.size(id).catch(() => null) : null;
     if (this.ended) return;
-    if (size === null || size <= 0 || this.bytesOut + size > this.quota) {
+    if (size === null || size <= 0) {
       this.link.send(peer, { type: "src-offer", id, size: 0 });
+      return;
+    }
+    // Each player has a quota of its own, and what was sent to it already does not count twice.
+    const sentBefore = Math.min(this.charged.get(`${peer}:${id}`) ?? 0, size);
+    if ((this.bytesOut.get(peer) ?? 0) + (size - sentBefore) > this.quota) {
+      this.link.send(peer, { type: "src-offer", id, size: 0, refuse: "quota" });
       return;
     }
     this.uploads.set(`${peer}:${id}`, {
@@ -326,9 +386,14 @@ export class SourceSync {
     this.changed();
   }
 
-  private async onOffer(peer: string, id: string, size: number) {
+  private async onOffer(peer: string, id: string, size: number, refuse?: "quota") {
     const download = this.downloads.get(id);
     if (!download || download.peer !== peer) return;
+    if (size <= 0 && refuse === "quota") {
+      // The sender has sent this player all it may: asking again will not change that, and it
+      // does have the file, so this is not "nobody has it".
+      return this.fail(id, download, "quota", false);
+    }
     if (size <= 0) {
       // That player does not have it after all: ask another one, or give up.
       this.downloads.delete(id);
@@ -339,7 +404,9 @@ export class SourceSync {
       return;
     }
     if (size > MAX_SOURCE_BYTES) return this.fail(id, download, "too-big");
-    if (this.bytesIn + size > this.quota) return this.fail(id, download, "quota");
+    if (this.bytesIn + size > this.quota || this.decodedIn >= this.decodedQuota) {
+      return this.fail(id, download, "quota");
+    }
     try {
       download.size = size;
       download.have = await this.io.stageBegin(id, size);
@@ -393,7 +460,9 @@ export class SourceSync {
 
   private async finish(id: string, download: Download) {
     try {
-      await this.io.stageFinish(id, this.files.get(id) ?? download.name);
+      const decoded = await this.io.stageFinish(id, this.files.get(id) ?? download.name);
+      // The decoded size when the engine says it; else a generous guess from the file's size.
+      this.decodedIn += typeof decoded === "number" ? decoded : download.size * 12;
     } catch (error) {
       const reason = error instanceof Error ? error.message : "checksum";
       return this.fail(id, download, reason);
@@ -407,9 +476,11 @@ export class SourceSync {
     this.reconcile();
   }
 
-  private fail(id: string, download: Download, reason: string) {
+  private fail(id: string, download: Download, reason: string, tell = true) {
     if (this.downloads.get(id) === download) this.downloads.delete(id);
-    this.link.send(download.peer, { type: "src-done", id, ok: false, reason: "failed" });
+    if (tell) {
+      this.link.send(download.peer, { type: "src-done", id, ok: false, reason: codeOf(reason) });
+    }
     this.failed.set(id, reason);
     void this.io.stageAbort(id).catch(() => {});
     this.changed();
@@ -450,7 +521,16 @@ export class SourceSync {
           data: toBase64(bytes),
         });
         upload.sent += bytes.length;
-        this.bytesOut += bytes.length;
+        // Only bytes this player has not been sent before count (a resend is free).
+        const key = `${upload.peer}:${upload.id}`;
+        const before = this.charged.get(key) ?? 0;
+        if (upload.sent > before) {
+          this.charged.set(key, upload.sent);
+          this.bytesOut.set(
+            upload.peer,
+            (this.bytesOut.get(upload.peer) ?? 0) + upload.sent - before,
+          );
+        }
       }
     } catch {
       this.link.send(upload.peer, { type: "src-offer", id: upload.id, size: 0 });
@@ -461,10 +541,14 @@ export class SourceSync {
     }
   }
 
-  /** Looks for transfers that stopped: asks again, or sends the pieces again. */
-  private watch() {
+  /**
+   * Looks for transfers that stopped (asks again, or sends the pieces again) and, on the host, for
+   * a file nobody can provide any more. Runs on a timer; public so a test can run it.
+   */
+  watch(): void {
     if (this.ended) return;
     const now = this.now();
+    this.checkMissing(now);
     for (const [id, download] of this.downloads) {
       if (now - download.lastProgress > 6_000) {
         download.lastProgress = now;
@@ -482,6 +566,36 @@ export class SourceSync {
       }
       void this.pump(upload);
     }
+  }
+
+  /**
+   * The host: a needed file that it does not have, is not being sent and that no player has
+   * announced (its only holder left, or never had it) is reported as lost after a moment, so Play's
+   * message can say what to do instead of "still on the way" for ever. The moment lets a file that
+   * is only being opened here, or announced by a player a little later, turn up first.
+   */
+  private checkMissing(now: number) {
+    if (this.role !== "host" || this.peers.size === 0) return;
+    let changed = false;
+    for (const id of this.needed.keys()) {
+      const providable =
+        this.have.has(id) ||
+        this.downloads.has(id) ||
+        this.failed.has(id) ||
+        [...this.peers].some((p) => this.theirHave.get(p)?.has(id));
+      if (providable) {
+        this.missingSince.delete(id);
+        continue;
+      }
+      const since = this.missingSince.get(id) ?? now;
+      this.missingSince.set(id, since);
+      if (now - since >= MISSING_GRACE_MS) {
+        this.failed.set(id, "unavailable");
+        this.missingSince.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) this.changed();
   }
 
   // ----- what the page shows ---------------------------------------------------------------------
@@ -521,6 +635,19 @@ export class SourceSync {
     return list;
   }
 
+  /** Each file that could not be moved once: this player's own failure first, then a player's. */
+  private failedList(): SourceSyncState["failed"] {
+    const list = new Map<string, string>(this.failed);
+    for (const failure of this.peerFailed.values()) {
+      if (!list.has(failure.id)) list.set(failure.id, failure.reason);
+    }
+    return [...list].map(([id, reason]) => ({
+      id,
+      name: this.needed.get(id) ?? "audio file",
+      reason,
+    }));
+  }
+
   /** What the page needs to draw (the same object until something changes). */
   state(): SourceSyncState {
     if (this.cached) return this.cached;
@@ -553,11 +680,7 @@ export class SourceSync {
     }
     this.cached = {
       waiting: this.lastWaiting,
-      failed: [...this.failed].map(([id, reason]) => ({
-        id,
-        name: this.needed.get(id) ?? "audio file",
-        reason,
-      })),
+      failed: this.failedList(),
       transfers,
       complete: this.complete,
     };

@@ -126,6 +126,12 @@ function midiFile() {
   return file;
 }
 
+/** Whether the lanes engine is ready for a start (the part of `prepareStart` that is about it). */
+const lanesReady = (player: ScorePlayer, timeoutMs: number) =>
+  (
+    player as unknown as { lanePlayback: { ready(ms: number): Promise<boolean> } }
+  ).lanePlayback.ready(timeoutMs);
+
 const transports = () => mocked.engineTransport.mock.calls.map(([command]) => command);
 /** The positions the lanes engine was sent to (ms). */
 const seeks = () =>
@@ -227,11 +233,56 @@ describe("ScorePlayer: audio lanes with the SoundFonts synthesizer (hybrid)", ()
     api.midiLoad.trigger(midiFile());
     await vi.waitFor(() => expect(mocked.loadEngineSong).toHaveBeenCalled());
     let ready: boolean | null = null;
-    void player.prepareStart(2_000).then((value) => (ready = value));
+    void lanesReady(player, 2_000).then((value) => (ready = value));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(ready).toBeNull();
     release();
     await vi.waitFor(() => expect(ready).not.toBeNull());
+  });
+
+  it("is not ready after a load that failed, and ready again after one that works", async () => {
+    const { player, api, onError } = await setup();
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    mocked.loadEngineSong.mockImplementationOnce(() => Promise.reject(new Error("no room")));
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    // The song has lanes and the engine does not have the song: a shared start must not go ahead.
+    expect(await lanesReady(player, 500)).toBe(false);
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(() => expect(mocked.loadEngineSong).toHaveBeenCalledTimes(2));
+    await vi.waitFor(async () => expect(await lanesReady(player, 500)).toBe(true));
+  });
+
+  it("is not ready after a reload that failed, even though an earlier song loaded", async () => {
+    const { player, api } = await setup();
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(async () => expect(await lanesReady(player, 500)).toBe(true));
+    mocked.loadEngineSong.mockImplementationOnce(() => Promise.reject(new Error("no room")));
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(async () => expect(await lanesReady(player, 500)).toBe(false));
+  });
+
+  it("waits for a lane change that comes in while the song loads", async () => {
+    const { player, api } = await setup();
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    let release: () => void = () => {};
+    mocked.loadEngineSong.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    api.midiLoad.trigger(midiFile());
+    await vi.waitFor(() => expect(mocked.loadEngineSong).toHaveBeenCalled());
+    let ready: boolean | null = null;
+    void lanesReady(player, 2_000).then((value) => (ready = value));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    // A mix change arrives while the load is still going: the start waits for it as well.
+    player.setMix(withLane(mixFromScore(parseScore(fixtureBytes("practice-song.gp")).summary)));
+    release();
+    await vi.waitFor(() => expect(ready).toBe(true));
+    expect(mocked.setEngineLanes).toHaveBeenCalled();
   });
 
   it("stays off with lanes: false", async () => {

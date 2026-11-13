@@ -35,9 +35,7 @@ fn tone_wav(seconds: f64) -> Vec<u8> {
 
 /// Where the staging commands keep unfinished files in this run.
 fn staged(id: &str) -> PathBuf {
-    std::env::temp_dir()
-        .join(format!("smart-beat-incoming-{}", std::process::id()))
-        .join(format!("{id}.part"))
+    smart_beat_lib::audio::transfer::staging_dir().join(format!("{id}.part"))
 }
 
 fn raw(response: tauri::ipc::Response) -> Vec<u8> {

@@ -30,6 +30,8 @@ export interface SharedEditing {
   guests: { id: string; name: string; live: boolean; canEdit: boolean }[];
   /** Changes whenever the players or rights changed (to redraw cursors). */
   version: number;
+  /** A guest: the host's audio lane changes were refused too often, so the lanes are not shared with it. */
+  lanesOff: boolean;
   /** The audio lanes, shared along with the tab (see `LaneSharing`). */
   lanes: {
     /** This player's lane edits are sent now. */
@@ -51,6 +53,7 @@ export const NO_SHARED_EDITING: SharedEditing = {
   sync: null,
   guests: [],
   version: 0,
+  lanesOff: false,
   lanes: NO_LANES,
 };
 
@@ -209,6 +212,7 @@ export function useSharedEditing({
         sync: host.sync,
         guests: host.editors(),
         version,
+        lanesOff: false,
         lanes: { active: true, send: (ops: AudioOp[]) => host.sendLanes(ops), attach },
       };
     }
@@ -220,6 +224,7 @@ export function useSharedEditing({
         players: guest.players,
         sync: guest.sync,
         version,
+        lanesOff: guest.lanesOff,
         lanes: { active: guest.editable, send: (ops: AudioOp[]) => guest.sendLanes(ops), attach },
       };
     }

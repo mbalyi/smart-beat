@@ -53,7 +53,11 @@ export const appSourceIo: SourceIo = {
   chunk: audioSourceChunk,
   stageBegin: audioStageBegin,
   stageAppend: audioStageAppend,
-  stageFinish: async (id, name) => void (await audioStageFinish(id, name)),
+  // The decoded size (left and right channels as 32-bit floats) is counted against the session.
+  stageFinish: async (id, name) => {
+    const info = await audioStageFinish(id, name);
+    return Math.round((info.durationMs / 1000) * info.sampleRate * 8);
+  },
   stageAbort: (id) => audioStageAbort(id).catch(() => {}),
 };
 

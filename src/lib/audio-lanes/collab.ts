@@ -63,8 +63,11 @@ export const PERSONAL_LANE_FIELDS = [
 ] as const;
 
 type SharedField = (typeof SHARED_LANE_FIELDS)[number];
-/** A lane as shared: its shared fields and its clips. */
-export type SharedLane = Pick<AudioLane, SharedField | "id" | "clips">;
+/**
+ * A lane as shared: its shared fields. Its clips travel as operations of their own (one clip is
+ * small, a whole lane of clips would not fit in a message).
+ */
+export type SharedLane = Pick<AudioLane, SharedField | "id">;
 
 /** A file the lanes play, as shared: no path (that is this computer's), always an embedded file. */
 export type SharedSource = Pick<AudioSource, "id" | "name" | "ext">;
@@ -97,6 +100,8 @@ export const MAX_CLIPS_PER_LANE = 2_000;
 export const MAX_SHARED_SOURCES = 512;
 /** The most operations in one batch from another player. */
 export const MAX_AUDIO_OPS = 4_000;
+/** The longest lane name that is shared (characters). */
+export const MAX_LANE_NAME = 120;
 /** A clip bigger than this (as JSON) is not shared (its gain envelope or stretch markers are huge). */
 export const MAX_CLIP_JSON = 8_000;
 
@@ -110,12 +115,14 @@ function sharedFields(lane: AudioLane): Pick<AudioLane, SharedField> {
     const value = lane[key];
     if (value !== undefined) fields[key] = value;
   }
+  // The other end refuses a longer name (the same limit as Rust's): it is cut, not refused.
+  if (typeof fields.name === "string") fields.name = fields.name.slice(0, MAX_LANE_NAME);
   return fields as Pick<AudioLane, SharedField>;
 }
 
-/** What goes to the other players for a lane. */
+/** What goes to the other players for a lane (without its clips). */
 export function sharedLane(lane: AudioLane): SharedLane {
-  return { id: lane.id, ...sharedFields(lane), clips: lane.clips };
+  return { id: lane.id, ...sharedFields(lane) };
 }
 
 /** What goes to the other players for a file; null for a file nobody else can get by its id. */
@@ -149,6 +156,8 @@ export function diffAudio(prev: AudioLanesSettings, next: AudioLanesSettings): A
     const before = prevLanes.get(lane.id);
     if (!before) {
       ops.push({ t: "a-lane-add", lane: sharedLane(lane), at });
+      // The clips follow one by one: a lane with many clips would not fit in one message.
+      for (const clip of lane.clips) ops.push({ t: "a-clip-set", lane: lane.id, clip });
       return;
     }
     const was = sharedFields(before);
@@ -199,7 +208,9 @@ export function diffAudio(prev: AudioLanesSettings, next: AudioLanesSettings): A
     set: (region) => ({ t: "a-region-set", region }),
     del: (id) => ({ t: "a-region-del", id }),
   }).forEach((op) => ops.push(op));
-  return ops;
+  // What the other end would refuse is not sent (a clip with a huge envelope, say): one refused
+  // operation would make it ask for everything again, and the same state would be refused again.
+  return ops.filter((op) => validAudioOps([op]) !== null);
 }
 
 function diffById<T extends { id: string }>(
@@ -215,10 +226,10 @@ function diffById<T extends { id: string }>(
   ];
 }
 
-/** The lane's personal fields from `from`, put on a lane another player shared. */
+/** The shared fields another player sent, put on `base` (which keeps its personal side and its clips). */
 function withShared(base: AudioLane, shared: SharedLane): AudioLane {
   const { parent, ...rest } = sharedFields(shared as AudioLane);
-  const lane = { ...base, ...rest, clips: shared.clips } as AudioLane;
+  const lane = { ...base, ...rest } as AudioLane;
   if (parent === undefined) delete lane.parent;
   else lane.parent = parent;
   return lane;
@@ -232,6 +243,11 @@ function withShared(base: AudioLane, shared: SharedLane): AudioLane {
 export function applyAudioOps(
   audio: AudioLanesSettings,
   ops: readonly AudioOp[],
+  /**
+   * Lanes that are gone here, by id, as they were: a lane that an operation adds again (an undo of
+   * a delete) gets its own mix back instead of the defaults.
+   */
+  gone?: ReadonlyMap<string, AudioLane>,
 ): AudioLanesSettings {
   let lanes = [...audio.lanes];
   let sources = [...audio.sources];
@@ -273,10 +289,10 @@ export function applyAudioOps(
         if (existing >= 0) {
           lanes[existing] = withShared(lanes[existing]!, op.lane);
         } else {
-          const lane = withShared(
-            oldLanes.get(op.lane.id) ?? newLane(op.lane.name, op.lane.id),
-            op.lane,
-          );
+          // A lane that comes back keeps its personal side, never its old clips: they follow.
+          const base =
+            oldLanes.get(op.lane.id) ?? gone?.get(op.lane.id) ?? newLane(op.lane.name, op.lane.id);
+          const lane = withShared({ ...base, clips: [] }, op.lane);
           lanes.splice(Math.min(Math.max(0, op.at), lanes.length), 0, lane);
         }
         break;
@@ -416,8 +432,8 @@ function validClip(c: unknown): c is AudioClip {
 }
 
 function validLaneFields(f: Record<string, unknown>, complete: boolean): boolean {
-  // An operation names shared fields only (a lane add also has its id and clips).
-  const allowed: string[] = [...SHARED_LANE_FIELDS, "id", "clips"];
+  // An operation names shared fields only (a lane add also has its id).
+  const allowed: string[] = [...SHARED_LANE_FIELDS, "id"];
   if (Object.keys(f).some((key) => !allowed.includes(key))) return false;
   const need = (key: SharedField, ok: boolean) => (key in f ? ok : !complete);
   return (
@@ -461,14 +477,7 @@ export function validAudioOps(raw: readonly unknown[]): AudioOp[] | null {
         break;
       case "a-lane-add": {
         const l = op.lane;
-        ok =
-          isObject(l) &&
-          isId(l.id) &&
-          validLaneFields(l, true) &&
-          Array.isArray(l.clips) &&
-          l.clips.length <= MAX_CLIPS_PER_LANE &&
-          l.clips.every(validClip) &&
-          isNum(op.at);
+        ok = isObject(l) && isId(l.id) && validLaneFields(l, true) && isNum(op.at);
         break;
       }
       case "a-lane-set":
@@ -622,4 +631,53 @@ export function sourceEntries(audio: AudioLanesSettings): SourceEntry[] {
     );
     return { id: source.id, name: lane?.name ?? source.name, file: fileNameOf(source) };
   });
+}
+
+// ----- this player's own mix, for undo ---------------------------------------------------------------
+
+/** The mix of a lane that was changed (its personal fields, as they were or are to be). */
+export interface MixChange {
+  id: string;
+  set: Record<string, unknown>;
+}
+
+/**
+ * What changed in the personal fields of the lanes both states have: the values of `to`. The shared
+ * operations leave these alone, so undo keeps them in step on its own.
+ */
+export function mixChanges(from: AudioLanesSettings, to: AudioLanesSettings): MixChange[] {
+  const before = new Map(from.lanes.map((l) => [l.id, l]));
+  const changes: MixChange[] = [];
+  for (const lane of to.lanes) {
+    const was = before.get(lane.id);
+    if (!was) continue;
+    const set: Record<string, unknown> = {};
+    for (const key of PERSONAL_LANE_FIELDS) {
+      if (!same(was[key], lane[key])) set[key] = lane[key] ?? null;
+    }
+    if (Object.keys(set).length > 0) changes.push({ id: lane.id, set });
+  }
+  return changes;
+}
+
+/** The mix changes put on the lanes that are still there (a field that was unset comes back unset). */
+export function applyMixChanges(
+  audio: AudioLanesSettings,
+  changes: readonly MixChange[],
+): AudioLanesSettings {
+  if (changes.length === 0) return audio;
+  const byId = new Map(changes.map((c) => [c.id, c.set]));
+  return {
+    ...audio,
+    lanes: audio.lanes.map((lane) => {
+      const set = byId.get(lane.id);
+      if (!set) return lane;
+      const next = { ...lane } as unknown as Record<string, unknown>;
+      for (const [key, value] of Object.entries(set)) {
+        if (value === null && (key === "height" || key === "shownInScore")) delete next[key];
+        else next[key] = value;
+      }
+      return next as unknown as AudioLane;
+    }),
+  };
 }

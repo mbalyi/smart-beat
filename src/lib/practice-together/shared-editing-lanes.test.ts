@@ -276,4 +276,68 @@ describe("shared editing: audio lanes", () => {
     const once = applyAudioOps(EMPTY_AUDIO, snapshotOps(base));
     expect(applyAudioOps(once, snapshotOps(base))).toEqual(once);
   });
+
+  it("a lane with many clips reaches a guest that joins, and a guest's edit of it is shared", async () => {
+    let big = addLane(addSource(EMPTY_AUDIO, SRC), newLane("Big", "lane-big"));
+    for (let i = 0; i < 120; i++) {
+      big = addClip(big, "lane-big", newClip(SRC.id, "bass.wav", i * 100, 90, `clip-${i}`));
+    }
+    const t = setup(big);
+    const g = t.join("g1");
+    await t.settle();
+    // No endless starting over: the tab was not sent again, and the guest has every clip.
+    expect(t.reshared).toEqual([]);
+    expect(g.edit.live).toBe(true);
+    expect(g.lanes.audio.lanes[0]!.clips).toHaveLength(120);
+    // A change of one clip of that lane goes the other way.
+    const moved = {
+      ...g.lanes.audio,
+      lanes: g.lanes.audio.lanes.map((l) => ({
+        ...l,
+        clips: l.clips.map((c) => (c.id === "clip-7" ? { ...c, gainDb: -6 } : c)),
+      })),
+    };
+    expect(g.lanes.edit(moved, (ops) => g.edit.sendLanes(ops))).toBe(true);
+    await t.settle();
+    expect(t.hostLanes.audio.lanes[0]!.clips.find((c) => c.id === "clip-7")!.gainDb).toBe(-6);
+  });
+
+  it("stops asking for the tab again when a guest's lane batches keep being refused", async () => {
+    const t = setup(songWithLane());
+    const g = t.join("g1");
+    await t.settle();
+    t.hostLanes.apply = () => false;
+    for (let i = 0; i < 6; i++) {
+      // The host sends the tab again and the guest is up to date once more (what a real guest does).
+      t.host.receive("g1", { k: "since", seq: t.host.seq, resume: true });
+      await t.settle();
+      g.edit.sendLanes([{ t: "a-lane-del", id: "lane-bass" }]);
+      await t.settle();
+    }
+    // Asked a few times, then ignored: no endless loop.
+    expect(t.reshared.length).toBe(3);
+  });
+
+  it("a guest that cannot take the host's lanes stops asking after a few tries and keeps the tab", async () => {
+    const t = setup(songWithLane());
+    const g = t.join("g1");
+    await t.settle();
+    g.lanes.apply = () => false;
+    for (let i = 0; i < 6; i++) {
+      t.host.receive("g1", { k: "since", seq: t.host.seq, resume: true });
+      await t.settle();
+      t.hostLanes.edit(updateLane(t.hostLanes.audio, "lane-bass", { name: `Name ${i}` }), (ops) =>
+        t.host.sendLanes(ops),
+      );
+      await t.settle();
+    }
+    expect(g.edit.lanesOff).toBe(true);
+    // Asked three times, not six; and the tab keeps working.
+    expect(t.reshared.length).toBe(3);
+    t.host.receive("g1", { k: "since", seq: t.host.seq, resume: true });
+    await t.settle();
+    t.hostEditor.setFret(3);
+    await t.settle();
+    expect(g.edit.live).toBe(true);
+  });
 });

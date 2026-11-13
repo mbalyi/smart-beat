@@ -5,7 +5,12 @@ import {
   SOURCE_WINDOW,
 } from "@/lib/practice-together/protocol";
 import type { SourceMessage } from "@/lib/practice-together/protocol";
-import { SourceSync, type SourceIo } from "@/lib/practice-together/source-transfer";
+import {
+  MAX_PARALLEL_DOWNLOADS,
+  MISSING_GRACE_MS,
+  SourceSync,
+  type SourceIo,
+} from "@/lib/practice-together/source-transfer";
 
 /** A file with a made-up content id (the real id is a SHA-256; here only its shape matters). */
 const idOf = (n: number) => n.toString(16).padStart(64, "0");
@@ -15,6 +20,8 @@ class FakeIo implements SourceIo {
   files = new Map<string, Uint8Array>();
   staged = new Map<string, Uint8Array>();
   badChecksum = false;
+  /** What a finished file decodes to (bytes), as the engine would say. */
+  decoded: number | undefined = undefined;
   aborted: (string | undefined)[] = [];
   async size(id: string) {
     return this.files.get(id)?.length ?? null;
@@ -41,6 +48,7 @@ class FakeIo implements SourceIo {
     this.staged.delete(id);
     if (this.badChecksum) throw new Error("It arrived damaged");
     this.files.set(id, bytes);
+    return this.decoded;
   }
   async stageAbort(id?: string) {
     this.aborted.push(id);
@@ -60,7 +68,9 @@ interface Player {
 }
 
 /** A host and guests, linked through a queue: nothing arrives until `settle`. */
-function network(options: { quota?: number; guests?: string[] } = {}) {
+function network(
+  options: { quota?: number; decodedQuota?: number; guests?: string[]; clock?: { t: number } } = {},
+) {
   const queue: { to: string; from: string; text: string }[] = [];
   const sent: SourceMessage[] = [];
   /** Messages this test drops on the way. */
@@ -69,13 +79,15 @@ function network(options: { quota?: number; guests?: string[] } = {}) {
   let maxInFlight = 0;
   const inFlight = new Map<string, number>();
 
-  function add(id: string, role: "host" | "guest", quota?: number) {
+  function add(id: string, role: "host" | "guest", quota?: number, decodedQuota?: number) {
     const io = new FakeIo();
     const player = { io, arrived: [] as string[], paused: false } as Player;
     player.sync = new SourceSync({
       io,
       role,
       quota,
+      decodedQuota,
+      now: options.clock ? () => options.clock!.t : undefined,
       link: {
         send: (peer, msg) => {
           // Every message must survive the real frame: encode and decode it.
@@ -93,8 +105,10 @@ function network(options: { quota?: number; guests?: string[] } = {}) {
     players.set(id, player);
     return player;
   }
-  const host = add("host", "host", options.quota);
-  const guests = (options.guests ?? ["g1"]).map((id) => add(id, "guest", options.quota));
+  const host = add("host", "host", options.quota, options.decodedQuota);
+  const guests = (options.guests ?? ["g1"]).map((id) =>
+    add(id, "guest", options.quota, options.decodedQuota),
+  );
   // A guest talks to "host"; the host talks to a guest by its id.
   const ids = options.guests ?? ["g1"];
   for (const id of ids) {
@@ -300,9 +314,12 @@ describe("sharing audio files: limits and failures", () => {
     net.host.sync.setNeeded(listed([1]), [idOf(1)]);
     net.guest().sync.setNeeded(listed([1]), []);
     await net.settle();
-    // The sender would not send past its quota: the guest is told nobody has it.
+    // The sender would not send past its quota: the guest is told so (the host has the file, so it
+    // is not "nobody has it").
     expect(net.guest().io.files.has(idOf(1))).toBe(false);
-    expect(net.guest().sync.state().failed).toHaveLength(1);
+    expect(net.guest().sync.state().failed).toEqual([
+      expect.objectContaining({ id: idOf(1), reason: "quota" }),
+    ]);
   });
 
   it("a file that arrives damaged is refused, not kept, and said so", async () => {
@@ -341,5 +358,126 @@ describe("sharing audio files: limits and failures", () => {
     net.host.sync.receive("g1", { type: "src-want", id: idOf(9) });
     await net.settle();
     expect(net.sent).toContainEqual({ type: "src-offer", id: idOf(9), size: 0 });
+  });
+});
+
+describe("sharing audio files: quotas, failures and lost files", () => {
+  it("every guest has a quota of its own: a file for two guests does not spend one quota twice", async () => {
+    const size = SOURCE_CHUNK_BYTES * 5;
+    // Room for the file once per guest, not twice in all.
+    const net = network({ guests: ["g1", "g2"], quota: size + 100 });
+    net.host.io.files.set(idOf(1), bytesOf(size));
+    net.host.sync.setNeeded(listed([1]), [idOf(1)]);
+    net.guest("g1").sync.setNeeded(listed([1]), []);
+    net.guest("g2").sync.setNeeded(listed([1]), []);
+    await net.settle();
+    expect(net.guest("g1").io.files.has(idOf(1))).toBe(true);
+    expect(net.guest("g2").io.files.has(idOf(1))).toBe(true);
+    expect(net.host.sync.complete).toBe(true);
+  });
+
+  it("a file sent again to the same guest is not charged again", async () => {
+    const size = SOURCE_CHUNK_BYTES * 5;
+    const net = network({ quota: size + 100 });
+    const bytes = bytesOf(size);
+    net.host.io.files.set(idOf(1), bytes);
+    net.host.sync.setNeeded(listed([1]), [idOf(1)]);
+    net.guest().sync.setNeeded(listed([1]), []);
+    await net.settle();
+    expect(net.guest().io.files.get(idOf(1))).toEqual(bytes);
+    // The guest lost its copy and asks again: what was sent before is not new bytes.
+    net.guest().io.files.delete(idOf(1));
+    net.host.sync.receive("g1", { type: "src-want", id: idOf(1) });
+    await net.settle();
+    expect(net.sent.filter((m) => m.type === "src-offer" && m.size === 0)).toEqual([]);
+  });
+
+  it("a quota refusal is said as such and the guest is not told 'nobody has it'", async () => {
+    const net = network({ quota: SOURCE_CHUNK_BYTES });
+    net.host.io.files.set(idOf(1), bytesOf(SOURCE_CHUNK_BYTES * 3));
+    net.host.sync.setNeeded(listed([1]), [idOf(1)]);
+    net.guest().sync.setNeeded(listed([1]), []);
+    await net.settle();
+    expect(net.sent).toContainEqual({ type: "src-offer", id: idOf(1), size: 0, refuse: "quota" });
+    expect(
+      net
+        .guest()
+        .sync.state()
+        .failed.map((f) => f.reason),
+    ).toEqual(["quota"]);
+  });
+
+  it("stops taking files in when the decoded audio of the session is over its budget", async () => {
+    const net = network({ decodedQuota: 1_000 });
+    for (const n of [1, 2, 3, 4]) net.host.io.files.set(idOf(n), bytesOf(SOURCE_CHUNK_BYTES));
+    net.guest().io.decoded = 5_000; // each file decodes to more than the whole budget
+    net.host.sync.setNeeded(listed([1, 2, 3, 4]), [1, 2, 3, 4].map(idOf));
+    net.guest().sync.setNeeded(listed([1, 2, 3, 4]), []);
+    await net.settle();
+    // Only a few are taken in at a time, so a burst of announced files cannot all pass the
+    // check before the first one is known to be big: the rest are refused for the budget.
+    const have = [1, 2, 3, 4].filter((n) => net.guest().io.files.has(idOf(n)));
+    expect(have.length).toBeLessThanOrEqual(MAX_PARALLEL_DOWNLOADS);
+    expect(have.length).toBeGreaterThan(0);
+    expect(
+      net
+        .guest()
+        .sync.state()
+        .failed.map((f) => f.reason),
+    ).toEqual(["quota", "quota"].slice(0, 4 - have.length));
+  });
+
+  it("the host reports a file a guest could not take in, once, and not one it gave up on", async () => {
+    const net = network({ guests: ["g1", "g2"] });
+    net.host.io.files.set(idOf(1), bytesOf(SOURCE_CHUNK_BYTES * 2));
+    net.guest("g1").io.badChecksum = true;
+    net.host.sync.setNeeded(listed([1]), [idOf(1)]);
+    net.guest("g1").sync.setNeeded(listed([1]), []);
+    net.guest("g2").sync.setNeeded(listed([1]), []);
+    await net.settle();
+    expect(net.host.sync.complete).toBe(false);
+    expect(net.host.sync.state().failed).toEqual([
+      expect.objectContaining({ id: idOf(1), reason: "checksum" }),
+    ]);
+    // A guest that drops a file because no lane plays it any more has not failed.
+    net.host.sync.receive("g2", { type: "src-done", id: idOf(1), ok: false, reason: "cancelled" });
+    expect(net.host.sync.state().failed).toHaveLength(1);
+    // When the guest has it later, the failure is over.
+    net.host.sync.receive("g1", { type: "src-have", ids: [idOf(1)] });
+    expect(net.host.sync.state().failed).toEqual([]);
+  });
+
+  it("a file nobody can provide is reported as lost after a moment, and is found again when a player has it", async () => {
+    const clock = { t: 0 };
+    const net = network({ clock });
+    // The guest announced it, then left before the host had it.
+    net.host.sync.setNeeded(listed([7]), []);
+    net.host.sync.receive("g1", { type: "src-have", ids: [idOf(7)] });
+    net.host.sync.peerLeft("g1");
+    net.host.sync.peerJoined("g2");
+    net.host.sync.watch();
+    expect(net.host.sync.state().failed).toEqual([]);
+    clock.t += MISSING_GRACE_MS + 1;
+    net.host.sync.watch();
+    expect(net.host.sync.state().failed).toEqual([
+      expect.objectContaining({ id: idOf(7), reason: "unavailable" }),
+    ]);
+    expect(net.host.sync.state().waiting.size).toBe(0);
+    net.host.sync.receive("g2", { type: "src-have", ids: [idOf(7)] });
+    expect(net.host.sync.state().failed).toEqual([]);
+  });
+
+  it("a file that is only being opened on the host is not reported as lost", () => {
+    const clock = { t: 0 };
+    const net = network({ clock });
+    net.host.sync.setNeeded(listed([8]), []);
+    net.host.sync.watch();
+    clock.t += MISSING_GRACE_MS - 10;
+    net.host.sync.watch();
+    // It opens (the lanes tell the transfer) before the moment is over.
+    net.host.sync.setNeeded(listed([8]), [idOf(8)]);
+    clock.t += 1_000;
+    net.host.sync.watch();
+    expect(net.host.sync.state().failed).toEqual([]);
   });
 });

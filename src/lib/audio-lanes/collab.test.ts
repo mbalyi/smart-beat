@@ -1,7 +1,9 @@
 import {
   applyAudioOps,
   diffAudio,
+  applyMixChanges,
   isAudioOp,
+  mixChanges,
   PERSONAL_LANE_FIELDS,
   receiveAudioOps,
   sharedLane,
@@ -44,7 +46,7 @@ describe("audio lane sharing: operations", () => {
 
   it("sends a new lane with its file and clip, and the other end gets the same lane", () => {
     const ops = diffAudio(EMPTY_AUDIO, song());
-    expect(ops.map((o) => o.t)).toEqual(["a-src-add", "a-lane-add"]);
+    expect(ops.map((o) => o.t)).toEqual(["a-src-add", "a-lane-add", "a-clip-set"]);
     const there = applyAudioOps(EMPTY_AUDIO, ops);
     expect(there.lanes).toHaveLength(1);
     expect(there.lanes[0]!.name).toBe("Drums");
@@ -236,7 +238,8 @@ describe("audio lane sharing: what a hostile player sends", () => {
     const clip = { ...newClip(SRC.id, "x", 0, 1000, "c"), gainDb: 9_999, playrate: 99 };
     const base = addSource(EMPTY_AUDIO, SRC);
     const result = receiveAudioOps(base, [
-      { t: "a-lane-add", lane: sharedLane({ ...newLane("x", "l1"), clips: [clip] }), at: 0 },
+      { t: "a-lane-add", lane: sharedLane(newLane("x", "l1")), at: 0 },
+      { t: "a-clip-set", lane: "l1", clip },
     ])!;
     expect(result.lanes[0]!.clips[0]!.gainDb).toBeLessThanOrEqual(24);
     expect(result.lanes[0]!.clips[0]!.playrate).toBeLessThanOrEqual(4);
@@ -250,5 +253,86 @@ describe("audio lane sharing: what a hostile player sends", () => {
     // ...and applying one anyway only takes the shared names.
     const result = applyAudioOps(base, [op as unknown as AudioOp]);
     expect(result.lanes[0]).toMatchObject({ name: "Z", volume: 0.2, mute: true });
+  });
+});
+
+describe("audio lane sharing: size", () => {
+  const manyClips = (n: number): AudioLanesSettings => {
+    const lane = newLane("Big", "lane-big");
+    let audio = addLane(addSource(EMPTY_AUDIO, SRC), lane);
+    for (let i = 0; i < n; i++) {
+      audio = addClip(audio, "lane-big", newClip(SRC.id, "drums.wav", i * 100, 90, `clip-${i}`));
+    }
+    return audio;
+  };
+
+  it("sends a lane with many clips as small operations that each fit in a message", () => {
+    const ops = snapshotOps(manyClips(300));
+    expect(ops.filter((o) => o.t === "a-clip-set")).toHaveLength(300);
+    // The lane itself carries no clips, and no operation is near a frame (16 K characters).
+    expect(JSON.stringify(ops.find((o) => o.t === "a-lane-add"))).not.toContain("clips");
+    for (const op of ops) expect(JSON.stringify(op).length).toBeLessThan(11_000);
+    const there = applyAudioOps(EMPTY_AUDIO, ops);
+    expect(there.lanes[0]!.clips).toHaveLength(300);
+    expect(diffAudio(manyClips(300), there)).toEqual([]);
+  });
+
+  it("a lane that comes back after a reset keeps its mix but not its old clips", () => {
+    const mine = updateLane(manyClips(2), "lane-big", { volume: 0.2 });
+    const there = applyAudioOps(mine, snapshotOps(song()));
+    expect(there.lanes.map((l) => l.id)).toEqual(["lane-1"]);
+    const again = applyAudioOps(
+      updateLane(manyClips(5), "lane-big", { volume: 0.2 }),
+      snapshotOps(manyClips(1)),
+    );
+    expect(again.lanes[0]).toMatchObject({ volume: 0.2 });
+    expect(again.lanes[0]!.clips.map((c) => c.id)).toEqual(["clip-0"]);
+  });
+
+  it("never sends what the other end would refuse: a long name is cut, a huge clip is left out", () => {
+    const base = manyClips(1);
+    const long = updateLane(base, "lane-big", { name: "n".repeat(300) });
+    const ops = diffAudio(base, long);
+    expect(ops).toEqual([{ t: "a-lane-set", id: "lane-big", set: { name: "n".repeat(120) } }]);
+    expect(validAudioOps(ops)).not.toBeNull();
+    const huge = {
+      ...newClip(SRC.id, "x", 50_000, 1000, "huge"),
+      envelope: Array.from({ length: 2_000 }, (_, i) => ({ at: i / 2_000, db: 0 })),
+    };
+    const withHuge = addClip(base, "lane-big", huge);
+    expect(diffAudio(base, withHuge)).toEqual([]);
+    // Everything diffAudio makes passes the check the receiver makes.
+    const everything = snapshotOps(
+      addClip(updateLane(base, "lane-big", { name: "n".repeat(300) }), "lane-big", huge),
+    );
+    expect(validAudioOps(everything)).not.toBeNull();
+  });
+});
+
+describe("audio lane sharing: undo of a delete", () => {
+  it("brings the lane back with its own mix when the gone lane is given", () => {
+    const mixed = updateLane(song(), "lane-1", { volume: 0.3, mute: true, solo: true });
+    const without = { ...mixed, lanes: [] };
+    const gone = new Map(mixed.lanes.map((l) => [l.id, l]));
+    const back = applyAudioOps(without, diffAudio(without, mixed), gone);
+    expect(back.lanes[0]).toMatchObject({ volume: 0.3, mute: true, solo: true });
+    expect(back.lanes[0]!.clips).toHaveLength(1);
+    // Without it the lane comes back with the defaults.
+    expect(applyAudioOps(without, diffAudio(without, mixed)).lanes[0]!.volume).toBe(0.8);
+  });
+});
+
+describe("audio lane sharing: mix changes", () => {
+  it("lists the personal fields that changed, and puts them back", () => {
+    const base = song();
+    const mixed = updateLane(base, "lane-1", { volume: 0.1, collapsed: true, shownInScore: true });
+    const changes = mixChanges(base, mixed);
+    expect(changes).toEqual([
+      { id: "lane-1", set: { volume: 0.1, collapsed: true, shownInScore: true } },
+    ]);
+    const undone = applyMixChanges(mixed, mixChanges(mixed, base));
+    expect(undone.lanes[0]).toMatchObject({ volume: 0.8, collapsed: false });
+    expect(undone.lanes[0]!.shownInScore).toBeUndefined();
+    expect(mixChanges(base, base)).toEqual([]);
   });
 });

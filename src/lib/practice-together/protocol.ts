@@ -40,6 +40,12 @@ export const MAX_SOURCE_BYTES = 512 * 1024 * 1024;
 /** The most audio files a session shares, and the most bytes it moves (one direction, per player). */
 export const MAX_SOURCE_FILES = 512;
 export const SESSION_SOURCE_QUOTA = 2 * 1024 * 1024 * 1024;
+/**
+ * The most decoded audio a session takes in from other players (bytes of the decoded left and
+ * right channels). A few tiny, highly compressed files decode to a lot: the encoded size alone does
+ * not bound the cost, so the decoded size is counted on its own.
+ */
+export const SESSION_DECODED_QUOTA = 3 * 1024 * 1024 * 1024;
 
 /** Which score a peer has open. Two apps only start together on the same one. */
 export interface ScoreFingerprint {
@@ -145,8 +151,11 @@ export type Message =
   | { type: "src-have"; ids: string[] }
   /** "Send me file `id`." */
   | { type: "src-want"; id: string }
-  /** The answer: its size in bytes (0: this player does not have it). */
-  | { type: "src-offer"; id: string; size: number }
+  /**
+   * The answer: its size in bytes (0: not sent). `refuse` says why a 0 is not "I do not have it":
+   * the sender has sent this player as much as a session may (a refusal retrying will not change).
+   */
+  | { type: "src-offer"; id: string; size: number; refuse?: "quota" }
   /**
    * The receiver has the file up to byte `n`: the sender sends on from there. `rewind`: a piece
    * went missing, so the sender goes back to `n` even though it sent more.
@@ -399,7 +408,13 @@ function validMessage(m: unknown): m is Message {
     case "src-want":
       return isSourceId(m.id);
     case "src-offer":
-      return isSourceId(m.id) && isNumber(m.size) && m.size >= 0 && m.size <= MAX_SOURCE_BYTES;
+      return (
+        isSourceId(m.id) &&
+        isNumber(m.size) &&
+        m.size >= 0 &&
+        m.size <= MAX_SOURCE_BYTES &&
+        (m.refuse === undefined || m.refuse === "quota")
+      );
     case "src-ack":
       return (
         isSourceId(m.id) &&

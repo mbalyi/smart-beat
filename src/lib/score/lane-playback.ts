@@ -85,15 +85,17 @@ export class LanePlayback {
    */
   async ready(timeoutMs = 5000): Promise<boolean> {
     if (this.destroyed) return false;
-    if (this.busy.size > 0) {
+    const until = performance.now() + timeoutMs;
+    // More work can arrive while waiting (a lane edited during the load): wait for that too.
+    while (this.busy.size > 0 && performance.now() < until) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, timeoutMs);
+        timer = setTimeout(resolve, Math.max(0, until - performance.now()));
       });
       await Promise.race([Promise.allSettled([...this.busy]), timeout]);
       clearTimeout(timer);
     }
-    return !this.hasLanes || (this.loaded && this.busy.size === 0);
+    return !this.destroyed && (!this.hasLanes || (this.loaded && this.busy.size === 0));
   }
 
   /** The score was generated (again): the lanes engine gets its tempo map, then the lanes. */
@@ -111,7 +113,14 @@ export class LanePlayback {
     if (!extras.lanes && !this.loaded && !this.starting) return;
     await this.start();
     if (this.destroyed) return;
-    await this.engine.loadSong(file, [], true);
+    try {
+      await this.engine.loadSong(file, [], true);
+    } catch (error) {
+      // The engine may still hold an earlier song, whose tempo map is not the score's any more:
+      // it does not play until a load works.
+      this.loaded = false;
+      throw error;
+    }
     this.loaded = true;
     await this.follower.calibrate();
   }
@@ -174,6 +183,7 @@ export class LanePlayback {
 
   destroy() {
     this.destroyed = true;
+    this.follower.dispose();
     this.engine.destroy();
   }
 }

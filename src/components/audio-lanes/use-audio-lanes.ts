@@ -3,10 +3,13 @@ import { toast } from "sonner";
 
 import {
   applyAudioOps,
+  applyMixChanges,
   diffAudio,
+  mixChanges,
   receiveAudioOps,
   snapshotOps,
   type AudioOp,
+  type MixChange,
   type LaneBridge,
   type LaneSharing,
 } from "@/lib/audio-lanes/collab";
@@ -59,6 +62,7 @@ import {
   loadAudioSource,
   pickAudioFile,
   type AudioClip,
+  type AudioLane,
   type AudioLanesSettings,
   type AudioSource,
   type MixerSettings,
@@ -104,6 +108,21 @@ export interface AudioLanesOptions {
   /** A Practice together session shares the lanes (missing: no session). */
   sharing?: LaneSharing;
 }
+
+/** What takes back (or does again) one edit of this player's in a session. */
+interface Patch {
+  ops: AudioOp[];
+  mix: MixChange[];
+}
+
+/** The patch that turns `from` into `to`: the shared operations and the changes of the own mix. */
+const patchBetween = (from: AudioLanesSettings, to: AudioLanesSettings): Patch => ({
+  ops: diffAudio(from, to),
+  mix: mixChanges(from, to),
+});
+const isEmptyPatch = (patch: Patch) => patch.ops.length === 0 && patch.mix.length === 0;
+/** How many deleted lanes are remembered for undo. */
+const GHOSTS = 64;
 
 /** How long changes are gathered before they are sent to the other players. */
 const SHARE_DELAY_MS = 80;
@@ -249,12 +268,21 @@ export function useAudioLanes(options: AudioLanesOptions) {
    */
   const baseline = useRef<AudioLanesSettings | null>(null);
   const shareTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  /** In a session undo takes back this player's own edits as patches, not whole states. */
-  const patches = useRef<{ past: AudioOp[][]; future: AudioOp[][] }>({ past: [], future: [] });
+  /**
+   * In a session undo takes back this player's own edits as patches, not whole states: the shared
+   * operations that undo it, and the changes of this player's own mix (which no operation carries).
+   */
+  const patches = useRef<{ past: Patch[]; future: Patch[] }>({ past: [], future: [] });
+  /**
+   * Lanes that are gone, as they were (their own mix included): undoing a delete brings a lane
+   * back as it was, not with the defaults a lane another player added starts with.
+   */
+  const ghosts = useRef(new Map<string, AudioLane>());
+  const seenLanes = useRef(new Map<string, AudioLane>());
   /** A drag that is going on in a session: the state it started from (its patch is made at its end). */
   const gesture = useRef<AudioLanesSettings | null>(null);
   const inSession = useCallback(() => baseline.current !== null, []);
-  const rememberPatches = useCallback((next: { past: AudioOp[][]; future: AudioOp[][] }) => {
+  const rememberPatches = useCallback((next: { past: Patch[]; future: Patch[] }) => {
     patches.current = next;
     setSteps({ undo: next.past.length, redo: next.future.length });
   }, []);
@@ -263,8 +291,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const from = gesture.current;
     gesture.current = null;
     if (!from || !inSession()) return;
-    const inverse = diffAudio(audioRef.current, from);
-    if (inverse.length === 0) return;
+    const inverse = patchBetween(audioRef.current, from);
+    if (isEmptyPatch(inverse)) return;
     rememberPatches({ past: [...patches.current.past, inverse].slice(-HISTORY), future: [] });
   }, [inSession, rememberPatches]);
   const flushShared = useCallback(() => {
@@ -278,18 +306,20 @@ export function useAudioLanes(options: AudioLanesOptions) {
     baseline.current = audioRef.current;
     s.send(ops);
   }, []);
-  const hasUnsent = useCallback(
-    () =>
-      shareTimer.current !== undefined ||
-      (baseline.current !== null && diffAudio(baseline.current, audioRef.current).length > 0),
-    [],
-  );
-
   const commit = useCallback(
     (next: AudioLanesSettings) =>
       changeMix({ type: "audio", value: next.lanes.length ? next : null }),
     [changeMix],
   );
+
+  // Remembers each lane as it was when it goes, for the undo of a delete.
+  useEffect(() => {
+    const now = new Map(audio.lanes.map((l) => [l.id, l]));
+    for (const [id, lane] of seenLanes.current) if (!now.has(id)) ghosts.current.set(id, lane);
+    for (const id of now.keys()) ghosts.current.delete(id);
+    for (const id of [...ghosts.current.keys()].slice(0, -GHOSTS)) ghosts.current.delete(id);
+    seenLanes.current = now;
+  }, [audio]);
 
   // Every change of the lanes, from whatever edit, goes to the other players a moment later.
   useEffect(() => {
@@ -315,8 +345,10 @@ export function useAudioLanes(options: AudioLanesOptions) {
       const next = pruneGroups(edited);
       if (inSession()) {
         finishGesture();
-        const inverse = diffAudio(next, before);
-        if (inverse.length > 0) {
+        // An edit of this player's own mix only (a lane's volume, say) is a step too: Undo takes
+        // back the last thing this player did, not an older shared edit.
+        const inverse = patchBetween(next, before);
+        if (!isEmptyPatch(inverse)) {
           rememberPatches({ past: [...patches.current.past, inverse].slice(-HISTORY), future: [] });
         }
       } else {
@@ -367,13 +399,13 @@ export function useAudioLanes(options: AudioLanesOptions) {
       const patch = stack[stack.length - 1];
       if (!patch) return false;
       const current = audioRef.current;
-      const target = applyAudioOps(current, patch);
-      const opposite = diffAudio(target, current);
+      const target = applyMixChanges(applyAudioOps(current, patch.ops, ghosts.current), patch.mix);
+      const opposite = patchBetween(target, current);
       const other = from === "past" ? "future" : "past";
       rememberPatches({
         [from]: stack.slice(0, -1),
         [other]: [...patches.current[other], opposite].slice(-HISTORY),
-      } as { past: AudioOp[][]; future: AudioOp[][] });
+      } as { past: Patch[]; future: Patch[] });
       audioRef.current = target;
       commit(target);
       setLastEditAt(Date.now());
@@ -419,12 +451,17 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const bridge: LaneBridge = {
       snapshot: () => snapshotOps(audioRef.current),
       apply: (ops, own) => {
-        // An echo of this player's own edit while there are newer changes not sent: skip it.
-        if (own && hasUnsent()) return true;
-        const next = receiveAudioOps(audioRef.current, ops);
-        if (!next) return false;
         const base = baseline.current;
-        baseline.current = base ? (receiveAudioOps(base, ops) ?? next) : next;
+        // The echo of this player's own edit, while newer changes are not sent yet: the host's
+        // order is taken, and the changes not sent are put back on top (they go out next, so
+        // after it). Skipping the echo instead would leave this player with another player's
+        // value that the host's order has already replaced; applying it alone would jump a
+        // drag back.
+        const unsent = own && base ? diffAudio(base, audioRef.current) : [];
+        const received = receiveAudioOps(audioRef.current, ops);
+        if (!received) return false;
+        const next = unsent.length > 0 ? applyAudioOps(received, unsent, ghosts.current) : received;
+        baseline.current = base ? (receiveAudioOps(base, ops) ?? received) : received;
         audioRef.current = next;
         commitRef.current(next);
         // The files these lanes play are asked for at once, before anything tries to open them.
@@ -451,7 +488,6 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const attach = sharing?.attach;
     attach?.(bridge);
     return () => attach?.(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sharing?.attach]);
 
   // Loads every file the lanes play when the song opens or a file is added. Decoding needs no

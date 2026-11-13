@@ -17,6 +17,11 @@ export interface LaneFollowerOptions {
   synthLatencyMs: () => number;
   /** The time in ms, from a clock that agrees with `EngineClock.at` (default: `performance.now`). */
   now?: () => number;
+  /**
+   * How often the engine's clock is read again, so a reading is never old when a start needs it
+   * (ms; default {@link REFRESH_MS}, 0: never, for tests).
+   */
+  refreshMs?: number;
 }
 
 /** The notes and the lanes may differ this much (ms) before the lanes are moved. */
@@ -25,6 +30,12 @@ export const DRIFT_LIMIT_MS = 120;
 const SETTLE_MS = 600;
 /** Corrections are at least this far apart (ms). */
 const FIX_EVERY_MS = 400;
+/** The engine's clock is read again this often (ms). */
+export const REFRESH_MS = 2_000;
+/** A reading older than this is not used to aim a start (the clocks drift, an engine restarts). */
+const MAX_AGE_MS = 5_000;
+/** A status whose clock is this far (ms) from what the reading predicts: the engine restarted. */
+const CLOCK_JUMP_MS = 300;
 
 /**
  * Keeps the audio lanes in time with notes that another player plays (alphaTab's SoundFonts
@@ -42,6 +53,8 @@ export class LaneFollower {
   private speed = 1;
   private playing = false;
   private calibration: EngineClock | null = null;
+  private calibrating = false;
+  private timer: ReturnType<typeof setInterval> | undefined;
   private settledAt = 0;
   private fixedAt = -Infinity;
   /** The engine's last report: the song position that is heard, and when it was read. */
@@ -56,21 +69,58 @@ export class LaneFollower {
     this.now = options.now ?? (() => performance.now());
   }
 
+  /** Stops reading the clock by itself. */
+  dispose(): void {
+    clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
   get isPlaying(): boolean {
     return this.playing;
   }
 
   /**
-   * Reads the engine's clock; the reading with the shortest round trip is kept (the engine's clock
-   * and the page's agree to within about half of it). Call it before a start, and now and then.
+   * Reads the engine's clock; of this batch the reading with the shortest round trip is used (the
+   * engine's clock and the page's agree to within about half of it). It replaces the earlier
+   * reading when it is at least as good, or when that one is getting old: the two clocks drift
+   * apart, and an engine that started again counts from zero. Call it before a start; it also
+   * runs by itself every {@link REFRESH_MS}.
    */
   async calibrate(readings = 3): Promise<void> {
-    for (let i = 0; i < readings; i++) {
-      const clock = await this.engine.clock();
-      if (clock && (!this.calibration || clock.rtt <= this.calibration.rtt)) {
-        this.calibration = clock;
+    if (this.calibrating) return;
+    this.calibrating = true;
+    try {
+      let best: EngineClock | null = null;
+      for (let i = 0; i < readings; i++) {
+        const clock = await this.engine.clock();
+        if (clock && (!best || clock.rtt <= best.rtt)) best = clock;
       }
+      const old = this.calibration;
+      if (
+        best &&
+        (!old || best.rtt <= old.rtt || this.age(old) > (this.refreshMs() || REFRESH_MS))
+      ) {
+        this.calibration = best;
+      }
+      this.startTimer();
+    } finally {
+      this.calibrating = false;
     }
+  }
+
+  private refreshMs(): number {
+    return this.options.refreshMs ?? REFRESH_MS;
+  }
+
+  private age(clock: EngineClock): number {
+    return this.now() - clock.at;
+  }
+
+  /** Reads the clock again now and then, also while nothing plays (a start comes without notice). */
+  private startTimer() {
+    const every = this.refreshMs();
+    if (this.timer !== undefined || every <= 0) return;
+    this.timer = setInterval(() => void this.calibrate(2), every);
   }
 
   /** The engine's frame that is current at the page's time `at`. */
@@ -90,11 +140,12 @@ export class LaneFollower {
     const at = this.now();
     this.settledAt = at + SETTLE_MS;
     const clock = this.calibration;
-    if (!clock) {
-      // Not calibrated yet: start at once and calibrate for the next time.
+    if (!clock || this.age(clock) > MAX_AGE_MS) {
+      // Not calibrated yet, or the reading is too old to aim with: start at once and read the
+      // clock for the next time.
       this.engine.seekTo(positionMs);
       this.engine.play();
-      void this.calibrate(1);
+      void this.calibrate(2);
       return;
     }
     // Both start now; each is heard after its own output latency.
@@ -127,9 +178,26 @@ export class LaneFollower {
     this.engine.playbackRate = speed;
   }
 
-  /** The engine reported where it is (its published position is what is heard). */
-  onStatus(status: Pick<EngineStatus, "positionMs" | "playing">) {
-    this.heard = { ms: status.positionMs, at: this.now(), playing: status.playing };
+  /**
+   * The engine reported where it is (its published position is what is heard). Its clock is
+   * checked against the reading: a different sample rate, or a frame counter far from where the
+   * reading puts it (the engine started again, or the output changed), makes the reading useless,
+   * so it is dropped and read again.
+   */
+  onStatus(
+    status: Pick<EngineStatus, "positionMs" | "playing"> &
+      Partial<Pick<EngineStatus, "clockFrames" | "sampleRate">>,
+  ) {
+    const at = this.now();
+    this.heard = { ms: status.positionMs, at, playing: status.playing };
+    const clock = this.calibration;
+    if (!clock || status.clockFrames === undefined || status.sampleRate === undefined) return;
+    const offMs =
+      (Math.abs(status.clockFrames - this.frameAt(at, clock)) / status.sampleRate) * 1000;
+    if (status.sampleRate !== clock.sampleRate || offMs > CLOCK_JUMP_MS) {
+      this.calibration = null;
+      void this.calibrate(2);
+    }
   }
 
   /**

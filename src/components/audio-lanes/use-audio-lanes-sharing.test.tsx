@@ -221,4 +221,56 @@ describe("useAudioLanes in a Practice together session", () => {
     act(() => void lanesNow().undo());
     expect(lanesNow().audio.lanes[0]!.name).toBe("In session");
   });
+
+  it("undo of a deleted lane brings it back with its own mix, not the defaults", async () => {
+    setup();
+    await act(async () => latest.bridge!.begin(true));
+    act(() => lanesNow().apply((a) => updateLane(a, "lane-a", { volume: 0.25, mute: true })));
+    await later();
+    act(() => lanesNow().apply((a) => ({ ...a, lanes: a.lanes.filter((l) => l.id !== "lane-a") })));
+    await later();
+    expect(lanesNow().audio.lanes.map((l) => l.id)).toEqual(["lane-b"]);
+    act(() => void lanesNow().undo());
+    const back = lanesNow().audio.lanes.find((l) => l.id === "lane-a")!;
+    expect(back).toMatchObject({ name: "Vocals", volume: 0.25, mute: true });
+    expect(back.clips.map((c) => c.id)).toEqual(["clip-a"]);
+  });
+
+  it("an edit of only this player's own mix is an undo step of its own", async () => {
+    setup();
+    await act(async () => latest.bridge!.begin(true));
+    act(() => lanesNow().apply((a) => updateLane(a, "lane-a", { name: "Shared edit" })));
+    act(() => lanesNow().apply((a) => updateLane(a, "lane-a", { volume: 0.1, collapsed: true })));
+    expect(lanesNow().canUndo).toBe(true);
+    // The first Undo takes back the mix change (the last thing done), not the name.
+    act(() => void lanesNow().undo());
+    expect(lanesNow().audio.lanes[0]).toMatchObject({ name: "Shared edit", volume: 0.8 });
+    expect(lanesNow().audio.lanes[0]!.collapsed).toBe(false);
+    act(() => void lanesNow().undo());
+    expect(lanesNow().audio.lanes[0]!.name).toBe("Vocals");
+    act(() => void lanesNow().redo());
+    act(() => void lanesNow().redo());
+    expect(lanesNow().audio.lanes[0]).toMatchObject({ volume: 0.1, collapsed: true });
+  });
+
+  it("ends with the host's order after an echo that comes while newer changes are not sent", async () => {
+    const { sent } = setup();
+    await act(async () => latest.bridge!.begin(true));
+    // This player renames the lane (sent), another player's rename comes in between, then this
+    // player changes the colour (not sent yet) and the echo of the first rename arrives.
+    act(() => lanesNow().apply((a) => updateLane(a, "lane-a", { name: "Mine" })));
+    await later();
+    const mineEcho = sent[0]!;
+    const theirs = updateLane(lanesNow().audio, "lane-a", { name: "Theirs" });
+    act(() => void latest.bridge!.apply(diffAudio(lanesNow().audio, theirs), false));
+    expect(lanesNow().audio.lanes[0]!.name).toBe("Theirs");
+    act(() => lanesNow().apply((a) => updateLane(a, "lane-a", { color: "#00ff00" })));
+    act(() => void latest.bridge!.apply(mineEcho, true));
+    // The host ordered "Theirs" and then "Mine": everyone else ends with "Mine", and so does this
+    // player, with the colour not sent yet kept.
+    expect(lanesNow().audio.lanes[0]).toMatchObject({ name: "Mine", color: "#00ff00" });
+    sent.length = 0;
+    await later();
+    expect(sent).toEqual([[{ t: "a-lane-set", id: "lane-a", set: { color: "#00ff00" } }]]);
+  });
 });

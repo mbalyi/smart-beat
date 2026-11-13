@@ -72,6 +72,9 @@ describe("audio file messages are checked like every frame", () => {
     expect(decode(encode({ type: "src-have", ids: [ID] }, 1))).not.toBeNull();
     expect(decode(encode({ type: "src-ack", id: ID, n: 10, rewind: true }, 1))).not.toBeNull();
     expect(
+      decode(encode({ type: "src-offer", id: ID, size: 0, refuse: "quota" }, 1)),
+    ).not.toBeNull();
+    expect(
       decode(encode({ type: "src-done", id: ID, ok: false, reason: "quota" }, 1)),
     ).not.toBeNull();
   });
@@ -87,5 +90,6 @@ describe("audio file messages are checked like every frame", () => {
     expect(wire({ type: "src-have", ids: Array.from({ length: 101 }, () => ID) })).toBeNull();
     expect(wire({ type: "src-have", ids: ["x"] })).toBeNull();
     expect(wire({ type: "src-done", id: ID, ok: "yes" })).toBeNull();
+    expect(wire({ type: "src-offer", id: ID, size: 0, refuse: "everything" })).toBeNull();
   });
 });
