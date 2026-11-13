@@ -173,6 +173,12 @@ declare global {
       sync: { tick: number; ms: number }[];
     } | null;
     __engineSources: Record<string, { type: string; path?: string; entry?: string }>;
+    /** The commands the audio engine was sent (`audio_transport`). */
+    __engineTransport?: { type: string; [key: string]: unknown }[];
+    /** Practice together sends audio files: the bytes this computer has (by id) and what arrived. */
+    __sourceBytes?: Record<string, Uint8Array>;
+    __receivedFiles?: Record<string, number[]>;
+    __staged?: Record<string, { size: number; bytes: number[] }>;
     __extracted?: { source: string; path: string; asWav: boolean };
     __projectSettings: Record<
       string,

@@ -53,7 +53,13 @@ Until 1.2 a song had at most one audio track: one file, one set of mix settings 
 
 - Opening a file (`audio_load_source`, `audio_add_take`), its waveform peaks, zero crossings, spectrograms, loudness, beat detection, silent regions, WAV extraction, `audio_forget_sources` and storing the lane settings (`audio_set_lanes`) work on the shared source pool and never touch the engine. `audio_set_lanes` only rebuilds the engine's lanes when an engine runs.
 - So waveforms, the lane editor, the studio and every clip edit work with the SoundFont (alphaTab) engine too, and adding a file never switches engines. The UI loads files with the file-level command; while the native engine runs it goes through the engine's loader instead, so the engine also remembers where each file came from.
-- Only playback of lanes needs the native engine. With the SoundFonts the lanes are silent, and each lane (and the lane editor) says so, with a button to switch to the native engine (the user's own pick, so it is remembered). Recording still needs the native engine (input monitoring, count-in). This is a bridge until lanes can play next to SoundFont playback.
+- Only playback of lanes needs the native engine, and it always plays them: with the SoundFonts the notes play in alphaTab's synthesizer and the lanes play in the native engine at the same time (hybrid playback, see "Hybrid playback" below and [ADR 0003](0003-audio-engine.md)). Switching the notes' engine is only for what needs it (effects, amps, kits, the monitor track); it never decides whether lanes are heard. Recording still needs the native engine (input monitoring, count-in). Rendering a range (`renderLaneRange`) mixes the tab's tracks too, so it stays on the native engine.
+
+**Hybrid playback: the lanes follow alphaTab's transport.**
+
+- With the SoundFonts the native engine runs with only the lanes: a song with the score's tempo map and no tracks (`clockSongFromMidi`), opened with the SoundFont that ships with the app when no engine is running. `LanePlayback` (`lib/score/lane-playback.ts`) drives it from the player's events (state, position, speed, loop, MIDI loaded); it never plays or pauses the notes. A song without lanes opens no engine.
+- A `LaneFollower` starts the lanes on the engine's own clock: the engine reports `clockFrames` and `Transport::PlayAtFrame` starts inside a block on the exact frame, so the start is the notes' start moved by the difference of the two output latencies. While playing, a drift over 120 ms (checked at most every 400 ms, after a 600 ms settle) seeks the lanes back.
+- A Practice together start waits for the lanes engine (`ScorePlayer.prepareStart`), then both engines start from the same `playPause` call.
 
 **Lanes also show under the tabs in the continuous view, mapped through the bars' measured x ranges.**
 
@@ -67,4 +73,5 @@ Until 1.2 a song had at most one audio track: one file, one set of mix settings 
 - `decode`, `SyncMap`, `Stretcher`, `Interpolator` and the filter bank are reused per clip and per lane. The filter bank gained six enhance and attenuate filters (bass, mid, high).
 - M4A files open: Symphonia's MP4 container and AAC decoder (MPL-2.0, unmodified, decoding only).
 - Pitch stays on WSOLA. A better stretcher (for example Signalsmith Stretch, MIT) can replace it behind `ClipVoice` without changing the settings.
+- In Practice together the lanes are shared: structure and clips, with their audio files. A player's own mix (volume, pan, mute, solo, EQ, filter, effects, sends, automation, whether a lane is on, and how it is shown) stays local, as do the buses, the ripple mode and the play zone. The lanes travel as operations that name a lane, clip or file by its id and set it to a value (`lib/audio-lanes/collab.ts`), made by comparing the shared parts of two states, so every way of editing the lanes is shared without each edit knowing about it. See `docs/practice-together.md`.
 - The CPU cost grows with pitched or stretched clips: each one has a stretcher. Sixteen lanes with a few clips each stay well inside the ADR 0003 budget on Apple Silicon. This is checked by hand (`docs/manual-checks.md`).

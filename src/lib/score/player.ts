@@ -27,6 +27,7 @@ import {
   barPositionAtTick,
   engineExtras,
   type BarOccurrence,
+  laneExtras,
 } from "@/lib/audio/engine-config";
 import { rgbOf, SCORE_PALETTES, type ScoreTheme } from "@/lib/score/score-theme";
 import {
@@ -71,6 +72,8 @@ import {
   type LatencyInfo,
 } from "@/lib/score/sync";
 import { applyInterpretation } from "@/lib/score/interpretation";
+import { LanePlayback } from "@/lib/score/lane-playback";
+import { nativeEngineAvailable } from "@/lib/audio/engine-preference";
 import {
   FOCUS_CUT_DB,
   focusTrims,
@@ -227,6 +230,11 @@ export interface ScorePlayerOptions {
   reducedMotion?: boolean;
   /** Default: alphaTab. */
   audioEngine?: AudioEngineKind;
+  /**
+   * With the SoundFonts synthesizer, the native engine plays the audio lanes next to it (hybrid
+   * playback). Default: yes in the desktop app. `false`: lanes are not played here.
+   */
+  lanes?: boolean;
   /** The score's colours (#83); default: light. */
   theme?: ScoreTheme;
   /** The audio input the monitor track plays (default: the system's default, first channel). */
@@ -340,6 +348,8 @@ export class ScorePlayer {
    * not when it is heard: what the UI shows while playing is delayed by the
    * output latency (see lib/score/sync.ts).
    */
+  /** Plays the audio lanes with the native engine while alphaTab plays the notes (hybrid). */
+  private readonly lanePlayback: LanePlayback | null;
   private readonly delayer = new Delayer(() => (this.playing ? this.outputDelayMs() : 0));
   /** How long after the player hands over sound it is heard: the cursor is delayed by it (ms). */
   private outputDelayMs(): number {
@@ -428,6 +438,17 @@ export class ScorePlayer {
       const output = this.api.player?.output as synth.IExternalMediaSynthOutput | undefined;
       if (output) this.engine.attach(output);
     }
+    // Hybrid playback: alphaTab's synthesizer plays the notes, the native engine only the lanes.
+    this.lanePlayback =
+      !this.engine && options.lanes !== false && nativeEngineAvailable()
+        ? new LanePlayback({
+            // The audio's own latency: the user's sync offset moves the cursor, not the sound.
+            synthLatencyMs: () => outputLatencyMs(this.latencyInfo, 0),
+            fetchSoundFont: downloadSoundFont,
+            onError: (error) => callbacks.onError?.(error),
+            onMeters: (meters) => callbacks.onMeters?.(meters),
+          })
+        : null;
     // The native engine reports what is heard (its output latency is already
     // taken off): only the user's offset is added.
     this.api.customCursorHandler = createCursorHandler(this.delayer, !options.reducedMotion);
@@ -494,6 +515,10 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
+      if (this.lanePlayback) {
+        if (this.playing) this.lanePlayback.play(api.tickPosition, api.playbackSpeed);
+        else this.lanePlayback.pause();
+      }
       if (!this.playing) this.once = null;
       if (this.seekLocked) this.updateInteraction();
       if (this.playing && !this.latencyMeasured && !this.engine) {
@@ -512,6 +537,7 @@ export class ScorePlayer {
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
     // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
     api.playerPositionChanged.on((e) => {
+      this.lanePlayback?.position(e.currentTick, this.playing);
       this.stopAfterOnce(e.currentTick);
       this.delayer.run(() => {
         this.reportPosition(e.currentTime, e.endTime, e.modifiedTempo || e.originalTempo);
@@ -541,6 +567,11 @@ export class ScorePlayer {
         this.engine
           .loadSong(file, trackChannels(this.score))
           .then(() => this.applyExtras(this.mix))
+          .catch((error: unknown) => callbacks.onError?.(asError(error)));
+      } else if (this.lanePlayback) {
+        this.occurrences = barOccurrences(this.score, lookup ?? null);
+        this.lanePlayback
+          .load(file, laneExtras(this.mix, this.occurrences))
           .catch((error: unknown) => callbacks.onError?.(asError(error)));
       }
     });
@@ -759,6 +790,7 @@ export class ScorePlayer {
     const next = heardMix(nextSaved);
     const cut = this.focusCutDb;
     if (previous?.master !== next.master) api.masterVolume = next.master;
+    this.applyLaneMix(next);
     if (this.engine) {
       this.engine.setMix(busMixes(next, focusTrims(next, cut)));
       this.applyExtras(next);
@@ -780,6 +812,17 @@ export class ScorePlayer {
       if (before?.mute !== trackMix.mute) api.changeTrackMute([track], trackMix.mute);
       if (before?.solo !== trackMix.solo) api.changeTrackSolo([track], trackMix.solo);
     });
+  }
+
+  /** Hybrid playback: the lanes and the master volume go to the engine that plays the lanes. */
+  private applyLaneMix(next: MixerSettings) {
+    const lanes = this.lanePlayback;
+    if (!lanes) return;
+    if (this.occurrences.length === 0) this.occurrences = barOccurrences(this.score, null);
+    lanes.setMasterVolume(next.master);
+    lanes
+      .configure(laneExtras(this.mix, this.occurrences))
+      .catch((error: unknown) => this.callbacks.onError?.(asError(error)));
   }
 
   /** Native engine: every pass through a bar (ticks), from the last generated MIDI. */
@@ -1020,6 +1063,7 @@ export class ScorePlayer {
     try {
       if (!loop) {
         this.engine?.setLoop(null);
+        this.lanePlayback?.setLoop(null);
         // Without a loop to take off, a range the user just dragged stays selected (#53).
         if (!this.appliedRange) return;
         this.appliedRange = null;
@@ -1037,6 +1081,7 @@ export class ScorePlayer {
       range.endTick = cache.getMasterBarStart(last) + last.calculateDuration();
       this.appliedRange = { startTick: range.startTick, endTick: range.endTick };
       this.engine?.setLoop(this.appliedRange, this.loopCountIn ? this.countInAt(loop.start) : null);
+      this.lanePlayback?.setLoop(this.appliedRange);
       api.playbackRange = range;
       api.isLooping = true;
       this.highlightLoop();
@@ -1092,6 +1137,7 @@ export class ScorePlayer {
   /** Playback speed in percent (100 = as written). */
   setSpeed(percent: number) {
     this.api.playbackSpeed = percent / 100;
+    this.lanePlayback?.setSpeed(percent / 100);
   }
 
   /** Whether playback is running (or about to: a count-in counts). */
@@ -1166,6 +1212,8 @@ export class ScorePlayer {
     while (!this.destroyed && this.midiBusy && performance.now() < until) {
       await new Promise((resolve) => setTimeout(resolve, PREPARE_START_POLL_MS));
     }
+    // The lanes of the song play from their own engine: it must have the song before the start.
+    if (this.lanePlayback && !(await this.lanePlayback.ready())) return false;
     return this.isReady();
   }
 
@@ -1324,10 +1372,16 @@ export class ScorePlayer {
   }
 
   /** Whether the native engine makes the sound. */
-  /** Opens an audio file for the lanes (native engine only). */
+  /** Opens an audio file for the lanes (the native engine plays them, whoever plays the notes). */
   loadSource(location: SourceLocation): Promise<SourceInfo> {
-    if (!this.engine) return Promise.reject(new Error("Audio lanes need the native audio engine."));
-    return this.engine.loadSource(location);
+    const lanes = this.engine ?? this.lanePlayback;
+    if (!lanes) return Promise.reject(new Error("Audio lanes need the desktop app."));
+    return lanes.loadSource(location);
+  }
+
+  /** Whether audio lanes are played here: by the native engine, with either way of playing notes. */
+  get playsLanes(): boolean {
+    return this.engine !== null || this.lanePlayback !== null;
   }
 
   /** The audio input the monitor track plays (Settings › Audio). */
@@ -1864,6 +1918,7 @@ export class ScorePlayer {
     this.destroyed = true;
     if (this.midiTimer) clearTimeout(this.midiTimer);
     this.engine?.destroy();
+    this.lanePlayback?.destroy();
     this.delayer.clear();
     this.api.destroy();
   }

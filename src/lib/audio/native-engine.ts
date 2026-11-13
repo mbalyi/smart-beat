@@ -172,6 +172,41 @@ export function songFromMidi(file: midi.MidiFile, channels: number[][]): EngineS
   return song;
 }
 
+/** A reading of the engine's clock, see {@link NativeEngine.clock}. */
+export interface EngineClock {
+  /** Frames rendered since the engine started, at the moment `at`. */
+  frames: number;
+  sampleRate: number;
+  /** How long after the engine renders something it is heard (the output's latency). */
+  latencyMs: number;
+  /** `performance.now()` at the middle of the request. */
+  at: number;
+  /** The round trip of the request (ms). */
+  rtt: number;
+}
+
+/**
+ * A song for an engine that only plays audio lanes: the tempo map and the length of the MIDI, with
+ * no tracks, no notes and no clicks (the SoundFonts player plays those, and its own click: the
+ * engine's metronome volume is the previous owner's, so clicks here would sound twice).
+ */
+export function clockSongFromMidi(file: midi.MidiFile): EngineSong {
+  const song: EngineSong = {
+    division: file.division,
+    events: [],
+    tempos: [],
+    metronome: [],
+    tracks: [],
+    endTick: 0,
+  };
+  for (const event of file.events) {
+    // The length is the notes' too: every event counts.
+    song.endTick = Math.max(song.endTick, event.tick);
+    if (event instanceof TempoChangeEvent) song.tempos.push([event.tick, event.beatsPerMinute]);
+  }
+  return song;
+}
+
 export interface NativeEngineCallbacks {
   onMeters?: (meters: EngineMeters) => void;
   onStatus?: (status: EngineStatus) => void;
@@ -294,6 +329,11 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     return owner === null || owner === this;
   }
 
+  /** Another song holds the engine (it is the one playing, or about to): this one must not take it. */
+  get heldByOther(): boolean {
+    return owner !== null && owner !== this && !this.destroyed;
+  }
+
   private claim() {
     if (this.destroyed || owner === this || !this.song) return;
     takeEngine(this);
@@ -338,6 +378,36 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     this.startPolling();
   }
 
+  /**
+   * Starts when the engine's clock reaches `frame` (see {@link NativeEngine.clock}), on that exact
+   * frame. The audio lanes start this way while the SoundFonts player plays the notes.
+   */
+  playAt(frame: number) {
+    this.playRequested = true;
+    this.claim();
+    this.send({ type: "playAtFrame", frame: Math.max(0, Math.round(frame)) });
+    this.startPolling();
+  }
+
+  /**
+   * One reading of the engine's clock: how many frames it has rendered at the moment `at`
+   * (`performance.now()`, the middle of the request), and how long the round trip took (`rtt`:
+   * the smaller, the better the reading).
+   */
+  async clock(): Promise<EngineClock | null> {
+    const sentAt = performance.now();
+    const status = await this.enqueue(() => engineState());
+    const receivedAt = performance.now();
+    if (!status.running) return null;
+    return {
+      frames: status.clockFrames,
+      sampleRate: status.sampleRate,
+      latencyMs: status.latencyMs,
+      at: (sentAt + receivedAt) / 2,
+      rtt: receivedAt - sentAt,
+    };
+  }
+
   pause() {
     // A song in a hidden tab must not pause the one that is playing.
     if (this.ownsOrFree) this.send({ type: "pause" });
@@ -369,10 +439,14 @@ export class NativeEngine implements synth.IExternalMediaHandler {
     return this.soundFontId;
   }
 
-  async loadSong(file: midi.MidiFile, channels: number[][]): Promise<void> {
+  /**
+   * Loads the song the MIDI describes. `lanesOnly`: the engine only plays the audio lanes, so it
+   * gets the tempo map and no tracks (see {@link clockSongFromMidi}).
+   */
+  async loadSong(file: midi.MidiFile, channels: number[][], lanesOnly = false): Promise<void> {
     if (this.destroyed) return;
     const started = performance.now();
-    const song = songFromMidi(file, channels);
+    const song = lanesOnly ? clockSongFromMidi(file) : songFromMidi(file, channels);
     this.song = song;
     // Another song had the engine: it has that song's monitor track.
     if (owner !== this) this.monitorSent = undefined;

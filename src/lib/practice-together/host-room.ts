@@ -19,6 +19,7 @@ import {
   encode,
   type Command,
   type EditBody,
+  type SourceMessage,
   type Message,
   type ScoreFingerprint,
 } from "@/lib/practice-together/protocol";
@@ -151,6 +152,16 @@ interface Seat {
 }
 
 /** What the host's shared editing (see `shared-editing.ts`) hears from the guests' sessions. */
+/** What the host's room hands the host's sharing of audio files. */
+export interface RoomSourceHooks {
+  /** A guest said something about audio files. */
+  receive(seat: string, msg: SourceMessage): void;
+  /** A guest was let in (or came back): it needs to hear what the host has. */
+  welcomed(seat: string): void;
+  /** A guest left the session. */
+  left(seat: string): void;
+}
+
 export interface RoomEditHooks {
   /** A guest said something about editing. */
   receive(seat: string, body: EditBody): void;
@@ -203,6 +214,7 @@ export class HostRoom {
   private ended = false;
   private state: SessionState;
   private editHooks: RoomEditHooks | null = null;
+  private sourceHooks: RoomSourceHooks | null = null;
 
   constructor(options: HostRoomOptions) {
     this.acceptor = options.acceptor;
@@ -281,10 +293,31 @@ export class HostRoom {
   }
 
   /** The guests that are in the session and can edit together, by id. */
-  editSeats(): { id: string; name: string }[] {
+  editSeats(): { id: string; name: string; lanes: boolean }[] {
     return [...this.seats.values()]
       .filter((seat) => !seat.retiring && seat.session.welcomed && seat.session.peerEdits)
+      .map((seat) => ({
+        id: seat.id,
+        name: seat.session.snapshot.peerName ?? seat.name,
+        lanes: seat.session.peerLanes,
+      }));
+  }
+
+  /** Plugs in the host's sharing of audio files (null: none). */
+  setSourceHooks(hooks: RoomSourceHooks | null): void {
+    this.sourceHooks = hooks;
+  }
+
+  /** The guests whose app shares audio files, by id. */
+  sourceSeats(): { id: string; name: string }[] {
+    return [...this.seats.values()]
+      .filter((seat) => !seat.retiring && seat.session.welcomed && seat.session.peerLanes)
       .map((seat) => ({ id: seat.id, name: seat.session.snapshot.peerName ?? seat.name }));
+  }
+
+  /** Says something about audio files to one guest. */
+  sendSource(seat: string, msg: SourceMessage): void {
+    this.seats.get(seat)?.session.sendSource(msg);
   }
 
   /** Says something about editing to one guest. */
@@ -510,6 +543,14 @@ export class HostRoom {
           if (seat().session.peerEdits) this.editHooks?.welcomed(seat().id);
         },
       },
+      source: {
+        receive: (msg) => {
+          if (seat().session.peerLanes) this.sourceHooks?.receive(seat().id, msg);
+        },
+        welcomed: () => {
+          if (seat().session.peerLanes) this.sourceHooks?.welcomed(seat().id);
+        },
+      },
     };
   }
 
@@ -546,6 +587,7 @@ export class HostRoom {
       if (this.seats.get(seat.id) === seat) {
         this.seats.delete(seat.id);
         this.editHooks?.left(seat.id);
+        this.sourceHooks?.left(seat.id);
       }
       seat.abort.abort();
       if (seat.wasIn && !this.ended) {
@@ -574,6 +616,7 @@ export class HostRoom {
     if (seat.retiring) return;
     seat.retiring = true;
     this.editHooks?.left(seat.id);
+    this.sourceHooks?.left(seat.id);
     seat.abort.abort();
     queueMicrotask(() => seat.session.leave("done"));
   }

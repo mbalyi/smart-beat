@@ -1060,6 +1060,8 @@ export interface EngineStatus {
   durationMs: number;
   playing: boolean;
   latencyMs: number;
+  /** Frames the engine has rendered since it started: its clock, for `playAtFrame`. */
+  clockFrames: number;
   dropouts: number;
   /** Times a sound crashed in the audio callback (effects were switched off, playback stopped). */
   faults: number;
@@ -1088,6 +1090,8 @@ export type TransportCommand =
   /** Clicks `beats` times, `beatSeconds` apart, then plays. */
   | { type: "countIn"; beats: number; beatSeconds: number }
   | { type: "pause" }
+  /** Starts when the engine's clock (`EngineStatus.clockFrames`) reaches `frame`. */
+  | { type: "playAtFrame"; frame: number }
   | { type: "seek"; ms: number }
   | { type: "rate"; value: number }
   | {
@@ -1179,6 +1183,43 @@ export async function addAudioTake(name: string, wav: Uint8Array): Promise<Sourc
   if (!isTauri()) throw new Error("Recording needs the desktop app");
   return invoke<SourceInfo>("audio_add_take", wav, { headers: { "x-name": name } });
 }
+
+// ----- Practice together: sending the audio files of the lanes (ADR 0005) -----
+
+/** The size of a loaded audio file in bytes (an error when it is not loaded here). */
+export const audioSourceSize = (id: string) => call<number>("audio_source_size", { id });
+
+/** `len` bytes of a loaded audio file from `offset` (fewer at its end). */
+export async function audioSourceChunk(
+  id: string,
+  offset: number,
+  len: number,
+): Promise<Uint8Array> {
+  return new Uint8Array(await call<ArrayBuffer>("audio_source_chunk", { id, offset, len }));
+}
+
+/** Starts or continues an incoming file of `size` bytes: how many bytes are staged already. */
+export const audioStageBegin = (id: string, size: number) =>
+  call<number>("audio_stage_begin", { id, size });
+
+/** Adds the piece that starts at `offset` to an incoming file: the bytes staged now. */
+export async function audioStageAppend(
+  id: string,
+  offset: number,
+  bytes: Uint8Array,
+): Promise<number> {
+  if (!isTauri()) throw new Error("Receiving audio files needs the desktop app");
+  return invoke<number>("audio_stage_append", bytes, {
+    headers: { "x-id": id, "x-offset": String(offset) },
+  });
+}
+
+/** The incoming file is complete: checked against its id and loaded. */
+export const audioStageFinish = (id: string, name: string) =>
+  call<SourceInfo>("audio_stage_finish", { id, name });
+
+/** Gives up on an incoming file (without an id: on all of them). */
+export const audioStageAbort = (id?: string) => call<void>("audio_stage_abort", { id: id ?? null });
 
 /** Lets go of every loaded audio file not listed in `keep`. */
 export const forgetAudioSources = (keep: string[]) => call<void>("audio_forget_sources", { keep });

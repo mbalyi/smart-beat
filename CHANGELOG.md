@@ -4,6 +4,12 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### New: audio tracks play with the SoundFonts, and Practice together shares them
+
+- **Audio tracks and notes play together.** The notes play with the SoundFonts as before, and your audio tracks (Record audio, files, stems) always play next to them, in time, with no need to switch to the native sound engine. The switch is now only for what needs it: effects, amps, drum kits and the monitor track. The "audio tracks are silent with SoundFonts" notice is gone.
+- **Practice together shares the audio tracks.** When you add, move, cut or remove audio tracks and clips in a session, the other players get the same tracks. Each player keeps their own mix of a track (volume, pan, mute, solo, effects, EQ). Undo only takes back your own edits.
+- **The audio files are sent once each**, directly between the computers, in pieces that can go on where they stopped, and checked on arrival. Progress shows in the session dialog and on the session button. Nobody starts until everyone has every file, so nobody plays a track in silence.
+
 ### New: export stems and use them as audio tracks
 
 - Every stem row has an Export button after Mute and Solo that opens Export stems with only that stem chosen. The dialog has its own logo, a picture on each stem card and a pink Export button.

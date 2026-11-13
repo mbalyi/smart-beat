@@ -22,6 +22,7 @@ pub mod plugin_wire;
 pub mod sf3;
 pub mod song;
 pub mod soundfonts;
+pub mod transfer;
 
 /// Synthetic assets for the unit tests (the integration tests build their own).
 #[cfg(test)]
@@ -389,6 +390,8 @@ pub struct EngineStatus {
     pub duration_ms: f64,
     pub playing: bool,
     pub latency_ms: f64,
+    /// Frames the engine has rendered since it started: its clock, for `PlayAtFrame`.
+    pub clock_frames: u64,
     /// Buffers dropped since the last report.
     pub dropouts: u32,
     /// Times a sound crashed in the audio callback since the last report: the
@@ -422,6 +425,10 @@ pub enum Transport {
         beat_seconds: f64,
     },
     Pause,
+    /// Starts when the engine's clock (`EngineStatus.clock_frames`) reaches `frame`.
+    PlayAtFrame {
+        frame: u64,
+    },
     Seek {
         ms: f64,
     },
@@ -912,9 +919,14 @@ fn status(inner: &Inner) -> Result<EngineStatus, CommandError> {
         return Ok(EngineStatus::default());
     };
     let published = &output.published;
-    let (duration, meters, loops) = {
+    let (duration, meters, loops, clock_frames) = {
         let mut engine = engine.lock().unwrap();
-        (engine.duration(), engine.take_meters(), engine.take_loops())
+        (
+            engine.duration(),
+            engine.take_meters(),
+            engine.take_loops(),
+            engine.clock_frames(),
+        )
     };
     Ok(EngineStatus {
         running: true,
@@ -923,6 +935,7 @@ fn status(inner: &Inner) -> Result<EngineStatus, CommandError> {
         duration_ms: duration * 1000.0,
         playing: published.playing.load(Ordering::Relaxed),
         latency_ms: published.latency_us.load(Ordering::Relaxed) as f64 / 1000.0,
+        clock_frames,
         dropouts: published.dropouts.swap(0, Ordering::Relaxed),
         faults: published.faults.swap(0, Ordering::Relaxed),
         load_percent: published.load_permille.swap(0, Ordering::Relaxed) as f64 / 10.0,
@@ -979,6 +992,7 @@ pub fn audio_transport(
             beat_seconds,
         } => engine.start_count_in(beats.min(32), beat_seconds),
         Transport::Pause => engine.pause(),
+        Transport::PlayAtFrame { frame } => engine.play_at(frame),
         Transport::Seek { ms } => engine.seek(ms / 1000.0),
         Transport::Rate { value } => engine.set_rate(value),
         Transport::Loop {

@@ -27,6 +27,7 @@ import { ScoreLanesBand } from "@/components/audio-lanes/score-lanes-band";
 import { StudioView } from "@/components/audio-lanes/studio-view";
 import { useScoreBarBounds } from "@/components/audio-lanes/use-score-bar-bounds";
 import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
+import { fileNameOf, sourceEntries, type LaneSharing } from "@/lib/audio-lanes/collab";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
@@ -1997,20 +1998,43 @@ export function ScoreWorkspace({
    */
   const loadLaneSource = useCallback((location: SourceLocation) => {
     const player = playerRef.current;
-    return player?.usesNativeEngine ? player.loadSource(location) : loadAudioSource(location);
+    return player?.playsLanes ? player.loadSource(location) : loadAudioSource(location);
   }, []);
+  // Practice together shares the audio lanes along with the tab (ADR 0005).
+  const laneLink = together.edit.lanes;
+  const sharedLanes = useMemo<LaneSharing>(
+    () => ({
+      active: laneLink.active,
+      send: laneLink.send,
+      attach: laneLink.attach,
+      blocked: () => {
+        if (!together.readOnly) return false;
+        toast.info(
+          together.edit.live
+            ? "The host turned editing off for guests."
+            : "You follow the host's tab, so it is read-only.",
+          { id: "together-readonly" },
+        );
+        return true;
+      },
+      waiting: together.sources.state.waiting,
+      sourcesChanged: (sources) =>
+        together.sources.setNeeded(
+          sources.map((s) => ({ id: s.id, name: s.name, file: fileNameOf(s) })),
+          [],
+        ),
+    }),
+    [laneLink, together.readOnly, together.edit.live, together.sources],
+  );
   const lanes = useAudioLanes({
     mix,
     changeMix,
+    sharing: sharedLanes,
     loadSource: loadLaneSource,
-    epoch: engineOn ? playerEpoch : null,
+    // The native engine plays the lanes in the desktop app, whoever plays the notes (hybrid).
+    epoch: nativeEngineAvailable() ? playerEpoch : null,
     songPath: song.path ?? null,
     grid: laneGrid,
-    // Lanes are heard with the native audio engine only (a bridge until the SoundFonts play them).
-    playback: {
-      engineOn,
-      enable: nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined,
-    },
     // Split and Paste act at the line the user sees: the playhead while playing.
     positionMs: () =>
       playing ? timelineMsAtBar(lanesAudioRef.current, laneGrid, playhead.get()) : null,
@@ -2032,6 +2056,19 @@ export function ScoreWorkspace({
   });
   // While stopped, the edit cursor is where playback is: a seek or a pause moves it along, so
   // Split and Paste work at the line the user sees.
+  // The shared lanes' files and which of them are open here: the session moves what is missing.
+  const setNeededFiles = together.sources.setNeeded;
+  useEffect(() => {
+    setNeededFiles(sourceEntries(lanes.audio), lanes.infos.keys());
+  }, [lanes.audio, lanes.infos, setNeededFiles]);
+  const sourcesState = together.sources.state;
+  const filesProgress = useMemo(() => {
+    if (sourcesState.failed.length > 0) return { percent: null, failed: true };
+    if (sourcesState.complete) return null;
+    const size = sourcesState.transfers.reduce((n, t) => n + t.size, 0);
+    const done = sourcesState.transfers.reduce((n, t) => n + t.done, 0);
+    return { percent: size > 0 ? Math.floor((done / size) * 100) : null, failed: false };
+  }, [sourcesState]);
   const followPlayback = lanes.followPosition;
   useEffect(() => {
     if (playing) return;
@@ -3323,7 +3360,11 @@ export function ScoreWorkspace({
           }
         }}
         together={
-          <TogetherButton state={together.state} onOpen={() => openTogether("host", "toolbar")} />
+          <TogetherButton
+            state={together.state}
+            onOpen={() => openTogether("host", "toolbar")}
+            files={filesProgress}
+          />
         }
         practice={
           <PracticeControls

@@ -541,7 +541,8 @@ export function Inspector({
                 onChange={(on) => onAudioEngineChange(on ? "native" : "alphatab")}
               />
               <p className="text-xs text-muted-foreground">
-                Experimental: plays through effect chains and your sound library.
+                Experimental: plays the tracks through effect chains, amps, drum kits and your sound
+                library. Audio tracks play with either engine.
               </p>
             </>
           )}

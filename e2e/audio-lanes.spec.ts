@@ -307,7 +307,7 @@ test.describe("audio lanes (#185)", () => {
     await expect.poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes.length)).toBe(1);
   });
 
-  test("with the SoundFonts engine a lane is decoded and edited, and says it needs the native engine", async ({
+  test("with the SoundFonts a lane is decoded, edited and played by the native engine next to the notes", async ({
     app,
   }) => {
     test.slow(); // a song, a lane, the editor, the studio and an axe scan: long on CI's software renderer
@@ -319,21 +319,23 @@ test.describe("audio lanes (#185)", () => {
     const before = await preference();
 
     const row = await addLane(app, "/Users/me/Music/take.mp3");
-    // The waveform is there (the file was decoded), and the engine was not touched.
+    // The waveform is there (the file was decoded), and the sound engine was not switched.
     const clip = row.getByRole("button", { name: /take\.mp3 on take/ });
     await expect(clip.locator("svg path")).toHaveCount(1);
     await expect(engineSwitch).not.toBeChecked();
     expect(await preference()).toBe(before);
     expect(await app.evaluate(() => Object.keys(window.__engineSources ?? {}).length)).toBe(1);
 
-    // The lane says it is silent here, with a way to switch (the user's own choice).
-    const notice = row.getByRole("button", { name: /Lane take is silent here/ });
-    await expect(notice).toBeVisible();
+    // The lane is not silent: nothing says it needs the native engine, and the engine that plays
+    // lanes has it (the notes stay with the SoundFonts).
+    await expect(row.getByRole("button", { name: /silent here/ })).toHaveCount(0);
+    await expect(app.getByText(/silent here/)).toHaveCount(0);
+    await expect.poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes.length)).toBe(1);
 
     // The editor and the studio work too.
     await row.getByRole("button", { name: "Edit the lane take" }).click();
     const editor = app.getByRole("region", { name: "Lane editor: take" });
-    await expect(editor.getByText("Plays with effects playback")).toBeVisible();
+    await expect(editor.getByText(/silent here|needs the native engine/)).toHaveCount(0);
     await editor.getByRole("button", { name: "Studio" }).click();
     const studio = app.getByRole("dialog", { name: "Studio" });
     await expect(studio).toBeVisible();
@@ -343,11 +345,35 @@ test.describe("audio lanes (#185)", () => {
     await studio.getByRole("button", { name: "Back to score" }).click();
     await expect(studio).toBeHidden();
     expect(await preference()).toBe(before);
+    await expect(engineSwitch).not.toBeChecked();
+  });
 
-    // Switching is the user's own pick: the engine turns on and the choice is remembered.
-    await editor.getByRole("button", { name: /Lane take is silent here/ }).click();
-    await expect(engineSwitch).toBeChecked();
-    expect(await preference()).toBe("native");
+  test("with the SoundFonts, Play starts the lanes with the notes and Pause stops them (hybrid playback)", async ({
+    app,
+  }) => {
+    test.slow();
+    await openSong(app);
+    await addLane(app, "/Users/me/Music/take.mp3");
+    await expect.poll(() => app.evaluate(() => window.__engineLanes?.audio.lanes.length)).toBe(1);
+    await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
+    await app.evaluate(() => (window.__engineTransport = []));
+    await app.getByRole("button", { name: "Play" }).click();
+    // The lanes engine starts on its own clock (at a frame), or at once when the clock was not read yet.
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          (window.__engineTransport ?? []).some(
+            (c) => c.type === "playAtFrame" || c.type === "play",
+          ),
+        ),
+      )
+      .toBe(true);
+    await app.getByRole("button", { name: "Pause" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(() => (window.__engineTransport ?? []).some((c) => c.type === "pause")),
+      )
+      .toBe(true);
   });
 
   test("lanes take the stem colours, and a lane's colour can be changed", async ({ app }) => {

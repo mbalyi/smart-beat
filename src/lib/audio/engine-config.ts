@@ -306,6 +306,30 @@ export function engineExtras(
 }
 
 /**
+ * What the engine plays while another player (the SoundFonts synthesizer) plays the notes: only
+ * the audio lanes, with the song's sync points. No tracks, sounds, effects or monitor.
+ */
+export function laneExtras(
+  mix: MixerSettings,
+  occurrences: readonly BarOccurrence[],
+): EngineExtras {
+  const audio = lanesOf(mix);
+  return {
+    sounds: [],
+    master: [],
+    automation: [],
+    eq: [],
+    drums: [],
+    kits: [],
+    masterPan: 0,
+    lanes: audio.lanes.length
+      ? { audio, sync: syncTicks(audio.sync, occurrences), transpose: 0 }
+      : null,
+    monitor: null,
+  };
+}
+
+/**
  * Song ms where each bar starts (first pass), plus where the last bar ends:
  * the time axis of the audio track's waveform.
  */

@@ -152,6 +152,29 @@ describe("SharedTransport commands", () => {
     expect(player!.events.map((e) => e.what)).toEqual(["seek 1920"]);
   });
 
+  it("does not start while an audio file of the lanes is missing somewhere, and starts when it is not", async () => {
+    let files = false;
+    const player = new FakePlayer();
+    const transport = new SharedTransport({
+      player: () => player,
+      applySettings: () => {},
+      settleMs: 10,
+      spinMs: 0,
+      filesReady: () => files,
+    });
+    // A play is not prepared: the other end would play the lanes in silence.
+    expect(await transport.hooks.prepare(cmd())).toBe(false);
+    expect(player.prepareStarts).toBe(0);
+    // A pause is never held back.
+    const pause = transport.hooks.prepare(cmd({ action: "pause" }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await pause).toBe(true);
+    files = true;
+    const play = transport.hooks.prepare(cmd());
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await play).toBe(true);
+  });
+
   it("says it cannot start when the MIDI did not load in time", async () => {
     const { transport, player } = make();
     player!.prepared = Promise.resolve(false);

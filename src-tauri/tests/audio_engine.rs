@@ -589,6 +589,13 @@ fn drum_elements_have_their_own_mix_and_meters() {
 /// Audio lanes in the engine: one clip of a 330 Hz tone on a soloed lane, through the song's
 /// sync map.
 fn lane_engine(solo: bool, clip_ms: f64) -> Engine {
+    let prepared = lane_prepared(solo, clip_ms);
+    playing_engine(move |e| {
+        drop(e.set_lanes(Some(prepared)));
+    })
+}
+
+fn lane_prepared(solo: bool, clip_ms: f64) -> smart_beat_lib::audio::lanes::PreparedLanes {
     use smart_beat_lib::audio::backing::{BackingParams, DecodedAudio, SyncMap};
     use smart_beat_lib::audio::lanes::{LaneInputs, prepare};
     use smart_beat_lib::audio_lanes::{
@@ -665,7 +672,7 @@ fn lane_engine(solo: bool, clip_ms: f64) -> Engine {
     let reversed = HashMap::new();
     let build = |_: Option<usize>, _: &[EffectSlot]| Chain::empty();
     let seconds_at = |t: f64| t;
-    let prepared = prepare(&LaneInputs {
+    prepare(&LaneInputs {
         audio: &lanes,
         sources: &sources,
         reversed: &reversed,
@@ -675,10 +682,89 @@ fn lane_engine(solo: bool, clip_ms: f64) -> Engine {
         max_block: BLOCK,
         build_chain: &build,
         seconds_at: &seconds_at,
-    });
-    playing_engine(move |e| {
-        drop(e.set_lanes(Some(prepared)));
     })
+}
+
+/// An engine that only plays audio lanes: a song with a tempo map and a length but no tracks
+/// and no notes (what the app loads while the notes are played by the SoundFonts player).
+fn lanes_only_engine() -> Engine {
+    use smart_beat_lib::audio::song::SongData;
+    let data = SongData {
+        division: 960,
+        events: vec![],
+        tempos: vec![(0, 120.0)],
+        metronome: vec![],
+        tracks: vec![],
+        end_tick: 960 * 8,
+    };
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine
+        .load(Arc::new(Song::from_data(&data).unwrap()))
+        .unwrap();
+    drop(engine.set_lanes(Some(lane_prepared(false, 5_000.0))));
+    engine
+}
+
+#[test]
+fn audio_lanes_play_alone_without_tab_tracks() {
+    let mut engine = lanes_only_engine();
+    engine.play();
+    let (l, _) = render(&mut engine, 0.5);
+    // The 330 Hz tone is there, with no notes of the song under it.
+    let crossings = l[4_800..]
+        .windows(2)
+        .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
+        .count();
+    let freq = crossings as f32 * RATE / (l.len() - 4_800) as f32;
+    assert!((freq - 330.0).abs() < 8.0, "{freq} Hz");
+    assert!(rms(&l[4_800..]) > 0.1);
+    assert_eq!(engine.take_meters().tracks.len(), 0);
+}
+
+#[test]
+fn a_start_at_a_frame_begins_on_that_frame_whatever_the_buffer_sizes() {
+    for chunk in [64usize, 300, 480, 1_000, 2_048, 5_000] {
+        let mut engine = lanes_only_engine();
+        engine.play_at(10_000);
+        let mut out = Vec::new();
+        while out.len() < 12_000 {
+            let (mut l, mut r) = (vec![0.0; chunk], vec![0.0; chunk]);
+            engine.render(&mut l, &mut r);
+            out.extend(l);
+        }
+        assert!(
+            out[..10_000].iter().all(|x| *x == 0.0),
+            "chunk {chunk}: silent before the start"
+        );
+        // The tone starts at its first sample on frame 10 000.
+        assert!(
+            out[10_000..10_000 + 200].iter().any(|x| x.abs() > 0.05),
+            "chunk {chunk}: sound from the start frame"
+        );
+        assert_eq!(engine.clock_frames() as usize, out.len());
+        assert!(engine.is_playing());
+    }
+}
+
+#[test]
+fn a_start_in_the_past_plays_at_once_and_pause_cancels_a_pending_start() {
+    let mut engine = lanes_only_engine();
+    render(&mut engine, 0.1);
+    engine.play_at(100);
+    let (l, _) = render(&mut engine, 0.05);
+    assert!(engine.is_playing());
+    assert!(rms(&l) > 0.05, "plays at once");
+
+    let mut engine = lanes_only_engine();
+    engine.play_at(50_000);
+    engine.pause();
+    let (l, _) = render(&mut engine, 2.0);
+    assert!(!engine.is_playing());
+    assert_eq!(rms(&l), 0.0, "a paused engine does not start later");
+    // A play or a count-in replaces the pending start as well.
+    engine.play_at(60_000);
+    engine.play();
+    assert!(engine.is_playing());
 }
 
 #[test]

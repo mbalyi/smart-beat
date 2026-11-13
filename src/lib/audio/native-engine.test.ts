@@ -7,6 +7,7 @@ import {
   forgetEngineOwner,
   NativeEngine,
   POLL_MS,
+  clockSongFromMidi,
   songFromMidi,
   type EngineExtras,
 } from "@/lib/audio/native-engine";
@@ -25,6 +26,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
         durationMs: 8_000,
         playing: true,
         latencyMs: 10,
+        clockFrames: 0,
         dropouts: 0,
         faults: 0,
         loops: 0,
@@ -78,6 +80,19 @@ function file(): midi.MidiFile {
   f.addEvent(new midi.NoteOnEvent(1, 960, 9, 36, 127));
   return f;
 }
+
+describe("clockSongFromMidi", () => {
+  it("keeps the tempo map and the length, and no notes, tracks or clicks", () => {
+    const song = clockSongFromMidi(file());
+    expect(song.division).toBe(960);
+    expect(song.tempos).toEqual([[0, 120]]);
+    expect(song.endTick).toBe(960);
+    expect(song.events).toEqual([]);
+    expect(song.tracks).toEqual([]);
+    // The notes' MIDI has clicks; an engine that only plays lanes must not sound them.
+    expect(song.metronome).toEqual([]);
+  });
+});
 
 describe("songFromMidi", () => {
   it("turns alphaTab's MIDI into plain channel messages, tempos and clicks", () => {
@@ -243,6 +258,7 @@ describe("NativeEngine", () => {
       durationMs: 8_000,
       playing: true,
       latencyMs: 10,
+      clockFrames: 0,
       dropouts: 0,
       faults,
       loops: 0,
@@ -425,6 +441,7 @@ describe("NativeEngine", () => {
       channels: 2,
       sampleRate: 48_000,
       latencyMs: 9,
+      clockFrames: 0,
       error: null,
     };
 

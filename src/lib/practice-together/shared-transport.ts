@@ -46,6 +46,11 @@ export interface SharedTransportOptions {
   applySettings(cmd: Command): void;
   /** Called with the guest's drift in milliseconds whenever it is measured. */
   onDrift?(driftMs: number): void;
+  /**
+   * Whether every audio file of the shared lanes is here (and, for the host, at every player). A
+   * start without them would play the lanes in silence on some computers.
+   */
+  filesReady?(): boolean;
   /** How long to wait for the app to apply settings before moving the position. */
   settleMs?: number;
   /** How long before a start to switch from a timer to a tight loop (tests: 0). */
@@ -119,6 +124,7 @@ export class SharedTransport {
     // A start with nothing loaded would do nothing here: say so, instead of starting alone.
     // After an edit the MIDI is made and loaded now, not inside the start: that would start late.
     if (cmd.action === "play") {
+      if (this.options.filesReady && !this.options.filesReady()) return false;
       const ready = player.prepareStart ? await player.prepareStart() : player.isReady();
       if (!ready) return false;
     }

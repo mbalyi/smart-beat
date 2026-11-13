@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { AudioOp, LaneBridge } from "@/lib/audio-lanes/collab";
 import type { HostRoom } from "@/lib/practice-together/host-room";
 import type { Session } from "@/lib/practice-together/session";
 import {
@@ -29,7 +30,19 @@ export interface SharedEditing {
   guests: { id: string; name: string; live: boolean; canEdit: boolean }[];
   /** Changes whenever the players or rights changed (to redraw cursors). */
   version: number;
+  /** A guest: the host's audio lane changes were refused too often, so the lanes are not shared with it. */
+  lanesOff: boolean;
+  /** The audio lanes, shared along with the tab (see `LaneSharing`). */
+  lanes: {
+    /** This player's lane edits are sent now. */
+    active: boolean;
+    send(ops: AudioOp[]): boolean;
+    /** The lanes controller hands over its end of the session (null: gone). */
+    attach(bridge: LaneBridge | null): void;
+  };
 }
+
+const NO_LANES: SharedEditing["lanes"] = { active: false, send: () => false, attach: () => {} };
 
 export const NO_SHARED_EDITING: SharedEditing = {
   guestsCanEdit: true,
@@ -40,6 +53,8 @@ export const NO_SHARED_EDITING: SharedEditing = {
   sync: null,
   guests: [],
   version: 0,
+  lanesOff: false,
+  lanes: NO_LANES,
 };
 
 interface Options {
@@ -88,6 +103,14 @@ export function useSharedEditing({
   useEffect(() => {
     keyRef.current = currentKey;
   });
+  // The audio lanes of this tab take part in the session through their bridge: they hand it over
+  // when they are ready, and the session starts and ends it.
+  const bridgeRef = useRef<LaneBridge | null>(null);
+  const roleOfLanes = useRef<"host" | "guest" | null>(null);
+  const attach = useCallback((bridge: LaneBridge | null) => {
+    bridgeRef.current = bridge;
+    if (bridge && roleOfLanes.current) bridge.begin(roleOfLanes.current === "host");
+  }, []);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
   const open =
@@ -112,7 +135,10 @@ export function useSharedEditing({
         name: hostName,
         currentKey: () => keyRef.current(),
         changed: bump,
+        lanes: () => bridgeRef.current,
       });
+      roleOfLanes.current = "host";
+      bridgeRef.current?.begin(true);
       room.setEditHooks(editing);
       snapshotRef.current = () => editing.snapshot();
       const stopPresence = editor.subscribe(() => editing.setPresence());
@@ -124,6 +150,8 @@ export function useSharedEditing({
         stopPlayers();
         room.setEditHooks(null);
         snapshotRef.current = undefined;
+        bridgeRef.current?.end();
+        roleOfLanes.current = null;
         editing.end();
         setHost(null);
       };
@@ -138,8 +166,17 @@ export function useSharedEditing({
       editing = new GuestEditing(
         editor,
         { send: (body) => guestSession.sendEdit(body) },
-        { guest: guestId, seq: receivedSeq ?? -1, key, changed: bump },
+        {
+          guest: guestId,
+          seq: receivedSeq ?? -1,
+          key,
+          changed: bump,
+          lanes: () => bridgeRef.current,
+          hostLanes: () => guestSession.peerLanes,
+        },
       );
+      roleOfLanes.current = "guest";
+      bridgeRef.current?.begin(false);
       editing.start();
       const current = editing;
       inbox.listen((body) => current.receive(body));
@@ -155,6 +192,8 @@ export function useSharedEditing({
       inbox.listen(null);
       // What this session said is of no use to the next one.
       inbox.clear();
+      bridgeRef.current?.end();
+      roleOfLanes.current = null;
       editing?.end();
       setGuest(null);
     };
@@ -173,6 +212,8 @@ export function useSharedEditing({
         sync: host.sync,
         guests: host.editors(),
         version,
+        lanesOff: false,
+        lanes: { active: true, send: (ops: AudioOp[]) => host.sendLanes(ops), attach },
       };
     }
     if (guest) {
@@ -183,9 +224,11 @@ export function useSharedEditing({
         players: guest.players,
         sync: guest.sync,
         version,
+        lanesOff: guest.lanesOff,
+        lanes: { active: guest.editable, send: (ops: AudioOp[]) => guest.sendLanes(ops), attach },
       };
     }
-    return NO_SHARED_EDITING;
+    return { ...NO_SHARED_EDITING, lanes: { ...NO_LANES, attach } };
     // `version` stands for what changed inside the coordinators.
-  }, [host, guest, version]);
+  }, [host, guest, version, attach]);
 }
