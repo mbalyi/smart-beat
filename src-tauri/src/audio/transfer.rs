@@ -659,28 +659,20 @@ mod tests {
     #[test]
     fn folders_left_by_an_earlier_run_go_and_a_recent_one_stays() {
         let parent = tempfile::tempdir().unwrap();
-        let old = parent.path().join("smart-beat-incoming-old");
-        let recent = parent.path().join("smart-beat-incoming-recent");
+        let earlier = parent.path().join("smart-beat-incoming-earlier");
         let other = parent.path().join("something-else");
         let current = parent.path().join("smart-beat-incoming-now");
-        for dir in [&old, &recent, &other, &current] {
+        for dir in [&earlier, &other, &current] {
             std::fs::create_dir_all(dir).unwrap();
             std::fs::write(dir.join("x.part"), b"1").unwrap();
         }
-        let long_ago = SystemTime::now() - Duration::from_secs(10 * 60 * 60);
-        for path in [
-            old.join("x.part"),
-            old.clone(),
-            current.join("x.part"),
-            current.clone(),
-        ] {
-            let file = std::fs::File::open(&path).unwrap();
-            file.set_modified(long_ago).unwrap();
-        }
-        sweep_stale(parent.path(), STALE_AFTER, &current);
-        assert!(!old.exists());
-        assert!(recent.exists());
-        // A folder that is not ours, and the one this run uses, are never touched.
+        // Everything was touched just now: nothing is old enough yet, whatever the folder is.
+        sweep_stale(parent.path(), Duration::from_secs(60 * 60), &current);
+        assert!(earlier.exists() && other.exists() && current.exists());
+        // Once it is old enough (no age at all), only a folder of an earlier run goes: one that is
+        // not ours, and the one this run uses, are never touched.
+        sweep_stale(parent.path(), Duration::ZERO, &current);
+        assert!(!earlier.exists());
         assert!(other.exists());
         assert!(current.exists());
     }
