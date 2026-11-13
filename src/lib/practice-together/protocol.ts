@@ -94,7 +94,14 @@ export type Message =
        */
       guest?: string;
     }
-  | { type: "welcome"; session: string; version: number; name: string }
+  | {
+      type: "welcome";
+      session: string;
+      version: number;
+      name: string;
+      /** What the host's app can do (a guest shares audio lanes only with a host that can). */
+      caps?: string[];
+    }
   | { type: "refuse"; reason: RefuseReason }
   | { type: "ping"; id: number; t0: number }
   | { type: "pong"; id: number; t0: number; t1: number; t2: number }
@@ -329,7 +336,12 @@ function validMessage(m: unknown): m is Message {
       );
     }
     case "welcome":
-      return isString(m.session) && isNumber(m.version) && isString(m.name);
+      return (
+        isString(m.session) &&
+        isNumber(m.version) &&
+        isString(m.name) &&
+        (m.caps === undefined || (Array.isArray(m.caps) && m.caps.every(isString)))
+      );
     case "refuse":
       return isString(m.reason);
     case "ping":

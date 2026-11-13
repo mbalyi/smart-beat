@@ -797,6 +797,7 @@ export class Session {
       session: this.state.session ?? randomId(),
       version: this.version,
       name: this.name,
+      caps: [...CAPABILITIES],
     });
     this.patch({ peerName: name, phase: "syncing", peer: null, problem: null });
     this.checkScore(0);
@@ -813,6 +814,7 @@ export class Session {
   private onWelcome(msg: Extract<Message, { type: "welcome" }>) {
     this.wasWelcomed = true;
     this.version = negotiate(PROTOCOL_VERSION, msg.version);
+    this.peerCaps = msg.caps ?? [];
     this.patch({
       session: msg.session,
       peerName: msg.name,
@@ -821,6 +823,7 @@ export class Session {
       problem: null,
     });
     this.beginSync();
+    this.hooks.source?.welcomed?.();
   }
 
   private onRefuse(reason: RefuseReason) {

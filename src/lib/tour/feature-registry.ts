@@ -20,6 +20,21 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "hybrid-lanes",
+    title: "Audio tracks play with the SoundFonts",
+    summary:
+      "Your audio tracks (Record audio, files and stems) now play next to the notes, in time, with the default SoundFonts: no need to switch to the native sound engine, and nothing is silent any more. The switch in the Inspector is only for what needs it: effects, amps, drum kits and the monitor track.",
+    since: "1.3.0",
+    tour: "audio-lanes",
+  },
+  {
+    id: "practice-together-lanes",
+    title: "Share audio tracks in Practice together",
+    summary:
+      "In a Practice together session everyone gets the same audio tracks: add, move, cut or remove clips and the others see it within a moment, including stems you add from the stem page. Each player keeps their own mix of a track. The audio files are sent once each, with progress shown in the session dialog, and nobody starts until everyone has every file.",
+    since: "1.3.0",
+  },
+  {
     id: "stem-export",
     title: "Export stems and use them as audio tracks",
     summary:

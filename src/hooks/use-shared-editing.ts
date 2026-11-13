@@ -169,7 +169,7 @@ export function useSharedEditing({
           key,
           changed: bump,
           lanes: () => bridgeRef.current,
-          hostLanes: guestSession.peerLanes,
+          hostLanes: () => guestSession.peerLanes,
         },
       );
       roleOfLanes.current = "guest";

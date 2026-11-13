@@ -408,7 +408,13 @@ export function useAudioLanes(options: AudioLanesOptions) {
     return true;
   }, [blocked, commit, inSession, stepPatches]);
 
-  // The session's end of the lanes: what it needs to read and to apply.
+  // The session's end of the lanes: what it needs to read and to apply. The bridge is handed over
+  // once (the session starts it when it gets it): `commit` changes with every render, so it is read
+  // through a ref, or every render would start the session over and forget what was not sent.
+  const commitRef = useRef(commit);
+  useEffect(() => {
+    commitRef.current = commit;
+  });
   useEffect(() => {
     const bridge: LaneBridge = {
       snapshot: () => snapshotOps(audioRef.current),
@@ -420,7 +426,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
         const base = baseline.current;
         baseline.current = base ? (receiveAudioOps(base, ops) ?? next) : next;
         audioRef.current = next;
-        commit(next);
+        commitRef.current(next);
         // The files these lanes play are asked for at once, before anything tries to open them.
         sharingRef.current?.sourcesChanged?.(next.sources);
         return true;
@@ -446,7 +452,7 @@ export function useAudioLanes(options: AudioLanesOptions) {
     attach?.(bridge);
     return () => attach?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sharing?.attach, commit]);
+  }, [sharing?.attach]);
 
   // Loads every file the lanes play when the song opens or a file is added. Decoding needs no
   // audio engine; a new native engine gets the files again (it must know where they came from).

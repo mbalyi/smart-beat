@@ -98,7 +98,7 @@ function setup(initial: AudioLanesSettings = EMPTY_AUDIO) {
         seq: snapshot.seq,
         key: "key",
         lanes: () => lanes,
-        hostLanes: !options.oldApp,
+        hostLanes: () => !options.oldApp,
       },
     );
     lanes.begin(false);

@@ -570,6 +570,17 @@ export class SourceInbox {
   private handler: ((msg: SourceMessage) => void) | null = null;
   private queue: SourceMessage[] = [];
 
+  private welcomeHandler: (() => void) | null = null;
+
+  /** The host welcomed this guest (and said what its app can do). */
+  welcomed(): void {
+    this.welcomeHandler?.();
+  }
+
+  onWelcome(handler: (() => void) | null): void {
+    this.welcomeHandler = handler;
+  }
+
   push(msg: SourceMessage): void {
     if (this.handler) return this.handler(msg);
     this.queue.push(msg);

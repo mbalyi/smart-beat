@@ -139,18 +139,23 @@ export function useSourceSync({
     const manager = new SourceSync({
       io,
       role: "guest",
-      link: { send: (_peer, msg) => (guest.peerLanes ? guest.sendSource(msg) : undefined) },
+      link: { send: (_peer, msg) => guest.sendSource(msg) },
       paused: () => pausedRef.current(),
       changed: () => setState(manager.state()),
     });
     inbox.listen((msg) => manager.receive("host", msg));
+    // The host's welcome says whether its app shares audio lanes: say what this player has then.
+    inbox.onWelcome(() => {
+      if (guest.peerLanes) manager.peerJoined("host");
+    });
     syncRef.current = manager;
     manager.setNeeded(needed.current.sources, needed.current.loaded);
-    manager.peerJoined("host");
+    if (guest.peerLanes) manager.peerJoined("host");
     setSync(manager);
     setState(manager.state());
     return () => {
       inbox.listen(null);
+      inbox.onWelcome(null);
       inbox.clear();
       manager.end();
       syncRef.current = null;

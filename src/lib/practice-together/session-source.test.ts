@@ -50,6 +50,8 @@ describe("audio file messages", () => {
     const { host, guest, heard } = pairWithSourceHooks();
     await vi.advanceTimersByTimeAsync(2_000);
     expect(host.peerLanes).toBe(true);
+    // The guest learns it from the host's hello, or it would never send or ask for anything.
+    expect(guest.peerLanes).toBe(true);
     guest.sendSource({ type: "src-want", id: ID });
     host.sendSource({ type: "src-offer", id: ID, size: 100 });
     host.sendSource({ type: "src-chunk", id: ID, off: 0, data: "AAAA" });

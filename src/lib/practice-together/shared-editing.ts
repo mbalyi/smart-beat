@@ -566,7 +566,7 @@ export interface GuestEditingOptions {
   /** The audio lanes of this tab (null: not ready), shared along with the tab. */
   lanes?(): LaneBridge | null;
   /** The host's app shares audio lanes (an older one does not). */
-  hostLanes?: boolean;
+  hostLanes?: () => boolean;
 }
 
 export class GuestEditing {
@@ -647,7 +647,7 @@ export class GuestEditing {
 
   /** This guest's own audio lane edits, sent to the host (false: not now, or not understood there). */
   sendLanes(ops: AudioOp[]): boolean {
-    if (this.ended || !this.editable || !this.options.hostLanes) return false;
+    if (this.ended || !this.editable || !this.options.hostLanes?.()) return false;
     return this.sendOps(ops as EditOp[]);
   }
 

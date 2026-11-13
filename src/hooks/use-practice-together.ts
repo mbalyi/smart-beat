@@ -616,7 +616,10 @@ export function usePracticeTogether({
       },
       tab: tabs.hooks,
       edit: { receive: (body: Parameters<typeof inbox.push>[0]) => inbox.push(body) },
-      source: { receive: (msg: Parameters<typeof sourceInbox.push>[0]) => sourceInbox.push(msg) },
+      source: {
+        receive: (msg: Parameters<typeof sourceInbox.push>[0]) => sourceInbox.push(msg),
+        welcomed: () => sourceInbox.welcomed(),
+      },
       request: answer,
       approve: (guest: string, signal?: AbortSignal) =>
         new Promise<boolean>((resolve) => {

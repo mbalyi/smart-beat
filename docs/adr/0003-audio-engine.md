@@ -104,6 +104,7 @@ Not allowed: Guitarix, ChowDSP BYOD, dm-TubeScreamer, AmpForge (GPL-3), LSP (LGP
   - The audio track: replaced by audio lanes with clips in [ADR 0005](0005-audio-lanes-and-clips.md). Its parts live on there: Symphonia decoding, the sync map, the WSOLA stretcher and the filters.
   - Automation, sound switches and sync points are converted from bars to ticks in the UI, along the bars as they are played (repeats included).
 - **Not yet in the native engine:** count-in.
+- **Hybrid playback (audio lanes with SoundFonts).** The notes' engine is a choice (alphaSynth by default, the native engine on request); the audio lanes always play in the native engine. With the SoundFonts the native engine runs lanes-only (no tracks; a bundled SoundFont only opens the output) and follows alphaTab's transport: `EngineStatus.clock_frames` is the engine's clock in rendered frames, `Transport::PlayAtFrame` starts at an exact frame (the block is split there), and the start is moved by the difference of the output latencies. See [ADR 0005](0005-audio-lanes-and-clips.md).
 - Two players must stay in step:
   - The engine reports the position of what is heard (its output latency is subtracted), and alphaTab draws the cursor there.
   - The UI polls every 25 ms, so a loop restart can show the cursor up to one poll late, while the audio itself loops sample-accurately in the engine.

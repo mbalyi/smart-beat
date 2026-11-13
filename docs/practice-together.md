@@ -2,7 +2,7 @@
 
 Issue: [#158](https://github.com/mbalyi/smart-beat/issues/158) (first step towards [#94](https://github.com/mbalyi/smart-beat/issues/94))
 
-Up to ten Smart Beat apps (the host and nine guests) play the same tab in time. Play, Pause, Stop and the position (the host's, or a guest's request that the host carries out) start for everyone at the same moment, and the speed, loop, metronome and count-in are shared. Each computer makes its own sound: no audio is ever sent, and the tab goes straight from the host to the guests that need it (see "Sharing the tab"), never through a server. Track mute and solo stay local. Playback starts at an agreed instant on a shared clock, not when a message arrives.
+Up to ten Smart Beat apps (the host and nine guests) play the same tab in time. Play, Pause, Stop and the position (the host's, or a guest's request that the host carries out) start for everyone at the same moment, and the speed, loop, metronome and count-in are shared. Each computer makes its own sound: no audio is ever streamed. The tab, the audio lanes and the audio files of the lanes go straight from the host to the guests that need it (see "Sharing the tab"), never through a server. Track mute and solo stay local. Playback starts at an agreed instant on a shared clock, not when a message arrives.
 
 Where to start it:
 
@@ -164,7 +164,7 @@ Both players can press Play, Pause and Stop. A guest's press is a `request`; the
 
 ### Sound engine, metronome and count-in
 
-A session always plays with the SoundFonts (alphaTab's synthesizer). The native engine has its own clock and audio buffers and cannot be started at an agreed instant, so when the app is set to the native engine it is switched to the SoundFonts for the session and switched back when the session ends (the saved choice is not changed).
+A session always plays the notes with the SoundFonts (alphaTab's synthesizer). The native engine has its own clock and audio buffers and cannot be started at an agreed instant for the notes, so when the app is set to the native engine it is switched to the SoundFonts for the session and switched back when the session ends (the saved choice is not changed). The audio lanes play in the native engine next to the SoundFonts (see "Audio lanes together"), started on the engine's clock at the same instant.
 
 The metronome and the count-in are played with Web Audio (the count-in always, the metronome in every sound but the classic click). A browser only lets a page make sound after a click or a key press, and the guest's page is started by a network message that nobody clicked, so the first count-in clicks on the guest were silent or late. The click that hosts or joins a session now opens the click audio and the synthesizer's output (`ScorePlayer.warmUpAudio`), and measures the output latency, which the first start needs to be moved earlier by. A start that cannot play because the song is not loaded yet is reported as "not ready", so nobody starts alone.
 
@@ -185,7 +185,7 @@ The metronome and the count-in are played with Web Audio (the count-in always, t
 
 ## Privacy
 
-- The tab, the audio and the playback never go through any server. In a session they travel only between the two computers. The meeting service sees only setup messages.
+- The tab, the lanes, the audio files and the playback never go through any server. In a session they travel only between the two computers. The meeting service sees only setup messages.
 - The anonymous usage counters ([`analytics.md`](analytics.md)) count only that things happen (a session hosted or joined, how well the clocks agreed, how it ended, a length range). Room codes, tokens, addresses, player names, song titles and tab contents are never part of them, and the details are fixed words, so nothing typed can be sent.
 - **Same network:** nothing leaves your network. The host's local address is inside the code.
 - **Over the internet:** the app contacts the signaling Worker (to make or join a room) and `stun.cloudflare.com` (to learn its public address). The other player can then see that address in the WebRTC connection. This is said in the dialog. The room is deleted after 10 minutes.
@@ -237,7 +237,20 @@ Limits:
 - alphaSynth has no scheduled start and a 500 ms buffer; its start error is the timer's (a millisecond or two) plus how well the output latency is known. Set the sync offset in the Inspector ([manual-checks.md](manual-checks.md), check 1) on both computers.
 - WebRTC in WebKitGTK is unverified.
 - No TURN relay: two computers behind strict firewalls cannot connect over the internet.
-- Two players only; no audio streaming; no public matchmaking (those stay in #94).
+- Audio is never streamed: the files of the lanes are copied once. No public matchmaking (that stays in #94).
+
+## Audio lanes together
+
+Everyone hears the same lanes. A tab's audio lanes (clips on lanes, from Record audio, from a file or from Export stems) are shared along with the tab (#239):
+
+- **Shared:** the lanes (name, colour, folder and group, pitch, order), their clips, the files the clips play, the song's sync points, markers and regions. **Personal:** each player's lane volume, pan, mute, solo, EQ, filter, effects, sends and automation, whether a lane is on, and how it is shown (collapsed, height, shown under the score), plus the buses, the ripple mode and the play zone. A hostile or broken message cannot change a personal field: operations name shared fields only.
+- **How.** Lane edits are found by comparing the shared parts of the lanes before and after an edit (`lib/audio-lanes/collab.ts`: `diffAudio`) and travel as operations that name a lane, clip or file by its id and set it to a value (`a-lane-add`, `a-lane-set`, `a-clip-set`, `a-clip-del`, `a-src-add`, `a-sync-set`, `a-mark-set`, and so on). They use the editing channel of the tab: the host numbers them (`seq`), keeps them in the same log, and sends them to every guest that says `lanes` in its capabilities; an older app gets the tab's edits only. Operations are absolute, so applying one twice, or after someone else changed something else, is harmless. A burst of changes (a drag) is sent as one batch 80 ms after the last change. Another player's batch is checked (shapes, ids, sizes, ranges, at most 16 lanes, 2000 clips on a lane, 512 files) before it touches anything, then applied without an undo step of its own, and a refused batch makes the host send the guest the tab again.
+- **Joining and coming back.** A guest that joins gets the lanes as they are (`a-reset` followed by every shared part) before the edits since the tab file, and goes live. Its own lanes of the same file keep this player's mix of a lane both have; everything else is the host's.
+- **Undo and redo** in a session take back only your own edit, as a patch on what the lanes are now, so a lane another player added stays.
+- **Rights.** A guest the host has not allowed to edit (or one that is not up to date) cannot edit the lanes either; it only receives them.
+- **Audio files** travel once each, by the SHA-256 of their bytes (the id clips use), and never as part of the tab (`lib/practice-together/source-transfer.ts`, messages `src-have`, `src-want`, `src-offer`, `src-ack`, `src-chunk`, `src-done`). Each player says which files it has; a player that lacks one asks a player that has it. A guest only talks to the host: a file a guest adds goes to the host first and the host hands it on, so every file moves once per receiver. Pieces are 10 KiB (under a frame), at most 16 are on the way before the receiver has said where it is, the receiver writes them into a file in the temporary folder (never holding a file in the page), checks the SHA-256 against the id when it is complete, and loads it. A transfer that stops starts again where it stopped; a lost piece is asked for again. The files wait while the song plays, so the timing comes first. Limits: 512 MiB a file, 512 files, and 2 GiB moved each way per session.
+- **Nobody starts until everyone has every file.** The host holds Play back (a message names the files still on the way, and a file that could not be sent says why), a guest's own Play is held back the same way, and a start that reaches a computer that lacks a file is refused (`SharedTransport.prepare`). Progress is in the session dialog ("Sending Drums · HTDemucs… 45 %") and the chip ("Files 45 %").
+- **Playback.** A session plays the notes with the SoundFonts and the lanes with the native engine's lanes engine (hybrid playback, ADR 0003). The start waits until the lanes engine has the song, and both engines start from the same call at the agreed instant; the lanes follow the notes (the start is moved by the difference of the two output latencies).
 
 ## Editing together
 

@@ -909,6 +909,58 @@
         return null;
       case "audio_forget_sources":
         return null;
+      // Practice together sends the audio files of the lanes (src-tauri/src/audio/transfer.rs).
+      // Tests put the bytes of a file this computer has in `__sourceBytes` (by id).
+      case "audio_source_size": {
+        const bytes = window.__sourceBytes?.[args.id];
+        if (!bytes) throw { kind: "not-found", message: "That audio file is not loaded here" };
+        return bytes.length;
+      }
+      case "audio_source_chunk": {
+        const bytes = window.__sourceBytes?.[args.id];
+        if (!bytes) throw { kind: "not-found", message: "That audio file is not loaded here" };
+        return bytes.slice(args.offset, args.offset + Math.min(args.len, 1024 * 1024)).buffer;
+      }
+      case "audio_stage_begin": {
+        window.__staged ??= {};
+        window.__staged[args.id] ??= { size: args.size, bytes: [] };
+        return window.__staged[args.id].bytes.length;
+      }
+      case "audio_stage_append": {
+        const staged = window.__staged?.[options?.headers?.["x-id"]];
+        const offset = Number(options?.headers?.["x-offset"]);
+        if (!staged || staged.bytes.length !== offset) {
+          throw { kind: "audio", message: "The piece does not follow the staged file" };
+        }
+        staged.bytes.push(...new Uint8Array(args));
+        return staged.bytes.length;
+      }
+      case "audio_stage_finish": {
+        const staged = window.__staged?.[args.id];
+        if (!staged) throw { kind: "audio", message: "Nothing is staged" };
+        delete window.__staged[args.id];
+        window.__receivedFiles = { ...(window.__receivedFiles ?? {}), [args.id]: staged.bytes };
+        window.__sourceBytes = {
+          ...(window.__sourceBytes ?? {}),
+          [args.id]: new Uint8Array(staged.bytes),
+        };
+        // Loaded like any file: the pool answers for it by id.
+        window.__engineSources[args.id] = { type: "received", name: args.name };
+        return {
+          id: args.id,
+          name: args.name,
+          ext: args.name.split(".").pop().toLowerCase(),
+          durationMs: 4000,
+          sampleRate: 44100,
+          channels: 2,
+          peaks: Array.from({ length: 40 }, (_, i) => 0.2 + 0.6 * Math.abs(Math.sin(i / 3))),
+          peaksPerSecond: 10,
+        };
+      }
+      case "audio_stage_abort":
+        if (args.id) delete window.__staged?.[args.id];
+        else window.__staged = {};
+        return null;
       case "audio_zero_crossing":
         return args.ms;
       case "audio_extract_source":
@@ -939,6 +991,8 @@
               }
             : null,
           sampleRate: 48000,
+          // The engine's clock in rendered frames (the lanes follow the notes by it).
+          clockFrames: Math.floor(performance.now() * 48),
           positionMs: enginePosition(),
           durationMs: engine.durationMs,
           playing: engine.playing,
@@ -1025,7 +1079,8 @@
         return "aGk=";
       case "audio_transport": {
         const c = args.command;
-        if (c.type === "play" && !engine.playing) {
+        window.__engineTransport = [...(window.__engineTransport ?? []), c];
+        if ((c.type === "play" || c.type === "playAtFrame") && !engine.playing) {
           engine.playing = true;
           engine.startedAt = performance.now();
         } else if (c.type === "pause" && engine.playing) {
