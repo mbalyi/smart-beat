@@ -9,7 +9,15 @@ export const PROTOCOL_VERSION = 1;
 export const MAX_FRAME_CHARS = 16 * 1024;
 
 /** What this app can do, so a newer app can talk to an older one. */
-export const CAPABILITIES = ["transport", "metronome", "speed", "loop", "tab", "edit", "lanes"] as const;
+export const CAPABILITIES = [
+  "transport",
+  "metronome",
+  "speed",
+  "loop",
+  "tab",
+  "edit",
+  "lanes",
+] as const;
 
 /** One piece of a shared tab is this many bytes (about 11 K characters as base64, under a frame). */
 export const TAB_CHUNK_BYTES = 8 * 1024;
