@@ -41,8 +41,13 @@ const groupSpecs =
         : undefined;
 // A CI group has a 65 minute job limit; the local shortcuts run many groups in one go.
 const GLOBAL_TIMEOUT_MINUTES = group === undefined || LOCAL_SHORTCUTS.includes(group) ? 75 : 60;
-/** Playwright workers on CI: the job sets it per group (a group that flakes goes back to 1). */
-const ciWorkers = Number(process.env.E2E_WORKERS ?? 1);
+/**
+ * Playwright workers: the CI job sets it per group (a group that flakes goes back to 1), and a
+ * local queue (`pnpm test:e2e:queue`) sets it to the workers CI gives the group.
+ * Unset, CI uses 1 and a local run lets Playwright choose.
+ */
+const envWorkers = process.env.E2E_WORKERS ? Number(process.env.E2E_WORKERS) : undefined;
+const workers = envWorkers ?? (isCI ? 1 : undefined);
 
 /**
  * Browser integration tests. They run the real UI in Chromium (Windows uses
@@ -62,7 +67,7 @@ export default defineConfig({
   // Every song test synthesizes audio in real time, so parallel tests can starve each other's
   // audio and rendering (in WebKit's software renderer especially). CI starts with one test at a
   // time and the job raises it (`E2E_WORKERS`): the runner of a public repo has 4 vCPUs.
-  workers: isCI ? ciWorkers : undefined,
+  workers,
   reporter: isCI ? [["github"], ["html", { open: "never" }]] : [["list"]],
   use: {
     baseURL: `http://${HOST}:${PORT}`,

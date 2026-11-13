@@ -37,6 +37,15 @@ export const audioLanesTour: TourDefinition = {
       placement: "top",
     },
     {
+      id: "stems",
+      target: "import-audio",
+      title: "Stems as lanes",
+      body: "Separated a song into stems? On the stem page, Export stems › Add to a tab puts each stem you choose on a lane of its own, in an open tab or a new one. Each lane keeps the stem colour and is named after the stem and the model.",
+      needsSong: true,
+      show: MIXER,
+      placement: "top",
+    },
+    {
       id: "color",
       target: "lane-color",
       title: "Colour each lane",

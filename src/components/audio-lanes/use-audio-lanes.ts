@@ -114,7 +114,11 @@ const NO_NOTICE: LanePlayback = { engineOn: true };
 const extensionOf = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
 const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
-/** Where a source's bytes can be read from, in order of preference. */
+/**
+ * Where a source's bytes can be read from, in order of preference. An embedded file that is not
+ * in the song file yet (a recorded take, a stem put on a lane: nothing is saved until the song
+ * is) is last asked of the loaded copy, so its waveform shows right away.
+ */
 export function sourceLocations(source: AudioSource, songPath: string | null): SourceLocation[] {
   const locations: SourceLocation[] = [];
   if (source.path) locations.push({ type: "file", path: source.path });
@@ -123,6 +127,7 @@ export function sourceLocations(source: AudioSource, songPath: string | null): S
     if (source.legacyEntry)
       locations.push({ type: "embedded", scorePath: songPath, entry: source.legacyEntry });
   }
+  if (source.embedded) locations.push({ type: "pool", id: source.id, name: source.name });
   return locations;
 }
 
@@ -318,7 +323,8 @@ export function useAudioLanes(options: AudioLanesOptions) {
             if (info.id !== source.id) commit(renameSource(audioRef.current, source.id, info));
             return;
           } catch (error) {
-            lastError = error;
+            // The loaded copy is the last resort: its "not loaded" is not what the user needs to read.
+            if (location.type !== "pool") lastError = error;
             if (!isCommandError(error) || error.kind !== "not-found") break;
           }
         }

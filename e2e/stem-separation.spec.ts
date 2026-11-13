@@ -243,6 +243,9 @@ test.describe("Stem separation (#186)", () => {
     await expect(voiceMute).toHaveAttribute("aria-pressed", "true");
     await app.keyboard.press(tabKey(browserName));
     await expect(vocals.getByRole("button", { name: "Solo Vocals" })).toBeFocused();
+    // Then the Export button (#223), then the volume.
+    await app.keyboard.press(tabKey(browserName));
+    await expect(vocals.getByRole("button", { name: "Export Vocals" })).toBeFocused();
     await app.keyboard.press(tabKey(browserName));
     const volume = vocals.getByRole("slider", { name: "Volume, Vocals" });
     await expect(volume).toBeFocused();

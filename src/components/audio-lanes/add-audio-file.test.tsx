@@ -20,8 +20,9 @@ const grid: SongGrid = {
   beats: Array(8).fill(4),
 };
 const SOURCE = { id: "a".repeat(64), name: "take.wav", ext: "wav", embedded: true };
-const loadSource = vi.fn(async () => ({
-  id: "c".repeat(64),
+// A file that is loaded already (the take on the first lane) is described under its own id.
+const loadSource = vi.fn(async (location: { type: string; id?: string }) => ({
+  id: location.type === "pool" ? location.id! : "c".repeat(64),
   ext: "wav",
   durationMs: 1000,
   sampleRate: 44_100,
@@ -191,6 +192,9 @@ describe("Add audio file", () => {
         )}
       </Lanes>,
     );
+    // The take on the first lane was asked of the loaded copy when the song opened.
+    await act(async () => undefined);
+    loadSource.mockClear();
     await user.click(screen.getByRole("button", { name: "Add audio file to Drums" }));
     await act(async () => undefined);
     expect(loadSource).not.toHaveBeenCalled();

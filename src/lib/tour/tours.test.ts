@@ -78,4 +78,12 @@ describe("feature registry", () => {
       if (f.tour !== undefined) expect(TOURS[f.tour], f.id).toBeDefined();
     }
   });
+
+  it("explains stems as lanes in the audio lanes tour, on a control the tour can point to", () => {
+    const step = TOURS["audio-lanes"].steps.find((x) => x.id === "stems");
+    expect(step?.body).toMatch(/Add to a tab/);
+    expect(source).toContain(`data-tour="${step?.target}"`);
+    // The registry entry for stem export opens this tour.
+    expect(FEATURE_REGISTRY.find((x) => x.id === "stem-export")?.tour).toBe("audio-lanes");
+  });
 });

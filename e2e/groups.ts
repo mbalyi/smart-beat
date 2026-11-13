@@ -10,7 +10,7 @@
  */
 export const FEATURE_GROUPS = {
   "record-import": ["**/record-to-tab.spec.ts", "**/audio-transcription.spec.ts"],
-  stems: ["**/stem-separation.spec.ts", "**/stem-cloud.spec.ts"],
+  stems: ["**/stem-separation.spec.ts", "**/stem-cloud.spec.ts", "**/stem-export.spec.ts"],
   "practice-together": ["**/practice-together*.spec.ts"],
   "audio-lanes": ["**/audio-lanes*.spec.ts"],
   edit: [

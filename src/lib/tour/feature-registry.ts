@@ -20,6 +20,14 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "stem-export",
+    title: "Export stems and use them as audio tracks",
+    summary:
+      "On a stem page, Export stems (the download button in the header, or the button after Solo on a stem's row, which starts with just that stem chosen) saves the stems you choose as audio files: mixed into one file, or one file per stem in a new folder, as WAV or FLAC, for every separation model. Or add them to a tab, an open one or a new one, where each stem becomes its own audio lane in the stem colours, named after the stem and the model, and saved inside the tab's file.",
+    since: "1.3.0",
+    tour: "audio-lanes",
+  },
+  {
     id: "audio-lanes",
     title: "Audio lanes",
     summary:

@@ -33,6 +33,7 @@ import {
 } from "@/components/practice-together/practice-together-launcher";
 import type { TogetherMode } from "@/components/practice-together/practice-together-dialog";
 import { OpenStemsDialog } from "@/components/stems/open-stems-dialog";
+import type { StemsAdded, StemTabChoice } from "@/components/stems/export-stems-dialog";
 import { StemPage } from "@/components/stems/stem-page";
 import type { DroppedSong } from "@/components/stems/stem-dialog";
 import { useFileDrop } from "@/hooks/use-file-drop";
@@ -49,7 +50,9 @@ import {
   useScoreDocuments,
 } from "@/hooks/use-score-document";
 import type { ReceivedScore } from "@/hooks/use-tab-sharing";
-import type { MixerSettings } from "@/lib/tauri";
+import { addStemsToTab, addStemsWhenOpen } from "@/lib/stems/lane-targets";
+import type { StemLaneItem } from "@/lib/stems/stem-lanes";
+import { stemAudioSource, type MixerSettings, type StemKindId } from "@/lib/tauri";
 import { useTheme } from "@/hooks/use-theme";
 import { useUpdater } from "@/hooks/use-updater";
 import type { HelpAction } from "@/components/help-menu";
@@ -127,6 +130,7 @@ export function App() {
     openPath,
     openFile,
     newSong,
+    newNamedSong,
     openScore,
     openReceived,
     markSaved,
@@ -260,6 +264,38 @@ export function App() {
   };
 
   const startNewSong = () => void newSong();
+
+  /**
+   * Export stems › Add to a tab (#223): each chosen stem becomes an audio lane of an open tab, or
+   * of a new one. The stem page stays shown either way.
+   */
+  const addStemsToTabs = async (
+    choice: StemTabChoice,
+    from: StemSong,
+    kinds: readonly StemKindId[],
+  ): Promise<StemsAdded> => {
+    const items: StemLaneItem[] = [];
+    for (const kind of kinds) items.push({ kind, info: await stemAudioSource(from.id, kind) });
+    let tab: string;
+    if (choice === "new") {
+      // A new, empty tab is shown, and the stems are added to it as one edit once it is open.
+      tab = `${from.name} stems`;
+      const id = await newNamedSong(tab);
+      if (id === null) throw new Error("The new tab could not be created.");
+      addStemsWhenOpen(id, from, items);
+    } else {
+      const target = songs.find((s) => s.id === choice);
+      tab = target ? songTitle(target) : "the tab";
+      addStemsToTab(choice, from, items);
+      // The tab with the new tracks is the one to look at.
+      activate(choice);
+    }
+    toast.success(
+      items.length === 1 ? "Added 1 audio track" : `Added ${items.length} audio tracks`,
+      { description: `To “${tab}”. Undo takes them back in one step.` },
+    );
+    return { tab, count: items.length };
+  };
 
   const closeStem = (id: string) => {
     const index = stemSongs.findIndex((s) => s.id === id);
@@ -744,6 +780,8 @@ export function App() {
               onOpenStems={openSavedStems ? () => setOpenStemsDialog(true) : undefined}
               onSaved={(path) => setSavedStems((saved) => ({ ...saved, [stemSong.id]: path }))}
               savedPath={savedStems[stemSong.id]}
+              openTabs={songs.map((s) => ({ id: s.id, name: songTitle(s) }))}
+              onAddToTab={addStemsToTabs}
               onOpenCloudSettings={() => showDialog("settings", null, "cloud")}
             />
           )}

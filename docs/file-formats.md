@@ -95,6 +95,16 @@ Left out, and listed after saving: bends, slides, hammer-ons and pull-offs, palm
 
 alphaTex export uses alphaTab's own exporter (`src/lib/export/alphatex.ts`). Compressed MusicXML (`.mxl`, `src/lib/export/mxl.ts`) is the MusicXML below inside a ZIP archive with `META-INF/container.xml`, as MusicXML readers expect; its ZIP writer (`src/lib/export/zip.ts`) stores the entries uncompressed. Pick it by typing the `.mxl` extension in the MusicXML export dialog. Smart Beat opens both again.
 
+## Exported stems (audio files)
+
+**Export stems** (#223) on the stem page writes the stems of a separated song as plain audio files, so they can go into a music program. It is not a Smart Beat format: the files are ordinary WAV (16-bit stereo PCM) or FLAC (16-bit stereo, lossless).
+
+- **Mixed:** one file, the chosen stems added sample by sample (padded with silence to the longest one). A sum above full scale is limited at the file's maximum level, and the result tells the user.
+- **Batch:** one file per chosen stem in a new folder `<song> stems` (or `<song> stems (2)`, … when it exists) inside the folder the user picked, named `<Stem> - <song>.wav` (or `.flac`). The files are the cache's own stems, so the length and sample rate are those of the separation output; characters a drive refuses (`/ \ : * ? " < > |`) become `_`.
+- A file is written beside its destination under a hidden temporary name and renamed into place, so a cancelled or failed export leaves nothing, and a batch removes the files it already wrote.
+
+**Add to a tab** does not write files. Each chosen stem is loaded as an audio source (the same 16-bit stereo WAV, kept once by its SHA-256 like any lane file) and becomes an audio lane with one clip from the start of the tab. The sources are embedded in the tab's `.gp` file under `SmartBeat/audio/<id>.wav` when the tab is saved, like any other lane audio.
+
 ## Saved stems (`.sbstems`)
 
 A stem separation (#186) is kept in the app's cache, which can be cleared. **Save stems** on the stem page writes one separated song to a file the user keeps, and **Open saved stems** on the start screen (or a double-click on the file) brings it back without separating again. The type name is "Smart Beat stems". Nothing else opens these files; they are not a standard format.

@@ -12,6 +12,8 @@ import {
   downloadStemModel,
   downloadUmxModel,
   estimateStemBundle,
+  exportStemsBatch,
+  exportStemsMixed,
   isStemFileStopped,
   isStemsStopped,
   listCloudStemFiles,
@@ -23,6 +25,8 @@ import {
   openStemBundleFromCloud,
   pickStemBundle,
   pickStemBundleDestination,
+  pickStemExportFile,
+  pickStemExportFolder,
   pickStemFile,
   pinStemSong,
   readStem,
@@ -36,11 +40,13 @@ import {
   STEMS_STOPPED,
   stemCacheInfo,
   stemModelStatus,
+  stemAudioSource,
   stemsCloudSavePath,
   touchStemSong,
   umxModelStatus,
   type BundleProgress,
   type SeparateRequest,
+  type StemExportProgress,
   type StemProgress,
   type StemTempo,
 } from "@/lib/tauri";
@@ -75,6 +81,14 @@ describe("stem separation outside the desktop app", () => {
     await expect(stemsCloudSavePath("Song")).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(estimateStemBundle("a", true)).rejects.toBeInstanceOf(NotInDesktopAppError);
     await expect(detectStemTempo("a")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(
+      exportStemsMixed({ id: "a", kinds: ["drums"], format: "wav", dest: "/x.wav" }),
+    ).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(
+      exportStemsBatch({ id: "a", kinds: ["drums"], format: "flac", dir: "/x" }),
+    ).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(pickStemExportFile("Song", "wav")).rejects.toBeInstanceOf(NotInDesktopAppError);
+    await expect(pickStemExportFolder()).rejects.toBeInstanceOf(NotInDesktopAppError);
   });
 
   it("lists no cloud stems", async () => {
@@ -499,5 +513,91 @@ describe("saved stems in a connected account", () => {
     expect(isStemFileStopped({ kind: "io", message: "Stem file stopped." })).toBe(true);
     expect(isStemFileStopped({ kind: "io", message: "Disk full." })).toBe(false);
     expect(isStemFileStopped(new Error("Stem file stopped."))).toBe(false);
+  });
+});
+
+describe("exporting stems as audio files and lanes", () => {
+  it("sends the mixed request as given and reports the progress of the export", async () => {
+    const calls = mockTauri({
+      stems_export_mixed: async () => {
+        await emit("stems-export-progress", { stage: "mixing", fraction: 0.5 });
+        await emit("stems-export-progress", { stage: "writing", fraction: 1 });
+        return { paths: ["/Music/Neon.wav"], folder: null, clipped: false };
+      },
+    });
+    const seen: StemExportProgress[] = [];
+    const request = {
+      id: "abc",
+      kinds: ["drums", "bass"] as const,
+      format: "wav" as const,
+      dest: "/Music/Neon.wav",
+    };
+    await expect(
+      exportStemsMixed({ ...request, kinds: [...request.kinds] }, (p) => seen.push(p)),
+    ).resolves.toEqual({ paths: ["/Music/Neon.wav"], folder: null, clipped: false });
+    expect(calls).toContainEqual({
+      cmd: "stems_export_mixed",
+      args: { request: { ...request, kinds: ["drums", "bass"] } },
+    });
+    expect(seen).toEqual([
+      { stage: "mixing", fraction: 0.5 },
+      { stage: "writing", fraction: 1 },
+    ]);
+  });
+
+  it("sends the batch request as given", async () => {
+    const calls = mockTauri();
+    const request = {
+      id: "abc",
+      kinds: ["vocals" as const],
+      format: "flac" as const,
+      dir: "/Music",
+    };
+    const result = await exportStemsBatch(request);
+    expect(calls).toContainEqual({ cmd: "stems_export_batch", args: { request } });
+    expect(result.folder).toBe("/Music/Neon Nights stems");
+  });
+
+  it("recognises a stopped export", async () => {
+    mockTauri({
+      stems_export_batch: () => {
+        throw { kind: "audio", message: "Stem file stopped." };
+      },
+    });
+    const failure = await exportStemsBatch({
+      id: "a",
+      kinds: ["drums"],
+      format: "wav",
+      dir: "/x",
+    }).catch((error: unknown) => error);
+    expect(isStemFileStopped(failure)).toBe(true);
+  });
+
+  it("asks for a file named after the song in the chosen format, and for a folder", async () => {
+    const calls = mockTauri();
+    backend.saveResult = "/Music/Neon (mix).flac";
+    backend.dialogResult = "/Music";
+    await expect(pickStemExportFile("Neon (mix)", "flac")).resolves.toBe("/Music/Neon (mix).flac");
+    await expect(pickStemExportFolder()).resolves.toBe("/Music");
+    expect(calls).toContainEqual({
+      cmd: "plugin:dialog|save",
+      args: {
+        options: expect.objectContaining({
+          defaultPath: "Neon (mix).flac",
+          filters: [{ name: "FLAC audio", extensions: ["flac"] }],
+        }),
+      },
+    });
+    expect(calls).toContainEqual({
+      cmd: "plugin:dialog|open",
+      args: { options: expect.objectContaining({ directory: true, multiple: false }) },
+    });
+  });
+
+  it("loads a stem as an audio file for the lanes", async () => {
+    const calls = mockTauri();
+    const info = await stemAudioSource("abc", "bass");
+    expect(calls).toContainEqual({ cmd: "stems_audio_source", args: { id: "abc", kind: "bass" } });
+    expect(info).toMatchObject({ ext: "wav", sampleRate: 44_100, durationMs: 215_000 });
   });
 });

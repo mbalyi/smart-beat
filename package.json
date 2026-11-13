@@ -29,6 +29,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:server": "node node_modules/vite/bin/vite.js --host 127.0.0.1",
+    "test:e2e:queue": "node scripts/e2e-jobs.mjs | xargs -P 3 -L 1 scripts/e2e-job.sh",
     "test:e2e:smoke": "E2E_GROUP=smoke playwright test",
     "test:e2e:smoke-ui": "E2E_GROUP=smoke-ui playwright test",
     "test:e2e:smoke-files": "E2E_GROUP=smoke-files playwright test",

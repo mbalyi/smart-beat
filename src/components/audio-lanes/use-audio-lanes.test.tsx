@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  sourceLocations,
   useAudioLanes,
   type AudioLanesController,
   type SourceLoader,
@@ -127,5 +128,26 @@ describe("useAudioLanes without an audio engine", () => {
     // The same engine again: no more loads.
     rerender(<Lanes audio={withSource()} loadSource={loadSource} epoch={1} />);
     expect(loadSource).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("sourceLocations", () => {
+  const source = { id: "a".repeat(64), name: "Drums - Song.wav", ext: "wav", embedded: true };
+
+  it("asks the loaded copy last, for a file no song file has yet", () => {
+    expect(sourceLocations(source, null)).toEqual([
+      { type: "pool", id: source.id, name: "Drums - Song.wav" },
+    ]);
+    expect(sourceLocations({ ...source, path: "/music/drums.wav" }, "/songs/riff.gp")).toEqual([
+      { type: "file", path: "/music/drums.wav" },
+      { type: "embedded", scorePath: "/songs/riff.gp", entry: `${source.id}.wav` },
+      { type: "pool", id: source.id, name: "Drums - Song.wav" },
+    ]);
+  });
+
+  it("has no loaded copy to ask for a file that is only referenced", () => {
+    expect(sourceLocations({ ...source, embedded: false, path: "/music/take.wav" }, null)).toEqual([
+      { type: "file", path: "/music/take.wav" },
+    ]);
   });
 });

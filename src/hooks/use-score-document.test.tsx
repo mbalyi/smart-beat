@@ -355,6 +355,31 @@ describe("useScoreDocuments: a score made in memory", () => {
   });
 });
 
+describe("useScoreDocuments: a new song for stems", () => {
+  it("is an unsaved, empty song with no audio lanes yet, shown at once, and gives its id", async () => {
+    const { result } = setup();
+    let id: number | null = null;
+    await act(async () => {
+      id = await result.current.newNamedSong("Neon stems");
+    });
+    expect(id).not.toBeNull();
+    expect(result.current.songs).toHaveLength(1);
+    const made = result.current.songs[0]!;
+    expect(made).toMatchObject({
+      id,
+      name: "Neon stems",
+      path: null,
+      fileKey: null,
+      unsaved: true,
+    });
+    // The stems come as an edit the tab can undo, so the tab starts without lanes.
+    expect(made.mix.audio).toBeUndefined();
+    expect(made.summary.tracks).toHaveLength(1);
+    // The tab is the one shown.
+    expect(result.current.song?.id).toBe(id);
+  });
+});
+
 describe("useScoreDocuments: settings inside .gp files", () => {
   it("prefers the settings stored in the song file", async () => {
     mockTauri();

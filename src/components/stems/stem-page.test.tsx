@@ -33,6 +33,19 @@ function setup(
   return { ...ui, player, onOpenStems, createPlayer };
 }
 
+function renderPage(props: Partial<React.ComponentProps<typeof StemPage>>) {
+  const player = new FakeStemPlayer({ duration: 215 });
+  return renderWithProviders(
+    <StemPage
+      song={STEM_SONG}
+      tabs={<nav aria-label="Open songs" />}
+      createPlayer={() => player}
+      detectTempo={neverFound}
+      {...props}
+    />,
+  );
+}
+
 const row = (kind: string) => screen.getByTestId(`stem-${kind}`);
 /** The last gains the page gave the player. */
 const gains = (player: FakeStemPlayer) => player.setGains.mock.calls.at(-1)![0];
@@ -383,6 +396,73 @@ describe("Stem page: accessibility", () => {
     const { player } = setup({ ...STEM_SONG, mono: true, skipped: ["vocals"] });
     act(() => player.set({ loop: { start: 10, end: 30 }, rendering: true, speed: 70 }));
     await expectNoA11yViolations();
+  });
+});
+
+describe("Stem page: exporting", () => {
+  it("has an Export stems icon button in the header that opens the Export stems dialog", async () => {
+    mockTauri();
+    const { user } = setup();
+    const button = screen.getByRole("button", { name: "Export stems" });
+    expect(button).toHaveTextContent("");
+    expect(button).toHaveAttribute("data-tour", "stem-export");
+    await user.click(button);
+    const dialog = screen.getByRole("dialog", { name: "Export stems" });
+    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(5);
+    // Without a way to add stems to a tab, the dialog only offers files.
+    expect(within(dialog).queryByRole("radio", { name: "Add to a tab" })).toBeNull();
+    await user.click(within(dialog).getAllByRole("button", { name: "Close" })[0]!);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+  });
+
+  it("has an Export button after Solo on every stem row, which opens the dialog with only that stem", async () => {
+    mockTauri();
+    const { user } = setup();
+    for (const kind of ["drums", "bass", "vocals", "panned", "other"]) {
+      const group = within(row(kind)).getByRole("group", { name: /controls$/ });
+      const buttons = within(group).getAllByRole("button");
+      // Mute, Solo, then Export.
+      expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+        expect.stringMatching(/^Mute /),
+        expect.stringMatching(/^Solo /),
+        expect.stringMatching(/^Export /),
+      ]);
+    }
+    const button = within(row("bass")).getByRole("button", { name: "Export Bass" });
+    await user.click(button);
+    const dialog = screen.getByRole("dialog", { name: "Export stems" });
+    expect(within(dialog).getByRole("checkbox", { name: /^Bass/ })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: /^Drums/ })).not.toBeChecked();
+    // Closing gives the focus back to the row's button; the header button opens it for all.
+    await user.click(within(dialog).getAllByRole("button", { name: "Close" })[0]!);
+    expect(button).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Export stems" }));
+    expect(
+      within(screen.getByRole("dialog", { name: "Export stems" })).getByRole("checkbox", {
+        name: /^Drums/,
+      }),
+    ).toBeChecked();
+  });
+
+  it("offers Add to a tab with the open tabs when the app can add stems", async () => {
+    mockTauri();
+    const onAddToTab = vi.fn(async () => ({ tab: "Riff.gp", count: 5 }));
+    const { user } = renderPage({
+      openTabs: [{ id: 3, name: "Riff.gp" }],
+      onAddToTab,
+    });
+    await user.click(screen.getByRole("button", { name: "Export stems" }));
+    await user.click(screen.getByRole("radio", { name: "Add to a tab" }));
+    expect(screen.getByRole("radio", { name: "Riff.gp" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Add to tab" }));
+    expect(onAddToTab).toHaveBeenCalledWith(3, STEM_SONG, [
+      "drums",
+      "bass",
+      "vocals",
+      "panned",
+      "other",
+    ]);
   });
 });
 

@@ -18,6 +18,7 @@ public/soundfont/
 # Test output
 coverage/
 playwright-report/
+playwright-queue/
 test-results/
 blob-report/
 

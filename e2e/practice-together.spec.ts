@@ -91,6 +91,40 @@ test.describe("Practice together", () => {
     await expect(chip(app)).toHaveAccessibleName(/synchronized with Bass laptop/);
   });
 
+  // CI runners are slow: the page is blocked for moments, and the other player's answer to a
+  // clock ping must not be late because of it (a late answer reads as a poor connection, and the
+  // session showed "The connection is too unsteady to stay in sync", #236). Here the page is
+  // blocked for 300 ms right after every ping goes out.
+  test("a page that stalls right after a ping does not make the connection look poor", async ({
+    app,
+  }) => {
+    const { dialog } = await hostWithGuest(app);
+    await app.evaluate(() => {
+      const together = window.__practiceTogether;
+      const receive = together.receive.bind(together);
+      together.receive = (text: string, conn?: number) => {
+        if (text.includes('"type":"ping"')) {
+          setTimeout(() => {
+            const end = performance.now() + 300;
+            while (performance.now() < end) {
+              // Busy: the way a loaded computer blocks the page.
+            }
+          }, 0);
+        }
+        return receive(text, conn);
+      };
+    });
+    await letIn(app);
+    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 30_000 });
+    // Many pings go out and come back while the page keeps stalling.
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("ping").length), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(8);
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+  });
+
   test("the host's Play becomes a scheduled command for both", async ({ app }) => {
     await hostWithGuest(app);
     await letIn(app);

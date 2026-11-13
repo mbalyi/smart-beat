@@ -363,6 +363,40 @@ export function useScoreDocuments() {
   );
 
   /**
+   * Starts a new, empty song called `name` and shows it (Export stems › Add to a new tab: the
+   * stems are then added to it as one undoable edit). It is unsaved until the first save. Returns
+   * its id, or null when it could not be made.
+   */
+  const newNamedSong = useCallback(
+    async (name: string) => {
+      const id = ++counter.current;
+      try {
+        const [{ createSong }, { summarizeScore }] = await Promise.all([
+          import("@/lib/score/tracks"),
+          import("@/lib/score/score"),
+        ]);
+        const score = createSong();
+        const summary = summarizeScore(score);
+        add({
+          id,
+          name,
+          path: null,
+          fileKey: null,
+          score,
+          summary,
+          mix: mixFromScore(summary),
+          unsaved: true,
+        });
+        return id;
+      } catch (error) {
+        toast.error(`Couldn't create “${name}”`, { description: String(error) });
+        return null;
+      }
+    },
+    [add],
+  );
+
+  /**
    * Opens the host's tab (Practice together) as a tab of its own, marked as received. `replaceId`
    * is the tab of an earlier version of it: this one takes its place. `mix` is the guest's own
    * mute, solo and volume, kept when the tracks are the same.
@@ -464,6 +498,7 @@ export function useScoreDocuments() {
     openPath,
     openFile,
     newSong,
+    newNamedSong,
     openScore,
     openReceived,
     markSaved,
