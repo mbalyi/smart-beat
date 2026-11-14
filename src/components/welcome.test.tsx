@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 
 import { Welcome } from "@/components/welcome";
 import { FEATURES } from "@/components/welcome-features";
+import { isEnabled } from "@/lib/features";
 import { expectNoA11yViolations } from "@/test/axe";
 import { backend, mockTauri, STEM_SONG } from "@/test/tauri";
 import { renderWithProviders } from "@/test/render";
@@ -109,10 +110,30 @@ describe("Welcome", () => {
       "Cloud sync (Available)",
       "Stem separation (Beta)",
       "Practice together (Available)",
-      "Audio tracks & editing (Coming soon)",
+      "Audio tracks & editing (Available)",
       "Speech to tab (AI · Coming soon)",
       "Hum to accompaniment (AI · Coming soon)",
     ]);
+  });
+
+  it("gives every feature the badge of its status, and 'coming soon' only to what is not built", () => {
+    const badges = {
+      available: ["Available"],
+      beta: ["Beta", "AI · Beta"],
+      soon: ["Coming soon", "AI · Coming soon"],
+    };
+    for (const feature of FEATURES) {
+      expect(badges[feature.status]).toContain(feature.badge);
+    }
+    // The AI ideas that are still switched off in src/lib/features.json, and nothing else.
+    expect(FEATURES.filter((f) => f.status === "soon").map((f) => f.title)).toEqual([
+      "Speech to tab",
+      "Hum to accompaniment",
+    ]);
+    expect(isEnabled("speech-2-tab")).toBe(false);
+    expect(isEnabled("hum-2-accompaniment")).toBe(false);
+    // What 1.3 ships: audio lanes are out of "coming soon".
+    expect(FEATURES.find((f) => f.title === "Audio tracks & editing")?.status).toBe("available");
   });
 
   it("shows a card with the artwork, the status and the text for every feature", () => {

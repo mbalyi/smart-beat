@@ -133,7 +133,7 @@ A stem separation (#186) is kept in the app's cache, which can be cleared. **Sav
   "channels": 2,
   "mono": false,
   "createdAtMs": 1790000000000,
-  "appVersion": "1.2.0",
+  "appVersion": "1.3.0",
   "engine": { "id": "htdemucs", "modelId": "…", "modelSha256": "…", "algorithmVersion": 1 },
   "strongDrums": false,
   "skipped": [],

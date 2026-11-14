@@ -8,7 +8,7 @@
 
 Smart Beat is a free tablature editor for musicians and learners on macOS, Windows and Linux. Record your ideas, get the band together with in-person and online jamming, and practice with optional, self-hosted AI tools too.
 
-> **Status:** stable release (1.2.0). Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. New in 1.2: **Practice together** for up to ten players in time (in 1.3 also with each other's audio tracks), **Stem separation** (beta) on your own computer, and the cloud: a synced cloud folder, Google Drive, OneDrive and Dropbox in File › Open, and sharing tabs and stems with a link. Record to tab and Import from Audio are in beta; the next AI features (Speech to tab, Hum to accompaniment) are on the [project board](https://github.com/users/mbalyi/projects/3).
+> **Status:** stable release (1.3.0). Smart Beat opens, plays and edits Guitar Pro files (GP3–GP8), MuseScore, MusicXML and MIDI, with a mixer, practice tools and a fretboard, and saves to its native format (Guitar Pro 7 `.gp`), to Guitar Pro 5, 4 and 3 and to MuseScore. It exports MusicXML (also compressed), MIDI, alphaTex, ASCII tab, WAV and, on macOS, M4A. [`docs/file-formats.md`](docs/file-formats.md) lists what each format cannot hold. New in 1.3: **audio tracks** next to your tab (recordings, backing tracks and stems on lanes you can move, trim, split, sync to the score and record into, playing in time with the SoundFonts), **Export stems** as WAV or FLAC files or onto audio tracks, **Practice together** with everyone editing the same tab and sharing the audio tracks, and a tidier edit palette. New in 1.2: **Practice together** for up to ten players in time, **Stem separation** (beta) on your own computer, and the cloud: a synced cloud folder, Google Drive, OneDrive and Dropbox in File › Open, and sharing tabs and stems with a link. Record to tab and Import from Audio are in beta; the next AI features (Speech to tab, Hum to accompaniment) are on the [project board](https://github.com/users/mbalyi/projects/3).
 
 ## Download
 
@@ -74,12 +74,12 @@ The macOS and Windows buttons start the download of the newest release's install
     <td valign="top" width="33%">
       <img src="src/assets/features/practice-together.png" alt="Practice together" width="100%">
       <p><b>🟢 Available</b></p>
-      <p>Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound, and everyone can edit the tab at the same time and see where the others are. Bring more tabs into the same session without leaving it.</p>
+      <p>Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound, and everyone can edit the tab at the same time, see where the others are and share the audio tracks. Bring more tabs into the same session without leaving it.</p>
     </td>
     <td valign="top" width="33%">
       <img src="src/assets/features/audio-tracks-editing.png" alt="Audio tracks &amp; editing" width="100%">
-      <p><b>🟣 Coming soon</b></p>
-      <p>Import, manage and edit audio tracks. Trim, loop, adjust volume, and align them with your score. Create the perfect backing track for practice or performance.</p>
+      <p><b>🟢 Available</b></p>
+      <p>Put audio files, recordings and stems on lanes next to your tracks, in time with the notes: move, trim, split and fade clips, give each lane its own colour, pitch and effects, sync the audio to the score and record plain takes. Create the perfect backing track for practice or performance.</p>
     </td>
   </tr>
   <tr>
@@ -109,6 +109,15 @@ The macOS and Windows buttons start the download of the newest release's install
 - **Write music** (Edit › Edit Mode, ⌘E; File › New, ⌘N): a quiet outline on the note you edit, on tab and staff, and a palette of icon cells (a cell with several choices opens a small box). Type frets (two quick digits for 10–29) and pitches by letter (A–G), set note values, dots, rests, ties and tuplets (nested ones too), odd time signatures such as 7/8 and 11/16, write a second voice, select beats (Shift+arrows, drag, ⌘A) to copy, cut and paste them, with unlimited undo and redo (the Edit menu names what it will undo). Moving past the end of a bar or of the song adds beats and bars. The full key list is in Help › Keyboard Shortcuts.
 - **Tracks and instruments** (the Tracks panel and the Track menu): add, remove, reorder and duplicate tracks. Guitars with 3–10 strings (7, 8 and 9-string presets for djent and deathcore), basses with 4–6, banjo, ukulele, drums and any General MIDI instrument, with tuning presets (drop D, C, B, A, A#, F# standard, drop E…), custom tunings (string by string) and a capo. A note appears when the lowest string is far below what the sound was recorded at. See [docs/extended-range-guitars.md](docs/extended-range-guitars.md). Drum tracks use the standard Guitar Pro drum-kit notation, shown in the track settings.
 - **Stays up to date** (desktop app): a quiet check for a new version at most once a day, and Help › Check for Updates on request. A new version shows its release notes and downloads only after you click **Download & Install**. During the beta, new beta versions are not offered automatically: download them from the releases page.
+
+#### Audio tracks (lanes)
+
+- **Lanes next to your tracks:** add recordings, backing tracks and stems (mp3, m4a, wav, flac, ogg, aiff) from the Tracks panel, or drop files on the window. Each lane has its own colour (the stem colours by default), volume, pan, effects and EQ, and plays in time with the notes with the SoundFonts, without switching sound engines. The native engine is only for effects, amps, drum kits and the monitor track.
+- **Clips:** move, trim, split, glue, duplicate and fade clips, give each its own pitch, and open the lane editor (sync points) or the studio (every lane at once).
+- **Sync to the score:** sync points make a recording follow the bars of your tab.
+- **Record audio:** record plain takes on a lane (from the playhead, punched into bars or looped), without writing tab.
+- **Export stems and use them as lanes:** the stem page saves stems as WAV or FLAC (mixed or one file per stem), or adds them to a tab as lanes, up to 16 per tab. The audio is saved inside the tab's file; a song with an old backing file opens with it on a lane.
+- **Practice together** shares the lanes and their audio files with the other players; each keeps their own mix.
 
 #### Record to tab (beta)
 

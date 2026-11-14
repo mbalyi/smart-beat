@@ -17,9 +17,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { whatsNewImage } from "@/components/whats-new-images";
 import type { FeatureEntry, TourId } from "@/lib/tour/feature-registry";
 
-/** The icons above the cards, used one after the other in this order. */
+/**
+ * The icons above the cards of a feature that has no picture of its own or on the start page yet,
+ * used one after the other in this order. Every feature of the registry has a picture (a test
+ * checks it), so this is only the fallback for a new entry.
+ */
 const ICONS = [icon1, icon2, icon3] as const;
 const iconFor = (index: number) => ICONS[index % ICONS.length]!;
 
@@ -98,10 +103,10 @@ export function WhatsNewDialog({
                   className="flex flex-col items-center gap-0.5 rounded-xl border bg-card/85 px-2 pt-1 pb-2.5 text-center dark:bg-card/80"
                 >
                   <img
-                    src={iconFor(index)}
+                    src={whatsNewImage(feature.id) ?? iconFor(index)}
                     alt=""
                     aria-hidden="true"
-                    className="-mb-1 size-32 shrink-0 object-contain"
+                    className="-mb-1 h-32 w-full shrink-0 object-contain"
                   />
                   <h3 className="mt-[-8px] text-base font-semibold">{feature.title}</h3>
                   <p className="mb-2 text-sm text-muted-foreground">{feature.summary}</p>
