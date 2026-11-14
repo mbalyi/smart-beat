@@ -82,7 +82,7 @@ export const FEATURES: readonly Feature[] = [
     badge: "Beta",
     status: "beta",
     description:
-      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Save the stems to a file or your cloud folder and open them again later. Perfect for covers and practice.",
+      "Split a song into drums, bass, vocals and more on your computer, then mute, solo, loop and slow each part. Save the stems to a file or your cloud folder and open them again later, export them as WAV or FLAC files (mixed or one per stem), or add them to a tab as audio tracks. Perfect for covers and practice.",
     limits: STEM_SEPARATION_LIMITS,
   },
   {
@@ -91,15 +91,15 @@ export const FEATURES: readonly Feature[] = [
     badge: "Available",
     status: "available",
     description:
-      "Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound. Bring more tabs into the same session without leaving it.",
+      "Play the same tab with someone else, in time. Up to ten players on the same network or over the internet start and stop together, and share the metronome, speed and loops. Each of you hears your own sound, and everyone can edit the tab at the same time, see where the others are and share the audio tracks. Bring more tabs into the same session without leaving it.",
   },
   {
     title: "Audio tracks & editing",
     image: audioTracksEditing,
-    badge: "Coming soon",
-    status: "soon",
+    badge: "Available",
+    status: "available",
     description:
-      "Put audio files on lanes next to your tracks: move, trim, split and fade clips, give each its own pitch and effects, sync them to the score and record plain takes.",
+      "Put audio files, recordings and stems on lanes next to your tracks, in time with the notes: move, trim, split and fade clips, give each lane its own colour, pitch and effects, sync the audio to the score and record plain takes.",
   },
   {
     title: "Speech to tab",
