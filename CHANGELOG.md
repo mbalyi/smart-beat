@@ -4,38 +4,52 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
-### New: audio tracks play with the SoundFonts, and Practice together shares them
+## [1.3.0]
 
-- **Audio tracks and notes play together.** The notes play with the SoundFonts as before, and your audio tracks (Record audio, files, stems) always play next to them, in time, with no need to switch to the native sound engine. The switch is now only for what needs it: effects, amps, drum kits and the monitor track. The "audio tracks are silent with SoundFonts" notice is gone.
-- **Practice together shares the audio tracks.** When you add, move, cut or remove audio tracks and clips in a session, the other players get the same tracks. Each player keeps their own mix of a track (volume, pan, mute, solo, effects, EQ). Undo only takes back your own edits.
-- **The audio files are sent once each**, directly between the computers, in pieces that can go on where they stopped, and checked on arrival. Progress shows in the session dialog and on the session button. Nobody starts until everyone has every file, so nobody plays a track in silence.
+New in 1.3.0: put audio next to your tab, take your stems out as audio files, and edit the same tab with your band.
 
-### New: export stems and use them as audio tracks
+### New: audio tracks next to your tab
 
-- Every stem row has an Export button after Mute and Solo that opens Export stems with only that stem chosen. The dialog has its own logo, a picture on each stem card and a pink Export button.
-- On a stem page, **Export stems** (the download button next to Save) takes the stems you choose out of Smart Beat: **one mixed file** (the chosen stems added up), or **one file per stem** in a new folder called "<song> stems", named "<stem> - <song>". Files are WAV or FLAC, both lossless, with the length and sample rate of the stems. It works the same for every separation model, from the fast engine to the six-part model.
-- Export shows its progress and can be cancelled; a cancelled export leaves no file behind. With no stem chosen, Export is off and says why. If a mix is louder than a file can hold, the result says that the loudest peaks were limited.
-- **Add to a tab** puts each chosen stem on a lane of its own in an open tab or in a new tab, in one step that Undo takes back (also for a new tab), and the tab opens when they are added. Each lane starts at the beginning of the tab, has the stem's colour and is named after the stem and the model ("Vocals · SCNet XL"). The audio is saved inside the tab's file and comes back when you open it. The notes and the other tracks are not touched. A tab holds up to 16 audio lanes.
+- **Audio tracks (lanes).** Put recordings, backing tracks and stems on lanes under your tab. Add as many as you like: each has its own colour, volume, pan, effects and EQ, and they play in time with the notes. Open an mp3, m4a, wav, flac, ogg or aiff file from the Tracks panel, or drag files onto the window.
+- **Edit the audio like a clip in a recorder.** Drag a clip along its lane or to another lane, trim its edges, split it (S), glue the pieces back (G), duplicate it, fade it in and out, and give each clip its own pitch. Double-click a lane for the lane editor, or open the studio to see every lane at once.
+- **Line the audio up with the score.** Set sync points so a recording follows the bars of your tab, even when the player was not playing to a click.
+- **Record audio.** Record your playing as a plain take on a lane (no tab is written): from where the playhead is, punched into the bars you selected, or looped with a new take on every pass.
+- **See the audio on the same bars as the notes.** The eye on a lane shows it under the tab in the continuous view. It shows alone at first; turn on a track to put its tab above the lanes.
+- **Audio and notes always play together.** The notes keep playing with the SoundFonts and your audio tracks play next to them, in time, with nothing to switch. The sound engine switch is only for what needs it: effects, amps, drum kits and the monitor track.
+- **Old songs keep their backing file.** A song that had one audio file opens with it on a lane. The audio is saved inside the tab's file.
+- **Pick any tracks for the continuous view.** Add or take out any track in the continuous layout, the first one too. The tracks stack in the order you added them.
+- A short **Audio lanes tour** (Help › Tours) walks through all of this.
+
+### New: take your stems out of Smart Beat
+
+- Every stem row has an **Export** button after Mute and Solo that opens Export stems with only that stem chosen.
+- **Export stems** (the download button next to Save on a stem page) saves the stems you choose as audio files: **one mixed file**, or **one file per stem** in a new folder called "<song> stems". Files are WAV or FLAC, both lossless, and it works with every separation model. It shows its progress, you can cancel it (nothing is left behind), and it tells you if the loudest peaks had to be limited.
+- **Add to a tab** puts each chosen stem on a lane of its own, in an open tab or a new one, in one step that Undo takes back. Each lane has the stem's colour and is named after the stem and the model ("Vocals · SCNet XL"). Your notes and the other tracks are not touched.
 
 ### New: edit the tab together (Practice together)
 
-- Everyone in a Practice together session can edit the same tab at the same time, and each change shows up on the other computers within a moment, in both directions. Two people can edit the same bar, and two people changing different notes of the same beat both keep their change.
-- You see where the others are, marked the way you see your own cursor: the note or line they are on, in their colour, with their name above it. Their selection shows only when they selected a range on purpose.
-- Undo and Redo only take back your own edits, not the other players'.
-- Playback is not disturbed: an edit during playback does not move the shared clock or restart the song, and the host's metronome, count-in and speed stay as they are.
-- The host can turn editing off for guests with "Guests can edit the tab" in the session dialog (on by default). A guest that is removed or banned loses edit access at once, and a guest that drops and comes back gets the edits it missed.
-- The host's tab is no longer sent again after every edit. It is only sent again when someone joins, when Sync tab is pressed, or when two copies differ for a while. An older Smart Beat as a guest still follows the host's tab read-only.
+- Everyone in a Practice together session can edit the same tab at the same time, and each change shows up on the other computers within a moment. Two people can work in the same bar.
+- You see where the others are: the note they are on, in their colour, with their name above it.
+- Undo and Redo only take back your own edits.
+- Playback is not disturbed by edits: the shared clock, the metronome, the count-in and the speed stay as they are.
+- The host can turn editing off for guests with "Guests can edit the tab" in the session dialog. A guest who drops and comes back gets the edits it missed.
+- **Audio tracks are shared too.** Add, move, cut or remove audio tracks and clips and the others get the same tracks, including stems you add from the stem page. Each player keeps their own mix of a track (volume, pan, mute, solo, effects).
+- The audio files are sent once each, directly between the computers, and checked on arrival. Progress shows in the session dialog, and nobody starts until everyone has every file, so nobody plays a track in silence.
+- An older Smart Beat as a guest still follows the host's tab, read-only.
+
+### New: a tidier way to write music
+
+- **A compact edit palette.** The palette is now a grid of small icons. Point at one to see its name and shortcut. An icon with several choices (key, time signature, tempo, jumps, tuplet, slide, harmonic and more) opens a small box of them and remembers your pick.
+- **A quiet highlight.** The note you edit has a thin outline instead of a big box, and a selection of beats is one light rectangle per line of music.
+- **Rests on demand.** Insert a rest before or after a note with I and Shift+I, or from the right-click menu, as long as the note value in the palette.
+- **Repeats that play 2 to 8 times.** Choose how often a repeat plays from the Repeat end box, and change it later from the right-click menu.
+- **Edit and listen.** Play starts at the note you are on, and plays only your selection when you have selected some beats.
+- **Copy and paste between tabs.** Copy in one open tab and paste in another. Pasting over a selection replaces it, and a longer part flows into new bars, so nothing after it is overwritten.
 
 ### Improvements and fixes
 
-- Edit mode: the edit palette is now a compact grid of icons. Point at an icon to see its name and shortcut; an icon with several choices (key, time signature, tempo, jumps, tuplet, slide, harmonic and more) opens a small box of them and keeps your pick. The key, tempo, triplet feel, repeat endings and every jump can be set from the palette too, not only from the Bar dialog.
-- Edit mode: the note you are editing is shown with a quiet outline around its fret number instead of a big box and a vertical line, and a selection of beats is one light rectangle per line of music. Options you have switched on are shown in purple, and the palette is light or dark with the app. The icon under the pointer lights up in purple from the inside, and its border lines reach past its corners.
-- Edit mode: insert a rest before or after a note with I and Shift+I, or from the right-click menu (Insert rest before, Insert rest after). The rest is as long as the note value in the palette.
 - Edit mode: a bar that is too short or too long no longer stops you from editing it. Type a run of rests first and fill them in later; the bar lengths are checked when you play or save.
-- Edit mode: Play starts at the note you are on, and plays only the selection when you have selected some beats.
-- Edit mode: copy in one open tab and paste in another.
 - Edit mode: only the purple selection is shown, without the blue highlight on top of it.
-- Edit mode: choose how many times a repeat plays (2 to 8 times) from the palette's Repeat end box, and change it later from the right-click menu. Larger counts are in the Bar dialog.
 - Drum tab: click any line to put the cursor there and write the drum you type on it.
 - Drum tab: put the cursor on a drum (with the Up and Down arrows or a click) and type another number to replace it on the same line. Every number you type replaces it again; to add a second drum to the beat, such as a kick under a crash, put the cursor on an empty line first.
 - Drum tab: a click on any line of the tab, also under the drum staff in Score + tab and where there is no note yet, puts the cursor on that line.
@@ -45,7 +59,6 @@ Release notes for every version. The release workflow publishes the section that
 - Two tracks shown together in the continuous view: a click lands on the track you clicked, not on the other one.
 - Edit mode: the score stays where it is while you delete or change notes. It only scrolls when the note you are on would leave the view, and then just far enough to show it.
 - Switching between open tabs in Edit mode puts the keyboard back where you were editing.
-- Pasting over a selection replaces it. When the pasted part is longer, it flows into new bars (a note crossing a bar line becomes two tied notes), so nothing after it is written over.
 - Sound: a new installation plays with SoundFonts. The effects engine is remembered only when you switch it on yourself.
 - Fixed: a drum track shown as Tab drew no numbers in the Continuous view.
 - Fixed: drums changed to other instruments after a tab was saved and opened again (a kick came back as a bongo, a crash as a tambourine). Files saved this way by older versions still open with the wrong drums.
