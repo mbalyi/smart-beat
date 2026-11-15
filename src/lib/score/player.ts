@@ -865,7 +865,7 @@ export class ScorePlayer {
     this.trackIndex = trackIndex;
     this.applyStack(stack);
     // alphaTab draws the previous track's tuning over a drum tab shown straight
-    // from another track (seen in 1.8.4). Showing the drum track's score first,
+    // from another track (seen in 1.8.4, still there in 1.9.0). Showing the drum track's score first,
     // then its drum tab, draws it correctly (#53).
     const drumTab = (track.staves[0]?.isPercussion ?? false) && view.notation !== "score";
     const first = drumTab ? { ...view, notation: "score" as const } : view;
