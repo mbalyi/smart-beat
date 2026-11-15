@@ -1,5 +1,5 @@
 /**
- * Workarounds for bugs in alphaTab 1.8.4, applied at run time (alphaTab's own
+ * Workarounds for bugs in alphaTab (still present in 1.9.0), applied at run time (alphaTab's own
  * files are not changed). Remove each one once alphaTab fixes it.
  */
 import { model } from "@coderline/alphatab";

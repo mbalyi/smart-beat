@@ -5,12 +5,16 @@
  * placement, shows it, lets the user move a drum to another line and saves it.
  *
  * The line is stored in the note's `fret`, which alphaTab does not use for
- * percussion notes (they are played and drawn from their articulation) and
- * copies whenever it clones a note, so edits, undo and copy/paste keep it.
+ * percussion notes (they are played and drawn from their articulation; "no line"
+ * is its NaN "no value") and copies whenever it clones a note, so edits, undo
+ * and copy/paste keep it. (alphaTab 1.9 keeps its own string on drum notes, but
+ * derives it from the drum's staff line when the file has none, so it cannot
+ * tell a placement the user chose from the usual one.)
  * Lines are alphaTab string numbers: 1 is the bottom line, 6 the top one.
  */
-import { Environment, type model } from "@coderline/alphatab";
+import { Environment, model } from "@coderline/alphatab";
 
+import { NO_VALUE } from "@/lib/score/no-value";
 import type { DrumLine } from "@/lib/tauri";
 
 type Note = model.Note;
@@ -47,7 +51,7 @@ export function drumLine(note: Note): number | null {
 /** Places a drum note on a line of the drum tab (null: its usual line). */
 export function setDrumLine(note: Note, line: number | null) {
   if (!note.isPercussion) return;
-  note.fret = line !== null && isLine(line) ? line : -1;
+  note.fret = line !== null && isLine(line) ? line : NO_VALUE;
 }
 
 /**
@@ -61,19 +65,48 @@ export function keepGp5DrumStrings() {
   const gp5 = Environment.buildImporters().find((i) => /Guitar Pro 3-5/i.test(i.name));
   if (!gp5) return;
   const prototype = Object.getPrototypeOf(gp5) as {
-    readNote?: (track: unknown, bar: unknown, voice: unknown, beat: unknown, index: number) => Note;
+    readNote?: (
+      track: unknown,
+      bar: unknown,
+      voice: unknown,
+      beat: unknown,
+      index: number,
+    ) => Note | null;
   };
   const readNote = prototype.readNote;
   if (typeof readNote !== "function") return;
   prototype.readNote = function (track, bar, voice, beat, stringIndex) {
     const note = readNote.call(this, track, bar, voice, beat, stringIndex);
-    // `stringIndex` 0 is the file's top string, which is our top line.
-    if (note.percussionArticulation >= 0 && note.string < 0) {
+    // alphaTab drops a note the file gives no fret (null). `stringIndex` 0 is the file's top
+    // string, which is our top line.
+    if (note?.isPercussion) {
       note.fret = Math.min(DRUM_TAB_LINES, Math.max(1, DRUM_TAB_LINES - stringIndex));
     }
     return note;
   };
 }
+
+/**
+ * alphaTab 1.9 calls a note "stringed" when it has a string and a fret, and drum notes now
+ * keep a string (the line the file wrote them on), so a drum note with a line here would count
+ * as a guitar note: it would show up on the fretboard, in the tab exports and in transposing.
+ * A drum note is never stringed (as for every drum note before it was given a line).
+ */
+let unstringed = false;
+export function keepDrumNotesUnstringed() {
+  if (unstringed) return;
+  unstringed = true;
+  const original = Object.getOwnPropertyDescriptor(model.Note.prototype, "isStringed");
+  if (!original?.get) return;
+  const get = original.get;
+  Object.defineProperty(model.Note.prototype, "isStringed", {
+    configurable: true,
+    get(this: Note) {
+      return !this.isPercussion && (get.call(this) as boolean);
+    },
+  });
+}
+keepDrumNotesUnstringed();
 
 /** Every drum note that has a line, by position (for a song's settings). */
 export function collectDrumLines(score: Score): DrumLine[] {

@@ -8,8 +8,9 @@
  */
 import { model } from "@coderline/alphatab";
 
+import { isNoValue, NO_VALUE } from "@/lib/score/no-value";
 import { PERSONAL, type Json, type Props } from "@/lib/score/ops/types";
-import { fitsField, isDataField, kindOf, type PartKind } from "@/lib/score/ops/fields";
+import { defaultsOf, fitsField, isDataField, kindOf, type PartKind } from "@/lib/score/ops/fields";
 import { FORBIDDEN_KEYS } from "@/lib/score/ops/validate";
 
 const MODEL_TYPES: (new (...args: never[]) => object)[] = [
@@ -55,7 +56,44 @@ const DERIVED = new Set([
   "playbackDuration",
   "absoluteDisplayStart",
   "absolutePlaybackStart",
+  // Numbers and links alphaTab 1.9 computes in `finish`.
+  "_realBarNumber",
+  "effectSlurSegment",
 ]);
+
+/**
+ * The note properties whose "no value" is -1 on the wire. alphaTab 1.9 holds NaN there, but
+ * NaN is not JSON and an app on alphaTab 1.8 only knows -1: the codec writes -1 and reads -1 back
+ * as NaN, so every version understands every other.
+ */
+const NO_VALUE_KEYS: ReadonlySet<string> = new Set([
+  "fret",
+  "string",
+  "octave",
+  "tone",
+  "percussionArticulation",
+]);
+
+/**
+ * A bar's `barNumberDisplay`, which an app on alphaTab 1.8 sends as a plain property. In 1.9 it is
+ * an accessor that fills the four per-notation settings, so it is read for what it says (a
+ * number) and written through that accessor; an empty one says nothing.
+ */
+const LEGACY_BAR_NUMBER = "barNumberDisplay";
+
+/**
+ * Properties alphaTab 1.9 added. An app on 1.8 refuses a property it does not know, so while one
+ * still has the value of a new part it is left out (a part made by the receiver has it too).
+ */
+const NEW_IN_1_9: Record<PartKind, readonly string[]> = {
+  track: [],
+  staff: ["scoreConfig", "tabConfig", "slashConfig", "numberedConfig"],
+  mbar: ["customBarNumberText", "customBarNumber", "anacrusisOffset"],
+  bar: ["scoreDisplay", "tabDisplay", "slashDisplay", "numberedDisplay"],
+  voice: [],
+  beat: ["restDisplayTone", "restDisplayOctave", "showDynamics"],
+  note: ["isTrillStart"],
+};
 
 /** The list properties of each element that are their own elements (see ops/diff.ts). */
 const CHILDREN: ReadonlyMap<unknown, readonly string[]> = new Map<unknown, readonly string[]>([
@@ -208,10 +246,28 @@ function personalKeys(element: object): readonly string[] {
   return [];
 }
 
+/** The wire form of each property alphaTab 1.9 added, as a fresh part has it (see NEW_IN_1_9). */
+let newDefaults: ReadonlyMap<string, Json> | undefined;
+function newInDefaults(): ReadonlyMap<string, Json> {
+  if (!newDefaults) {
+    const defaults = new Map<string, Json>();
+    for (const [kind, keys] of Object.entries(NEW_IN_1_9) as [PartKind, readonly string[]][]) {
+      const fresh = defaultsOf(kind);
+      for (const key of keys) {
+        const encoded = encode(fresh.get(key), new Set());
+        if (encoded !== SKIP) defaults.set(key, encoded);
+      }
+    }
+    newDefaults = defaults;
+  }
+  return newDefaults;
+}
+
 /** The shareable own properties of an element, without its child lists. */
 export function encodeProps(element: object): Props {
   const skipped = new Set([...DERIVED, ...(CHILDREN.get(element.constructor) ?? [])]);
   const props: Props = {};
+  const kind = kindOf(element);
   for (const [key, value] of Object.entries(element)) {
     if (skipped.has(key)) continue;
     let encoded: Json | typeof SKIP;
@@ -225,10 +281,15 @@ export function encodeProps(element: object): Props {
         if (item !== SKIP) shared[infoKey] = item;
       }
       encoded = { $c: "PlaybackInformation", p: shared };
+    } else if (kind === "note" && NO_VALUE_KEYS.has(key) && typeof value === "number") {
+      encoded = isNoValue(value) ? -1 : value;
     } else {
       encoded = encode(value, new Set());
     }
-    if (encoded !== SKIP && !personalKeys(element).includes(key)) props[key] = encoded;
+    if (encoded === SKIP || personalKeys(element).includes(key)) continue;
+    const fresh = NEW_IN_1_9[kind ?? "note"].includes(key) ? newInDefaults().get(key) : undefined;
+    if (fresh !== undefined && JSON.stringify(encoded) === JSON.stringify(fresh)) continue;
+    props[key] = encoded;
   }
   return props;
 }
@@ -243,9 +304,24 @@ function settable(kind: PartKind, props: Props): [string, unknown][] {
   for (const [key, encoded] of Object.entries(props)) {
     if (FORBIDDEN_KEYS.has(key)) throw new BadEdit();
     if (NOT_SETTABLE.has(key)) continue;
+    if (kind === "bar" && key === LEGACY_BAR_NUMBER) {
+      const shown = decode(encoded);
+      if (typeof shown === "number") accepted.push([key, shown]);
+      else if (shown !== undefined && shown !== null) throw new BadEdit();
+      continue;
+    }
     if (!isDataField(kind, key)) throw new BadEdit();
-    const value = decode(encoded);
+    let value = decode(encoded);
     if (!fitsField(kind, key, value)) throw new BadEdit();
+    // The -1 of an app on alphaTab 1.8 (and of older data) is alphaTab 1.9's NaN.
+    if (
+      kind === "note" &&
+      NO_VALUE_KEYS.has(key) &&
+      typeof value === "number" &&
+      isNoValue(value)
+    ) {
+      value = NO_VALUE;
+    }
     accepted.push([key, value]);
   }
   return accepted;
@@ -285,9 +361,11 @@ export function changedProps(before: Props, after: Props): Props | null {
   const changed: Props = {};
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
     // A property that is `null` is not the same as one that is not there.
-    const a = JSON.stringify(key in before ? before[key] : UNDEFINED);
-    const b = JSON.stringify(key in after ? after[key] : UNDEFINED);
-    if (a !== b) changed[key] = key in after ? after[key] : UNDEFINED;
+    // A property left out because it has its default (see NEW_IN_1_9) is back at that value.
+    const gone = newInDefaults().get(key) ?? UNDEFINED;
+    const a = JSON.stringify(key in before ? before[key] : gone);
+    const b = JSON.stringify(key in after ? after[key] : gone);
+    if (a !== b) changed[key] = key in after ? after[key] : gone;
   }
   return Object.keys(changed).length > 0 ? changed : null;
 }

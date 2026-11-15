@@ -1,14 +1,21 @@
 /** Smart Beat's native format: a Guitar Pro 7 file (`.gp`), open (ZIP + XML) and readable by GP7/8. */
 import { exporter, Settings } from "@coderline/alphatab";
 
+import { appendZipEntry } from "@/lib/export/zip";
 import { withWritableDrumKits } from "@/lib/score/drum-kit";
+import { KEYBOARD_ENTRY, keyboardEntryData, keyboardStaves } from "@/lib/score/keyboard-staves";
 import type { Score } from "@/lib/score/model";
 
 export function writeGp7(score: Score): Uint8Array {
+  // Keyboard staves are written as guitar ones: note which, so that opening the file restores them.
+  const keyboards = keyboardStaves(score);
   // Drum notes must refer to their track's own kit, or they open as other drums (#229).
-  return withWritableDrumKits(score, () =>
+  const bytes = withWritableDrumKits(score, () =>
     withUniqueIds(score, () => new exporter.Gp7Exporter().export(score, new Settings())),
   );
+  return keyboards.length === 0
+    ? bytes
+    : appendZipEntry(bytes, { name: KEYBOARD_ENTRY, data: keyboardEntryData(keyboards) });
 }
 
 /**

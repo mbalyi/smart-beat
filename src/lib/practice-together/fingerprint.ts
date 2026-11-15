@@ -1,6 +1,7 @@
 import { writeAlphaTex } from "@/lib/export/alphatex";
 import type { ScoreFingerprint } from "@/lib/practice-together/protocol";
 import { fileKey } from "@/lib/score/format";
+import { NO_VALUE } from "@/lib/score/no-value";
 import type { Score } from "@/lib/score/model";
 
 /**
@@ -19,9 +20,17 @@ function withoutPersonalSettings<T>(score: Score, run: () => T): T {
           for (const beat of voice.beats) {
             for (const note of beat.notes) {
               const mode = note.accidentalMode;
-              if (mode === 0) continue;
-              saved.push(() => (note.accidentalMode = mode));
-              note.accidentalMode = 0;
+              if (mode !== 0) {
+                saved.push(() => (note.accidentalMode = mode));
+                note.accidentalMode = 0;
+              }
+              // A drum note has no string of its own: alphaTab 1.9 leaves it empty (NaN), and a
+              // Guitar Pro file gives it one on the way back (the staff line), so it is no music.
+              const string = note.string;
+              if (note.isPercussion && !Number.isNaN(string)) {
+                saved.push(() => (note.string = string));
+                note.string = NO_VALUE;
+              }
             }
           }
         }

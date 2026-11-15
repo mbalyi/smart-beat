@@ -76,6 +76,7 @@ import {
   type Voice,
 } from "@/lib/score/model";
 import { DRUM_MIDI_MAP, drumNumberName } from "@/lib/score/drum-map";
+import { NO_VALUE } from "@/lib/score/no-value";
 import { MAX_REPEAT_COUNT } from "@/lib/score/structure";
 import { drumIdOf, drumValueFor, kitIndexOf } from "@/lib/score/drum-kit";
 import { DRUM_TAB_LINES, drumLine, setDrumLine } from "@/lib/score/drum-lines";
@@ -2572,8 +2573,8 @@ export class ScoreEditor {
         if (!keep) note.percussionArticulation = drumValueFor(this.track, drum);
         copy.addNote(note);
       } else if (to === "pitched") {
-        note.string = -1;
-        note.fret = -1;
+        note.string = NO_VALUE;
+        note.fret = NO_VALUE;
         note.octave = Math.floor(pitch / 12);
         note.tone = pitch % 12;
         copy.addNote(note);
@@ -2588,8 +2589,8 @@ export class ScoreEditor {
       } else {
         const string = this.freeStringFor(pitch, copy);
         if (string === null) return;
-        note.octave = -1;
-        note.tone = -1;
+        note.octave = NO_VALUE;
+        note.tone = NO_VALUE;
         note.string = string;
         note.fret = pitch - this.openPitch(string);
         copy.addNote(note);

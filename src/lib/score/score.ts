@@ -18,6 +18,7 @@ import { adoptLyrics } from "@/lib/score/lyrics";
 import type { TrackKind } from "@/lib/score/music";
 import type { TrackMix } from "@/lib/tauri";
 import { setDrumTab } from "@/lib/score/drum-tab";
+import { restoreKeyboardsOfFile } from "@/lib/score/keyboard-staves";
 import { applyAlphaTabFixes } from "@/lib/score/alphatab-fixes";
 
 applyAlphaTabFixes();
@@ -209,6 +210,7 @@ export function parseScore(bytes: Uint8Array, choice: EncodingChoice = "auto"): 
     throw new ScoreLoadError("The file does not contain any tracks.");
   }
 
+  restoreKeyboardsOfFile(score, bytes);
   for (const track of score.tracks) {
     adoptTrack(track);
     adoptLyrics(track);

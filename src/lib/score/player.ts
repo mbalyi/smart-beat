@@ -535,7 +535,8 @@ export class ScorePlayer {
     });
     // Also fires when a MIDI file is loaded (with the song length). Don't use
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
-    // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
+    // exists recursed forever (AlphaSynthWebWorkerApi.loadedMidiInfo; fixed in 1.9.0,
+    // but this event carries all we need).
     api.playerPositionChanged.on((e) => {
       this.lanePlayback?.position(e.currentTick, this.playing);
       this.stopAfterOnce(e.currentTick);

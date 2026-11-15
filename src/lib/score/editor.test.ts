@@ -799,12 +799,18 @@ describe("ScoreEditor: clipboard", () => {
     editor.moveBar(1);
     editor.paste();
     expect(voice(editor, 1).beats[0]!.notes.map((n) => n.realValue)).toEqual([pitch]);
+    // A key, not a string: alphaTab 1.9 reads "no string" as NaN (a -1 left there counts as stringed).
+    const keys = voice(editor, 1).beats[0]!.notes;
+    expect(keys.every((n) => n.isPiano && !n.isStringed)).toBe(true);
+    expect(keys.every((n) => Number.isNaN(n.string) && Number.isNaN(n.fret))).toBe(true);
 
     editor.copy();
     editor.setTrack(1); // bass: plays it where it can
     editor.paste();
     const bass = voice(editor, 1).beats[0]!.notes;
     expect(bass.map((n) => n.realValue)).toEqual([pitch]);
+    expect(bass.every((n) => n.isStringed && !n.isPiano)).toBe(true);
+    expect(bass.every((n) => Number.isNaN(n.octave) && Number.isNaN(n.tone))).toBe(true);
 
     editor.setTrack(2); // drums can't take pitched notes
     editor.paste();
