@@ -1,6 +1,6 @@
 /** Opening songs: Guitar Pro and MusicXML go through alphaTab, MIDI files through our own import. */
-import type { EncodingChoice } from "@/lib/score/encoding";
 import { parseScore, summarizeScore, type LoadedScore } from "@/lib/score/score";
+import type { EncodingChoice } from "@/lib/score/encoding";
 
 export interface LoadedSong extends LoadedScore {
   /** What could not be taken over exactly, for the user. Empty for Guitar Pro files. */
