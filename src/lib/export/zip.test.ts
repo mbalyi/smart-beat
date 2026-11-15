@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { listZip, readZipEntry } from "@/lib/import/zip";
-import { crc32, writeZip } from "@/lib/export/zip";
+import { appendZipEntry, crc32, writeZip } from "@/lib/export/zip";
 
 const text = (s: string) => new TextEncoder().encode(s);
 
@@ -34,5 +34,20 @@ describe("ZIP writer", () => {
 
   it("writes an empty archive", () => {
     expect(listZip(writeZip([]))).toEqual([]);
+  });
+
+  it("adds a file to an archive and keeps the others", async () => {
+    const files = [
+      { name: "a.txt", data: text("a") },
+      { name: "b.txt", data: text("bb") },
+    ];
+    const zip = appendZipEntry(writeZip(files), { name: "c ő.txt", data: text("ccc") });
+    const entries = listZip(zip);
+    expect(entries.map((e) => e.name)).toEqual(["a.txt", "b.txt", "c ő.txt"]);
+    const read = await Promise.all(entries.map((e) => readZipEntry(zip, e)));
+    expect(read.map((d) => new TextDecoder().decode(d))).toEqual(["a", "bb", "ccc"]);
+    expect(appendZipEntry(writeZip([]), { name: "x", data: text("y") })).toEqual(
+      writeZip([{ name: "x", data: text("y") }]),
+    );
   });
 });

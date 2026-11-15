@@ -88,19 +88,24 @@ test.describe("Guitar Pro 5 files (#53)", () => {
   });
 });
 
-/** The y position of drum number `n` in bar 2 of the drum tab (the first one drawn after bar 1). */
+/**
+ * The y position of drum number `n` on the beat of bar 2 that has the China (52, no other beat
+ * has it) in the drum tab. (alphaTab 1.9 draws a bar number only on the first bar of a line, so
+ * the bar is found by its China.)
+ */
 async function bar2Number(app: Page, n: string): Promise<number> {
   return scoreRegion(app)
     .locator(".at-surface svg text")
     .evaluateAll((texts, wanted) => {
-      const bar2 = texts.find(
-        (t) => t.textContent?.trim() === "2" && t.getAttribute("fill") === "#C80000",
+      const hits = texts.filter(
+        (t) => t.textContent?.trim() === wanted || t.textContent?.trim() === "52",
       );
-      if (!bar2) return 0;
-      const x0 = bar2.getBoundingClientRect().x;
-      const hit = texts
-        .filter((t) => t.textContent?.trim() === wanted && t.getBoundingClientRect().x > x0)
-        .sort((a, b) => a.getBoundingClientRect().x - b.getBoundingClientRect().x)[0];
+      const china = hits.find((t) => t.textContent?.trim() === "52");
+      if (!china) return 0;
+      const x0 = china.getBoundingClientRect().x;
+      const hit = hits.find(
+        (t) => t.textContent?.trim() === wanted && Math.abs(t.getBoundingClientRect().x - x0) < 6,
+      );
       return hit ? hit.getBoundingClientRect().y : 0;
     }, n);
 }

@@ -275,6 +275,8 @@ describe("convertTrackToInstrument", () => {
     expect(summary.program).toBe(0);
     const notes = result.track.staves[0]!.bars[0]!.voices[0]!.beats[0]!.notes;
     expect(notes.map((n) => n.octave * 12 + n.tone).sort()).toEqual([52, 67]);
+    // Keys, not strings: alphaTab 1.9 reads "no string" as NaN (a -1 left there counts as stringed).
+    expect(notes.every((n) => n.isPiano && !n.isStringed)).toBe(true);
     // the original is unchanged
     expect(score.tracks[0]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!.notes[0]!.isStringed).toBe(
       true,
@@ -291,6 +293,8 @@ describe("convertTrackToInstrument", () => {
       [3, 2],
       [6, 3],
     ]);
+    expect(notes.every((n) => n.isStringed && !n.isPiano)).toBe(true);
+    expect(notes.every((n) => Number.isNaN(n.octave) && Number.isNaN(n.tone))).toBe(true);
   });
 
   it("shifts a note outside the range by octaves and reports it", () => {

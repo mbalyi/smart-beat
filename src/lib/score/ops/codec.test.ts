@@ -1,6 +1,7 @@
 import { model } from "@coderline/alphatab";
 
-import { assignProps, checkProps, encodeProps } from "@/lib/score/ops/codec";
+import { NO_VALUE } from "@/lib/score/no-value";
+import { assignProps, changedProps, checkProps, encodeProps } from "@/lib/score/ops/codec";
 import type { Props } from "@/lib/score/ops/types";
 import { practiceSong } from "@/test/shared-edit";
 
@@ -55,7 +56,7 @@ describe("score ops codec: what a peer may set", () => {
   it("checks nothing is written when one property of the batch is refused", () => {
     const note = new model.Note();
     expect(() => checkProps("note", { fret: 3, finish: UNDEFINED })).toThrow();
-    expect(note.fret).toBe(-1);
+    expect(note.fret).toBe(NO_VALUE);
   });
 
   it("refuses a method name inside a nested object, whatever its class", () => {
@@ -158,5 +159,94 @@ describe("score ops codec: hostile encodings", () => {
     for (const [kind, part] of parts) {
       expect(() => checkProps(kind, wire(encodeProps(part))), kind).not.toThrow();
     }
+  });
+});
+
+describe("score ops codec: no value (alphaTab 1.9 NaN, 1.8 -1)", () => {
+  const FIELDS = ["fret", "string", "octave", "tone", "percussionArticulation"] as const;
+
+  it("writes -1 for a note's empty fields, which an app on alphaTab 1.8 understands", () => {
+    const props = wire(encodeProps(new model.Note()));
+    for (const key of FIELDS) expect(props[key]).toBe(-1);
+    const note = new model.Note();
+    note.fret = 5;
+    note.string = 2;
+    expect(wire(encodeProps(note))).toMatchObject({ fret: 5, string: 2, octave: -1 });
+  });
+
+  it("reads the -1 of an older app as no value, so the note is not stringed", () => {
+    const note = new model.Note();
+    note.fret = 3;
+    note.string = 2;
+    assignProps(
+      note,
+      wire({ fret: -1, string: -1, octave: -1, tone: -1, percussionArticulation: 4 }),
+    );
+    expect(note.fret).toBeNaN();
+    expect(note.string).toBeNaN();
+    expect(note.octave).toBeNaN();
+    expect(note.tone).toBeNaN();
+    expect(note.percussionArticulation).toBe(4);
+    expect(note.isStringed).toBe(false);
+    expect(note.isPercussion).toBe(true);
+  });
+
+  it("reads NaN from an app on alphaTab 1.9 the same way", () => {
+    const note = new model.Note();
+    note.fret = 3;
+    assignProps(note, wire({ fret: { $n: "NaN" } }));
+    expect(note.fret).toBe(NO_VALUE);
+  });
+
+  it("does not turn a real number or another kind of part's -1 into no value", () => {
+    const note = new model.Note();
+    assignProps(note, wire({ fret: 0, string: 6 }));
+    expect([note.fret, note.string]).toEqual([0, 6]);
+    const beat = new model.Beat();
+    assignProps(beat, wire({ restDisplayTone: -1 }));
+    expect(beat.restDisplayTone).toBe(-1);
+  });
+
+  it("a change to no value and back is a change on the wire", () => {
+    const note = new model.Note();
+    note.fret = 3;
+    const before = encodeProps(note);
+    note.fret = NO_VALUE;
+    expect(changedProps(before, encodeProps(note))).toEqual({ fret: -1 });
+  });
+});
+
+describe("score ops codec: other versions of alphaTab", () => {
+  it("leaves out what alphaTab computes, and the properties 1.9 added while they are at their default", () => {
+    const bar = new model.MasterBar();
+    expect(Object.keys(encodeProps(bar))).not.toContain("_realBarNumber");
+    for (const key of ["customBarNumber", "customBarNumberText", "anacrusisOffset"]) {
+      expect(Object.keys(encodeProps(bar))).not.toContain(key);
+    }
+    const beat = new model.Beat();
+    expect(Object.keys(encodeProps(beat))).not.toContain("restDisplayTone");
+    beat.restDisplayTone = 4;
+    expect(wire(encodeProps(beat)).restDisplayTone).toBe(4);
+  });
+
+  it("says a 1.9 property is back at its default instead of dropping it", () => {
+    const beat = new model.Beat();
+    const before = encodeProps(beat);
+    beat.restDisplayTone = 4;
+    const during = encodeProps(beat);
+    expect(changedProps(before, during)).toEqual({ restDisplayTone: 4 });
+    beat.restDisplayTone = Number.NaN;
+    expect(changedProps(during, encodeProps(beat))).toEqual({ restDisplayTone: { $n: "NaN" } });
+  });
+
+  it("reads the bar number setting an app on alphaTab 1.8 sent, and ignores an empty one", () => {
+    const bar = new model.Bar();
+    expect(() => checkProps("bar", wire({ barNumberDisplay: UNDEFINED }))).not.toThrow();
+    expect(() => checkProps("bar", wire({ barNumberDisplay: "x" }))).toThrow();
+    assignProps(bar, wire({ barNumberDisplay: UNDEFINED }));
+    expect(bar.scoreDisplay).toBeUndefined();
+    assignProps(bar, wire({ barNumberDisplay: 2 }));
+    expect(bar.scoreDisplay?.barNumber).toBe(2);
+    expect(bar.tabDisplay?.barNumber).toBe(2);
   });
 });
