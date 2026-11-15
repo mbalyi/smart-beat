@@ -4,6 +4,13 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### Changed
+
+- **Bar numbers show only at the start of each line.** The score engine update (alphaTab 1.9) no longer prints a number above every bar, only above the first bar of each line.
+- **Piano and other keyboard staves survive a save and reopen of a `.gp` file.** They come back as the keyboard staves you saved, not as guitar tab. A build older than this one opens those staves as guitar tab.
+- Drum staves in Guitar Pro 5 files show the app's drum tab alone, and drum lines read and copy correctly after the engine update.
+- Dependency updates: Playwright, Tailwind, Vitest, Tauri and other libraries moved to their latest minor versions.
+
 ## [1.3.0]
 
 New in 1.3.0: put audio next to your tab, take your stems out as audio files, and edit the same tab with your band.

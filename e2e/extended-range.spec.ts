@@ -26,23 +26,28 @@ async function addTrack(page: Page, instrument: string) {
   await expect(dialog).toBeHidden();
 }
 
-/** The lines of the staves in the first bar of the score: 5 for the notes, one per string for the tab. */
+/**
+ * The lines of the staves in the first bar of the score: 5 for the notes, one per string for the tab.
+ * alphaTab 1.9 leaves a gap in a tab line around a fret number, so the line is drawn in pieces: count
+ * the pieces that start at the left edge of the staff, not only the long ones.
+ */
 async function staffLines(page: Page): Promise<number> {
   return scoreRegion(page)
     .locator(".at-surface svg")
     .evaluateAll((svgs) => {
-      const lines = svgs.flatMap((svg) =>
+      const thin = svgs.flatMap((svg) =>
         [...svg.querySelectorAll("rect")]
           .map((r) => ({
             x: Number(r.getAttribute("x")),
             w: Number(r.getAttribute("width")),
             h: Number(r.getAttribute("height")),
           }))
-          // A staff line is a long, thin rectangle.
-          .filter((r) => r.w > 80 && r.h <= 2),
+          .filter((r) => r.h <= 2),
       );
-      const first = Math.min(...lines.map((l) => l.x));
-      return lines.filter((l) => l.x === first).length;
+      // A staff line is a long, thin rectangle; the others (ledger lines) are short.
+      const first = Math.min(...thin.filter((r) => r.w > 80).map((l) => l.x));
+      // A line's first piece starts at the left edge, even when a fret number cuts it short.
+      return thin.filter((l) => l.x === first).length;
     });
 }
 

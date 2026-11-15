@@ -535,7 +535,8 @@ export class ScorePlayer {
     });
     // Also fires when a MIDI file is loaded (with the song length). Don't use
     // `midiLoaded`: in alphaTab 1.8.4 subscribing to it once the worker synth
-    // exists recurses forever (AlphaSynthWebWorkerApi.loadedMidiInfo).
+    // exists recursed forever (AlphaSynthWebWorkerApi.loadedMidiInfo; fixed in 1.9.0,
+    // but this event carries all we need).
     api.playerPositionChanged.on((e) => {
       this.lanePlayback?.position(e.currentTick, this.playing);
       this.stopAfterOnce(e.currentTick);
@@ -864,7 +865,7 @@ export class ScorePlayer {
     this.trackIndex = trackIndex;
     this.applyStack(stack);
     // alphaTab draws the previous track's tuning over a drum tab shown straight
-    // from another track (seen in 1.8.4). Showing the drum track's score first,
+    // from another track (seen in 1.8.4, still there in 1.9.0). Showing the drum track's score first,
     // then its drum tab, draws it correctly (#53).
     const drumTab = (track.staves[0]?.isPercussion ?? false) && view.notation !== "score";
     const first = drumTab ? { ...view, notation: "score" as const } : view;

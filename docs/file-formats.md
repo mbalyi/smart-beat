@@ -36,6 +36,8 @@ Everything Guitar Pro has no place for goes into a `SmartBeat/settings.json` ent
 
 It is the same JSON as the app's own mixer settings (`MixerSettings`, version 3; version 1 and 2 files still load, and an old single audio track becomes one lane with one clip). Each embedded audio file a clip plays is stored once, as `SmartBeat/audio/<sha256>.<ext>`, uncompressed; files no clip plays any more are dropped on save. Files saved as version 3 cannot be read by releases before 1.3.
 
+A second entry, `Content/SmartBeat.json` (stored uncompressed, written only when the song has keyboard staves; `src/lib/score/keyboard-staves.ts`), lists the keyboard staves. alphaTab 1.9 writes a staff of pitches without strings (a piano, notes from a MIDI file) as a six-string guitar tab staff, because Guitar Pro files have no other notes. On open, Smart Beat turns the staves listed in this entry back into keyboard staves. A build before this entry, and Guitar Pro itself, open those staves as guitar tab. The Rust side keeps unknown entries when it saves (`raw_copy` in `src-tauri/src/project.rs`), so the entry survives.
+
 Guitar Pro and alphaTab ignore entries they do not know, so the file opens everywhere. On open, these settings take priority over the app's settings for the file. For other formats, the app's settings (keyed by the file's content hash) are used.
 
 ## Guitar Pro 5 (`.gp5`)
@@ -266,9 +268,9 @@ The importer (`src/lib/import/musescore.ts`) reads parts, staves, up to four voi
 
 ## Import only
 
-| Format  | Extension | What is read                                                                                                                                                                                                                                                                                              |
-| ------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Capella | `.capx`   | Read by alphaTab. alphaTab 1.8.4 failed on every file with a note (it measures a chord before adding it to its voice); `src/lib/score/alphatab-fixes.ts` works around it. Repeat counts are only read from Capella's draw objects. There is no writer: no specification, and nothing to check one against |
+| Format  | Extension | What is read                                                                                                                                                                                                                                                                                                         |
+| ------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Capella | `.capx`   | Read by alphaTab. alphaTab (1.8.4 and 1.9.0) fails on every file with a note (it measures a chord before adding it to its voice); `src/lib/score/alphatab-fixes.ts` works around it. Repeat counts are only read from Capella's draw objects. There is no writer: no specification, and nothing to check one against |
 
 ## Not supported yet (needs a format specification)
 

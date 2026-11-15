@@ -29,7 +29,7 @@ The sound issues need:
 | Works in the browser / Playwright | Yes                                                                                                                               | No                                                   | Yes (fallback)                                                                                                     |
 | Plugin hosting later (VST3/CLAP)  | No                                                                                                                                | Yes (out of process)                                 | Yes                                                                                                                |
 
-alphaTab 1.8.4 provides what the hybrid needs:
+alphaTab 1.9.0 provides what the hybrid needs:
 
 - `PlayerMode.EnabledExternalMedia` with `IExternalMediaHandler` (play, pause, seek, rate, volume) and `updatePosition`. alphaTab handles looping and the end of the song from the position we report.
 - `midiLoad`: the MIDI it generated for the score. We send that to the engine, so the engine plays exactly what alphaSynth would, including our effect approximations (`effect-sound.ts`) and drum remapping.

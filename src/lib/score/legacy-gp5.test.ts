@@ -2,7 +2,7 @@ import { writeGp5 } from "@/lib/export/gp/writer";
 import { applyDrumLines, collectDrumLines, drumLine } from "@/lib/score/drum-lines";
 import { placeDrums } from "@/lib/score/drum-tab";
 import { encodeText, sourceEncoding } from "@/lib/score/encoding";
-import { parseScore } from "@/lib/score/score";
+import { applyTrackView, parseScore } from "@/lib/score/score";
 import { BAR2_LINES, linesOf } from "@/test/legacy-fixtures";
 import { fixtureBytes } from "@/test/score";
 
@@ -79,5 +79,34 @@ describe("drum notes on chosen strings (#53)", () => {
     const { score } = parseScore(fixtureBytes("practice-song.gp"));
     const drums = score.tracks[2]!.staves[0]!.bars[0]!.voices[0]!.beats[0]!;
     expect([...placeDrums(drums.notes).values()].sort()).toEqual([2, 6]); // kick, hi-hat
+  });
+});
+
+describe("the drum staff of a Guitar Pro 5 file draws no tab of its own (#244)", () => {
+  /**
+   * alphaTab 1.9 gives a drum staff six strings and draws a tab for it whenever `showTablature`
+   * is on (the tab bar renderer is created for `showTablature && tuning.length > 0`), which
+   * Guitar Pro 3-5 files ask for. That tab would show the notes' lines (their frets) beside the
+   * drum tab of the mirror staff. Reading and exporting do not draw, so only the staff's flags
+   * show it.
+   */
+  const drawsOwnTab = (staff: { showTablature: boolean; tuning: readonly number[] }) =>
+    staff.showTablature && staff.tuning.length > 0;
+
+  it("is not asked to draw a tab when the file is read", () => {
+    const { score } = parseScore(fixtureBytes("drum-lines.gp5"));
+    const drums = score.tracks[0]!.staves[0]!;
+    expect(drums.isPercussion).toBe(true);
+    expect(drawsOwnTab(drums)).toBe(false);
+  });
+
+  it.each(["score", "tab", "score-tab"] as const)("stays so in the %s view", (notation) => {
+    const { score } = parseScore(fixtureBytes("drum-lines.gp5"));
+    const track = score.tracks[0]!;
+    applyTrackView(track, { notation, rhythm: false });
+    const [drums, mirror] = track.staves;
+    expect(drawsOwnTab(drums!)).toBe(false);
+    // The drum tab is the mirror staff's, and only while it is shown.
+    expect(mirror ? drawsOwnTab(mirror) : false).toBe(notation !== "score");
   });
 });

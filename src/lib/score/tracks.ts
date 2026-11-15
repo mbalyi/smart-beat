@@ -23,6 +23,7 @@ import {
 } from "@/lib/score/model";
 import { adoptLyrics } from "@/lib/score/lyrics";
 import { MAX_CAPO, type InstrumentPreset, type TrackKind } from "@/lib/score/music";
+import { NO_VALUE } from "@/lib/score/no-value";
 import { adoptTrack, rememberMix, trackMix } from "@/lib/score/score";
 import { applyRetunePlan, findPosition, planRetune } from "@/lib/score/transpose";
 
@@ -254,9 +255,11 @@ export function convertTrackToInstrument(
               taken.add(position.string);
               note.string = position.string;
               note.fret = position.fret;
+              note.octave = NO_VALUE;
+              note.tone = NO_VALUE;
             } else {
-              note.string = -1;
-              note.fret = -1;
+              note.string = NO_VALUE;
+              note.fret = NO_VALUE;
               note.octave = Math.floor(pitch / 12);
               note.tone = pitch % 12;
               // Effects that only a fretted instrument has do not carry over.

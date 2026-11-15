@@ -31,7 +31,7 @@ const EXTRA: Partial<Record<PartKind, readonly string[]>> = {
 const defaultsByKind = new Map<PartKind, ReadonlyMap<string, unknown>>();
 
 /** The own data fields of a fresh part of `kind`, with their default values. */
-function defaultsOf(kind: PartKind): ReadonlyMap<string, unknown> {
+export function defaultsOf(kind: PartKind): ReadonlyMap<string, unknown> {
   let defaults = defaultsByKind.get(kind);
   if (!defaults) {
     const fields = new Map<string, unknown>(Object.entries(FRESH[kind]()));
