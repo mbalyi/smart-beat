@@ -212,11 +212,22 @@ export function parseScore(bytes: Uint8Array, choice: EncodingChoice = "auto"): 
 
   restoreKeyboardsOfFile(score, bytes);
   for (const track of score.tracks) {
+    track.staves.forEach(hideNativeDrumTab);
     adoptTrack(track);
     adoptLyrics(track);
   }
   if (encoding) setSourceEncoding(score, encoding);
   return { score, summary: summarizeScore(score), ...(encoding && { encoding }) };
+}
+
+/**
+ * alphaTab 1.9 gives a drum staff six strings of its own (before 1.9 it had none) and so draws
+ * a tab for it whenever `showTablature` is on, which a Guitar Pro 3-5 file asks for: the notes'
+ * lines, one number each (the fret is the line there), next to the drum tab of the mirror staff
+ * (see drum-tab.ts). The drum staff never draws its own tab.
+ */
+export function hideNativeDrumTab(staff: model.Staff) {
+  if (staff.isPercussion) staff.showTablature = false;
 }
 
 /**
@@ -228,6 +239,7 @@ export function applyTrackView(track: model.Track, view: TrackView) {
   const drums = track.staves[0]?.isPercussion ?? false;
   if (drums) {
     setDrumTab(track.score, track, view.notation !== "score");
+    hideNativeDrumTab(track.staves[0]!);
     track.staves[0]!.showStandardNotation = view.notation !== "tab";
     return;
   }

@@ -266,8 +266,8 @@ The importer (`src/lib/import/musescore.ts`) reads parts, staves, up to four voi
 
 ## Import only
 
-| Format  | Extension | What is read                                                                                                                                                                                                                                                                                              |
-| ------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format  | Extension | What is read                                                                                                                                                                                                                                                                                                         |
+| ------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Capella | `.capx`   | Read by alphaTab. alphaTab (1.8.4 and 1.9.0) fails on every file with a note (it measures a chord before adding it to its voice); `src/lib/score/alphatab-fixes.ts` works around it. Repeat counts are only read from Capella's draw objects. There is no writer: no specification, and nothing to check one against |
 
 ## Not supported yet (needs a format specification)
