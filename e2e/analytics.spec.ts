@@ -15,6 +15,22 @@ const tracked = (app: Page) =>
       }),
   );
 
+/** The error traces the page asked the core to record (#242), as sent. */
+const traces = (app: Page) =>
+  app.evaluate(() =>
+    window.__ipcCalls
+      .filter((call) => call.cmd === "track_event")
+      .map((call) => call.args as { event: string; trace?: { frames: string[]; ext?: string } })
+      .filter((args) => args.event === "error")
+      .map((args) => args.trace),
+  );
+
+/** The frame grammar of docs/analytics.md: a name, an app-relative or bundle location, or both. */
+const NAME = "[A-Za-z_$][A-Za-z0-9_$<>.-]{0,59}";
+const LOCATION =
+  "(?:(?:src|src-tauri/src)/[A-Za-z0-9_./-]{1,80}|[A-Za-z0-9_-]{1,40}\\.(?:js|mjs|ts|tsx|rs))(?::[0-9]{1,6}){0,2}";
+const FRAME = new RegExp(`^(?:${NAME}|${LOCATION}|${NAME} ${LOCATION})$`);
+
 test.describe("anonymous usage counters (#99)", () => {
   test("counts starting the app, opening a song and the practice tools once each", async ({
     app,
@@ -66,7 +82,11 @@ test.describe("anonymous usage counters (#99)", () => {
       window.__ipcCalls.filter((c) => c.cmd === "track_event").map((c) => c.args),
     );
     for (const arg of args) {
-      expect(Object.keys(arg as object).sort()).toEqual(["event", "format"]);
+      // Only a failure carries a trace (#242).
+      const isError = (arg as { event: string }).event === "error";
+      expect(Object.keys(arg as object).sort()).toEqual(
+        isError ? ["event", "format", "trace"] : ["event", "format"],
+      );
       expect((arg as { event: string }).event).toMatch(/^[a-z_]+$/);
     }
   });
@@ -82,6 +102,10 @@ test.describe("anonymous usage counters (#99)", () => {
     expect((await tracked(app)).filter((e) => e === "settings_open")).toHaveLength(1);
     const toggle = dialog.getByRole("switch", { name: "Share anonymous usage counts" });
     await expect(toggle).toBeChecked();
+    // Failures send an anonymised code location, and the text says what it is and is not (#242).
+    await expect(dialog).toContainText(
+      "anonymised code location: function names and places inside the app, never file names, paths or the error message",
+    );
     await expectNoA11yViolations(app);
 
     await toggle.click();
@@ -195,7 +219,9 @@ test("pedal actions count once and a knob drag sends no effect counters", async 
 test.describe("error counters (#164)", () => {
   test.skip(!features["stem-separation-neural"], "the stem model flag is off in features.json");
 
-  test("counts a failed command by area and kind, never its message", async ({ app }) => {
+  test("counts a failed command by area and kind with an anonymised trace, never its message", async ({
+    app,
+  }) => {
     // The mock's next stem model download fails with a message that holds private data.
     await app.evaluate(
       `window.__stemModels.fail = "Cannot reach /Users/jane/Secret Songs (jane@example.com)"`,
@@ -212,10 +238,26 @@ test.describe("error counters (#164)", () => {
         window.__ipcCalls.filter((c) => c.cmd === "track_event").map((c) => c.args),
       ),
     );
-    expect(sent).not.toMatch(/jane|Secret|example\.com|stem_model_download|scnet/i);
+    // Neither the message nor a path, a host or a URL: only function names and app locations.
+    expect(sent).not.toMatch(
+      /jane|Secret|example\.com|Cannot reach|\/Users|127\.0\.0\.1|localhost|https?:|file:|tauri:|[?#@\\]/i,
+    );
     // Counted once, and the counter's own call did not count itself.
     expect((await tracked(app)).filter((e) => e.startsWith("error:"))).toEqual([
       "error:stems:network",
     ]);
+
+    const [trace, ...others] = await traces(app);
+    expect(others).toEqual([]);
+    // The command name, the core's origin, then the call sites, all in the frame grammar.
+    expect(trace?.frames[0]).toMatch(/^[a-z_]+$/);
+    expect(trace?.frames[1]).toBe("src/stems/models.rs:123");
+    expect(trace?.frames.length).toBeLessThanOrEqual(7);
+    for (const frame of trace?.frames ?? []) {
+      expect(frame).toMatch(FRAME);
+      expect(frame.length).toBeLessThanOrEqual(100);
+    }
+    // A model download involves no file of the user's.
+    expect(trace?.ext).toBeUndefined();
   });
 });

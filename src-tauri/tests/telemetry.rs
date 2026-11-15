@@ -126,3 +126,48 @@ fn leftovers_of_a_failed_final_flush_arrive_at_the_next_launch() {
     assert_eq!(events_in(&bodies[0]), expected_session());
     assert_eq!(events_in(&bodies[1]), expected_session());
 }
+
+#[test]
+fn an_error_trace_that_could_not_be_sent_arrives_with_the_next_launch() {
+    use smart_beat_lib::scrub::{Trace, TraceInput};
+    let (url, server) = mock_server(vec![500, 200]);
+    let dir = tempfile::tempdir().unwrap();
+    let usage = dir.path().join("usage");
+    let trace = Trace::from_input(&TraceInput {
+        frames: vec![
+            "audio_start".into(),
+            "src/audio/mod.rs:123".into(),
+            "/Users/jane/My Secret Song.gp5".into(),
+        ],
+        ext: Some("gp5".into()),
+    })
+    .unwrap();
+
+    let first = Telemetry::new(usage.clone(), Some(url.as_str()), "1.0.1");
+    first
+        .record_traced(Event::Error, Some("audio:audio"), Some(&trace))
+        .unwrap();
+    assert_eq!(first.flush_final(), Outcome::Failed("HTTP 500".into()));
+    assert_eq!(first.pending_traces().len(), 1, "the trace stays queued");
+    drop(first);
+
+    let second = Arc::new(Telemetry::new(usage, Some(url.as_str()), "1.0.1"));
+    second.flush_at_launch();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !second.pending().is_empty() || !second.pending_traces().is_empty() {
+        assert!(Instant::now() < deadline, "launch upload did not finish");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let bodies = server.join().unwrap();
+    assert_eq!(bodies.len(), 2);
+    for body in &bodies {
+        let batch: Value = serde_json::from_str(body).unwrap();
+        let traces = batch["traces"].as_array().unwrap();
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0]["frames"][1], "src/audio/mod.rs:123");
+        assert_eq!(traces[0]["ext"], "gp5");
+        assert_eq!(traces[0]["hash"], trace.hash.as_str());
+        assert!(!body.contains("jane") && !body.contains("Secret"), "{body}");
+    }
+}

@@ -169,6 +169,7 @@ fn display_name(path: &Path) -> String {
         .into_owned()
 }
 
+#[track_caller]
 fn too_large(name: &str) -> CommandError {
     CommandError::new(
         ErrorKind::TooLarge,
@@ -176,6 +177,7 @@ fn too_large(name: &str) -> CommandError {
     )
 }
 
+#[track_caller]
 fn io_error(name: &str, error: &io::Error) -> CommandError {
     match error.kind() {
         io::ErrorKind::NotFound => {

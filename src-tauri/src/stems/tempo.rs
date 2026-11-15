@@ -88,7 +88,7 @@ pub fn detect(store: &StemStore, id: &str, stop: &AtomicBool) -> Result<Tempo, C
     {
         return Ok(saved.tempo.clone());
     }
-    let found = analyse_song(store, &song, stop).map_err(error)?;
+    let found = analyse_song(store, &song, stop).map_err(|e| error(e))?;
     let stored = StoredTempo {
         version: ALGORITHM_VERSION,
         tempo: found.clone(),

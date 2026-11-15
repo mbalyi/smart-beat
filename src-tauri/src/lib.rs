@@ -23,6 +23,7 @@ pub mod recent;
 pub mod recording;
 pub mod score_file;
 pub mod score_write;
+pub mod scrub;
 pub mod separation;
 pub mod startup;
 pub mod stems;

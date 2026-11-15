@@ -30,6 +30,7 @@ pub struct PdfPage {
     pub landscape: bool,
 }
 
+#[track_caller]
 fn io_error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Io, message)
 }
@@ -111,7 +112,7 @@ pub fn export<R: tauri::Runtime>(
         .map_err(|e| io_error(format!("The window could not print: {e}")))?;
     rx.recv_timeout(Duration::from_secs(10))
         .map_err(|_| io_error("The window did not start printing."))?
-        .map_err(io_error)?;
+        .map_err(|e| io_error(e))?;
     finish(&partial, path, TIMEOUT)
 }
 

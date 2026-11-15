@@ -26,6 +26,7 @@ const RETRY_PAUSE: Duration = if cfg!(test) {
 const REPLY_LIMIT: u64 = 1024 * 1024;
 
 /// The error a stopped transfer ends with.
+#[track_caller]
 pub fn stopped() -> CommandError {
     CommandError::new(ErrorKind::Io, STOPPED)
 }
@@ -91,6 +92,7 @@ impl Reply {
     /// The error for a status that is neither success nor an answer the upload understands:
     /// a network error when it is transient (so the chunk is sent again), otherwise the
     /// provider-independent mapping of `http_error`.
+    #[track_caller]
     pub fn into_error(&self, what: &str) -> CommandError {
         if self.is_transient() {
             return CommandError::new(

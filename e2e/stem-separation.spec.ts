@@ -457,6 +457,8 @@ test.describe("Stem separation (#186)", () => {
   test("seeks when a waveform is clicked and sets a loop by dragging", async ({ app }) => {
     await separate(app);
     const wave = app.getByTestId("waveform-bass");
+    // Under load the click can land before the length is known ("0:00 / 0:00") and is then ignored.
+    await expect(app.getByRole("timer", { name: "Position" })).toHaveText("0:00 / 0:06");
     const box = (await wave.boundingBox())!;
     await app.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await expect(app.getByRole("timer", { name: "Position" })).toHaveText("0:03 / 0:06");

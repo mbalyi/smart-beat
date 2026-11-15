@@ -153,14 +153,17 @@ pub struct Manifest {
     pub original: OriginalInfo,
 }
 
+#[track_caller]
 fn fail(kind: ErrorKind, message: impl Into<String>) -> CommandError {
     CommandError::new(kind, message)
 }
 
+#[track_caller]
 fn io_fail(what: &str, e: impl std::fmt::Display) -> CommandError {
     fail(ErrorKind::Io, format!("{what}: {e}"))
 }
 
+#[track_caller]
 pub(crate) fn stopped() -> CommandError {
     fail(ErrorKind::Audio, STOPPED)
 }
@@ -368,6 +371,7 @@ pub(super) fn is_disk_full<E: std::error::Error + 'static>(e: &E) -> bool {
 
 const DISK_FULL: &str = "There is not enough free space to save the stems file.";
 
+#[track_caller]
 fn write_err<E: std::error::Error + 'static>(e: &E) -> CommandError {
     if is_disk_full(e) {
         fail(ErrorKind::Io, DISK_FULL)

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { ERROR_AREAS, ERROR_DETAILS } from "@/lib/error-counters";
+import { FILE_FORMATS } from "@/lib/scrub-stack";
 import { isTauri } from "@/lib/tauri";
 
 /**
@@ -106,26 +107,6 @@ export type TrackedEvent =
   | "practice_together_length"
   | "practice_together_problem"
   | "practice_together_tab";
-
-/** File formats for open_file and export. */
-const FILE_FORMATS = [
-  "gp3",
-  "gp4",
-  "gp5",
-  "gpx",
-  "gp",
-  "mid",
-  "midi",
-  "pdf",
-  "wav",
-  "m4a",
-  "mp3",
-  "musicxml",
-  "ogg",
-  "flac",
-  "txt",
-  "png",
-];
 
 /** The sound sets that are counted by name; any file the user imported is just "custom". */
 const CATALOGUE_SOUNDFONTS = [

@@ -378,6 +378,7 @@ fn base() -> Result<&'static str, CommandError> {
     })
 }
 
+#[track_caller]
 fn failure(error: SignalError) -> CommandError {
     let kind = match error {
         SignalError::NotFound => ErrorKind::InvalidCode,
@@ -403,7 +404,7 @@ pub fn practice_signal_create<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, SignalState>,
 ) -> Result<String, CommandError> {
-    let signal = Signal::create(base()?, emitter(app)).map_err(failure)?;
+    let signal = Signal::create(base()?, emitter(app)).map_err(|e| failure(e))?;
     let code = signal.code();
     state.set(Some(signal));
     Ok(code)
@@ -417,7 +418,8 @@ pub fn practice_signal_join<R: Runtime>(
     code: String,
     guest: Option<String>,
 ) -> Result<(), CommandError> {
-    let signal = Signal::join(base()?, &code, guest.as_deref(), emitter(app)).map_err(failure)?;
+    let signal =
+        Signal::join(base()?, &code, guest.as_deref(), emitter(app)).map_err(|e| failure(e))?;
     state.set(Some(signal));
     Ok(())
 }
@@ -432,7 +434,7 @@ pub fn practice_signal_send(
     let signal = state
         .get()
         .ok_or_else(|| CommandError::new(ErrorKind::Network, "There is no room."))?;
-    signal.send(&text, to.as_deref()).map_err(failure)
+    signal.send(&text, to.as_deref()).map_err(|e| failure(e))
 }
 
 /// The host removes a guest from the room (and bans its id with `ban`).
@@ -445,7 +447,7 @@ pub fn practice_signal_kick(
     let signal = state
         .get()
         .ok_or_else(|| CommandError::new(ErrorKind::Network, "There is no room."))?;
-    signal.kick(&peer, ban).map_err(failure)
+    signal.kick(&peer, ban).map_err(|e| failure(e))
 }
 
 /// Leaves the room.

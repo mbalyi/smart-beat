@@ -195,6 +195,7 @@ fn bearer(token: &str) -> String {
     format!("Bearer {token}")
 }
 
+#[track_caller]
 fn parse_error(e: impl std::fmt::Display) -> CommandError {
     CommandError::new(
         ErrorKind::Network,
@@ -271,7 +272,8 @@ impl GoogleDrive {
         let reply = transfer::send_body(request, data)?;
         match reply.status {
             200 | 201 => {
-                let file: DriveFile = serde_json::from_slice(&reply.body).map_err(parse_error)?;
+                let file: DriveFile =
+                    serde_json::from_slice(&reply.body).map_err(|e| parse_error(e))?;
                 Ok(Sent::Done(file))
             }
             // Resume incomplete: `Range: bytes=0-N` is what Drive has (nothing without it).
@@ -311,7 +313,7 @@ impl GoogleDrive {
             .header("Authorization", bearer(token))
             .call()
             .map_err(|e| http_error(e, what))?;
-        response.body_mut().read_json().map_err(parse_error)
+        response.body_mut().read_json().map_err(|e| parse_error(e))
     }
 
     /// The file's metadata and the ETag of that exact version (for `If-Match`).
@@ -331,7 +333,10 @@ impl GoogleDrive {
             .get("etag")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
-        let file: DriveFile = response.body_mut().read_json().map_err(parse_error)?;
+        let file: DriveFile = response
+            .body_mut()
+            .read_json()
+            .map_err(|e| parse_error(e))?;
         Ok((file.into(), etag))
     }
 
@@ -462,7 +467,10 @@ impl Provider for GoogleDrive {
             request = request.header("If-Match", etag);
         }
         let mut response = request.send(bytes).map_err(|e| http_error(e, "The file"))?;
-        let file: DriveFile = response.body_mut().read_json().map_err(parse_error)?;
+        let file: DriveFile = response
+            .body_mut()
+            .read_json()
+            .map_err(|e| parse_error(e))?;
         Ok(file.into())
     }
 
@@ -492,7 +500,10 @@ impl Provider for GoogleDrive {
             )
             .send(&body[..])
             .map_err(|e| http_error(e, "The file"))?;
-        let file: DriveFile = response.body_mut().read_json().map_err(parse_error)?;
+        let file: DriveFile = response
+            .body_mut()
+            .read_json()
+            .map_err(|e| parse_error(e))?;
         Ok(file.into())
     }
 

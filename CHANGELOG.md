@@ -4,6 +4,10 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### Privacy and licensing
+
+- **Anonymised error reports.** When something fails, the anonymous usage counters can now say where in Smart Beat's own code it failed, so the most common problems can be found and fixed: the name of the failed action, places inside the app's own code, and the type of file involved (such as mp3), never the error message, a file name, a folder or anything that identifies you. Switch it off with "Share anonymous usage counts" in Help › Settings, which also deletes reports that are not sent yet.
+
 ## [1.3.0]
 
 New in 1.3.0: put audio next to your tab, take your stems out as audio files, and edit the same tab with your band.

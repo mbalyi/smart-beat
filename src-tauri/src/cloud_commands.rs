@@ -186,6 +186,7 @@ pub(crate) fn parse_item(item: &str) -> Result<(ProviderKind, &str), CommandErro
         .ok_or_else(|| CommandError::new(ErrorKind::NotFound, "That is not a cloud file."))
 }
 
+#[track_caller]
 fn not_set_up() -> CommandError {
     CommandError::new(
         ErrorKind::Io,
@@ -504,6 +505,7 @@ fn trace(kind: ProviderKind, step: &str) {
     eprintln!("[smart-beat] cloud sign-in {}: {step}", kind.prefix());
 }
 
+#[track_caller]
 fn cancelled() -> CommandError {
     CommandError::new(ErrorKind::Io, "The sign-in was cancelled.")
 }

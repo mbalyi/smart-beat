@@ -199,6 +199,7 @@ impl Dropbox {
 }
 
 /// The error for an answer that is not a success.
+#[track_caller]
 fn upload_error(reply: &transfer::Reply) -> CommandError {
     if reply.is_transient() {
         return reply.into_error("The file");
@@ -297,6 +298,7 @@ fn share_refused(error: CommandError) -> CommandError {
     }
 }
 
+#[track_caller]
 fn status_error(status: u16, body: &[u8], what: &str) -> CommandError {
     if status == 409 {
         let text = String::from_utf8_lossy(body);

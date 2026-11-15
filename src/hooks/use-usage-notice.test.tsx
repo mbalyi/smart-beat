@@ -36,6 +36,7 @@ describe("useUsageNotice", () => {
     const [title, options] = vi.mocked(toast).mock.calls[0]!;
     expect(title).toMatch(/counts which features are used/);
     expect(options?.description).toMatch(/no identifier/);
+    expect(options?.description).toMatch(/anonymised code location, never a file name or message/);
     (options?.action as unknown as { onClick: () => void }).onClick();
     expect(openSettings).toHaveBeenCalledOnce();
     expect(backend.usage.noticeSeen).toBe(true);

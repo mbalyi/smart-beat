@@ -1,6 +1,8 @@
 /**
  * Fixed categories for the `error` usage counter (docs/analytics.md, #164). A failed command is
- * counted as `<area>:<kind>`; neither the command name nor the message is ever sent.
+ * counted as `<area>:<kind>`; the message is never read or sent. The command name, the Rust
+ * origin and scrubbed call sites travel separately as an anonymised trace (`scrub-stack.ts`,
+ * #242); this module only decides the category.
  *
  * This module imports nothing from the Tauri bridge or the telemetry module, so both can use it.
  */

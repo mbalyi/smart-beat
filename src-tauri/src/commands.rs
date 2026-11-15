@@ -21,6 +21,7 @@ use crate::project;
 use crate::recent::RecentStore;
 use crate::score_file;
 use crate::score_write;
+use crate::scrub::{Trace, TraceInput};
 use crate::telemetry::{Event, Telemetry, UsageSettings};
 
 /// Build and platform details shown in the About dialog.
@@ -308,14 +309,21 @@ pub fn clear_recent_files<R: Runtime>(
 }
 
 /// Counts one use of a feature (docs/analytics.md). Never fails the UI: errors are swallowed
-/// except an unknown file format, which is a bug in the caller.
+/// except an unknown file format, which is a bug in the caller. An `error` event may carry an
+/// anonymised stack trace (#242): `{ frames, ext? }`.
 #[tauri::command(async)]
 pub fn track_event(
     telemetry: State<'_, std::sync::Arc<Telemetry>>,
     event: Event,
     format: Option<String>,
+    trace: Option<TraceInput>,
 ) -> Result<(), CommandError> {
-    telemetry.record(event, format.as_deref())?;
+    // The trace (#242) is scrubbed again here and only kept for an error; the page's scrubbing
+    // is not trusted.
+    let trace = trace
+        .filter(|_| event == Event::Error)
+        .and_then(|input| Trace::from_input(&input));
+    telemetry.record_traced(event, format.as_deref(), trace.as_ref())?;
     if event.is_urgent() {
         // Errors and panics (#164) go out at once when online, not with the hourly batch.
         telemetry.flush_urgent_in_background();

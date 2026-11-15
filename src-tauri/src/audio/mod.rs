@@ -73,6 +73,7 @@ use song::{Song, SongData};
 /// Largest SoundFont accepted from the UI.
 const MAX_SOUNDFONT_BYTES: usize = soundfonts::MAX_BYTES as usize;
 
+#[track_caller]
 fn audio_error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
 }
@@ -783,7 +784,7 @@ fn set_low_latency(inner: &mut Inner, low_latency: bool) -> Result<(), CommandEr
     }
     let engine = engine.clone();
     replace_output(&mut inner.output, || {
-        Output::open(engine, low_latency).map_err(audio_error)
+        Output::open(engine, low_latency).map_err(|e| audio_error(e))
     })?;
     Ok(())
 }
@@ -858,7 +859,7 @@ pub fn audio_load_soundfont(
     if state.inner.lock().unwrap().sound_fonts.contains_key(&id) {
         return Ok(());
     }
-    let font = parse_sound_font(bytes).map_err(audio_error)?;
+    let font = parse_sound_font(bytes).map_err(|e| audio_error(e))?;
     state
         .inner
         .lock()
@@ -882,17 +883,17 @@ pub fn audio_start(
         .ok_or_else(|| audio_error("The SoundFont is not loaded"))?;
     if inner.output.is_none() || inner.sound_font_id.as_deref() != Some(&sound_font) {
         inner.output = None;
-        let rate = output::default_sample_rate().map_err(audio_error)?;
+        let rate = output::default_sample_rate().map_err(|e| audio_error(e))?;
         let mut engine = Engine::new(font, rate as f32);
         if let Some(song) = inner.song.clone() {
-            engine.load(song).map_err(audio_error)?;
+            engine.load(song).map_err(|e| audio_error(e))?;
         }
         let engine = Arc::new(Mutex::new(engine));
         let monitoring = inner
             .monitor
             .as_ref()
             .is_some_and(|m| m.data.params.enabled);
-        let output = Output::open(engine.clone(), monitoring).map_err(audio_error)?;
+        let output = Output::open(engine.clone(), monitoring).map_err(|e| audio_error(e))?;
         inner.engine = Some(engine);
         inner.output = Some(output);
         inner.sound_font_id = Some(sound_font);
@@ -947,7 +948,7 @@ fn status(inner: &Inner) -> Result<EngineStatus, CommandError> {
 
 #[tauri::command(async)]
 pub fn audio_load_song(song: SongData, state: State<'_, AudioState>) -> Result<(), CommandError> {
-    let song = Arc::new(Song::from_data(&song).map_err(audio_error)?);
+    let song = Arc::new(Song::from_data(&song).map_err(|e| audio_error(e))?);
     let mut inner = state.inner.lock().unwrap();
     inner.song = Some(song.clone());
     // Chains, sounds, automation, EQ and drum mixes belong to a song: the UI
@@ -960,7 +961,7 @@ pub fn audio_load_song(song: SongData, state: State<'_, AudioState>) -> Result<(
     inner.drums.clear();
     inner.track_kits.clear();
     if inner.engine.is_some() {
-        with_engine(&inner, |engine| engine.load(song))?.map_err(audio_error)?;
+        with_engine(&inner, |engine| engine.load(song))?.map_err(|e| audio_error(e))?;
         configure_running(&state, &inner)?;
     }
     Ok(())
@@ -1219,7 +1220,7 @@ pub fn audio_set_automation(
     state: State<'_, AudioState>,
 ) -> Result<(), CommandError> {
     check_track(track)?;
-    automation.validate().map_err(audio_error)?;
+    automation.validate().map_err(|e| audio_error(e))?;
     let mut inner = state.inner.lock().unwrap();
     let seconds = Automation::from_ticks(&automation, |t| inner.seconds_at(t));
     inner.automation.insert(track, automation);
@@ -1237,7 +1238,7 @@ pub fn audio_set_track_eq(
     state: State<'_, AudioState>,
 ) -> Result<(), CommandError> {
     check_track(track)?;
-    eq.validate().map_err(audio_error)?;
+    eq.validate().map_err(|e| audio_error(e))?;
     let mut inner = state.inner.lock().unwrap();
     if let Some(engine) = &inner.engine {
         engine.lock().unwrap().set_track_eq(track, &eq);
@@ -1280,7 +1281,7 @@ pub fn audio_set_drum_mix(
         )
     };
     let split = match (&drums, exists) {
-        (Some(d), false) => Some(synths.drum_split(&d.groups()).map_err(audio_error)?),
+        (Some(d), false) => Some(synths.drum_split(&d.groups()).map_err(|e| audio_error(e))?),
         _ => None,
     };
     let old = {
@@ -1371,8 +1372,9 @@ pub(crate) fn add_source(
     let audio = match existing {
         Some(audio) => audio,
         None => {
-            let audio =
-                Arc::new(backing::decode(bytes.clone(), Some(ext.as_str())).map_err(audio_error)?);
+            let audio = Arc::new(
+                backing::decode(bytes.clone(), Some(ext.as_str())).map_err(|e| audio_error(e))?,
+            );
             let source = LoadedSource {
                 bytes: Arc::new(bytes),
                 audio: audio.clone(),
@@ -1479,7 +1481,7 @@ pub fn audio_set_lanes(
     state: State<'_, AudioState>,
 ) -> Result<(), CommandError> {
     if let Some(data) = &lanes {
-        data.audio.validate().map_err(audio_error)?;
+        data.audio.validate().map_err(|e| audio_error(e))?;
         if data.sync.len() > 10_000 || data.sync.iter().any(|p| !p.ms.is_finite() || p.ms < 0.0) {
             return Err(audio_error("Invalid sync points"));
         }
@@ -1684,7 +1686,7 @@ pub fn audio_set_monitor(
     state: State<'_, AudioState>,
 ) -> Result<Option<MonitorStatus>, CommandError> {
     if let Some(m) = &monitor {
-        m.params.validate().map_err(audio_error)?;
+        m.params.validate().map_err(|e| audio_error(e))?;
         if m.device
             .as_ref()
             .is_some_and(|d| d.chars().count() > input::MAX_NAME)
@@ -1796,7 +1798,10 @@ pub fn library_import(
     kind: AssetKind,
     state: State<'_, AudioState>,
 ) -> Result<LibraryItem, CommandError> {
-    state.library.import(&path, kind).map_err(audio_error)
+    state
+        .library
+        .import(&path, kind)
+        .map_err(|e| audio_error(e))
 }
 
 #[tauri::command]
@@ -1806,12 +1811,15 @@ pub fn library_update(
     tags: Vec<String>,
     state: State<'_, AudioState>,
 ) -> Result<LibraryItem, CommandError> {
-    state.library.update(&id, name, tags).map_err(audio_error)
+    state
+        .library
+        .update(&id, name, tags)
+        .map_err(|e| audio_error(e))
 }
 
 #[tauri::command]
 pub fn library_remove(id: String, state: State<'_, AudioState>) -> Result<(), CommandError> {
-    state.library.remove(&id).map_err(audio_error)
+    state.library.remove(&id).map_err(|e| audio_error(e))
 }
 
 /// Largest offline render (frames): an hour at 48 kHz.
@@ -1829,7 +1837,7 @@ pub fn audio_render(
     }
     let (mut engine, plugins) = offline_engine(&state, sample_rate)?;
     Ok(tauri::ipc::Response::new(
-        render_offline(&mut engine, MAX_RENDER_FRAMES, &plugins).map_err(audio_error)?,
+        render_offline(&mut engine, MAX_RENDER_FRAMES, &plugins).map_err(|e| audio_error(e))?,
     ))
 }
 
@@ -1852,7 +1860,7 @@ fn offline_engine(
         .clone()
         .ok_or_else(|| audio_error("No song is loaded"))?;
     let mut engine = Engine::new(font, sample_rate as f32);
-    engine.load(song).map_err(audio_error)?;
+    engine.load(song).map_err(|e| audio_error(e))?;
     let synths = engine.synth_source();
     let offline_plugins = state.plugins.for_offline();
     let prepared = prepare(state, &inner, sample_rate, &synths, None, &offline_plugins);
@@ -1911,13 +1919,13 @@ pub fn soundfonts_import(
     path: PathBuf,
     state: State<'_, AudioState>,
 ) -> Result<soundfonts::SoundFontInfo, CommandError> {
-    state.soundfonts.import(&path).map_err(audio_error)
+    state.soundfonts.import(&path).map_err(|e| audio_error(e))
 }
 
 /// Deletes an imported or downloaded SoundFont and frees what the engine held of it.
 #[tauri::command(async)]
 pub fn soundfonts_remove(id: String, state: State<'_, AudioState>) -> Result<(), CommandError> {
-    state.soundfonts.remove(&id).map_err(audio_error)?;
+    state.soundfonts.remove(&id).map_err(|e| audio_error(e))?;
     let engine_id = soundfonts::engine_id(&id);
     state.inner.lock().unwrap().sound_fonts.remove(&engine_id);
     Ok(())
@@ -1963,7 +1971,7 @@ pub async fn soundfonts_download<R: Runtime>(
     })
     .await
     .map_err(|_| audio_error("Could not download the SoundFont."))?
-    .map_err(audio_error)
+    .map_err(|e| audio_error(e))
 }
 
 /// The bytes of a stored SoundFont, for the alphaTab synthesizer (the native engine reads the
@@ -2005,7 +2013,7 @@ pub fn soundfonts_activate(
         .ok_or_else(|| audio_error("This SoundFont is not installed."))?;
     let bytes = std::fs::read(&path)
         .map_err(|e| audio_error(format!("The SoundFont cannot be read: {e}")))?;
-    let font = Arc::new(parse_sound_font(&bytes).map_err(audio_error)?);
+    let font = Arc::new(parse_sound_font(&bytes).map_err(|e| audio_error(e))?);
     drop(bytes);
     let mut inner = state.inner.lock().unwrap();
     inner
@@ -2032,7 +2040,7 @@ pub fn kits_import(
     state
         .kits
         .import(&path, &options.unwrap_or_default())
-        .map_err(audio_error)
+        .map_err(|e| audio_error(e))
 }
 
 #[tauri::command(async)]
@@ -2040,7 +2048,7 @@ pub fn kits_remove(id: String, state: State<'_, AudioState>) -> Result<(), Comma
     let mut inner = state.inner.lock().unwrap();
     inner.track_kits.retain(|_, kit| *kit != id);
     drop(inner);
-    state.kits.remove(&id).map_err(audio_error)
+    state.kits.remove(&id).map_err(|e| audio_error(e))
 }
 
 /// Plays a drum track with an imported kit (`null`: the SoundFont's kit).
@@ -2053,7 +2061,7 @@ pub fn audio_set_track_kit(
 ) -> Result<(), CommandError> {
     check_track(track)?;
     let loaded = match &kit {
-        Some(id) => Some(state.kits.load(id).map_err(audio_error)?),
+        Some(id) => Some(state.kits.load(id).map_err(|e| audio_error(e))?),
         None => None,
     };
     let mut inner = state.inner.lock().unwrap();
@@ -2071,9 +2079,11 @@ pub fn audio_set_track_kit(
             e.drum_groups(track),
         )
     };
-    let instrument = source.instrument(engine::POLYPHONY).map_err(audio_error)?;
+    let instrument = source
+        .instrument(engine::POLYPHONY)
+        .map_err(|e| audio_error(e))?;
     let split = match groups {
-        Some(groups) => Some(source.drum_split(&groups).map_err(audio_error)?),
+        Some(groups) => Some(source.drum_split(&groups).map_err(|e| audio_error(e))?),
         None => None,
     };
     let old = {
@@ -2098,7 +2108,7 @@ pub fn plugins_scan(
     state: State<'_, AudioState>,
 ) -> Result<plugin::PluginScanReport, CommandError> {
     let _ = state;
-    plugin::scan().map_err(audio_error)
+    plugin::scan().map_err(|e| audio_error(e))
 }
 
 /// Switches third-party plugins on or off (off by default: plugins are
@@ -2184,7 +2194,7 @@ fn plugin_slot(
         plugin::PluginSpec {
             format: *format,
             path: path.clone(),
-            state: chain::decode_plugin_state(state).map_err(audio_error)?,
+            state: chain::decode_plugin_state(state).map_err(|e| audio_error(e))?,
         },
         name.clone(),
     ))
@@ -2214,7 +2224,7 @@ pub fn plugin_open_editor(
         .filter(|_| state.plugins.enabled())
         .ok_or_else(|| audio_error("Start the native engine and enable this plugin block first"))?;
     drop(inner);
-    worker.open_editor().map_err(audio_error)
+    worker.open_editor().map_err(|e| audio_error(e))
 }
 
 /// Closes the plugin's editor window.
@@ -2263,7 +2273,7 @@ pub fn plugin_save_state(
         .filter(|_| state.plugins.enabled())
         .ok_or_else(|| audio_error("Start the native engine and enable this plugin block first"))?;
     drop(inner);
-    let bytes = worker.save_state().map_err(audio_error)?;
+    let bytes = worker.save_state().map_err(|e| audio_error(e))?;
     if bytes.len() > plugin::MAX_STATE_BYTES {
         return Err(audio_error(format!(
             "This plugin's settings are {:.1} MB, more than Smart Beat keeps in a song ({} MB), so they were not saved.",

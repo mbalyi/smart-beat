@@ -316,7 +316,9 @@
         models.abort = () => reject({ kind: "audio", message: "Download stopped." });
       });
     }
-    if (models.fail) throw { kind: "network", message: models.fail };
+    // Like the core's CommandError: the app-relative place the error was created (#242).
+    if (models.fail)
+      throw { kind: "network", message: models.fail, origin: "src/stems/models.rs:123" };
     progress(1);
     models.models[engine].downloaded = true;
     return null;

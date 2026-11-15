@@ -85,6 +85,8 @@ fn a_panic_is_counted_by_area_sent_at_once_and_keeps_its_message_private() {
     assert_eq!(counts[0]["event"], "panic");
     assert_eq!(counts[0]["format"], "other");
     assert_eq!(counts[0]["count"], 1);
+    // No location and no trace is sent for a panic: the area is all there is (#164, #242).
+    assert!(batch.get("traces").is_none(), "{body}");
     for private in [
         "Jane",
         "jane",
@@ -94,6 +96,8 @@ fn a_panic_is_counted_by_area_sent_at_once_and_keeps_its_message_private() {
         "example.com",
         "panicked",
         ".rs",
+        "src/",
+        "traces",
     ] {
         assert!(!body.contains(private), "{private} leaked into {body}");
     }
@@ -106,7 +110,10 @@ fn a_panic_is_counted_by_area_sent_at_once_and_keeps_its_message_private() {
     }
     let stored = std::fs::read_to_string(data.join("usage.json")).unwrap();
     assert!(
-        !stored.contains("Secret") && !stored.contains("jane"),
+        !stored.contains("Secret")
+            && !stored.contains("jane")
+            && !stored.contains("panic_counter")
+            && !stored.contains("traces"),
         "{stored}"
     );
 }

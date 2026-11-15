@@ -338,7 +338,7 @@ docs/                Licensing, code signing, releases and updates, ADRs
 
 ## Privacy and usage statistics
 
-Smart Beat counts anonymously how often features are used (Loop, Metronome, Export and so on), per day, together with the app version, your operating system and the installer type. There is **no identifier** of any kind, so the counts cannot be tied to you or your computer, and nothing about your songs, file names or sounds is sent. Counts are kept on your computer while you are offline and sent in one batch later. Turn it off in **Help › Settings**; that also deletes counts that have not been sent. Development and pull-request builds never send anything. Details, the exact list of counted features and the backend: [`docs/analytics.md`](docs/analytics.md).
+Smart Beat counts anonymously how often features are used (Loop, Metronome, Export and so on), per day, together with the app version, your operating system and the installer type. There is **no identifier** of any kind, so the counts cannot be tied to you or your computer, and nothing about your songs, file names or sounds is sent. When a command fails, the count can come with a short anonymised report of where in Smart Beat's own code it failed (the command name, locations inside the app and an optional file type such as `mp3`), never the error message, a path, a file name or anything that identifies you. Counts are kept on your computer while you are offline and sent in one batch later. Turn it off in **Help › Settings**; that also deletes counts and error reports that have not been sent. Development and pull-request builds never send anything. Details, the exact list of counted features and the backend: [`docs/analytics.md`](docs/analytics.md).
 
 ## Licensing
 

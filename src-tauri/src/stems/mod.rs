@@ -178,6 +178,7 @@ struct Progress {
     fraction: f32,
 }
 
+#[track_caller]
 fn error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
 }
@@ -375,7 +376,7 @@ pub fn run_job(
         return Ok(song);
     }
     emit(Stage::Reading, 0.3);
-    let mut audio = backing::decode(bytes, Some(&ext)).map_err(error)?;
+    let mut audio = backing::decode(bytes, Some(&ext)).map_err(|e| error(e))?;
     if audio.frames() == 0 || audio.duration() > backing::MAX_SECONDS {
         return Err(error("The recording is empty or too long"));
     }
@@ -384,7 +385,7 @@ pub fn run_job(
     }
     emit(Stage::Reading, 1.0);
 
-    let staging = store.staging(&id).map_err(error)?;
+    let staging = store.staging(&id).map_err(|e| error(e))?;
     let mut sink = wav::WavSink::new(staging.path(), audio.rate);
     let mut last = -1.0f32;
     let mut progress = |fraction: f32| {
@@ -401,16 +402,18 @@ pub fn run_job(
     };
     let report = match (request.engine, model_dir) {
         (StemEngine::Neural, Some(dir)) => {
-            let model = umx::Model::load(dir).map_err(error)?;
-            umx::separate(&model, &audio, &mut sink, cancel, &mut progress).map_err(error)?;
+            let model = umx::Model::load(dir).map_err(|e| error(e))?;
+            umx::separate(&model, &audio, &mut sink, cancel, &mut progress)
+                .map_err(|e| error(e))?;
             neural_report()
         }
         (engine, Some(dir)) if engine.onnx_model().is_some() => {
             let id = engine.onnx_model().expect("checked in the guard");
             let contract = onnx::Contract::by_name(id.id()).expect("every model has a contract");
             let model =
-                onnx::Model::load(&models::model_file(dir, id), &contract).map_err(error)?;
-            onnx::separate(&model, &audio, &mut sink, cancel, &mut progress).map_err(error)?;
+                onnx::Model::load(&models::model_file(dir, id), &contract).map_err(|e| error(e))?;
+            onnx::separate(&model, &audio, &mut sink, cancel, &mut progress)
+                .map_err(|e| error(e))?;
             neural_report()
         }
         _ => {
@@ -419,7 +422,7 @@ pub fn run_job(
                 options = options.strong_drums();
             }
             separation::separate(&audio, &options, &mut sink, cancel, &mut progress)
-                .map_err(error)?
+                .map_err(|e| error(e))?
         }
     };
     if cancel.load(Ordering::Relaxed) {
@@ -427,7 +430,7 @@ pub fn run_job(
     }
 
     emit(Stage::Saving, 0.0);
-    let stems = sink.finish().map_err(error)?;
+    let stems = sink.finish().map_err(|e| error(e))?;
     let song = StemSong {
         id,
         name,
@@ -447,8 +450,8 @@ pub fn run_job(
         has_original: false,
         tempo: None,
     };
-    source.write(staging.path()).map_err(error)?;
-    store.commit(staging, &song).map_err(error)?;
+    source.write(staging.path()).map_err(|e| error(e))?;
+    store.commit(staging, &song).map_err(|e| error(e))?;
     emit(Stage::Saving, 1.0);
     emit(Stage::Done, 1.0);
     // As the list shows it (`has_original` worked out from the source file).
@@ -469,12 +472,12 @@ pub async fn stems_separate<R: Runtime>(
         if !umx_model::is_ready(&app) {
             return Err(error("The neural model is not downloaded."));
         }
-        Some(umx_model::model_dir(&app).map_err(error)?)
+        Some(umx_model::model_dir(&app).map_err(|e| error(e))?)
     } else if let Some(id) = request.engine.onnx_model() {
         if !models::is_ready(&app, id) {
             return Err(error(format!("{} is not downloaded.", id.info().label)));
         }
-        Some(models::model_dir(&app, id).map_err(error)?)
+        Some(models::model_dir(&app, id).map_err(|e| error(e))?)
     } else {
         None
     };
@@ -518,7 +521,7 @@ pub fn stems_list(store: State<'_, StemStore>) -> Vec<StemSong> {
 /// Marks the song as opened now (the page calls it when a card is opened).
 #[tauri::command(async)]
 pub fn stems_touch(store: State<'_, StemStore>, id: String) -> Result<(), CommandError> {
-    store.touch(&id).map(drop).map_err(error)
+    store.touch(&id).map(drop).map_err(|e| error(e))
 }
 
 /// Keeps the song in the cache for good (`pinned`), or lets it be evicted again.
@@ -528,7 +531,7 @@ pub fn stems_pin(
     id: String,
     pinned: bool,
 ) -> Result<(), CommandError> {
-    store.pin(&id, pinned).map(drop).map_err(error)
+    store.pin(&id, pinned).map(drop).map_err(|e| error(e))
 }
 
 #[tauri::command(async)]
@@ -538,7 +541,7 @@ pub fn stems_cache_info(store: State<'_, StemStore>) -> StemCacheInfo {
 
 #[tauri::command(async)]
 pub fn stems_delete(store: State<'_, StemStore>, id: String) -> Result<(), CommandError> {
-    store.delete(&id).map_err(error)
+    store.delete(&id).map_err(|e| error(e))
 }
 
 /// Deletes every separated song (and stops a running job). Returns the bytes freed.
@@ -548,7 +551,7 @@ pub fn stems_clear(
     run: State<'_, StemsRun>,
 ) -> Result<u64, CommandError> {
     run.cancel();
-    store.clear().map_err(error)
+    store.clear().map_err(|e| error(e))
 }
 
 /// The WAV file of one stem, as raw bytes.
@@ -558,7 +561,7 @@ pub fn stems_read(
     id: String,
     kind: StemKind,
 ) -> Result<tauri::ipc::Response, CommandError> {
-    let path: PathBuf = store.stem_path(&id, kind).map_err(error)?;
+    let path: PathBuf = store.stem_path(&id, kind).map_err(|e| error(e))?;
     let song = store
         .get(&id)
         .filter(|s| s.stems.iter().any(|i| i.kind == kind));
@@ -580,7 +583,7 @@ pub async fn stems_render_mix(
     id: String,
     request: MixRequest,
 ) -> Result<tauri::ipc::Response, CommandError> {
-    mix::validate(&request.gains, request.speed).map_err(error)?;
+    mix::validate(&request.gains, request.speed).map_err(|e| error(e))?;
     let store = store.inner().clone();
     let song = store.get(&id).ok_or_else(|| {
         CommandError::new(ErrorKind::NotFound, "That song is not saved any more.")
@@ -590,7 +593,9 @@ pub async fn stems_render_mix(
     })
     .await
     .map_err(|_| error("The mix could not be rendered."))?;
-    rendered.map(tauri::ipc::Response::new).map_err(error)
+    rendered
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| error(e))
 }
 
 #[cfg(test)]

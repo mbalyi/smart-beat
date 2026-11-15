@@ -74,9 +74,11 @@ function UsageSetting({ initial }: { initial: UsageSettings | null }) {
         Smart Beat counts how often features such as Loop, Metronome, Count-in or Export are used,
         per day, with the app version, your operating system and the installer type. There is no
         identifier, so the counts cannot be tied to you or your computer. When something fails or
-        the app crashes, it counts that too, only as a fixed category such as audio or cloud, never
-        the error message. Songs, file names, sound names and anything you type are never sent.
-        Switching this off also deletes counts that have not been sent yet.
+        the app crashes, it counts that too, as a fixed category such as audio or cloud, together
+        with an anonymised code location: function names and places inside the app, never file
+        names, paths or the error message. Songs, file names, sound names and anything you type are
+        never sent. Switching this off also deletes counts and code locations that have not been
+        sent yet.
       </p>
       {error && (
         <p role="alert" className="text-sm text-destructive">

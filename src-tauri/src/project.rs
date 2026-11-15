@@ -40,6 +40,7 @@ fn file_name(path: &Path) -> String {
         .into_owned()
 }
 
+#[track_caller]
 fn not_a_project(path: &Path) -> CommandError {
     CommandError::new(
         ErrorKind::NotAScore,
@@ -47,6 +48,7 @@ fn not_a_project(path: &Path) -> CommandError {
     )
 }
 
+#[track_caller]
 fn io_error(path: &Path, error: impl std::fmt::Display) -> CommandError {
     CommandError::new(
         ErrorKind::Io,

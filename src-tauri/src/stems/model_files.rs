@@ -23,9 +23,11 @@ pub struct Spec<'a> {
     pub sha256: &'a str,
 }
 
+#[track_caller]
 pub fn error(kind: ErrorKind, message: impl Into<String>) -> CommandError {
     CommandError::new(kind, message)
 }
+#[track_caller]
 pub fn io_error(what: &str, e: std::io::Error) -> CommandError {
     error(ErrorKind::Io, format!("{what}: {e}"))
 }

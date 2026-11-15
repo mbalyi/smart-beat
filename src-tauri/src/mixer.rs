@@ -590,6 +590,7 @@ impl MixerStore {
     }
 }
 
+#[track_caller]
 fn io_error(error: &io::Error) -> CommandError {
     CommandError::new(
         ErrorKind::Io,

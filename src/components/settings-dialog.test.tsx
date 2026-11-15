@@ -33,9 +33,11 @@ describe("SettingsDialog", () => {
     const toggle = await screen.findByRole("switch", { name: "Share anonymous usage counts" });
     expect(toggle).toBeChecked();
     expect(toggle).toHaveAccessibleDescription(/no identifier/);
-    // Failures and crashes are counted too, and the text says only a fixed category (#164).
+    // Failures and crashes are counted too: a fixed category (#164) and a code location (#242).
+    expect(toggle).toHaveAccessibleDescription(/fixed category such as audio or cloud/);
+    // The anonymised code location of a failure is disclosed too (#242).
     expect(toggle).toHaveAccessibleDescription(
-      /fixed category such as audio or cloud, never the error message/,
+      /anonymised code location: function names and places inside the app, never file names, paths or the error message/,
     );
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     // One accessible name: the wordmark is decorative, the title text is sr-only.

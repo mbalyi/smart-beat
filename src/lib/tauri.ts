@@ -201,6 +201,8 @@ export type CommandErrorKind =
 export interface CommandError {
   kind: CommandErrorKind;
   message: string;
+  /** App-relative `file:line` where the core created the error; only the error counter reads it. */
+  origin?: string;
 }
 
 export function isCommandError(error: unknown): error is CommandError {

@@ -35,6 +35,7 @@ const RATES: std::ops::RangeInclusive<u32> = 8_000..=192_000;
 /// Same wording as `transcription.rs`, so the page shows one message for both.
 const STOPPED: &str = "Transcription stopped.";
 
+#[track_caller]
 fn error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
 }

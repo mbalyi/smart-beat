@@ -57,6 +57,7 @@ pub struct CloudOpenRequest {
     pub item: String,
 }
 
+#[track_caller]
 fn io(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Io, message)
 }
@@ -216,7 +217,7 @@ pub fn open_from_cloud(
     // `open` pointed the song at the temporary file; it belongs to the cloud file.
     store
         .update(&song.id, |s| s.saved_path = Some(request.item.clone()))
-        .map_err(io)
+        .map_err(|e| io(e))
 }
 
 /// Throttles progress: one event per percent per stage.

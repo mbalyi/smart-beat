@@ -35,6 +35,7 @@ pub struct Pcm {
     pub samples: Vec<f32>,
 }
 
+#[track_caller]
 fn audio_error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
 }

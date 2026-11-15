@@ -39,6 +39,7 @@ const INSTRUMENTS: &str = include_str!("../../src/lib/audio-transcription/instru
 const EARLY_CANCEL: Duration = Duration::from_secs(60);
 const STOPPED: &str = "Transcription stopped.";
 
+#[track_caller]
 fn error(message: impl Into<String>) -> CommandError {
     CommandError::new(ErrorKind::Audio, message)
 }
@@ -341,7 +342,7 @@ fn transcribe(
     muscriptor_model::require_terms(folder, size)?;
     emit("Reading the recording", None);
     check_duration(duration_ms(bytes.clone(), extension)?)?;
-    let audio = backing::decode(bytes, Some(extension)).map_err(error)?;
+    let audio = backing::decode(bytes, Some(extension)).map_err(|e| error(e))?;
     let mono: Vec<f32> = audio
         .left
         .iter()

@@ -16,6 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CommandError, ErrorKind};
+use crate::scrub::Trace;
 
 /// File names inside the app data folder.
 pub const USAGE_FILE: &str = "usage.json";
@@ -25,6 +26,15 @@ pub const SETTINGS_FILE: &str = "settings.json";
 pub const MAX_DAYS: usize = 30;
 /// Most entries in one request (the Worker enforces the same limit).
 pub const MAX_ENTRIES: usize = 500;
+/// Most distinct error traces kept for one day (the Worker caps them too).
+pub const MAX_TRACES_PER_DAY: usize = 50;
+/// Most distinct error traces kept in total; the oldest go first.
+pub const MAX_TRACES: usize = 200;
+/// Most traces in one request (the Worker enforces the same limit).
+pub const MAX_TRACES_PER_BATCH: usize = 100;
+/// Most bytes the traces of one request may take, so the whole body stays far below the Worker's
+/// size limit even with a full set of counters.
+const MAX_TRACE_BYTES: usize = 60_000;
 /// Pause after a successful upload before the next background upload.
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// Pause after a failed upload before the next background attempt.
@@ -344,7 +354,7 @@ const TOURS: &[&str] = &[
 ];
 
 /// File formats that may accompany `open_file` and `export`.
-const FORMATS: &[&str] = &[
+pub(crate) const FORMATS: &[&str] = &[
     "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "pdf", "wav", "m4a", "mp3", "musicxml", "ogg",
     "flac", "txt", "png",
 ];
@@ -355,6 +365,31 @@ type Day = BTreeMap<String, u32>;
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Counters {
     days: BTreeMap<String, Day>,
+    /// Anonymised error traces (#242), oldest first. Missing in files written before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    traces: Vec<TraceEntry>,
+}
+
+/// One error trace with how often it happened on a day; stored and uploaded in this shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceEntry {
+    pub day: String,
+    /// `<area>:<kind>`, an `error` detail.
+    pub format: String,
+    pub hash: String,
+    pub frames: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ext: Option<String>,
+    pub count: u32,
+}
+
+impl TraceEntry {
+    fn same_group(&self, other: &Self) -> bool {
+        self.day == other.day
+            && self.format == other.format
+            && self.hash == other.hash
+            && self.ext == other.ext
+    }
 }
 
 /// One row of the upload.
@@ -373,6 +408,9 @@ struct Batch<'a> {
     os: &'a str,
     installer: &'a str,
     counts: &'a [Entry],
+    /// Left out when there is none, so an upload without traces keeps the shape it always had.
+    #[serde(skip_serializing_if = "<[TraceEntry]>::is_empty")]
+    traces: &'a [TraceEntry],
 }
 
 /// What the Settings dialog shows.
@@ -520,6 +558,28 @@ impl Telemetry {
         event: Event,
         format: Option<&str>,
     ) -> Result<(), CommandError> {
+        self.record_traced_on(day, event, format, None)
+    }
+
+    /// Counts one use of `event` today and, for an `error` with a detail, files the anonymised
+    /// `trace` with it (#242). The trace is ignored for every other event.
+    pub fn record_traced(
+        &self,
+        event: Event,
+        format: Option<&str>,
+        trace: Option<&Trace>,
+    ) -> Result<(), CommandError> {
+        self.record_traced_on(&today(), event, format, trace)
+    }
+
+    /// Like [`Telemetry::record_traced`] for a given `YYYY-MM-DD` day (tests).
+    pub fn record_traced_on(
+        &self,
+        day: &str,
+        event: Event,
+        format: Option<&str>,
+        trace: Option<&Trace>,
+    ) -> Result<(), CommandError> {
         if !self.active() {
             return Ok(());
         }
@@ -547,6 +607,9 @@ impl Telemetry {
             .or_insert(0);
         *slot = slot.saturating_add(1);
         trim(&mut counters);
+        if let (Event::Error, Some(detail), Some(trace)) = (event, format, trace) {
+            add_trace(&mut counters, day, detail, trace);
+        }
         write_json(&self.usage_path(), &counters)
     }
 
@@ -565,6 +628,21 @@ impl Telemetry {
             let _ = write_json(&self.usage_path(), &counters);
         }
         entries(&counters)
+    }
+
+    /// The traces waiting to be sent, oldest day first, within the per-request limits.
+    pub fn pending_traces(&self) -> Vec<TraceEntry> {
+        self.pending_batch().1
+    }
+
+    /// The counters and the traces waiting to be sent, read together.
+    fn pending_batch(&self) -> (Vec<Entry>, Vec<TraceEntry>) {
+        let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut counters = self.load();
+        if self.drain_panics(&mut counters, &today()) {
+            let _ = write_json(&self.usage_path(), &counters);
+        }
+        (entries(&counters), batch_traces(&counters))
     }
 
     /// Counts one panic in `area` (#164), for the panic hook: it never blocks, never panics and
@@ -750,8 +828,8 @@ impl Telemetry {
         if !self.settings().enabled {
             return Outcome::Idle;
         }
-        let sent = self.pending();
-        if sent.is_empty() {
+        let (sent, sent_traces) = self.pending_batch();
+        if sent.is_empty() && sent_traces.is_empty() {
             return Outcome::Idle;
         }
         let batch = Batch {
@@ -759,6 +837,7 @@ impl Telemetry {
             os: std::env::consts::OS,
             installer: &self.installer,
             counts: &sent,
+            traces: &sent_traces,
         };
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(timeout))
@@ -766,7 +845,7 @@ impl Telemetry {
             .into();
         match agent.post(endpoint).send_json(&batch) {
             Ok(r) if r.status().is_success() => {
-                self.subtract(&sent);
+                self.subtract(&sent, &sent_traces);
                 Outcome::Sent
             }
             Ok(r) => Outcome::Failed(format!("HTTP {}", r.status().as_u16())),
@@ -777,7 +856,7 @@ impl Telemetry {
         }
     }
 
-    fn subtract(&self, sent: &[Entry]) {
+    fn subtract(&self, sent: &[Entry], sent_traces: &[TraceEntry]) {
         let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut counters = self.load();
         for entry in sent {
@@ -797,6 +876,12 @@ impl Telemetry {
                 }
             }
         }
+        for sent in sent_traces {
+            if let Some(stored) = counters.traces.iter_mut().find(|t| t.same_group(sent)) {
+                stored.count = stored.count.saturating_sub(sent.count);
+            }
+        }
+        counters.traces.retain(|t| t.count > 0);
         let _ = write_json(&self.usage_path(), &counters);
     }
 }
@@ -826,6 +911,55 @@ fn key(event: Event, format: Option<&str>) -> String {
         .and_then(|v| v.as_str().map(str::to_owned))
         .unwrap_or_default();
     format!("{name}|{}", format.unwrap_or(""))
+}
+
+/// Adds one occurrence of `trace` under `day` and `format`. A trace that is already there only
+/// counts up. A new one is dropped when the day is full ([`MAX_TRACES_PER_DAY`]); when the file
+/// is full ([`MAX_TRACES`]) the oldest traces make room. Nothing here can fail the error count.
+fn add_trace(counters: &mut Counters, day: &str, format: &str, trace: &Trace) {
+    let entry = TraceEntry {
+        day: day.to_owned(),
+        format: format.to_owned(),
+        hash: trace.hash.clone(),
+        frames: trace.frames.clone(),
+        ext: trace.ext.clone(),
+        count: 1,
+    };
+    if let Some(stored) = counters.traces.iter_mut().find(|t| t.same_group(&entry)) {
+        stored.count = stored.count.saturating_add(1);
+        return;
+    }
+    if counters.traces.iter().filter(|t| t.day == day).count() >= MAX_TRACES_PER_DAY {
+        return;
+    }
+    counters.traces.push(entry);
+    // Oldest day first, so the front is what goes (stable: the order within a day is kept).
+    counters.traces.sort_by(|a, b| a.day.cmp(&b.day));
+    let excess = counters.traces.len().saturating_sub(MAX_TRACES);
+    counters.traces.drain(..excess);
+    // Same window as the counters.
+    let mut days: Vec<&String> = counters.traces.iter().map(|t| &t.day).collect();
+    days.dedup();
+    if days.len() > MAX_DAYS {
+        let oldest_kept = days[days.len() - MAX_DAYS].clone();
+        counters.traces.retain(|t| t.day >= oldest_kept);
+    }
+}
+
+/// The traces of one request: oldest first, at most [`MAX_TRACES_PER_BATCH`] and
+/// [`MAX_TRACE_BYTES`] of JSON.
+fn batch_traces(counters: &Counters) -> Vec<TraceEntry> {
+    let mut out = Vec::new();
+    let mut bytes = 0;
+    for trace in &counters.traces {
+        let size = serde_json::to_string(trace).map_or(usize::MAX, |json| json.len() + 1);
+        if out.len() >= MAX_TRACES_PER_BATCH || bytes + size > MAX_TRACE_BYTES {
+            break;
+        }
+        bytes += size;
+        out.push(trace.clone());
+    }
+    out
 }
 
 /// Keeps the newest [`MAX_DAYS`] days.
@@ -1750,6 +1884,310 @@ mod tests {
                 assert!(t.record_on("2026-01-01", event, Some(private)).is_err());
             }
         }
+    }
+
+    fn trace(frames: &[&str], ext: Option<&str>) -> Trace {
+        Trace::new(crate::scrub::scrub_frames(frames), ext).unwrap()
+    }
+
+    #[test]
+    fn an_error_trace_is_stored_with_its_counter_and_counted_per_group() {
+        let (dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        let one = trace(&["audio_start", "src/audio/mod.rs:123"], Some("gp5"));
+        for _ in 0..2 {
+            t.record_traced_on("2026-01-01", Event::Error, Some("audio:audio"), Some(&one))
+                .unwrap();
+        }
+        let other = trace(&["export_stems", "src/stems/export.rs:9"], None);
+        t.record_traced_on("2026-01-01", Event::Error, Some("stems:io"), Some(&other))
+            .unwrap();
+        // The same trace on another day is another group.
+        t.record_traced_on("2026-01-02", Event::Error, Some("audio:audio"), Some(&one))
+            .unwrap();
+        let traces = t.pending_traces();
+        assert_eq!(traces.len(), 3);
+        assert_eq!(
+            traces[0],
+            TraceEntry {
+                day: "2026-01-01".into(),
+                format: "audio:audio".into(),
+                hash: one.hash.clone(),
+                frames: vec!["audio_start".into(), "src/audio/mod.rs:123".into()],
+                ext: Some("gp5".into()),
+                count: 2,
+            }
+        );
+        assert_eq!(traces[1].ext, None);
+        // The error counter is still written exactly as before.
+        assert!(t.pending().contains(&Entry {
+            day: "2026-01-01".into(),
+            event: "error".into(),
+            format: Some("audio:audio".into()),
+            count: 2,
+        }));
+        let stored = fs::read_to_string(dir.path().join("nested").join(USAGE_FILE)).unwrap();
+        let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+        let mut keys: Vec<&str> = stored
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["days", "traces"]);
+    }
+
+    #[test]
+    fn a_trace_is_only_kept_for_an_error_with_a_detail() {
+        let (dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        let one = trace(&["audio_start"], None);
+        t.record_traced_on("2026-01-01", Event::Play, None, Some(&one))
+            .unwrap();
+        t.record_traced_on("2026-01-01", Event::Export, Some("pdf"), Some(&one))
+            .unwrap();
+        t.record_traced_on("2026-01-01", Event::Panic, Some("audio"), Some(&one))
+            .unwrap();
+        t.record_traced_on("2026-01-01", Event::Error, None, Some(&one))
+            .unwrap();
+        assert!(t.pending_traces().is_empty());
+        assert_eq!(t.pending().len(), 4, "the counters are still counted");
+        let stored = fs::read_to_string(dir.path().join("nested").join(USAGE_FILE)).unwrap();
+        assert!(
+            !stored.contains("traces") && !stored.contains("audio_start"),
+            "{stored}"
+        );
+        // A refused detail records neither the counter nor the trace.
+        assert!(
+            t.record_traced_on("2026-01-01", Event::Error, Some("nope"), Some(&one))
+                .is_err()
+        );
+        assert!(t.pending_traces().is_empty());
+    }
+
+    #[test]
+    fn traces_are_capped_per_day_and_in_total() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        let make = |n: usize| trace(&[&format!("fn{n}")], None);
+        // 60 distinct traces on one day: only the first 50 are kept, an existing one still counts up.
+        for n in 0..60 {
+            t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&make(n)))
+                .unwrap();
+        }
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&make(0)))
+            .unwrap();
+        let traces = t.pending_traces();
+        assert_eq!(traces.len(), MAX_TRACES_PER_DAY);
+        assert_eq!(traces[0].count, 2);
+        assert!(!traces.iter().any(|x| x.frames[0] == "fn55"));
+        // All 60 errors were counted regardless.
+        assert_eq!(t.pending()[0].count, 61);
+        // Over many days the newest 200 stay and the oldest go.
+        for day in 2..=8 {
+            for n in 0..50 {
+                t.record_traced_on(
+                    &format!("2026-01-{day:02}"),
+                    Event::Error,
+                    Some("audio:io"),
+                    Some(&make(n)),
+                )
+                .unwrap();
+            }
+        }
+        let stored = t.load().traces;
+        assert_eq!(stored.len(), MAX_TRACES);
+        assert!(
+            stored.iter().all(|x| x.day.as_str() > "2026-01-01"),
+            "the oldest day made room"
+        );
+        assert_eq!(stored.last().unwrap().day, "2026-01-08");
+    }
+
+    #[test]
+    fn a_request_carries_at_most_the_batch_limits_of_traces() {
+        let (_dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        for day in 1..=4 {
+            for n in 0..50 {
+                let long = format!("{}{n}", "a_b_".repeat(14));
+                let frames = [long.as_str(), "src/audio/mod.rs:1", "src/audio/mod.rs:2"];
+                t.record_traced_on(
+                    &format!("2026-01-{day:02}"),
+                    Event::Error,
+                    Some("audio:io"),
+                    Some(&trace(&frames, Some("gp5"))),
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(t.load().traces.len(), 200);
+        let batch = t.pending_traces();
+        assert_eq!(batch.len(), MAX_TRACES_PER_BATCH);
+        assert!(serde_json::to_string(&batch).unwrap().len() < MAX_TRACE_BYTES);
+        assert_eq!(batch[0].day, "2026-01-01", "oldest first");
+    }
+
+    #[test]
+    fn an_upload_with_traces_has_exactly_the_documented_shape() {
+        let (url, server) = mock_server(vec![200]);
+        let (_dir, t) = telemetry(Some(&url));
+        let one = trace(&["audio_start", "src/audio/mod.rs:123"], Some("gp5"));
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:audio"), Some(&one))
+            .unwrap();
+        t.record_traced_on("2026-01-01", Event::Play, None, None)
+            .unwrap();
+        let none = trace(&["export_stems"], None);
+        t.record_traced_on("2026-01-01", Event::Error, Some("stems:io"), Some(&none))
+            .unwrap();
+        assert!(t.flush());
+        assert!(t.pending().is_empty() && t.pending_traces().is_empty());
+        let body: serde_json::Value = serde_json::from_str(&server.join().unwrap()[0]).unwrap();
+        let mut keys: Vec<&str> = body
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["counts", "installer", "os", "traces", "version"]);
+        assert_eq!(
+            body["traces"],
+            serde_json::json!([
+                {
+                    "day": "2026-01-01",
+                    "format": "audio:audio",
+                    "hash": one.hash,
+                    "frames": ["audio_start", "src/audio/mod.rs:123"],
+                    "ext": "gp5",
+                    "count": 1,
+                },
+                {
+                    "day": "2026-01-01",
+                    "format": "stems:io",
+                    "hash": none.hash,
+                    "frames": ["export_stems"],
+                    "count": 1,
+                },
+            ])
+        );
+        assert_eq!(body["counts"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn an_upload_without_traces_keeps_the_old_shape() {
+        let (url, server) = mock_server(vec![200]);
+        let (_dir, t) = telemetry(Some(&url));
+        // An error without a trace (the page sent none, or none survived the scrubbing).
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:audio"), None)
+            .unwrap();
+        assert!(t.flush());
+        let body: serde_json::Value = serde_json::from_str(&server.join().unwrap()[0]).unwrap();
+        let mut keys: Vec<&str> = body
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["counts", "installer", "os", "version"]);
+    }
+
+    #[test]
+    fn a_failed_upload_keeps_the_traces_and_a_success_removes_only_the_sent_ones() {
+        let (url, server) = mock_server(vec![500, 200]);
+        let (_dir, t) = telemetry(Some(&url));
+        let one = trace(&["audio_start"], None);
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&one))
+            .unwrap();
+        assert!(!t.flush());
+        assert_eq!(t.pending_traces().len(), 1, "kept after a failure");
+        assert!(t.flush());
+        assert!(t.pending_traces().is_empty());
+        assert_eq!(server.join().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn subtract_removes_only_the_acknowledged_count() {
+        let (dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        let one = trace(&["audio_start"], None);
+        let two = trace(&["other_fn"], None);
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&one))
+            .unwrap();
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&two))
+            .unwrap();
+        let (sent, sent_traces) = t.pending_batch();
+        // Recorded while the upload was running: not part of what was acknowledged.
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&one))
+            .unwrap();
+        t.subtract(&sent, &sent_traces);
+        let left = t.pending_traces();
+        assert_eq!(left.len(), 1);
+        assert_eq!(
+            (left[0].hash.as_str(), left[0].count),
+            (one.hash.as_str(), 1)
+        );
+        assert_eq!(t.pending()[0].count, 1);
+        // Everything acknowledged: no `traces` key is left in the file.
+        let (sent, sent_traces) = t.pending_batch();
+        t.subtract(&sent, &sent_traces);
+        let stored = fs::read_to_string(dir.path().join("nested").join(USAGE_FILE)).unwrap();
+        assert!(!stored.contains("traces"), "{stored}");
+    }
+
+    #[test]
+    fn traces_follow_the_switch_like_the_counters() {
+        let (dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        let one = trace(&["audio_start"], None);
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&one))
+            .unwrap();
+        assert_eq!(t.pending_traces().len(), 1);
+        t.update_settings(Some(false), None).unwrap();
+        assert!(!dir.path().join("nested").join(USAGE_FILE).exists());
+        assert!(t.pending_traces().is_empty());
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&one))
+            .unwrap();
+        assert!(
+            !dir.path().join("nested").join(USAGE_FILE).exists(),
+            "nothing stored while off"
+        );
+        assert!(!t.flush());
+        // Without an endpoint nothing is stored either.
+        let (dir, t) = telemetry(None);
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&one))
+            .unwrap();
+        assert!(!dir.path().join("nested").exists());
+    }
+
+    #[test]
+    fn files_from_before_traces_still_load_and_the_trace_shape_is_stored_flat() {
+        let (dir, t) = telemetry(Some("http://127.0.0.1:9/x"));
+        let nested = dir.path().join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(
+            nested.join(USAGE_FILE),
+            r#"{"days":{"2026-01-01":{"play|":2}}}"#,
+        )
+        .unwrap();
+        assert_eq!(t.pending().len(), 1);
+        assert!(t.pending_traces().is_empty());
+        let one = trace(&["audio_start"], None);
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:io"), Some(&one))
+            .unwrap();
+        assert_eq!(t.pending().len(), 2);
+        assert_eq!(t.pending_traces().len(), 1);
+    }
+
+    #[test]
+    fn an_urgent_error_upload_carries_its_trace() {
+        let (url, server) = mock_server(vec![200]);
+        let (_dir, t) = telemetry(Some(&url));
+        let t = std::sync::Arc::new(t);
+        let one = trace(&["audio_start", "src/audio/mod.rs:5"], None);
+        t.record_traced_on("2026-01-01", Event::Error, Some("audio:audio"), Some(&one))
+            .unwrap();
+        t.flush_urgent_in_background();
+        assert!(wait_until_sent(&t, 5), "the error was not sent");
+        let sent: serde_json::Value = serde_json::from_str(&server.join().unwrap()[0]).unwrap();
+        assert_eq!(sent["traces"][0]["hash"], one.hash);
+        assert!(t.pending_traces().is_empty());
     }
 
     #[test]

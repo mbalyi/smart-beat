@@ -199,6 +199,7 @@ pub fn parse_item_id(value: &str) -> Option<(ProviderKind, &str)> {
 }
 
 /// Maps an HTTP failure to the error the UI shows.
+#[track_caller]
 pub fn http_error(error: ureq::Error, what: &str) -> CommandError {
     match error {
         ureq::Error::StatusCode(401) => CommandError::new(
@@ -225,6 +226,7 @@ pub fn http_error(error: ureq::Error, what: &str) -> CommandError {
 
 /// Maps an HTTP failure of a share request to the error the UI shows: a refusal (403) means the
 /// account or its organisation does not allow links, which reconnecting would not change.
+#[track_caller]
 pub fn share_http_error(error: ureq::Error, what: &str) -> CommandError {
     match error {
         ureq::Error::StatusCode(403) => CommandError::new(

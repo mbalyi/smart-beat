@@ -21,7 +21,7 @@ export function useUsageNotice(openSettings: () => void) {
         if (!settings?.available || settings.noticeSeen) return;
         toast("Smart Beat counts which features are used", {
           description:
-            "Anonymous counts only: no identifier, nothing about your songs. You can switch it off in Settings.",
+            "Anonymous counts only: no identifier, nothing about your songs. Errors also send an anonymised code location, never a file name or message. You can switch it off in Settings.",
           duration: 20_000,
           action: { label: "Settings", onClick: open },
         });

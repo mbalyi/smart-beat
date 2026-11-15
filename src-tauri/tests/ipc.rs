@@ -1528,6 +1528,121 @@ fn error_and_panic_counters_take_only_their_fixed_details_over_ipc() {
 }
 
 #[test]
+fn an_error_trace_is_scrubbed_stored_with_the_error_and_forgotten_when_switched_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_telemetry(dir.path(), Some("http://127.0.0.1:1/v1/batch"));
+    let window = main_window(&app);
+
+    // The page's frames are scrubbed again: the private ones are dropped, the extension is
+    // allow-listed, the message of the failure is not an input at all.
+    invoke_with(
+        &window,
+        "track_event",
+        json!({
+            "event": "error",
+            "format": "audio:audio",
+            "trace": {
+                "frames": [
+                    "audio_start",
+                    "src/audio/mod.rs:123",
+                    "/Users/jane/Songs/My Secret Song.gp5",
+                    "Error: could not open jane@example.com",
+                    "startPlayback index-AbC123.js:1:48211",
+                ],
+                "ext": "gp5",
+            },
+        }),
+    )
+    .unwrap();
+    // Old callers: no trace. A trace of nothing valid: counter only. Another event: ignored.
+    invoke_with(
+        &window,
+        "track_event",
+        json!({ "event": "error", "format": "cloud:network" }),
+    )
+    .unwrap();
+    invoke_with(
+        &window,
+        "track_event",
+        json!({ "event": "error", "format": "file:io", "trace": { "frames": ["/Users/jane/x"] } }),
+    )
+    .unwrap();
+    invoke_with(
+        &window,
+        "track_event",
+        json!({ "event": "play", "trace": { "frames": ["audio_start"] } }),
+    )
+    .unwrap();
+
+    let stored = std::fs::read_to_string(dir.path().join("usage.json")).unwrap();
+    for private in ["jane", "Secret", "example.com", "Error:", ".gp5"] {
+        assert!(!stored.contains(private), "{private} leaked into {stored}");
+    }
+    let parsed: Value = serde_json::from_str(&stored).unwrap();
+    let mut keys: Vec<&str> = parsed
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["days", "traces"]);
+    let traces = parsed["traces"].as_array().unwrap();
+    assert_eq!(traces.len(), 1, "{stored}");
+    let trace = &traces[0];
+    assert_eq!(trace["format"], "audio:audio");
+    assert_eq!(
+        trace["frames"],
+        json!([
+            "audio_start",
+            "src/audio/mod.rs:123",
+            "startPlayback index-AbC123.js:1:48211"
+        ])
+    );
+    assert_eq!(trace["ext"], "gp5");
+    assert_eq!(trace["count"], 1);
+    // The hash covers the command and the Rust origin only.
+    assert_eq!(trace["hash"].as_str().unwrap().len(), 16);
+    assert!(stored.contains("error|audio:audio") && stored.contains("error|cloud:network"));
+    assert!(stored.contains("error|file:io") && stored.contains("play|"));
+
+    invoke_with(&window, "set_usage_settings", json!({ "enabled": false })).unwrap();
+    assert!(!dir.path().join("usage.json").exists());
+    invoke_with(
+        &window,
+        "track_event",
+        json!({ "event": "error", "format": "audio:audio", "trace": { "frames": ["audio_start"] } }),
+    )
+    .unwrap();
+    assert!(!dir.path().join("usage.json").exists());
+}
+
+#[test]
+fn a_command_error_carries_an_app_relative_origin_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_telemetry(dir.path(), None);
+    let window = main_window(&app);
+    // A failing command: its error serializes with the kind, the message and where it was made.
+    let error = invoke_with(
+        &window,
+        "read_score_file",
+        json!({ "path": "/Users/jane/Songs/My Secret Song.gp5" }),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "not-found");
+    let origin = error["origin"].as_str().expect("an origin");
+    assert!(origin.starts_with("src/"), "{origin}");
+    assert!(
+        origin.rsplit_once(':').unwrap().1.parse::<u32>().is_ok(),
+        "{origin}"
+    );
+    for private in ["jane", "Secret", "gp5", "Users"] {
+        assert!(!origin.contains(private), "{origin}");
+    }
+    assert!(smart_beat_lib::scrub::valid_frame(origin));
+}
+
+#[test]
 fn builds_without_an_endpoint_count_and_send_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let app = app_with_telemetry(dir.path(), None);

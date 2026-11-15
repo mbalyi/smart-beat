@@ -17,6 +17,7 @@ pub trait TokenStore: Send + Sync {
     fn delete(&self, kind: ProviderKind) -> Result<(), CommandError>;
 }
 
+#[track_caller]
 fn error(action: &str, e: &keyring::Error) -> CommandError {
     // The message names the action only: keyring errors never contain the secret.
     CommandError::new(

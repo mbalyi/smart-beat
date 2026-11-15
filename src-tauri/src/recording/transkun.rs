@@ -88,6 +88,7 @@ pub fn cached(dir: &Path) -> Result<Arc<Transkun>, CommandError> {
     Ok(model)
 }
 
+#[track_caller]
 fn load_failed(what: &str, reason: impl std::fmt::Display) -> CommandError {
     error(format!("Could not load the piano model ({what}): {reason}"))
 }

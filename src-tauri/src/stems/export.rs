@@ -87,10 +87,12 @@ pub struct ExportResult {
     pub clipped: bool,
 }
 
+#[track_caller]
 fn fail(kind: ErrorKind, message: impl Into<String>) -> CommandError {
     CommandError::new(kind, message)
 }
 
+#[track_caller]
 fn write_err(e: &std::io::Error) -> CommandError {
     if is_disk_full(e) {
         fail(ErrorKind::Io, DISK_FULL)
@@ -99,6 +101,7 @@ fn write_err(e: &std::io::Error) -> CommandError {
     }
 }
 
+#[track_caller]
 fn audio_err(message: String) -> CommandError {
     if message == bundle::STOPPED {
         bundle::stopped()
@@ -277,7 +280,7 @@ pub fn export_mixed(
         mix(store, &song, &kinds, stop, &mut |f| throttle.at(f))?
     };
     check_stop(stop)?;
-    let wav_bytes = wav::encode(mixed.rate, &mixed.left, &mixed.right).map_err(audio_err)?;
+    let wav_bytes = wav::encode(mixed.rate, &mixed.left, &mixed.right).map_err(|e| audio_err(e))?;
     drop((mixed.left, mixed.right));
     match request.format {
         ExportFormat::Wav => {
@@ -289,7 +292,10 @@ pub fn export_mixed(
             let staged = TempFile::beside(&dest);
             write_block_wise(&staged.path, &wav_bytes, stop)?;
             drop(wav_bytes);
-            let frames = Pcm16::open(&staged.path).map_err(audio_err)?.frames.max(1);
+            let frames = Pcm16::open(&staged.path)
+                .map_err(|e| audio_err(e))?
+                .frames
+                .max(1);
             let mut progress_emit = |f: f32| {
                 emit("writing", mixing_share + f * (1.0 - mixing_share));
             };
@@ -297,7 +303,7 @@ pub fn export_mixed(
             let encoded = codec::encode_wav(&staged.path, stop, bundle::STOPPED, &mut |done| {
                 throttle.at(done as f32 / frames as f32);
             })
-            .map_err(audio_err)?;
+            .map_err(|e| audio_err(e))?;
             write_atomic(&dest, &encoded.bytes, stop)?;
         }
     }
@@ -416,11 +422,11 @@ pub fn export_batch(
         match request.format {
             ExportFormat::Wav => copy_wav(&from, &dest, stop, &mut |f| throttle.at(f))?,
             ExportFormat::Flac => {
-                let frames = Pcm16::open(&from).map_err(audio_err)?.frames.max(1);
+                let frames = Pcm16::open(&from).map_err(|e| audio_err(e))?.frames.max(1);
                 let encoded = codec::encode_wav(&from, stop, bundle::STOPPED, &mut |done| {
                     throttle.at(done as f32 / frames as f32);
                 })
-                .map_err(audio_err)?;
+                .map_err(|e| audio_err(e))?;
                 write_atomic(&dest, &encoded.bytes, stop)?;
             }
         }

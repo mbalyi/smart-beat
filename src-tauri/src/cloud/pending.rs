@@ -44,6 +44,7 @@ pub struct PendingStore {
     lock: Arc<Mutex<()>>,
 }
 
+#[track_caller]
 fn io_error(e: &io::Error) -> CommandError {
     CommandError::new(
         ErrorKind::Io,

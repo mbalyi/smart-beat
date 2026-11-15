@@ -44,6 +44,7 @@ pub fn group_of(index: usize) -> i32 {
     }
 }
 
+#[track_caller]
 fn stopped(failure: Failure) -> CommandError {
     match failure {
         Failure::Cancelled => error(STOPPED),
@@ -69,7 +70,7 @@ pub fn run(
     if slot.as_ref().is_none_or(|(loaded, _)| *loaded != size) {
         *slot = None;
         progress(Stage::Loading, 0.0);
-        let model = Model::load(&folder.join(size.file()), cancelled).map_err(stopped)?;
+        let model = Model::load(&folder.join(size.file()), cancelled).map_err(|e| stopped(e))?;
         *slot = Some((size, model));
     }
     let (_, model) = slot.as_mut().expect("loaded above");
@@ -81,7 +82,7 @@ pub fn run(
             &mut |fraction| progress(Stage::Transcribing, fraction),
             cancelled,
         )
-        .map_err(stopped)
+        .map_err(|e| stopped(e))
 }
 
 /// What the engine is doing, for the progress message.

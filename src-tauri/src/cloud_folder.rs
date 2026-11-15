@@ -218,6 +218,7 @@ fn list_files(
     Ok(files)
 }
 
+#[track_caller]
 fn folder_gone() -> CommandError {
     CommandError::new(
         ErrorKind::NotFound,
