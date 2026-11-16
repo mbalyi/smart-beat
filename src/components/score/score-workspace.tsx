@@ -33,7 +33,7 @@ import { ArmedLaneBar } from "@/components/audio-lanes/armed-lane-bar";
 import { LaneRecordContext } from "@/components/audio-lanes/lane-record-context";
 import { useLaneRecord } from "@/components/audio-lanes/use-lane-record";
 import { encodeWav } from "@/lib/export/wav";
-import { addSource, updateLane } from "@/lib/audio-lanes/edits";
+import { addSource, updateClip, updateLane } from "@/lib/audio-lanes/edits";
 import { hasBandRows } from "@/lib/audio-lanes/band-rows";
 import { laneDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
 import { EMPTY_AUDIO, MAX_LANES, lanesOf } from "@/lib/audio-lanes/model";
@@ -120,7 +120,19 @@ import type { EditSync } from "@/lib/score/ops/collab";
 import { useSoundLibrary } from "@/hooks/use-sound-library";
 import { usePianoModel } from "@/hooks/use-piano-model";
 import { onInstallerReturn } from "@/lib/ai/ai-store";
+import { useLaneToTab } from "@/hooks/use-lane-to-tab";
+import {
+  registerPartDropTarget,
+  type PartDropTarget,
+  type PartHighlight,
+} from "@/lib/score/part-drop-registry";
+import { scrollToShow } from "@/lib/score/scroll-to-show";
 import { recordTargets, useRecordToTab } from "@/hooks/use-record-to-tab";
+import { LaneToTabDialog } from "@/components/audio-lanes/lane-to-tab-dialog";
+import {
+  LaneToTabProvider,
+  type LaneToTabHost as LaneToTabOpener,
+} from "@/components/audio-lanes/lane-to-tab-context";
 import { usePracticeTogether } from "@/hooks/use-practice-together";
 import { opened as countTogetherOpened, type OpenedFrom } from "@/lib/practice-together/analytics";
 import { useSessionEngine } from "@/hooks/use-session-engine";
@@ -2090,6 +2102,91 @@ export function ScoreWorkspace({
   useEffect(() => {
     lanesAudioRef.current = lanes.audio;
   }, [lanes.audio]);
+  // --- Sheet from an audio lane (#235) --------------------------------------------------------
+  const laneToTab = useLaneToTab({
+    score,
+    editor,
+    onOpenScore: (opened, name) => onOpenScore?.(opened, name),
+    blocked: () => {
+      if (!together.readOnly) return false;
+      toast.info(
+        together.edit.live
+          ? "The host turned editing off for guests."
+          : "You follow the host's tab, so it is read-only.",
+        { id: "together-readonly" },
+      );
+      return true;
+    },
+  });
+  const laneToTabOpener = useMemo<LaneToTabOpener | null>(
+    () => (isTauri() ? { open: laneToTab.open } : null),
+    [laneToTab.open],
+  );
+  const firstLaneWithAudio =
+    lanes.audio.lanes.find((l) => !l.folder && l.clips.length > 0)?.id ?? null;
+  // A transcribed part carried over the score from the dialog (#235): the workspace on screen is
+  // where it can be dropped. The outline is drawn by the score view.
+  const [partDrop, setPartDrop] = useState<PartHighlight | null>(null);
+  const partTarget = useRef<PartDropTarget | null>(null);
+  partTarget.current = {
+    active: () => true,
+    rects: () => (tabsHidden ? null : (playerRef.current?.placementRects() ?? null)),
+    spotAt: (clientX, clientY) => {
+      const box = surfaceRef.current?.getBoundingClientRect();
+      if (!box || tabsHidden) return null;
+      return playerRef.current?.placementAt(clientX - box.left, clientY - box.top) ?? null;
+    },
+    kindOf: (index) => summary.tracks[index]?.kind ?? null,
+    nameOf: (index) => summary.tracks[index]?.name ?? "the track",
+    barCount: () => score.masterBars.length,
+    show: setPartDrop,
+    drop: (spot, part) =>
+      laneToTab.place(part, { track: spot.track, bar: spot.bar }, { toast: true }) !== null,
+    viewport: () => viewportRef.current?.getBoundingClientRect() ?? null,
+    scrollBy: (dx, dy) => viewportRef.current?.scrollBy({ left: dx, top: dy, behavior: "instant" }),
+    reveal: (spot) => {
+      const view = viewportRef.current;
+      const surface = surfaceRef.current;
+      const found = playerRef.current
+        ?.placementRects()
+        ?.find((r) => r.track === spot.track && r.bar === spot.bar);
+      if (!view || !surface || !found) return;
+      const box = surface.getBoundingClientRect();
+      const frame = view.getBoundingClientRect();
+      const next = scrollToShow(
+        {
+          x: box.left - frame.left - view.clientLeft + view.scrollLeft + found.rect.x,
+          y: box.top - frame.top - view.clientTop + view.scrollTop + found.rect.y,
+          w: found.rect.w,
+          h: found.rect.h,
+        },
+        {
+          left: view.scrollLeft,
+          top: view.scrollTop,
+          width: view.clientWidth,
+          height: view.clientHeight,
+        },
+      );
+      if (next) view.scrollTo({ ...next, behavior: "instant" });
+    },
+  };
+  useEffect(() => {
+    if (!active || !isTauri()) return;
+    return registerPartDropTarget({
+      active: () => true,
+      rects: () => partTarget.current!.rects(),
+      spotAt: (x, y) => partTarget.current!.spotAt(x, y),
+      kindOf: (i) => partTarget.current!.kindOf(i),
+      nameOf: (i) => partTarget.current!.nameOf(i),
+      barCount: () => partTarget.current!.barCount(),
+      show: (h) => partTarget.current!.show(h),
+      drop: (spot, part) => partTarget.current!.drop(spot, part),
+      viewport: () => partTarget.current!.viewport(),
+      scrollBy: (dx, dy) => partTarget.current!.scrollBy(dx, dy),
+      reveal: (spot) => partTarget.current!.reveal(spot),
+    });
+  }, [active]);
+  const laneToTabModel = usePianoModel(isTauri() && laneToTab.request !== null);
   // Stems from the stem page (#223): each becomes an audio lane of this tab, all in one undo step.
   // The tab is unsaved afterwards, as after any other edit: the lanes are saved with the file.
   const takeStems = useEffectEvent<StemLaneHandler>((stemSong, items) => {
@@ -3406,7 +3503,7 @@ export function ScoreWorkspace({
     </>
   );
 
-  return (
+  const workspace = (
     <LaneRecordContext.Provider value={laneRecord.controls}>
       <div
         role="group"
@@ -3601,6 +3698,7 @@ export function ScoreWorkspace({
                 surfaceRef={surfaceRef}
                 label={tabsHidden ? "Score: audio lanes" : `Score: ${track.name}`}
                 tabsHidden={tabsHidden}
+                partDrop={partDrop}
                 layout={layout}
                 rendering={rendering}
                 editing={editing}
@@ -3926,6 +4024,22 @@ export function ScoreWorkspace({
           together={together}
           initialMode={togetherMode}
         />
+        {isTauri() && (
+          <LaneToTabDialog
+            host={laneToTab}
+            audio={lanes.audio}
+            grid={laneGrid}
+            missing={lanes.missing}
+            score={score}
+            tracks={recordTargets(summary.tracks)}
+            cursorTrack={trackIndex}
+            revision={revision}
+            pianoInstalled={laneToTabModel.installed}
+            onUnmuteClip={(clipId) =>
+              lanes.apply((audio) => updateClip(audio, clipId, { mute: false }))
+            }
+          />
+        )}
         {recordEnabled && (
           <>
             <RecordDialog
@@ -3940,6 +4054,19 @@ export function ScoreWorkspace({
               onRecordFile={recording.fromFile}
               droppedFile={recordDrop}
               pianoModel={pianoModel}
+              onFromLane={
+                laneToTabOpener && firstLaneWithAudio
+                  ? () => {
+                      recording.close();
+                      laneToTab.open({
+                        laneId: firstLaneWithAudio,
+                        clipIds: [],
+                        range: null,
+                        origin: "record",
+                      });
+                    }
+                  : undefined
+              }
             />
             <RecordBar
               phase={recording.phase}
@@ -4260,4 +4387,6 @@ export function ScoreWorkspace({
       </div>
     </LaneRecordContext.Provider>
   );
+
+  return <LaneToTabProvider value={laneToTabOpener}>{workspace}</LaneToTabProvider>;
 }

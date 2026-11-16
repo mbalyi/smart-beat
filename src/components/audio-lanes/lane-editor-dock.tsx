@@ -13,6 +13,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { EditorTimeline } from "@/components/audio-lanes/editor-timeline";
 import { EqPopover } from "@/components/audio/eq-popover";
+import { useLaneToTab } from "@/components/audio-lanes/lane-to-tab-context";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { useMarkers } from "@/components/audio-lanes/use-markers";
 import { useTimelineZoom } from "@/components/audio-lanes/use-timeline-zoom";
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Knob } from "@/components/ui/knob";
 import { Switch } from "@/components/ui/switch";
+import { laneToRequest } from "@/lib/audio-lanes/clip-request";
 import { removeLane, updateLane } from "@/lib/audio-lanes/edits";
 import { laneEndMs, MAX_CENTS, MAX_SEMITONES } from "@/lib/audio-lanes/model";
 import { clearSync, resetPadding, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
@@ -36,7 +38,7 @@ import { selectionSpan, songSpan } from "@/lib/audio-lanes/zoom";
 import { FILTER_LABELS } from "@/lib/audio/audio-track";
 import type { PlayheadStore } from "@/lib/score/playhead";
 import { laneColor } from "@/lib/score/track-colors";
-import type { AudioLane, BackingFilter, SyncPoint } from "@/lib/tauri";
+import { isTauri, type AudioLane, type BackingFilter, type SyncPoint } from "@/lib/tauri";
 
 /** Editor zoom range, pixels per second. */
 const MIN_ZOOM = 10;
@@ -321,6 +323,8 @@ function TasksMenu({
   onZoom: (pxPerSecond: number) => void;
 }) {
   const { apply } = lanes;
+  const laneToTab = useLaneToTab();
+  const convert = laneToTab && isTauri() ? laneToTab.open : undefined;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -378,6 +382,15 @@ function TasksMenu({
             Extract “{s.name}” as WAV…
           </DropdownMenuItem>
         ))}
+        {convert && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Sheet music</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => convert(laneToRequest(lane.id))}>
+              Convert audio to sheet…
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuLabel>Zoom</DropdownMenuLabel>
         <DropdownMenuItem onSelect={() => onZoom(20)}>Whole song</DropdownMenuItem>

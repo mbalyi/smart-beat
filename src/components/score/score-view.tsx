@@ -1,6 +1,8 @@
 import { useEffect, useRef, type ReactNode, type Ref } from "react";
 import { LoaderCircleIcon } from "lucide-react";
 
+import { PartDropOverlay } from "@/components/score/part-drop-overlay";
+import type { PartHighlight } from "@/lib/score/part-drop-registry";
 import type { Layout, NoteRect, Rect } from "@/lib/score/player";
 import { scrollToShow } from "@/lib/score/scroll-to-show";
 import { cn } from "@/lib/utils";
@@ -192,6 +194,7 @@ export function ScoreView({
   describedBy,
   band,
   tabsHidden = false,
+  partDrop = null,
 }: {
   viewportRef: Ref<HTMLDivElement>;
   surfaceRef: Ref<HTMLDivElement>;
@@ -218,6 +221,8 @@ export function ScoreView({
    * the lanes, but take no room and are not read.
    */
   tabsHidden?: boolean;
+  /** Where a transcribed part would land while it is carried over the score (#235). */
+  partDrop?: PartHighlight | null;
 }) {
   return (
     // `isolate`: alphaTab puts its cursor at z-index 1000; keep that inside the
@@ -272,6 +277,7 @@ export function ScoreView({
               </div>
             )}
             {overlay && <EditOverlayLayer overlay={overlay} />}
+            {partDrop && !tabsHidden && <PartDropOverlay highlight={partDrop} />}
           </div>
         </div>
       </div>

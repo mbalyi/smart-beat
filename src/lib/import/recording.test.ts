@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   alignOffset,
+  recordingSpan,
   recordingTargets,
   recordingToSong,
   tabNotes,
@@ -434,5 +435,34 @@ describe("drum takes", () => {
     expect(() =>
       writeRecording(createSong(), [note(0, 38)], { trackIndex: 9, startBar: 0 }),
     ).toThrow(/string, piano or drum/);
+  });
+});
+
+describe("writeRecording range", () => {
+  it("reports the bars it wrote and how many it appended", () => {
+    const score = song(4);
+    // 120 bpm: 2 s a bar. Notes in bars 3 to 6 of a four-bar song.
+    const notes = [note(0, 40), note(2.2, 43), note(4.3, 45), note(6.1, 47)];
+    const written = writeRecording(score, notes, { trackIndex: 0, startBar: 2 });
+    expect(written.firstBar).toBe(2);
+    expect(written.lastBar).toBe(5);
+    expect(written.appended).toBe(2);
+    expect(score.masterBars).toHaveLength(6);
+  });
+
+  it("reports an empty range when nothing is written", () => {
+    const score = song(4);
+    const written = writeRecording(score, [], { trackIndex: 0, startBar: 1 });
+    expect(written).toMatchObject({ firstBar: 1, lastBar: 0, appended: 0 });
+  });
+
+  it("recordingSpan predicts the bars the write covers without changing the song", () => {
+    const score = song(4);
+    const notes = [note(0, 40), note(2.2, 43), note(4.3, 45), note(6.1, 47)];
+    const span = recordingSpan(score, notes, 2);
+    expect(score.masterBars).toHaveLength(4);
+    expect(span).toEqual({ firstBar: 2, lastBar: 5, bars: 4 });
+    const written = writeRecording(score, notes, { trackIndex: 0, startBar: 2 });
+    expect([written.firstBar, written.lastBar]).toEqual([span.firstBar, span.lastBar]);
   });
 });

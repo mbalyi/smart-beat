@@ -56,6 +56,14 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
     tour: "sample-browser",
   },
   {
+    id: "audio-lane-transcription",
+    title: "Convert audio to sheet music",
+    summary:
+      "Split an audio lane so a small chunk is left, right-click that clip and choose Convert audio to sheet…: the notes are transcribed and written into the same tab, at the bar where the clip starts. Pick the instrument, the track and the start bar, see the new notes as tab or notation before you add them, and undo it in one step. It also works on a whole lane, a time selection and the Studio, and is the new Audio lane source in Record to tab. A single instrument gives the best result.",
+    since: "1.4.0",
+    tour: "audio-lanes",
+  },
+  {
     id: "hybrid-lanes",
     title: "Audio tracks play with the SoundFonts",
     summary:

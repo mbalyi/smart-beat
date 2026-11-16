@@ -66,6 +66,7 @@ export const EVENTS = [
   "soundfont_import",
   "record_to_tab_start",
   "record_to_tab_file",
+  "lane_transcribe",
   "ai_install",
   "ai_rights_confirmed",
   "ai_transcribe_start",
@@ -110,7 +111,14 @@ const CATALOGUE_SOUNDFONTS = [
   "arachno",
 ] as const;
 const SOUNDFONT_IDS = ["sonivox", "fluidr3", ...CATALOGUE_SOUNDFONTS, "custom"] as const;
-const TOURS = ["main", "editing", "speed-trainer", "effects", "record-to-tab"] as const;
+const TOURS = [
+  "main",
+  "editing",
+  "speed-trainer",
+  "effects",
+  "record-to-tab",
+  "audio-lanes",
+] as const;
 const CONNECTIONS = ["lan", "internet"] as const;
 
 // File formats that may accompany open_file and export (FORMATS in telemetry.rs).
@@ -228,6 +236,7 @@ export const EVENT_DETAILS: Partial<Record<(typeof EVENTS)[number], readonly str
   record_to_tab: ["guitar", "bass", "piano", "drums"],
   record_to_tab_start: ["guitar", "bass", "piano", "drums"],
   record_to_tab_file: ["guitar", "bass", "piano", "drums"],
+  lane_transcribe: ["guitar", "bass", "piano", "drums"],
   ai_install: ["small", "medium", "large"],
   ai_transcribe_start: ["rights_confirmed", "rights_unconfirmed"],
   ai_transcribe_file: ["rights_confirmed", "rights_unconfirmed"],

@@ -15,6 +15,7 @@ import { EmptyLaneHint } from "@/components/audio-lanes/empty-lane-hint";
 import { LaneRecordButton } from "@/components/audio-lanes/lane-record-controls";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { LaneColorPopover } from "@/components/audio-lanes/lane-color-popover";
+import { useLaneToTab } from "@/components/audio-lanes/lane-to-tab-context";
 import { MarqueeBox, SelectionStatus } from "@/components/audio-lanes/selection-overlay";
 import { useMarquee } from "@/components/audio-lanes/use-marquee";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
@@ -35,6 +36,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
+import { laneToRequest } from "@/lib/audio-lanes/clip-request";
 import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
 import {
   makeFolder,
@@ -358,6 +360,8 @@ function LaneMenu({
   onRename: () => void;
 }) {
   const { apply, audio } = lanes;
+  const laneToTab = useLaneToTab();
+  const convert = laneToTab && isTauri() ? laneToTab.open : undefined;
   const folders = audio.lanes.filter((l) => l.folder && l.id !== lane.id);
   return (
     <DropdownMenu>
@@ -387,6 +391,11 @@ function LaneMenu({
               Import samples…
             </DropdownMenuItem>
           </>
+        )}
+        {!lane.folder && convert && (
+          <DropdownMenuItem onSelect={() => convert(laneToRequest(lane.id))}>
+            Convert audio to sheet…
+          </DropdownMenuItem>
         )}
         <DropdownMenuCheckboxItem
           checked={lane.enabled}
