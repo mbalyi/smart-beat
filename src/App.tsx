@@ -60,7 +60,7 @@ import { useTour } from "@/hooks/use-tour";
 import { demoSongFile, DEMO_SONG_TITLE } from "@/lib/tour/demo-song";
 import type { TourId } from "@/lib/tour/feature-registry";
 import { isExistingUser } from "@/lib/tour/tour-store";
-import { latestFeatures, pendingFeatures } from "@/lib/tour/whats-new";
+import { latestFeatures, pendingFeatures, releaseOf } from "@/lib/tour/whats-new";
 import { APP_VERSION } from "@/lib/project-info";
 import { errorText } from "@/lib/errors";
 import { hasScoreExtension } from "@/lib/score/errors";
@@ -525,7 +525,7 @@ export function App() {
       const state = initTour(isExistingUser(before, prefs));
       const pending = state ? pendingFeatures(state.lastSeenVersion, APP_VERSION) : [];
       if (pending.length > 0 && state?.tours.main !== undefined) {
-        setWhatsNew({ version: APP_VERSION, features: pending });
+        setWhatsNew({ version: releaseOf(pending, APP_VERSION), features: pending });
         setDialog("whats-new");
       }
     })();

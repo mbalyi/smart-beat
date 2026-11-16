@@ -4,6 +4,10 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+## [1.3.1]
+
+New in 1.3.1: crash reports you can switch on, and updated libraries. What's new still shows the 1.3.0 list.
+
 ### New: crash reports, only if you want them
 
 - **Send crash reports** in Help › Settings is **off** until you turn it on. When it is on, an unexpected error or crash sends one small report so it can be fixed: the kind of error, the program's own stack trace, the app version and your operating system. Never your songs, file names, folders, user name, IP address, messages or addresses, and never a screen recording, replay or screenshot. Turn it off and nothing more is sent. It is separate from "Share anonymous usage counts". Details in `docs/crash-reports.md`.

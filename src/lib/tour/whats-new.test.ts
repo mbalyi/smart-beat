@@ -1,5 +1,5 @@
 import { FEATURE_REGISTRY, type FeatureEntry } from "@/lib/tour/feature-registry";
-import { compareVersions, latestFeatures, pendingFeatures } from "@/lib/tour/whats-new";
+import { compareVersions, latestFeatures, pendingFeatures, releaseOf } from "@/lib/tour/whats-new";
 
 const f = (id: string, since: string): FeatureEntry => ({ id, title: id, summary: id, since });
 const registry = [
@@ -115,5 +115,20 @@ describe("sharing in the registry (#201)", () => {
       "cloud-share",
     );
     expect(pendingFeatures("1.2.0", "1.2.0", FEATURE_REGISTRY)).toEqual([]);
+  });
+});
+
+describe("releaseOf", () => {
+  it("names the release the shown features came with, not the running version", () => {
+    // A patch release (1.1.1) with no feature of its own still shows 1.1.0's list as "1.1.0".
+    expect(releaseOf(pendingFeatures("1.0.0", "1.1.1", registry), "1.1.1")).toBe("1.1.0");
+  });
+
+  it("takes the newest of several releases", () => {
+    expect(releaseOf(pendingFeatures("1.0.0", "1.2.0", registry), "1.2.1")).toBe("1.2.0");
+  });
+
+  it("falls back to the running version when nothing is shown", () => {
+    expect(releaseOf([], "1.3.1")).toBe("1.3.1");
   });
 });
