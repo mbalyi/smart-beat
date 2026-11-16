@@ -138,6 +138,30 @@ describe("SettingsDialog", () => {
     expect(toggle).not.toBeChecked();
   });
 
+  it("holds the crash reports switch while a save is in flight, so two saves cannot race", async () => {
+    let finish: () => void = () => {};
+    const calls = mockTauri({
+      set_crash_report_settings: (args) =>
+        new Promise((resolve) => {
+          finish = () =>
+            resolve({ enabled: (args as { enabled: boolean }).enabled, available: true });
+        }),
+    });
+    backend.crashReports = { enabled: false, available: true };
+    const { user } = renderSettings();
+
+    const toggle = await screen.findByRole("switch", { name: "Send crash reports" });
+    await user.click(toggle);
+    await waitFor(() => expect(toggle).toBeDisabled());
+    // A second click while the first save is pending is ignored.
+    await user.click(toggle);
+    expect(calls.filter((c) => c.cmd === "set_crash_report_settings")).toHaveLength(1);
+
+    act(() => finish());
+    await waitFor(() => expect(toggle).toBeEnabled());
+    expect(toggle).toBeChecked();
+  });
+
   it("says so when this version cannot send crash reports", async () => {
     mockTauri();
     renderSettings();

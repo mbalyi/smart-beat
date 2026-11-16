@@ -14,11 +14,12 @@
 //! The panic hook of this module talks to the client directly, not through Sentry's hub, so it
 //! works on every thread and can be switched on and off any number of times.
 
+use std::cell::Cell;
 use std::fs;
 use std::io::{self, Write};
 use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Once, RwLock};
 use std::time::Duration;
 
@@ -46,8 +47,18 @@ pub const DSN: Option<&str> = option_env!("SMART_BEAT_SENTRY_DSN_CORE");
 const PANIC_FLUSH: Duration = Duration::from_secs(2);
 /// Network timeout of one report.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
-/// Most reports one run sends: a crash loop in a thread must not flood the project.
+/// Most reports one run of the app sends, however often the switch goes on and off: a crash loop
+/// in a thread must not flood the project.
 pub const MAX_REPORTS_PER_RUN: u32 = 10;
+
+/// What the run has sent so far. Process-wide, so a new client (the switch off and on again)
+/// does not get a fresh allowance.
+static SENT: AtomicU32 = AtomicU32::new(0);
+
+thread_local! {
+    /// Above zero while this thread runs code whose panics are caught and survived.
+    static RECOVERABLE: Cell<u32> = const { Cell::new(0) };
+}
 
 /// What the Settings dialog shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -83,6 +94,9 @@ pub struct CrashReports {
     /// `None` sends with ureq.
     transport: Option<Arc<dyn TransportFactory>>,
     active: Mutex<Option<Active>>,
+    /// Taken for the whole of a switch: saving the choice and starting or stopping the client
+    /// happen together, so two overlapping calls cannot leave them disagreeing.
+    switch: Mutex<()>,
 }
 
 impl CrashReports {
@@ -117,6 +131,7 @@ impl CrashReports {
             version: version.to_owned(),
             transport,
             active: Mutex::new(None),
+            switch: Mutex::new(()),
         }
     }
 
@@ -148,6 +163,7 @@ impl CrashReports {
 
     /// Saves the choice and starts or stops the client to match it.
     pub fn set_enabled(&self, enabled: bool) -> Result<CrashReportSettings, CommandError> {
+        let _switching = self.switch.lock().unwrap_or_else(|e| e.into_inner());
         write_json(&self.settings_path(), &Stored { enabled })?;
         if enabled {
             self.start();
@@ -159,6 +175,7 @@ impl CrashReports {
 
     /// Starts the client at launch when the user switched crash reports on earlier.
     pub fn start_if_enabled(&self) {
+        let _switching = self.switch.lock().unwrap_or_else(|e| e.into_inner());
         if self.stored().enabled {
             self.start();
         }
@@ -206,7 +223,6 @@ pub fn client_options(
     let release = version.to_owned();
     let environment = environment();
     let os = os_name();
-    let sent = std::sync::atomic::AtomicU32::new(0);
     let mut options = ClientOptions::new();
     options.dsn = Some(dsn);
     options.release = Some(release.clone().into());
@@ -224,8 +240,8 @@ pub fn client_options(
     options.transport = Some(transport);
     options.before_send = Some(Arc::new(move |event| {
         let scrubbed = scrub_event(event, &release, environment, os)?;
-        // The cap counts what would be sent; a count that is not kept goes unsent.
-        (sent.fetch_add(1, Ordering::SeqCst) < MAX_REPORTS_PER_RUN).then_some(scrubbed)
+        // The cap counts what would be sent, over the whole run; past it nothing goes out.
+        (SENT.fetch_add(1, Ordering::SeqCst) < MAX_REPORTS_PER_RUN).then_some(scrubbed)
     }));
     options
 }
@@ -259,7 +275,31 @@ fn report_panic(info: &PanicHookInfo<'_>) {
         .map(|trace| trace.frames)
         .unwrap_or_default();
     client.capture_event(panic_event(location, frames), None);
-    client.flush(Some(PANIC_FLUSH));
+    // A panic that is caught and survived (the audio callback) must not wait for the network: the
+    // report is already handed to the transport, which sends it on its own thread.
+    if !is_recoverable() {
+        client.flush(Some(PANIC_FLUSH));
+    }
+}
+
+/// Runs `f`, whose panics the caller catches and survives (the audio thread's `catch_unwind`).
+/// A panic in there is still reported, but the hook does not wait for the report to leave.
+pub fn recoverable<R>(f: impl FnOnce() -> R) -> R {
+    struct Leave;
+    impl Drop for Leave {
+        fn drop(&mut self) {
+            RECOVERABLE.with(|depth| depth.set(depth.get().saturating_sub(1)));
+        }
+    }
+    RECOVERABLE.with(|depth| depth.set(depth.get() + 1));
+    let _leave = Leave;
+    f()
+}
+
+fn is_recoverable() -> bool {
+    RECOVERABLE
+        .try_with(|depth| depth.get() > 0)
+        .unwrap_or(false)
 }
 
 /// The event of a panic: the exception type `panic` and the frames of the backtrace, which has
@@ -404,13 +444,23 @@ mod tests {
     /// The panic hook and its client are process-wide, so the tests that start a client take turns.
     static ONE_AT_A_TIME: StdMutex<()> = StdMutex::new(());
 
-    /// Collects what would be sent.
+    /// A test takes its turn and starts with a full allowance of reports.
+    fn take_turn() -> std::sync::MutexGuard<'static, ()> {
+        let turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        SENT.store(0, Ordering::SeqCst);
+        turn
+    }
+
+    /// Collects what would be sent, and counts the waits for the network.
     #[derive(Clone, Default)]
-    struct Collector(Arc<StdMutex<Vec<String>>>);
+    struct Collector(Arc<StdMutex<Vec<String>>>, Arc<AtomicU32>);
 
     impl Collector {
         fn sent(&self) -> Vec<String> {
             self.0.lock().unwrap().clone()
+        }
+        fn flushes(&self) -> u32 {
+            self.1.load(Ordering::SeqCst)
         }
         fn factory(&self) -> Arc<dyn TransportFactory> {
             Arc::new(self.clone())
@@ -425,6 +475,10 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(String::from_utf8_lossy(&body).into_owned());
+        }
+        fn flush(&self, _: Duration) -> bool {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            true
         }
     }
 
@@ -592,7 +646,7 @@ mod tests {
 
     #[test]
     fn switching_on_starts_the_client_and_switching_off_stops_it() {
-        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        let _turn = take_turn();
         let dir = tempfile::tempdir().unwrap();
         let collector = Collector::default();
         let app = reports(dir.path(), Some(FAKE_DSN), &collector);
@@ -630,7 +684,7 @@ mod tests {
 
     #[test]
     fn a_panic_sends_one_scrubbed_report_and_nothing_after_switching_off() {
-        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        let _turn = take_turn();
         let dir = tempfile::tempdir().unwrap();
         let collector = Collector::default();
         let app = reports(dir.path(), Some(FAKE_DSN), &collector);
@@ -687,6 +741,71 @@ mod tests {
         app.set_enabled(true).unwrap();
         crash_in_a_thread();
         assert_eq!(collector.sent().len(), 2);
+        app.stop();
+    }
+
+    #[test]
+    fn the_report_cap_counts_the_whole_run_not_one_client() {
+        let _turn = take_turn();
+        let collector = Collector::default();
+        let event = || panic_event(Some(("src/audio/mod.rs", 1, 1)), Vec::new());
+        let dsn: Dsn = FAKE_DSN.parse().unwrap();
+        let first = client_options(dsn.clone(), "9.9.9", collector.factory());
+        let before_send = first.before_send.as_ref().unwrap();
+        for sent in 0..MAX_REPORTS_PER_RUN {
+            assert!(before_send(event()).is_some(), "report {sent} is sent");
+        }
+        assert!(before_send(event()).is_none(), "the 11th is not sent");
+        // The switch off and on again builds a new client: the allowance is not renewed.
+        let second = client_options(dsn, "9.9.9", collector.factory());
+        assert!(second.before_send.as_ref().unwrap()(event()).is_none());
+    }
+
+    #[test]
+    fn a_recovered_panic_is_reported_without_waiting_for_the_network() {
+        let _turn = take_turn();
+        let dir = tempfile::tempdir().unwrap();
+        let collector = Collector::default();
+        let app = reports(dir.path(), Some(FAKE_DSN), &collector);
+        app.set_enabled(true).unwrap();
+
+        // The audio thread's pattern: the panic is caught and survived.
+        std::thread::spawn(|| {
+            let survived = recoverable(|| {
+                std::panic::catch_unwind(|| panic!("a render panic with /Users/jane in it"))
+            });
+            assert!(survived.is_err());
+        })
+        .join()
+        .unwrap();
+        assert_eq!(collector.sent().len(), 1, "the panic is still reported");
+        assert_eq!(collector.flushes(), 0, "but nothing waited for it to leave");
+
+        // A panic that ends its thread still waits, so the report leaves before it dies.
+        crash_in_a_thread();
+        assert_eq!(collector.sent().len(), 2);
+        assert_eq!(collector.flushes(), 1);
+        app.stop();
+    }
+
+    #[test]
+    fn two_overlapping_switches_never_leave_the_file_and_the_client_disagreeing() {
+        let _turn = take_turn();
+        let dir = tempfile::tempdir().unwrap();
+        let collector = Collector::default();
+        let app = Arc::new(reports(dir.path(), Some(FAKE_DSN), &collector));
+        for round in 0..40 {
+            let (on, off) = (Arc::clone(&app), Arc::clone(&app));
+            let a = std::thread::spawn(move || on.set_enabled(true).unwrap());
+            let b = std::thread::spawn(move || off.set_enabled(false).unwrap());
+            a.join().unwrap();
+            b.join().unwrap();
+            assert_eq!(
+                app.settings().enabled,
+                app.running(),
+                "the saved choice and the client agree after round {round}"
+            );
+        }
         app.stop();
     }
 

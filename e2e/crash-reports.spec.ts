@@ -189,15 +189,19 @@ test.describe("opt-in crash reports", () => {
 
   test("without a core DSN the switch is not offered and nothing is sent", async ({ app }) => {
     const requests = await captureSentry(app);
-    await app.evaluate(() => {
+    // The mock is an init script and runs again on every reload, so the state is set the same
+    // way, before the reload. The setting is on and the UI has an address: only `available` is off,
+    // so only that gate can stop the error from being sent.
+    await app.addInitScript((dsn) => {
+      window.__sentryTestDsn = dsn;
       window.__crashReports = { enabled: true, available: false };
-    });
+    }, TEST_DSN);
+    await app.reload();
+    await expect(app.getByRole("heading", { level: 1 })).toBeVisible();
     const dialog = await openSettings(app);
     await expect(dialog).toContainText("does not send crash reports");
     await expect(dialog.getByRole("switch", { name: "Send crash reports" })).toHaveCount(0);
     await dialog.getByRole("button", { name: "Close" }).last().click();
-    await app.reload();
-    await expect(app.getByRole("heading", { level: 1 })).toBeVisible();
     await crash(app);
     await app.waitForTimeout(1500);
     expect(requests).toEqual([]);

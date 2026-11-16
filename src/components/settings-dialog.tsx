@@ -95,6 +95,8 @@ function CrashReportSetting({ initial }: { initial: CrashReportSettings | null }
   const descriptionId = useId();
   const [enabled, setEnabled] = useState(initial?.enabled ?? false);
   const [error, setError] = useState<string | null>(null);
+  // A save in flight: the switch waits for it, so two overlapping saves cannot race.
+  const [saving, setSaving] = useState(false);
 
   if (!initial?.available) {
     return (
@@ -105,6 +107,8 @@ function CrashReportSetting({ initial }: { initial: CrashReportSettings | null }
   }
 
   const change = async (next: boolean) => {
+    if (saving) return;
+    setSaving(true);
     setEnabled(next);
     setError(null);
     try {
@@ -112,6 +116,8 @@ function CrashReportSetting({ initial }: { initial: CrashReportSettings | null }
     } catch (e) {
       setEnabled(!next);
       setError(`The setting could not be saved. ${errorText(e)}`);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -124,6 +130,7 @@ function CrashReportSetting({ initial }: { initial: CrashReportSettings | null }
         <Switch
           id={switchId}
           checked={enabled}
+          disabled={saving}
           onCheckedChange={(next) => void change(next)}
           aria-describedby={descriptionId}
         />
