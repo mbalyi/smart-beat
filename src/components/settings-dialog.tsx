@@ -21,14 +21,17 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { usePromise } from "@/hooks/use-promise";
 import { announceCloudChange } from "@/lib/cloud-changes";
+import { setCrashReports } from "@/lib/crash-reports";
 import { errorText } from "@/lib/errors";
 import {
   detectCloudFolders,
   getCloudFolder,
+  getCrashReportSettings,
   isTauri,
   pickCloudFolder,
   setCloudFolder,
   type CloudFolderCandidate,
+  type CrashReportSettings,
 } from "@/lib/tauri";
 import { getUsageSettings, setUsageSettings, type UsageSettings } from "@/lib/telemetry";
 
@@ -77,6 +80,62 @@ function UsageSetting({ initial }: { initial: UsageSettings | null }) {
         the app crashes, it counts that too, only as a fixed category such as audio or cloud, never
         the error message. Songs, file names, sound names and anything you type are never sent.
         Switching this off also deletes counts that have not been sent yet.
+      </p>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CrashReportSetting({ initial }: { initial: CrashReportSettings | null }) {
+  const switchId = useId();
+  const descriptionId = useId();
+  const [enabled, setEnabled] = useState(initial?.enabled ?? false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!initial?.available) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        This version of Smart Beat does not send crash reports.
+      </p>
+    );
+  }
+
+  const change = async (next: boolean) => {
+    setEnabled(next);
+    setError(null);
+    try {
+      setEnabled((await setCrashReports(next)).enabled);
+    } catch (e) {
+      setEnabled(!next);
+      setError(`The setting could not be saved. ${errorText(e)}`);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-4">
+        <label htmlFor={switchId} className="font-medium">
+          Send crash reports
+        </label>
+        <Switch
+          id={switchId}
+          checked={enabled}
+          onCheckedChange={(next) => void change(next)}
+          aria-describedby={descriptionId}
+        />
+      </div>
+      <p id={descriptionId} className="text-sm text-muted-foreground">
+        Off until you switch it on. When Smart Beat fails, it can send a report so the problem can
+        be fixed: the kind of error, the names and line numbers of Smart Beat&apos;s own code where
+        it happened, the app version and your operating system (macOS, Windows or Linux). The error
+        message is never sent, so songs, file names, folders, your name and anything you type stay
+        on your computer. Smart Beat never records your screen, never makes screenshots and never
+        records sessions. Switching this off stops sending at once, and reports that have not been
+        sent are discarded.
       </p>
       {error && (
         <p role="alert" className="text-sm text-destructive">
@@ -166,6 +225,9 @@ export function SettingsDialog({
                   testId="settings-privacy"
                 >
                   <LoadedSettings />
+                  <div className="border-t pt-4">
+                    <LoadedCrashReports />
+                  </div>
                 </SettingsCard>
               </>
             )}
@@ -226,6 +288,19 @@ function LoadedSettings() {
       errorMessage={(error) => `Settings are unavailable. ${errorText(error)}`}
     >
       {(settings) => <UsageSetting initial={settings} />}
+    </AsyncContent>
+  );
+}
+
+function LoadedCrashReports() {
+  const state = usePromise(getCrashReportSettings);
+  return (
+    <AsyncContent
+      state={state}
+      loadingLabel="Loading crash report settings…"
+      errorMessage={(error) => `Crash report settings are unavailable. ${errorText(error)}`}
+    >
+      {(settings) => <CrashReportSetting initial={settings} />}
     </AsyncContent>
   );
 }

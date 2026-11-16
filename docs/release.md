@@ -45,6 +45,23 @@ To try the pipeline without a tag, run the workflow by hand (Actions › Release
 
 Release builds send anonymous usage counters to the Cloudflare Worker in [`analytics/`](../analytics) ([`analytics.md`](analytics.md)). The address comes from the repository **variable** `ANALYTICS_URL` (Settings › Secrets and variables › Actions › Variables), for example `https://smart-beat-analytics.<account>.workers.dev/v1/batch`; the workflow bakes it into the build together with the installer type. Without the variable, or in a pull request, the build has no address and never sends anything.
 
+## Crash report addresses
+
+Opt-in crash reports ([`crash-reports.md`](crash-reports.md)) need the addresses (Sentry DSNs) of the two Sentry projects, one for the UI and one for the Rust core. They are repository **secrets**, never written to the repository, a log or the docs:
+
+| Secret                           | Value                                  |
+| -------------------------------- | -------------------------------------- |
+| `SMART_BEAT_SENTRY_DSN_FRONTEND` | DSN of the Sentry project for the UI   |
+| `SMART_BEAT_SENTRY_DSN_CORE`     | DSN of the Sentry project for the core |
+
+The release workflow bakes them into the build (the UI one as `VITE_SENTRY_DSN_FRONTEND`, the core one with `option_env!`). Pull requests and forks have no access to secrets, and the workflow also hands none to pull-request builds, so those builds contain no address and the integration is a no-op; the same is true when a secret is missing, and the build still works. A local build reads them from the git-ignored `.env` ([`.env.example`](../.env.example)). Users still have to opt in (Settings › Send crash reports); the build only decides whether the switch can do anything.
+
+The reports are only useful if a person can read them, so a new DSN or a changed project is something to check once with a development build ([`crash-reports.md`](crash-reports.md#how-to-check-it)).
+
+### Readable stack traces (optional)
+
+Not required for a release. Release builds minify the UI (no source maps are written) and the Rust release profile uses `strip = true`, so the frames of a report show a bundle name such as `index-AbC123.js` and no function names for Rust until debug information is uploaded to Sentry for the matching release (the app version). To make them readable, upload the UI source maps and the Rust debug files (for macOS, the `.dSYM`; for Windows, the `.pdb`; for Linux, the unstripped binary) for each release with `sentry-cli` in a separate step, with an auth token kept in a secret of its own. This needs a build that keeps the debug information before stripping, which is a decision about the release profile and is **not** part of the crash report feature: the profile is unchanged.
+
 ## Practice together meeting service
 
 "Over the internet" in Practice together needs the Cloudflare Worker in [`signaling/`](../signaling) ([`practice-together.md`](practice-together.md)). [`signaling-deploy.yml`](../.github/workflows/signaling-deploy.yml) tests it on pull requests and deploys it on `main` with the same `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets as the analytics Worker (skipped without them). Set the repository **variable** `SIGNALING_URL` to the Worker's address, for example `https://smart-beat-signaling.<account>.workers.dev`; the release workflow bakes it into the build as `SMART_BEAT_SIGNALING_URL`. Without the variable, or in a pull request, the build has no address and offers Practice together on the same network only. The Worker is deployed as `smart-beat-signaling` (a Worker of its own, next to `smart-beat-analytics`) at `https://smart-beat-signaling.smart-beat.workers.dev`, and the variable is set to that address. The `CLOUDFLARE_API_TOKEN` secret is a user API token limited to the one account, with **Workers Scripts: Edit** and **D1: Edit** (the analytics Worker needs D1 for its migrations); it expires one year after it was made (November 2027), after which both deploy workflows fail until a new token is stored. A local build reads `SMART_BEAT_SIGNALING_URL` from the git-ignored `.env` like the cloud sign-in keys (`.env.example`).

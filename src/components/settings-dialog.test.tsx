@@ -82,6 +82,81 @@ describe("SettingsDialog", () => {
     expect(toggle).toBeChecked();
   });
 
+  it("offers the crash reports switch, off by default, when the build can send them", async () => {
+    mockTauri();
+    backend.crashReports = { enabled: false, available: true };
+    renderSettings();
+
+    const toggle = await screen.findByRole("switch", { name: "Send crash reports" });
+    expect(toggle).not.toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(/Off until you switch it on/);
+    expect(toggle).toHaveAccessibleDescription(/never records your screen/);
+    expect(toggle).toHaveAccessibleDescription(/never makes screenshots/);
+    expect(toggle).toHaveAccessibleDescription(/never records sessions/);
+    expect(toggle).toHaveAccessibleDescription(/error message is never sent/);
+    expect(toggle).toHaveAccessibleDescription(/stops sending at once/);
+    // Independent from the usage counters, which have no switch in this build.
+    expect(screen.getAllByRole("switch")).toHaveLength(1);
+    await expectNoA11yViolations();
+  });
+
+  it("switches crash reports on and off, saving each change and the usage setting apart", async () => {
+    const calls = mockTauri();
+    backend.crashReports = { enabled: false, available: true };
+    backend.usage = { enabled: true, available: true, noticeSeen: true };
+    const { user } = renderSettings();
+
+    const toggle = await screen.findByRole("switch", { name: "Send crash reports" });
+    await user.click(toggle);
+    await waitFor(() => expect(backend.crashReports.enabled).toBe(true));
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    await waitFor(() => expect(backend.crashReports.enabled).toBe(false));
+    expect(toggle).not.toBeChecked();
+
+    const saved = calls.filter((c) => c.cmd === "set_crash_report_settings");
+    expect(saved.map((c) => c.args)).toEqual([{ enabled: true }, { enabled: false }]);
+    expect(backend.usage.enabled).toBe(true);
+    expect(calls.some((c) => c.cmd === "set_usage_settings")).toBe(false);
+  });
+
+  it("puts the crash reports switch back and says so when it can't be saved", async () => {
+    mockTauri({
+      set_crash_report_settings: () => {
+        throw { kind: "io", message: "disk on fire" };
+      },
+    });
+    backend.crashReports = { enabled: false, available: true };
+    const { user } = renderSettings();
+
+    const toggle = await screen.findByRole("switch", { name: "Send crash reports" });
+    await user.click(toggle);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The setting could not be saved. disk on fire",
+    );
+    expect(toggle).not.toBeChecked();
+  });
+
+  it("says so when this version cannot send crash reports", async () => {
+    mockTauri();
+    renderSettings();
+    expect(await screen.findByText(/does not send crash reports/)).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Send crash reports" })).not.toBeInTheDocument();
+  });
+
+  it("explains unavailable crash report settings", async () => {
+    mockTauri({
+      get_crash_report_settings: () => {
+        throw { kind: "io", message: "no access" };
+      },
+    });
+    renderSettings();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Crash report settings are unavailable/,
+    );
+  });
+
   it("says so when this version collects nothing", async () => {
     mockTauri();
     renderSettings();

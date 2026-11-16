@@ -11,6 +11,7 @@ use crate::audio::AudioState;
 use crate::cloud_folder::{
     self, CloudFolderCandidate, CloudFolderStore, CloudScore, CloudStem, FileStamp,
 };
+use crate::crash_reports::{CrashReportSettings, CrashReports};
 use crate::error::{CommandError, ErrorKind};
 use crate::m4a;
 use crate::menu::{self, Shortcut};
@@ -339,6 +340,23 @@ pub fn set_usage_settings(
     notice_seen: Option<bool>,
 ) -> Result<UsageSettings, CommandError> {
     telemetry.update_settings(enabled, notice_seen)
+}
+
+/// Whether crash reports are switched on, and whether this build can send them at all.
+#[tauri::command]
+pub fn get_crash_report_settings(
+    reports: State<'_, std::sync::Arc<CrashReports>>,
+) -> CrashReportSettings {
+    reports.settings()
+}
+
+/// Switches crash reports on or off. Off stops sending at once; on starts the client.
+#[tauri::command(async)]
+pub fn set_crash_report_settings(
+    reports: State<'_, std::sync::Arc<CrashReports>>,
+    enabled: bool,
+) -> Result<CrashReportSettings, CommandError> {
+    reports.set_enabled(enabled)
 }
 
 /// Updates the menu bar to match the UI (undo labels, check marks, enabled items).

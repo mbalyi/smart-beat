@@ -80,6 +80,7 @@ export const SMOKE_GROUPS = {
     "**/menu.spec.ts",
     "**/updater.spec.ts",
     "**/analytics.spec.ts",
+    "**/crash-reports.spec.ts",
     "**/feedback-90.spec.ts",
   ],
 } as const satisfies Record<string, readonly string[]>;

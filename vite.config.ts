@@ -1,9 +1,10 @@
+import { execFileSync } from "node:child_process";
 import { cpSync } from "node:fs";
 import path from "node:path";
 import { alphaTab } from "@coderline/alphatab-vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 
 // Set by `tauri dev` when targeting a physical device on the local network.
 const host = process.env.TAURI_DEV_HOST;
@@ -28,6 +29,47 @@ function alphaTabAssets(): Plugin {
       }
     },
   };
+}
+
+/**
+ * The crash-report DSN of the UI's Sentry project (docs/crash-reports.md), as
+ * `import.meta.env.VITE_SENTRY_DSN_FRONTEND`. It is a build-time value, never stored in the
+ * repository. Order: the real environment (the release pipeline sets
+ * SMART_BEAT_SENTRY_DSN_FRONTEND from a repository secret), the git-ignored `.env` of this
+ * checkout, and in a linked git worktree the `.env` of the main checkout (as src-tauri/build.rs
+ * does for the Rust side). Without a value nothing is defined and the UI side is a no-op.
+ */
+function sentryDsnFrontend(): Record<string, string> {
+  const root = import.meta.dirname;
+  const dirs = [root];
+  try {
+    const common = execFileSync(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    ).trim();
+    const main = path.dirname(common);
+    if (main !== root) dirs.push(main);
+  } catch {
+    // Not a git checkout (a source archive): only this directory's .env counts.
+  }
+  const dsn =
+    process.env.SMART_BEAT_SENTRY_DSN_FRONTEND ||
+    process.env.VITE_SENTRY_DSN_FRONTEND ||
+    dirs
+      .map((dir) =>
+        loadEnv(process.env.NODE_ENV ?? "development", dir, [
+          "SMART_BEAT_SENTRY_DSN_",
+          "VITE_SENTRY_DSN_",
+        ]),
+      )
+      .map((env) => env.SMART_BEAT_SENTRY_DSN_FRONTEND || env.VITE_SENTRY_DSN_FRONTEND)
+      .find(Boolean);
+  return dsn ? { "import.meta.env.VITE_SENTRY_DSN_FRONTEND": JSON.stringify(dsn) } : {};
 }
 
 // https://v2.tauri.app/start/frontend/vite/
@@ -57,6 +99,8 @@ export default defineConfig({
       ignored: ["**/src-tauri/**"],
     },
   },
+  // Unit tests must not see a developer's real DSN: they set the value themselves.
+  define: process.env.VITEST ? {} : sentryDsnFrontend(),
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {
     // Tauri uses WebView2 on Windows (Chromium) and WebKit on macOS/Linux.

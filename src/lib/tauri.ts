@@ -651,6 +651,25 @@ async function call<T>(command: string, args?: InvokeArgs): Promise<T> {
 
 export const getAppInfo = () => call<AppInfo>("app_info");
 
+/** What the Settings dialog shows for crash reports (mirrors `CrashReportSettings` in the core). */
+export interface CrashReportSettings {
+  /** The user opted in (off until they say so). */
+  enabled: boolean;
+  /** This build can send crash reports at all: the core's Sentry DSN was compiled in. */
+  available: boolean;
+}
+
+/** The crash-report setting. `null` in a browser, where nothing is ever sent. */
+export async function getCrashReportSettings(): Promise<CrashReportSettings | null> {
+  if (!isTauri()) return null;
+  return invoke<CrashReportSettings>("get_crash_report_settings");
+}
+
+/** Switches crash reports on or off; resolves to the stored state. */
+export async function setCrashReportSettings(enabled: boolean): Promise<CrashReportSettings> {
+  return call<CrashReportSettings>("set_crash_report_settings", { enabled });
+}
+
 export const getMenuShortcuts = () => call<Shortcut[]>("menu_shortcuts");
 
 /** Subscribes to native menu actions. Resolves to an unsubscribe function. */

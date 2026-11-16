@@ -274,6 +274,8 @@ fn imported_sounds_stay_on_this_computer() {
         let client = "ureq";
         let owners = [
             "telemetry.rs",
+            // Opt-in crash reports: the Sentry sender is ureq (docs/crash-reports.md).
+            "crash_reports.rs",
             "recording/piano_model.rs",
             "recording/muscriptor_model.rs",
             "stems/model_files.rs",
@@ -413,12 +415,18 @@ fn imported_sounds_stay_on_this_computer() {
     )
     .unwrap();
     let csp = &config["app"]["security"]["csp"];
-    // Tauri's own IPC channel is the only address the page may talk to.
+    // Tauri's own IPC channel and the Sentry ingest host (opt-in crash reports, docs/crash-reports.md:
+    // the page sends its scrubbed errors straight to the frontend project) are the only addresses
+    // the page may talk to.
     let connect = csp["connect-src"].as_str().unwrap_or("");
     let remote: Vec<&str> = connect
         .split_whitespace()
         .filter(|source| !["'self'", "ipc:", "http://ipc.localhost"].contains(source))
         .collect();
-    assert!(remote.is_empty(), "connect-src allows {remote:?}");
+    assert_eq!(
+        remote,
+        ["https://*.ingest.de.sentry.io"],
+        "connect-src allows {remote:?}"
+    );
     assert!(csp["default-src"].as_str().unwrap().contains("'self'"));
 }

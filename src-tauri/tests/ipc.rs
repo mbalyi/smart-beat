@@ -1459,6 +1459,84 @@ fn usage_counters_are_recorded_and_can_be_switched_off_over_ipc() {
     assert!(!dir.path().join("usage.json").exists());
 }
 
+/// An app whose crash report setting lives in `dir`. The address is fake: nothing is ever sent.
+fn app_with_crash_reports(dir: &Path, dsn: Option<&str>) -> App<MockRuntime> {
+    use smart_beat_lib::crash_reports::CrashReports;
+    use std::sync::Arc;
+    smart_beat_lib::setup(mock_builder().manage(Arc::new(CrashReports::new(dir, dsn, "9.9.9"))))
+        .build(mock_context(noop_assets()))
+        .expect("failed to build app")
+}
+
+#[test]
+fn crash_reports_are_off_by_default_and_the_choice_is_kept_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_crash_reports(dir.path(), Some("https://public@o0.ingest.de.sentry.io/1"));
+    let window = main_window(&app);
+
+    assert_eq!(
+        invoke(&window, "get_crash_report_settings").unwrap(),
+        json!({ "enabled": false, "available": true })
+    );
+    assert!(!dir.path().join("crash-reports.json").exists());
+
+    let on = invoke_with(
+        &window,
+        "set_crash_report_settings",
+        json!({ "enabled": true }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(on, json!({ "enabled": true, "available": true }));
+    assert_eq!(
+        invoke(&window, "get_crash_report_settings").unwrap(),
+        json!({ "enabled": true, "available": true })
+    );
+    // The choice is stored apart from the usage counters.
+    assert!(dir.path().join("crash-reports.json").exists());
+    assert!(!dir.path().join("settings.json").exists());
+
+    let off = invoke_with(
+        &window,
+        "set_crash_report_settings",
+        json!({ "enabled": false }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(off, json!({ "enabled": false, "available": true }));
+    // Wrong argument types are refused.
+    assert!(
+        invoke_with(
+            &window,
+            "set_crash_report_settings",
+            json!({ "enabled": "yes" })
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn a_build_without_an_address_cannot_send_crash_reports_over_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_crash_reports(dir.path(), None);
+    let window = main_window(&app);
+    assert_eq!(
+        invoke(&window, "get_crash_report_settings").unwrap(),
+        json!({ "enabled": false, "available": false })
+    );
+    let on = invoke_with(
+        &window,
+        "set_crash_report_settings",
+        json!({ "enabled": true }),
+    )
+    .unwrap()
+    .deserialize::<Value>()
+    .unwrap();
+    assert_eq!(on, json!({ "enabled": true, "available": false }));
+}
+
 #[test]
 fn unknown_usage_events_and_formats_are_refused_over_ipc() {
     let dir = tempfile::tempdir().unwrap();
