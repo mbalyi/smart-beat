@@ -119,7 +119,13 @@ describe("error counter categories", () => {
   });
 
   it("does not count the counters themselves", () => {
-    for (const command of ["track_event", "get_usage_settings", "set_usage_settings"]) {
+    for (const command of [
+      "track_event",
+      "get_usage_settings",
+      "set_usage_settings",
+      "get_crash_report_settings",
+      "set_crash_report_settings",
+    ]) {
       expect(errorDetail(command, { kind: "io", message: "x" })).toBeNull();
     }
   });

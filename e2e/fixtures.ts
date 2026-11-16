@@ -195,6 +195,10 @@ declare global {
     __pendingOpen: string[];
     /** Usage counter settings (#99): `available` simulates a release build. */
     __usage: { enabled: boolean; available: boolean; noticeSeen: boolean };
+    /** Crash report settings: `available` simulates a build with a core Sentry DSN. */
+    __crashReports: { enabled: boolean; available: boolean };
+    /** Development builds only: a stand-in for the UI's Sentry DSN (no real project). */
+    __sentryTestDsn?: string;
     __written: Map<string, Uint8Array>;
     __mixes: Map<string, MixerSettings>;
     __ipcCalls: { cmd: string; args: unknown }[];

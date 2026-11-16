@@ -442,6 +442,8 @@
   /** Songs the system asked to open that the page has not collected (`src-tauri/src/open_file.rs`). */
   window.__pendingOpen = [];
   window.__usage = { enabled: true, available: false, noticeSeen: true };
+  /** Crash report settings (opt-in, off by default): `available` simulates a build with a core DSN. */
+  window.__crashReports = { enabled: false, available: false };
   /** Path the native Save dialog "picks" (`null` = Cancel). Set by tests. */
   window.__saveResult = null;
   /** Files written by `write_score_file`, by path: they can be opened again. */
@@ -579,6 +581,12 @@
           noticeSeen: args.noticeSeen ?? window.__usage.noticeSeen,
         };
         return window.__usage;
+      // Crash reports: `window.__crashReports` ({ enabled, available }) is the stored setting.
+      case "get_crash_report_settings":
+        return window.__crashReports;
+      case "set_crash_report_settings":
+        window.__crashReports = { ...window.__crashReports, enabled: args.enabled };
+        return window.__crashReports;
       case "plugin:dialog|save":
         return window.__saveResult;
       case "update_menu_state":

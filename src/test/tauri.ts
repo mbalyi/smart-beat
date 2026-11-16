@@ -182,6 +182,8 @@ export const backend = {
   projectSettings: new Map<string, MixerSettings>(),
   /** Usage counter settings (see `src-tauri/src/telemetry.rs`); builds without an endpoint have none. */
   usage: { enabled: true, available: false, noticeSeen: true },
+  /** Crash report settings (opt-in, off by default); `available` means the core has a DSN. */
+  crashReports: { enabled: false, available: false },
   /** The separated songs `stems_list` returns (newest first). */
   stemSongs: [] as StemSong[],
   /** `.sbstems` paths the system opened before the page was listening (the Rust queue). */
@@ -242,6 +244,7 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
   backend.written.clear();
   backend.projectSettings.clear();
   backend.usage = { enabled: true, available: false, noticeSeen: true };
+  backend.crashReports = { enabled: false, available: false };
   backend.stemSongs = [];
   backend.bundleSong = { ...STEM_SONG, id: "bbbbbbbbbbbbbbbb", name: "Opened Song" };
   backend.pendingStemBundles = [];
@@ -489,6 +492,14 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
           };
           return backend.usage;
         }
+        case "get_crash_report_settings":
+          return backend.crashReports;
+        case "set_crash_report_settings":
+          backend.crashReports = {
+            ...backend.crashReports,
+            enabled: (args as { enabled: boolean }).enabled,
+          };
+          return backend.crashReports;
         case "plugin:dialog|save":
           return backend.saveResult;
         case "update_menu_state":

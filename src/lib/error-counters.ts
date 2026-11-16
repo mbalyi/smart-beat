@@ -50,7 +50,13 @@ export const ERROR_DETAILS: readonly string[] = ERROR_AREAS.flatMap((area) =>
 );
 
 /** Commands that are never counted: reporting their failure would report itself. */
-const UNCOUNTED = new Set(["track_event", "get_usage_settings", "set_usage_settings"]);
+const UNCOUNTED = new Set([
+  "track_event",
+  "get_usage_settings",
+  "set_usage_settings",
+  "get_crash_report_settings",
+  "set_crash_report_settings",
+]);
 
 /** Command-name prefixes (and exact names) per area; the first match wins. */
 const AREA_RULES: ReadonlyArray<readonly [ErrorArea, RegExp]> = [

@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "@/App";
+import { initCrashReports } from "@/lib/crash-reports";
 import { fallBackToStill, hideSplashWhenReady } from "@/lib/splash";
 import { AppProviders } from "@/providers/app-providers";
 import "./index.css";
@@ -33,6 +34,9 @@ function hideSplash() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root element");
+
+// Opt-in crash reports: does nothing unless the user switched them on (Settings).
+void initCrashReports();
 
 createRoot(root).render(
   <StrictMode>

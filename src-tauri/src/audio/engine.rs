@@ -1259,7 +1259,8 @@ impl Engine {
     /// bypassed. Returns false when that happened.
     pub fn render_guarded(&mut self, left: &mut [f32], right: &mut [f32]) -> bool {
         let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.render(left, right);
+            // A crash report of a panic in here must not wait for the network (the panic is survived).
+            crate::crash_reports::recoverable(|| self.render(left, right));
         }));
         if rendered.is_ok() {
             return true;

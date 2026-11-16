@@ -27,6 +27,18 @@ export function pendingFeatures(
   );
 }
 
+/**
+ * The release the shown features belong to: the newest `since` among them, or `fallback` when there
+ * are none. A patch release that adds no feature still shows the earlier release's list under that
+ * release's own heading.
+ */
+export function releaseOf(features: readonly FeatureEntry[], fallback: string): string {
+  let version = "";
+  for (const f of features)
+    if (version === "" || compareVersions(f.since, version) > 0) version = f.since;
+  return version === "" ? fallback : version;
+}
+
 /** The newest release in the registry and its features, for Help › What's New. */
 export function latestFeatures(registry: readonly FeatureEntry[] = FEATURE_REGISTRY): {
   version: string;

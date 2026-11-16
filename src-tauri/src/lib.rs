@@ -6,6 +6,8 @@ pub mod cloud;
 pub mod cloud_commands;
 pub mod cloud_folder;
 mod commands;
+pub mod crash_reports;
+pub mod crash_scrub;
 #[cfg(test)]
 mod dotenv;
 pub mod error;
@@ -96,6 +98,21 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                     telemetry::ENDPOINT,
                     &version,
                 )));
+            }
+            // Opt-in crash reports (docs/crash-reports.md): nothing starts unless the user
+            // switched them on and this build has an address.
+            if app
+                .try_state::<std::sync::Arc<crash_reports::CrashReports>>()
+                .is_none()
+            {
+                app.manage(std::sync::Arc::new(crash_reports::CrashReports::new(
+                    app.path().app_data_dir()?,
+                    crash_reports::DSN,
+                    &app.package_info().version.to_string(),
+                )));
+            }
+            if let Some(reports) = app.try_state::<std::sync::Arc<crash_reports::CrashReports>>() {
+                reports.start_if_enabled();
             }
             // Counters of an earlier session go out now, not when the page first tracks.
             if let Some(t) = app.try_state::<std::sync::Arc<telemetry::Telemetry>>() {
@@ -218,6 +235,8 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             commands::track_event,
             commands::get_usage_settings,
             commands::set_usage_settings,
+            commands::get_crash_report_settings,
+            commands::set_crash_report_settings,
             audio::audio_load_soundfont,
             audio::audio_start,
             audio::audio_stop,

@@ -11,13 +11,16 @@
 use std::path::{Component, Path, PathBuf};
 
 /// Names the build takes from `.env`. Anything else in the file is ignored.
-pub const KEYS: [&str; 5] = [
+pub const KEYS: [&str; 6] = [
     "SMARTBEAT_GOOGLE_CLIENT_ID",
     "SMARTBEAT_GOOGLE_CLIENT_SECRET",
     "SMARTBEAT_MICROSOFT_CLIENT_ID",
     "SMARTBEAT_DROPBOX_CLIENT_ID",
     // The Practice together signaling Worker (#158); without it "Over the internet" is off.
     "SMART_BEAT_SIGNALING_URL",
+    // The Sentry project for crash reports from the Rust core (src/crash_reports.rs); without it
+    // the integration is a complete no-op. Never printed or committed.
+    "SMART_BEAT_SENTRY_DSN_CORE",
 ];
 
 /// The `KEY=value` pairs of the known [`KEYS`] in `text`, skipping blank values. Supports
@@ -222,6 +225,14 @@ mod tests {
                 "SMART_BEAT_SIGNALING_URL".to_owned(),
                 "https://signal.example.workers.dev".to_owned()
             )]
+        );
+    }
+
+    #[test]
+    fn the_crash_report_address_of_the_core_is_read_too() {
+        assert_eq!(
+            parse("SMART_BEAT_SENTRY_DSN_CORE=value\nSMART_BEAT_SENTRY_DSN_FRONTEND=other"),
+            [("SMART_BEAT_SENTRY_DSN_CORE".to_owned(), "value".to_owned())]
         );
     }
 
