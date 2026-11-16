@@ -178,7 +178,25 @@ test.describe("Sheet from an audio lane", () => {
       // The dialog is see-through while the part is carried, and the score outlines the bars.
       await app.mouse.move(at.x, at.y, { steps: 8 });
       await expect(form).toHaveAttribute("data-placing", "true");
-      await expect(app.getByTestId("part-drag-chip")).toContainText(/Guitar to .*bar/);
+      // The score may still be drawing when the part is picked up (slow CI): keep nudging the
+      // pointer until a bar is under it, because the target is only found on a move.
+      // The pointer also tries a few other spots, in case the first lines of the score sit lower.
+      const spots = [
+        [0, 0],
+        [60, 0],
+        [0, 50],
+        [120, 50],
+        [60, 100],
+      ];
+      let attempt = 0;
+      await expect(async () => {
+        const [dx, dy] = spots[attempt++ % spots.length];
+        await app.mouse.move(at.x + dx + 2, at.y + dy + 2);
+        await app.mouse.move(at.x + dx, at.y + dy);
+        await expect(app.getByTestId("part-drag-chip")).toContainText(/Guitar to .*bar/, {
+          timeout: 1_000,
+        });
+      }).toPass({ timeout: 20_000 });
       await expect(app.getByTestId("part-drop-bar").first()).toBeVisible();
       await expect(app.getByTestId("part-drag-hud")).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[data-testid=part-drag-hud]" });
