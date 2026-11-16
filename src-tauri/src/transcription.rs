@@ -186,9 +186,20 @@ fn read_dropped(dropped: &Dropped, path: &Path) -> Result<Vec<u8>, CommandError>
 }
 
 /// Stops one running transcription.
-type Abort = Box<dyn Fn() + Send>;
+pub(crate) type Abort = Box<dyn Fn() + Send>;
+/// What `Running::start_exclusive` decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Start {
+    Started,
+    /// The page stopped this operation before it began.
+    Cancelled,
+    /// Another exclusive run is going.
+    Busy,
+}
 enum Slot {
-    Running(Abort),
+    /// The stop switch, and whether the run holds the MuScriptor model for itself (a lane
+    /// transcription does, so a second one is refused instead of queueing behind it).
+    Running(Abort, bool),
     /// A Cancel that arrived before its transcription started.
     Cancelled(Instant),
 }
@@ -202,20 +213,35 @@ impl Running {
         let mut slots = self.0.lock().unwrap_or_else(|e| e.into_inner());
         slots.retain(|_, slot| match slot {
             Slot::Cancelled(at) => now.duration_since(*at) <= EARLY_CANCEL,
-            Slot::Running(_) => true,
+            Slot::Running(..) => true,
         });
         slots
     }
     /// Registers how to stop an operation. False when it was cancelled already.
-    fn start(&self, id: &str, abort: Abort) -> bool {
+    pub(crate) fn start(&self, id: &str, abort: Abort) -> bool {
+        self.start_as(id, abort, false) == Start::Started
+    }
+    /// Like `start` for a run that keeps the model to itself: refused while another such run is
+    /// going. A Cancel that came first still wins, so the page's Stop is never lost.
+    pub(crate) fn start_exclusive(&self, id: &str, abort: Abort) -> Start {
+        self.start_as(id, abort, true)
+    }
+    fn start_as(&self, id: &str, abort: Abort, exclusive: bool) -> Start {
         let mut slots = self.slots(Instant::now());
         if matches!(slots.remove(id), Some(Slot::Cancelled(_))) {
-            return false;
+            return Start::Cancelled;
         }
-        slots.insert(id.to_owned(), Slot::Running(abort));
-        true
+        if exclusive
+            && slots
+                .values()
+                .any(|slot| matches!(slot, Slot::Running(_, true)))
+        {
+            return Start::Busy;
+        }
+        slots.insert(id.to_owned(), Slot::Running(abort, exclusive));
+        Start::Started
     }
-    fn finish(&self, id: &str) {
+    pub(crate) fn finish(&self, id: &str) {
         self.slots(Instant::now()).remove(id);
     }
     /// Stops every running transcription. The app does this when it quits: the engine holds its
@@ -223,7 +249,7 @@ impl Running {
     pub fn cancel_all(&self) {
         let slots = self.0.lock().unwrap_or_else(|e| e.into_inner());
         for slot in slots.values() {
-            if let Slot::Running(abort) = slot {
+            if let Slot::Running(abort, _) = slot {
                 abort();
             }
         }
@@ -232,7 +258,7 @@ impl Running {
         let now = Instant::now();
         let mut slots = self.slots(now);
         match slots.remove(id) {
-            Some(Slot::Running(abort)) => abort(),
+            Some(Slot::Running(abort, _)) => abort(),
             _ => {
                 slots.insert(id.to_owned(), Slot::Cancelled(now));
             }
@@ -895,6 +921,27 @@ mod tests {
         assert!(running.start("three", Box::new(|| {})));
         running.finish("three");
         assert!(running.0.lock().unwrap().is_empty());
+    }
+    #[test]
+    fn an_exclusive_run_is_refused_while_another_one_runs() {
+        let running = Running::default();
+        assert_eq!(
+            running.start_exclusive("one", Box::new(|| {})),
+            Start::Started
+        );
+        // Other transcriptions (Import from Audio) do not count, and are not refused.
+        assert!(running.start("plain", Box::new(|| {})));
+        assert_eq!(running.start_exclusive("two", Box::new(|| {})), Start::Busy);
+        running.finish("one");
+        assert_eq!(
+            running.start_exclusive("two", Box::new(|| {})),
+            Start::Started
+        );
+        running.cancel("three");
+        assert_eq!(
+            running.start_exclusive("three", Box::new(|| {})),
+            Start::Cancelled
+        );
     }
     #[test]
     fn forgets_a_cancel_for_a_transcription_that_never_starts() {

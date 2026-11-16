@@ -19,28 +19,23 @@ import {
   alignOffset,
   recordingTargets,
   recordingToSong,
-  writeRecording,
   type RecordedNote,
 } from "@/lib/import/recording";
 import { cleanDrumHits } from "@/lib/import/drum-hits";
-import { splitHands } from "@/lib/import/hand-split";
+import {
+  DRUMS_NAME,
+  placeTake,
+  programFor,
+  RECORDING_NAME,
+  type PlacedTake,
+} from "@/lib/import/place-take";
 import type { ScoreEditor } from "@/lib/score/editor";
 import type { Score } from "@/lib/score/model";
-import { getPreset } from "@/lib/score/music";
 
-/** The General MIDI program a take is written with, so a bass sounds like a bass. */
-function programFor(instrument: RecordInstrument): number {
-  // A drum track plays on channel 10, where the program is not used.
-  if (instrument === "drums") return 0;
-  if (instrument === "piano") return getPreset("piano")?.program ?? 0;
-  if (instrument === "bass") return getPreset("bass-4")?.program ?? 33;
-  return getPreset("guitar")?.program ?? 25;
-}
 import type { ScorePlayer } from "@/lib/score/player";
 import type { ClickSoundId, LoopRange } from "@/lib/score/practice";
 import type { MixerSettings } from "@/lib/tauri";
 import { tempoAt } from "@/lib/score/structure";
-import { createTrack, insertTrack, uniqueTrackName } from "@/lib/score/tracks";
 import {
   cancelRecordingTranscription,
   isRecordingStopped,
@@ -52,10 +47,6 @@ import { track } from "@/lib/telemetry";
 
 /** A take shorter than this holds nothing worth transcribing (seconds). */
 const MIN_TAKE_SECONDS = 0.5;
-
-/** The name of a new track and of the song a free take becomes. */
-const RECORDING_NAME = "Recording";
-const DRUMS_NAME = "Drums";
 
 /** What the recording bar shows. */
 export type RecordPhase =
@@ -525,9 +516,8 @@ function addToScore(
   notes: readonly RecordedNote[],
   setup: RecordSetup,
 ): { track: number; warnings: string[] } {
-  let warnings: string[] = [];
-  const target = setup.track === null ? null : (score.tracks[setup.track] ?? null);
-  let index = setup.track ?? -1;
+  let placed: PlacedTake | null = null;
+  const index = setup.track ?? -1;
   editor.run(
     "Record to tab",
     () =>
@@ -536,58 +526,17 @@ function addToScore(
         ? recordingTargets(score, index, setup.startBar)
         : editor.structureTargets(),
     () => {
-      const piano = setup.instrument === "piano";
-      const drums = setup.instrument === "drums";
-      if (setup.track === null) {
-        // A piano gets a track for each hand; a hand with no notes gets none.
-        const hands = piano ? splitHands(notes) : null;
-        const made = (hands ? [hands.right, hands.left] : [notes]).map((list, hand) => ({
-          list,
-          bass: hand === 1,
-        }));
-        const used = made.filter(({ list }) => list.length > 0 || !hands);
-        for (const { list, bass } of used) {
-          const created = createTrack(
-            score,
-            drums
-              ? { kind: "drums", name: uniqueTrackName(score, DRUMS_NAME), program: 0 }
-              : piano
-                ? {
-                    kind: "pitched",
-                    name: uniqueTrackName(
-                      score,
-                      bass ? `${RECORDING_NAME} (left hand)` : RECORDING_NAME,
-                    ),
-                    program: programFor("piano"),
-                    bass,
-                  }
-                : {
-                    kind: "stringed",
-                    name: uniqueTrackName(score, RECORDING_NAME),
-                    program: programFor(setup.instrument),
-                    tuning: setup.tuning,
-                  },
-          );
-          insertTrack(score, created);
-          const at = score.tracks.indexOf(created);
-          if (index < 0) index = at;
-          warnings = [
-            ...warnings,
-            ...writeRecording(score, list, { trackIndex: at, startBar: setup.startBar }).warnings,
-          ];
-        }
-        warnings = [...new Set(warnings)];
-      } else {
-        index = score.tracks.indexOf(target!);
-        warnings = writeRecording(score, notes, {
-          trackIndex: index,
-          startBar: setup.startBar,
-        }).warnings;
-      }
-      editor.placeCursorOnTrack(index);
+      placed = placeTake(score, notes, {
+        instrument: setup.instrument,
+        tuning: setup.tuning,
+        track: setup.track,
+        startBar: setup.startBar,
+      });
+      editor.placeCursorOnTrack(placed.track);
     },
   );
-  return { track: index, warnings };
+  const done = placed as PlacedTake | null;
+  return { track: done?.track ?? index, warnings: done?.warnings ?? [] };
 }
 
 /** Tells the player what could not be written exactly. */

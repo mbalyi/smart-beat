@@ -1,4 +1,5 @@
 import exportStemsLogo from "@/assets/export-stems/logo.webp";
+import laneToTabLogo from "@/assets/lane-to-tab/logo.webp";
 import { FEATURES, type Feature } from "@/components/welcome-features";
 
 /**
@@ -10,6 +11,8 @@ import { FEATURES, type Feature } from "@/components/welcome-features";
 const OWN: Record<string, string> = {
   /** The Export stems dialog's own logo. */
   "stem-export": exportStemsLogo,
+  /** The Sheet from an audio lane dialog's own logo. */
+  "audio-lane-transcription": laneToTabLogo,
 };
 
 type HomeCard = Feature["title"];

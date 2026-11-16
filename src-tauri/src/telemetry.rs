@@ -117,6 +117,9 @@ pub enum Event {
     RecordToTabStart,
     /// Record to Tab was started from an audio file (#153); detail: the instrument.
     RecordToTabFile,
+    /// An audio lane, a clip or a part of one was transcribed into notes (#235); detail: the
+    /// instrument.
+    LaneTranscribe,
     DrumNormalize,
     TrackDuplicate,
     PracticeSpeed,
@@ -210,9 +213,10 @@ impl Event {
                 "piano",
                 "other",
             ],
-            Self::RecordToTab | Self::RecordToTabStart | Self::RecordToTabFile => {
-                &["guitar", "bass", "piano", "drums"]
-            }
+            Self::RecordToTab
+            | Self::RecordToTabStart
+            | Self::RecordToTabFile
+            | Self::LaneTranscribe => &["guitar", "bass", "piano", "drums"],
             Self::SoundLibraryImport => &["amp", "cab"],
             Self::SoundfontSelect | Self::PlaySoundfont => SOUNDFONT_IDS,
             Self::SoundfontDownload => &[
@@ -341,6 +345,7 @@ const TOURS: &[&str] = &[
     "speed-trainer",
     "effects",
     "record-to-tab",
+    "audio-lanes",
 ];
 
 /// File formats that may accompany `open_file` and `export`.
@@ -1019,6 +1024,7 @@ mod tests {
             "soundfont_import",
             "record_to_tab_start",
             "record_to_tab_file",
+            "lane_transcribe",
             "tour_start",
             "tour_finish",
             "tour_skip",
@@ -1374,7 +1380,11 @@ mod tests {
                 .is_err()
         );
         // Record to Tab: live and from a file, per instrument.
-        for event in [Event::RecordToTabStart, Event::RecordToTabFile] {
+        for event in [
+            Event::RecordToTabStart,
+            Event::RecordToTabFile,
+            Event::LaneTranscribe,
+        ] {
             for instrument in ["guitar", "bass", "piano", "drums"] {
                 t.record_on("2026-01-01", event, Some(instrument)).unwrap();
             }
@@ -1393,6 +1403,7 @@ mod tests {
                 "speed-trainer",
                 "effects",
                 "record-to-tab",
+                "audio-lanes",
             ] {
                 t.record_on("2026-01-01", event, Some(tour)).unwrap();
             }

@@ -86,4 +86,18 @@ describe("feature registry", () => {
     // The registry entry for stem export opens this tour.
     expect(FEATURE_REGISTRY.find((x) => x.id === "stem-export")?.tour).toBe("audio-lanes");
   });
+
+  it("points the to-sheet step at a clip, right after the clip editing step (#235)", () => {
+    const steps = TOURS["audio-lanes"].steps;
+    const index = steps.findIndex((x) => x.id === "to-sheet");
+    expect(index).toBe(steps.findIndex((x) => x.id === "clips") + 1);
+    const step = steps[index];
+    expect(step?.target).toBe("lane-clip");
+    expect(step?.body).toMatch(/Convert audio to sheet…/);
+    expect(source).toContain(`data-tour="${step?.target}"`);
+    expect(TOURS["audio-lanes"].description).toMatch(/sheet music/);
+    expect(FEATURE_REGISTRY.find((x) => x.id === "audio-lane-transcription")?.tour).toBe(
+      "audio-lanes",
+    );
+  });
 });

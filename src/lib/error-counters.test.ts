@@ -55,6 +55,7 @@ describe("error counter categories", () => {
       transcribe_audio: "import",
       read_transcription_audio: "import",
       transcribe_recording: "ai",
+      transcribe_lane: "ai",
       download_muscriptor_model: "ai",
       muscriptor_status: "ai",
       piano_model_status: "ai",

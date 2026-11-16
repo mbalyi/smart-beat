@@ -152,6 +152,94 @@ fn decode_samples(body: &[u8]) -> Result<Vec<f32>, CommandError> {
         .collect())
 }
 
+/// The engine a take (or an audio lane, `lane_transcription.rs`) goes through, chosen from the
+/// page's `engine` and `model size` values. Resolving refuses an engine whose downloaded model
+/// is missing, or whose terms are not accepted, before any audio is processed.
+pub struct EngineSelection {
+    instrument: Instrument,
+    /// `x-engine: transkun`: the folder of the downloaded piano model.
+    piano_model: Option<std::path::PathBuf>,
+    /// `x-engine: muscriptor`: the folder and size of the downloaded MuScriptor model.
+    muscriptor: Option<(std::path::PathBuf, muscriptor_model::Size)>,
+}
+impl EngineSelection {
+    /// `engine` is `transkun` (the downloaded piano model) or `muscriptor` (the downloaded
+    /// MuScriptor model of `model_size`, medium when missing or unknown); anything else is
+    /// Basic Pitch, or the drum finder for drums.
+    pub fn resolve<R: Runtime>(
+        app: &AppHandle<R>,
+        engine: Option<&str>,
+        model_size: Option<&str>,
+        instrument: Instrument,
+    ) -> Result<Self, CommandError> {
+        let engine = engine.map(|value| value.trim().to_ascii_lowercase());
+        let piano_model = if engine.as_deref() == Some("transkun") {
+            let folder = piano_model::dir(app)?;
+            if !piano_model::is_installed(&folder) {
+                return Err(error("Download the piano model first."));
+            }
+            Some(folder)
+        } else {
+            None
+        };
+        let muscriptor = if engine.as_deref() == Some("muscriptor") {
+            let size = model_size
+                .and_then(muscriptor_model::Size::parse)
+                .unwrap_or(muscriptor_model::Size::Medium);
+            let folder = muscriptor_model::dir(app)?;
+            muscriptor_model::require_terms(&folder, size)?;
+            if !muscriptor_model::is_installed(&folder, size) {
+                return Err(error("Download the MuScriptor model first."));
+            }
+            Some((folder, size))
+        } else {
+            None
+        };
+        Ok(Self {
+            instrument,
+            piano_model,
+            muscriptor,
+        })
+    }
+
+    /// The run holds the MuScriptor model, which one transcription at a time uses.
+    pub fn uses_muscriptor(&self) -> bool {
+        self.muscriptor.is_some()
+    }
+
+    /// Checks the take, then transcribes it with the chosen engine.
+    pub fn run(
+        &self,
+        samples: &[f32],
+        rate: u32,
+        progress: &mut dyn FnMut(f32),
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<RecordedNote>, CommandError> {
+        if let Some((folder, size)) = &self.muscriptor {
+            let engine = muscriptor::Muscriptor {
+                folder: folder.clone(),
+                size: *size,
+                instrument: self.instrument,
+            };
+            return transcribe_take(&engine, samples, rate, progress, cancelled);
+        }
+        if self.instrument == Instrument::Drums {
+            return transcribe_take(&DrumOnsets::default(), samples, rate, progress, cancelled);
+        }
+        match &self.piano_model {
+            Some(folder) => Transkun::cached(folder)
+                .and_then(|model| transcribe_take(&*model, samples, rate, progress, cancelled)),
+            None => transcribe_take(
+                &self.instrument.engine(),
+                samples,
+                rate,
+                progress,
+                cancelled,
+            ),
+        }
+    }
+}
+
 /// The stop switch of the running transcription. A new run stops the old one, so the page
 /// never waits on a take it has given up.
 #[derive(Default)]
@@ -203,44 +291,21 @@ pub async fn transcribe_recording<R: Runtime>(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u32>().ok())
         .ok_or_else(|| error("Missing x-sample-rate."))?;
-    // `x-engine: transkun` runs the downloaded piano model instead of Basic Pitch;
-    // `x-engine: muscriptor` runs the downloaded MuScriptor model (`x-model-size`).
     let engine = request
         .headers()
         .get("x-engine")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim().to_ascii_lowercase());
-    let model_dir = if engine.as_deref() == Some("transkun") {
-        let folder = piano_model::dir(&app)?;
-        if !piano_model::is_installed(&folder) {
-            return Err(error("Download the piano model first."));
-        }
-        Some(folder)
-    } else {
-        None
-    };
-    let ai = if engine.as_deref() == Some("muscriptor") {
-        let size = request
-            .headers()
-            .get("x-model-size")
-            .and_then(|value| value.to_str().ok())
-            .and_then(muscriptor_model::Size::parse)
-            .unwrap_or(muscriptor_model::Size::Medium);
-        let folder = muscriptor_model::dir(&app)?;
-        muscriptor_model::require_terms(&folder, size)?;
-        if !muscriptor_model::is_installed(&folder, size) {
-            return Err(error("Download the MuScriptor model first."));
-        }
-        Some((folder, size))
-    } else {
-        None
-    };
+        .and_then(|value| value.to_str().ok());
+    let model_size = request
+        .headers()
+        .get("x-model-size")
+        .and_then(|value| value.to_str().ok());
     let instrument = Instrument::parse(
         request
             .headers()
             .get("x-instrument")
             .and_then(|value| value.to_str().ok()),
     );
+    let selection = EngineSelection::resolve(&app, engine, model_size, instrument)?;
     // The length check comes first, so a huge body is not decoded.
     check_rate(rate)?;
     check_length(body.len() / 4)?;
@@ -259,34 +324,7 @@ pub async fn transcribe_recording<R: Runtime>(
                 }
             };
             let cancelled = || stop.load(Ordering::Relaxed);
-            let result = match model_dir {
-                _ if ai.is_some() => {
-                    let (folder, size) = ai.clone().expect("checked");
-                    let engine = muscriptor::Muscriptor {
-                        folder,
-                        size,
-                        instrument,
-                    };
-                    transcribe_take(&engine, &samples, rate, &mut progress, &cancelled)
-                }
-                _ if instrument == Instrument::Drums => transcribe_take(
-                    &DrumOnsets::default(),
-                    &samples,
-                    rate,
-                    &mut progress,
-                    &cancelled,
-                ),
-                Some(folder) => Transkun::cached(&folder).and_then(|model| {
-                    transcribe_take(&*model, &samples, rate, &mut progress, &cancelled)
-                }),
-                None => transcribe_take(
-                    &instrument.engine(),
-                    &samples,
-                    rate,
-                    &mut progress,
-                    &cancelled,
-                ),
-            };
+            let result = selection.run(&samples, rate, &mut progress, &cancelled);
             if result.is_ok() {
                 progress(1.0);
             }

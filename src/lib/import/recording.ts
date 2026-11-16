@@ -242,6 +242,46 @@ export function recordingTargets(score: Score, trackIndex: number, startBar: num
   ];
 }
 
+/** What {@link writeRecording} did: the warnings, the bars it replaced and how many it added. */
+export interface WrittenRecording {
+  warnings: string[];
+  /** The first bar written (0-based). */
+  firstBar: number;
+  /** The last bar written (0-based); one before `firstBar` when nothing was written. */
+  lastBar: number;
+  /** How many bars were appended to the song to make room. */
+  appended: number;
+}
+
+/**
+ * The bars a take covers when it starts at bar `startBar` (0-based), without changing the song:
+ * the same count {@link writeRecording} writes. Bars past the end of the song are as long as the
+ * last one. The notes' time 0 is the downbeat of `startBar`.
+ */
+export function recordingSpan(
+  score: Score,
+  notes: readonly RecordedNote[],
+  startBar: number,
+): { firstBar: number; lastBar: number; bars: number } {
+  const first = Math.max(0, Math.floor(startBar));
+  const usable = notes.filter(
+    (n) => Number.isFinite(n.start) && Number.isFinite(n.end) && n.end >= n.start,
+  );
+  const kept = usable.filter((n) => n.start >= -EARLY_GRACE);
+  if (kept.length === 0) return { firstBar: first, lastBar: first - 1, bars: 0 };
+  const map = tempoMap(score, first);
+  const lastStart = Math.max(...kept.map((n) => Math.max(0, Math.round(map.toTicks(n.start)))));
+  const lengthOf = (index: number) =>
+    barTicks(score.masterBars[Math.min(index, score.masterBars.length - 1)]!);
+  let tick = 0;
+  let count = 0;
+  do {
+    tick += lengthOf(first + count);
+    count++;
+  } while (tick - SIXTEENTH / 2 <= lastStart && count < MAX_BARS);
+  return { firstBar: first, lastBar: first + count - 1, bars: count };
+}
+
 /**
  * Click mode: writes a take into a guitar, piano or drum track, from the first beat of bar `startBar` (0-based).
  * The notes' time 0 is that downbeat: the count-in is gone and latency and `alignOffset` are
@@ -256,7 +296,7 @@ export function writeRecording(
   score: Score,
   notes: readonly RecordedNote[],
   options: { trackIndex: number; startBar: number },
-): { warnings: string[] } {
+): WrittenRecording {
   const track: Track | undefined = score.tracks[options.trackIndex];
   const staff = track?.staves[0];
   if (!track || !staff) throw new Error("A recording needs a string, piano or drum track.");
@@ -264,6 +304,7 @@ export function writeRecording(
   const stringed = staff.stringTuning.tunings.length > 0;
   const startBar = Math.max(0, Math.floor(options.startBar));
   const warnings = new Set<string>();
+  const barsBefore = score.masterBars.length;
 
   const usable = notes.filter(
     (n) => Number.isFinite(n.start) && Number.isFinite(n.end) && n.end >= n.start,
@@ -277,7 +318,7 @@ export function writeRecording(
   const kept = usable.filter((n) => n.start >= -EARLY_GRACE);
   if (kept.length === 0) {
     warnings.add("No notes were found in the take.");
-    return { warnings: [...warnings] };
+    return { warnings: [...warnings], firstBar: startBar, lastBar: startBar - 1, appended: 0 };
   }
 
   const map = tempoMap(score, startBar);
@@ -324,7 +365,12 @@ export function writeRecording(
     notes: ticked,
   };
   fillTrack(track, part, plans, warnings, { firstBar: startBar, overwrite: true });
-  return { warnings: [...warnings] };
+  return {
+    warnings: [...warnings],
+    firstBar: startBar,
+    lastBar: startBar + plans.length - 1,
+    appended: Math.max(0, score.masterBars.length - barsBefore),
+  };
 }
 
 // --- Reading a track back --------------------------------------------------------------------

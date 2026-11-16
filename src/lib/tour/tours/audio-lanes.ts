@@ -7,7 +7,7 @@ export const audioLanesTour: TourDefinition = {
   id: "audio-lanes",
   title: "Audio lanes tour",
   description:
-    "Add audio files on lanes, colour them, edit and split clips, and record audio takes.",
+    "Add audio files on lanes, colour them, edit and split clips, turn a clip into sheet music, and record audio takes.",
   steps: [
     {
       id: "intro",
@@ -68,6 +68,15 @@ export const audioLanesTour: TourDefinition = {
       target: "tracks",
       title: "Edit the clips",
       body: "Drag a clip along its lane or onto another one, and drag its edges to trim it. Press S to split it at the dashed edit cursor, G to glue pieces back, ⌘D to duplicate. Double-click a lane for the editor with sync points, and Studio for every lane at once.",
+      needsSong: true,
+      show: MIXER,
+      placement: "top",
+    },
+    {
+      id: "to-sheet",
+      target: "lane-clip",
+      title: "Turn a clip into sheet music",
+      body: "Split a clip into a small chunk (S), right-click it and choose Convert audio to sheet…. The notes are written into this tab at the bar where the clip starts; you pick the instrument, the track and the bar. A single instrument works best. (Shown when a lane has a clip.)",
       needsSong: true,
       show: MIXER,
       placement: "top",

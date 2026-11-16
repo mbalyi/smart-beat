@@ -99,6 +99,12 @@ describe("WhatsNewDialog", () => {
       expect(whatsNewImage("stem-export")).not.toBe(homeImage("Stem separation"));
     });
 
+    it("uses the Sheet from an audio lane logo for the audio lane transcription", () => {
+      expect(whatsNewImage("audio-lane-transcription")).toBeTruthy();
+      expect(whatsNewImage("audio-lane-transcription")).not.toBe(homeImage("Audio to tab"));
+      expect(whatsNewImage("audio-lane-transcription")).not.toBe(whatsNewImage("stem-export"));
+    });
+
     it("puts those pictures on the cards of 1.3", () => {
       const release = FEATURE_REGISTRY.filter((f) => f.since === "1.3.0");
       renderWithProviders(

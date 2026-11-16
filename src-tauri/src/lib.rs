@@ -12,6 +12,7 @@ pub mod crash_scrub;
 mod dotenv;
 pub mod error;
 pub mod features;
+pub mod lane_transcription;
 pub mod m4a;
 pub mod menu;
 pub mod menu_state;
@@ -192,6 +193,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             transcription::transcribe_audio,
             transcription::cancel_transcription,
             recording::transcribe_recording,
+            lane_transcription::transcribe_lane,
             recording::muscriptor_model::muscriptor_status,
             recording::muscriptor_model::accept_muscriptor_terms,
             recording::muscriptor_model::download_muscriptor_model,

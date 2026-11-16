@@ -450,3 +450,40 @@ export function freeChannels(score: Score, count: number): number[] {
     free.push(MELODIC_CHANNELS[i % MELODIC_CHANNELS.length]!);
   return free;
 }
+
+/**
+ * A detached copy of a whole score: master bars, tracks, staves, bars and notes, all new
+ * objects, so the copy can be changed (a preview of an edit) without touching the original.
+ * It is not a live song: it has no player, no history and no mix.
+ */
+export function cloneScore(score: Score): Score {
+  const copy = new model.Score();
+  copyProps(copy, score, ["masterBars", "tracks", "id"]);
+  for (const masterBar of score.masterBars) {
+    const barCopy = new model.MasterBar();
+    copyProps(barCopy, masterBar, [
+      "index",
+      "start",
+      "tempoAutomations",
+      "section",
+      "directions",
+      "fermata",
+    ]);
+    barCopy.tempoAutomations = masterBar.tempoAutomations.map((automation) =>
+      Object.assign(new model.Automation(), automation),
+    );
+    if (masterBar.section) {
+      barCopy.section = Object.assign(new model.Section(), masterBar.section);
+    }
+    barCopy.directions = masterBar.directions ? new Set(masterBar.directions) : null;
+    if (masterBar.fermata) {
+      for (const [offset, fermata] of masterBar.fermata) {
+        barCopy.addFermata(offset, Object.assign(new model.Fermata(), fermata));
+      }
+    }
+    copy.addMasterBar(barCopy);
+  }
+  for (const track of score.tracks) copy.addTrack(cloneTrack(track));
+  refinish(copy);
+  return copy;
+}

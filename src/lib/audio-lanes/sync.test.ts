@@ -16,6 +16,7 @@ import {
   tempoChangesFromSync,
   timelineMsAt,
   timelineMsAtBar,
+  timelineToSongMs,
   toggleSyncPoint,
   type SongGrid,
 } from "@/lib/audio-lanes/sync";
@@ -183,5 +184,32 @@ describe("audio longer than the score", () => {
     expect(barsToFitAudio(withClip(8000), scored, 4)).toBe(0);
     expect(barsToFitAudio(withClip(12_500), scored, 4)).toBe(3);
     expect(barsToFitAudio(EMPTY_AUDIO, scored, 4)).toBe(0);
+  });
+});
+
+describe("timelineToSongMs", () => {
+  it("is the identity with no sync points", () => {
+    expect(timelineToSongMs(EMPTY_AUDIO, grid, 4321)).toBe(4321);
+  });
+
+  it("inverts timelineMsAt through sync points, before, between and after them", () => {
+    const audio = {
+      ...EMPTY_AUDIO,
+      sync: [
+        { bar: 1, ms: 2500 },
+        { bar: 3, ms: 5500 },
+      ],
+    };
+    for (const [bar, beat] of [
+      [0, 0],
+      [1, 0],
+      [1, 2],
+      [2, 0],
+      [3, 0],
+      [5, 1],
+    ] as const) {
+      const timeline = timelineMsAt(audio, grid, bar, beat);
+      expect(timelineToSongMs(audio, grid, timeline)).toBeCloseTo(songMsAt(grid, bar, beat), 6);
+    }
   });
 });
