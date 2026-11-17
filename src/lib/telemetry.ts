@@ -74,6 +74,7 @@ export type TrackedEvent =
   | "soundfont_import"
   | "record_to_tab_start"
   | "record_to_tab_file"
+  | "lane_transcribe"
   | "ai_install"
   | "ai_rights_confirmed"
   | "ai_transcribe_start"
@@ -137,7 +138,7 @@ const CATALOGUE_SOUNDFONTS = [
 ];
 const SOUNDFONT_IDS = ["sonivox", "fluidr3", ...CATALOGUE_SOUNDFONTS, "custom"];
 
-const TOURS = ["main", "editing", "speed-trainer", "effects", "record-to-tab"];
+const TOURS = ["main", "editing", "speed-trainer", "effects", "record-to-tab", "audio-lanes"];
 
 const CONNECTIONS = ["lan", "internet"];
 
@@ -199,6 +200,7 @@ const EVENT_DETAILS: Partial<Record<TrackedEvent, readonly string[]>> = {
   record_to_tab: ["guitar", "bass", "piano", "drums"],
   record_to_tab_start: ["guitar", "bass", "piano", "drums"],
   record_to_tab_file: ["guitar", "bass", "piano", "drums"],
+  lane_transcribe: ["guitar", "bass", "piano", "drums"],
   ai_install: ["small", "medium", "large"],
   ai_transcribe_start: ["rights_confirmed", "rights_unconfirmed"],
   ai_transcribe_file: ["rights_confirmed", "rights_unconfirmed"],

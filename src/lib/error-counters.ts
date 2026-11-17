@@ -69,7 +69,7 @@ const AREA_RULES: ReadonlyArray<readonly [ErrorArea, RegExp]> = [
   ["import", /^(transcribe_audio|cancel_transcription|read_transcription_audio)$/],
   [
     "ai",
-    /^(transcribe_recording|cancel_recording_transcription|muscriptor_|accept_muscriptor_|download_muscriptor_|cancel_muscriptor_|delete_muscriptor_|piano_model_|download_piano_model)/,
+    /^(transcribe_recording|transcribe_lane|cancel_recording_transcription|muscriptor_|accept_muscriptor_|download_muscriptor_|cancel_muscriptor_|delete_muscriptor_|piano_model_|download_piano_model)/,
   ],
   [
     "file",

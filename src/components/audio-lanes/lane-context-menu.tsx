@@ -10,6 +10,7 @@ import {
   GroupIcon,
   LinkIcon,
   LockIcon,
+  MusicIcon,
   PanelBottomOpenIcon,
   RepeatIcon,
   ScissorsIcon,
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 import { useState, type MouseEvent, type ReactElement } from "react";
 
+import { useLaneToTab } from "@/components/audio-lanes/lane-to-tab-context";
 import { RemoveSilenceDialog } from "@/components/audio-lanes/remove-silence-dialog";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import {
@@ -32,10 +34,11 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { anyGrouped } from "@/lib/audio-lanes/clip-groups";
+import { clipsToRequest, rangeToRequest } from "@/lib/audio-lanes/clip-request";
 import { findClip, updateClip } from "@/lib/audio-lanes/edits";
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
 import { describeRange } from "@/lib/audio-lanes/range-edits";
-import type { AudioClip, AudioLane } from "@/lib/tauri";
+import { isTauri, type AudioClip, type AudioLane } from "@/lib/tauri";
 
 /** What the menu was opened on: a clip, or a point of the lane. */
 type MenuTarget = { kind: "clip"; clipId: string } | { kind: "lane"; atMs: number };
@@ -74,6 +77,9 @@ export function LaneContextMenu({
   const [line, setLine] = useState(0);
   /** The clips the Remove silence dialog is open for. */
   const [silenceFor, setSilenceFor] = useState<readonly string[] | null>(null);
+  /** Opens the audio-to-sheet dialog; only in the desktop app and inside a workspace. */
+  const laneToTab = useLaneToTab();
+  const convert = laneToTab && isTauri() ? laneToTab.open : undefined;
   // A folder holds lanes, not clips.
   if (lane.folder) return children;
 
@@ -195,6 +201,17 @@ export function LaneContextMenu({
               <ScissorsLineDashedIcon />
               Remove silence…
             </ContextMenuItem>
+            {convert && (
+              <ContextMenuItem
+                onSelect={() => {
+                  const request = clipsToRequest(lanes.audio, clip.id, ids);
+                  if (request) convert(request);
+                }}
+              >
+                <MusicIcon />
+                Convert audio to sheet…
+              </ContextMenuItem>
+            )}
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => toggle("mute")}>
               <VolumeXIcon />
@@ -233,7 +250,19 @@ export function LaneContextMenu({
             </ContextMenuItem>
           </>
         )}
-        {lanes.timeRange && <TimeRangeItems lanes={lanes} />}
+        {lanes.timeRange && (
+          <TimeRangeItems
+            lanes={lanes}
+            onConvert={
+              convert
+                ? (range) => {
+                    const request = rangeToRequest(lane.id, range, "selection");
+                    if (request) convert(request);
+                  }
+                : undefined
+            }
+          />
+        )}
         <ContextMenuItem onSelect={() => void lanes.chooseFile(lane.id, insertAt)}>
           <FileAudioIcon />
           {clip ? "Insert an audio file after this clip…" : "Insert an audio file here…"}
@@ -260,7 +289,13 @@ export function LaneContextMenu({
 }
 
 /** The time selection's edits, shown while there is one. */
-function TimeRangeItems({ lanes }: { lanes: AudioLanesController }) {
+function TimeRangeItems({
+  lanes,
+  onConvert,
+}: {
+  lanes: AudioLanesController;
+  onConvert?: (range: { startMs: number; endMs: number }) => void;
+}) {
   const range = lanes.timeRange;
   if (!range) return null;
   return (
@@ -284,6 +319,12 @@ function TimeRangeItems({ lanes }: { lanes: AudioLanesController }) {
         <ArrowRightToLineIcon />
         Insert empty space at the selection
       </ContextMenuItem>
+      {onConvert && (
+        <ContextMenuItem onSelect={() => onConvert(range)}>
+          <MusicIcon />
+          Convert the selection to sheet…
+        </ContextMenuItem>
+      )}
       <ContextMenuSeparator />
     </>
   );

@@ -55,6 +55,16 @@ export function timelineMsAt(
   return audioMsAt(syncPairs(audio.sync, grid), songMsAt(grid, bar, beat));
 }
 
+/**
+ * The inverse of {@link timelineMsAt}: where a point of the audio timeline falls in the song,
+ * in ms played straight through (what `grid.barTimes` is measured in).
+ */
+export function timelineToSongMs(audio: AudioLanesSettings, grid: SongGrid, ms: number): number {
+  // The same piecewise-linear map, read the other way round.
+  const swapped = syncPairs(audio.sync, grid).map((p) => ({ songMs: p.ms, ms: p.songMs }));
+  return audioMsAt(swapped, ms);
+}
+
 /** The bar (0-based, fractional) at a point of the audio timeline. */
 export function barAtTimelineMs(audio: AudioLanesSettings, grid: SongGrid, ms: number): number {
   const bars = grid.barTimes.length;

@@ -5,6 +5,7 @@ import {
   FileAudioIcon,
   HeadphonesIcon,
   Music2Icon,
+  MusicIcon,
   SparklesIcon,
   WandSparklesIcon,
 } from "lucide-react";
@@ -83,8 +84,8 @@ import { pitchName, tuningPresets } from "@/lib/score/music";
 import { cn } from "@/lib/utils";
 
 export type RecordMode = "click" | "free";
-/** What the dialog turns into tab: a take in one of the modes, or an existing recording. */
-type Source = RecordMode | "file";
+/** What the dialog turns into tab: a take in one of the modes, an existing recording or an audio lane of the tab. */
+type Source = RecordMode | "file" | "lane";
 
 /** What the player chose. */
 export interface RecordSetup {
@@ -124,7 +125,7 @@ const NEW_TRACK = "new";
 const megabytes = (bytes: number) => Math.ceil(bytes / 1_000_000);
 
 /** The small capitals above a group of controls. */
-function SectionLabel({ id, children }: { id?: string; children: ReactNode }) {
+export function SectionLabel({ id, children }: { id?: string; children: ReactNode }) {
   return (
     <span
       id={id}
@@ -136,7 +137,7 @@ function SectionLabel({ id, children }: { id?: string; children: ReactNode }) {
 }
 
 /** The crown of the choice that is on. */
-function Crown({ className }: { className?: string }) {
+export function Crown({ className }: { className?: string }) {
   return (
     <img
       src={crown}
@@ -171,10 +172,10 @@ function RecordArt() {
  * An instrument to choose: a small button with its picture (which may reach out of the button)
  * and name, and a crown over the name when it is the one.
  */
-const INSTRUMENT_BUTTON =
+export const INSTRUMENT_BUTTON =
   "relative h-[54px] min-w-0 gap-1 rounded-lg border border-border bg-card px-1 pr-2.5 text-[15px] font-semibold hover:bg-card disabled:opacity-100 data-[state=on]:border-brand data-[state=on]:bg-card! data-[state=on]:text-foreground! data-[state=on]:shadow-[0_0_16px_color-mix(in_oklab,var(--brand)_60%,transparent)] data-[state=on]:ring-2 data-[state=on]:ring-brand/70 data-[state=on]:inset-ring-0";
 /** A recording mode to choose: filled purple when it is the one. */
-const MODE_BUTTON =
+export const MODE_BUTTON =
   "h-9 gap-2 rounded-md border border-border bg-card px-4 text-sm font-semibold data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-[0_0_14px_color-mix(in_oklab,var(--primary)_55%,transparent)]";
 /** One side of a joined button group: only the outer ends are round. */
 const SEGMENT_BUTTON =
@@ -210,6 +211,7 @@ export function RecordDialog({
   onRecordFile,
   droppedFile = null,
   pianoModel,
+  onFromLane,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -233,6 +235,8 @@ export function RecordDialog({
   droppedFile?: DroppedTake | null;
   /** The high-accuracy piano model. Without it, the dialog offers only the built-in one. */
   pianoModel?: PianoModel;
+  /** Turns an audio lane of the tab into sheet music (#235). Without it, there is no "Audio lane" source. */
+  onFromLane?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -254,6 +258,7 @@ export function RecordDialog({
             onRecordFile={onRecordFile}
             droppedFile={droppedFile}
             pianoModel={pianoModel}
+            onFromLane={onFromLane}
           />
         )}
       </DialogContent>
@@ -272,6 +277,7 @@ function RecordForm({
   onRecordFile,
   droppedFile,
   pianoModel,
+  onFromLane,
 }: {
   targets: readonly RecordTarget[];
   defaultTrack: number | null;
@@ -288,6 +294,7 @@ function RecordForm({
   ) => void;
   droppedFile: DroppedTake | null;
   pianoModel: PianoModel | undefined;
+  onFromLane: (() => void) | undefined;
 }) {
   const ids = {
     track: useId(),
@@ -320,9 +327,10 @@ function RecordForm({
   }, []);
   const [mode, setMode] = useState<Source>("click");
   const fromFile = mode === "file";
+  const fromLane = mode === "lane";
   const input = useAudioInput();
   // An existing recording needs no input.
-  const heard = useInputLevel(!fromFile, input);
+  const heard = useInputLevel(!fromFile && !fromLane, input);
   const [chosenTrack, setTrack] = useState<string>(
     defaultTrack !== null && targets.some((t) => t.index === defaultTrack)
       ? String(defaultTrack)
@@ -374,7 +382,7 @@ function RecordForm({
   }, [droppedFile]);
 
   const newTrack = mode === "click" && track === NEW_TRACK;
-  const askTuning = !piano && !drums && (mode !== "click" || newTrack);
+  const askTuning = !piano && !drums && !fromLane && (mode !== "click" || newTrack);
   const presets = tuningPresets(tuningChoice.strings);
   // The microphone of a laptop hears the click from its speakers.
   const builtIn = looksBuiltIn(input?.label ?? (heard.kind === "listening" ? heard.device : null));
@@ -407,6 +415,10 @@ function RecordForm({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (fromLane) {
+      onFromLane?.();
+      return;
+    }
     if (fromFile) {
       if (file) onRecordFile(file, tuningOf(tuningChoice), instrument, engine);
       return;
@@ -427,6 +439,7 @@ function RecordForm({
     click: "Play along with the click. Your take replaces the bars it covers on the track.",
     free: "Play freely. Smart Beat finds the tempo and opens your take as a new song.",
     file: `Choose a ${piano ? "piano" : drums ? "drum" : "guitar"} recording. Smart Beat finds the tempo and opens it as a new song.`,
+    lane: "Turn an audio track of this tab into sheet music. You choose the track, the part of it and the bar where the notes go.",
   }[mode];
 
   const instruments = [
@@ -441,6 +454,7 @@ function RecordForm({
     { value: "click", label: "Click", icon: WandSparklesIcon },
     { value: "free", label: "Free", icon: AudioLinesIcon },
     { value: "file", label: "File", icon: FileAudioIcon },
+    ...(onFromLane ? [{ value: "lane", label: "Audio lane", icon: MusicIcon } as const] : []),
   ] as const;
 
   // The click is heard in a recording unless the player wears headphones, which we cannot tell.
@@ -587,7 +601,12 @@ function RecordForm({
                     ))}
                   </ToggleGroup>
                 </div>
-                {fromFile ? (
+                {fromLane ? (
+                  <p className="text-sm text-muted-foreground" data-testid="record-lane-note">
+                    Smart Beat listens to the audio track on this computer and finds its notes. Next
+                    you choose the track, the instrument and where the notes go.
+                  </p>
+                ) : fromFile ? (
                   <AudioDropArea
                     extensions={TAKE_FILE_EXTENSIONS}
                     disabled={!supported}
@@ -927,7 +946,12 @@ function RecordForm({
         >
           Cancel
         </Button>
-        {fromFile ? (
+        {fromLane ? (
+          <Button type="submit" size="lg" disabled={!supported} data-testid="record-from-lane">
+            <MusicIcon data-icon="inline-start" />
+            Choose the audio
+          </Button>
+        ) : fromFile ? (
           <Button type="submit" size="lg" disabled={!supported || file === null || needsModel}>
             <AudioLinesIcon data-icon="inline-start" />
             Make tab

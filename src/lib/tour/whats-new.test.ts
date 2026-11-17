@@ -86,7 +86,7 @@ describe("the editing features in the registry (#228)", () => {
     expect(entry("repeat-count")).toMatchObject({ since: "1.3.0", tour: "editing" });
     expect(entry("smoother-editing")).toMatchObject({ since: "1.3.0" });
     expect(entry("smoother-editing")?.tour).toBeUndefined();
-    expect(latestFeatures(FEATURE_REGISTRY).version).toBe("1.3.0");
+    expect(latestFeatures(FEATURE_REGISTRY).version).toBe("1.4.0");
     expect(pendingFeatures("1.2.0", "1.3.0", FEATURE_REGISTRY).map((x) => x.id)).toEqual(
       expect.arrayContaining(["insert-rest", "repeat-count", "smoother-editing"]),
     );
@@ -103,6 +103,19 @@ describe("stem export in the registry (#223)", () => {
       "stem-export",
     );
     expect(pendingFeatures("1.3.0", "1.3.0", FEATURE_REGISTRY)).toEqual([]);
+  });
+});
+
+describe("audio lane transcription in the registry (#235)", () => {
+  it("is announced in 1.4.0 and shown with the audio lanes tour", () => {
+    const entry = FEATURE_REGISTRY.find((x) => x.id === "audio-lane-transcription");
+    expect(entry).toMatchObject({ since: "1.4.0", tour: "audio-lanes" });
+    expect(entry?.summary).toMatch(/right-click that clip/);
+    expect(entry?.summary).toMatch(/Convert audio to sheet…/);
+    expect(pendingFeatures("1.3.0", "1.4.0", FEATURE_REGISTRY).map((x) => x.id)).toEqual([
+      "audio-lane-transcription",
+    ]);
+    expect(pendingFeatures("1.4.0", "1.4.0", FEATURE_REGISTRY)).toEqual([]);
   });
 });
 

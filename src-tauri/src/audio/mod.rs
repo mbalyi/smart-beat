@@ -380,6 +380,74 @@ impl AudioState {
     }
 }
 
+/// One audio lane and the decoded files its clips play, for "Sheet from an audio lane" (#235).
+pub struct LaneAudio {
+    pub lane: crate::audio_lanes::AudioLane,
+    /// Decoded files by source id (only the ones loaded; a clip whose file is missing is not here).
+    pub sources: HashMap<String, Arc<DecodedAudio>>,
+    /// Backwards copies by source id, for the clips that play backwards.
+    pub reversed: HashMap<String, Arc<DecodedAudio>>,
+}
+
+impl AudioState {
+    /// The lane `lane_id` as the page last set it, with what its clips play. Everything is
+    /// cloned or shared (`Arc`), so a long render does not hold the engine state's lock. It
+    /// reads the Rust decode pool, so it works for every format the lanes open (m4a, aiff
+    /// included), not only what the web view can decode.
+    pub fn lane_for_transcription(&self, lane_id: &str) -> Result<LaneAudio, CommandError> {
+        type Found = (String, Arc<DecodedAudio>, Option<Arc<DecodedAudio>>);
+        let (lane, found): (_, Vec<Found>) = {
+            let inner = self.inner.lock().unwrap();
+            let data = inner.lanes.as_ref().ok_or_else(|| {
+                CommandError::new(ErrorKind::NotFound, "This song has no audio lanes.")
+            })?;
+            let lane = data
+                .audio
+                .lanes
+                .iter()
+                .find(|l| l.id == lane_id)
+                .ok_or_else(|| {
+                    CommandError::new(ErrorKind::NotFound, "That audio lane is not in the song.")
+                })?
+                .clone();
+            let ids: std::collections::HashSet<&String> = lane
+                .clips
+                .iter()
+                .map(|c| &c.active_take().source_id)
+                .collect();
+            let found = ids
+                .into_iter()
+                .filter_map(|id| {
+                    let s = inner.sources.get(id)?;
+                    Some((id.clone(), s.audio.clone(), s.reversed.clone()))
+                })
+                .collect();
+            (lane, found)
+        };
+        let backwards: std::collections::HashSet<&str> = lane
+            .clips
+            .iter()
+            .filter(|c| c.reversed)
+            .map(|c| c.active_take().source_id.as_str())
+            .collect();
+        let mut sources = HashMap::new();
+        let mut reversed = HashMap::new();
+        for (id, audio, copy) in found {
+            if backwards.contains(id.as_str()) {
+                // Made outside the lock when the engine has not kept one.
+                let copy = copy.unwrap_or_else(|| Arc::new(lanes::voice::reversed(&audio)));
+                reversed.insert(id.clone(), copy);
+            }
+            sources.insert(id, audio);
+        }
+        Ok(LaneAudio {
+            lane,
+            sources,
+            reversed,
+        })
+    }
+}
+
 /// What `audio_start` and `audio_state` report.
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]

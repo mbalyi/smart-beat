@@ -229,6 +229,23 @@ describe("event details", () => {
       }
     }
   });
+  it("counts lane_transcribe per instrument and the audio-lanes tour (#235)", async () => {
+    expect(EVENTS).toContain("lane_transcribe");
+    expect(EVENT_DETAILS.lane_transcribe).toEqual(["guitar", "bass", "piano", "drums"]);
+    for (const [event, format] of [
+      ["lane_transcribe", "guitar"],
+      ["lane_transcribe", "bass"],
+      ["lane_transcribe", "piano"],
+      ["lane_transcribe", "drums"],
+      ["lane_transcribe", undefined],
+      ["tour_start", "audio-lanes"],
+      ["tour_finish", "audio-lanes"],
+      ["tour_skip", "audio-lanes"],
+      ["tour_close", "audio-lanes"],
+    ] as const) {
+      expect((await post(batch([{ day: today, event, format, count: 1 }]))).status).toBe(200);
+    }
+  });
   it("rejects free text and details belonging to other events", async () => {
     for (const [event, format] of [
       ["pedal_add", "vst3"],
@@ -244,10 +261,13 @@ describe("event details", () => {
       ["soundfont_import", "custom"],
       ["record_to_tab_start", "violin"],
       ["record_to_tab_file", "gp5"],
+      ["lane_transcribe", "violin"],
+      ["lane_transcribe", "/Users/jane/vocals.wav"],
       ["ai_install", "huge"],
       ["ai_transcribe_start", "maybe"],
       ["ai_rights_confirmed", "yes"],
       ["tour_start", "secret"],
+      ["tour_close", "audio lanes"],
       ["tour_finish", "My tour"],
       ["drum_normalize", "pdf"],
       ["practice_speed", "75"],

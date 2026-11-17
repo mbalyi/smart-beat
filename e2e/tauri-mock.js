@@ -57,6 +57,8 @@
   const callbacks = new Map();
   const listeners = new Map();
   let nextId = 1;
+  /** The operation id of the running `transcribe_lane`, so `cancel_transcription` can stop it. */
+  let laneOperation = null;
 
   /** Saved mixes by song key (see `load_mixer_settings` in src-tauri/src/mixer.rs). */
   const mixes = new Map();
@@ -77,6 +79,21 @@
     shift: 0,
     release: null,
     abort: null,
+  };
+  /**
+   * Sheet from an audio lane (#235, src-tauri/src/lane_transcription.rs). Every request is kept
+   * (laneId, clipId, startMs, endMs, instrument, engine, modelSize). `hold` keeps the call open
+   * until `release()` or a cancel; `fail` makes it reject with that message; `notes` replaces the
+   * default notes (seconds on the audio timeline). `cancelled` counts stops of a lane run.
+   */
+  window.__laneTranscription = {
+    requests: [],
+    cancelled: 0,
+    hold: false,
+    fail: null,
+    release: null,
+    abort: null,
+    notes: null,
   };
   /** The high-accuracy piano model (src-tauri/src/recording/piano_model.rs): not downloaded at first. */
   window.__pianoModel = { installed: false, downloads: 0, removed: 0, fail: null };
@@ -1145,7 +1162,74 @@
         return muscriptorStatus();
       case "cancel_transcription":
         window.__transcription.cancelled.push(args.operationId);
+        if (args.operationId === laneOperation) {
+          window.__laneTranscription.cancelled += 1;
+          window.__laneTranscription.abort?.();
+        }
         return null;
+      case "transcribe_lane": {
+        const state = window.__laneTranscription;
+        state.requests.push(JSON.parse(JSON.stringify(args)));
+        if (
+          args.engine === "muscriptor" &&
+          (!window.__muscriptor.terms[args.modelSize ?? "medium"] ||
+            !window.__muscriptor.installed[args.modelSize ?? "medium"])
+        ) {
+          throw { kind: "audio", message: "Download the MuScriptor model first." };
+        }
+        laneOperation = args.operationId;
+        const progress = (fraction) =>
+          window.__emitTauriEvent("lane-transcription-progress", {
+            operationId: args.operationId,
+            fraction,
+          });
+        try {
+          progress(0.1);
+          progress(0.5);
+          if (state.hold) {
+            await new Promise((resolve, reject) => {
+              state.release = resolve;
+              state.abort = () => reject({ kind: "audio", message: "Transcription stopped." });
+            });
+          }
+          if (state.fail) throw { kind: "audio", message: state.fail };
+          progress(1);
+        } finally {
+          if (laneOperation === args.operationId) laneOperation = null;
+        }
+        // Note times are seconds on the audio timeline: they start where the range starts (the
+        // mock cannot know where a clip starts, so a clip request starts at 0).
+        const from = (args.startMs ?? 0) / 1000;
+        let notes;
+        if (state.notes) {
+          notes = state.notes;
+        } else if (args.instrument === "drums") {
+          // Kick, closed hat, snare, closed hat (General MIDI drum numbers).
+          notes = [36, 42, 38, 42].map((pitch, i) => ({
+            pitch,
+            start: from + i * 0.5,
+            end: from + i * 0.5 + 0.12,
+            velocity: 90,
+          }));
+        } else {
+          // E2, A2, D3 and G3 (open strings of a guitar); a piano also gets a melody note.
+          notes = [40, 45, 50, 55].map((pitch, i) => ({
+            pitch,
+            start: from + i * 0.5,
+            end: from + i * 0.5 + 0.5,
+            velocity: 90,
+          }));
+          if (args.instrument === "piano") {
+            notes.push({ pitch: 72, start: from, end: from + 0.5, velocity: 90 });
+          }
+        }
+        return {
+          notes,
+          startMs: args.startMs ?? 0,
+          endMs: args.endMs ?? 4000,
+          clipIds: args.clipId ? [args.clipId] : [],
+        };
+      }
       case "transcribe_audio":
         // Like Tauri's IPC: the recording is the raw body, its details are headers.
         if (!["mp3", "wav", "flac", "ogg"].includes(options.headers["file-type"])) {
