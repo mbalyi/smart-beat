@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   analyseSource,
+  buildPart,
+  countNotes,
   compatibleTracks,
   defaultPlace,
   describeSource,
@@ -252,6 +254,84 @@ describe("laneNotesToTake", () => {
     // Audio 48.5 s is song 46.5 s; bar 11 starts at 44 s.
     const [n] = laneNotesToTake(audio, grid, notes, 11);
     expect(n!.start).toBeCloseTo(2.5, 6);
+  });
+});
+
+describe("buildPart with a clip that starts in the middle of a bar", () => {
+  /** 120 bpm in 4/4: 2 s a bar. */
+  const fast: SongGrid = {
+    barTimes: Array.from({ length: 32 }, (_, i) => i * 2000),
+    beats: Array(32).fill(4),
+  };
+  const found = {
+    // The clip starts at 1.25 s, which rounds to bar index 1 (downbeat 2 s).
+    span: { startMs: 1250, endMs: 5000 },
+    notes: [
+      { start: 1.3, end: 1.6, pitch: 40, velocity: 90 },
+      { start: 1.6, end: 1.9, pitch: 43, velocity: 90 },
+      { start: 2.5, end: 3, pitch: 45, velocity: 90 },
+    ],
+  };
+  const options = {
+    instrument: "guitar" as const,
+    tuning: [...STANDARD_GUITAR],
+    laneName: "Lead guitar",
+    barCount: 4,
+  };
+
+  const song = (): Score => {
+    const score = createSong();
+    while (score.masterBars.length < 4) appendMasterBar(score);
+    return score;
+  };
+
+  it("uses the containing bar as the time origin so no note gets a negative time", () => {
+    const part = buildPart(EMPTY_AUDIO, fast, found, options);
+    expect(part.originBar).toBe(0);
+    expect(part.take.every((n) => n.start >= 0)).toBe(true);
+    expect(part.take[0]!.start).toBeCloseTo(1.3, 6);
+  });
+
+  it("keeps every note when the part is placed where the clip is", () => {
+    const part = buildPart(EMPTY_AUDIO, fast, found, options);
+    const score = song();
+    const placed = placeTake(score, part.take, {
+      instrument: "guitar",
+      tuning: [...STANDARD_GUITAR],
+      track: 0,
+      startBar: part.originBar,
+    });
+    expect(placed.warnings).toEqual([]);
+    expect(placed.firstBar).toBe(0);
+    expect(countNotes(score, 0, 0, 3)).toBe(3);
+  });
+
+  it("keeps every note when the player moves the part to a later bar", () => {
+    const part = buildPart(EMPTY_AUDIO, fast, found, options);
+    const score = song();
+    const placed = placeTake(score, part.take, {
+      instrument: "guitar",
+      tuning: [...STANDARD_GUITAR],
+      track: 0,
+      startBar: 1,
+    });
+    expect(placed.warnings).toEqual([]);
+    expect(countNotes(score, 0, 0, 3)).toBe(3);
+  });
+
+  it("still rounds to the next bar when that loses no note", () => {
+    // 1.95 s is just before the downbeat of bar 1: the first note is within the early grace.
+    const part = buildPart(
+      EMPTY_AUDIO,
+      fast,
+      {
+        span: { startMs: 1950, endMs: 5000 },
+        notes: [{ start: 2, end: 2.3, pitch: 40, velocity: 90 }],
+      },
+      options,
+    );
+    expect(part.originBar).toBe(1);
+    expect(part.take[0]!.start).toBeCloseTo(0, 6);
   });
 });
 

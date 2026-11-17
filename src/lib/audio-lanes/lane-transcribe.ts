@@ -8,7 +8,7 @@ import type { LaneRange, ResolvedSource } from "@/lib/audio-lanes/lane-transcrib
 import { activeTake, clipEndMs, laneEndMs } from "@/lib/audio-lanes/model";
 import { audioMsAt } from "@/lib/audio/engine-config";
 import type { RecordInstrument } from "@/lib/audio/record-prefs";
-import type { RecordedNote } from "@/lib/import/recording";
+import { EARLY_GRACE, type RecordedNote } from "@/lib/import/recording";
 import { isPlaceholderVoice, type Score } from "@/lib/score/model";
 import type { AudioClip, AudioLane, AudioLanesSettings } from "@/lib/tauri";
 
@@ -346,10 +346,20 @@ export function buildPart(
     barCount: number;
   },
 ): LanePart {
-  const originBar = startBarFor(audio, grid, found.span.startMs, options.barCount).bar;
+  const rounded = startBarFor(audio, grid, found.span.startMs, options.barCount).bar;
+  let originBar = rounded;
+  let take = laneNotesToTake(audio, grid, found.notes, originBar);
+  // A span that starts in the first half of a bar is rounded forward to the next downbeat, which
+  // lies after its first notes: they would get a negative time and be left out when written.
+  // Then the bar the span starts in is the time origin instead, so no note is lost.
+  if (take.some((n) => n.start < -EARLY_GRACE)) {
+    const exact = barAtTimelineMs(audio, grid, found.span.startMs);
+    originBar = Math.min(Math.max(Math.floor(exact), 0), Math.max(options.barCount, 0));
+    take = laneNotesToTake(audio, grid, found.notes, originBar);
+  }
   return {
     notes: [...found.notes],
-    take: laneNotesToTake(audio, grid, found.notes, originBar),
+    take,
     originBar,
     span: found.span,
     instrument: options.instrument,

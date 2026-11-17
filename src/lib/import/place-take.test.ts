@@ -73,6 +73,21 @@ describe("placeTake", () => {
     expect(placed.track).toBe(2);
   });
 
+  it("a piano with hands reaching different bars reports all bars written and the growth", () => {
+    const score = song(4);
+    // Right hand only in bar 1, left hand continues into bar 5 (4/4 at 120 bpm: 2 s a bar),
+    // one bar past the four the song starts with.
+    const notes = [note(0, 72), note(0.5, 76), note(1, 40), note(9, 43)];
+    const placed = placeTake(score, notes, {
+      instrument: "piano",
+      tuning: [],
+      track: null,
+      startBar: 0,
+    });
+    expect(score.masterBars).toHaveLength(5);
+    expect(placed).toMatchObject({ firstBar: 0, lastBar: 4, appended: 1 });
+  });
+
   it("a drum take goes on a new drum track, named by the plan", () => {
     const score = song(2);
     placeTake(score, [note(0, 36), note(0.5, 38)], {

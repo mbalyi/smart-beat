@@ -316,6 +316,79 @@ describe("Sheet from an audio lane", () => {
     expect(screen.getByLabelText("To")).toHaveValue("1:30.0");
   });
 
+  describe("when the audio changes under a finished result", () => {
+    /** The same clip (same id, start and length), with another take or turned around. */
+    function changedAudio(change: "take" | "reversed") {
+      const audio = audioWith();
+      const clip = audio.lanes[0]!.clips[0]!;
+      if (change === "reversed") clip.reversed = true;
+      else {
+        clip.takes = [...clip.takes, { name: "take 2", sourceId: "src2", offsetMs: 0 }];
+        clip.take = 1;
+      }
+      return audio;
+    }
+    const rerenderWith = (view: ReturnType<typeof setup>, audio: ReturnType<typeof audioWith>) =>
+      view.rerender(
+        <LaneToTabDialog
+          host={view.host}
+          audio={audio}
+          grid={grid}
+          missing={new Set()}
+          score={view.score}
+          tracks={[{ index: 0, name: "Guitar", kind: "stringed" }]}
+          cursorTrack={0}
+          onUnmuteClip={vi.fn()}
+          revision={0}
+        />,
+      );
+
+    it.each(["take", "reversed"] as const)(
+      "runs the transcription again after the %s changed (Place step open)",
+      async (change) => {
+        const view = setup();
+        await view.user.click(find());
+        await screen.findByTestId("part-drag-grip");
+        expect(transcribeLane).toHaveBeenCalledTimes(1);
+        rerenderWith(view, changedAudio(change));
+        // The stale notes cannot be carried or added: the dialog is back on the Instrument step.
+        expect(
+          await screen.findByRole("heading", { name: "What is playing?" }),
+        ).toBeInTheDocument();
+        expect(screen.queryByTestId("part-drag-grip")).not.toBeInTheDocument();
+        expect(screen.getByTestId("lane-to-tab-stale")).toHaveTextContent(
+          "The audio was changed after the notes were found",
+        );
+        expect(screen.queryByRole("button", { name: "Add to score" })).not.toBeInTheDocument();
+        // The button finds the notes again instead of reusing the old ones.
+        await view.user.click(find());
+        await waitFor(() => expect(transcribeLane).toHaveBeenCalledTimes(2));
+        expect(
+          await screen.findByRole("heading", { name: "Where do the notes go?" }),
+        ).toBeInTheDocument();
+        expect(screen.getByTestId("part-drag-grip")).toBeInTheDocument();
+        expect(screen.queryByTestId("lane-to-tab-stale")).not.toBeInTheDocument();
+        await waitFor(() =>
+          expect(screen.getByRole("button", { name: "Add to score" })).toBeEnabled(),
+        );
+      },
+    );
+
+    it("offers no stale part to drag, even when going back by hand", async () => {
+      const view = setup();
+      await view.user.click(find());
+      await screen.findByTestId("part-drag-grip");
+      await view.user.click(screen.getByRole("button", { name: "Back" }));
+      // Still the same audio: Next reuses the result.
+      expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
+      rerenderWith(view, changedAudio("reversed"));
+      expect(find()).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+      await view.user.click(find());
+      await waitFor(() => expect(transcribeLane).toHaveBeenCalledTimes(2));
+    });
+  });
+
   it("has no accessibility violations on any step", async () => {
     const { user } = setup();
     await expectNoA11yViolations();

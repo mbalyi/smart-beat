@@ -226,7 +226,7 @@ function LaneToTabForm({
   const barCount = score?.masterBars.length ?? 0;
 
   // --- Source -----------------------------------------------------------------------------
-  const [step, setStep] = useState<StepIndex>(request.clipIds.length > 0 ? 1 : 0);
+  const [stepState, setStep] = useState<StepIndex>(request.clipIds.length > 0 ? 1 : 0);
   const [source, setSource] = useState({
     laneId: request.laneId,
     clipIds: request.clipIds,
@@ -306,8 +306,12 @@ function LaneToTabForm({
   } | null>(null);
   const runKey = JSON.stringify([source.laneId, report.span, resolved.clipIds, instrument, engine]);
   const audioKey = audioSignature(report.clips);
-  const fresh = found !== null && found.runKey === runKey;
-  const changedAfter = found !== null && fresh && found.audioKey !== audioKey;
+  // A result is valid only for what it was made from: the same source and settings, and the same
+  // audio (another player may switch the take or reverse a clip without touching its ids or span).
+  const fresh = found !== null && found.runKey === runKey && found.audioKey === audioKey;
+  const changedAfter = found !== null && found.runKey === runKey && found.audioKey !== audioKey;
+  // Notes that went stale while the Place step was open: back to the step that finds them again.
+  const step: StepIndex = stepState === 2 && !fresh ? 1 : stepState;
 
   const [noNotes, setNoNotes] = useState(false);
   const findNotes = async () => {
@@ -464,6 +468,15 @@ function LaneToTabForm({
                 {notice}
               </p>
             )}
+            {changedAfter && (
+              <p
+                role="alert"
+                data-testid="lane-to-tab-stale"
+                className="rounded-md border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-sm"
+              >
+                The audio was changed after the notes were found. Find the notes again.
+              </p>
+            )}
             {report.problem && (
               <ProblemNote
                 problem={report.problem}
@@ -537,7 +550,6 @@ function LaneToTabForm({
             defaultBar={found?.part.originBar ?? start.bar}
             start={start}
             firstEmpty={place.kind === "track" && score ? firstEmptyBar(score, place.index) : null}
-            changed={changedAfter}
           >
             <PartPreview
               part={part}
@@ -636,7 +648,7 @@ function LaneToTabForm({
             <Button
               size="lg"
               className="min-w-52"
-              disabled={!part || preview.pending || preview.result === null || changedAfter}
+              disabled={!part || preview.pending || preview.result === null}
               onClick={commit}
               data-testid="lane-to-tab-add"
             >
@@ -927,7 +939,6 @@ function PlaceStep({
   defaultBar,
   start,
   firstEmpty,
-  changed,
   children,
 }: {
   tracks: readonly { index: number; name: string }[];
@@ -940,7 +951,6 @@ function PlaceStep({
   defaultBar: number;
   start: { midBar: boolean; beforeFirst: boolean; pastEnd: boolean };
   firstEmpty: number | null;
-  changed: boolean;
   children: ReactNode;
 }) {
   const group = useId();
@@ -1041,17 +1051,7 @@ function PlaceStep({
           </div>
         )}
       </div>
-      <div className="flex min-w-0 flex-col gap-3">
-        {changed && (
-          <p
-            role="alert"
-            className="rounded-md border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-sm"
-          >
-            The audio was changed after the notes were found. Go back and find them again.
-          </p>
-        )}
-        {children}
-      </div>
+      <div className="flex min-w-0 flex-col gap-3">{children}</div>
     </div>
   );
 }

@@ -33,7 +33,7 @@ export interface RecordedNote {
 /** Safety limit for a take written into a song. */
 const MAX_BARS = 2000;
 /** Notes this far before the downbeat are moved onto it, earlier ones are left out (seconds). */
-const EARLY_GRACE = 0.1;
+export const EARLY_GRACE = 0.1;
 const SIXTEENTH = QUARTER_TICKS / 4;
 
 /**
