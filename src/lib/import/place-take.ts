@@ -60,13 +60,16 @@ export function placeTake(
 ): PlacedTake {
   let warnings: string[] = [];
   let index = plan.track ?? -1;
-  let range: { firstBar: number; lastBar: number; appended: number } | null = null;
-  const remember = (written: { firstBar?: number; lastBar?: number; appended?: number }) => {
-    range ??= {
-      firstBar: written.firstBar ?? plan.startBar,
-      lastBar: written.lastBar ?? plan.startBar,
-      appended: written.appended ?? 0,
-    };
+  const barsBefore = score.masterBars.length;
+  // The bars written across every write (a piano's two hands can reach different bars).
+  let range: { firstBar: number; lastBar: number } | null = null;
+  const remember = (written: { firstBar: number; lastBar: number }) => {
+    range = range
+      ? {
+          firstBar: Math.min(range.firstBar, written.firstBar),
+          lastBar: Math.max(range.lastBar, written.lastBar),
+        }
+      : { firstBar: written.firstBar, lastBar: written.lastBar };
   };
   const piano = plan.instrument === "piano";
   const drums = plan.instrument === "drums";
@@ -114,10 +117,8 @@ export function placeTake(
     remember(written);
     warnings = written.warnings;
   }
-  const { firstBar, lastBar, appended } = range ?? {
-    firstBar: plan.startBar,
-    lastBar: plan.startBar - 1,
-    appended: 0,
-  };
+  const { firstBar, lastBar } = range ?? { firstBar: plan.startBar, lastBar: plan.startBar - 1 };
+  // The growth of the song over the whole placement, not of one hand's write.
+  const appended = Math.max(0, score.masterBars.length - barsBefore);
   return { track: index, warnings, firstBar, lastBar, appended };
 }
