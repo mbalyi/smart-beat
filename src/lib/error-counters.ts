@@ -66,7 +66,7 @@ const AREA_RULES: ReadonlyArray<readonly [ErrorArea, RegExp]> = [
   ["cloud", /^(cloud_|list_cloud_|stems_cloud_)|cloud_folder/],
   ["stems", /^(stems_|umx_model_|stem_model_)/],
   ["practice", /^practice_/],
-  ["import", /^(transcribe_audio|cancel_transcription|read_transcription_audio)$/],
+  ["import", /^(transcribe_audio|cancel_transcription|read_transcription_audio)$|^samples_/],
   [
     "ai",
     /^(transcribe_recording|cancel_recording_transcription|muscriptor_|accept_muscriptor_|download_muscriptor_|cancel_muscriptor_|delete_muscriptor_|piano_model_|download_piano_model)/,

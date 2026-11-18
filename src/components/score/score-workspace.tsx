@@ -95,7 +95,10 @@ import { TempoDialog, type TempoInitial } from "@/components/score/tempo-dialog"
 import { TextDialog } from "@/components/score/text-dialog";
 import { CopyInstrumentDialog } from "@/components/score/copy-instrument-dialog";
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
-import { Inspector } from "@/components/shell/inspector";
+import { Inspector, type InspectorTab } from "@/components/shell/inspector";
+import { SamplesPanel } from "@/components/samples/samples-panel";
+import { FileDragStore } from "@/lib/file-drag-store";
+import type { SampleRef } from "@/lib/samples/types";
 import { NotePalette } from "@/components/shell/note-palette";
 import { TrackList, type TrackActions } from "@/components/shell/track-list";
 import { WorkspaceToolbar } from "@/components/shell/workspace-toolbar";
@@ -290,6 +293,7 @@ import {
   detectAudioBeats,
   extractAudioSource,
   isTauri,
+  resolveSample,
   loadAudioSource,
   MIXER_SETTINGS_VERSION,
   pickAudioFile,
@@ -729,7 +733,7 @@ export function ScoreWorkspace({
     focusMode?: FocusMode;
   } | null>(null);
   const [focusCutDb, setFocusCutDb] = useState(readFocusCutDb);
-  const [inspectorTab, setInspectorTab] = useState<"song" | "track">("track");
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("track");
   // Narrowing the window below 1024 px closes the inspector: it would cover the score.
   useEffect(() => {
     const narrow = window.matchMedia?.("(max-width: 1023px)");
@@ -1610,7 +1614,7 @@ export function ScoreWorkspace({
   const tourSnapshot = useRef<{
     mixer: boolean;
     inspector: boolean;
-    inspectorTab: "song" | "track";
+    inspectorTab: InspectorTab;
     instrumentView: boolean;
     editing: boolean;
     track: number;
@@ -2581,6 +2585,54 @@ export function ScoreWorkspace({
     routeDroppedFiles(droppedAudio.paths, target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [droppedAudio]);
+
+  // --- Sample browser (#232) ---------------------------------------------------------------
+
+  /** Where a sample dragged out of the Samples tab is, for the lane highlight. */
+  const sampleDragStore = useMemo(() => new FileDragStore(), []);
+  const [sampleDragging, setSampleDragging] = useState(false);
+  const ensurePreviewEngine = () => {
+    if (engineOn) return true;
+    if (nativeEngineAvailable()) {
+      // The app switched by itself: only the user's own pick is remembered.
+      changeAudioEngine("native", false);
+      toast.info("Switched to effects playback to preview samples", {
+        description: "Press play on the sample again.",
+      });
+      return false;
+    }
+    toast.info("Previewing samples needs the native audio engine");
+    return false;
+  };
+  /** Opens a sample as a clip: on `laneId` at `atMs`, else at the position line (snapped). */
+  const insertSample = async (ref: SampleRef, laneId?: string, atMs?: number) => {
+    let path: string;
+    try {
+      path = await resolveSample(ref.folderId, ref.file.rel);
+    } catch (error) {
+      toast.error(`Couldn't open “${ref.file.name}”`, { description: errorText(error) });
+      return;
+    }
+    await lanes.importFiles([path], laneId, atMs ?? lanes.lineMs());
+  };
+  const insertSampleAtLine = (ref: SampleRef) => {
+    const open = lanes.audio.lanes.some((l) => l.id === editorLaneId && !l.folder);
+    void insertSample(ref, open ? (editorLaneId ?? undefined) : undefined);
+  };
+  const dropSample = (ref: SampleRef, point: { x: number; y: number }) => {
+    const target = laneDropTarget(point, (bar) =>
+      timelineMsAtBar(lanesAudioRef.current, laneGrid, bar),
+    );
+    if (!target) {
+      toast.info("Drop a sample on a lane to add it");
+      return;
+    }
+    void insertSample(ref, target.laneId, target.atMs);
+  };
+  const dragSample = (point: { x: number; y: number } | null) => {
+    sampleDragStore.set(point);
+    setSampleDragging(point !== null);
+  };
 
   // --- Monitor track ---------------------------------------------------------------
 
@@ -3571,6 +3623,17 @@ export function ScoreWorkspace({
               Close inspector
             </Button>
             <Inspector
+              samplesPanel={
+                isTauri() ? (
+                  <SamplesPanel
+                    ensureEngine={ensurePreviewEngine}
+                    insertAt="the position line"
+                    onInsert={insertSampleAtLine}
+                    onDragPoint={dragSample}
+                    onDropSample={dropSample}
+                  />
+                ) : undefined
+              }
               tab={inspectorTab}
               onTabChange={setInspectorTab}
               song={{
@@ -3752,6 +3815,13 @@ export function ScoreWorkspace({
       <LaneDropHighlight
         store={fileDrag?.audio ? fileDrag.store : undefined}
         count={fileDrag?.count ?? 0}
+        msAtBar={(bar) => timelineMsAtBar(lanesAudioRef.current, laneGrid, bar)}
+        snapTo={lanes.snapTo}
+        laneName={(id) => lanes.audio.lanes.find((l) => l.id === id)?.name ?? ""}
+      />
+      <LaneDropHighlight
+        store={sampleDragging ? sampleDragStore : undefined}
+        count={1}
         msAtBar={(bar) => timelineMsAtBar(lanesAudioRef.current, laneGrid, bar)}
         snapTo={lanes.snapTo}
         laneName={(id) => lanes.audio.lanes.find((l) => l.id === id)?.name ?? ""}
