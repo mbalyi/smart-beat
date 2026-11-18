@@ -4,6 +4,10 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### Changed
+
+- **Audio lanes under the tabs work like the lane editor.** Each lane has the editor's header in a slim strip above its clips, at the left of the view (name, mute, solo, add audio file and effects) instead of a small label, with the same mute and solo colours. A marker ruler on the bars shows and edits markers and regions, a handle under each lane resizes it (like in the studio), and an empty lane says so. The positions still follow the score's bars.
+
 ### Updated libraries
 
 - Routine updates to the app's libraries (Tauri, Sentry, the sign-in keychain library and others). If you were signed in to cloud storage, you may be asked to sign in once more.

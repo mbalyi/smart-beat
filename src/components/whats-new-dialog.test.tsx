@@ -86,6 +86,7 @@ describe("WhatsNewDialog", () => {
     it("shows the start page card's artwork for a feature without a picture of its own", () => {
       expect(whatsNewImage("audio-lanes")).toBe(homeImage("Audio tracks & editing"));
       expect(whatsNewImage("hybrid-lanes")).toBe(homeImage("Audio tracks & editing"));
+      expect(whatsNewImage("lane-band-parity")).toBe(homeImage("Audio tracks & editing"));
       expect(whatsNewImage("practice-together-lanes")).toBe(homeImage("Practice together"));
       expect(whatsNewImage("practice-together-editing")).toBe(homeImage("Practice together"));
       for (const id of ["edit-palette", "insert-rest", "repeat-count", "smoother-editing"]) {

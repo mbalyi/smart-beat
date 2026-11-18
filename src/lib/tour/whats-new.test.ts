@@ -86,7 +86,9 @@ describe("the editing features in the registry (#228)", () => {
     expect(entry("repeat-count")).toMatchObject({ since: "1.3.0", tour: "editing" });
     expect(entry("smoother-editing")).toMatchObject({ since: "1.3.0" });
     expect(entry("smoother-editing")?.tour).toBeUndefined();
-    expect(latestFeatures(FEATURE_REGISTRY).version).toBe("1.3.0");
+    expect(
+      compareVersions(latestFeatures(FEATURE_REGISTRY).version, "1.3.0"),
+    ).toBeGreaterThanOrEqual(0);
     expect(pendingFeatures("1.2.0", "1.3.0", FEATURE_REGISTRY).map((x) => x.id)).toEqual(
       expect.arrayContaining(["insert-rest", "repeat-count", "smoother-editing"]),
     );
