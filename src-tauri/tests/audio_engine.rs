@@ -1194,3 +1194,86 @@ mod monitor {
         assert!(dry > 0.1 && dry < loud * 0.7, "{dry} vs {loud}");
     }
 }
+
+/// A mono-looking stereo tone at the engine's rate, `seconds` long (the sample browser's
+/// preview, #232).
+fn sample_tone(seconds: f32) -> Arc<smart_beat_lib::audio::backing::DecodedAudio> {
+    let frames = (seconds * RATE) as usize;
+    let left: Vec<f32> = (0..frames)
+        .map(|i| (i as f32 / RATE * 440.0 * std::f32::consts::TAU).sin() * 0.5)
+        .collect();
+    Arc::new(smart_beat_lib::audio::backing::DecodedAudio {
+        rate: RATE as u32,
+        channels: 1,
+        right: left.clone(),
+        left,
+    })
+}
+
+#[test]
+fn a_sample_preview_plays_over_a_stopped_score_and_stops_by_itself() {
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.load(Arc::new(song())).unwrap();
+    let before = engine.position();
+    engine.start_sample_preview(sample_tone(0.5), 1.0).unwrap();
+    assert!(engine.sample_preview_active());
+    let (l, _) = render(&mut engine, 0.25);
+    assert!(rms(&l) > 0.1, "the sample is audible");
+    assert!(!engine.is_playing(), "a preview never starts the score");
+    assert_eq!(engine.position(), before, "a preview never moves the score");
+    let _ = render(&mut engine, 0.5);
+    assert!(!engine.sample_preview_active(), "it ends at its end");
+    let (after, _) = render(&mut engine, 0.1);
+    assert!(rms(&after) < 1e-6);
+}
+
+#[test]
+fn a_sample_preview_leaves_a_playing_score_exactly_as_it_was() {
+    let mut plain = playing_engine(|_| {});
+    let mut with_sample = playing_engine(|_| {});
+    with_sample
+        .start_sample_preview(sample_tone(1.0), 0.0)
+        .unwrap();
+    // Silent gain: the output must be bit for bit the score alone, and time must not move.
+    let (a, _) = render(&mut plain, 0.5);
+    let (b, _) = render(&mut with_sample, 0.5);
+    assert_eq!(a, b);
+    assert_eq!(plain.position(), with_sample.position());
+    // Stopping the preview does not stop the score.
+    with_sample.stop_sample_preview();
+    assert!(with_sample.is_playing());
+    assert!(!with_sample.sample_preview_active());
+}
+
+#[test]
+fn the_sample_preview_has_its_own_volume_after_the_master() {
+    let mut engine = Engine::new(sonivox(), RATE);
+    engine.set_master_volume(0.1);
+    engine.start_sample_preview(sample_tone(1.0), 1.0).unwrap();
+    let (loud, _) = render(&mut engine, 0.2);
+    engine.set_sample_preview_gain(0.25);
+    let (quiet, _) = render(&mut engine, 0.2);
+    assert!(rms(&loud) > 0.3, "the master volume does not colour it");
+    assert!(rms(&quiet) < rms(&loud) * 0.4);
+    assert!(rms(&quiet) > rms(&loud) * 0.15);
+}
+
+#[test]
+fn a_sample_at_another_rate_is_refused_and_a_new_one_replaces_the_old() {
+    let mut engine = Engine::new(sonivox(), RATE);
+    let wrong = Arc::new(smart_beat_lib::audio::backing::DecodedAudio {
+        rate: 44_100,
+        channels: 1,
+        left: vec![0.0; 10],
+        right: vec![0.0; 10],
+    });
+    assert!(engine.start_sample_preview(wrong, 1.0).is_err());
+    assert!(!engine.sample_preview_active());
+    engine.start_sample_preview(sample_tone(2.0), 1.0).unwrap();
+    engine.start_sample_preview(sample_tone(0.1), 1.0).unwrap();
+    let _ = render(&mut engine, 0.3);
+    assert!(
+        !engine.sample_preview_active(),
+        "the shorter one replaced it"
+    );
+}

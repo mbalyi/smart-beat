@@ -21,6 +21,7 @@ use super::kits::LoadedKit;
 use super::kits::sampler::SfzSampler;
 use serde::{Deserialize, Serialize};
 
+use super::backing::DecodedAudio;
 use super::chain::{Chain, ChainPlayer, EffectSlot, MAX_MASTER_EFFECTS};
 use super::dsp::Effect;
 use super::dsp::db_to_gain;
@@ -467,6 +468,20 @@ pub struct Reduction {
     pub monitor: Vec<f32>,
 }
 
+/// A sample from the browser being played (#232).
+struct SamplePreview {
+    audio: Arc<DecodedAudio>,
+    pos: usize,
+}
+
+fn clean_gain(gain: f32) -> f32 {
+    if gain.is_finite() {
+        gain.clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
+}
+
 pub struct Engine {
     sample_rate: f32,
     sound_font: Arc<SoundFont>,
@@ -510,6 +525,10 @@ pub struct Engine {
     /// Plays single notes the user picks (drum kit preview), on the master bus.
     preview: Option<Synthesizer>,
     preview_buf: [Vec<f32>; 2],
+    /// A sample from the sample browser, played after the master chain with its own gain so
+    /// the score, its position and the lanes are left alone (#232).
+    sample_preview: Option<SamplePreview>,
+    sample_preview_gain: f32,
     master_buf: [Vec<f32>; 2],
 }
 
@@ -556,6 +575,8 @@ impl Engine {
             sound_fade: ((SOUND_FADE_MS * 0.001 * sample_rate) as usize).max(1),
             preview: None,
             preview_buf: [vec![0.0; BLOCK], vec![0.0; BLOCK]],
+            sample_preview: None,
+            sample_preview_gain: 1.0,
             master_buf: [vec![0.0; BLOCK], vec![0.0; BLOCK]],
         }
     }
@@ -588,6 +609,34 @@ impl Engine {
         let synth = self.preview.as_mut().expect("just created");
         synth.process_midi_message((channel & 0x0f) as i32, 0xc0, program.min(127) as i32, 0);
         self.preview(channel, key, velocity)
+    }
+
+    /// Plays a decoded sample now, once, whether or not the song plays. `audio` must be at the
+    /// engine's sample rate. Replaces a sample that is still playing.
+    pub fn start_sample_preview(
+        &mut self,
+        audio: Arc<DecodedAudio>,
+        gain: f32,
+    ) -> Result<(), String> {
+        if audio.rate as f32 != self.sample_rate {
+            return Err("The sample is not at the output's sample rate".into());
+        }
+        self.sample_preview_gain = clean_gain(gain);
+        self.sample_preview = Some(SamplePreview { audio, pos: 0 });
+        Ok(())
+    }
+
+    pub fn stop_sample_preview(&mut self) {
+        self.sample_preview = None;
+    }
+
+    pub fn set_sample_preview_gain(&mut self, gain: f32) {
+        self.sample_preview_gain = clean_gain(gain);
+    }
+
+    /// Whether a sample is still playing (it stops by itself at its end).
+    pub fn sample_preview_active(&self) -> bool {
+        self.sample_preview.is_some()
     }
 
     /// Lets the previewed notes of a channel ring out.
@@ -1213,6 +1262,18 @@ impl Engine {
             target,
         );
         self.master_gains = target;
+        if let Some(sample) = self.sample_preview.as_mut() {
+            let gain = self.sample_preview_gain;
+            let end = sample.audio.frames();
+            for i in 0..n.min(end.saturating_sub(sample.pos)) {
+                out_l[i] += sample.audio.left[sample.pos + i] * gain;
+                out_r[i] += sample.audio.right[sample.pos + i] * gain;
+            }
+            sample.pos += n;
+            if sample.pos >= end {
+                self.sample_preview = None;
+            }
+        }
         let mut peak = self.master_peak;
         for (a, b) in out_l.iter_mut().zip(out_r.iter_mut()) {
             *a = a.clamp(-1.0, 1.0);
