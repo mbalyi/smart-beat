@@ -92,7 +92,8 @@ fn a_linked_folder_is_listed_probed_resolved_and_remembered() {
     );
 
     let path = samples_resolve(folder.id.clone(), "kits/snare.wav".into(), app.state()).unwrap();
-    assert!(path.ends_with("kits/snare.wav"));
+    // Compare by path components: Windows joins with a backslash.
+    assert!(std::path::Path::new(&path).ends_with("kits/snare.wav"));
     for bad in ["../secret.wav", "/etc/passwd", "kits/../../x.wav"] {
         assert!(
             samples_resolve(folder.id.clone(), bad.into(), app.state()).is_err(),
