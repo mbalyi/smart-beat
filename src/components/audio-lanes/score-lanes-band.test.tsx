@@ -195,7 +195,8 @@ describe("the lanes band under the tabs", () => {
       "band-lane-lane-a",
       "band-lane-lane-b",
     ]);
-    expect(rows[0]!.style.height).toBe("80px");
+    // A row is the lane height (80 px) and the 28 px strip of its header above the clips.
+    expect(rows[0]!.style.height).toBe("108px");
     // clip-a is bar 1 (40–140); clip-c runs from bar 2 (140) to the end of bar 3 (540).
     const a = clipButton(/verse\.wav on Vocals/);
     expect(leftOf(a)).toBe(40);
@@ -222,9 +223,9 @@ describe("the lanes band under the tabs", () => {
           }
         : song(),
     );
-    expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("120px");
-    // Never shorter than 40 px.
-    expect(screen.getByTestId("band-lane-lane-b").style.height).toBe("40px");
+    expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("148px");
+    // Never shorter than 40 px (plus the header strip).
+    expect(screen.getByTestId("band-lane-lane-b").style.height).toBe("68px");
     expect(screen.getByTestId("lane-header-lane-a")).toHaveTextContent("Vocals");
     expect(
       within(screen.getByTestId("lane-header-lane-a")).getByRole("button", {
@@ -465,8 +466,6 @@ describe("editing in the band, through the bars' own widths", () => {
       expect(lane.mute).toBe(true);
       expect(lane.solo).toBe(true);
       expect(header.getByRole("button", { name: "Add audio file to Vocals" })).toBeVisible();
-      expect(header.getByRole("button", { name: /^Auto bypass/ })).toBeVisible();
-      expect(header.getByRole("button", { name: "Sends" })).toBeVisible();
     });
 
     it("opens the lane's effects from its FX button", async () => {
@@ -477,16 +476,13 @@ describe("editing in the band, through the bars' own widths", () => {
       expect(onEffects).toHaveBeenCalledWith("lane-b");
     });
 
-    it("shortens the header of a short lane to the name, mute and solo", () => {
-      const audio = song();
-      renderBand({
-        ...audio,
-        lanes: audio.lanes.map((l) => (l.id === "lane-a" ? { ...l, height: 48 } : l)),
-      });
+    it("keeps the header to one slim row in a strip above the clips", () => {
+      renderBand();
       const header = within(screen.getByTestId("lane-header-lane-a"));
-      expect(header.getByRole("button", { name: "Mute Vocals" })).toBeVisible();
-      expect(header.queryByRole("button", { name: /^FX/ })).not.toBeInTheDocument();
-      expect(header.queryByRole("button", { name: /^Add audio file/ })).not.toBeInTheDocument();
+      // Sends and auto bypass are in the editor; the header over the lane is one row.
+      expect(header.queryByRole("button", { name: "Sends" })).not.toBeInTheDocument();
+      expect(header.queryByRole("button", { name: /^Auto bypass/ })).not.toBeInTheDocument();
+      expect(screen.getByTestId("lane-header-lane-a").className).toContain("flex-row");
     });
 
     it("has the editor's marker ruler on the bars, and a resize handle on every lane", () => {
@@ -501,7 +497,7 @@ describe("editing in the band, through the bars' own widths", () => {
       screen.getByTestId("lane-resize-lane-a").focus();
       await user.keyboard("{ArrowDown}");
       expect(lanesNow().audio.lanes.find((l) => l.id === "lane-a")!.height).toBe(90);
-      expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("90px");
+      expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("118px");
     });
 
     it("says an empty lane is empty, like the editor", () => {

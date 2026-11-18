@@ -68,6 +68,7 @@ export function LaneHeader({
   compact,
   onEffects,
   range,
+  quickActions = false,
   className,
   style,
 }: {
@@ -78,11 +79,18 @@ export function LaneHeader({
   onEffects?: () => void;
   /** Whether range edits cover this lane, and the switch for it (the studio only). */
   range?: { inRange: boolean; onToggle: () => void };
+  /**
+   * In a compact (one row) header, also show the add-audio and effects buttons: for the band,
+   * whose header floats over the lane, so it stays one slim row that leaves the clips below it
+   * clickable.
+   */
+  quickActions?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
   const update = (patch: Partial<AudioLane>) => lanes.apply((a) => updateLane(a, lane.id, patch));
   const full = !lane.folder && !compact;
+  const quick = !lane.folder && compact && quickActions;
   return (
     <div
       data-testid={`lane-header-${lane.id}`}
@@ -141,6 +149,30 @@ export function LaneHeader({
         >
           S
         </Toggle>
+        {quick && (
+          <>
+            <Button
+              variant="outline"
+              size="icon-xs"
+              className="size-6"
+              aria-label={`Add audio file to ${lane.name}`}
+              title="Add audio file"
+              onClick={() => void lanes.chooseFile(lane.id, laneEndMs(lane))}
+            >
+              <FilePlusIcon />
+            </Button>
+            {onEffects && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-1.5 text-xs"
+                onClick={onEffects}
+              >
+                FX{lane.effects.length ? ` ${lane.effects.length}` : ""}
+              </Button>
+            )}
+          </>
+        )}
         {full && (
           <>
             {onEffects && (
