@@ -4,6 +4,10 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### Updated libraries
+
+- Routine updates to the app's libraries (Tauri, Sentry, the sign-in keychain library and others). If you were signed in to cloud storage, you may be asked to sign in once more.
+
 ## [1.3.1]
 
 New in 1.3.1: crash reports you can switch on, and updated libraries. What's new still shows the 1.3.0 list.
