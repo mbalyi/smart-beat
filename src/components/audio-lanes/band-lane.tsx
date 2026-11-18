@@ -20,7 +20,6 @@ import { bandSelectableLanes } from "@/lib/audio-lanes/band-rows";
 import { clickSelection } from "@/lib/audio-lanes/selection";
 import { laneColor } from "@/lib/score/track-colors";
 import type { AudioClip, AudioLane } from "@/lib/tauri";
-import { cn } from "@/lib/utils";
 
 /** The part of the band's width on screen (px from the band's left edge); none: all of it. */
 export interface BandView {
@@ -34,40 +33,42 @@ function isOffScreen(clip: AudioClip, selected: boolean, bounds: BarBounds, view
   return bounds.msToX(clipEndMs(clip)) < view.from || bounds.msToX(clip.startMs) > view.to;
 }
 
-/** The header card's width, like the studio's header column. */
-const HEADER_WIDTH = "w-56";
+/** The strip above a lane's clips that holds its header, px: one row of 24 px buttons. */
+const HEADER_STRIP_PX = 28;
 
 /**
- * A lane's header at the left edge of its row: the studio's header (name, mute, solo, add audio,
- * effects, sends), as a card that stays at the left edge of the view while the score scrolls. The
- * wrapper lets the pointer through, so only the card itself covers the clips under it.
+ * A lane's header in a slim strip above its clips: the studio's header in its one-row form (name,
+ * mute, solo, add audio, effects; sends and auto bypass are in the editor). The header stays at
+ * the left edge of the view while the score scrolls. It has a strip of its own, not the clips'
+ * area, so it never covers a clip or its handles. The strip lets the pointer through.
  */
 function BandHeader({
   lanes,
   lane,
   color,
-  compact,
   onEffects,
 }: {
   lanes: AudioLanesController;
   lane: AudioLane;
   color: string;
-  compact: boolean;
   onEffects?: (laneId: string) => void;
 }) {
   return (
-    <div className="pointer-events-none sticky top-0 left-1 z-30 h-0 w-0">
-      <LaneHeader
-        lanes={lanes}
-        lane={lane}
-        compact={compact}
-        onEffects={onEffects && (() => onEffects(lane.id))}
-        className={cn(
-          HEADER_WIDTH,
-          "pointer-events-auto absolute top-1 left-0 overflow-hidden rounded-md border bg-card/90 px-3 py-1 shadow-sm backdrop-blur-sm",
-        )}
-        style={{ boxShadow: `inset 3px 0 0 ${color}` }}
-      />
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 border-b border-dashed"
+      style={{ height: HEADER_STRIP_PX }}
+    >
+      <div className="sticky left-1 z-30 w-fit">
+        <LaneHeader
+          lanes={lanes}
+          lane={lane}
+          compact
+          quickActions
+          onEffects={onEffects && (() => onEffects(lane.id))}
+          className="pointer-events-auto max-w-56 items-center gap-2 px-2 pl-3"
+          style={{ height: HEADER_STRIP_PX - 1, boxShadow: `inset 3px 0 0 ${color}` }}
+        />
+      </div>
     </div>
   );
 }
@@ -157,15 +158,16 @@ export function BandLane({
       aria-label={`Audio lane ${lane.name} under the score`}
       data-testid={`band-lane-${lane.id}`}
       className="relative border-b"
-      style={{ height }}
+      style={{ height: height + HEADER_STRIP_PX }}
     >
-      <BandHeader lanes={lanes} lane={lane} color={color} compact={compact} onEffects={onEffects} />
+      <BandHeader lanes={lanes} lane={lane} color={color} onEffects={onEffects} />
       <LaneContextMenu lanes={lanes} lane={lane} toMs={toMs} onOpenEditor={onOpenEditor}>
         <div
           ref={laneRef}
           role="presentation"
           data-lane-id={lane.id}
-          className="absolute inset-0"
+          className="absolute inset-x-0 bottom-0"
+          style={{ top: HEADER_STRIP_PX }}
           {...marquee.handlers}
         >
           {range && (
@@ -175,7 +177,7 @@ export function BandLane({
               style={{ left: toX(range.startMs), width: toX(range.endMs) - toX(range.startMs) }}
             />
           )}
-          {lane.clips.length === 0 && <EmptyLaneHint className="pl-60" />}
+          {lane.clips.length === 0 && <EmptyLaneHint />}
           {lane.clips.map((clip) => {
             const selected = lanes.selection.includes(clip.id);
             if (isOffScreen(clip, selected, bounds, view)) return null;
