@@ -96,6 +96,7 @@ function Lanes({
 function renderBand(audio = song(), scroller: HTMLElement | null = null) {
   const playhead = new PlayheadStore();
   const onOpenEditor = vi.fn();
+  const onEffects = vi.fn();
   const view = renderWithProviders(
     <Lanes audio={audio}>
       {(lanes) => (
@@ -106,11 +107,12 @@ function renderBand(audio = song(), scroller: HTMLElement | null = null) {
           playhead={playhead}
           scroller={scroller}
           onOpenEditor={onOpenEditor}
+          onEffects={onEffects}
         />
       )}
     </Lanes>,
   );
-  return { ...view, playhead, onOpenEditor };
+  return { ...view, playhead, onOpenEditor, onEffects };
 }
 
 const rect = (left: number, top: number, width: number, height: number) =>
@@ -202,7 +204,7 @@ describe("the lanes band under the tabs", () => {
     expect(leftOf(c)).toBe(140);
     expect(widthOf(c)).toBe(400);
     // The name, mute and solo of each lane at its left.
-    expect(screen.getByTestId("band-lane-name-lane-a")).toHaveTextContent("Vocals");
+    expect(screen.getByTestId("lane-header-lane-a")).toHaveTextContent("Vocals");
     // Bar lines run through the band, and the position and edit lines too.
     expect(screen.getByTestId("band-bar-1").style.left).toBe("140px");
     expect(screen.getByTestId("band-edit-cursor")).toBeInTheDocument();
@@ -223,12 +225,18 @@ describe("the lanes band under the tabs", () => {
     expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("120px");
     // Never shorter than 40 px.
     expect(screen.getByTestId("band-lane-lane-b").style.height).toBe("40px");
-    expect(screen.getByTestId("band-lane-name-lane-a")).toHaveTextContent("Vocals");
+    expect(screen.getByTestId("lane-header-lane-a")).toHaveTextContent("Vocals");
     expect(
-      within(screen.getByTestId("band-lane-name-lane-a")).getByLabelText("Muted"),
+      within(screen.getByTestId("lane-header-lane-a")).getByRole("button", {
+        name: "Mute Vocals",
+        pressed: true,
+      }),
     ).toBeVisible();
     expect(
-      within(screen.getByTestId("band-lane-name-lane-b")).getByLabelText("Soloed"),
+      within(screen.getByTestId("lane-header-lane-b")).getByRole("button", {
+        name: "Solo Drums",
+        pressed: true,
+      }),
     ).toBeVisible();
   });
 
@@ -282,7 +290,7 @@ describe("the lanes band under the tabs", () => {
     const { user } = renderBand(song([folder, inside]));
     expect(screen.getByTestId("band-folder-folder")).toBeInTheDocument();
     expect(screen.queryByTestId("band-lane-lane-in")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Open the folder Stems/ }));
+    await user.click(screen.getByRole("button", { name: /Open Stems/ }));
     expect(screen.getByTestId("band-lane-lane-in")).toBeInTheDocument();
   });
 
@@ -445,5 +453,73 @@ describe("editing in the band, through the bars' own widths", () => {
     renderBand();
     act(() => lanesNow().select(["clip-c"]));
     await expectNoA11yViolations();
+  });
+
+  describe("like the lane editor", () => {
+    it("has the studio's header: mute and solo toggle the lane, and add audio asks for a file", async () => {
+      const { user } = renderBand();
+      const header = within(screen.getByTestId("lane-header-lane-a"));
+      await user.click(header.getByRole("button", { name: "Mute Vocals" }));
+      await user.click(header.getByRole("button", { name: "Solo Vocals" }));
+      const lane = lanesNow().audio.lanes.find((l) => l.id === "lane-a")!;
+      expect(lane.mute).toBe(true);
+      expect(lane.solo).toBe(true);
+      expect(header.getByRole("button", { name: "Add audio file to Vocals" })).toBeVisible();
+      expect(header.getByRole("button", { name: /^Auto bypass/ })).toBeVisible();
+      expect(header.getByRole("button", { name: "Sends" })).toBeVisible();
+    });
+
+    it("opens the lane's effects from its FX button", async () => {
+      const { user, onEffects } = renderBand();
+      await user.click(
+        within(screen.getByTestId("lane-header-lane-b")).getByRole("button", { name: /^FX/ }),
+      );
+      expect(onEffects).toHaveBeenCalledWith("lane-b");
+    });
+
+    it("shortens the header of a short lane to the name, mute and solo", () => {
+      const audio = song();
+      renderBand({
+        ...audio,
+        lanes: audio.lanes.map((l) => (l.id === "lane-a" ? { ...l, height: 48 } : l)),
+      });
+      const header = within(screen.getByTestId("lane-header-lane-a"));
+      expect(header.getByRole("button", { name: "Mute Vocals" })).toBeVisible();
+      expect(header.queryByRole("button", { name: /^FX/ })).not.toBeInTheDocument();
+      expect(header.queryByRole("button", { name: /^Add audio file/ })).not.toBeInTheDocument();
+    });
+
+    it("has the editor's marker ruler on the bars, and a resize handle on every lane", () => {
+      renderBand();
+      expect(screen.getByTestId("marker-ruler")).toBeInTheDocument();
+      expect(screen.getByTestId("lane-resize-lane-a")).toBeInTheDocument();
+      expect(screen.getByTestId("lane-resize-lane-b")).toBeInTheDocument();
+    });
+
+    it("resizes a lane with the keyboard like the studio, and saves the height", async () => {
+      const { user } = renderBand();
+      screen.getByTestId("lane-resize-lane-a").focus();
+      await user.keyboard("{ArrowDown}");
+      expect(lanesNow().audio.lanes.find((l) => l.id === "lane-a")!.height).toBe(90);
+      expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("90px");
+    });
+
+    it("says an empty lane is empty, like the editor", () => {
+      const audio = song();
+      renderBand({
+        ...audio,
+        lanes: audio.lanes.map((l) => (l.id === "lane-b" ? { ...l, clips: [] } : l)),
+      });
+      const rows = screen.getAllByTestId("empty-lane");
+      expect(rows).toHaveLength(1);
+      expect(within(screen.getByTestId("band-lane-lane-b")).getByTestId("empty-lane")).toBe(
+        rows[0],
+      );
+    });
+
+    it("has no accessibility violations with the new header", async () => {
+      const { container } = renderBand();
+      await expectNoA11yViolations(container);
+    });
   });
 });

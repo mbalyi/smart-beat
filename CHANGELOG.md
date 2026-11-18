@@ -4,6 +4,10 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### Changed
+
+- **Audio lanes under the tabs work like the lane editor.** Each lane has the editor's header at the left of the view (name, mute, solo, add audio file, effects, sends and auto bypass) instead of a small label, with the same mute and solo colours. A marker ruler on the bars shows and edits markers and regions, a handle under each lane resizes it (like in the studio), and an empty lane says so. The positions still follow the score's bars.
+
 ## [1.3.1]
 
 New in 1.3.1: crash reports you can switch on, and updated libraries. What's new still shows the 1.3.0 list.
