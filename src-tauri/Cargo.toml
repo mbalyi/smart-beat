@@ -63,9 +63,10 @@ tract-onnx = "0.23"
 sha2 = "0.11"
 sevenz-rust2 = { version = "0.25", default-features = false }
 # Cloud sign-in (#187): random PKCE verifiers and OAuth tokens in the OS keychain
-# (macOS Keychain, Windows Credential Manager, Linux Secret Service).
+# (macOS Keychain, Windows Credential Manager, Linux Secret Service). The "v1" feature selects the
+# platform stores (apple-native, windows-native, zbus Secret Service).
 getrandom = "0.4"
-keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+keyring = { version = "4", default-features = false, features = ["v1"] }
 
 # macOS: the system's AAC encoder (AVFoundation) writes `.m4a` exports (src/m4a.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
