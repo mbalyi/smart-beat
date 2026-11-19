@@ -45,6 +45,21 @@ describe("RecordBar", () => {
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
+  it("tells an audio take that Space keeps it and Escape throws it away (#249)", () => {
+    renderWithProviders(
+      <RecordBar
+        phase={{ kind: "recording", mode: "free", countingIn: false, elapsed: 3 }}
+        level={0.4}
+        onStop={vi.fn()}
+        onCancel={vi.fn()}
+        discardOnEscape
+      />,
+    );
+    expect(screen.getByRole("region", { name: "Recording" })).toHaveTextContent(
+      "Press Space to keep the take, or Escape to throw it away.",
+    );
+  });
+
   it("shows the progress of the transcription, with Cancel", async () => {
     const onCancel = vi.fn();
     const { user } = renderWithProviders(

@@ -26,6 +26,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { RecordMode } from "@/lib/audio-lanes/takes";
+import { readAudioRecordPrefs, storeAudioRecordPrefs } from "@/lib/audio/record-prefs";
 import { cn } from "@/lib/utils";
 
 /** A choice in a group: filled with the primary colour when it is the one (as in Record to tab). */
@@ -152,13 +153,16 @@ function RecordAudioForm({
   onInputSettings: () => void;
 }) {
   const [laneId, setLaneId] = useState<string>(defaultLane ?? "new");
-  const [mode, setMode] = useState<RecordMode>("playhead");
-  const [countIn, setCountIn] = useState(true);
-  const [preRoll, setPreRoll] = useState(1);
+  // The last choices come back (the lane icon records with them).
+  const [saved] = useState(readAudioRecordPrefs);
+  const [mode, setMode] = useState<RecordMode>(saved.mode);
+  const [countIn, setCountIn] = useState(saved.countIn);
+  const [preRoll, setPreRoll] = useState(saved.preRollBars || 1);
   const needsSelection = mode !== "playhead" && !hasSelection;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (needsSelection) return;
+    storeAudioRecordPrefs({ mode, countIn, preRollBars: preRoll });
     onStart({
       laneId: laneId === "new" ? null : laneId,
       mode,

@@ -20,6 +20,14 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "lane-record",
+    title: "Record on an audio lane",
+    summary:
+      "Every audio lane has a record icon. Press it to arm the lane: you hear your input through that lane's own effects (amp, pedals, plugins) while the song plays, press it again to record a take straight onto the lane, and press it once more to keep it. Escape throws a take away, and one undo removes it.",
+    since: "1.4.0",
+    tour: "audio-lanes",
+  },
+  {
     id: "hybrid-lanes",
     title: "Audio tracks play with the SoundFonts",
     summary:

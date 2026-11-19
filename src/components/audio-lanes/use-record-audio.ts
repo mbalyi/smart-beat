@@ -57,6 +57,8 @@ export function useRecordAudio(env: {
   /** The practice speed (1 = as written). */
   speed: () => number;
   ensureEngine: () => boolean;
+  /** Called right before the song starts (a lane's clips go quiet under the take, #249). */
+  onBeforePlay?: (setup: RecordAudioSetup) => void;
 }) {
   const [phase, setPhase] = useState<RecordPhase>({ kind: "idle" });
   const [level, setLevel] = useState(0);
@@ -141,6 +143,7 @@ export function useRecordAudio(env: {
     const punchBar = setup.mode === "playhead" || !selected ? startBar() : selected.start;
     const playBar = Math.max(0, punchBar - setup.preRollBars);
     const beat = beatAt(playBar);
+    envRef.current.onBeforePlay?.(setup);
     player.pause();
     player.setLoop(setup.mode === "loop" ? selected : null);
     player.setCountIn(setup.countIn);

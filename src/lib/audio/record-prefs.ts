@@ -165,3 +165,69 @@ export function storeAiMode(value: boolean) {
     // Not remembered: Default next time.
   }
 }
+
+const AUDIO_SETUP_KEY = "smart-beat:record-audio-setup";
+
+/** What a take onto a lane remembers from the Record audio dialog: how it starts and its lead-in. */
+export interface AudioRecordPrefs {
+  mode: "playhead" | "punch" | "loop";
+  countIn: boolean;
+  preRollBars: number;
+}
+
+const DEFAULT_AUDIO_PREFS: AudioRecordPrefs = { mode: "playhead", countIn: true, preRollBars: 1 };
+
+/** The last choices made in the Record audio dialog (the lane icon records with them). */
+export function readAudioRecordPrefs(): AudioRecordPrefs {
+  try {
+    const value = JSON.parse(
+      localStorage.getItem(AUDIO_SETUP_KEY) ?? "null",
+    ) as Partial<AudioRecordPrefs> | null;
+    if (!value) return DEFAULT_AUDIO_PREFS;
+    const mode =
+      value.mode === "punch" || value.mode === "loop" ? value.mode : DEFAULT_AUDIO_PREFS.mode;
+    return {
+      mode,
+      countIn: value.countIn !== false,
+      preRollBars:
+        typeof value.preRollBars === "number" && [0, 1, 2].includes(value.preRollBars)
+          ? value.preRollBars
+          : DEFAULT_AUDIO_PREFS.preRollBars,
+    };
+  } catch {
+    return DEFAULT_AUDIO_PREFS;
+  }
+}
+
+export function storeAudioRecordPrefs(prefs: AudioRecordPrefs) {
+  try {
+    localStorage.setItem(AUDIO_SETUP_KEY, JSON.stringify(prefs));
+  } catch {
+    // Not remembered: the defaults are used next time.
+  }
+}
+
+const HEAR_KEY = "smart-beat:record-hear-myself";
+
+/**
+ * Hear the input through the armed lane's effects (#249). Unless the player chose, it is on for an
+ * audio interface and off for the computer's own microphone (speakers would feed back into it).
+ */
+export function readHearMyself(builtInInput: boolean): boolean {
+  try {
+    const value = localStorage.getItem(HEAR_KEY);
+    if (value === "1") return true;
+    if (value === "0") return false;
+  } catch {
+    // No storage: the default below.
+  }
+  return !builtInInput;
+}
+
+export function storeHearMyself(value: boolean) {
+  try {
+    localStorage.setItem(HEAR_KEY, value ? "1" : "0");
+  } catch {
+    // Not remembered: the default is used next time.
+  }
+}
