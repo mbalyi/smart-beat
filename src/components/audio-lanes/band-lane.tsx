@@ -1,25 +1,25 @@
-import { ChevronDownIcon, ChevronRightIcon, FolderIcon } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 
 import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
+import { EmptyLaneHint } from "@/components/audio-lanes/empty-lane-hint";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
+import { LaneHeader } from "@/components/audio-lanes/lane-header";
+import { LaneResizeHandle } from "@/components/audio-lanes/lane-resize-handle";
 import { MarqueeBox } from "@/components/audio-lanes/selection-overlay";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { useMarquee } from "@/components/audio-lanes/use-marquee";
-import { Button } from "@/components/ui/button";
 import type { BarBounds } from "@/lib/audio-lanes/bar-bounds";
 import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
 import { registerLaneResolver } from "@/lib/audio-lanes/drop-target";
-import { trimClip, updateLane } from "@/lib/audio-lanes/edits";
+import { trimClip } from "@/lib/audio-lanes/edits";
 import { COMPACT_LANE_HEIGHT, laneHeight } from "@/lib/audio-lanes/lane-height";
 import { clipEndMs } from "@/lib/audio-lanes/model";
 import { bandSelectableLanes } from "@/lib/audio-lanes/band-rows";
 import { clickSelection } from "@/lib/audio-lanes/selection";
 import { laneColor } from "@/lib/score/track-colors";
 import type { AudioClip, AudioLane } from "@/lib/tauri";
-import { cn } from "@/lib/utils";
 
 /** The part of the band's width on screen (px from the band's left edge); none: all of it. */
 export interface BandView {
@@ -33,69 +33,62 @@ function isOffScreen(clip: AudioClip, selected: boolean, bounds: BarBounds, view
   return bounds.msToX(clipEndMs(clip)) < view.from || bounds.msToX(clip.startMs) > view.to;
 }
 
-/** A folder: a thin header row, which opens and closes it. */
+/** The strip above a lane's clips that holds its header, px: one row of 24 px buttons. */
+const HEADER_STRIP_PX = 28;
+
+/**
+ * A lane's header in a slim strip above its clips: the studio's header in its one-row form (name,
+ * mute, solo, add audio, effects; sends and auto bypass are in the editor). The header stays at
+ * the left edge of the view while the score scrolls. It has a strip of its own, not the clips'
+ * area, so it never covers a clip or its handles. The strip lets the pointer through.
+ */
+function BandHeader({
+  lanes,
+  lane,
+  color,
+  onEffects,
+}: {
+  lanes: AudioLanesController;
+  lane: AudioLane;
+  color: string;
+  onEffects?: (laneId: string) => void;
+}) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 border-b border-dashed"
+      style={{ height: HEADER_STRIP_PX }}
+    >
+      <div className="sticky left-1 z-30 w-fit">
+        <LaneHeader
+          lanes={lanes}
+          lane={lane}
+          compact
+          quickActions
+          onEffects={onEffects && (() => onEffects(lane.id))}
+          className="pointer-events-auto max-w-56 items-center gap-2 px-2 pl-3"
+          style={{ height: HEADER_STRIP_PX - 1, boxShadow: `inset 3px 0 0 ${color}` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** A folder: a thin header row with the studio's folder header, which opens and closes it. */
 export function BandFolder({ lanes, lane }: { lanes: AudioLanesController; lane: AudioLane }) {
   return (
     <div
       role="group"
       aria-label={`Folder ${lane.name}`}
       data-testid={`band-folder-${lane.id}`}
-      className="relative h-6 border-b bg-muted/50"
+      className="relative h-9 border-b bg-muted/40"
     >
-      <div className="sticky left-1 z-30 flex h-full w-fit items-center gap-1 px-1 text-xs font-medium">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-expanded={!lane.collapsed}
-          aria-label={`${lane.collapsed ? "Open" : "Close"} the folder ${lane.name} under the score`}
-          onClick={() => lanes.apply((a) => updateLane(a, lane.id, { collapsed: !lane.collapsed }))}
-        >
-          {lane.collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
-        </Button>
-        <FolderIcon className="size-3.5" aria-hidden="true" />
-        <span className="truncate">{lane.name}</span>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The name of a lane at the left of its row, like the track rows: its colour strip, its name and
- * whether it is muted or soloed. It stays at the left edge of the view while the score scrolls, and
- * lets the pointer through to the clips under it.
- */
-function LaneChip({ lane, color }: { lane: AudioLane; color: string }) {
-  return (
-    <div className="pointer-events-none sticky top-0 left-1 z-30 h-0 w-0">
-      <div
-        className={cn(
-          "absolute top-1 left-0 flex max-w-60 items-center gap-1.5 rounded-md border bg-card/90 px-1.5 py-0.5 text-xs shadow-sm backdrop-blur-sm",
-          lane.parent && "ml-3",
-        )}
-        data-testid={`band-lane-name-${lane.id}`}
-      >
-        <span
-          aria-hidden="true"
-          className="h-4 w-1 shrink-0 rounded-full"
-          style={{ backgroundColor: color }}
+      <div className="pointer-events-none sticky left-1 z-30 w-fit">
+        <LaneHeader
+          lanes={lanes}
+          lane={lane}
+          compact
+          className="pointer-events-auto h-9 items-center gap-2 px-2"
         />
-        <span className="truncate font-medium">{lane.name}</span>
-        <span
-          role="img"
-          aria-label={lane.mute ? "Muted" : "Not muted"}
-          data-on={lane.mute || undefined}
-          className="rounded px-1 text-[10px] leading-4 font-semibold text-muted-foreground data-[on]:bg-amber-500 data-[on]:text-black"
-        >
-          M
-        </span>
-        <span
-          role="img"
-          aria-label={lane.solo ? "Soloed" : "Not soloed"}
-          data-on={lane.solo || undefined}
-          className="rounded px-1 text-[10px] leading-4 font-semibold text-muted-foreground data-[on]:bg-sky-500 data-[on]:text-black"
-        >
-          S
-        </span>
       </div>
     </div>
   );
@@ -113,6 +106,7 @@ export function BandLane({
   bounds,
   view,
   onOpenEditor,
+  onEffects,
 }: {
   lanes: AudioLanesController;
   lane: AudioLane;
@@ -121,6 +115,8 @@ export function BandLane({
   bounds: BarBounds;
   view: BandView | null;
   onOpenEditor?: (laneId: string) => void;
+  /** Opens the lane's effects (the pedalboard). */
+  onEffects?: (laneId: string) => void;
 }) {
   const { audio, apply } = lanes;
   const color = laneColor(index, lane.color);
@@ -162,15 +158,16 @@ export function BandLane({
       aria-label={`Audio lane ${lane.name} under the score`}
       data-testid={`band-lane-${lane.id}`}
       className="relative border-b"
-      style={{ height }}
+      style={{ height: height + HEADER_STRIP_PX }}
     >
-      <LaneChip lane={lane} color={color} />
+      <BandHeader lanes={lanes} lane={lane} color={color} onEffects={onEffects} />
       <LaneContextMenu lanes={lanes} lane={lane} toMs={toMs} onOpenEditor={onOpenEditor}>
         <div
           ref={laneRef}
           role="presentation"
           data-lane-id={lane.id}
-          className="absolute inset-0"
+          className="absolute inset-x-0 bottom-0"
+          style={{ top: HEADER_STRIP_PX }}
           {...marquee.handlers}
         >
           {range && (
@@ -180,6 +177,7 @@ export function BandLane({
               style={{ left: toX(range.startMs), width: toX(range.endMs) - toX(range.startMs) }}
             />
           )}
+          {lane.clips.length === 0 && <EmptyLaneHint />}
           {lane.clips.map((clip) => {
             const selected = lanes.selection.includes(clip.id);
             if (isOffScreen(clip, selected, bounds, view)) return null;
@@ -215,6 +213,7 @@ export function BandLane({
           <MarqueeBox box={marquee.box} />
         </div>
       </LaneContextMenu>
+      <LaneResizeHandle lanes={lanes} lane={lane} />
     </div>
   );
 }
