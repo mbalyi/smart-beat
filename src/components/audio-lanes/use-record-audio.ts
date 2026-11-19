@@ -62,6 +62,8 @@ export function useRecordAudio(env: {
 }) {
   const [phase, setPhase] = useState<RecordPhase>({ kind: "idle" });
   const [level, setLevel] = useState(0);
+  /** The lane the take in progress goes on (null: none yet, or a new lane). */
+  const [laneId, setLaneId] = useState<string | null>(null);
   const session = useRef<{
     recorder: Recorder;
     setup: RecordAudioSetup;
@@ -159,6 +161,7 @@ export function useRecordAudio(env: {
       playStartedAt,
       countIn: setup.countIn ? countInSeconds(beat.beats, beat.seconds, speed()) : 0,
     };
+    setLaneId(setup.laneId);
     setPhase({ kind: "recording", mode: "free", countingIn: setup.countIn, elapsed: 0 });
   };
 
@@ -173,6 +176,7 @@ export function useRecordAudio(env: {
     player?.setLoop(null);
     setPhase({ kind: "idle" });
     setLevel(0);
+    setLaneId(null);
     const take = await s.recorder.stop();
     if (take.capped) toast.info("The take reached the limit of 10 minutes and was stopped.");
     if (take.samples.length < MIN_TAKE_SECONDS * take.sampleRate) {
@@ -263,11 +267,14 @@ export function useRecordAudio(env: {
     envRef.current.transport()?.setLoop(null);
     setPhase({ kind: "idle" });
     setLevel(0);
+    setLaneId(null);
   };
 
   return {
     phase,
     level,
+    /** The lane the take in progress goes on (null when idle, or for a new lane). */
+    laneId,
     start: (setup: RecordAudioSetup) => void start(setup),
     stop: () => void stop(),
     discard,

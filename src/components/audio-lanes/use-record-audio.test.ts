@@ -108,6 +108,22 @@ describe("useRecordAudio", () => {
     expect(order).toEqual(["before", "play"]);
   });
 
+  it("says which lane the take is on while it runs, and nothing before and after", async () => {
+    const { result } = setup(1);
+    expect(result.current.laneId).toBeNull();
+    await act(async () =>
+      result.current.start({ laneId: "l0", mode: "playhead", countIn: false, preRollBars: 0 }),
+    );
+    expect(result.current.laneId).toBe("l0");
+    await act(async () => result.current.stop());
+    expect(result.current.laneId).toBeNull();
+    await act(async () =>
+      result.current.start({ laneId: "l0", mode: "playhead", countIn: false, preRollBars: 0 }),
+    );
+    act(() => result.current.discard());
+    expect(result.current.laneId).toBeNull();
+  });
+
   it("keeps nothing and adds no lane or clip when the take is thrown away", async () => {
     const { result, lanes } = setup(1);
     await act(async () =>

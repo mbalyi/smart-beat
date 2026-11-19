@@ -2389,8 +2389,8 @@ export function ScoreWorkspace({
     }
   };
 
-  /** Whether the armed lane's input is heard (read when a take starts). */
-  const hearRef = useRef(true);
+  /** Quiets a lane's clips before its take starts (set once the lane recording is set up). */
+  const beforeTake = useRef<(laneId: string | null) => void>(() => {});
   const recordAudio = useRecordAudio({
     lanes,
     grid: laneGrid,
@@ -2407,14 +2407,7 @@ export function ScoreWorkspace({
     speed: () => practice.speed / 100,
     ensureEngine: ensureRecordingEngine,
     // The lane's own clips go quiet under its take before the song starts.
-    onBeforePlay: (setup) => {
-      if (setup.laneId)
-        playerRef.current?.setLiveInput({
-          laneId: setup.laneId,
-          hear: hearRef.current && engineOn,
-          silence: true,
-        });
-    },
+    onBeforePlay: (setup) => beforeTake.current(setup.laneId),
   });
   // Arming a lane (#249): its record icon, the input heard through its effects, the keys.
   const setLiveInput = useCallback(
@@ -2424,6 +2417,7 @@ export function ScoreWorkspace({
   const laneRecord = useLaneRecord({
     lanes: lanes.audio.lanes,
     recording: recordAudio.phase.kind === "recording",
+    recordingLaneId: recordAudio.laneId,
     start: recordAudio.start,
     stop: recordAudio.stop,
     discard: recordAudio.discard,
@@ -2433,7 +2427,7 @@ export function ScoreWorkspace({
     inputName: audioInput?.label ?? null,
   });
   useEffect(() => {
-    hearRef.current = laneRecord.hear;
+    beforeTake.current = laneRecord.beforeTake;
   });
   const armedLane = lanes.audio.lanes.find((l) => l.id === laneRecord.armedId);
   const armedInput = describeLiveInput({
