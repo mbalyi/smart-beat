@@ -13,6 +13,8 @@ export interface LaneRecordEnv {
   lanes: readonly Pick<AudioLane, "id" | "folder" | "enabled">[];
   /** A take is being recorded. */
   recording: boolean;
+  /** The lane that take goes on, armed or not (Record audio can pick any lane; null: a new lane). */
+  recordingLaneId: string | null;
   /** Starts a take, or stops (keep) or throws away the one in progress. */
   start: (setup: RecordAudioSetup) => void;
   stop: () => void;
@@ -43,16 +45,20 @@ export function useLaneRecord(env: LaneRecordEnv) {
     if (value && armedId && !engineOn) ensureEngine();
   };
 
-  // The engine plays what the armed lane asks for; letting go gives the song's monitor back.
-  // Nothing is sent while no lane was ever armed (the player is left alone).
+  // The engine plays what the armed lane, or the lane being recorded, asks for; letting go gives
+  // the song's monitor track back. Nothing is sent while no lane was ever armed or recorded.
   const lent = useRef(false);
+  /** What the engine is asked for a lane: the input heard (armed lane only), its clips quiet. */
+  const liveFor = (laneId: string | null, silence: boolean): LiveInput | null =>
+    laneId ? { laneId, hear: laneId === armedId && hearing && engineOn, silence } : null;
+  const target = recording && env.recordingLaneId ? env.recordingLaneId : armedId;
   useEffect(() => {
-    if (!armedId && !lent.current) return;
-    lent.current = armedId !== null;
-    setLiveInput(
-      armedId ? { laneId: armedId, hear: hearing && engineOn, silence: recording } : null,
-    );
-  }, [armedId, hearing, recording, engineOn, setLiveInput]);
+    if (!target && !lent.current) return;
+    lent.current = target !== null;
+    setLiveInput(liveFor(target, recording));
+    // `liveFor` is rebuilt from the values listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, armedId, hearing, recording, engineOn, setLiveInput]);
   useEffect(
     () => () => {
       if (lent.current) setLiveInput(null);
@@ -101,6 +107,12 @@ export function useLaneRecord(env: LaneRecordEnv) {
     hear: hearing,
     setHear,
     disarm: () => setArmed(null),
+    /** Quiets the lane's clips before the song starts for a take (the effect follows a render later). */
+    beforeTake: (laneId: string | null) => {
+      if (!laneId) return;
+      lent.current = true;
+      setLiveInput(liveFor(laneId, true));
+    },
     /** Starts the take on the armed lane (the armed bar's button). */
     record: () => {
       if (armedId && !recording) start({ laneId: armedId, ...readAudioRecordPrefs() });

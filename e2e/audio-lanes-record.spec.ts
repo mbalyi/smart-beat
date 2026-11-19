@@ -134,6 +134,30 @@ test.describe("record icon on an audio lane", () => {
     );
   });
 
+  for (const ending of ["Stop", "Escape"] as const) {
+    test(`a take from the Record audio dialog on an unarmed lane leaves its clips audible after ${ending}`, async ({
+      app,
+    }) => {
+      await openWithEffectLane(app);
+      await expect.poll(() => laneClips(app)).toBe(1);
+      await app.getByRole("button", { name: "Record audio" }).click();
+      const dialog = app.getByRole("dialog", { name: "Record audio" });
+      await dialog.getByLabel("Record to").selectOption({ label: "take" });
+      await dialog.getByRole("button", { name: "Start recording" }).click();
+      const recording = app.getByRole("region", { name: "Recording" });
+      await expect(recording).toBeVisible();
+      // The lane is not armed, but its own clips are quiet under the take.
+      await expect(recordIcon(app)).toHaveAttribute("aria-pressed", "false");
+      await expect.poll(() => laneClips(app)).toBe(0);
+      await expect(app.getByLabel("Time recorded")).not.toHaveText("0:00", { timeout: 10_000 });
+      if (ending === "Stop") await recording.getByRole("button", { name: "Stop" }).click();
+      else await app.keyboard.press("Escape");
+      await expect(recording).toBeHidden();
+      // Back to normal: the old clip (and the new one after Stop) play again.
+      await expect.poll(() => laneClips(app), { timeout: 20_000 }).toBe(ending === "Stop" ? 2 : 1);
+    });
+  }
+
   test("works with the keyboard alone", async ({ app }) => {
     await openWithEffectLane(app);
     await recordIcon(app).focus();
