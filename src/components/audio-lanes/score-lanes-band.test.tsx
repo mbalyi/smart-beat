@@ -6,6 +6,7 @@ import { ScoreLanesBand } from "@/components/audio-lanes/score-lanes-band";
 import { useAudioLanes, type AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import type { BarSpan } from "@/lib/audio-lanes/bar-bounds";
 import { laneDropTarget } from "@/lib/audio-lanes/drop-target";
+import { markersOf } from "@/lib/audio-lanes/markers";
 import { EMPTY_AUDIO, clipEndMs, newClip, newLane } from "@/lib/audio-lanes/model";
 import type { SongGrid } from "@/lib/audio-lanes/sync";
 import { PlayheadStore } from "@/lib/score/playhead";
@@ -498,6 +499,30 @@ describe("editing in the band, through the bars' own widths", () => {
       await user.keyboard("{ArrowDown}");
       expect(lanesNow().audio.lanes.find((l) => l.id === "lane-a")!.height).toBe(90);
       expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("118px");
+    });
+
+    it("drags a marker through the bars: 150 px right of bar 2's middle lands on bar 3", () => {
+      renderBand({ ...song(), markers: [{ id: "m1", ms: 3000, name: "Verse" }] });
+      const flag = screen.getByTestId("marker-m1");
+      // 3000 ms is the middle of the wide bar 2 (140-440 px), at x 290; 150 px on is bar 3 (4000 ms).
+      fireEvent.pointerDown(flag, { button: 0, clientX: 290 });
+      fireEvent.pointerMove(window, { clientX: 440 });
+      fireEvent.pointerUp(window, { clientX: 440 });
+      expect(markersOf(lanesNow().audio)[0]!.ms).toBe(4000);
+      // A small drag right does not move it left.
+      fireEvent.pointerDown(screen.getByTestId("marker-m1"), { button: 0, clientX: 440 });
+      fireEvent.pointerMove(window, { clientX: 450 });
+      fireEvent.pointerUp(window, { clientX: 450 });
+      expect(markersOf(lanesNow().audio)[0]!.ms).toBeGreaterThanOrEqual(4000);
+    });
+
+    it("selects a region's span as the time range with a double-click", async () => {
+      const { user } = renderBand({
+        ...song(),
+        regions: [{ id: "r1", name: "Chorus", startMs: 2000, endMs: 6000 }],
+      });
+      await user.dblClick(screen.getByTestId("region-r1"));
+      expect(lanesNow().timeRange).toEqual({ startMs: 2000, endMs: 6000 });
     });
 
     it("says an empty lane is empty, like the editor", () => {

@@ -121,7 +121,10 @@ export function ScoreLanesBand({
   const { audio } = lanes;
   const bandRef = useRef<HTMLDivElement>(null);
   const view = useBandView(bandRef, scroller);
-  const markers = useMarkers(lanes, { timeSelection: lanes.timeRange });
+  const markers = useMarkers(lanes, {
+    timeSelection: lanes.timeRange,
+    onSelectSpan: lanes.setTimeRange,
+  });
   const bounds = useMemo(() => createBarBounds(audio, grid, spans), [audio, grid, spans]);
   if (!bounds) return null;
 
