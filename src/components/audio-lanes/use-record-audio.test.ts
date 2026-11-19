@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
-import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
+import { useRecordAudio, type RecordAudioSetup } from "@/components/audio-lanes/use-record-audio";
 import { clipEndMs, EMPTY_AUDIO, MAX_LANES, MAX_TAKES, newLane } from "@/lib/audio-lanes/model";
 import type { AudioLanesSettings } from "@/lib/tauri";
 
@@ -52,7 +52,11 @@ const transport = {
 
 function setup(
   laneCount = 0,
-  options: { speed?: number; range?: { start: number; end: number } | null } = {},
+  options: {
+    speed?: number;
+    range?: { start: number; end: number } | null;
+    onBeforePlay?: (setup: RecordAudioSetup) => void;
+  } = {},
 ) {
   const lanes = {
     audio: {
@@ -71,6 +75,7 @@ function setup(
       beatAt: () => ({ seconds: 0.5, beats: 4 }),
       speed: () => options.speed ?? 1,
       ensureEngine: () => true,
+      onBeforePlay: options.onBeforePlay,
     }),
   );
   return { ...hook, lanes };
@@ -90,6 +95,38 @@ describe("useRecordAudio", () => {
     recorder.state.seconds = 3;
     recorder.state.sampleRate = 48_000;
     addAudioTake.mockResolvedValue({ id: "take-1" });
+  });
+
+  it("tells the app the lane is about to record before the song starts (#249)", async () => {
+    const order: string[] = [];
+    transport.playPause.mockImplementationOnce(() => order.push("play"));
+    const onBeforePlay = vi.fn(() => order.push("before"));
+    const { result } = setup(1, { onBeforePlay });
+    const setupArg = { laneId: "l0", mode: "playhead", countIn: false, preRollBars: 0 } as const;
+    await act(async () => result.current.start(setupArg));
+    expect(onBeforePlay).toHaveBeenCalledWith(setupArg);
+    expect(order).toEqual(["before", "play"]);
+  });
+
+  it("keeps nothing and adds no lane or clip when the take is thrown away", async () => {
+    const { result, lanes } = setup(1);
+    await act(async () =>
+      result.current.start({ laneId: "l0", mode: "playhead", countIn: false, preRollBars: 0 }),
+    );
+    act(() => result.current.discard());
+    expect(recorder.cancel).toHaveBeenCalled();
+    expect(addAudioTake).not.toHaveBeenCalled();
+    expect(lanes.apply).not.toHaveBeenCalled();
+    expect(result.current.phase.kind).toBe("idle");
+  });
+
+  it("puts the take on the armed lane in one step, so one undo takes it away", async () => {
+    const { result, lanes } = setup(1);
+    await act(async () =>
+      result.current.start({ laneId: "l0", mode: "playhead", countIn: false, preRollBars: 0 }),
+    );
+    await act(async () => result.current.stop());
+    expect(lanes.apply).toHaveBeenCalledTimes(1);
   });
 
   it("opens the input once when Start is pressed twice", async () => {

@@ -29,6 +29,7 @@ import {
   type BarOccurrence,
   laneExtras,
 } from "@/lib/audio/engine-config";
+import { withLiveInput, type LiveInput } from "@/lib/audio/lane-monitor";
 import { rgbOf, SCORE_PALETTES, type ScoreTheme } from "@/lib/score/score-theme";
 import {
   busMixes,
@@ -839,7 +840,9 @@ export class ScorePlayer {
     if (!engine) return;
     if (this.occurrences.length === 0) this.occurrences = barOccurrences(this.score, null);
     engine
-      .configure(engineExtras(mix, this.occurrences, this.monitorInput))
+      .configure(
+        engineExtras(withLiveInput(mix, this.liveInput), this.occurrences, this.monitorInput),
+      )
       .then((problems) => this.callbacks.onEffectProblems?.(problems))
       .catch((error: unknown) => this.callbacks.onError?.(asError(error)));
   }
@@ -1387,6 +1390,26 @@ export class ScorePlayer {
 
   /** The audio input the monitor track plays (Settings › Audio). */
   private monitorInput: MonitorInputChoice;
+
+  /** The lane being armed or recorded (#249): not saved, the song's own mix is left alone. */
+  private liveInput: LiveInput | null = null;
+
+  /**
+   * Lends the monitor track to an armed lane (its effects are heard on the live input) and keeps
+   * the lane's own clips quiet under a take; null gives the song's own monitor track back.
+   */
+  setLiveInput(live: LiveInput | null) {
+    const before = this.liveInput;
+    if (
+      before?.laneId === live?.laneId &&
+      before?.hear === live?.hear &&
+      before?.silence === live?.silence
+    ) {
+      return;
+    }
+    this.liveInput = live;
+    if (this.ready) this.applyExtras(heardMix(this.mix));
+  }
 
   /** Plays another input on the monitor track (the choice in Settings changed). */
   setMonitorInput(input: MonitorInputChoice) {
