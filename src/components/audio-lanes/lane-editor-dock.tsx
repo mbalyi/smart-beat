@@ -1,3 +1,4 @@
+import { LaneRecordButton } from "@/components/audio-lanes/lane-record-controls";
 import {
   FilePlusIcon,
   FolderOpenIcon,
@@ -238,6 +239,7 @@ export function LaneEditorDock({
           onValueChange={(cents) => update({ cents: Math.round(cents) })}
         />
         <EqPopover name={lane.name} eq={lane.eq} onChange={(eq) => update({ eq })} />
+        <LaneRecordButton lane={lane} size="icon-sm" />
         <Button
           variant="outline"
           size="icon-sm"

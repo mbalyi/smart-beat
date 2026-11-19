@@ -1,3 +1,4 @@
+import { LaneRecordButton } from "@/components/audio-lanes/lane-record-controls";
 import {
   ArrowLeftIcon,
   AudioWaveformIcon,
@@ -643,6 +644,7 @@ function StudioLane({
           >
             S
           </Toggle>
+          <LaneRecordButton lane={lane} />
           {!lane.folder && !compact && (
             <>
               <Button

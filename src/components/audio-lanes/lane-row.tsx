@@ -12,6 +12,7 @@ import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { EmptyLaneHint } from "@/components/audio-lanes/empty-lane-hint";
+import { LaneRecordButton } from "@/components/audio-lanes/lane-record-controls";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { LaneColorPopover } from "@/components/audio-lanes/lane-color-popover";
 import { MarqueeBox, SelectionStatus } from "@/components/audio-lanes/selection-overlay";
@@ -222,6 +223,7 @@ export function LaneRow({
             >
               S
             </Toggle>
+            <LaneRecordButton lane={lane} />
           </div>
           <div className="flex flex-col gap-0.5">
             <LabeledSlider

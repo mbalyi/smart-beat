@@ -29,6 +29,9 @@ import { useScoreBarBounds } from "@/components/audio-lanes/use-score-bar-bounds
 import { useAudioLanes } from "@/components/audio-lanes/use-audio-lanes";
 import { fileNameOf, sourceEntries, type LaneSharing } from "@/lib/audio-lanes/collab";
 import { useRecordAudio } from "@/components/audio-lanes/use-record-audio";
+import { ArmedLaneBar } from "@/components/audio-lanes/armed-lane-bar";
+import { LaneRecordContext } from "@/components/audio-lanes/lane-record-context";
+import { useLaneRecord } from "@/components/audio-lanes/use-lane-record";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateLane } from "@/lib/audio-lanes/edits";
 import { hasBandRows } from "@/lib/audio-lanes/band-rows";
@@ -131,7 +134,8 @@ import {
   syncPointsFromTempo,
   type BarOccurrence,
 } from "@/lib/audio/engine-config";
-import { useAudioInput, useAudioInputChannel } from "@/lib/audio/input";
+import { looksBuiltIn, useAudioInput, useAudioInputChannel } from "@/lib/audio/input";
+import { describeLiveInput, type LiveInput } from "@/lib/audio/lane-monitor";
 import { meters } from "@/lib/audio/meter-store";
 import { MONITOR_NAME, newMonitorTrack, rememberMonitorTrack } from "@/lib/audio/monitor";
 import type { EffectProblems } from "@/lib/audio/native-engine";
@@ -2385,6 +2389,8 @@ export function ScoreWorkspace({
     }
   };
 
+  /** Quiets a lane's clips before its take starts (set once the lane recording is set up). */
+  const beforeTake = useRef<(laneId: string | null) => void>(() => {});
   const recordAudio = useRecordAudio({
     lanes,
     grid: laneGrid,
@@ -2400,6 +2406,36 @@ export function ScoreWorkspace({
     },
     speed: () => practice.speed / 100,
     ensureEngine: ensureRecordingEngine,
+    // The lane's own clips go quiet under its take before the song starts.
+    onBeforePlay: (setup) => beforeTake.current(setup.laneId),
+  });
+  // Arming a lane (#249): its record icon, the input heard through its effects, the keys.
+  const setLiveInput = useCallback(
+    (live: LiveInput | null) => playerRef.current?.setLiveInput(live),
+    [],
+  );
+  const laneRecord = useLaneRecord({
+    lanes: lanes.audio.lanes,
+    recording: recordAudio.phase.kind === "recording",
+    recordingLaneId: recordAudio.laneId,
+    start: recordAudio.start,
+    stop: recordAudio.stop,
+    discard: recordAudio.discard,
+    setLiveInput,
+    engineOn,
+    ensureEngine: ensureRecordingEngine,
+    inputName: audioInput?.label ?? null,
+  });
+  useEffect(() => {
+    beforeTake.current = laneRecord.beforeTake;
+  });
+  const armedLane = lanes.audio.lanes.find((l) => l.id === laneRecord.armedId);
+  const armedInput = describeLiveInput({
+    hear: laneRecord.hear,
+    engineOn,
+    inputName: audioInput?.label ?? "System default",
+    channel: inputChannel,
+    status: monitorStatus,
   });
   /** Section markers for the studio ruler. */
   const studioMarkers = useMemo(
@@ -3298,787 +3334,818 @@ export function ScoreWorkspace({
   );
 
   return (
-    <div
-      role="group"
-      aria-label={summary.title || song.name}
-      inert={!active}
-      aria-hidden={active ? undefined : true}
-      // Hidden songs keep their size (alphaTab measures its container), just not their looks.
-      className={cn(
-        "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-background",
-        !active && "pointer-events-none invisible",
-      )}
-    >
-      <WorkspaceToolbar
-        title={summary.title || song.name}
-        summary={summary}
-        trackIndex={trackIndex}
-        onTrackChange={changeTrack}
-        view={view}
-        onViewChange={changeView}
-        layout={layout}
-        onLayoutChange={changeLayout}
-        pageLayoutLocked={
-          bandWanted
-            ? "Audio lanes are shown under the tabs, which needs the continuous layout. Hide them to use the page layout."
-            : undefined
-        }
-        zoom={zoom}
-        onZoomChange={changeZoom}
-        onOpen={onOpen}
-        actions={fileActionsMenu}
-        record={recordButton}
-        editing={editing}
-        onToggleEditing={toggleEditing}
-        edited={editor.edited}
-        undoLabel={editor.undoLabel}
-        redoLabel={editor.redoLabel}
-        onUndo={() => {
-          undoOrRedo("undo");
-          if (editing) focusScore();
-        }}
-        onRedo={() => {
-          undoOrRedo("redo");
-          if (editing) focusScore();
-        }}
-        ready={ready}
-        playing={playing}
-        position={position}
-        bar={bar}
-        barCount={score.masterBars.length}
-        onPlayPause={playPause}
-        onStop={() => {
-          if (together.intercept({ kind: "stop" })) return;
-          trackUsage("stop");
-          if (playerRef.current?.stop()) trackUsage("restart_on_stop_used");
-        }}
-        onTempo={() => setTempoOpen(true)}
-        tempo={{ songBpm: tempoAt(score, bar), speed: practice.speed }}
-        onSeekBar={(index) => {
-          if (!together.intercept({ kind: "seekBar", bar: index })) {
-            playerRef.current?.seekToBar(index);
+    <LaneRecordContext.Provider value={laneRecord.controls}>
+      <div
+        role="group"
+        aria-label={summary.title || song.name}
+        inert={!active}
+        aria-hidden={active ? undefined : true}
+        // Hidden songs keep their size (alphaTab measures its container), just not their looks.
+        className={cn(
+          "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-background",
+          !active && "pointer-events-none invisible",
+        )}
+      >
+        <WorkspaceToolbar
+          title={summary.title || song.name}
+          summary={summary}
+          trackIndex={trackIndex}
+          onTrackChange={changeTrack}
+          view={view}
+          onViewChange={changeView}
+          layout={layout}
+          onLayoutChange={changeLayout}
+          pageLayoutLocked={
+            bandWanted
+              ? "Audio lanes are shown under the tabs, which needs the continuous layout. Hide them to use the page layout."
+              : undefined
           }
-        }}
-        together={
-          <TogetherButton
-            state={together.state}
-            onOpen={() => openTogether("host", "toolbar")}
-            files={filesProgress}
-          />
-        }
-        practice={
-          <PracticeControls
-            practice={practice}
-            barCount={score.masterBars.length}
-            onLoopChange={setLoop}
-            onRangeChange={(next) => dispatchPractice({ type: "range", range: next })}
-            onSpeedChange={(value) => dispatchPractice({ type: "speed", value })}
-            onMetronomeChange={(value) => dispatchPractice({ type: "metronome", value })}
-            onCountInChange={(value) => dispatchPractice({ type: "count-in", value })}
-            onCountInBeatsChange={(value) => dispatchPractice({ type: "count-in-beats", value })}
-            onMetronomeSoundChange={(value) => dispatchPractice({ type: "metronome-sound", value })}
-            onMetronomeVolumeChange={(value) =>
-              dispatchPractice({ type: "metronome-volume", value })
+          zoom={zoom}
+          onZoomChange={changeZoom}
+          onOpen={onOpen}
+          actions={fileActionsMenu}
+          record={recordButton}
+          editing={editing}
+          onToggleEditing={toggleEditing}
+          edited={editor.edited}
+          undoLabel={editor.undoLabel}
+          redoLabel={editor.redoLabel}
+          onUndo={() => {
+            undoOrRedo("undo");
+            if (editing) focusScore();
+          }}
+          onRedo={() => {
+            undoOrRedo("redo");
+            if (editing) focusScore();
+          }}
+          ready={ready}
+          playing={playing}
+          position={position}
+          bar={bar}
+          barCount={score.masterBars.length}
+          onPlayPause={playPause}
+          onStop={() => {
+            if (together.intercept({ kind: "stop" })) return;
+            trackUsage("stop");
+            if (playerRef.current?.stop()) trackUsage("restart_on_stop_used");
+          }}
+          onTempo={() => setTempoOpen(true)}
+          tempo={{ songBpm: tempoAt(score, bar), speed: practice.speed }}
+          onSeekBar={(index) => {
+            if (!together.intercept({ kind: "seekBar", bar: index })) {
+              playerRef.current?.seekToBar(index);
             }
-            onRestartOnStopChange={(value) => dispatchPractice({ type: "restart-on-stop", value })}
-            onOpenTrainer={() => setTrainerOpen(true)}
-            onStopTrainer={() => dispatchPractice({ type: "stop-trainer" })}
-            onHoldTrainer={(value) => dispatchPractice({ type: "hold-trainer", value })}
-            sections={sections}
-          />
-        }
-        instrumentView={showInstrumentView}
-        instrumentLabel={instrumentViewName(track.kind)}
-        onToggleInstrumentView={toggleInstrumentView}
-        inspectorOpen={showInspector}
-        onToggleInspector={toggleInspector}
-        mixerOpen={showMixer}
-        headerSlot={headerSlot}
-        active={active}
-        onToggleMixer={toggleMixer}
-        practiceView={!!practiceView}
-        onTogglePracticeView={togglePracticeView}
-        practiceMix={
-          <PracticeMix
+          }}
+          together={
+            <TogetherButton
+              state={together.state}
+              onOpen={() => openTogether("host", "toolbar")}
+              files={filesProgress}
+            />
+          }
+          practice={
+            <PracticeControls
+              practice={practice}
+              barCount={score.masterBars.length}
+              onLoopChange={setLoop}
+              onRangeChange={(next) => dispatchPractice({ type: "range", range: next })}
+              onSpeedChange={(value) => dispatchPractice({ type: "speed", value })}
+              onMetronomeChange={(value) => dispatchPractice({ type: "metronome", value })}
+              onCountInChange={(value) => dispatchPractice({ type: "count-in", value })}
+              onCountInBeatsChange={(value) => dispatchPractice({ type: "count-in-beats", value })}
+              onMetronomeSoundChange={(value) =>
+                dispatchPractice({ type: "metronome-sound", value })
+              }
+              onMetronomeVolumeChange={(value) =>
+                dispatchPractice({ type: "metronome-volume", value })
+              }
+              onRestartOnStopChange={(value) =>
+                dispatchPractice({ type: "restart-on-stop", value })
+              }
+              onOpenTrainer={() => setTrainerOpen(true)}
+              onStopTrainer={() => dispatchPractice({ type: "stop-trainer" })}
+              onHoldTrainer={(value) => dispatchPractice({ type: "hold-trainer", value })}
+              sections={sections}
+            />
+          }
+          instrumentView={showInstrumentView}
+          instrumentLabel={instrumentViewName(track.kind)}
+          onToggleInstrumentView={toggleInstrumentView}
+          inspectorOpen={showInspector}
+          onToggleInspector={toggleInspector}
+          mixerOpen={showMixer}
+          headerSlot={headerSlot}
+          active={active}
+          onToggleMixer={toggleMixer}
+          practiceView={!!practiceView}
+          onTogglePracticeView={togglePracticeView}
+          practiceMix={
+            <PracticeMix
+              tracks={summary.tracks}
+              shown={trackIndex}
+              mix={mix}
+              onChange={changeMix}
+              cutDb={focusCutDb}
+              onCutChange={changeFocusCut}
+              monitor={
+                isTauri()
+                  ? {
+                      inputName: audioInput?.label ?? "System default",
+                      channel: inputChannel,
+                      message: mix.monitor?.enabled
+                        ? !engineOn
+                          ? "Enable Native engine with effects to hear your input."
+                          : (monitorStatus?.error ?? undefined)
+                        : undefined,
+                      onToggle: (enabled) => {
+                        changeMix({
+                          type: "monitor",
+                          value: { ...(mixRef.current.monitor ?? newMonitorTrack()), enabled },
+                        });
+                      },
+                      onEffects: () => openPedalboard("monitor"),
+                      onInputSettings: onOpenSettings,
+                    }
+                  : undefined
+              }
+            />
+          }
+        />
+        {tabs}
+        <BarProblems
+          problems={showProblems ? problems : []}
+          onFix={() => fixBars()}
+          onGoTo={goToBar}
+        />
+        {/* Palette | score | inspector; below 1024 px the palette stacks above the score. */}
+        <div className="relative flex min-h-72 flex-1 max-lg:flex-col">
+          <NotePalette editing={editing}>
+            <EditPalette
+              beat={editor.beatInfo}
+              bar={barSettingsOf(score, cursorBar)}
+              voice={editor.cursor.voice}
+              effects={effects}
+              state={paletteState}
+              kind={track.kind}
+              dots={(count) => editor.beatsState((b) => b.dots === count)}
+              tie={editor.beatsState((b) => b.notes.some((n) => n.isTieDestination))}
+              status={editor.describeCursor()}
+              message={editor.message}
+              statusId={statusId}
+              edit={editActions}
+              fx={effectActions}
+              auditionNotes={auditionNotes}
+              onAuditionNotesChange={(on) => {
+                setAuditionNotes(on);
+                storeAuditionNotes(on);
+              }}
+            />
+          </NotePalette>
+          {/* Scrolls as a whole when the window is too short for all of it. */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+            <ScoreContextMenu
+              barAt={(x, y) => {
+                const rect = surfaceRef.current?.getBoundingClientRect();
+                return rect
+                  ? (playerRef.current?.barAt(x - rect.left, y - rect.top) ?? null)
+                  : null;
+              }}
+              repeatCountAt={(at) => editor.repeatCount(at)}
+              beatAt={(x, y) => {
+                const rect = surfaceRef.current?.getBoundingClientRect();
+                return rect
+                  ? (playerRef.current?.beatAt(x - rect.left, y - rect.top) ?? null)
+                  : null;
+              }}
+              sections={sections}
+              actions={scoreMenuActions}
+              selection={selectedBars()}
+              editing={editing}
+              canPaste={editor.hasClipboard}
+            >
+              <ScoreView
+                viewportRef={viewportRef}
+                surfaceRef={surfaceRef}
+                label={tabsHidden ? "Score: audio lanes" : `Score: ${track.name}`}
+                tabsHidden={tabsHidden}
+                layout={layout}
+                rendering={rendering}
+                editing={editing}
+                playing={playing}
+                overlay={overlay}
+                problemRects={showProblems ? problemRects : []}
+                describedBy={editing ? statusId : undefined}
+                band={
+                  barSpans && (
+                    <ScoreLanesBand
+                      lanes={lanes}
+                      grid={laneGrid}
+                      spans={barSpans}
+                      playhead={playhead}
+                      scroller={viewportRef.current}
+                      onOpenEditor={setEditorLaneId}
+                    />
+                  )
+                }
+              />
+            </ScoreContextMenu>
+            {showInstrumentView && (
+              <InstrumentPanel
+                kind={track.kind}
+                tuning={track.tuning}
+                capo={track.capo}
+                active={shownNotes}
+                editing={editing}
+                cursorString={track.kind === "stringed" ? editor.cursor.string : null}
+                drumSounds={shownNotes.map((n) => n.pitch)}
+                onPlayString={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
+                onOpenTuner={() => {
+                  trackUsage("tuner");
+                  setTunerOpen(true);
+                }}
+                onOpenRecord={
+                  recordEnabled && !recordBusy ? () => recording.open(trackIndex) : undefined
+                }
+                onFret={(string, fret) => {
+                  editor.setString(string);
+                  editor.setFret(fret - track.capo);
+                  if (editing) focusScore();
+                }}
+                onFretDelete={(string) => {
+                  editor.setString(string);
+                  editor.removeCursorNote();
+                  if (editing) focusScore();
+                }}
+                onPitch={(pitch) => {
+                  editor.enterPitch(pitch);
+                  if (editing) focusScore();
+                }}
+                onDrum={(sound) => {
+                  editor.enterDrum(sound);
+                  if (editing) focusScore();
+                }}
+                drumKit={drumKitEntries}
+                cursorDrum={editing ? editor.cursorDrum : null}
+                onReplaceDrum={(sound) => {
+                  editor.replaceDrum(sound);
+                  focusScore();
+                }}
+                onPreviewDrum={(sound) => playerRef.current?.previewDrum(sound)}
+                scale={scale}
+                defaultScaleRoot={keyTonic(
+                  keyBar?.keySignature ?? 0,
+                  keyBar?.keySignatureType ?? 0,
+                )}
+                scalePickerRef={scalePickerRef}
+                onScaleChange={setScale}
+              />
+            )}
+            {showLyrics && <LyricsStrip lines={lyricLines} current={lyricBeat} />}
+          </div>
+          {showInspector && (
+            <aside
+              aria-label="Inspector"
+              className="flex min-h-0 w-72 shrink-0 flex-col border-l bg-sidebar text-sidebar-foreground max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 max-lg:shadow-xl"
+            >
+              <h2 className="sr-only">Inspector</h2>
+              {/* In narrow windows the inspector covers the score: it can be closed from here too. */}
+              <Button
+                variant="ghost"
+                size="xs"
+                className="self-end lg:hidden"
+                onClick={toggleInspector}
+              >
+                <XIcon data-icon="inline-start" />
+                Close inspector
+              </Button>
+              <Inspector
+                tab={inspectorTab}
+                onTabChange={setInspectorTab}
+                song={{
+                  title: summary.title,
+                  artist: summary.artist,
+                  file: song.name,
+                  bars: score.masterBars.length,
+                  tempo: tempoAt(score, bar),
+                  problems: problemBars,
+                }}
+                track={track}
+                view={view}
+                onViewChange={changeView}
+                mix={mix.tracks[trackIndex]}
+                color={mix.trackColors?.[trackIndex]}
+                soundFont={soundFont}
+                onSoundFontChange={changeSoundFont}
+                soundFonts={soundFonts.fonts}
+                onManageSoundFonts={() => {
+                  setSoundFontsOpen(true);
+                  void soundFonts.refresh(); // another song may have added or removed one
+                }}
+                soundsReady={ready}
+                syncOffset={syncOffset}
+                onSyncOffsetChange={(ms) => {
+                  storeSyncOffset(ms);
+                  setSyncOffset(readSyncOffset());
+                }}
+                actions={{
+                  onTrackSettings: () => setTrackDialog({ mode: "edit", track: trackObject }),
+                  onLyrics: () => openLyrics(trackObject),
+                  onTranspose: () => setTransposeOpen(true),
+                  onFixBars: () => fixBars(),
+                  onTempo: () => setTempoOpen(true),
+                  onEditEffects: () => openPedalboard(trackIndex),
+                  onDrumMixer: () => setDrumMixer({ open: true, track: trackIndex }),
+                  onNormalizeDrums: () => normalizeDrums(trackIndex),
+                  onCopyToInstrument: () => setCopyTrack(trackObject),
+                }}
+                audioEngine={audioEngine}
+                onAudioEngineChange={
+                  nativeEngineAvailable() ? (kind) => changeAudioEngine(kind) : undefined
+                }
+                effects={trackEffects(mix, trackIndex)}
+                effectProblems={effectProblems.tracks[trackIndex]?.flat().length ?? 0}
+                onEffectsChange={(slots) =>
+                  changeMix({ type: "effects", track: trackIndex, slots })
+                }
+                interpretation={trackInterpretation(mix, trackIndex)}
+                onInterpretationChange={(value) =>
+                  changeMix({ type: "interpretation", track: trackIndex, value })
+                }
+                drumKit={{
+                  kits: drumKits.kits,
+                  current: mix.drumKits?.[trackIndex] ?? null,
+                  available: drumKits.available,
+                  onManage: () => setKitsOpen(true),
+                  onChange: (kit) => {
+                    changeMix({ type: "drum-kit", track: trackIndex, kit });
+                    if (kit && audioEngine !== "native" && nativeEngineAvailable()) {
+                      toast("Imported kits play with the native engine", {
+                        action: {
+                          label: "Enable effects playback",
+                          onClick: () => changeAudioEngine("native"),
+                        },
+                      });
+                    }
+                  },
+                }}
+              />
+            </aside>
+          )}
+        </div>
+        {showMixer && (
+          <TrackList
+            score={score}
+            soundFont={soundFont}
+            revision={revision}
             tracks={summary.tracks}
             shown={trackIndex}
+            stack={{
+              indexes: tabsHidden ? [] : stackToIndexes(stack, score.tracks),
+              stacking: layout === "horizontal",
+              hasBand: bandWanted,
+            }}
             mix={mix}
             onChange={changeMix}
-            cutDb={focusCutDb}
-            onCutChange={changeFocusCut}
+            onReset={resetMix}
+            actions={trackActions}
+            bar={bar}
+            onSeekBar={seekLaneBar}
+            saved={saved}
+            playing={playing}
+            playhead={playhead}
+            onMasterEffects={() => openPedalboard(null)}
+            audio={
+              isTauri()
+                ? {
+                    lanes,
+                    grid: laneGrid,
+                    onAdd: () => lanes.commands.addLane(),
+                    onImport: () => void addAudioLane(),
+                    onRecord: () => setRecordAudioOpen(true),
+                    onEffects: (laneIndex) => openPedalboard({ lane: laneIndex }),
+                    onOpenEditor: (laneId) => setEditorLaneId(laneId),
+                    missingBars,
+                    onAddMissingBars: addMissingBars,
+                  }
+                : undefined
+            }
             monitor={
               isTauri()
                 ? {
+                    status: monitorStatus,
+                    engineOn,
                     inputName: audioInput?.label ?? "System default",
                     channel: inputChannel,
-                    message: mix.monitor?.enabled
-                      ? !engineOn
-                        ? "Enable Native engine with effects to hear your input."
-                        : (monitorStatus?.error ?? undefined)
-                      : undefined,
-                    onToggle: (enabled) => {
-                      changeMix({
-                        type: "monitor",
-                        value: { ...(mixRef.current.monitor ?? newMonitorTrack()), enabled },
-                      });
-                    },
+                    onAdd: addMonitorTrack,
+                    onRemove: removeMonitorTrack,
                     onEffects: () => openPedalboard("monitor"),
                     onInputSettings: onOpenSettings,
                   }
                 : undefined
             }
           />
-        }
-      />
-      {tabs}
-      <BarProblems
-        problems={showProblems ? problems : []}
-        onFix={() => fixBars()}
-        onGoTo={goToBar}
-      />
-      {/* Palette | score | inspector; below 1024 px the palette stacks above the score. */}
-      <div className="relative flex min-h-72 flex-1 max-lg:flex-col">
-        <NotePalette editing={editing}>
-          <EditPalette
-            beat={editor.beatInfo}
-            bar={barSettingsOf(score, cursorBar)}
-            voice={editor.cursor.voice}
-            effects={effects}
-            state={paletteState}
-            kind={track.kind}
-            dots={(count) => editor.beatsState((b) => b.dots === count)}
-            tie={editor.beatsState((b) => b.notes.some((n) => n.isTieDestination))}
-            status={editor.describeCursor()}
-            message={editor.message}
-            statusId={statusId}
-            edit={editActions}
-            fx={effectActions}
-            auditionNotes={auditionNotes}
-            onAuditionNotesChange={(on) => {
-              setAuditionNotes(on);
-              storeAuditionNotes(on);
-            }}
-          />
-        </NotePalette>
-        {/* Scrolls as a whole when the window is too short for all of it. */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-          <ScoreContextMenu
-            barAt={(x, y) => {
-              const rect = surfaceRef.current?.getBoundingClientRect();
-              return rect ? (playerRef.current?.barAt(x - rect.left, y - rect.top) ?? null) : null;
-            }}
-            repeatCountAt={(at) => editor.repeatCount(at)}
-            beatAt={(x, y) => {
-              const rect = surfaceRef.current?.getBoundingClientRect();
-              return rect ? (playerRef.current?.beatAt(x - rect.left, y - rect.top) ?? null) : null;
-            }}
-            sections={sections}
-            actions={scoreMenuActions}
-            selection={selectedBars()}
-            editing={editing}
-            canPaste={editor.hasClipboard}
-          >
-            <ScoreView
-              viewportRef={viewportRef}
-              surfaceRef={surfaceRef}
-              label={tabsHidden ? "Score: audio lanes" : `Score: ${track.name}`}
-              tabsHidden={tabsHidden}
-              layout={layout}
-              rendering={rendering}
-              editing={editing}
-              playing={playing}
-              overlay={overlay}
-              problemRects={showProblems ? problemRects : []}
-              describedBy={editing ? statusId : undefined}
-              band={
-                barSpans && (
-                  <ScoreLanesBand
-                    lanes={lanes}
-                    grid={laneGrid}
-                    spans={barSpans}
-                    playhead={playhead}
-                    scroller={viewportRef.current}
-                    onOpenEditor={setEditorLaneId}
-                  />
-                )
-              }
-            />
-          </ScoreContextMenu>
-          {showInstrumentView && (
-            <InstrumentPanel
-              kind={track.kind}
-              tuning={track.tuning}
-              capo={track.capo}
-              active={shownNotes}
-              editing={editing}
-              cursorString={track.kind === "stringed" ? editor.cursor.string : null}
-              drumSounds={shownNotes.map((n) => n.pitch)}
-              onPlayString={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
-              onOpenTuner={() => {
-                trackUsage("tuner");
-                setTunerOpen(true);
-              }}
-              onOpenRecord={
-                recordEnabled && !recordBusy ? () => recording.open(trackIndex) : undefined
-              }
-              onFret={(string, fret) => {
-                editor.setString(string);
-                editor.setFret(fret - track.capo);
-                if (editing) focusScore();
-              }}
-              onFretDelete={(string) => {
-                editor.setString(string);
-                editor.removeCursorNote();
-                if (editing) focusScore();
-              }}
-              onPitch={(pitch) => {
-                editor.enterPitch(pitch);
-                if (editing) focusScore();
-              }}
-              onDrum={(sound) => {
-                editor.enterDrum(sound);
-                if (editing) focusScore();
-              }}
-              drumKit={drumKitEntries}
-              cursorDrum={editing ? editor.cursorDrum : null}
-              onReplaceDrum={(sound) => {
-                editor.replaceDrum(sound);
-                focusScore();
-              }}
-              onPreviewDrum={(sound) => playerRef.current?.previewDrum(sound)}
-              scale={scale}
-              defaultScaleRoot={keyTonic(keyBar?.keySignature ?? 0, keyBar?.keySignatureType ?? 0)}
-              scalePickerRef={scalePickerRef}
-              onScaleChange={setScale}
-            />
-          )}
-          {showLyrics && <LyricsStrip lines={lyricLines} current={lyricBeat} />}
-        </div>
-        {showInspector && (
-          <aside
-            aria-label="Inspector"
-            className="flex min-h-0 w-72 shrink-0 flex-col border-l bg-sidebar text-sidebar-foreground max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 max-lg:shadow-xl"
-          >
-            <h2 className="sr-only">Inspector</h2>
-            {/* In narrow windows the inspector covers the score: it can be closed from here too. */}
-            <Button
-              variant="ghost"
-              size="xs"
-              className="self-end lg:hidden"
-              onClick={toggleInspector}
-            >
-              <XIcon data-icon="inline-start" />
-              Close inspector
-            </Button>
-            <Inspector
-              tab={inspectorTab}
-              onTabChange={setInspectorTab}
-              song={{
-                title: summary.title,
-                artist: summary.artist,
-                file: song.name,
-                bars: score.masterBars.length,
-                tempo: tempoAt(score, bar),
-                problems: problemBars,
-              }}
-              track={track}
-              view={view}
-              onViewChange={changeView}
-              mix={mix.tracks[trackIndex]}
-              color={mix.trackColors?.[trackIndex]}
-              soundFont={soundFont}
-              onSoundFontChange={changeSoundFont}
-              soundFonts={soundFonts.fonts}
-              onManageSoundFonts={() => {
-                setSoundFontsOpen(true);
-                void soundFonts.refresh(); // another song may have added or removed one
-              }}
-              soundsReady={ready}
-              syncOffset={syncOffset}
-              onSyncOffsetChange={(ms) => {
-                storeSyncOffset(ms);
-                setSyncOffset(readSyncOffset());
-              }}
-              actions={{
-                onTrackSettings: () => setTrackDialog({ mode: "edit", track: trackObject }),
-                onLyrics: () => openLyrics(trackObject),
-                onTranspose: () => setTransposeOpen(true),
-                onFixBars: () => fixBars(),
-                onTempo: () => setTempoOpen(true),
-                onEditEffects: () => openPedalboard(trackIndex),
-                onDrumMixer: () => setDrumMixer({ open: true, track: trackIndex }),
-                onNormalizeDrums: () => normalizeDrums(trackIndex),
-                onCopyToInstrument: () => setCopyTrack(trackObject),
-              }}
-              audioEngine={audioEngine}
-              onAudioEngineChange={
-                nativeEngineAvailable() ? (kind) => changeAudioEngine(kind) : undefined
-              }
-              effects={trackEffects(mix, trackIndex)}
-              effectProblems={effectProblems.tracks[trackIndex]?.flat().length ?? 0}
-              onEffectsChange={(slots) => changeMix({ type: "effects", track: trackIndex, slots })}
-              interpretation={trackInterpretation(mix, trackIndex)}
-              onInterpretationChange={(value) =>
-                changeMix({ type: "interpretation", track: trackIndex, value })
-              }
-              drumKit={{
-                kits: drumKits.kits,
-                current: mix.drumKits?.[trackIndex] ?? null,
-                available: drumKits.available,
-                onManage: () => setKitsOpen(true),
-                onChange: (kit) => {
-                  changeMix({ type: "drum-kit", track: trackIndex, kit });
-                  if (kit && audioEngine !== "native" && nativeEngineAvailable()) {
-                    toast("Imported kits play with the native engine", {
-                      action: {
-                        label: "Enable effects playback",
-                        onClick: () => changeAudioEngine("native"),
-                      },
-                    });
-                  }
-                },
-              }}
-            />
-          </aside>
         )}
-      </div>
-      {showMixer && (
-        <TrackList
-          score={score}
+        {editorLane && !studioOpen && (
+          <LaneEditorDock
+            lanes={lanes}
+            lane={editorLane}
+            index={lanes.audio.lanes.indexOf(editorLane)}
+            grid={laneGrid}
+            scoreBpmAt={(bar) => tempoAt(score, bar)}
+            playhead={playhead}
+            playing={playing}
+            selectedBars={selectedBars()}
+            onSelectBars={(start, end) => editor.selectBars(start, end)}
+            onSeekBar={(bar, loop) => {
+              const range = selectedBars();
+              if (loop && range) loopBars(range.start, range.end);
+              else playerRef.current?.seekToBar(bar);
+            }}
+            actions={laneEditorActions}
+          />
+        )}
+        {studioOpen && (
+          <StudioView
+            lanes={lanes}
+            grid={laneGrid}
+            markers={studioMarkers}
+            playhead={playhead}
+            playing={playing}
+            position={`${bar + 1}`}
+            actions={{
+              playPause,
+              record: () => setRecordAudioOpen(true),
+              effects: (laneIndex) => openPedalboard({ lane: laneIndex }),
+              renderLanes: () => void renderLaneFiles(),
+              renderRange: (startMs, endMs) => void renderLaneRange(startMs, endMs),
+              close: () => setStudioOpen(false),
+            }}
+          />
+        )}
+        <RecordAudioDialog
+          open={recordAudioOpen}
+          onOpenChange={setRecordAudioOpen}
+          lanes={lanes.audio.lanes
+            .filter((l) => !l.folder)
+            .map((l) => ({ id: l.id, name: l.name }))}
+          defaultLane={editorLane?.id ?? null}
+          inputName={audioInput?.label ?? "System default"}
+          latency={`About ${recordLatencyMs} ms output delay`}
+          hasSelection={!!selectedBars()}
+          onStart={recordAudio.start}
+          onInputSettings={() => onOpenSettings?.(document.body)}
+        />
+        <RecordBar
+          phase={recordAudio.phase}
+          level={recordAudio.level}
+          onStop={recordAudio.stop}
+          onCancel={recordAudio.discard}
+          discardOnEscape
+        />
+        {armedLane && recordAudio.phase.kind === "idle" && (
+          <ArmedLaneBar
+            laneName={armedLane.name}
+            inputText={armedInput.text}
+            problem={armedInput.problem}
+            hear={laneRecord.hear}
+            warnFeedback={laneRecord.hear && looksBuiltIn(audioInput?.label)}
+            onHearChange={laneRecord.setHear}
+            onRecord={laneRecord.record}
+            onDisarm={laneRecord.disarm}
+            onInputSettings={() => onOpenSettings?.(document.body)}
+          />
+        )}
+        <LaneDropHighlight
+          store={fileDrag?.audio ? fileDrag.store : undefined}
+          count={fileDrag?.count ?? 0}
+          msAtBar={(bar) => timelineMsAtBar(lanesAudioRef.current, laneGrid, bar)}
+          snapTo={lanes.snapTo}
+          laneName={(id) => lanes.audio.lanes.find((l) => l.id === id)?.name ?? ""}
+        />
+        <PracticeTogetherDialog
+          open={togetherOpen}
+          onOpenChange={setTogetherOpen}
+          together={together}
+          initialMode={togetherMode}
+        />
+        {recordEnabled && (
+          <>
+            <RecordDialog
+              open={recording.dialogOpen}
+              onOpenChange={(open) => (open ? recording.open() : recording.close())}
+              targets={recordTargets(summary.tracks)}
+              defaultTrack={recording.dialogTrack ?? trackIndex}
+              defaultBar={editor.cursor.bar}
+              barCount={score.masterBars.length}
+              supported={isTauri()}
+              onRecord={recording.start}
+              onRecordFile={recording.fromFile}
+              droppedFile={recordDrop}
+              pianoModel={pianoModel}
+            />
+            <RecordBar
+              phase={recording.phase}
+              level={recording.level}
+              onStop={recording.stop}
+              onCancel={recording.cancel}
+            />
+          </>
+        )}
+        {track.kind === "stringed" && (
+          <TunerDialog
+            open={tunerOpen}
+            onOpenChange={setTunerOpen}
+            trackName={track.name}
+            tuning={track.tuning}
+            onPlay={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
+            onOpenSettings={onOpenSettings}
+          />
+        )}
+        <PedalboardDialog
+          key={pedalboard.session}
+          open={pedalboard.open}
+          onOpenChange={(open) => setPedalboard((p) => ({ ...p, open }))}
+          target={pedalboardTarget}
+          chain={pedalboardChain}
+          onChange={changePedalboardChain}
+          onBrowsePresets={() =>
+            setPresetBrowser({
+              open: true,
+              target: pedalboardTarget.presetTarget,
+              track: pedalboard.track,
+              sound: pedalboard.sound,
+              targets:
+                pedalboard.track === null
+                  ? ["master"]
+                  : ([pedalboardTarget.presetTarget, "master"].filter(
+                      (t, i, all) => all.indexOf(t) === i,
+                    ) as PresetTarget[]),
+            })
+          }
+          problems={
+            audioEngine !== "native"
+              ? []
+              : pedalboard.track === null
+                ? effectProblems.master
+                : typeof pedalboard.track === "object"
+                  ? []
+                  : pedalboard.track === "monitor"
+                    ? (effectProblems.monitor ?? [])
+                    : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
+          }
+          trackName={
+            pedalboardTrack === "monitor"
+              ? MONITOR_NAME
+              : typeof pedalboardTrack === "object"
+                ? (pedalboardLane?.name ?? "Audio lane")
+                : (summary.tracks[pedalboardTrack]?.name ?? track.name)
+          }
+          onTargetChange={(mastering) =>
+            setPedalboard((p) => ({
+              ...p,
+              track: mastering ? null : (p.opened ?? trackIndex),
+              sound: 0,
+            }))
+          }
+          sounds={pedalboardSounds}
+          songPresets={mix.presets}
+          onSongPresetsChange={(presets) => changeMix({ type: "presets", presets })}
+          library={library.items}
+          onImport={(kind) => void library.importFile(kind)}
+          onManageLibrary={() => setLibraryOpen(true)}
+          engineOn={audioEngine === "native"}
+          onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
+          focusType={pedalboard.focus}
+        />
+        <DrumMixerDialog
+          open={drumMixer.open}
+          onOpenChange={(open) => setDrumMixer((d) => ({ ...d, open }))}
+          trackIndex={drumMixer.track}
+          trackName={summary.tracks[drumMixer.track]?.name ?? "Drums"}
+          mixer={mix.drums?.[drumMixer.track] ?? null}
+          onChange={(drums) => changeMix({ type: "drums", track: drumMixer.track, drums })}
+          engineOn={engineOn}
+          onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
+          busChain={soundEffects(mix, drumMixer.track, 0)}
+          onBrowsePresets={() =>
+            setPresetBrowser({
+              open: true,
+              target: "drums",
+              track: drumMixer.track,
+              sound: 0,
+              targets: ["drums"],
+            })
+          }
+          onBusChainChange={(slots) =>
+            changeMix({ type: "sound-effects", track: drumMixer.track, sound: 0, slots })
+          }
+        />
+        <DrumKitDialog
+          open={kitsOpen}
+          onOpenChange={setKitsOpen}
+          kits={drumKits.kits}
+          available={drumKits.available}
+          onPick={drumKits.pick}
+          onImport={drumKits.importFrom}
+          onRemove={(id) => {
+            // Tracks playing the kit go back to the built-in sounds.
+            for (const [i, kit] of (mix.drumKits ?? []).entries()) {
+              if (kit === id) changeMix({ type: "drum-kit", track: i, kit: null });
+            }
+            void drumKits.remove(id);
+          }}
+        />
+        <SoundFontsDialog
+          open={soundFontsOpen}
+          onOpenChange={setSoundFontsOpen}
+          fonts={soundFonts.fonts}
+          stored={soundFonts.stored}
+          catalogue={soundFonts.catalogue}
+          available={soundFonts.available}
+          activeId={soundFont}
+          onPick={soundFonts.pick}
+          onImport={soundFonts.importFrom}
+          onDownload={soundFonts.download}
+          onCancelDownload={soundFonts.cancelDownload}
+          onRemove={async (id) => {
+            // Playing with it: go back to the standard sounds before the file is deleted.
+            if (soundFont === storedSoundFontId(id)) changeSoundFont(DEFAULT_SOUNDFONT);
+            return soundFonts.remove(id);
+          }}
+        />
+        <PresetBrowserDialog
+          open={presetBrowser.open}
+          onOpenChange={(open) => setPresetBrowser((b) => ({ ...b, open }))}
+          target={presetBrowser.target}
+          targets={presetBrowser.targets}
+          onApply={applyPreset}
+        />
+        <SoundLibraryDialog
+          open={libraryOpen}
+          onOpenChange={setLibraryOpen}
+          items={library.items}
+          onImport={(kind) => void library.importFile(kind)}
+          onRename={(id, name, tags) => void library.rename(id, name, tags)}
+          onRemove={(id) => void library.remove(id)}
+        />
+        <TrackDialog
+          open={trackDialog !== null}
+          onOpenChange={(open) => !open && setTrackDialog(null)}
+          initial={
+            editedSummary
+              ? {
+                  kind: editedSummary.kind,
+                  name: editedSummary.name,
+                  program: editedSummary.program,
+                  tuning: editedSummary.tuning,
+                  capo: editedSummary.capo,
+                }
+              : null
+          }
+          drumKit={drumKitOf(editedTrack)}
           soundFont={soundFont}
-          revision={revision}
-          tracks={summary.tracks}
-          shown={trackIndex}
-          stack={{
-            indexes: tabsHidden ? [] : stackToIndexes(stack, score.tracks),
-            stacking: layout === "horizontal",
-            hasBand: bandWanted,
+          onSubmit={submitTrack}
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <CopyInstrumentDialog
+          open={copyTrack !== null}
+          onOpenChange={(open) => !open && setCopyTrack(null)}
+          trackName={copyTrack?.name ?? ""}
+          onSubmit={copyToInstrument}
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <BarDialog
+          open={barDialog.open}
+          onOpenChange={(open) => setBarDialog((d) => ({ ...d, open }))}
+          barNumber={barDialogIndex + 1}
+          initial={barDialog.initial}
+          currentTempo={tempoAt(score, barDialogIndex)}
+          warningsFor={(draft) =>
+            structureWarnings(score, { index: barDialogIndex, settings: draft })
+          }
+          onSubmit={(next) => submitBar(barDialogIndex, next)}
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <BendDialog
+          open={curveDialog.open}
+          onOpenChange={(open) => setCurveDialog((d) => ({ ...d, open }))}
+          kind={curveDialog.kind}
+          initial={curveDialog.kind === "whammy" ? effects.whammy : effects.bend}
+          onSubmit={(points) =>
+            curveDialog.kind === "whammy" ? editor.setWhammy(points) : editor.setBend(points)
+          }
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <TextDialog
+          open={textDialogOpen}
+          onOpenChange={setTextDialogOpen}
+          initial={effects.text}
+          onSubmit={(text) => editor.setText(text)}
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <ChordDialog
+          open={chordDialogOpen}
+          onOpenChange={setChordDialogOpen}
+          initial={effects.chord}
+          strings={track.kind === "stringed" ? { tuning: track.tuning, capo: track.capo } : null}
+          suggestions={chordSuggestions}
+          notesDiagram={notesDiagram}
+          preferFlats={flatKey}
+          onSubmit={(spec) => editor.setChord(spec)}
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <LyricsDialog
+          open={lyricsDialog.open}
+          onOpenChange={(open) => setLyricsDialog((d) => ({ ...d, open }))}
+          trackName={lyricsTrack?.name.trim() || "Track"}
+          initial={lyricsTrack ? lyricsOf(lyricsTrack) : []}
+          barCount={score.masterBars.length}
+          onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <SaveConflictDialog
+          open={fileActions.conflict !== null}
+          fileName={fileActions.conflict?.name ?? song.name}
+          onChoose={fileActions.resolveConflict}
+          onCancel={() => fileActions.resolveConflict("cancel")}
+        />
+        <SaveTargetDialog
+          providers={fileActions.chooser?.providers ?? []}
+          open={fileActions.chooser !== null}
+          onChoose={fileActions.chooseTarget}
+          onCancel={() => fileActions.chooseTarget("cancel")}
+          phase={fileActions.chooser?.phase}
+          target={fileActions.chooser?.target}
+          fileName={fileActions.chooser?.fileName}
+          error={fileActions.chooser?.error}
+          onRetry={() => {
+            const target = fileActions.chooser?.target;
+            if (target) fileActions.chooseTarget(target);
           }}
-          mix={mix}
-          onChange={changeMix}
-          onReset={resetMix}
-          actions={trackActions}
-          bar={bar}
-          onSeekBar={seekLaneBar}
-          saved={saved}
-          playing={playing}
-          playhead={playhead}
-          onMasterEffects={() => openPedalboard(null)}
-          audio={
-            isTauri()
-              ? {
-                  lanes,
-                  grid: laneGrid,
-                  onAdd: () => lanes.commands.addLane(),
-                  onImport: () => void addAudioLane(),
-                  onRecord: () => setRecordAudioOpen(true),
-                  onEffects: (laneIndex) => openPedalboard({ lane: laneIndex }),
-                  onOpenEditor: (laneId) => setEditorLaneId(laneId),
-                  missingBars,
-                  onAddMissingBars: addMissingBars,
+          onSetupCloud={
+            onSetUpCloud
+              ? () => {
+                  fileActions.chooseTarget("cancel");
+                  onSetUpCloud();
                 }
               : undefined
           }
-          monitor={
-            isTauri()
-              ? {
-                  status: monitorStatus,
-                  engineOn,
-                  inputName: audioInput?.label ?? "System default",
-                  channel: inputChannel,
-                  onAdd: addMonitorTrack,
-                  onRemove: removeMonitorTrack,
-                  onEffects: () => openPedalboard("monitor"),
-                  onInputSettings: onOpenSettings,
-                }
-              : undefined
-          }
         />
-      )}
-      {editorLane && !studioOpen && (
-        <LaneEditorDock
-          lanes={lanes}
-          lane={editorLane}
-          index={lanes.audio.lanes.indexOf(editorLane)}
-          grid={laneGrid}
-          scoreBpmAt={(bar) => tempoAt(score, bar)}
-          playhead={playhead}
-          playing={playing}
-          selectedBars={selectedBars()}
-          onSelectBars={(start, end) => editor.selectBars(start, end)}
-          onSeekBar={(bar, loop) => {
-            const range = selectedBars();
-            if (loop && range) loopBars(range.start, range.end);
-            else playerRef.current?.seekToBar(bar);
+        <ExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          groups={exportGroups({ m4a: m4aSupported, pdf: true })}
+          onChoose={({ target }) => {
+            if (target.kind === "format") void fileActions.exportAs(target.format);
+            else if (target.kind === "audio") void fileActions.exportAudio(target.audio);
+            else setPrintOpen(true);
           }}
-          actions={laneEditorActions}
+          onCloseAutoFocus={returnFocusToScore}
         />
-      )}
-      {studioOpen && (
-        <StudioView
-          lanes={lanes}
-          grid={laneGrid}
-          markers={studioMarkers}
-          playhead={playhead}
-          playing={playing}
-          position={`${bar + 1}`}
-          actions={{
-            playPause,
-            record: () => setRecordAudioOpen(true),
-            effects: (laneIndex) => openPedalboard({ lane: laneIndex }),
-            renderLanes: () => void renderLaneFiles(),
-            renderRange: (startMs, endMs) => void renderLaneRange(startMs, endMs),
-            close: () => setStudioOpen(false),
+        <PrintDialog
+          open={printOpen}
+          onOpenChange={setPrintOpen}
+          initial={printSettings}
+          trackNames={summary.tracks.map((t) => t.name)}
+          shownTrack={trackIndex}
+          onSubmit={(settings, tracks) => submitPrint(settings, tracks)}
+          onExportPdf={
+            pdfSupported ? (settings, tracks) => void exportPdf(settings, tracks) : undefined
+          }
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <TempoDialog
+          open={tempoOpen}
+          onOpenChange={setTempoOpen}
+          initial={tempoInitial()}
+          onSubmit={submitTempo}
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <TransposeDialog
+          open={transposeOpen}
+          onOpenChange={setTransposeOpen}
+          hasSelection={editor.selection !== null}
+          preview={previewTranspose}
+          onSubmit={submitTranspose}
+          onCloseAutoFocus={returnFocusToScore}
+        />
+        <SpeedTrainerDialog
+          open={trainerOpen}
+          onOpenChange={(open) => {
+            setTrainerOpen(open);
+            if (!open) setTrainerRange(null);
+          }}
+          barCount={score.masterBars.length}
+          initialRange={trainerRange ?? suggestedRange()}
+          sections={sections}
+          countInBetweenAvailable={audioEngine === "native"}
+          onCloseAutoFocus={returnFocusToScore}
+          onStart={(trainer, trainerRange) => {
+            dispatchPractice({ type: "start-trainer", trainer, range: trainerRange });
+            if (!playing && ready) playPause();
           }}
         />
-      )}
-      <RecordAudioDialog
-        open={recordAudioOpen}
-        onOpenChange={setRecordAudioOpen}
-        lanes={lanes.audio.lanes.filter((l) => !l.folder).map((l) => ({ id: l.id, name: l.name }))}
-        defaultLane={editorLane?.id ?? null}
-        inputName={audioInput?.label ?? "System default"}
-        latency={`About ${recordLatencyMs} ms output delay`}
-        hasSelection={!!selectedBars()}
-        onStart={recordAudio.start}
-        onInputSettings={() => onOpenSettings?.(document.body)}
-      />
-      <RecordBar
-        phase={recordAudio.phase}
-        level={recordAudio.level}
-        onStop={recordAudio.stop}
-        onCancel={recordAudio.discard}
-      />
-      <LaneDropHighlight
-        store={fileDrag?.audio ? fileDrag.store : undefined}
-        count={fileDrag?.count ?? 0}
-        msAtBar={(bar) => timelineMsAtBar(lanesAudioRef.current, laneGrid, bar)}
-        snapTo={lanes.snapTo}
-        laneName={(id) => lanes.audio.lanes.find((l) => l.id === id)?.name ?? ""}
-      />
-      <PracticeTogetherDialog
-        open={togetherOpen}
-        onOpenChange={setTogetherOpen}
-        together={together}
-        initialMode={togetherMode}
-      />
-      {recordEnabled && (
-        <>
-          <RecordDialog
-            open={recording.dialogOpen}
-            onOpenChange={(open) => (open ? recording.open() : recording.close())}
-            targets={recordTargets(summary.tracks)}
-            defaultTrack={recording.dialogTrack ?? trackIndex}
-            defaultBar={editor.cursor.bar}
-            barCount={score.masterBars.length}
-            supported={isTauri()}
-            onRecord={recording.start}
-            onRecordFile={recording.fromFile}
-            droppedFile={recordDrop}
-            pianoModel={pianoModel}
-          />
-          <RecordBar
-            phase={recording.phase}
-            level={recording.level}
-            onStop={recording.stop}
-            onCancel={recording.cancel}
-          />
-        </>
-      )}
-      {track.kind === "stringed" && (
-        <TunerDialog
-          open={tunerOpen}
-          onOpenChange={setTunerOpen}
-          trackName={track.name}
-          tuning={track.tuning}
-          onPlay={(pitch) => playerRef.current?.previewNote(pitch, track.program)}
-          onOpenSettings={onOpenSettings}
-        />
-      )}
-      <PedalboardDialog
-        key={pedalboard.session}
-        open={pedalboard.open}
-        onOpenChange={(open) => setPedalboard((p) => ({ ...p, open }))}
-        target={pedalboardTarget}
-        chain={pedalboardChain}
-        onChange={changePedalboardChain}
-        onBrowsePresets={() =>
-          setPresetBrowser({
-            open: true,
-            target: pedalboardTarget.presetTarget,
-            track: pedalboard.track,
-            sound: pedalboard.sound,
-            targets:
-              pedalboard.track === null
-                ? ["master"]
-                : ([pedalboardTarget.presetTarget, "master"].filter(
-                    (t, i, all) => all.indexOf(t) === i,
-                  ) as PresetTarget[]),
-          })
-        }
-        problems={
-          audioEngine !== "native"
-            ? []
-            : pedalboard.track === null
-              ? effectProblems.master
-              : typeof pedalboard.track === "object"
-                ? []
-                : pedalboard.track === "monitor"
-                  ? (effectProblems.monitor ?? [])
-                  : (effectProblems.tracks[pedalboard.track]?.[pedalboard.sound] ?? [])
-        }
-        trackName={
-          pedalboardTrack === "monitor"
-            ? MONITOR_NAME
-            : typeof pedalboardTrack === "object"
-              ? (pedalboardLane?.name ?? "Audio lane")
-              : (summary.tracks[pedalboardTrack]?.name ?? track.name)
-        }
-        onTargetChange={(mastering) =>
-          setPedalboard((p) => ({
-            ...p,
-            track: mastering ? null : (p.opened ?? trackIndex),
-            sound: 0,
-          }))
-        }
-        sounds={pedalboardSounds}
-        songPresets={mix.presets}
-        onSongPresetsChange={(presets) => changeMix({ type: "presets", presets })}
-        library={library.items}
-        onImport={(kind) => void library.importFile(kind)}
-        onManageLibrary={() => setLibraryOpen(true)}
-        engineOn={audioEngine === "native"}
-        onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
-        focusType={pedalboard.focus}
-      />
-      <DrumMixerDialog
-        open={drumMixer.open}
-        onOpenChange={(open) => setDrumMixer((d) => ({ ...d, open }))}
-        trackIndex={drumMixer.track}
-        trackName={summary.tracks[drumMixer.track]?.name ?? "Drums"}
-        mixer={mix.drums?.[drumMixer.track] ?? null}
-        onChange={(drums) => changeMix({ type: "drums", track: drumMixer.track, drums })}
-        engineOn={engineOn}
-        onEnableEngine={nativeEngineAvailable() ? () => changeAudioEngine("native") : undefined}
-        busChain={soundEffects(mix, drumMixer.track, 0)}
-        onBrowsePresets={() =>
-          setPresetBrowser({
-            open: true,
-            target: "drums",
-            track: drumMixer.track,
-            sound: 0,
-            targets: ["drums"],
-          })
-        }
-        onBusChainChange={(slots) =>
-          changeMix({ type: "sound-effects", track: drumMixer.track, sound: 0, slots })
-        }
-      />
-      <DrumKitDialog
-        open={kitsOpen}
-        onOpenChange={setKitsOpen}
-        kits={drumKits.kits}
-        available={drumKits.available}
-        onPick={drumKits.pick}
-        onImport={drumKits.importFrom}
-        onRemove={(id) => {
-          // Tracks playing the kit go back to the built-in sounds.
-          for (const [i, kit] of (mix.drumKits ?? []).entries()) {
-            if (kit === id) changeMix({ type: "drum-kit", track: i, kit: null });
-          }
-          void drumKits.remove(id);
-        }}
-      />
-      <SoundFontsDialog
-        open={soundFontsOpen}
-        onOpenChange={setSoundFontsOpen}
-        fonts={soundFonts.fonts}
-        stored={soundFonts.stored}
-        catalogue={soundFonts.catalogue}
-        available={soundFonts.available}
-        activeId={soundFont}
-        onPick={soundFonts.pick}
-        onImport={soundFonts.importFrom}
-        onDownload={soundFonts.download}
-        onCancelDownload={soundFonts.cancelDownload}
-        onRemove={async (id) => {
-          // Playing with it: go back to the standard sounds before the file is deleted.
-          if (soundFont === storedSoundFontId(id)) changeSoundFont(DEFAULT_SOUNDFONT);
-          return soundFonts.remove(id);
-        }}
-      />
-      <PresetBrowserDialog
-        open={presetBrowser.open}
-        onOpenChange={(open) => setPresetBrowser((b) => ({ ...b, open }))}
-        target={presetBrowser.target}
-        targets={presetBrowser.targets}
-        onApply={applyPreset}
-      />
-      <SoundLibraryDialog
-        open={libraryOpen}
-        onOpenChange={setLibraryOpen}
-        items={library.items}
-        onImport={(kind) => void library.importFile(kind)}
-        onRename={(id, name, tags) => void library.rename(id, name, tags)}
-        onRemove={(id) => void library.remove(id)}
-      />
-      <TrackDialog
-        open={trackDialog !== null}
-        onOpenChange={(open) => !open && setTrackDialog(null)}
-        initial={
-          editedSummary
-            ? {
-                kind: editedSummary.kind,
-                name: editedSummary.name,
-                program: editedSummary.program,
-                tuning: editedSummary.tuning,
-                capo: editedSummary.capo,
-              }
-            : null
-        }
-        drumKit={drumKitOf(editedTrack)}
-        soundFont={soundFont}
-        onSubmit={submitTrack}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <CopyInstrumentDialog
-        open={copyTrack !== null}
-        onOpenChange={(open) => !open && setCopyTrack(null)}
-        trackName={copyTrack?.name ?? ""}
-        onSubmit={copyToInstrument}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <BarDialog
-        open={barDialog.open}
-        onOpenChange={(open) => setBarDialog((d) => ({ ...d, open }))}
-        barNumber={barDialogIndex + 1}
-        initial={barDialog.initial}
-        currentTempo={tempoAt(score, barDialogIndex)}
-        warningsFor={(draft) =>
-          structureWarnings(score, { index: barDialogIndex, settings: draft })
-        }
-        onSubmit={(next) => submitBar(barDialogIndex, next)}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <BendDialog
-        open={curveDialog.open}
-        onOpenChange={(open) => setCurveDialog((d) => ({ ...d, open }))}
-        kind={curveDialog.kind}
-        initial={curveDialog.kind === "whammy" ? effects.whammy : effects.bend}
-        onSubmit={(points) =>
-          curveDialog.kind === "whammy" ? editor.setWhammy(points) : editor.setBend(points)
-        }
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <TextDialog
-        open={textDialogOpen}
-        onOpenChange={setTextDialogOpen}
-        initial={effects.text}
-        onSubmit={(text) => editor.setText(text)}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <ChordDialog
-        open={chordDialogOpen}
-        onOpenChange={setChordDialogOpen}
-        initial={effects.chord}
-        strings={track.kind === "stringed" ? { tuning: track.tuning, capo: track.capo } : null}
-        suggestions={chordSuggestions}
-        notesDiagram={notesDiagram}
-        preferFlats={flatKey}
-        onSubmit={(spec) => editor.setChord(spec)}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <LyricsDialog
-        open={lyricsDialog.open}
-        onOpenChange={(open) => setLyricsDialog((d) => ({ ...d, open }))}
-        trackName={lyricsTrack?.name.trim() || "Track"}
-        initial={lyricsTrack ? lyricsOf(lyricsTrack) : []}
-        barCount={score.masterBars.length}
-        onSubmit={(lines) => lyricsTrack && submitLyrics(lyricsTrack, lines)}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <SaveConflictDialog
-        open={fileActions.conflict !== null}
-        fileName={fileActions.conflict?.name ?? song.name}
-        onChoose={fileActions.resolveConflict}
-        onCancel={() => fileActions.resolveConflict("cancel")}
-      />
-      <SaveTargetDialog
-        providers={fileActions.chooser?.providers ?? []}
-        open={fileActions.chooser !== null}
-        onChoose={fileActions.chooseTarget}
-        onCancel={() => fileActions.chooseTarget("cancel")}
-        phase={fileActions.chooser?.phase}
-        target={fileActions.chooser?.target}
-        fileName={fileActions.chooser?.fileName}
-        error={fileActions.chooser?.error}
-        onRetry={() => {
-          const target = fileActions.chooser?.target;
-          if (target) fileActions.chooseTarget(target);
-        }}
-        onSetupCloud={
-          onSetUpCloud
-            ? () => {
-                fileActions.chooseTarget("cancel");
-                onSetUpCloud();
-              }
-            : undefined
-        }
-      />
-      <ExportDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        groups={exportGroups({ m4a: m4aSupported, pdf: true })}
-        onChoose={({ target }) => {
-          if (target.kind === "format") void fileActions.exportAs(target.format);
-          else if (target.kind === "audio") void fileActions.exportAudio(target.audio);
-          else setPrintOpen(true);
-        }}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <PrintDialog
-        open={printOpen}
-        onOpenChange={setPrintOpen}
-        initial={printSettings}
-        trackNames={summary.tracks.map((t) => t.name)}
-        shownTrack={trackIndex}
-        onSubmit={(settings, tracks) => submitPrint(settings, tracks)}
-        onExportPdf={
-          pdfSupported ? (settings, tracks) => void exportPdf(settings, tracks) : undefined
-        }
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <TempoDialog
-        open={tempoOpen}
-        onOpenChange={setTempoOpen}
-        initial={tempoInitial()}
-        onSubmit={submitTempo}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <TransposeDialog
-        open={transposeOpen}
-        onOpenChange={setTransposeOpen}
-        hasSelection={editor.selection !== null}
-        preview={previewTranspose}
-        onSubmit={submitTranspose}
-        onCloseAutoFocus={returnFocusToScore}
-      />
-      <SpeedTrainerDialog
-        open={trainerOpen}
-        onOpenChange={(open) => {
-          setTrainerOpen(open);
-          if (!open) setTrainerRange(null);
-        }}
-        barCount={score.masterBars.length}
-        initialRange={trainerRange ?? suggestedRange()}
-        sections={sections}
-        countInBetweenAvailable={audioEngine === "native"}
-        onCloseAutoFocus={returnFocusToScore}
-        onStart={(trainer, trainerRange) => {
-          dispatchPractice({ type: "start-trainer", trainer, range: trainerRange });
-          if (!playing && ready) playPause();
-        }}
-      />
-    </div>
+      </div>
+    </LaneRecordContext.Provider>
   );
 }

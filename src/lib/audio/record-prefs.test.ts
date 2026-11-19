@@ -1,5 +1,9 @@
 import {
   readAlignToBeat,
+  readAudioRecordPrefs,
+  readHearMyself,
+  storeAudioRecordPrefs,
+  storeHearMyself,
   readInstrument,
   readPianoEngine,
   readPlayOthers,
@@ -90,5 +94,34 @@ describe("record preferences", () => {
     expect(readTuningChoice("bass").strings).toBe(4);
     storeTuningChoice({ strings: 4, name: tuningPresets(4)[0]!.name }, "guitar");
     expect(readTuningChoice("guitar").strings).toBe(6);
+  });
+});
+
+describe("recording onto a lane (#249)", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("remembers what the Record audio dialog was last used with", () => {
+    expect(readAudioRecordPrefs()).toEqual({ mode: "playhead", countIn: true, preRollBars: 1 });
+    storeAudioRecordPrefs({ mode: "loop", countIn: false, preRollBars: 2 });
+    expect(readAudioRecordPrefs()).toEqual({ mode: "loop", countIn: false, preRollBars: 2 });
+  });
+
+  it("falls back to the defaults for damaged or unknown values", () => {
+    localStorage.setItem("smart-beat:record-audio-setup", "{not json");
+    expect(readAudioRecordPrefs().mode).toBe("playhead");
+    localStorage.setItem(
+      "smart-beat:record-audio-setup",
+      JSON.stringify({ mode: "freestyle", preRollBars: 9 }),
+    );
+    expect(readAudioRecordPrefs()).toEqual({ mode: "playhead", countIn: true, preRollBars: 1 });
+  });
+
+  it("hears the input of an interface by default and not the built-in microphone, until chosen", () => {
+    expect(readHearMyself(false)).toBe(true);
+    expect(readHearMyself(true)).toBe(false);
+    storeHearMyself(true);
+    expect(readHearMyself(true)).toBe(true);
+    storeHearMyself(false);
+    expect(readHearMyself(false)).toBe(false);
   });
 });
