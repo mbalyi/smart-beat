@@ -364,19 +364,27 @@ pub fn samples_preview_start<R: Runtime>(
     let (_, root) = root_for(&state, &folder_id)?;
     let path = files::resolve(&root, &rel)?;
     let rate = with_running_engine(&audio, |engine| engine.sample_rate())?;
+    // The ticket is taken before decoding, so a stop or a newer preview that arrives while a
+    // large file is still being read supersedes this one.
+    let generation = state.begin_preview();
     // Decoded here, not on the audio thread; the engine only gets the finished buffer.
     let decoded = preview::load(&path, rate as u32).map_err(|e| error(ErrorKind::Audio, e))?;
-    let generation = state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1;
-    with_running_engine(&audio, |engine| {
-        engine.start_sample_preview(decoded.clone(), volume)
-    })?
-    .map_err(|e| error(ErrorKind::Audio, e))?;
+    let started = state.start_if_current(generation, || {
+        with_running_engine(&audio, |engine| {
+            engine.start_sample_preview(decoded.clone(), volume)
+        })
+    });
+    match started {
+        // Stopped or replaced while decoding: stay silent.
+        None => return Ok(()),
+        Some(result) => result?.map_err(|e| error(ErrorKind::Audio, e))?,
+    }
     let wait = Duration::from_secs_f64(decoded.duration() + 0.15);
     std::thread::spawn(move || {
         std::thread::sleep(wait);
         let state = app.state::<SamplesState>();
         let audio = app.state::<AudioState>();
-        let finished = state.preview_generation.load(Ordering::SeqCst) == generation
+        let finished = state.is_current(generation)
             && with_running_engine(&audio, |engine| !engine.sample_preview_active())
                 .unwrap_or(true);
         if finished {
@@ -394,9 +402,11 @@ pub fn samples_preview_start<R: Runtime>(
 
 #[tauri::command(async)]
 pub fn samples_preview_stop(state: State<'_, SamplesState>, audio: State<'_, AudioState>) {
-    state.preview_generation.fetch_add(1, Ordering::SeqCst);
-    // No engine means nothing is playing.
-    let _ = with_running_engine(&audio, |engine| engine.stop_sample_preview());
+    // No engine means nothing is playing. Stopping under the same lock as starting means a
+    // preview still decoding cannot start after this returns.
+    state.cancel_previews(|| {
+        let _ = with_running_engine(&audio, |engine| engine.stop_sample_preview());
+    });
 }
 
 #[tauri::command(async)]
