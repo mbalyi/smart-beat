@@ -27,7 +27,7 @@ export interface TourPanelRequest {
   mixer?: boolean;
   inspector?: boolean;
   /** The inspector's tab. */
-  inspectorTab?: "song" | "track";
+  inspectorTab?: "song" | "track" | "samples";
   instrumentView?: boolean;
   editing?: boolean;
   /** Shows a track: the first drum track, the first track that is not drums, or its index. */

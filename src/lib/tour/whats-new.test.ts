@@ -86,7 +86,7 @@ describe("the editing features in the registry (#228)", () => {
     expect(entry("repeat-count")).toMatchObject({ since: "1.3.0", tour: "editing" });
     expect(entry("smoother-editing")).toMatchObject({ since: "1.3.0" });
     expect(entry("smoother-editing")?.tour).toBeUndefined();
-    expect(latestFeatures(FEATURE_REGISTRY).version).toBe("1.3.0");
+    expect(latestFeatures(FEATURE_REGISTRY).version).toBe("1.4.0");
     expect(pendingFeatures("1.2.0", "1.3.0", FEATURE_REGISTRY).map((x) => x.id)).toEqual(
       expect.arrayContaining(["insert-rest", "repeat-count", "smoother-editing"]),
     );
@@ -130,5 +130,19 @@ describe("releaseOf", () => {
 
   it("falls back to the running version when nothing is shown", () => {
     expect(releaseOf([], "1.3.1")).toBe("1.3.1");
+  });
+});
+
+describe("the sample browser in the registry (#232)", () => {
+  it("is announced in 1.4.0 with its own mini-tour, and not before", () => {
+    const entry = FEATURE_REGISTRY.find((x) => x.id === "sample-browser");
+    expect(entry).toMatchObject({ since: "1.4.0", tour: "sample-browser" });
+    expect(entry?.summary).toMatch(/\.zip or \.7z/);
+    expect(pendingFeatures("1.3.0", "1.4.0", FEATURE_REGISTRY).map((x) => x.id)).toContain(
+      "sample-browser",
+    );
+    expect(pendingFeatures("1.3.0", "1.3.1", FEATURE_REGISTRY).map((x) => x.id)).not.toContain(
+      "sample-browser",
+    );
   });
 });
