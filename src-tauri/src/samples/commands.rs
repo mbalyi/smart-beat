@@ -154,6 +154,10 @@ fn import_into_store<R: Runtime>(
             }
         };
         let count = fill(&staging.join("files"), &job.cancel, &mut report).map_err(stop_error)?;
+        // Last chance to stop: once the folder is moved into place it is part of the library.
+        if job.cancel.load(Ordering::Relaxed) {
+            return Err(stop_error(import::Stop::Cancelled));
+        }
         fs::rename(&staging, state.store.folder_dir(&id)).map_err(|e| {
             error(
                 ErrorKind::Io,
