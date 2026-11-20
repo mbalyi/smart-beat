@@ -96,6 +96,10 @@ pub fn copy_folder(
         done += file.size;
         progress(done, walked.total_bytes);
     }
+    // A cancel that arrived while the last file was being copied.
+    if cancel.load(Ordering::Relaxed) {
+        return Err(Stop::Cancelled);
+    }
     Ok(u32::try_from(walked.files.len()).unwrap_or(u32::MAX))
 }
 
@@ -625,5 +629,18 @@ mod tests {
             copy_folder(src.path(), dest.path(), &cancel, &mut |_, _| {}),
             Err(Stop::Cancelled)
         );
+    }
+
+    #[test]
+    fn a_cancel_during_the_last_file_still_cancels_the_copy() {
+        let src = tempfile::tempdir().unwrap();
+        write_tone(src.path(), "only.wav", 0.2);
+        let dest = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        // The flag is raised while the single file is being copied, as the report comes in.
+        let result = copy_folder(src.path(), dest.path(), &cancel, &mut |_, _| {
+            cancel.store(true, Ordering::Relaxed);
+        });
+        assert_eq!(result, Err(Stop::Cancelled));
     }
 }
