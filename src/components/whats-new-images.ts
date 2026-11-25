@@ -16,8 +16,9 @@ type HomeCard = Feature["title"];
 
 /** The start page card each feature belongs to. */
 const HOME_CARD: Record<string, HomeCard> = {
-  // 1.3.2
+  // 1.4
   "lane-band-parity": "Audio tracks & editing",
+  "sample-browser": "Audio tracks & editing",
   // 1.3
   "hybrid-lanes": "Audio tracks & editing",
   "audio-lanes": "Audio tracks & editing",

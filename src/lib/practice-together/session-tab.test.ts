@@ -90,6 +90,13 @@ async function settle(ms: number) {
   }
 }
 
+/** Like `settle`, but stops as soon as `done()` holds (up to `maxMs`), so a slow machine only waits longer. */
+async function settleUntil(done: () => boolean, maxMs = 5_000) {
+  for (let waited = 0; waited < maxMs && !done(); waited += 50) {
+    await settle(50);
+  }
+}
+
 function connect(guestScore = NO_TAB, hostExtra: Partial<SessionOptions> = {}, latency = 2) {
   const pair = memoryPair({ up: latency, down: latency });
   const host = side(pair[0], "host", hostExtra);
@@ -237,7 +244,7 @@ describe("a guest without the tab", () => {
     // A big tab on a slow line: after the offer went out, before the last piece is acknowledged.
     const { host, guest } = connect(NO_TAB, {}, 50);
     host.current = payload("host-tab", TAB_CHUNK_BYTES * 40);
-    await settle(300);
+    await settleUntil(() => host.session.snapshot.transfer != null);
     expect(host.session.snapshot.transfer).not.toBeNull();
     guest.session.leave();
     await settle(200);
@@ -248,7 +255,7 @@ describe("a guest without the tab", () => {
   it("stops the transfer when the host leaves in the middle", async () => {
     const { host, guest } = connect(NO_TAB, {}, 50);
     host.current = payload("host-tab", TAB_CHUNK_BYTES * 40);
-    await settle(300);
+    await settleUntil(() => guest.session.snapshot.transfer != null);
     expect(guest.session.snapshot.transfer).not.toBeNull();
     host.session.leave();
     await settle(200);

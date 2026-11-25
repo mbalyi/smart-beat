@@ -23,6 +23,7 @@ pub mod practice_signal;
 pub mod project;
 pub mod recent;
 pub mod recording;
+pub mod samples;
 pub mod score_file;
 pub mod score_write;
 pub mod separation;
@@ -80,6 +81,11 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             if app.try_state::<cloud_commands::CloudState>().is_none() {
                 app.manage(cloud_commands::CloudState::new(
                     app.path().app_data_dir()?.join("pending"),
+                ));
+            }
+            if app.try_state::<samples::SamplesState>().is_none() {
+                app.manage(samples::SamplesState::new(
+                    app.path().app_data_dir()?.join("samples"),
                 ));
             }
             if app.try_state::<cloud_folder::CloudFolderStore>().is_none() {
@@ -248,6 +254,22 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::audio_set_automation,
             audio::audio_set_track_eq,
             audio::audio_set_drum_mix,
+            samples::commands::samples_list_folders,
+            samples::commands::samples_scan_folder,
+            samples::commands::samples_inspect_archive,
+            samples::commands::samples_link_folder,
+            samples::commands::samples_import_folder,
+            samples::commands::samples_import_files,
+            samples::commands::samples_import_archive,
+            samples::commands::samples_cancel,
+            samples::commands::samples_remove_folder,
+            samples::commands::samples_relink_folder,
+            samples::commands::samples_list_files,
+            samples::commands::samples_probe_files,
+            samples::commands::samples_resolve,
+            samples::commands::samples_preview_start,
+            samples::commands::samples_preview_stop,
+            samples::commands::samples_preview_volume,
             audio::audio_load_source,
             audio::audio_add_take,
             audio::audio_forget_sources,

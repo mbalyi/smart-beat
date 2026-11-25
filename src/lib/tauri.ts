@@ -12,6 +12,13 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 import type { EffectSlot } from "@/lib/audio/effects";
+import type {
+  ArchiveReport,
+  FolderScan,
+  SampleFile,
+  SampleFolder,
+  SampleProgress,
+} from "@/lib/samples/types";
 import type { RecordedNote } from "@/lib/import/recording";
 import type { Interpretation } from "@/lib/score/interpretation";
 
@@ -801,6 +808,98 @@ export async function listCloudStems(): Promise<CloudStem[]> {
 export async function pickCloudFolder(): Promise<string | null> {
   if (!isTauri()) throw new NotInDesktopAppError();
   return openDialog({ title: "Choose your cloud folder", multiple: false, directory: true });
+}
+
+// --- Sample browser (#232) -------------------------------------------------------------------
+
+export const SAMPLE_ARCHIVE_EXTENSIONS = ["zip", "7z"] as const;
+
+/** Native folder dialog for sample folders. Resolves to the path, or `null` if cancelled. */
+export async function pickSampleFolder(
+  title = "Choose a folder of samples",
+): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({ title, multiple: false, directory: true });
+}
+
+/** Native file dialog for a sample pack (.zip or .7z). */
+export async function pickSampleArchive(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  return openDialog({
+    title: "Choose a sample pack",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Sample packs", extensions: [...SAMPLE_ARCHIVE_EXTENSIONS] }],
+  });
+}
+
+/**
+ * Native multi-select file dialog for single sample files. Resolves to the paths, or `null`
+ * if cancelled or nothing was chosen.
+ */
+export async function pickSampleFiles(): Promise<string[] | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const picked = await openDialog({
+    title: "Choose audio files",
+    multiple: true,
+    directory: false,
+    filters: [{ name: "Audio files", extensions: [...AUDIO_EXTENSIONS] }],
+  });
+  const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+  return paths.length > 0 ? paths : null;
+}
+
+export const listSampleFolders = async (): Promise<SampleFolder[]> =>
+  isTauri() ? invoke<SampleFolder[]>("samples_list_folders") : [];
+export const scanSampleFolder = (path: string) => call<FolderScan>("samples_scan_folder", { path });
+export const inspectSampleArchive = (path: string) =>
+  call<ArchiveReport>("samples_inspect_archive", { path });
+export const linkSampleFolder = (path: string) =>
+  call<SampleFolder>("samples_link_folder", { path });
+export const importSampleFolder = (path: string, jobId: string) =>
+  call<SampleFolder>("samples_import_folder", { path, jobId });
+/** Copies chosen audio files into a new folder of their own, called `name`. */
+export const importSampleFiles = (paths: string[], name: string, jobId: string) =>
+  call<SampleFolder>("samples_import_files", { paths, name, jobId });
+export const importSampleArchive = (path: string, jobId: string) =>
+  call<SampleFolder>("samples_import_archive", { path, jobId });
+export const cancelSampleJob = (jobId: string) => call<void>("samples_cancel", { jobId });
+export const removeSampleFolder = (id: string, deleteCopy: boolean) =>
+  call<void>("samples_remove_folder", { id, deleteCopy });
+export const relinkSampleFolder = (id: string, path: string) =>
+  call<SampleFolder>("samples_relink_folder", { id, path });
+export const listSampleFiles = (folderId: string) =>
+  call<SampleFile[]>("samples_list_files", { folderId });
+export const probeSampleFiles = (folderId: string, rels: string[]) =>
+  call<SampleFile[]>("samples_probe_files", { folderId, rels });
+/** The absolute path of a sample, for opening it as a clip. */
+export const resolveSample = (folderId: string, rel: string) =>
+  call<string>("samples_resolve", { folderId, rel });
+export const startSamplePreview = (folderId: string, rel: string, volume: number) =>
+  call<void>("samples_preview_start", { folderId, rel, volume });
+export const stopSamplePreview = async (): Promise<void> => {
+  if (isTauri()) await invoke<void>("samples_preview_stop");
+};
+export const setSamplePreviewVolume = async (volume: number): Promise<void> => {
+  if (isTauri()) await invoke<void>("samples_preview_volume", { volume });
+};
+
+/** Progress of a copy or unpack. A no-op in a browser. */
+export async function onSampleProgress(
+  handler: (progress: SampleProgress) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<SampleProgress>("samples://progress", (event) => handler(event.payload));
+}
+
+/** A preview played to its end by itself. A no-op in a browser. */
+export async function onSamplePreviewEnded(
+  handler: (ended: { folderId: string; rel: string }) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<{ folderId: string; rel: string }>("samples://preview-ended", (event) =>
+    handler(event.payload),
+  );
 }
 
 /** When the file at `path` last changed and its content hash; `null` if it does not exist. */
