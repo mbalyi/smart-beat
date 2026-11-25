@@ -4,7 +4,13 @@ Release notes for every version. The release workflow publishes the section that
 
 ## [Unreleased]
 
+### New
+
+- **Record on an audio lane.** Every audio lane has a record icon next to mute and solo. Press it to arm the lane: you hear your input through that lane's own effects (amp, pedals, plugins) while the song plays, and the bar at the bottom shows the input, its delay and a **Hear myself** switch (off at first for the computer's own microphone or the system default input, with a headphones warning when you turn it on). Press the icon again to record a take straight onto the lane with the last choices of Record audio, and once more to keep it. The lane's own clips stay quiet under the take, the other lanes follow mute and solo, **Space** keeps the take and **Escape** throws it away. One undo takes a kept take away again. Your own Monitor track comes back when you let go of the lane.
+
 ### Changed
+
+- **Crash reports are now on by default.** When Smart Beat fails with an unexpected error or crashes, it sends one small report so the problem can be fixed: the kind of error, the program's own stack trace, the app version and your operating system family. Never your songs, file names, folders, user name, IP address, messages or addresses, and never a screen recording, replay or screenshot. Switch it off any time in Help › Settings › Send crash reports; your choice is kept for every later version, and if you had already switched it off, it stays off. Details in `docs/crash-reports.md`.
 
 - **Audio lanes under the tabs work like the lane editor.** Each lane has the editor's header in a slim strip above its clips, at the left of the view (name, mute, solo, add audio file and effects) instead of a small label, with the same mute and solo colours. A marker ruler on the bars shows and edits markers and regions, a handle under each lane resizes it (like in the studio), and an empty lane says so. The positions still follow the score's bars.
 

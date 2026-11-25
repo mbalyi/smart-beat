@@ -136,13 +136,13 @@ function CrashReportSetting({ initial }: { initial: CrashReportSettings | null }
         />
       </div>
       <p id={descriptionId} className="text-sm text-muted-foreground">
-        Off until you switch it on. When Smart Beat fails, it can send a report so the problem can
-        be fixed: the kind of error, the names and line numbers of Smart Beat&apos;s own code where
-        it happened, the app version and your operating system (macOS, Windows or Linux). The error
-        message is never sent, so songs, file names, folders, your name and anything you type stay
-        on your computer. Smart Beat never records your screen, never makes screenshots and never
-        records sessions. Switching this off stops sending at once, and reports that have not been
-        sent are discarded.
+        On by default; switch it off whenever you like. When Smart Beat fails, it sends a report so
+        the problem can be fixed: the kind of error, the names and line numbers of Smart Beat&apos;s
+        own code where it happened, the app version and your operating system (macOS, Windows or
+        Linux). The error message is never sent, so songs, file names, folders, your name and
+        anything you type stay on your computer. Smart Beat never records your screen, never makes
+        screenshots and never records sessions. Switching this off stops sending at once, and
+        reports that have not been sent are discarded.
       </p>
       {error && (
         <p role="alert" className="text-sm text-destructive">

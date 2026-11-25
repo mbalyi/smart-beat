@@ -1,4 +1,4 @@
-//! Opt-in crash reports for the Rust core (docs/crash-reports.md).
+//! Crash reports for the Rust core (docs/crash-reports.md), on unless the user switches them off.
 //!
 //! **Errors only.** A panic becomes one Sentry event with a scrubbed stack trace
 //! ([`crate::crash_scrub`]). There is no session replay, no screen capture, no screenshot, no
@@ -6,10 +6,11 @@
 //! breadcrumbs: none of those integrations is compiled in or configured (the `sentry` crate is
 //! built without its default features, and a test checks this).
 //!
-//! **Off by default.** Nothing is created, initialised or sent until the user switches "Send
-//! crash reports" on, and only when this build has an address ([`DSN`], baked in by the release
-//! pipeline from `SMART_BEAT_SENTRY_DSN_CORE`). Switching it off drops the client at once:
-//! a gate in front of the network request also stops anything that was already queued.
+//! **On by default, and only in a build that has an address** ([`DSN`], baked in by the release
+//! pipeline from `SMART_BEAT_SENTRY_DSN_CORE`): without one nothing is created, initialised or
+//! sent. A choice the user made in "Send crash reports" always wins, also over a later release.
+//! Switching it off drops the client at once: a gate in front of the network request also stops
+//! anything that was already queued.
 //!
 //! The panic hook of this module talks to the client directly, not through Sentry's hub, so it
 //! works on every thread and can be switched on and off any number of times.
@@ -64,16 +65,29 @@ thread_local! {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CrashReportSettings {
-    /// The user switched crash reports on (off until they say otherwise).
+    /// Crash reports are on: the default, until the user switches them off.
     pub enabled: bool,
     /// This build can send crash reports at all (the core address was compiled in).
     pub available: bool,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+/// The saved choice. A file that holds no choice means the default: on.
+#[derive(Debug, Serialize, Deserialize)]
 struct Stored {
-    #[serde(default)]
+    #[serde(default = "on_by_default")]
     enabled: bool,
+}
+
+fn on_by_default() -> bool {
+    true
+}
+
+impl Default for Stored {
+    fn default() -> Self {
+        Self {
+            enabled: on_by_default(),
+        }
+    }
 }
 
 /// The client the panic hook reports to. `None` while crash reports are off.
@@ -139,11 +153,14 @@ impl CrashReports {
         self.dir.join(SETTINGS_FILE)
     }
 
+    /// The saved choice: the default (on) when none was ever saved, and **off** when the file is
+    /// there but cannot be read or understood (a damaged choice never turns reports on).
     fn stored(&self) -> Stored {
-        fs::read_to_string(self.settings_path())
-            .ok()
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default()
+        match fs::read_to_string(self.settings_path()) {
+            Ok(json) => serde_json::from_str(&json).unwrap_or(Stored { enabled: false }),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Stored::default(),
+            Err(_) => Stored { enabled: false },
+        }
     }
 
     pub fn settings(&self) -> CrashReportSettings {
@@ -173,7 +190,7 @@ impl CrashReports {
         Ok(self.settings())
     }
 
-    /// Starts the client at launch when the user switched crash reports on earlier.
+    /// Starts the client at launch unless the user switched crash reports off earlier.
     pub fn start_if_enabled(&self) {
         let _switching = self.switch.lock().unwrap_or_else(|e| e.into_inner());
         if self.stored().enabled {
@@ -609,26 +626,68 @@ mod tests {
     }
 
     #[test]
-    fn crash_reports_are_off_by_default_and_without_an_address() {
+    fn crash_reports_are_on_by_default_when_the_build_has_an_address() {
+        let _turn = take_turn();
         let dir = tempfile::tempdir().unwrap();
         let collector = Collector::default();
-        let with_address = reports(dir.path(), Some(FAKE_DSN), &collector);
+        let app = reports(dir.path(), Some(FAKE_DSN), &collector);
         assert_eq!(
-            with_address.settings(),
+            app.settings(),
             CrashReportSettings {
-                enabled: false,
+                enabled: true,
                 available: true
             }
         );
-        with_address.start_if_enabled();
-        assert!(!with_address.running());
-        // Reading the settings creates nothing on disk.
+        // Reading the settings creates nothing on disk: no choice was made yet.
         assert!(!dir.path().join(SETTINGS_FILE).exists());
+        app.start_if_enabled();
+        assert!(app.running());
+        assert!(!dir.path().join(SETTINGS_FILE).exists());
+        app.stop();
+    }
 
+    #[test]
+    fn a_choice_made_by_the_user_wins_over_the_default() {
+        let _turn = take_turn();
+        let dir = tempfile::tempdir().unwrap();
+        let collector = Collector::default();
+        let app = reports(dir.path(), Some(FAKE_DSN), &collector);
+        app.set_enabled(false).unwrap();
+        // A later launch (also of a newer release) keeps it off: nothing starts, nothing is sent.
+        let restarted = reports(dir.path(), Some(FAKE_DSN), &collector);
+        assert!(!restarted.settings().enabled);
+        restarted.start_if_enabled();
+        assert!(!restarted.running());
+        assert!(collector.sent().is_empty());
+        // A file written by the setting that holds no choice means the default.
+        fs::write(dir.path().join(SETTINGS_FILE), "{}").unwrap();
+        assert!(restarted.settings().enabled);
+    }
+
+    #[test]
+    fn a_damaged_choice_never_turns_reports_on() {
+        let _turn = take_turn();
+        let dir = tempfile::tempdir().unwrap();
+        let collector = Collector::default();
+        fs::write(dir.path().join(SETTINGS_FILE), "{ not json").unwrap();
+        let app = reports(dir.path(), Some(FAKE_DSN), &collector);
+        assert!(!app.settings().enabled);
+        app.start_if_enabled();
+        assert!(!app.running());
+        assert!(collector.sent().is_empty());
+    }
+
+    #[test]
+    fn crash_reports_do_nothing_without_an_address() {
+        let dir = tempfile::tempdir().unwrap();
+        let collector = Collector::default();
         for dsn in [None, Some(""), Some("   "), Some("not a dsn")] {
             let none = reports(dir.path(), dsn, &collector);
             assert!(!none.settings().available, "{dsn:?}");
-            // The choice is saved, but there is nothing to start.
+            // On by default, but there is nothing to start without an address.
+            none.start_if_enabled();
+            assert!(!none.running(), "{dsn:?}");
+            // The choice is saved, but there is still nothing to start.
             let saved = none.set_enabled(true).unwrap();
             assert_eq!(
                 saved,
@@ -640,6 +699,7 @@ mod tests {
             assert!(!none.running(), "{dsn:?}");
             none.start_if_enabled();
             assert!(!none.running(), "{dsn:?}");
+            let _ = fs::remove_file(dir.path().join(SETTINGS_FILE));
         }
         assert!(collector.sent().is_empty());
     }

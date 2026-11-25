@@ -1,8 +1,8 @@
-# Crash reports (opt-in)
+# Crash reports (on by default, easy to switch off)
 
-Smart Beat can send a report when it crashes or fails with an unexpected error, so bugs that only happen on other people's computers can be found and fixed. It is **off by default**. Nothing is started, collected or sent until the user turns on **Help › Settings › Send crash reports**, and turning it off stops sending at once.
+Smart Beat can send a report when it crashes or fails with an unexpected error, so bugs that only happen on other people's computers can be found and fixed. It is **on by default** in a build that has the report addresses (see below), and the user can turn it off at any time in **Help › Settings › Send crash reports**; turning it off stops sending at once and the choice is kept for every later version. A build without the addresses (a local or pull request build) never sends anything.
 
-This is separate from the anonymous usage counters ([`analytics.md`](analytics.md)): each has its own switch, and one does not need the other. The counters only count that something failed (a fixed category); a crash report is the technical trace of one failure.
+This is separate from the anonymous usage counters ([`analytics.md`](analytics.md)): each has its own switch, and one does not need the other. Because it is on unless switched off, an update that brings it announces it in the release notes and in What's new, and the Settings wording says it is on. The counters only count that something failed (a fixed category); a crash report is the technical trace of one failure.
 
 ## What is sent
 
@@ -64,12 +64,14 @@ In a release build the functions and lines of minified code are often not readab
 ## Turning it on and off
 
 - **Settings › Send crash reports** is the only switch. The wording there says what is sent and that no replay, screen recording or screenshots are ever made.
-- **Off** (the default): no client exists. Nothing is initialised and no request is made to Sentry.
+- **On** (the default, when the player never chose): the Rust client starts at launch and, when the build has the UI address, the UI client starts too. Nothing is saved to disk until the player makes a choice.
+- **Off**: no client exists. Nothing is initialised and no request is made to Sentry. This choice is saved and always wins, also after an update.
 - **Turning it off** closes both clients immediately. Events that were still queued are discarded, not sent later.
-- **Turning it on** starts the Rust client and, when the build has the UI address, the UI client, without a restart.
+- **Turning it on again** starts the Rust client and, when the build has the UI address, the UI client, without a restart.
+- A saved choice that cannot be read (a damaged file) counts as **off**: a damaged choice never turns reports on.
 - A build without an address is a complete no-op for that half, whatever the switch says. The switch is only offered when the core address is part of the build (`available` in `get_crash_report_settings`).
 
-The choice is stored by the Rust core next to the usage settings (`get_crash_report_settings` / `set_crash_report_settings`). They are not counted as errors, like `get_usage_settings`.
+The choice is stored by the Rust core in `crash-reports.json` next to the usage settings (`get_crash_report_settings` / `set_crash_report_settings`). They are not counted as errors, like `get_usage_settings`.
 
 ## How the build gets the addresses
 
@@ -88,7 +90,7 @@ The content security policy lets the webview connect to one more host for this: 
 
 ## How to check it
 
-1. **Off by default.** Start a fresh build, open the network inspector (or a proxy) and use the app: there is no request to any `sentry.io` host. Settings shows the switch off.
-2. **Nothing after switching off.** Turn the switch on, then off again: no request follows, also not for something that failed in between.
+1. **On by default, only with an address.** Start a fresh build that has the addresses: Settings shows the switch on. A build without them (a local build) shows "This version of Smart Beat does not send crash reports" and makes no request to any `sentry.io` host.
+2. **Nothing after switching off.** Turn the switch off: no request follows, also not for something that failed in between, and it stays off after a restart and after an update.
 3. **Only a scrubbed event.** With the switch on, cause a harmless test error from app code in a development build (for example a temporary `throw new TypeError("x")` in a button handler; an error typed into the web inspector's console has no frame inside the app, so the scrubber drops it on purpose). One request goes to `https://<key>@o<number>.ingest.de.sentry.io`; its body has only the fields of the example above. Look for a path, a user name or a file name in it: there must be none.
 4. **Automated.** `pnpm test` runs the scrub and gating tests, `pnpm test:e2e` checks that no request to a Sentry host is made while the switch is off and that only a scrubbed event is sent when it is on, and `cargo test` in `src-tauri/` runs the Rust scrubber tests.

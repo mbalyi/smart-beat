@@ -47,14 +47,14 @@ Release builds send anonymous usage counters to the Cloudflare Worker in [`analy
 
 ## Crash report addresses
 
-Opt-in crash reports ([`crash-reports.md`](crash-reports.md)) need the addresses (Sentry DSNs) of the two Sentry projects, one for the UI and one for the Rust core. They are repository **secrets**, never written to the repository, a log or the docs:
+Crash reports ([`crash-reports.md`](crash-reports.md), on by default) need the addresses (Sentry DSNs) of the two Sentry projects, one for the UI and one for the Rust core. They are repository **secrets**, never written to the repository, a log or the docs:
 
 | Secret                           | Value                                  |
 | -------------------------------- | -------------------------------------- |
 | `SMART_BEAT_SENTRY_DSN_FRONTEND` | DSN of the Sentry project for the UI   |
 | `SMART_BEAT_SENTRY_DSN_CORE`     | DSN of the Sentry project for the core |
 
-The release workflow bakes them into the build (the UI one as `VITE_SENTRY_DSN_FRONTEND`, the core one with `option_env!`). Pull requests and forks have no access to secrets, and the workflow also hands none to pull-request builds, so those builds contain no address and the integration is a no-op; the same is true when a secret is missing, and the build still works. A local build reads them from the git-ignored `.env` ([`.env.example`](../.env.example)). Users still have to opt in (Settings › Send crash reports); the build only decides whether the switch can do anything.
+The release workflow bakes them into the build (the UI one as `VITE_SENTRY_DSN_FRONTEND`, the core one with `option_env!`). Pull requests and forks have no access to secrets, and the workflow also hands none to pull-request builds, so those builds contain no address and the integration is a no-op; the same is true when a secret is missing, and the build still works. A local build reads them from the git-ignored `.env` ([`.env.example`](../.env.example)). Reports are on by default in a build that has the addresses, and users can switch them off (Settings › Send crash reports); the build only decides whether the switch can do anything, so a release without the secrets sends nothing.
 
 The reports are only useful if a person can read them, so a new DSN or a changed project is something to check once with a development build ([`crash-reports.md`](crash-reports.md#how-to-check-it)).
 
