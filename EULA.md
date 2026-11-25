@@ -1,6 +1,6 @@
 SMART BEAT END USER LICENSE AGREEMENT
 
-Version 1.1, 3 November 2026
+Version 1.2, 25 November 2026
 
 This text was written for a free application released from the European
 Union. It is not legal advice, and it has not yet been reviewed by a lawyer.
@@ -83,6 +83,25 @@ agree, do not install or use the Software.
    server operated by Licensor and kept for six months. You can switch this
    off at any time in Help > Settings. Details: docs/analytics.md in the
    source repository.
+
+   When the Software fails with an unexpected error or crashes, it sends
+   one crash report, unless you have switched this off. Crash reports are
+   on by default, and you can switch them off at any time in Help >
+   Settings > Send crash reports; your choice is kept when the Software is
+   updated, and nothing more is sent once it is off. A report holds only
+   the kind of error, the program's own stack trace (names of the
+   Software's own functions and its own file and line numbers), the
+   version of the Software and your operating system family (macOS,
+   Windows or Linux). It never holds your songs, tabs, recordings, file
+   names, folder names, user name, the text of an error message or any
+   address or token, and the Software never records your screen, never
+   makes screenshots and never records sessions. The reports are sent to
+   Sentry (sentry.io), a service Licensor uses to receive them, in its
+   European data region. Like any internet request, sending a report
+   shows your IP address to the receiving server; the report itself does
+   not contain it. A version of the Software built without the Sentry
+   addresses sends nothing. Details: docs/crash-reports.md in the source
+   repository.
 
    Practice together never sends your tab or audio to Licensor. The host's
    computer sends the tab straight to the other computers (up to ten
