@@ -1400,13 +1400,7 @@ export class ScorePlayer {
    */
   setLiveInput(live: LiveInput | null) {
     const before = this.liveInput;
-    if (
-      before?.laneId === live?.laneId &&
-      before?.hear === live?.hear &&
-      before?.silence === live?.silence
-    ) {
-      return;
-    }
+    if (before?.hearLane === live?.hearLane && before?.silentLane === live?.silentLane) return;
     this.liveInput = live;
     if (this.ready) this.applyExtras(heardMix(this.mix));
   }

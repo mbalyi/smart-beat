@@ -9,17 +9,20 @@
  */
 import { anyLaneSolo } from "@/lib/score/mixer";
 import { lanesOf } from "@/lib/audio-lanes/model";
+import { looksBuiltIn } from "@/lib/audio/input";
 import { DEFAULT_MONITOR, describeLatency } from "@/lib/audio/monitor";
 import type { MixerSettings, MonitorStatus, MonitorTrackSettings } from "@/lib/tauri";
 
-/** What an armed (or recording) lane asks of the engine. */
+/**
+ * What an armed or recording lane asks of the engine. Hearing the input and keeping clips quiet
+ * are separate: the armed lane lends its effects, while the lane a take goes on (armed or not)
+ * is the one that goes quiet.
+ */
 export interface LiveInput {
-  /** The armed lane. */
-  laneId: string;
-  /** Hear the input through the lane's effects (the monitor track plays it). */
-  hear: boolean;
-  /** The lane's own clips are silent (a take is being recorded onto it). */
-  silence: boolean;
+  /** The lane whose effects the live input is heard through (null: the song's own monitor). */
+  hearLane: string | null;
+  /** The lane whose own clips are silent, a take being recorded onto it (null: none). */
+  silentLane: string | null;
 }
 
 /** The input on the monitor track the way the armed lane would sound: its effects, level and pan. */
@@ -46,10 +49,11 @@ function laneMonitorTrack(mix: MixerSettings, laneId: string): MonitorTrackSetti
  */
 export function withLiveInput(mix: MixerSettings, live: LiveInput | null): MixerSettings {
   if (!live) return mix;
-  const monitor = live.hear ? laneMonitorTrack(mix, live.laneId) : null;
+  const monitor = live.hearLane ? laneMonitorTrack(mix, live.hearLane) : null;
   const audio = lanesOf(mix);
   const silent =
-    live.silence && audio.lanes.some((l) => l.id === live.laneId && l.clips.length > 0);
+    live.silentLane !== null &&
+    audio.lanes.some((l) => l.id === live.silentLane && l.clips.length > 0);
   if (!monitor && !silent) return mix;
   return {
     ...mix,
@@ -58,11 +62,20 @@ export function withLiveInput(mix: MixerSettings, live: LiveInput | null): Mixer
       ? {
           audio: {
             ...audio,
-            lanes: audio.lanes.map((l) => (l.id === live.laneId ? { ...l, clips: [] } : l)),
+            lanes: audio.lanes.map((l) => (l.id === live.silentLane ? { ...l, clips: [] } : l)),
           },
         }
       : {}),
   };
+}
+
+/**
+ * Whether the audio input may be the computer's own microphone: it is named so, or it is the
+ * system default, which cannot be told from here (a laptop's default is its built-in microphone).
+ * Hearing it through speakers would feed back, so it is not heard until the player says so.
+ */
+export function maybeBuiltInInput(label: string | null | undefined): boolean {
+  return !label?.trim() || looksBuiltIn(label);
 }
 
 /** What the armed lane's input says about itself: where it listens and how late it is heard. */

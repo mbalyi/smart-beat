@@ -37,7 +37,7 @@ async function installMicrophone(app: Page) {
 }
 
 /** A song with the native engine on, one lane called "take" with a Delay in its effect chain. */
-async function openWithEffectLane(app: Page) {
+async function openWithEffectLane(app: Page, options: { hear?: boolean } = {}) {
   await installMicrophone(app);
   await openSong(app);
   await app.getByRole("switch", { name: "Native engine with effects" }).click();
@@ -45,13 +45,16 @@ async function openWithEffectLane(app: Page) {
   await app.evaluate((path) => (window.__dialogResult = path), "/Users/me/Music/take.mp3");
   await emitMenuAction(app, "import-audio-file");
   await expect(app.getByRole("button", { name: "Edit the lane take" })).toBeVisible();
-  // Without a count-in the take starts at once.
-  await app.evaluate(() =>
+  // Without a count-in the take starts at once. Hearing the input is the player's choice here (the
+  // system default input may be the computer's own microphone, which is not heard by default).
+  await app.evaluate((hear) => {
     localStorage.setItem(
       "smart-beat:record-audio-setup",
       JSON.stringify({ mode: "playhead", countIn: false, preRollBars: 0 }),
-    ),
-  );
+    );
+    if (hear) localStorage.setItem("smart-beat:record-hear-myself", "1");
+    else localStorage.removeItem("smart-beat:record-hear-myself");
+  }, options.hear ?? true);
   await app.getByRole("button", { name: "Effects of take" }).click();
   await app
     .getByRole("dialog", { name: /Pedalboard/ })
@@ -96,6 +99,23 @@ test.describe("record icon on an audio lane", () => {
       .toBe(false);
   });
 
+  test("does not play the system default input until the player turns Hear myself on", async ({
+    app,
+  }) => {
+    await openWithEffectLane(app, { hear: false });
+    await recordIcon(app).click();
+    const bar = app.getByRole("region", { name: "Armed lane" });
+    await expect(bar).toBeVisible();
+    // The default device may be the laptop's own microphone: nothing is played until it is chosen.
+    await expect(bar.getByRole("switch", { name: "Hear myself" })).not.toBeChecked();
+    await expect(bar.getByRole("alert")).toBeHidden();
+    expect(await app.evaluate(() => !!window.__engineMonitor?.params.enabled)).toBe(false);
+    // Turning it on plays it, and warns that speakers would feed back into that microphone.
+    await bar.getByRole("switch", { name: "Hear myself" }).click();
+    await expect.poll(() => app.evaluate(() => window.__engineMonitor?.params.enabled)).toBe(true);
+    await expect(bar.getByRole("alert")).toContainText("use headphones");
+  });
+
   test("keeps the lane's own clips quiet under the take, and Stop adds one clip", async ({
     app,
   }) => {
@@ -132,6 +152,21 @@ test.describe("record icon on an audio lane", () => {
     expect(Object.keys(await app.evaluate(() => window.__engineSources))).not.toContain(
       "e".repeat(64),
     );
+  });
+
+  test("a take on a new lane keeps the armed lane's clips audible", async ({ app }) => {
+    await openWithEffectLane(app);
+    await recordIcon(app).click();
+    await app.getByRole("button", { name: "Record audio" }).click();
+    const dialog = app.getByRole("dialog", { name: "Record audio" });
+    await dialog.getByLabel("Record to").selectOption({ label: "A new lane" });
+    await dialog.getByRole("button", { name: "Start recording" }).click();
+    await expect(app.getByRole("region", { name: "Recording" })).toBeVisible();
+    // The armed lane is not the destination: its clip keeps playing under the take.
+    await expect.poll(() => laneClips(app)).toBe(1);
+    await app.keyboard.press("Escape");
+    await expect(app.getByRole("region", { name: "Recording" })).toBeHidden();
+    await expect.poll(() => laneClips(app)).toBe(1);
   });
 
   for (const ending of ["Stop", "Escape"] as const) {

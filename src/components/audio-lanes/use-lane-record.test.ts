@@ -81,9 +81,9 @@ describe("useLaneRecord", () => {
   it("lets the armed lane's effects be heard, and silences its clips during the take", () => {
     const { result, rerender, env } = setup();
     act(() => result.current.controls.toggle("a"));
-    expect(env.setLiveInput).toHaveBeenLastCalledWith({ laneId: "a", hear: true, silence: false });
-    rerender({ ...env, recording: true });
-    expect(env.setLiveInput).toHaveBeenLastCalledWith({ laneId: "a", hear: true, silence: true });
+    expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: "a", silentLane: null });
+    rerender({ ...env, recording: true, recordingLaneId: "a" });
+    expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: "a", silentLane: "a" });
   });
 
   it("gives the song's monitor track back when the lane is let go", () => {
@@ -107,20 +107,32 @@ describe("useLaneRecord", () => {
     expect(setup({ inputName: "MacBook Pro Microphone" }).result.current.hear).toBe(false);
   });
 
+  it("does not hear an unknown input (the system default) until the player says so (#249 review)", () => {
+    // The default device may be the laptop's own microphone: speakers would feed back into it.
+    expect(setup({ inputName: null }).result.current.hear).toBe(false);
+    const { result, env } = setup({ inputName: null });
+    act(() => result.current.controls.toggle("a"));
+    expect(env.setLiveInput).not.toHaveBeenCalled();
+    act(() => result.current.setHear(true));
+    expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: "a", silentLane: null });
+  });
+
   it("remembers the Hear myself choice and needs no engine switch when it is off", () => {
     const { result, env } = setup({ engineOn: false });
     act(() => result.current.setHear(false));
     expect(localStorage.getItem("smart-beat:record-hear-myself")).toBe("0");
     act(() => result.current.controls.toggle("a"));
     expect(env.ensureEngine).not.toHaveBeenCalled();
-    expect(env.setLiveInput).toHaveBeenLastCalledWith({ laneId: "a", hear: false, silence: false });
+    // Armed but not heard, and no take: the player is left alone.
+    expect(env.setLiveInput).not.toHaveBeenCalled();
   });
 
   it("asks for the native engine when the input should be heard, and does not claim to hear it", () => {
     const { result, env } = setup({ engineOn: false });
     act(() => result.current.controls.toggle("a"));
     expect(env.ensureEngine).toHaveBeenCalled();
-    expect(env.setLiveInput).toHaveBeenLastCalledWith({ laneId: "a", hear: false, silence: false });
+    // The engine is not there yet: nothing is claimed to be heard.
+    expect(env.setLiveInput).not.toHaveBeenCalled();
   });
 
   describe("a take started from the Record audio dialog on a lane that is not armed (#249 review)", () => {
@@ -128,17 +140,9 @@ describe("useLaneRecord", () => {
       const { result, rerender, env } = setup();
       // The dialog starts the take: the lane is quieted before the song starts...
       act(() => result.current.beforeTake("a"));
-      expect(env.setLiveInput).toHaveBeenLastCalledWith({
-        laneId: "a",
-        hear: false,
-        silence: true,
-      });
+      expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: null, silentLane: "a" });
       rerender({ ...env, recording: true, recordingLaneId: "a" });
-      expect(env.setLiveInput).toHaveBeenLastCalledWith({
-        laneId: "a",
-        hear: false,
-        silence: true,
-      });
+      expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: null, silentLane: "a" });
       // ...and the take ends (kept or thrown away): nothing is left on the player.
       rerender({ ...env, recording: false, recordingLaneId: null });
       expect(env.setLiveInput).toHaveBeenLastCalledWith(null);
@@ -148,28 +152,33 @@ describe("useLaneRecord", () => {
     it("does not hear the input through the lane's effects when the lane is not armed", () => {
       const { rerender, env } = setup();
       rerender({ ...env, recording: true, recordingLaneId: "b" });
-      expect(env.setLiveInput).toHaveBeenLastCalledWith({
-        laneId: "b",
-        hear: false,
-        silence: true,
-      });
+      expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: null, silentLane: "b" });
     });
 
     it("goes back to the armed lane when the take was on another lane", () => {
       const { result, rerender, env } = setup();
       act(() => result.current.controls.toggle("a"));
       rerender({ ...env, recording: true, recordingLaneId: "b" });
-      expect(env.setLiveInput).toHaveBeenLastCalledWith({
-        laneId: "b",
-        hear: false,
-        silence: true,
-      });
+      expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: "a", silentLane: "b" });
       rerender({ ...env, recording: false, recordingLaneId: null });
-      expect(env.setLiveInput).toHaveBeenLastCalledWith({
-        laneId: "a",
-        hear: true,
-        silence: false,
-      });
+      expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: "a", silentLane: null });
+    });
+
+    it("keeps the armed lane audible when a take goes on a new lane (#249 review)", () => {
+      const { result, rerender, env } = setup();
+      act(() => result.current.controls.toggle("a"));
+      rerender({ ...env, recording: true, recordingLaneId: null });
+      // Heard through its effects, and none of its clips are taken away.
+      expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: "a", silentLane: null });
+    });
+
+    it("quiets the lane a take goes on and keeps hearing the armed one", () => {
+      const { result, rerender, env } = setup();
+      act(() => result.current.controls.toggle("a"));
+      act(() => result.current.beforeTake("b"));
+      expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: "a", silentLane: "b" });
+      rerender({ ...env, recording: true, recordingLaneId: "b" });
+      expect(env.setLiveInput).toHaveBeenLastCalledWith({ hearLane: "a", silentLane: "b" });
     });
 
     it("sends nothing for a take on a new lane", () => {

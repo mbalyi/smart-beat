@@ -134,8 +134,8 @@ import {
   syncPointsFromTempo,
   type BarOccurrence,
 } from "@/lib/audio/engine-config";
-import { looksBuiltIn, useAudioInput, useAudioInputChannel } from "@/lib/audio/input";
-import { describeLiveInput, type LiveInput } from "@/lib/audio/lane-monitor";
+import { useAudioInput, useAudioInputChannel } from "@/lib/audio/input";
+import { describeLiveInput, maybeBuiltInInput, type LiveInput } from "@/lib/audio/lane-monitor";
 import { meters } from "@/lib/audio/meter-store";
 import { MONITOR_NAME, newMonitorTrack, rememberMonitorTrack } from "@/lib/audio/monitor";
 import type { EffectProblems } from "@/lib/audio/native-engine";
@@ -3808,7 +3808,7 @@ export function ScoreWorkspace({
             inputText={armedInput.text}
             problem={armedInput.problem}
             hear={laneRecord.hear}
-            warnFeedback={laneRecord.hear && looksBuiltIn(audioInput?.label)}
+            warnFeedback={laneRecord.hear && maybeBuiltInInput(audioInput?.label)}
             onHearChange={laneRecord.setHear}
             onRecord={laneRecord.record}
             onDisarm={laneRecord.disarm}

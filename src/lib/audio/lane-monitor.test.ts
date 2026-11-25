@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { EMPTY_AUDIO, newClip, newLane } from "@/lib/audio-lanes/model";
 import { defaultEffect } from "@/lib/audio/effects";
-import { describeLiveInput, withLiveInput } from "@/lib/audio/lane-monitor";
+import { describeLiveInput, maybeBuiltInInput, withLiveInput } from "@/lib/audio/lane-monitor";
 import { DEFAULT_MONITOR } from "@/lib/audio/monitor";
 import { heardMix, initialMix, isAudible, isMonitorAudible } from "@/lib/score/mixer";
 import type { AudioLane, MixerSettings, MonitorStatus } from "@/lib/tauri";
@@ -29,7 +29,9 @@ function song(change: (lanes: AudioLane[]) => AudioLane[] = (l) => l): MixerSett
   };
 }
 
-const live = { laneId: "guitar", hear: true, silence: false };
+const live = { hearLane: "guitar", silentLane: null };
+/** The armed lane is heard and its own clips are quiet: it is the lane being recorded. */
+const recording = { hearLane: "guitar", silentLane: "guitar" };
 
 describe("withLiveInput", () => {
   it("leaves the mix alone without a live input", () => {
@@ -54,7 +56,7 @@ describe("withLiveInput", () => {
     withLiveInput(mix, live);
     expect(mix.monitor).toBe(own);
     // Not heard (switched off or no input to hear): the song's own monitor track plays as it was.
-    expect(withLiveInput(mix, { ...live, hear: false }).monitor).toBe(own);
+    expect(withLiveInput(mix, { hearLane: null, silentLane: null }).monitor).toBe(own);
   });
 
   it("follows the lane's effects while it is armed", () => {
@@ -63,10 +65,29 @@ describe("withLiveInput", () => {
   });
 
   it("keeps the armed lane's clips out of the engine while a take is recorded", () => {
-    const mix = withLiveInput(song(), { ...live, silence: true });
+    const mix = withLiveInput(song(), recording);
     const lanes = mix.audio!.lanes;
     expect(lanes.find((l) => l.id === "guitar")!.clips).toEqual([]);
     expect(lanes.find((l) => l.id === "backing")!.clips).toHaveLength(1);
+  });
+
+  it("quiets only the lane the take goes on, never the armed lane's when the take is elsewhere", () => {
+    // Armed "guitar" is heard, the take goes on "backing": only the backing's clips go.
+    const elsewhere = withLiveInput(song(), { hearLane: "guitar", silentLane: "backing" });
+    expect(elsewhere.monitor?.effects).toEqual([reverb]);
+    const lanes = elsewhere.audio!.lanes;
+    expect(lanes.find((l) => l.id === "backing")!.clips).toEqual([]);
+    expect(lanes.find((l) => l.id === "guitar")!.clips).toHaveLength(1);
+    // A take on a new lane (no lane to quiet) leaves every clip, and still hears the armed lane.
+    const onNewLane = withLiveInput(song(), live);
+    expect(onNewLane.audio!.lanes.every((l) => l.clips.length === 1)).toBe(true);
+    expect(onNewLane.monitor?.enabled).toBe(true);
+  });
+
+  it("quiets a lane that is not armed without playing the input through its effects", () => {
+    const mix = withLiveInput(song(), { hearLane: null, silentLane: "backing" });
+    expect(mix.monitor).toBeUndefined();
+    expect(mix.audio!.lanes.find((l) => l.id === "backing")!.clips).toEqual([]);
   });
 
   it("keeps the clips while the lane is only armed", () => {
@@ -76,14 +97,14 @@ describe("withLiveInput", () => {
 
   it("ignores a lane that is gone or a folder", () => {
     const mix = song();
-    expect(withLiveInput(mix, { ...live, laneId: "gone", silence: true })).toBe(mix);
+    expect(withLiveInput(mix, { hearLane: "gone", silentLane: "gone" })).toBe(mix);
     const folder = song((lanes) => lanes.map((l) => ({ ...l, folder: true })));
     expect(withLiveInput(folder, live)).toBe(folder);
   });
 
   describe("play along while recording", () => {
     it("lets the other lanes and tracks sound as they do in normal playback", () => {
-      const mix = withLiveInput(song(), { ...live, silence: true });
+      const mix = withLiveInput(song(), recording);
       expect(isAudible(mix, 0)).toBe(true);
       expect(isMonitorAudible(mix)).toBe(true);
       expect(mix.audio!.lanes.find((l) => l.id === "backing")).toMatchObject({
@@ -96,7 +117,7 @@ describe("withLiveInput", () => {
       const muted = song((lanes) =>
         lanes.map((l) => (l.id === "backing" ? { ...l, mute: true } : l)),
       );
-      const mix = withLiveInput(muted, { ...live, silence: true });
+      const mix = withLiveInput(muted, recording);
       expect(mix.audio!.lanes.find((l) => l.id === "backing")!.mute).toBe(true);
     });
 
@@ -104,7 +125,7 @@ describe("withLiveInput", () => {
       const soloed = song((lanes) =>
         lanes.map((l) => (l.id === "backing" ? { ...l, solo: true } : l)),
       );
-      const mix = withLiveInput(soloed, { ...live, silence: true });
+      const mix = withLiveInput(soloed, recording);
       // The input is soloed with the lane, so it is heard; the track is not.
       expect(mix.monitor?.solo).toBe(true);
       expect(isMonitorAudible(mix)).toBe(true);
@@ -115,7 +136,7 @@ describe("withLiveInput", () => {
       const soloed = song((lanes) =>
         lanes.map((l) => (l.id === "guitar" ? { ...l, solo: true } : l)),
       );
-      const mix = withLiveInput(soloed, { ...live, silence: true });
+      const mix = withLiveInput(soloed, recording);
       expect(isMonitorAudible(mix)).toBe(true);
       expect(mix.audio!.lanes.find((l) => l.id === "guitar")!.clips).toEqual([]);
     });
@@ -166,5 +187,18 @@ describe("describeLiveInput", () => {
       problem: true,
     });
     expect(describeLiveInput({ ...base, status: null }).text).toBe("Opening Scarlett 2i2…");
+  });
+});
+
+describe("maybeBuiltInInput", () => {
+  it("is true for the computer's own microphone and for an unknown (system default) input", () => {
+    expect(maybeBuiltInInput("MacBook Pro Microphone")).toBe(true);
+    expect(maybeBuiltInInput(null)).toBe(true);
+    expect(maybeBuiltInInput(undefined)).toBe(true);
+    expect(maybeBuiltInInput("  ")).toBe(true);
+  });
+
+  it("is false for a named audio interface", () => {
+    expect(maybeBuiltInInput("Scarlett 2i2 USB")).toBe(false);
   });
 });

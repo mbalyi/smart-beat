@@ -81,7 +81,7 @@ export function ArmedLaneBar({
         </button>
       </p>
       {warnFeedback && (
-        <p role="alert" className="basis-full text-xs text-amber-600 dark:text-amber-400">
+        <p role="alert" className="basis-full text-xs text-amber-800 dark:text-amber-400">
           The microphone of this computer is the input: use headphones, or the speakers will feed
           back into it.
         </p>

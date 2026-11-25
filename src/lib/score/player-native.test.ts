@@ -223,7 +223,7 @@ describe("ScorePlayer with the native engine", () => {
     );
     vi.clearAllMocks();
 
-    player.setLiveInput({ laneId: "guitar", hear: true, silence: false });
+    player.setLiveInput({ hearLane: "guitar", silentLane: null });
     await vi.waitFor(() =>
       expect(mocked.setEngineMonitorChain).toHaveBeenCalledWith([defaultEffect("reverb")]),
     );
