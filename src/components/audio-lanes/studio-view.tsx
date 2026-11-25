@@ -40,7 +40,7 @@ import { MUTE_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
 import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
 import { laneForRange, rangeToRequest } from "@/lib/audio-lanes/clip-request";
-import { deleteRange, findClip, moveRange, trimClip, updateLane } from "@/lib/audio-lanes/edits";
+import { deleteRange, findClip, moveRange, trimClip } from "@/lib/audio-lanes/edits";
 import { COMPACT_LANE_HEIGHT, laneHeight } from "@/lib/audio-lanes/lane-height";
 import { MAX_BUSES, clipEndMs, newId } from "@/lib/audio-lanes/model";
 import { describeRange, normalizeRange, type TimeRange } from "@/lib/audio-lanes/range-edits";
