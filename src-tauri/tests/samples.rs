@@ -5,10 +5,10 @@ use std::io::Write;
 
 use smart_beat_lib::audio::AudioState;
 use smart_beat_lib::samples::commands::{
-    samples_cancel, samples_import_archive, samples_import_folder, samples_inspect_archive,
-    samples_link_folder, samples_list_files, samples_list_folders, samples_preview_start,
-    samples_preview_stop, samples_probe_files, samples_relink_folder, samples_remove_folder,
-    samples_resolve, samples_scan_folder,
+    samples_cancel, samples_import_archive, samples_import_files, samples_import_folder,
+    samples_inspect_archive, samples_link_folder, samples_list_files, samples_list_folders,
+    samples_preview_start, samples_preview_stop, samples_probe_files, samples_relink_folder,
+    samples_remove_folder, samples_resolve, samples_scan_folder,
 };
 use smart_beat_lib::samples::{FolderKind, SamplesState};
 use tauri::Manager;
@@ -164,6 +164,82 @@ fn an_imported_folder_is_an_independent_copy() {
     assert!(!copy.join("files/notes.txt").exists());
     samples_remove_folder(folder.id, true, app.state()).unwrap();
     assert!(!copy.exists(), "removing an import deletes the copy");
+}
+
+#[test]
+fn chosen_files_become_an_imported_folder_of_their_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = make_folder(dir.path());
+    let other = dir.path().join("Other");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("kick.wav"), tone_wav(0.3)).unwrap();
+    let app = app(dir.path());
+    let paths = [
+        src.join("kick.wav"),
+        src.join("kits/snare.wav"),
+        other.join("kick.wav"),
+        src.join("notes.txt"),
+    ];
+    let folder = samples_import_files(
+        paths
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
+        "  My picks  ".into(),
+        "job-files".into(),
+        app.handle().clone(),
+        app.state(),
+    )
+    .unwrap();
+    assert_eq!(folder.kind, FolderKind::Imported);
+    assert_eq!(folder.name, "My picks");
+    assert_eq!(folder.path, None);
+    assert_eq!(folder.file_count, Some(3));
+    std::fs::remove_dir_all(&src).unwrap();
+    let files = samples_list_files(folder.id.clone(), app.state()).unwrap();
+    let rels: Vec<&str> = files.iter().map(|f| f.rel.as_str()).collect();
+    assert_eq!(rels, ["kick.wav", "kick (2).wav", "snare.wav"]);
+    let copy = dir.path().join("samples").join(&folder.id);
+    assert!(copy.join("files/snare.wav").is_file());
+    assert!(!copy.join("files/notes.txt").exists());
+    assert_eq!(samples_list_folders(app.state()).len(), 1);
+    samples_remove_folder(folder.id, true, app.state()).unwrap();
+    assert!(!copy.exists(), "removing an import deletes the copy");
+}
+
+#[test]
+fn a_blank_name_gets_a_default_and_a_list_without_audio_leaves_nothing_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = make_folder(dir.path());
+    let app = app(dir.path());
+    let named = samples_import_files(
+        vec![src.join("kick.wav").to_string_lossy().into_owned()],
+        "   ".into(),
+        "job-files-2".into(),
+        app.handle().clone(),
+        app.state(),
+    )
+    .unwrap();
+    assert_eq!(named.name, "Imported samples");
+
+    let err = samples_import_files(
+        vec![src.join("notes.txt").to_string_lossy().into_owned()],
+        "Nothing".into(),
+        "job-files-3".into(),
+        app.handle().clone(),
+        app.state(),
+    )
+    .unwrap_err();
+    assert!(err.message.contains("audio"), "{}", err.message);
+    assert_eq!(samples_list_folders(app.state()).len(), 1);
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path().join("samples"))
+        .map(|d| d.flatten().map(|e| e.file_name()).collect())
+        .unwrap_or_default();
+    assert_eq!(
+        leftovers.len(),
+        2,
+        "the folder and the index, no staging: {leftovers:?}"
+    );
 }
 
 fn zip_of(path: &std::path::Path, entries: &[(&str, Vec<u8>)]) {

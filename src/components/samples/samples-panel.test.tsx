@@ -1,7 +1,11 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SamplesPanel, type SamplesPanelProps } from "@/components/samples/samples-panel";
+import {
+  HOVER_PREVIEW_DELAY_MS,
+  SamplesPanel,
+  type SamplesPanelProps,
+} from "@/components/samples/samples-panel";
 import type { SampleFile, SampleFolder } from "@/lib/samples/types";
 import { expectNoA11yViolations } from "@/test/axe";
 import { renderWithProviders } from "@/test/render";
@@ -64,6 +68,11 @@ function setup(props: Partial<SamplesPanelProps> = {}) {
 
 const rows = () => screen.queryAllByTestId("sample-row");
 const names = () => rows().map((r) => within(r).getByText(/_/).textContent);
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -339,5 +348,195 @@ describe("SamplesPanel", () => {
     setup();
     await screen.findByText("Hat_Closed");
     await expectNoA11yViolations();
+  });
+});
+
+describe("SamplesPanel hover preview", () => {
+  const wave = (index: number) => within(rows()[index]!).getByTestId("sample-wave");
+  const enter = (el: HTMLElement, pointerType = "mouse") =>
+    fireEvent.pointerEnter(el, { pointerType, pointerId: 1 });
+  /** Leaves a waveform for another place in the list (`to` null: out of the list). */
+  const leave = (el: HTMLElement, pointerType = "mouse", to: Element | null = list()) =>
+    fireEvent.pointerLeave(el, { pointerType, pointerId: 1, relatedTarget: to ?? document.body });
+  const list = () => screen.getByTestId("sample-list");
+  const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms));
+  /** Lets the start promise settle (fake timers stay on). */
+  const settle = () => act(async () => {});
+
+  async function ready(props: Partial<SamplesPanelProps> = {}) {
+    const ui = setup(props);
+    await screen.findByText("Hat_Closed");
+    vi.useFakeTimers();
+    return ui;
+  }
+
+  it("starts after a short rest on the waveform, not before", async () => {
+    await ready();
+    enter(wave(1));
+    advance(HOVER_PREVIEW_DELAY_MS - 1);
+    expect(tauri.startSamplePreview).not.toHaveBeenCalled();
+    advance(1);
+    await settle();
+    expect(tauri.startSamplePreview).toHaveBeenCalledWith("aaaaaaaaaaaa", "Kick_Punch_01.wav", 0.8);
+    expect(rows()[1]).toHaveAttribute("data-playing", "true");
+  });
+
+  it("stays quiet when the mouse sweeps across the list", async () => {
+    await ready();
+    for (const i of [0, 1, 2]) {
+      enter(wave(i));
+      advance(HOVER_PREVIEW_DELAY_MS / 3);
+      leave(wave(i));
+    }
+    advance(1000);
+    expect(tauri.startSamplePreview).not.toHaveBeenCalled();
+  });
+
+  it("stops when the mouse leaves a preview it started", async () => {
+    await ready();
+    enter(wave(0));
+    advance(HOVER_PREVIEW_DELAY_MS);
+    await settle();
+    tauri.stopSamplePreview.mockClear();
+    leave(wave(0));
+    expect(tauri.stopSamplePreview).toHaveBeenCalledTimes(1);
+    expect(rows()[0]).toHaveAttribute("data-playing", "false");
+  });
+
+  it("switches the preview when the mouse moves to another row", async () => {
+    await ready();
+    enter(wave(0));
+    advance(HOVER_PREVIEW_DELAY_MS);
+    await settle();
+    leave(wave(0));
+    enter(wave(2));
+    advance(HOVER_PREVIEW_DELAY_MS);
+    await settle();
+    expect(tauri.startSamplePreview).toHaveBeenLastCalledWith(
+      "aaaaaaaaaaaa",
+      "Snare_Crack.wav",
+      0.8,
+    );
+    expect(rows()[0]).toHaveAttribute("data-playing", "false");
+    expect(rows()[2]).toHaveAttribute("data-playing", "true");
+  });
+
+  it("does not stop a preview the user started by click when the mouse leaves", async () => {
+    await ready();
+    fireEvent.click(rows()[1]!);
+    await settle();
+    tauri.stopSamplePreview.mockClear();
+    enter(wave(1));
+    advance(HOVER_PREVIEW_DELAY_MS);
+    leave(wave(1));
+    expect(tauri.stopSamplePreview).not.toHaveBeenCalled();
+    expect(tauri.startSamplePreview).toHaveBeenCalledTimes(1);
+    expect(rows()[1]).toHaveAttribute("data-playing", "true");
+  });
+
+  it("keeps a hover preview going when the user clicks that row, even after leaving", async () => {
+    await ready();
+    enter(wave(1));
+    advance(HOVER_PREVIEW_DELAY_MS);
+    await settle();
+    fireEvent.click(rows()[1]!);
+    await settle();
+    tauri.stopSamplePreview.mockClear();
+    leave(wave(1));
+    expect(tauri.stopSamplePreview).not.toHaveBeenCalled();
+    expect(rows()[1]).toHaveAttribute("data-playing", "true");
+  });
+
+  it("ignores touch and pen pointers", async () => {
+    await ready();
+    for (const type of ["touch", "pen"]) {
+      enter(wave(1), type);
+      advance(HOVER_PREVIEW_DELAY_MS * 2);
+      leave(wave(1), type);
+    }
+    expect(tauri.startSamplePreview).not.toHaveBeenCalled();
+    expect(tauri.stopSamplePreview).not.toHaveBeenCalled();
+  });
+
+  it("does not start while a row is pressed for a drag", async () => {
+    await ready();
+    fireEvent.pointerDown(rows()[1]!, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    enter(wave(2));
+    advance(HOVER_PREVIEW_DELAY_MS * 2);
+    expect(tauri.startSamplePreview).not.toHaveBeenCalled();
+    fireEvent.pointerUp(window, { clientX: 10, clientY: 10, pointerId: 1 });
+  });
+
+  it("asks for the engine once and then stays quiet until the pointer leaves the list", async () => {
+    const ensureEngine = vi.fn(() => false);
+    await ready({ ensureEngine });
+    enter(wave(0));
+    advance(HOVER_PREVIEW_DELAY_MS);
+    leave(wave(0));
+    enter(wave(1));
+    advance(HOVER_PREVIEW_DELAY_MS);
+    expect(ensureEngine).toHaveBeenCalledTimes(1);
+    expect(tauri.startSamplePreview).not.toHaveBeenCalled();
+    leave(wave(1), "mouse", null);
+    enter(wave(1));
+    advance(HOVER_PREVIEW_DELAY_MS);
+    expect(ensureEngine).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("SamplesPanel playhead", () => {
+  const playhead = (index: number) => within(rows()[index]!).queryByTestId("sample-playhead");
+
+  it("sweeps the playing row's waveform and goes away when the preview ends", async () => {
+    let ended: (e: { folderId: string; rel: string }) => void = () => {};
+    tauri.onSamplePreviewEnded.mockImplementation(async (handler) => {
+      ended = handler;
+      return () => {};
+    });
+    const { user } = setup();
+    await screen.findByText("Hat_Closed");
+    expect(playhead(0)).not.toBeInTheDocument();
+    await user.click(rows()[0]!);
+    await waitFor(() => expect(playhead(0)).toBeInTheDocument());
+    expect(playhead(0)).toHaveAttribute("aria-hidden", "true");
+    expect(playhead(1)).not.toBeInTheDocument();
+    act(() => ended({ folderId: "aaaaaaaaaaaa", rel: "Hat_Closed.wav" }));
+    expect(playhead(0)).not.toBeInTheDocument();
+  });
+
+  it("is gone after Stop and moves to the next sample that starts", async () => {
+    const { user } = setup();
+    await screen.findByText("Hat_Closed");
+    await user.click(rows()[0]!);
+    await waitFor(() => expect(playhead(0)).toBeInTheDocument());
+    await user.click(rows()[1]!);
+    await waitFor(() => expect(playhead(1)).toBeInTheDocument());
+    expect(playhead(0)).not.toBeInTheDocument();
+    await user.click(within(rows()[1]!).getByTestId("sample-play"));
+    expect(playhead(1)).not.toBeInTheDocument();
+  });
+
+  it("moves left to right with the clock using only a transform", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1000);
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => frames.push(cb));
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const { user } = setup();
+    await screen.findByText("Hat_Closed");
+    await user.click(rows()[0]!);
+    await waitFor(() => expect(playhead(0)).toBeInTheDocument());
+    const wave = within(rows()[0]!).getByTestId("sample-wave");
+    Object.defineProperty(wave, "clientWidth", { value: 72, configurable: true });
+    // The sample is 420 ms long: halfway is 36 px, the end is 72 px and stays there.
+    const started = 1000;
+    for (const [elapsed, x] of [
+      [210, 36],
+      [900, 72],
+    ] as const) {
+      now.mockReturnValue(started + elapsed);
+      act(() => frames.splice(0).forEach((cb) => cb(0)));
+      expect(playhead(0)!.style.transform).toBe(`translateX(${x}px)`);
+    }
+    expect(playhead(0)!.style.left).toBe("");
   });
 });

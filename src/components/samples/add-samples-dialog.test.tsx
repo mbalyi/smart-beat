@@ -9,11 +9,14 @@ import { renderWithProviders } from "@/test/render";
 const tauri = vi.hoisted(() => ({
   pickSampleFolder: vi.fn<() => Promise<string | null>>(),
   pickSampleArchive: vi.fn<() => Promise<string | null>>(),
+  pickSampleFiles: vi.fn<() => Promise<string[] | null>>(),
   scanSampleFolder: vi.fn<(path: string) => Promise<FolderScan>>(),
   inspectSampleArchive: vi.fn<(path: string) => Promise<ArchiveReport>>(),
   linkSampleFolder: vi.fn<(path: string) => Promise<SampleFolder>>(),
   importSampleFolder: vi.fn<(path: string, jobId: string) => Promise<SampleFolder>>(),
   importSampleArchive: vi.fn<(path: string, jobId: string) => Promise<SampleFolder>>(),
+  importSampleFiles:
+    vi.fn<(paths: string[], name: string, jobId: string) => Promise<SampleFolder>>(),
   cancelSampleJob: vi.fn<(jobId: string) => Promise<void>>(),
   onSampleProgress: vi.fn(),
 }));
@@ -71,7 +74,7 @@ beforeEach(() => {
 });
 
 describe("AddSamplesDialog", () => {
-  it("starts on the source step with the three ways to bring samples in", async () => {
+  it("starts on the source step with the four ways to bring samples in", async () => {
     setup();
     expect(dialog()).toHaveAccessibleName("Add samples");
     const radios = within(screen.getByRole("radiogroup", { name: "Source" })).getAllByRole("radio");
@@ -79,9 +82,133 @@ describe("AddSamplesDialog", () => {
       expect.stringContaining("Link a folder"),
       expect.stringContaining("Import a folder"),
       expect.stringContaining("Import an archive"),
+      expect.stringContaining("Add audio files"),
     ]);
     expect(radios[0]).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("list", { name: "Steps" })).toHaveTextContent(/Source.*Review.*Done/);
+  });
+
+  it("shows the Samples logo in the header and keeps the title for screen readers", () => {
+    setup();
+    expect(screen.getByTestId("add-samples-logo")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("dialog", { name: "Add samples" })).toBeInTheDocument();
+    expect(screen.getByText("Add samples", { selector: "h2" })).toHaveClass("sr-only");
+  });
+
+  describe("audio files", () => {
+    const picked = ["/Music/kick.wav", "/Music/Loops/snare.FLAC", "/Music/notes.txt"];
+
+    async function toReview() {
+      tauri.pickSampleFiles.mockResolvedValue(picked);
+      const ui = setup();
+      await ui.user.click(screen.getByTestId("source-files"));
+      await ui.user.click(next("Continue"));
+      return ui;
+    }
+
+    it("lists the audio that was chosen, says it will be copied and names the new folder", async () => {
+      const { user } = await toReview();
+      expect(screen.getByRole("heading", { name: "Add audio files" })).toBeInTheDocument();
+      expect(screen.getByTestId("chosen-path")).toHaveTextContent("No files chosen");
+      expect(next("Copy files")).toBeDisabled();
+      await user.click(next("Choose files…"));
+      expect(await screen.findByText("2 samples will be copied")).toBeInTheDocument();
+      const names = within(screen.getByRole("list", { name: "Chosen files" })).getAllByRole(
+        "listitem",
+      );
+      expect(names.map((n) => n.textContent)).toEqual(["kick.wav", "snare.FLAC"]);
+      expect(screen.getByText("1 skipped (not audio)")).toBeInTheDocument();
+      expect(
+        screen.getByText(/The files are copied\. The originals stay where they are/),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveValue("Imported samples");
+      expect(next("Copy files")).toBeEnabled();
+    });
+
+    it("copies the files into a folder with the edited name, then is done", async () => {
+      tauri.importSampleFiles.mockResolvedValue(
+        added({ name: "My picks", kind: "imported", path: null, fileCount: 2 }),
+      );
+      const { user, onAdded } = await toReview();
+      await user.click(next("Choose files…"));
+      const name = await screen.findByRole("textbox", { name: "Folder name" });
+      await user.clear(name);
+      await user.type(name, "My picks");
+      await user.click(next("Copy files"));
+      expect(tauri.importSampleFiles).toHaveBeenCalledWith(
+        ["/Music/kick.wav", "/Music/Loops/snare.FLAC"],
+        "My picks",
+        expect.any(String),
+      );
+      expect(tauri.linkSampleFolder).not.toHaveBeenCalled();
+      expect(tauri.importSampleFolder).not.toHaveBeenCalled();
+      expect(await screen.findByRole("heading", { name: "My picks is ready" })).toBeInTheDocument();
+      expect(onAdded).toHaveBeenCalledTimes(1);
+    });
+
+    it("names the folder after a single file and keeps a name the user typed", async () => {
+      tauri.pickSampleFiles.mockResolvedValueOnce(["/Music/Big Kick.wav"]);
+      const { user } = setup();
+      await user.click(screen.getByTestId("source-files"));
+      await user.click(next("Continue"));
+      await user.click(next("Choose files…"));
+      const name = await screen.findByRole("textbox", { name: "Folder name" });
+      expect(name).toHaveValue("Big Kick");
+      await user.clear(name);
+      await user.type(name, "Mine");
+      tauri.pickSampleFiles.mockResolvedValueOnce(picked);
+      await user.click(next("Choose files…"));
+      await screen.findByText("2 samples will be copied");
+      expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveValue("Mine");
+    });
+
+    it("will not copy a choice with no audio in it", async () => {
+      tauri.pickSampleFiles.mockResolvedValue(["/Music/notes.txt"]);
+      const { user } = setup();
+      await user.click(screen.getByTestId("source-files"));
+      await user.click(next("Continue"));
+      await user.click(next("Choose files…"));
+      expect(await screen.findByText("No audio files in that choice")).toBeInTheDocument();
+      expect(next("Copy files")).toBeDisabled();
+    });
+
+    it("shows progress and can cancel the copy", async () => {
+      let finish: (f: SampleFolder) => void = () => {};
+      tauri.importSampleFiles.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      const { user, onAdded } = await toReview();
+      await user.click(next("Choose files…"));
+      await screen.findByText("2 samples will be copied");
+      await user.click(next("Copy files"));
+      const jobId = tauri.importSampleFiles.mock.calls[0]![2];
+      act(() => progress({ jobId, phase: "copying", done: 1, total: 4 }));
+      expect(screen.getByRole("progressbar", { name: "Copying" })).toHaveAttribute(
+        "aria-valuenow",
+        "25",
+      );
+      expect(screen.getByRole("textbox", { name: "Folder name" })).toBeDisabled();
+      await user.click(next("Cancel copying"));
+      expect(tauri.cancelSampleJob).toHaveBeenCalledWith(jobId);
+      act(() => finish(added({ kind: "imported", path: null, fileCount: 2 })));
+      await waitFor(() => expect(onAdded).toHaveBeenCalled());
+    });
+
+    it("stays on the review step when the copy is cancelled", async () => {
+      tauri.importSampleFiles.mockRejectedValue({ kind: "io", message: "Cancelled." });
+      const { user, onAdded } = await toReview();
+      await user.click(next("Choose files…"));
+      await screen.findByText("2 samples will be copied");
+      await user.click(next("Copy files"));
+      await waitFor(() => expect(next("Copy files")).toBeEnabled());
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(onAdded).not.toHaveBeenCalled();
+    });
+
+    it("has no accessibility violations on the review step", async () => {
+      const { user } = await toReview();
+      await user.click(next("Choose files…"));
+      await screen.findByText("2 samples will be copied");
+      await expectNoA11yViolations(dialog());
+    });
   });
 
   it("links a folder: choose, review what was found, add, done", async () => {

@@ -96,7 +96,9 @@ import { TextDialog } from "@/components/score/text-dialog";
 import { CopyInstrumentDialog } from "@/components/score/copy-instrument-dialog";
 import { TrackDialog, type TrackSettings } from "@/components/score/track-dialog";
 import { Inspector, type InspectorTab } from "@/components/shell/inspector";
+import { AddSamplesDialog } from "@/components/samples/add-samples-dialog";
 import { SamplesPanel } from "@/components/samples/samples-panel";
+import { onSamplesRequest, type SamplesRequest } from "@/lib/samples/samples-bus";
 import { FileDragStore } from "@/lib/file-drag-store";
 import type { SampleRef } from "@/lib/samples/types";
 import { NotePalette } from "@/components/shell/note-palette";
@@ -2591,6 +2593,25 @@ export function ScoreWorkspace({
   /** Where a sample dragged out of the Samples tab is, for the lane highlight. */
   const sampleDragStore = useMemo(() => new FileDragStore(), []);
   const [sampleDragging, setSampleDragging] = useState(false);
+  /** The Add samples dialog: asked for by the Samples tab and by a lane's menu. */
+  const [addSamplesOpen, setAddSamplesOpen] = useState(false);
+  /** Opens the Inspector on the Samples tab (also out of Practice View and when it was closed). */
+  const showSamples = () => {
+    leavePracticeView();
+    setInspectorTab("samples");
+    setInspectorOpen(true);
+    rememberPanels({ inspector: true });
+  };
+  const onSamplesRequested = useEffectEvent((request: SamplesRequest) => {
+    // Only the song on show answers (every open song listens).
+    if (!active || !isTauri()) return;
+    if (request === "show") showSamples();
+    else setAddSamplesOpen(true);
+  });
+  useEffect(() => onSamplesRequest((request) => onSamplesRequested(request)), []);
+  // The Samples tab holds the dialog while it is on screen; otherwise this one does.
+  const addedFromMenu = useRef(false);
+  const samplesTabShown = showInspector && inspectorTab === "samples";
   const ensurePreviewEngine = () => {
     if (engineOn) return true;
     if (nativeEngineAvailable()) {
@@ -3631,6 +3652,8 @@ export function ScoreWorkspace({
                     onInsert={insertSampleAtLine}
                     onDragPoint={dragSample}
                     onDropSample={dropSample}
+                    adding={addSamplesOpen}
+                    onAddingChange={setAddSamplesOpen}
                   />
                 ) : undefined
               }
@@ -3959,6 +3982,20 @@ export function ScoreWorkspace({
           void drumKits.remove(id);
         }}
       />
+      {isTauri() && !samplesTabShown && (
+        <AddSamplesDialog
+          open={addSamplesOpen}
+          onOpenChange={(open) => {
+            setAddSamplesOpen(open);
+            // Something was added: show it. The Samples tab reads the folders when it opens.
+            if (!open && addedFromMenu.current) showSamples();
+            if (!open) addedFromMenu.current = false;
+          }}
+          onAdded={() => {
+            addedFromMenu.current = true;
+          }}
+        />
+      )}
       <SoundFontsDialog
         open={soundFontsOpen}
         onOpenChange={setSoundFontsOpen}

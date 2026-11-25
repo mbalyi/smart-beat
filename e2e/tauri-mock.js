@@ -442,6 +442,7 @@
     files: {},
     previews: [],
     removed: [],
+    fileImports: [],
     scan: null,
     archives: {},
     nextId: 1,
@@ -1657,6 +1658,35 @@
         window.__samples.folders = [...window.__samples.folders, folder];
         window.__samples.files[id] ??= Array.from({ length: 12 }, (_, i) =>
           window.__sampleFile(`Sample_${String(i + 1).padStart(2, "0")}`),
+        );
+        return folder;
+      }
+      case "samples_import_files": {
+        const id = String(window.__samples.nextId++).padStart(12, "a");
+        window.__samples.fileImports.push({ paths: args.paths, name: args.name });
+        const folder = {
+          id,
+          name: args.name.trim() || "Imported samples",
+          kind: "imported",
+          path: null,
+          available: true,
+          fileCount: args.paths.length,
+          addedMs: Date.now(),
+        };
+        window.__emitTauriEvent("samples://progress", {
+          jobId: args.jobId,
+          phase: "copying",
+          done: 50,
+          total: 100,
+        });
+        window.__samples.folders = [...window.__samples.folders, folder];
+        window.__samples.files[id] = args.paths.map((p) =>
+          window.__sampleFile(
+            p
+              .split("/")
+              .pop()
+              .replace(/\.[^.]+$/, ""),
+          ),
         );
         return folder;
       }

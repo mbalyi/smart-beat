@@ -1,7 +1,7 @@
 import { PlayIcon, SquareIcon } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
-import { SampleWaveform } from "@/components/samples/sample-waveform";
+import { SamplePlayhead, SampleWaveform } from "@/components/samples/sample-waveform";
 import { sampleKey } from "@/components/samples/use-sample-preview";
 import { sampleMeta } from "@/lib/samples/filter";
 import type { SampleRef } from "@/lib/samples/types";
@@ -19,6 +19,8 @@ interface SampleListProps {
   /** Key of the selected sample. */
   selected: string | null;
   playing: string | null;
+  /** `performance.now()` when the playing sample began, for the playhead (null: not known yet). */
+  playingSince?: number | null;
   /** Click or arrow key: selects the sample (and previews it). */
   onSelect: (ref: SampleRef) => void;
   /** The play button of a row, or Space. */
@@ -29,6 +31,12 @@ interface SampleListProps {
   onVisible: (refs: readonly SampleRef[]) => void;
   /** A press on a row that may turn into a drag onto a lane. */
   onRowPointerDown: (ref: SampleRef, event: PointerEvent<HTMLElement>) => void;
+  /** A mouse pointer came onto or left a row's waveform (never touch or pen). */
+  onWaveHover?: (ref: SampleRef, over: boolean) => void;
+  /** The pointer left the whole list. */
+  onPointerLeaveList?: () => void;
+  /** The list scrolled. */
+  onScrolled?: () => void;
   className?: string;
 }
 
@@ -40,11 +48,15 @@ export function SampleList({
   items,
   selected,
   playing,
+  playingSince = null,
   onSelect,
   onToggle,
   onInsert,
   onVisible,
   onRowPointerDown,
+  onWaveHover,
+  onPointerLeaveList,
+  onScrolled,
   className,
 }: SampleListProps) {
   const box = useRef<HTMLDivElement>(null);
@@ -121,7 +133,11 @@ export function SampleList({
       aria-activedescendant={selectedIndex >= 0 ? `sample-${selectedIndex}` : undefined}
       data-tour="samples-list"
       data-testid="sample-list"
-      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      onScroll={(e) => {
+        setScrollTop(e.currentTarget.scrollTop);
+        onScrolled?.();
+      }}
+      onPointerLeave={onPointerLeaveList}
       onKeyDown={onKeyDown}
       className={cn(
         "relative min-h-0 flex-1 overflow-y-auto border-y bg-background outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset",
@@ -179,14 +195,30 @@ export function SampleList({
               </span>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{ref.file.name}</p>
-                <p className="truncate font-mono text-[0.7rem] text-muted-foreground">
+                <p
+                  className={cn(
+                    "truncate font-mono text-[0.7rem] text-muted-foreground",
+                    // The selected row is tinted: the muted grey is too faint on it.
+                    isSelected && "text-foreground/80",
+                  )}
+                >
                   {sampleMeta(ref.file)}
                 </p>
               </div>
-              <SampleWaveform
-                peaks={ref.file.peaks}
-                className="h-[1.875rem] w-[4.5rem] text-stem-other"
-              />
+              <span
+                data-testid="sample-wave"
+                onPointerEnter={(e) => e.pointerType === "mouse" && onWaveHover?.(ref, true)}
+                onPointerLeave={(e) => e.pointerType === "mouse" && onWaveHover?.(ref, false)}
+                className="relative block h-[1.875rem] w-[4.5rem]"
+              >
+                <SampleWaveform
+                  peaks={ref.file.peaks}
+                  className="block h-full w-full text-stem-other"
+                />
+                {isPlaying && playingSince !== null && ref.file.durationMs ? (
+                  <SamplePlayhead startedAt={playingSince} durationMs={ref.file.durationMs} />
+                ) : null}
+              </span>
             </div>
           );
         })}

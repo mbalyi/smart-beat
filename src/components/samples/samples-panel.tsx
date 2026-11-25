@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils";
 
 /** The pointer has to move this far (px) before a press on a row becomes a drag. */
 const DRAG_THRESHOLD = 6;
+/** The mouse rests this long (ms) on a waveform before it previews, so a sweep stays quiet. */
+export const HOVER_PREVIEW_DELAY_MS = 150;
 
 const KIND_ICON = { linked: LinkIcon, imported: FolderDownIcon, archive: PackageIcon } as const;
 const KIND_NOTE: Record<SampleFolderKind, string> = {
@@ -40,6 +42,12 @@ export interface SamplesPanelProps {
   onDragPoint: (point: { x: number; y: number } | null, ref: SampleRef | null) => void;
   /** A row was dropped at this point of the window. */
   onDropSample: (ref: SampleRef, point: { x: number; y: number }) => void;
+  /**
+   * Whether the Add samples dialog is open, when the workspace owns that state (the lane menu
+   * opens it too). Without it the panel keeps the state itself.
+   */
+  adding?: boolean;
+  onAddingChange?: (open: boolean) => void;
 }
 
 /** The Samples tab of the Inspector: folders, search, a list to audition and insert from. */
@@ -49,12 +57,16 @@ export function SamplesPanel({
   onInsert,
   onDragPoint,
   onDropSample,
+  adding: addingProp,
+  onAddingChange,
 }: SamplesPanelProps) {
   const library = useSampleLibrary();
   const preview = useSamplePreview(ensureEngine);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [ownAdding, setOwnAdding] = useState(false);
+  const adding = addingProp ?? ownAdding;
+  const setAdding = onAddingChange ?? setOwnAdding;
   const [removing, setRemoving] = useState<SampleFolder | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number; name: string } | null>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -65,12 +77,35 @@ export function SamplesPanel({
   const folder = folders.find((f) => f.id === folderId) ?? null;
   const missing = folders.filter((f) => !f.available);
 
+  const { play, stop } = preview;
+  // Hover previews: the sample a hover started (null once the user chose one by click or key),
+  // the intent timer, and whether the engine refused one (then hovering stays quiet until the
+  // pointer leaves the list, so the "needs the native engine" notice shows once).
+  const hovered = useRef<string | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverBlocked = useRef(false);
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+  }, []);
+  useEffect(() => clearHoverTimer, [clearHoverTimer]);
+
+  /** A preview the user asked for (click, Space, arrow keys): a hover must not end it. */
+  const playChosen = useCallback(
+    (ref: SampleRef) => {
+      clearHoverTimer();
+      hovered.current = null;
+      hoverBlocked.current = false;
+      play(ref);
+    },
+    [clearHoverTimer, play],
+  );
   const select = useCallback(
     (ref: SampleRef) => {
       setSelected(sampleKey(ref));
-      preview.play(ref);
+      playChosen(ref);
     },
-    [preview],
+    [playChosen],
   );
 
   // A drag from a row: it starts after a few pixels, follows the pointer, ends on release.
@@ -115,6 +150,41 @@ export function SamplesPanel({
     window.addEventListener("pointercancel", cancel);
     window.addEventListener("keydown", key);
   };
+
+  const onWaveHover = (ref: SampleRef, over: boolean) => {
+    const key = sampleKey(ref);
+    clearHoverTimer();
+    if (!over) {
+      if (hovered.current === key) {
+        hovered.current = null;
+        stop();
+      }
+      return;
+    }
+    if (hoverBlocked.current || drag.current || key === preview.playing) return;
+    hoverTimer.current = setTimeout(() => {
+      hoverTimer.current = null;
+      if (drag.current) return;
+      hovered.current = key;
+      if (!play(ref)) {
+        hovered.current = null;
+        hoverBlocked.current = true;
+      }
+    }, HOVER_PREVIEW_DELAY_MS);
+  };
+  const { ensureProbed } = library;
+  const onVisible = useCallback(
+    (refs: readonly SampleRef[]) => {
+      ensureProbed(refs);
+      // A row scrolled out of the window takes its pointer events with it: end its hover preview.
+      const current = hovered.current;
+      if (current !== null && !refs.some((r) => sampleKey(r) === current)) {
+        hovered.current = null;
+        stop();
+      }
+    },
+    [ensureProbed, stop],
+  );
 
   const relink = async (target: SampleFolder) => {
     const path = await pickSampleFolder(`Where is “${target.name}” now?`).catch(() => null);
@@ -239,20 +309,30 @@ export function SamplesPanel({
               items={shown}
               selected={selected}
               playing={preview.playing}
+              playingSince={preview.startedAt}
               onSelect={(ref) => {
                 if (suppressClick.current) return;
                 select(ref);
               }}
               onToggle={(ref) => {
                 setSelected(sampleKey(ref));
+                // Stopping or starting by hand: a hover must not end it later.
+                clearHoverTimer();
+                hovered.current = null;
+                hoverBlocked.current = false;
                 preview.toggle(ref);
               }}
               onInsert={(ref) => {
                 preview.stop();
                 onInsert(ref);
               }}
-              onVisible={library.ensureProbed}
+              onVisible={onVisible}
               onRowPointerDown={onRowPointerDown}
+              onWaveHover={onWaveHover}
+              onPointerLeaveList={() => {
+                hoverBlocked.current = false;
+              }}
+              onScrolled={clearHoverTimer}
             />
           )}
 

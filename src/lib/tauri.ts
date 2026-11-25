@@ -833,6 +833,22 @@ export async function pickSampleArchive(): Promise<string | null> {
   });
 }
 
+/**
+ * Native multi-select file dialog for single sample files. Resolves to the paths, or `null`
+ * if cancelled or nothing was chosen.
+ */
+export async function pickSampleFiles(): Promise<string[] | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const picked = await openDialog({
+    title: "Choose audio files",
+    multiple: true,
+    directory: false,
+    filters: [{ name: "Audio files", extensions: [...AUDIO_EXTENSIONS] }],
+  });
+  const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+  return paths.length > 0 ? paths : null;
+}
+
 export const listSampleFolders = async (): Promise<SampleFolder[]> =>
   isTauri() ? invoke<SampleFolder[]>("samples_list_folders") : [];
 export const scanSampleFolder = (path: string) => call<FolderScan>("samples_scan_folder", { path });
@@ -842,6 +858,9 @@ export const linkSampleFolder = (path: string) =>
   call<SampleFolder>("samples_link_folder", { path });
 export const importSampleFolder = (path: string, jobId: string) =>
   call<SampleFolder>("samples_import_folder", { path, jobId });
+/** Copies chosen audio files into a new folder of their own, called `name`. */
+export const importSampleFiles = (paths: string[], name: string, jobId: string) =>
+  call<SampleFolder>("samples_import_files", { paths, name, jobId });
 export const importSampleArchive = (path: string, jobId: string) =>
   call<SampleFolder>("samples_import_archive", { path, jobId });
 export const cancelSampleJob = (jobId: string) => call<void>("samples_cancel", { jobId });

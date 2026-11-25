@@ -1,10 +1,11 @@
-//! Bringing samples into Smart Beat: counting what a folder holds, copying a folder in, and
-//! unpacking a zip or 7z archive.
+//! Bringing samples into Smart Beat: counting what a folder holds, copying a folder or a
+//! handful of chosen files in, and unpacking a zip or 7z archive.
 //!
 //! An archive is untrusted input. Names that leave the target folder, links, and sizes that
 //! do not add up are refused, only audio is written, and everything goes to a temporary folder
 //! that is renamed into place when it is complete.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 
-use super::files::{self, is_audio, is_hidden};
+use super::files::{self, MAX_FILES, is_audio, is_hidden};
 use crate::audio::backing::MAX_FILE_BYTES;
 
 /// Most entries an archive may hold.
@@ -101,6 +102,103 @@ pub fn copy_folder(
         return Err(Stop::Cancelled);
     }
     Ok(u32::try_from(walked.files.len()).unwrap_or(u32::MAX))
+}
+
+/// One chosen file that will be copied, under the name it gets inside the new folder.
+struct Chosen {
+    from: PathBuf,
+    name: String,
+    size: u64,
+}
+
+/// A name that is not taken yet (compared without regard to case, as the common file systems
+/// do): `kick.wav`, then `kick (2).wav`, `kick (3).wav`.
+fn unique_name(name: &str, taken: &mut HashSet<String>) -> String {
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .map_or_else(|| name.to_owned(), |s| s.to_string_lossy().into_owned());
+    let ext = path
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    let mut candidate = name.to_owned();
+    let mut n = 1u32;
+    while !taken.insert(candidate.to_lowercase()) {
+        n += 1;
+        candidate = format!("{stem} ({n}){ext}");
+    }
+    candidate
+}
+
+/// Which of the chosen files can be copied: regular, visible audio files within the size cap
+/// (links and folders are left out). Two files with the same name keep both, the second
+/// renamed.
+fn choose_files(files: &[PathBuf]) -> Vec<Chosen> {
+    let mut seen = HashSet::new();
+    let mut taken = HashSet::new();
+    let mut chosen = Vec::new();
+    for file in files {
+        if !seen.insert(file.clone()) {
+            continue;
+        }
+        let Some(name) = file.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let Ok(meta) = fs::symlink_metadata(file) else {
+            continue;
+        };
+        if !meta.is_file()
+            || is_hidden(&name)
+            || !is_audio(file)
+            || meta.len() > MAX_FILE_BYTES as u64
+        {
+            continue;
+        }
+        chosen.push(Chosen {
+            from: file.clone(),
+            name: unique_name(&name, &mut taken),
+            size: meta.len(),
+        });
+    }
+    chosen
+}
+
+/// Copies the audio files in `files` (a flat list the user picked) into `dest`, side by side.
+/// Anything that is not a plain audio file is left out.
+pub fn copy_files(
+    files: &[PathBuf],
+    dest: &Path,
+    cancel: &AtomicBool,
+    progress: Progress,
+) -> Result<u32, Stop> {
+    if files.len() > MAX_FILES {
+        return Err(Stop::Failed("Too many files were chosen at once.".into()));
+    }
+    if files.is_empty() {
+        return Err(Stop::Failed("No files were chosen.".into()));
+    }
+    let chosen = choose_files(files);
+    if chosen.is_empty() {
+        return Err(Stop::Failed(
+            "None of those files is audio Smart Beat can open.".into(),
+        ));
+    }
+    let total: u64 = chosen.iter().map(|c| c.size).sum();
+    let mut done = 0u64;
+    for file in &chosen {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(Stop::Cancelled);
+        }
+        fs::copy(&file.from, dest.join(&file.name))?;
+        done += file.size;
+        progress(done, total);
+    }
+    // A cancel that arrived while the last file was being copied.
+    if cancel.load(Ordering::Relaxed) {
+        return Err(Stop::Cancelled);
+    }
+    Ok(u32::try_from(chosen.len()).unwrap_or(u32::MAX))
 }
 
 /// An archive name made safe: forward slashes, no empty, `.` or `..` parts, no drive or root.
@@ -639,6 +737,151 @@ mod tests {
         let cancel = AtomicBool::new(false);
         // The flag is raised while the single file is being copied, as the report comes in.
         let result = copy_folder(src.path(), dest.path(), &cancel, &mut |_, _| {
+            cancel.store(true, Ordering::Relaxed);
+        });
+        assert_eq!(result, Err(Stop::Cancelled));
+    }
+
+    fn files_in(dir: &Path, names: &[&str]) -> Vec<PathBuf> {
+        names
+            .iter()
+            .map(|n| {
+                write_tone(dir, n, 0.2);
+                dir.join(n)
+            })
+            .collect()
+    }
+
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn chosen_files_are_copied_flat_and_only_audio_is_kept() {
+        let src = tempfile::tempdir().unwrap();
+        let mut files = files_in(src.path(), &["kick.wav", "deep/snare.wav"]);
+        fs::write(src.path().join("notes.txt"), "x").unwrap();
+        fs::write(src.path().join(".hidden.wav"), "x").unwrap();
+        fs::create_dir(src.path().join("folder.wav")).unwrap();
+        files.push(src.path().join("notes.txt"));
+        files.push(src.path().join(".hidden.wav"));
+        files.push(src.path().join("folder.wav"));
+        files.push(src.path().join("missing.wav"));
+        let dest = tempfile::tempdir().unwrap();
+        let mut last = (0, 0);
+        let n = copy_files(&files, dest.path(), &idle(), &mut |d, t| last = (d, t)).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(names_in(dest.path()), ["kick.wav", "snare.wav"]);
+        assert_eq!(last.0, last.1);
+        assert!(last.1 > 0);
+    }
+
+    #[test]
+    fn files_with_the_same_name_keep_both_and_a_repeated_path_counts_once() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let first = files_in(a.path(), &["kick.wav", "Snare.WAV"]);
+        let second = files_in(b.path(), &["kick.wav", "snare.wav"]);
+        let files = vec![
+            first[0].clone(),
+            second[0].clone(),
+            first[1].clone(),
+            second[1].clone(),
+            first[0].clone(),
+        ];
+        let dest = tempfile::tempdir().unwrap();
+        assert_eq!(
+            copy_files(&files, dest.path(), &idle(), &mut |_, _| {}).unwrap(),
+            4
+        );
+        assert_eq!(
+            names_in(dest.path()),
+            ["Snare.WAV", "kick (2).wav", "kick.wav", "snare (2).wav"]
+        );
+    }
+
+    #[test]
+    fn a_name_cannot_carry_a_path_into_the_folder() {
+        let src = tempfile::tempdir().unwrap();
+        let files = files_in(src.path(), &["a.wav"]);
+        let dest = tempfile::tempdir().unwrap();
+        copy_files(&files, dest.path(), &idle(), &mut |_, _| {}).unwrap();
+        for name in names_in(dest.path()) {
+            assert!(!name.contains(['/', '\\']), "{name}");
+        }
+        // A path ending in `..` has no file name, so nothing is chosen from it.
+        let up = vec![src.path().join("..")];
+        assert!(matches!(
+            copy_files(&up, dest.path(), &idle(), &mut |_, _| {}),
+            Err(Stop::Failed(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symbolic_link_is_not_copied() {
+        let src = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let real = files_in(outside.path(), &["secret.wav"]);
+        let link = src.path().join("link.wav");
+        std::os::unix::fs::symlink(&real[0], &link).unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            copy_files(&[link], dest.path(), &idle(), &mut |_, _| {}),
+            Err(Stop::Failed(_))
+        ));
+        assert!(names_in(dest.path()).is_empty());
+    }
+
+    #[test]
+    fn an_empty_or_unsupported_list_says_so_and_writes_nothing() {
+        let src = tempfile::tempdir().unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        let Err(Stop::Failed(none)) = copy_files(&[], dest.path(), &idle(), &mut |_, _| {}) else {
+            panic!("an empty list is refused");
+        };
+        assert!(none.contains("No files"), "{none}");
+        fs::write(src.path().join("notes.txt"), "x").unwrap();
+        fs::write(src.path().join("pack.zip"), "x").unwrap();
+        let other = [src.path().join("notes.txt"), src.path().join("pack.zip")];
+        let Err(Stop::Failed(text)) = copy_files(&other, dest.path(), &idle(), &mut |_, _| {})
+        else {
+            panic!("unsupported files are refused");
+        };
+        assert!(text.contains("audio"), "{text}");
+        assert!(names_in(dest.path()).is_empty());
+    }
+
+    #[test]
+    fn copying_files_can_be_cancelled_before_between_and_after_the_last_one() {
+        let src = tempfile::tempdir().unwrap();
+        let files = files_in(src.path(), &["a.wav", "b.wav", "c.wav"]);
+        // Before the first file.
+        let dest = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(true);
+        assert_eq!(
+            copy_files(&files, dest.path(), &cancel, &mut |_, _| {}),
+            Err(Stop::Cancelled)
+        );
+        assert!(names_in(dest.path()).is_empty());
+        // Between two files: raised after the first has been reported.
+        let dest = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let result = copy_files(&files, dest.path(), &cancel, &mut |_, _| {
+            cancel.store(true, Ordering::Relaxed);
+        });
+        assert_eq!(result, Err(Stop::Cancelled));
+        assert_eq!(names_in(dest.path()), ["a.wav"], "the rest were not copied");
+        // While the last (only) file is copied.
+        let dest = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let result = copy_files(&files[..1], dest.path(), &cancel, &mut |_, _| {
             cancel.store(true, Ordering::Relaxed);
         });
         assert_eq!(result, Err(Stop::Cancelled));

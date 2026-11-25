@@ -31,8 +31,14 @@ function readVolume(): number {
 export interface SamplePreview {
   /** Key of the sample that plays now. */
   playing: string | null;
+  /**
+   * `performance.now()` of the moment the engine began to play it (null while it is starting and
+   * when nothing plays), for the playhead in the sample's row.
+   */
+  startedAt: number | null;
   volume: number;
-  play: (ref: SampleRef) => void;
+  /** Starts a preview. False when it cannot start, e.g. no native engine runs. */
+  play: (ref: SampleRef) => boolean;
   stop: () => void;
   toggle: (ref: SampleRef) => void;
   setVolume: (volume: number) => void;
@@ -43,7 +49,7 @@ export interface SamplePreview {
  * score. `ensureEngine` returns false (and says why) when no native engine runs.
  */
 export function useSamplePreview(ensureEngine: () => boolean): SamplePreview {
-  const [playing, setPlaying] = useState<string | null>(null);
+  const [session, setSession] = useState<{ key: string; startedAt: number | null } | null>(null);
   const [volume, setVolumeState] = useState(readVolume);
   const volumeRef = useRef(volume);
   const turn = useRef(0);
@@ -54,23 +60,32 @@ export function useSamplePreview(ensureEngine: () => boolean): SamplePreview {
 
   const stop = useCallback(() => {
     turn.current += 1;
-    setPlaying(null);
+    setSession(null);
     void stopSamplePreview().catch(() => {});
   }, []);
 
   const play = useCallback((ref: SampleRef) => {
-    if (!engineRef.current()) return;
+    if (!engineRef.current()) return false;
     const mine = ++turn.current;
-    setPlaying(sampleKey(ref));
-    startSamplePreview(ref.folderId, ref.file.rel, volumeRef.current).catch((error: unknown) => {
-      if (mine !== turn.current) return;
-      setPlaying(null);
-      toast.error(`Couldn't play “${ref.file.name}”`, { description: errorText(error) });
-    });
+    const key = sampleKey(ref);
+    setSession({ key, startedAt: null });
+    startSamplePreview(ref.folderId, ref.file.rel, volumeRef.current).then(
+      () => {
+        if (mine === turn.current) setSession({ key, startedAt: performance.now() });
+      },
+      (error: unknown) => {
+        if (mine !== turn.current) return;
+        setSession(null);
+        toast.error(`Couldn't play “${ref.file.name}”`, { description: errorText(error) });
+      },
+    );
+    return true;
   }, []);
 
+  const playing = session?.key ?? null;
+
   const toggle = useCallback(
-    (ref: SampleRef) => (playing === sampleKey(ref) ? stop() : play(ref)),
+    (ref: SampleRef) => (playing === sampleKey(ref) ? stop() : void play(ref)),
     [playing, play, stop],
   );
 
@@ -90,7 +105,7 @@ export function useSamplePreview(ensureEngine: () => boolean): SamplePreview {
     let unlisten: (() => void) | undefined;
     let gone = false;
     void onSamplePreviewEnded(({ folderId, rel }) => {
-      setPlaying((now) => (now === `${folderId}/${rel}` ? null : now));
+      setSession((now) => (now?.key === `${folderId}/${rel}` ? null : now));
     }).then((off) => {
       if (gone) off();
       else unlisten = off;
@@ -103,5 +118,5 @@ export function useSamplePreview(ensureEngine: () => boolean): SamplePreview {
     };
   }, []);
 
-  return { playing, volume, play, stop, toggle, setVolume };
+  return { playing, startedAt: session?.startedAt ?? null, volume, play, stop, toggle, setVolume };
 }

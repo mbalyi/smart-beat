@@ -259,6 +259,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             samples::commands::samples_inspect_archive,
             samples::commands::samples_link_folder,
             samples::commands::samples_import_folder,
+            samples::commands::samples_import_files,
             samples::commands::samples_import_archive,
             samples::commands::samples_cancel,
             samples::commands::samples_remove_folder,

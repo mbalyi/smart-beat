@@ -20,6 +20,9 @@ use crate::error::{CommandError, ErrorKind};
 
 pub const PROGRESS_EVENT: &str = "samples://progress";
 pub const PREVIEW_ENDED_EVENT: &str = "samples://preview-ended";
+/// What a folder of chosen files is called when the user gives no name.
+const DEFAULT_FILES_NAME: &str = "Imported samples";
+const MAX_NAME_CHARS: usize = 80;
 
 fn error(kind: ErrorKind, message: impl Into<String>) -> CommandError {
     CommandError::new(kind, message)
@@ -240,6 +243,42 @@ pub fn samples_import_folder<R: Runtime>(
         name,
         "copying",
         |dest, cancel, progress| import::copy_folder(&src, dest, cancel, progress),
+    )
+}
+
+/// The name of a folder made from chosen files: what the user typed, or a default.
+fn files_folder_name(name: &str) -> String {
+    let name: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_NAME_CHARS)
+        .collect();
+    let name = name.trim();
+    if name.is_empty() {
+        DEFAULT_FILES_NAME.into()
+    } else {
+        name.to_owned()
+    }
+}
+
+#[tauri::command(async)]
+pub fn samples_import_files<R: Runtime>(
+    paths: Vec<String>,
+    name: String,
+    job_id: String,
+    app: AppHandle<R>,
+    state: State<'_, SamplesState>,
+) -> Result<SampleFolder, CommandError> {
+    let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    import_into_store(
+        &app,
+        &state,
+        &job_id,
+        FolderKind::Imported,
+        files_folder_name(&name),
+        "copying",
+        |dest, cancel, progress| import::copy_files(&files, dest, cancel, progress),
     )
 }
 

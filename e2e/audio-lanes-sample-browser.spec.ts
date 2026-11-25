@@ -9,6 +9,7 @@ declare global {
       files: Record<string, Record<string, unknown>[]>;
       previews: { rel?: string; volume?: number; stop?: boolean }[];
       removed: { id: string; deleteCopy: boolean }[];
+      fileImports: { paths: string[]; name: string }[];
     };
     __sampleFile: (name: string, ext?: string) => Record<string, unknown>;
   }
@@ -55,6 +56,19 @@ async function openSamples(app: Page) {
   await app.getByRole("switch", { name: "Native engine with effects" }).click();
   await expect(app.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 30_000 });
 }
+
+/** Puts a lane on the song (the audio lane's menu is where the sample items live). */
+async function addLane(app: Page) {
+  await app.evaluate((path) => (window.__dialogResult = path), "/Users/me/Music/bass-take.wav");
+  await app.getByRole("button", { name: "Import audio" }).first().click();
+  const row = app.locator("[data-testid^='lane-row-']").first();
+  await expect(row).toBeVisible();
+  return row;
+}
+
+const laneMenu = async (row: Locator) => {
+  await row.getByRole("button", { name: /^More for / }).click();
+};
 
 const showSamples = (app: Page) => app.getByRole("tab", { name: "Samples" }).click();
 const rows = (app: Page): Locator => app.getByTestId("sample-row");
@@ -217,6 +231,118 @@ test.describe("sample browser (#232)", () => {
     expect(await app.evaluate(() => window.__samples.previews.filter((p) => p.rel))).toEqual([]);
   });
 
+  test("the lane's menu shows the samples, also when the inspector is closed", async ({ app }) => {
+    await openSamples(app);
+    await seedFolder(app, 6);
+    const row = await addLane(app);
+    const inspector = app.getByRole("complementary", { name: "Inspector" });
+    await app.getByRole("button", { name: "Inspector", exact: true }).click();
+    await expect(inspector).toBeHidden();
+
+    await laneMenu(row);
+    // Right after "Add audio file…".
+    const items = app.getByRole("menu").getByRole("menuitem");
+    await expect(items.nth(1)).toHaveText("Add audio file…");
+    await expect(items.nth(2)).toHaveText("Show samples");
+    await expect(items.nth(3)).toHaveText("Import samples…");
+    await items.nth(2).click();
+
+    await expect(inspector).toBeVisible();
+    await expect(app.getByRole("tab", { name: "Samples" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(rows(app)).toHaveCount(6);
+  });
+
+  test("the lane's menu opens the Add samples dialog without the Samples tab ever opened", async ({
+    app,
+  }) => {
+    await openSamples(app);
+    const row = await addLane(app);
+    await expect(app.getByRole("tab", { name: "Samples" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    await laneMenu(row);
+    await app.getByRole("menuitem", { name: "Import samples…" }).click();
+    const dialog = app.getByRole("dialog", { name: "Add samples" });
+    await expect(dialog).toBeVisible();
+    await app.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+
+    // With the Samples tab on screen it is the same dialog, opened once.
+    await showSamples(app);
+    await laneMenu(row);
+    await app.getByRole("menuitem", { name: "Import samples…" }).click();
+    await expect(app.getByRole("dialog", { name: "Add samples" })).toHaveCount(1);
+    await expect(app.getByRole("dialog", { name: "Add samples" })).toBeVisible();
+  });
+
+  test("resting the mouse on a waveform previews it and leaving stops it", async ({ app }) => {
+    await openSamples(app);
+    await seedFolder(app, 6);
+    await showSamples(app);
+    await expect(rows(app)).toHaveCount(6);
+    await expect(rows(app).nth(1)).toContainText("kHz");
+    const previews = () => app.evaluate(() => window.__samples.previews);
+
+    // The name is not the waveform: nothing plays.
+    await rows(app).nth(1).getByText("Sample_02").hover();
+    await app.waitForTimeout(400);
+    expect((await previews()).filter((p) => p.rel)).toEqual([]);
+
+    await rows(app).nth(1).getByTestId("sample-wave").hover();
+    await expect
+      .poll(async () => (await previews()).at(-1))
+      .toMatchObject({ rel: "Sample_02.wav" });
+    await expect(rows(app).nth(1)).toHaveAttribute("data-playing", "true");
+
+    // Moving to the next row switches the preview, then leaving the list ends it.
+    await rows(app).nth(2).getByTestId("sample-wave").hover();
+    await expect
+      .poll(async () => (await previews()).filter((p) => p.rel).at(-1))
+      .toMatchObject({
+        rel: "Sample_03.wav",
+      });
+    await expect(rows(app).nth(1)).toHaveAttribute("data-playing", "false");
+    await app.getByRole("heading", { name: "Samples" }).hover();
+    await expect(rows(app).nth(2)).toHaveAttribute("data-playing", "false");
+    expect((await previews()).at(-1)).toEqual({ stop: true });
+  });
+
+  test("a preview started by click keeps playing when the mouse leaves", async ({ app }) => {
+    await openSamples(app);
+    await seedFolder(app, 4);
+    await showSamples(app);
+    await rows(app).first().click();
+    await expect(rows(app).first()).toHaveAttribute("data-playing", "true");
+    await rows(app).first().getByTestId("sample-wave").hover();
+    await app.getByRole("heading", { name: "Samples" }).hover();
+    await app.waitForTimeout(400);
+    await expect(rows(app).first()).toHaveAttribute("data-playing", "true");
+    expect((await app.evaluate(() => window.__samples.previews)).at(-1)).not.toEqual({
+      stop: true,
+    });
+  });
+
+  test("a playhead sweeps the waveform of the playing sample", async ({ app }) => {
+    await openSamples(app);
+    await seedFolder(app, 4);
+    await showSamples(app);
+    await expect(rows(app).first()).toContainText("kHz");
+    const playhead = rows(app).first().getByTestId("sample-playhead");
+    await expect(playhead).toBeHidden();
+    await rows(app).first().click();
+    await expect(playhead).toBeVisible();
+    await expect(playhead).toHaveAttribute("aria-hidden", "true");
+    await expect
+      .poll(() => playhead.evaluate((el) => (el as HTMLElement).style.transform))
+      .not.toBe("translateX(0px)");
+    await rows(app).first().getByTestId("sample-play").click();
+    await expect(playhead).toBeHidden();
+  });
+
   for (const colorScheme of ["light", "dark"] as const) {
     test(`the Samples tab and the Add samples dialog have no WCAG violations in ${colorScheme} mode`, async ({
       app,
@@ -227,6 +353,9 @@ test.describe("sample browser (#232)", () => {
       await showSamples(app);
       await expect(rows(app)).toHaveCount(12);
       await expect(rows(app).first()).toContainText("kHz");
+      // With a sample playing, so the playhead is scanned too.
+      await rows(app).first().click();
+      await expect(rows(app).first().getByTestId("sample-playhead")).toBeVisible();
       await expectNoA11yViolations(app, { popup: "[aria-label='Inspector']" });
       const dialog = await chooseSource(app, "archive", "/Users/me/Downloads/Loops-Vol2.zip");
       await expect(dialog.getByText("Loops-Vol2.zip: 214 samples")).toBeVisible();
