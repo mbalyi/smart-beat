@@ -6,6 +6,7 @@ import { ScoreLanesBand } from "@/components/audio-lanes/score-lanes-band";
 import { useAudioLanes, type AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import type { BarSpan } from "@/lib/audio-lanes/bar-bounds";
 import { laneDropTarget } from "@/lib/audio-lanes/drop-target";
+import { markersOf } from "@/lib/audio-lanes/markers";
 import { EMPTY_AUDIO, clipEndMs, newClip, newLane } from "@/lib/audio-lanes/model";
 import type { SongGrid } from "@/lib/audio-lanes/sync";
 import { PlayheadStore } from "@/lib/score/playhead";
@@ -96,6 +97,7 @@ function Lanes({
 function renderBand(audio = song(), scroller: HTMLElement | null = null) {
   const playhead = new PlayheadStore();
   const onOpenEditor = vi.fn();
+  const onEffects = vi.fn();
   const view = renderWithProviders(
     <Lanes audio={audio}>
       {(lanes) => (
@@ -106,11 +108,12 @@ function renderBand(audio = song(), scroller: HTMLElement | null = null) {
           playhead={playhead}
           scroller={scroller}
           onOpenEditor={onOpenEditor}
+          onEffects={onEffects}
         />
       )}
     </Lanes>,
   );
-  return { ...view, playhead, onOpenEditor };
+  return { ...view, playhead, onOpenEditor, onEffects };
 }
 
 const rect = (left: number, top: number, width: number, height: number) =>
@@ -193,7 +196,8 @@ describe("the lanes band under the tabs", () => {
       "band-lane-lane-a",
       "band-lane-lane-b",
     ]);
-    expect(rows[0]!.style.height).toBe("80px");
+    // A row is the lane height (80 px) and the 28 px strip of its header above the clips.
+    expect(rows[0]!.style.height).toBe("108px");
     // clip-a is bar 1 (40–140); clip-c runs from bar 2 (140) to the end of bar 3 (540).
     const a = clipButton(/verse\.wav on Vocals/);
     expect(leftOf(a)).toBe(40);
@@ -202,7 +206,7 @@ describe("the lanes band under the tabs", () => {
     expect(leftOf(c)).toBe(140);
     expect(widthOf(c)).toBe(400);
     // The name, mute and solo of each lane at its left.
-    expect(screen.getByTestId("band-lane-name-lane-a")).toHaveTextContent("Vocals");
+    expect(screen.getByTestId("lane-header-lane-a")).toHaveTextContent("Vocals");
     // Bar lines run through the band, and the position and edit lines too.
     expect(screen.getByTestId("band-bar-1").style.left).toBe("140px");
     expect(screen.getByTestId("band-edit-cursor")).toBeInTheDocument();
@@ -220,15 +224,21 @@ describe("the lanes band under the tabs", () => {
           }
         : song(),
     );
-    expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("120px");
-    // Never shorter than 40 px.
-    expect(screen.getByTestId("band-lane-lane-b").style.height).toBe("40px");
-    expect(screen.getByTestId("band-lane-name-lane-a")).toHaveTextContent("Vocals");
+    expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("148px");
+    // Never shorter than 40 px (plus the header strip).
+    expect(screen.getByTestId("band-lane-lane-b").style.height).toBe("68px");
+    expect(screen.getByTestId("lane-header-lane-a")).toHaveTextContent("Vocals");
     expect(
-      within(screen.getByTestId("band-lane-name-lane-a")).getByLabelText("Muted"),
+      within(screen.getByTestId("lane-header-lane-a")).getByRole("button", {
+        name: "Mute Vocals",
+        pressed: true,
+      }),
     ).toBeVisible();
     expect(
-      within(screen.getByTestId("band-lane-name-lane-b")).getByLabelText("Soloed"),
+      within(screen.getByTestId("lane-header-lane-b")).getByRole("button", {
+        name: "Solo Drums",
+        pressed: true,
+      }),
     ).toBeVisible();
   });
 
@@ -282,7 +292,7 @@ describe("the lanes band under the tabs", () => {
     const { user } = renderBand(song([folder, inside]));
     expect(screen.getByTestId("band-folder-folder")).toBeInTheDocument();
     expect(screen.queryByTestId("band-lane-lane-in")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Open the folder Stems/ }));
+    await user.click(screen.getByRole("button", { name: /Open Stems/ }));
     expect(screen.getByTestId("band-lane-lane-in")).toBeInTheDocument();
   });
 
@@ -445,5 +455,92 @@ describe("editing in the band, through the bars' own widths", () => {
     renderBand();
     act(() => lanesNow().select(["clip-c"]));
     await expectNoA11yViolations();
+  });
+
+  describe("like the lane editor", () => {
+    it("has the studio's header: mute and solo toggle the lane, and add audio asks for a file", async () => {
+      const { user } = renderBand();
+      const header = within(screen.getByTestId("lane-header-lane-a"));
+      await user.click(header.getByRole("button", { name: "Mute Vocals" }));
+      await user.click(header.getByRole("button", { name: "Solo Vocals" }));
+      const lane = lanesNow().audio.lanes.find((l) => l.id === "lane-a")!;
+      expect(lane.mute).toBe(true);
+      expect(lane.solo).toBe(true);
+      expect(header.getByRole("button", { name: "Add audio file to Vocals" })).toBeVisible();
+    });
+
+    it("opens the lane's effects from its FX button", async () => {
+      const { user, onEffects } = renderBand();
+      await user.click(
+        within(screen.getByTestId("lane-header-lane-b")).getByRole("button", { name: /^FX/ }),
+      );
+      expect(onEffects).toHaveBeenCalledWith("lane-b");
+    });
+
+    it("keeps the header to one slim row in a strip above the clips", () => {
+      renderBand();
+      const header = within(screen.getByTestId("lane-header-lane-a"));
+      // Sends and auto bypass are in the editor; the header over the lane is one row.
+      expect(header.queryByRole("button", { name: "Sends" })).not.toBeInTheDocument();
+      expect(header.queryByRole("button", { name: /^Auto bypass/ })).not.toBeInTheDocument();
+      expect(screen.getByTestId("lane-header-lane-a").className).toContain("flex-row");
+    });
+
+    it("has the editor's marker ruler on the bars, and a resize handle on every lane", () => {
+      renderBand();
+      expect(screen.getByTestId("marker-ruler")).toBeInTheDocument();
+      expect(screen.getByTestId("lane-resize-lane-a")).toBeInTheDocument();
+      expect(screen.getByTestId("lane-resize-lane-b")).toBeInTheDocument();
+    });
+
+    it("resizes a lane with the keyboard like the studio, and saves the height", async () => {
+      const { user } = renderBand();
+      screen.getByTestId("lane-resize-lane-a").focus();
+      await user.keyboard("{ArrowDown}");
+      expect(lanesNow().audio.lanes.find((l) => l.id === "lane-a")!.height).toBe(90);
+      expect(screen.getByTestId("band-lane-lane-a").style.height).toBe("118px");
+    });
+
+    it("drags a marker through the bars: 150 px right of bar 2's middle lands on bar 3", () => {
+      renderBand({ ...song(), markers: [{ id: "m1", ms: 3000, name: "Verse" }] });
+      const flag = screen.getByTestId("marker-m1");
+      // 3000 ms is the middle of the wide bar 2 (140-440 px), at x 290; 150 px on is bar 3 (4000 ms).
+      fireEvent.pointerDown(flag, { button: 0, clientX: 290 });
+      fireEvent.pointerMove(window, { clientX: 440 });
+      fireEvent.pointerUp(window, { clientX: 440 });
+      expect(markersOf(lanesNow().audio)[0]!.ms).toBe(4000);
+      // A small drag right does not move it left.
+      fireEvent.pointerDown(screen.getByTestId("marker-m1"), { button: 0, clientX: 440 });
+      fireEvent.pointerMove(window, { clientX: 450 });
+      fireEvent.pointerUp(window, { clientX: 450 });
+      expect(markersOf(lanesNow().audio)[0]!.ms).toBeGreaterThanOrEqual(4000);
+    });
+
+    it("selects a region's span as the time range with a double-click", async () => {
+      const { user } = renderBand({
+        ...song(),
+        regions: [{ id: "r1", name: "Chorus", startMs: 2000, endMs: 6000 }],
+      });
+      await user.dblClick(screen.getByTestId("region-r1"));
+      expect(lanesNow().timeRange).toEqual({ startMs: 2000, endMs: 6000 });
+    });
+
+    it("says an empty lane is empty, like the editor", () => {
+      const audio = song();
+      renderBand({
+        ...audio,
+        lanes: audio.lanes.map((l) => (l.id === "lane-b" ? { ...l, clips: [] } : l)),
+      });
+      const rows = screen.getAllByTestId("empty-lane");
+      expect(rows).toHaveLength(1);
+      expect(within(screen.getByTestId("band-lane-lane-b")).getByTestId("empty-lane")).toBe(
+        rows[0],
+      );
+    });
+
+    it("has no accessibility violations with the new header", async () => {
+      const { container } = renderBand();
+      await expectNoA11yViolations(container);
+    });
   });
 });

@@ -26,6 +26,13 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "lane-band-parity",
+    title: "Audio lanes under the tabs work like the lane editor",
+    summary:
+      "The audio lanes under the tabs now have the lane editor's header (name, mute, solo, add audio, effects), its marker ruler for markers and regions, a resize handle for each lane, and the empty-lane hint, so you can do the same things there as in the editor.",
+    since: "1.4.0",
+  },
+  {
     id: "sample-browser",
     title: "Sample browser for audio lanes",
     summary:

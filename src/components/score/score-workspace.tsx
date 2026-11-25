@@ -3572,6 +3572,9 @@ export function ScoreWorkspace({
                     playhead={playhead}
                     scroller={viewportRef.current}
                     onOpenEditor={setEditorLaneId}
+                    onEffects={(laneId) =>
+                      openPedalboard({ lane: lanes.audio.lanes.findIndex((l) => l.id === laneId) })
+                    }
                   />
                 )
               }
