@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { BandFolder, BandLane, type BandView } from "@/components/audio-lanes/band-lane";
+import { MarkerRuler } from "@/components/audio-lanes/marker-ruler";
 import { SelectionStatus } from "@/components/audio-lanes/selection-overlay";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
+import { useMarkers } from "@/components/audio-lanes/use-markers";
 import { createBarBounds, type BarBounds, type BarSpan } from "@/lib/audio-lanes/bar-bounds";
 import { bandRows } from "@/lib/audio-lanes/band-rows";
 import { lanesEndMs } from "@/lib/audio-lanes/model";
@@ -103,6 +105,7 @@ export function ScoreLanesBand({
   playhead,
   scroller,
   onOpenEditor,
+  onEffects,
 }: {
   lanes: AudioLanesController;
   grid: SongGrid;
@@ -112,10 +115,16 @@ export function ScoreLanesBand({
   /** The box the score scrolls in, to draw only the lanes in view. */
   scroller: HTMLElement | null;
   onOpenEditor?: (laneId: string) => void;
+  /** Opens a lane's effects (the pedalboard). */
+  onEffects?: (laneId: string) => void;
 }) {
   const { audio } = lanes;
   const bandRef = useRef<HTMLDivElement>(null);
   const view = useBandView(bandRef, scroller);
+  const markers = useMarkers(lanes, {
+    timeSelection: lanes.timeRange,
+    onSelectSpan: lanes.setTimeRange,
+  });
   const bounds = useMemo(() => createBarBounds(audio, grid, spans), [audio, grid, spans]);
   if (!bounds) return null;
 
@@ -155,6 +164,13 @@ export function ScoreLanesBand({
           />
         ))}
       </div>
+      <MarkerRuler
+        lanes={lanes}
+        controls={markers}
+        toX={bounds.msToX}
+        toMs={bounds.xToMs}
+        compact
+      />
       {shown.map(({ lane, index }) =>
         lane.folder ? (
           <BandFolder key={lane.id} lanes={lanes} lane={lane} />
@@ -167,6 +183,7 @@ export function ScoreLanesBand({
             bounds={bounds}
             view={view}
             onOpenEditor={onOpenEditor}
+            onEffects={onEffects}
           />
         ),
       )}

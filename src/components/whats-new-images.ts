@@ -18,6 +18,7 @@ type HomeCard = Feature["title"];
 const HOME_CARD: Record<string, HomeCard> = {
   // 1.4
   "lane-record": "Audio tracks & editing",
+  "lane-band-parity": "Audio tracks & editing",
   "sample-browser": "Audio tracks & editing",
   // 1.3
   "hybrid-lanes": "Audio tracks & editing",

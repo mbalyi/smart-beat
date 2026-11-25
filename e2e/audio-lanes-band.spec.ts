@@ -354,6 +354,29 @@ test.describe("lanes under the tabs in the continuous layout", () => {
     }
   });
 
+  test("has the lane editor's header, marker ruler and resize handle (#233)", async ({ app }) => {
+    const band = await openWithBand(app);
+    const header = band.getByTestId(/^lane-header-/).first();
+    await expect(header.getByRole("button", { name: /^Mute / })).toBeVisible();
+    await expect(header.getByRole("button", { name: /^Solo / })).toBeVisible();
+    await expect(header.getByRole("button", { name: /^Add audio file to / })).toBeVisible();
+    await expect(header.getByRole("button", { name: /^FX/ })).toBeVisible();
+    // Mute is a real toggle with the editor's look, not a badge.
+    const mute = header.getByRole("button", { name: /^Mute / });
+    await mute.click();
+    await expect(mute).toHaveAttribute("aria-pressed", "true");
+    await expect(band.getByTestId("marker-ruler")).toBeVisible();
+    // The handle under a lane resizes it, like in the studio.
+    const lane = band.getByRole("group", { name: /Audio lane take under the score/ });
+    const before = (await lane.boundingBox())!.height;
+    await band
+      .getByTestId(/^lane-resize-/)
+      .first()
+      .focus();
+    await app.keyboard.press("ArrowDown");
+    await expect.poll(async () => (await lane.boundingBox())!.height).toBeGreaterThan(before);
+  });
+
   for (const colorScheme of ["light", "dark"] as const) {
     test(`has no accessibility violations in ${colorScheme} mode`, async ({ app }) => {
       await app.emulateMedia({ colorScheme });

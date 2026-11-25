@@ -1,11 +1,9 @@
-import { LaneRecordButton } from "@/components/audio-lanes/lane-record-controls";
 import {
   ArrowLeftIcon,
   AudioWaveformIcon,
   CircleIcon,
   DownloadIcon,
   FileMusicIcon,
-  FilePlusIcon,
   KeyboardIcon,
   PauseIcon,
   PlayIcon,
@@ -21,6 +19,7 @@ import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
 import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-keys";
 import { EmptyLaneHint } from "@/components/audio-lanes/empty-lane-hint";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
+import { LaneHeader } from "@/components/audio-lanes/lane-header";
 import { LaneResizeHandle } from "@/components/audio-lanes/lane-resize-handle";
 import { MarkerList, MarkerRuler, MarkerToolbar } from "@/components/audio-lanes/marker-ruler";
 import { SelectedClipsPanel } from "@/components/audio-lanes/multi-clip-properties";
@@ -36,12 +35,12 @@ import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { MUTE_PRESSED, SOLO_PRESSED } from "@/components/ui/mixer-toggle-styles";
+import { MUTE_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
 import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
-import { deleteRange, findClip, moveRange, trimClip, updateLane } from "@/lib/audio-lanes/edits";
+import { deleteRange, findClip, moveRange, trimClip } from "@/lib/audio-lanes/edits";
 import { COMPACT_LANE_HEIGHT, laneHeight } from "@/lib/audio-lanes/lane-height";
-import { MAX_BUSES, clipEndMs, laneEndMs, newId } from "@/lib/audio-lanes/model";
+import { MAX_BUSES, clipEndMs, newId } from "@/lib/audio-lanes/model";
 import { describeRange, normalizeRange, type TimeRange } from "@/lib/audio-lanes/range-edits";
 import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
 import { timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
@@ -562,9 +561,7 @@ function StudioLane({
   onOpenProperties: (clipId: string) => void;
   range: { startMs: number; endMs: number } | null;
 }) {
-  const { apply } = lanes;
   const color = laneColor(index, lane.color);
-  const update = (patch: Partial<AudioLane>) => apply((a) => updateLane(a, lane.id, patch));
   // A drag on empty space frames clips across the studio's lanes; a click sets the cursor.
   const marquee = useMarquee({
     selection: lanes.selection,
@@ -587,100 +584,15 @@ function StudioLane({
       style={lane.folder ? undefined : { height }}
       data-testid={`studio-lane-${lane.id}`}
     >
-      <div
-        className={cn(
-          "sticky left-0 z-10 flex shrink-0 justify-center gap-1 overflow-hidden border-r bg-card px-3",
-          compact ? "flex-row items-center justify-between" : "flex-col",
-          lane.parent && "pl-6",
-        )}
+      <LaneHeader
+        lanes={lanes}
+        lane={lane}
+        compact={compact}
+        onEffects={() => onEffects(index)}
+        range={{ inRange, onToggle: onRangeToggle }}
+        className="sticky left-0 z-10 overflow-hidden border-r bg-card px-3"
         style={{ width: HEADER_PX, boxShadow: `inset 3px 0 0 ${color}` }}
-      >
-        <div
-          className={cn("flex min-w-0 items-center gap-1.5", !lane.folder && !compact && "w-full")}
-        >
-          {lane.folder && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-expanded={!lane.collapsed}
-              aria-label={`${lane.collapsed ? "Open" : "Close"} ${lane.name}`}
-              onClick={() => update({ collapsed: !lane.collapsed })}
-            >
-              {lane.collapsed ? "▸" : "▾"}
-            </Button>
-          )}
-          <span className="truncate text-sm font-semibold">{lane.name}</span>
-          {lane.group > 0 && <span className="rounded bg-muted px-1 text-[10px]">group</span>}
-          {!lane.folder && !compact && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto h-6 shrink-0 px-1.5 text-xs"
-              aria-label={`Add audio file to ${lane.name}`}
-              onClick={() => void lanes.chooseFile(lane.id, laneEndMs(lane))}
-            >
-              <FilePlusIcon /> Add audio file
-            </Button>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          <Toggle
-            size="sm"
-            variant="outline"
-            pressed={lane.mute}
-            onPressedChange={(mute) => update({ mute })}
-            aria-label={`Mute ${lane.name}`}
-            className={cn("size-6 min-w-6 px-0 text-xs", MUTE_PRESSED)}
-          >
-            M
-          </Toggle>
-          <Toggle
-            size="sm"
-            variant="outline"
-            pressed={lane.solo}
-            onPressedChange={(solo) => update({ solo })}
-            aria-label={`Solo ${lane.name}`}
-            className={cn("size-6 min-w-6 px-0 text-xs", SOLO_PRESSED)}
-          >
-            S
-          </Toggle>
-          <LaneRecordButton lane={lane} />
-          {!lane.folder && !compact && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-1.5 text-xs"
-                onClick={() => onEffects(index)}
-              >
-                FX{lane.effects.length ? ` ${lane.effects.length}` : ""}
-              </Button>
-              <SendsPopover lanes={lanes} lane={lane} />
-              <Toggle
-                size="sm"
-                variant="outline"
-                pressed={inRange}
-                onPressedChange={onRangeToggle}
-                aria-label={`Range: ${lane.name} in range edits`}
-                className="h-6 px-1.5 text-[10px]"
-              >
-                Range
-              </Toggle>
-              <Toggle
-                size="sm"
-                variant="outline"
-                pressed={lane.autoBypass}
-                onPressedChange={(autoBypass) => update({ autoBypass })}
-                aria-label={`Auto bypass: effects of ${lane.name} stop while silent`}
-                title="Effects stop while the lane is silent"
-                className="h-6 px-1.5 text-[10px]"
-              >
-                Auto
-              </Toggle>
-            </>
-          )}
-        </div>
-      </div>
+      />
       {!lane.folder && (
         <LaneContextMenu lanes={lanes} lane={lane} toMs={toMs}>
           <div
@@ -748,48 +660,6 @@ function StudioLane({
       {lane.folder && <div className="flex-1" aria-hidden="true" />}
       {!lane.folder && <LaneResizeHandle lanes={lanes} lane={lane} />}
     </div>
-  );
-}
-
-function SendsPopover({ lanes, lane }: { lanes: AudioLanesController; lane: AudioLane }) {
-  const { apply, audio } = lanes;
-  const level = (bus: string) => lane.sends.find((s) => s.bus === bus)?.level ?? 0;
-  const setLevel = (bus: string, value: number) =>
-    apply((a) =>
-      updateLane(a, lane.id, {
-        sends: [
-          ...lane.sends.filter((s) => s.bus !== bus),
-          ...(value > 0 ? [{ bus, level: value }] : []),
-        ],
-      }),
-    );
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-6 px-1.5 text-xs"
-          disabled={!audio.buses.length}
-          title={audio.buses.length ? "Sends" : "Add a bus first"}
-        >
-          Sends
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-64" aria-label={`Sends of ${lane.name}`}>
-        <div className="flex flex-col gap-2">
-          {audio.buses.map((bus) => (
-            <LabeledSlider
-              key={bus.id}
-              label={`Send to ${bus.name}`}
-              valueText={`${Math.round(level(bus.id) * 100)}%`}
-              value={level(bus.id)}
-              onValueChange={(v) => setLevel(bus.id, v)}
-            />
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
 

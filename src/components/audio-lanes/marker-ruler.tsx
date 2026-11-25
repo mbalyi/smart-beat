@@ -114,7 +114,7 @@ interface TimelineScale {
 }
 
 /** Moves a marker with the pointer (snapped); undo takes the whole drag back in one step. */
-function useMarkerDrag(lanes: AudioLanesController, { toMs }: TimelineScale) {
+function useMarkerDrag(lanes: AudioLanesController, { toX, toMs }: TimelineScale) {
   const dragged = useRef(false);
   const start = (marker: AudioMarker) => (event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0 || event.altKey) return;
@@ -126,7 +126,8 @@ function useMarkerDrag(lanes: AudioLanesController, { toMs }: TimelineScale) {
       if (!dragged.current && Math.abs(dx) < DRAG_THRESHOLD_PX) return;
       if (!dragged.current) lanes.beginGesture();
       dragged.current = true;
-      lanes.applyQuiet((a) => moveMarker(a, marker.id, lanes.snapTo(marker.ms + toMs(dx))));
+      // Through the marker's own x, so a scale that is not linear (the score's bars) is right.
+      lanes.applyQuiet((a) => moveMarker(a, marker.id, lanes.snapTo(toMs(toX(marker.ms) + dx))));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
