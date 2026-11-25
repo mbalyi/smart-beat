@@ -5,7 +5,13 @@
  * the user should be shown: the `implement-issues` skill asks for it.
  */
 export type TourId =
-  "main" | "editing" | "speed-trainer" | "effects" | "record-to-tab" | "audio-lanes";
+  | "main"
+  | "editing"
+  | "speed-trainer"
+  | "effects"
+  | "record-to-tab"
+  | "audio-lanes"
+  | "sample-browser";
 
 export interface FeatureEntry {
   id: string;
@@ -26,6 +32,14 @@ export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
       "Every audio lane has a record icon. Press it to arm the lane: you hear your input through that lane's own effects (amp, pedals, plugins) while the song plays, press it again to record a take straight onto the lane, and press it once more to keep it. Escape throws a take away, and one undo removes it.",
     since: "1.4.0",
     tour: "audio-lanes",
+  },
+  {
+    id: "sample-browser",
+    title: "Sample browser for audio lanes",
+    summary:
+      "The new Samples tab in the Inspector keeps your sample folders next to the lanes. Link a folder where it is, copy a whole folder into Smart Beat, or unpack a .zip or .7z sample pack, then search the list, hear any file with a click or the arrow keys (the song keeps its place) and put it on a lane with Enter, a double-click or a drag, snapped to the grid.",
+    since: "1.4.0",
+    tour: "sample-browser",
   },
   {
     id: "hybrid-lanes",

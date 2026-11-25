@@ -48,9 +48,10 @@ import { clipEndMs, laneEndMs } from "@/lib/audio-lanes/model";
 import { clickSelection, selectableLanes } from "@/lib/audio-lanes/selection";
 import { barAtTimelineMs, timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
 import { describeVolume } from "@/lib/score/mixer";
+import { requestSamples } from "@/lib/samples/samples-bus";
 import type { PlayheadStore } from "@/lib/score/playhead";
 import { laneColor } from "@/lib/score/track-colors";
-import type { AudioLane } from "@/lib/tauri";
+import { isTauri, type AudioLane } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 /**
@@ -375,6 +376,17 @@ function LaneMenu({
           <DropdownMenuItem onSelect={() => void lanes.chooseFile(lane.id, laneEndMs(lane))}>
             Add audio file…
           </DropdownMenuItem>
+        )}
+        {/* The sample browser is part of the desktop app only, like its tab. */}
+        {!lane.folder && isTauri() && (
+          <>
+            <DropdownMenuItem onSelect={() => requestSamples("show")}>
+              Show samples
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => requestSamples("import")}>
+              Import samples…
+            </DropdownMenuItem>
+          </>
         )}
         <DropdownMenuCheckboxItem
           checked={lane.enabled}

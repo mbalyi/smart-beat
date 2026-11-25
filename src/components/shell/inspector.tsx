@@ -305,6 +305,9 @@ function DrumKitPicker({ kits, current, onChange, onManage, available }: DrumKit
   );
 }
 
+/** The tabs of the Inspector. */
+export type InspectorTab = "song" | "track" | "samples";
+
 export function Inspector({
   tab,
   onTabChange,
@@ -330,11 +333,14 @@ export function Inspector({
   interpretation,
   onInterpretationChange,
   drumKit,
+  samplesPanel,
 }: {
+  /** The sample browser (desktop app only); the tab is left out without it. */
+  samplesPanel?: ReactNode;
   /** Drum tracks: which imported kit plays (#40). */
   drumKit?: DrumKitChoice;
-  tab: "song" | "track";
-  onTabChange: (tab: "song" | "track") => void;
+  tab: InspectorTab;
+  onTabChange: (tab: InspectorTab) => void;
   song: SongInfo;
   track: TrackSummary;
   view: TrackView;
@@ -379,13 +385,28 @@ export function Inspector({
   return (
     <Tabs
       value={tab}
-      onValueChange={(value) => onTabChange(value === "song" ? "song" : "track")}
+      onValueChange={(value) =>
+        onTabChange(
+          value === "song" ? "song" : value === "samples" && samplesPanel ? "samples" : "track",
+        )
+      }
       className="h-full min-h-0"
     >
       <TabsList aria-label="Inspector">
         <TabsTrigger value="song">Song</TabsTrigger>
         <TabsTrigger value="track">Track</TabsTrigger>
+        {samplesPanel && (
+          <TabsTrigger value="samples" data-tour="samples-tab">
+            Samples
+          </TabsTrigger>
+        )}
       </TabsList>
+
+      {samplesPanel && (
+        <TabsContent value="samples" className="overflow-hidden">
+          {samplesPanel}
+        </TabsContent>
+      )}
 
       <TabsContent value="song">
         <Section title="Information">
