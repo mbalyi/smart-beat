@@ -482,6 +482,15 @@ fn with_engine<T>(inner: &Inner, f: impl FnOnce(&mut Engine) -> T) -> Result<T, 
     Ok(f(&mut engine))
 }
 
+/// Runs `f` on the engine when one is running (the sample browser's preview voice).
+pub fn with_running_engine<T>(
+    state: &AudioState,
+    f: impl FnOnce(&mut Engine) -> T,
+) -> Result<T, CommandError> {
+    let inner = state.inner.lock().unwrap();
+    with_engine(&inner, f)
+}
+
 fn build_chain(
     state: &AudioState,
     pool: &plugin::PluginPool,

@@ -435,6 +435,18 @@
   };
   /** Path the native Open dialog "picks" (`null` = Cancel). Set by tests. */
   window.__dialogResult = null;
+  // The sample browser (#232): folders and their files, the previews that were started, and the
+  // answers of the dry runs. A test sets `folders`/`files` before it opens the Samples tab.
+  window.__samples = {
+    folders: [],
+    files: {},
+    previews: [],
+    removed: [],
+    fileImports: [],
+    scan: null,
+    archives: {},
+    nextId: 1,
+  };
   /** The last menu state the UI sent (see `update_menu_state` in src-tauri/src/menu_state.rs). */
   window.__menuState = null;
   /** Recently opened songs (see `src-tauri/src/recent.rs`). */
@@ -1579,6 +1591,148 @@
         window.__recordTranscription.cancelled += 1;
         window.__recordTranscription.abort?.();
         return null;
+      // --- Sample browser (#232) ---
+      case "samples_list_folders":
+        return window.__samples.folders;
+      case "samples_scan_folder":
+        return (
+          window.__samples.scan ?? {
+            fileCount: 12,
+            skipped: 2,
+            totalBytes: 52428800,
+            subfolders: 3,
+          }
+        );
+      case "samples_inspect_archive": {
+        const name = args.path.split("/").pop();
+        if (window.__samples.archives[args.path]) return window.__samples.archives[args.path];
+        if (name.includes("evil")) {
+          return {
+            name,
+            sizeBytes: 1000,
+            audioFiles: 0,
+            skippedFiles: 0,
+            unpackedBytes: 0,
+            safe: false,
+            problem: "The archive has paths that point outside the target folder.",
+          };
+        }
+        return {
+          name,
+          sizeBytes: 640 * 1024 * 1024,
+          audioFiles: 214,
+          skippedFiles: 31,
+          unpackedBytes: 1181116006,
+          safe: true,
+          problem: null,
+        };
+      }
+      case "samples_link_folder":
+      case "samples_import_folder":
+      case "samples_import_archive": {
+        const kind =
+          cmd === "samples_link_folder"
+            ? "linked"
+            : cmd === "samples_import_folder"
+              ? "imported"
+              : "archive";
+        const id = String(window.__samples.nextId++).padStart(12, "a");
+        const last = args.path.split("/").pop();
+        const folder = {
+          id,
+          name: kind === "archive" ? last.replace(/\.[^.]+$/, "") : last,
+          kind,
+          path: kind === "linked" ? args.path : null,
+          available: true,
+          fileCount: 12,
+          addedMs: Date.now(),
+        };
+        if (kind !== "linked") {
+          window.__emitTauriEvent("samples://progress", {
+            jobId: args.jobId,
+            phase: kind === "archive" ? "unpacking" : "copying",
+            done: 50,
+            total: 100,
+          });
+        }
+        window.__samples.folders = [...window.__samples.folders, folder];
+        window.__samples.files[id] ??= Array.from({ length: 12 }, (_, i) =>
+          window.__sampleFile(`Sample_${String(i + 1).padStart(2, "0")}`),
+        );
+        return folder;
+      }
+      case "samples_import_files": {
+        const id = String(window.__samples.nextId++).padStart(12, "a");
+        window.__samples.fileImports.push({ paths: args.paths, name: args.name });
+        const folder = {
+          id,
+          name: args.name.trim() || "Imported samples",
+          kind: "imported",
+          path: null,
+          available: true,
+          fileCount: args.paths.length,
+          addedMs: Date.now(),
+        };
+        window.__emitTauriEvent("samples://progress", {
+          jobId: args.jobId,
+          phase: "copying",
+          done: 50,
+          total: 100,
+        });
+        window.__samples.folders = [...window.__samples.folders, folder];
+        window.__samples.files[id] = args.paths.map((p) =>
+          window.__sampleFile(
+            p
+              .split("/")
+              .pop()
+              .replace(/\.[^.]+$/, ""),
+          ),
+        );
+        return folder;
+      }
+      case "samples_cancel":
+        return null;
+      case "samples_remove_folder":
+        window.__samples.removed.push({ id: args.id, deleteCopy: args.deleteCopy });
+        window.__samples.folders = window.__samples.folders.filter((f) => f.id !== args.id);
+        return null;
+      case "samples_relink_folder": {
+        window.__samples.folders = window.__samples.folders.map((f) =>
+          f.id === args.id ? { ...f, path: args.path, available: true } : f,
+        );
+        return window.__samples.folders.find((f) => f.id === args.id);
+      }
+      case "samples_list_files":
+        return window.__samples.files[args.folderId] ?? [];
+      case "samples_probe_files": {
+        const list = window.__samples.files[args.folderId] ?? [];
+        return args.rels.map((rel) => {
+          const file = list.find((f) => f.rel === rel);
+          const at = list.indexOf(file);
+          const measured = {
+            ...file,
+            durationMs: 400 + (at % 7) * 300,
+            sampleRate: 44100,
+            channels: 1,
+            peaks: Array.from({ length: 96 }, (_, i) =>
+              Math.round(255 * Math.abs(Math.sin((i + at) / 6)) * (1 - i / 140)),
+            ),
+          };
+          list[at] = measured;
+          return measured;
+        });
+      }
+      case "samples_resolve":
+        return `/Samples/${args.folderId}/${args.rel}`;
+      case "samples_preview_start":
+        window.__samples.previews.push({ rel: args.rel, volume: args.volume });
+        return null;
+      case "samples_preview_stop":
+        window.__samples.previews.push({ stop: true });
+        return null;
+      case "samples_preview_volume":
+        window.__samples.previews.push({ volume: args.volume });
+        return null;
       default:
         throw new Error(`Unmocked Tauri command: ${cmd}`);
     }
@@ -1665,6 +1819,18 @@
   });
 
   /** Test hook: emit a Tauri event. Returns how many listeners received it. */
+  /** A sample file that is not measured yet, as the core lists it. */
+  window.__sampleFile = (name, ext = "wav") => ({
+    rel: `${name}.${ext}`,
+    name,
+    ext,
+    sizeBytes: 1000,
+    modifiedMs: 1,
+    durationMs: null,
+    sampleRate: null,
+    channels: null,
+    peaks: null,
+  });
   window.__emitTauriEvent = (event, payload) => {
     const ids = listeners.get(event) ?? [];
     for (const id of ids) callbacks.get(id)?.({ event, id, payload });
