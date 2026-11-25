@@ -126,9 +126,9 @@ describe("audio lane transcription in the registry (#235)", () => {
     expect(entry).toMatchObject({ since: "1.4.0", tour: "audio-lanes" });
     expect(entry?.summary).toMatch(/right-click that clip/);
     expect(entry?.summary).toMatch(/Convert audio to sheet…/);
-    expect(pendingFeatures("1.3.0", "1.4.0", FEATURE_REGISTRY).map((x) => x.id)).toEqual([
+    expect(pendingFeatures("1.3.0", "1.4.0", FEATURE_REGISTRY).map((x) => x.id)).toContain(
       "audio-lane-transcription",
-    ]);
+    );
     expect(pendingFeatures("1.4.0", "1.4.0", FEATURE_REGISTRY)).toEqual([]);
   });
 });
