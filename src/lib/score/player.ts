@@ -9,14 +9,12 @@
 import {
   AlphaTabApi,
   LayoutMode,
-  LogLevel,
   midi,
-  model,
   NotationElement,
   PlayerMode,
   PlayerOutputMode,
   ScrollMode,
-  Settings,
+  type Settings,
   StaveProfile,
   synth,
   TabRhythmMode,
@@ -30,7 +28,13 @@ import {
   laneExtras,
 } from "@/lib/audio/engine-config";
 import { withLiveInput, type LiveInput } from "@/lib/audio/lane-monitor";
-import { rgbOf, SCORE_PALETTES, type ScoreTheme } from "@/lib/score/score-theme";
+import {
+  nearestPlacement,
+  type PlacementRect,
+  type PlacementSpot,
+} from "@/lib/score/part-placement";
+import { applyPalette, baseRenderSettings } from "@/lib/score/render-settings";
+import type { ScoreTheme } from "@/lib/score/score-theme";
 import {
   busMixes,
   NativeEngine,
@@ -242,19 +246,6 @@ export interface ScorePlayerOptions {
   monitorInput?: MonitorInputChoice;
 }
 
-/** Puts a palette's colours in alphaTab's settings. */
-function applyPalette(settings: Settings, theme: ScoreTheme) {
-  const p = SCORE_PALETTES[theme];
-  const color = (hex: string, alpha = 255) => new model.Color(...rgbOf(hex), alpha);
-  const resources = settings.display.resources;
-  resources.mainGlyphColor = color(p.main);
-  resources.secondaryGlyphColor = color(p.secondary, p.secondaryAlpha);
-  resources.staffLineColor = color(p.staffLine);
-  resources.barSeparatorColor = color(p.barSeparator);
-  resources.barNumberColor = color(p.barNumber);
-  resources.scoreInfoColor = color(p.scoreInfo);
-}
-
 const LAYOUT_MODES: Record<Layout, LayoutMode> = {
   page: LayoutMode.Page,
   horizontal: LayoutMode.Horizontal,
@@ -283,12 +274,7 @@ async function downloadSoundFont(url: string): Promise<Uint8Array> {
 const asError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
 
 function createSettings(options: ScorePlayerOptions): Settings {
-  const base = import.meta.env.BASE_URL;
-  const settings = new Settings();
-  settings.core.fontDirectory = `${base}font/`;
-  settings.core.logLevel = LogLevel.Warning;
-  // Note positions, for clicking notes and drawing the edit cursor.
-  settings.core.includeNoteBounds = true;
+  const settings = baseRenderSettings();
   settings.display.layoutMode = LAYOUT_MODES[options.layout];
   settings.display.staveProfile = StaveProfile.Default; // per-staff flags decide
   settings.notation.rhythmMode = rhythmMode(options.view);
@@ -389,6 +375,8 @@ export class ScorePlayer {
   /** Suppresses "Rendering…" for re-renders after edits. */
   private quietRender = false;
   private renderStartedAt = 0;
+  /** A draw is under way: the bounds are the previous draw's until it is done. */
+  private drawing = false;
   private editing = false;
   /** Shift was held on the last pointer press in the score. */
   private shiftDown = false;
@@ -499,10 +487,12 @@ export class ScorePlayer {
   private subscribe() {
     const { api, callbacks } = this;
     api.renderStarted.on(() => {
+      this.drawing = true;
       this.renderStartedAt = performance.now();
       if (!this.quietRender) callbacks.onRenderingChange?.(true);
     });
     api.renderFinished.on(() => {
+      this.drawing = false;
       if (!this.quietRender) callbacks.onRenderingChange?.(false);
       this.quietRender = false;
     });
@@ -1571,6 +1561,34 @@ export class ScorePlayer {
       }
     }
     return null;
+  }
+
+  /**
+   * Every bar of every track as drawn, in the drawing's own pixels (#235): where a transcribed
+   * part can be dropped. A track drawn on two staves, or with a drum tab, has a rectangle for each
+   * staff. Null while a draw is under way (the bounds would be stale) and before the first draw.
+   */
+  placementRects(): PlacementRect[] | null {
+    const lookup = this.api.boundsLookup;
+    if (this.drawing || !lookup) return null;
+    const rects: PlacementRect[] = [];
+    for (const system of lookup.staffSystems ?? []) {
+      for (const masterBar of system.bars) {
+        for (const bounds of masterBar.bars) {
+          const bar = bounds.bar;
+          const track = bar?.staff?.track?.index;
+          if (track === undefined || track < 0) continue;
+          const { x, y, w, h } = bounds.visualBounds;
+          rects.push({ track, bar: bar.index, rect: { x, y, w, h } });
+        }
+      }
+    }
+    return rects.length > 0 ? rects : null;
+  }
+
+  /** The bar and track nearest to a point of the drawing (#235), or null when none is near. */
+  placementAt(x: number, y: number): PlacementSpot | null {
+    return nearestPlacement(this.placementRects(), x, y);
   }
 
   /**

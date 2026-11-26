@@ -87,6 +87,28 @@ describe("track", () => {
     ]);
   });
 
+  it("counts an audio lane turned into sheet music by instrument, and the audio lanes tour (#235)", () => {
+    const calls = mockTauri();
+    track("lane_transcribe", "Guitar");
+    track("lane_transcribe", "drums");
+    track("lane_transcribe", "violin");
+    track("lane_transcribe", "/Users/me/Music/vocals.wav");
+    track("lane_transcribe");
+    track("tour_start", "audio-lanes");
+    track("tour_finish", "audio-lanes");
+    track("tour_close", "audio lanes");
+    expect(tracked(calls)).toEqual([
+      { event: "lane_transcribe", format: "guitar" },
+      { event: "lane_transcribe", format: "drums" },
+      { event: "lane_transcribe", format: null },
+      { event: "lane_transcribe", format: null },
+      { event: "lane_transcribe", format: null },
+      { event: "tour_start", format: "audio-lanes" },
+      { event: "tour_finish", format: "audio-lanes" },
+      { event: "tour_close", format: null },
+    ]);
+  });
+
   it("counts Practice together only with the fixed words (#158)", () => {
     const calls = mockTauri();
     track("practice_together_open", "Toolbar");

@@ -20,6 +20,7 @@ import { CLIP_SHORTCUTS, handleClipKey } from "@/components/audio-lanes/clip-key
 import { EmptyLaneHint } from "@/components/audio-lanes/empty-lane-hint";
 import { LaneContextMenu } from "@/components/audio-lanes/lane-context-menu";
 import { LaneHeader } from "@/components/audio-lanes/lane-header";
+import { useLaneToTab } from "@/components/audio-lanes/lane-to-tab-context";
 import { LaneResizeHandle } from "@/components/audio-lanes/lane-resize-handle";
 import { MarkerList, MarkerRuler, MarkerToolbar } from "@/components/audio-lanes/marker-ruler";
 import { SelectedClipsPanel } from "@/components/audio-lanes/multi-clip-properties";
@@ -38,6 +39,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { MUTE_PRESSED } from "@/components/ui/mixer-toggle-styles";
 import { Toggle } from "@/components/ui/toggle";
 import { moveClipGroup } from "@/lib/audio-lanes/clip-groups";
+import { laneForRange, rangeToRequest } from "@/lib/audio-lanes/clip-request";
 import { deleteRange, findClip, moveRange, trimClip } from "@/lib/audio-lanes/edits";
 import { COMPACT_LANE_HEIGHT, laneHeight } from "@/lib/audio-lanes/lane-height";
 import { MAX_BUSES, clipEndMs, newId } from "@/lib/audio-lanes/model";
@@ -47,7 +49,7 @@ import { timelineMsAtBar, type SongGrid } from "@/lib/audio-lanes/sync";
 import { selectionSpan, songSpan } from "@/lib/audio-lanes/zoom";
 import { usePlayheadBar, type PlayheadStore } from "@/lib/score/playhead";
 import { laneColor } from "@/lib/score/track-colors";
-import type { AudioLane, RippleMode } from "@/lib/tauri";
+import { isTauri, type AudioLane, type RippleMode } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 const HEADER_PX = 224;
@@ -93,6 +95,8 @@ export function StudioView({
   const { audio, apply } = lanes;
   // The time selection lives in the lanes hook; `draft` is the one being dragged on the ruler.
   const [draft, setDraft] = useState<TimeRange | null>(null);
+  const laneToTab = useLaneToTab();
+  const convert = laneToTab && isTauri() ? laneToTab.open : undefined;
   const range = draft ?? lanes.timeRange;
   const [spectrogram, setSpectrogram] = useState(false);
   /** Bumped by F2 or a double-click on a clip: the properties panel takes the focus. */
@@ -371,6 +375,19 @@ export function StudioView({
             >
               Render range
             </Button>
+            {convert && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const laneId = laneForRange(audio, inRange, range);
+                  const request = laneId ? rangeToRequest(laneId, range, "studio") : null;
+                  if (request) convert(request);
+                }}
+              >
+                Convert selection to sheet…
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => lanes.setTimeRange(null)}>
               Clear
             </Button>

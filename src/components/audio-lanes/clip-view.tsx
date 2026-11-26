@@ -211,6 +211,7 @@ export function ClipView({
       type="button"
       data-testid={`clip-${clip.id}`}
       data-clip-id={clip.id}
+      data-tour="lane-clip"
       data-drag={preview?.kind}
       aria-pressed={selected}
       aria-label={`${name} on ${laneName}${clip.groupId ? ", grouped" : ""}${clip.mute ? ", muted" : ""}${clip.locked ? ", locked" : ""}${missing ? ", file missing" : ""}`}

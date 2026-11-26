@@ -117,6 +117,8 @@ The macOS and Windows buttons start the download of the newest release's install
 - **Sync to the score:** sync points make a recording follow the bars of your tab.
 - **Record audio:** record plain takes on a lane (from the playhead, punched into bars or looped), without writing tab.
 - **Export stems and use them as lanes:** the stem page saves stems as WAV or FLAC (mixed or one file per stem), or adds them to a tab as lanes, up to 16 per tab. The audio is saved inside the tab's file; a song with an old backing file opens with it on a lane.
+- **Convert audio to sheet music (coming in 1.4.0, desktop app):** split a lane so a small chunk is left, right-click that clip and choose **Convert audio to sheet…**. The notes are transcribed on your computer and written into the same tab, at the bar where the clip starts. You choose the instrument (guitar, bass, piano or drums), the track and the start bar, see the new notes as tab or notation first, and Undo takes them back in one step. The same is in the lane menu (whole lane), the time selection's menu, the lane editor's Tasks menu and the studio, and as the **Audio lane** source in Record to tab.
+- **Best on one instrument:** the transcription is built for one instrument at a time, so a clip of a whole band or a full mix gives a rough result at best and needs the same hand-correction as Record to tab. Use a stem, or a lane with one instrument, for the best notes. The numbers under Record to tab (beta) apply here too.
 - **Practice together** shares the lanes and their audio files with the other players; each keeps their own mix.
 
 #### Record to tab (beta)
@@ -124,6 +126,7 @@ The macOS and Windows buttons start the download of the newest release's install
 Record to tab is a beta feature. It runs on your computer (no cloud AI), and it gives you a starting point to edit, not a finished transcription.
 
 - **Instruments:** guitar, bass, piano and drums, one instrument at a time. A recording of a whole band or a full mix is not supported.
+- **From an audio lane:** the **Audio lane** source (1.4.0) turns a lane, a clip or a time range of a lane into notes with the same engines and the same limits; see Audio tracks (lanes) above.
 - **Guitar:** roughly 7 of 10 notes are found (note F1 about 72%), and the right string is picked for about 64% of them.
 - **Piano:** the built-in model finds roughly 9 of 10 notes (note F1 about 86%). The High accuracy model, a one-time 55 MB download, finds nearly every note (note F1 about 99%) and processes a take in about half its own length.
 - **Drums:** kick, snare and hi-hat (closed and open) are found well, about 9 of 10 hits on rendered kits. Toms and crash cymbals are experimental and often wrong.

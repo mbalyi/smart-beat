@@ -18,6 +18,14 @@ Release notes for every version. The release workflow publishes the section that
 
 - Routine updates to the app's libraries (Tauri, Sentry, the sign-in keychain library and others). If you were signed in to cloud storage, you may be asked to sign in once more.
 
+### New: audio lanes to sheet music
+
+- **Convert audio to sheet…** Split an audio lane so a small chunk (a clip) is left, right-click that clip and choose **Convert audio to sheet…**. The dialog opens on the same tab, and the notes are written at the bar where the clip starts. Pick the instrument (guitar, bass, piano or drums), the track to write into (or a new track in this tab, or a new tab) and the start bar, see the new notes as tab or notation before you add them, and Undo takes the whole thing back in one step.
+- **Also for a whole lane, a time selection and the studio.** The same dialog opens from the lane's "…" menu, from the lane editor's Tasks menu, from a time selection's right-click menu and from the studio's range bar, and as the new **Audio lane** source in Record to tab.
+- **Same engines as Record to tab.** The transcription runs on your computer with the engine you picked there; no audio leaves it. It uses the clips as placed (offset, trim, speed, reverse and pitch), not the lane's volume, effects or mute, and a span can be up to ten minutes.
+- **Best on one instrument.** A clip of a whole band or a full mix gives a rough result at best, as in Record to tab. Use a stem or a lane with one instrument for the best notes; the dialog warns you when a lane looks like a full mix.
+- The **Audio lanes tour** (Help › Tours) has a new step for it, and What's new tells you about it.
+
 ## [1.3.1]
 
 New in 1.3.1: crash reports you can switch on, and updated libraries. What's new still shows the 1.3.0 list.

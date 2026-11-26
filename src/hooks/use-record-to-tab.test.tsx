@@ -153,7 +153,7 @@ async function stop(hook: ReturnType<typeof setup>) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(alignOffset).mockReturnValue(0);
-  vi.mocked(writeRecording).mockReturnValue({ warnings: [] });
+  vi.mocked(writeRecording).mockReturnValue({ warnings: [], firstBar: 0, lastBar: 0, appended: 0 });
   vi.mocked(transcribeRecording).mockResolvedValue([{ start: 3.15, end: 3.5, ...NOTE }]);
 });
 afterEach(() => vi.restoreAllMocks());
@@ -367,7 +367,12 @@ describe("click mode", () => {
   });
 
   it("shows what could not be written", async () => {
-    vi.mocked(writeRecording).mockReturnValue({ warnings: ["Two notes were too fast."] });
+    vi.mocked(writeRecording).mockReturnValue({
+      warnings: ["Two notes were too fast."],
+      firstBar: 0,
+      lastBar: 0,
+      appended: 0,
+    });
     const hook = setup();
     fakeRecorder();
     await begin(hook, click());

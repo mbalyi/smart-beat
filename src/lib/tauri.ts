@@ -19,6 +19,7 @@ import type {
   SampleFolder,
   SampleProgress,
 } from "@/lib/samples/types";
+import type { RecordEngine, RecordInstrument } from "@/lib/audio/record-prefs";
 import type { RecordedNote } from "@/lib/import/recording";
 import type { Interpretation } from "@/lib/score/interpretation";
 
@@ -1753,6 +1754,93 @@ export async function deleteMuscriptorModel(size: MuscriptorSize): Promise<Muscr
 export async function cancelRecordingTranscription(): Promise<void> {
   if (!isTauri()) return;
   await invoke<void>("cancel_recording_transcription");
+}
+
+// --- Sheet from an audio lane (#235) ---------------------------------------
+
+const LANE_PROGRESS_EVENT = "lane-transcription-progress";
+
+/**
+ * What to transcribe: an audio lane, one of its clips (`clipId`: exactly that clip, wherever it
+ * is) or a time range of it (`startMs` to `endMs`, ms on the audio timeline; a missing end is the
+ * end of the lane's audio, neither means the whole lane). Mirrors `transcribe_lane` in
+ * `src-tauri/src/lane_transcription.rs`. At most 10 minutes of audio at a time.
+ */
+export interface LaneTranscribeRequest {
+  laneId: string;
+  clipId?: string;
+  startMs?: number;
+  endMs?: number;
+  /** A bass is heard like a guitar, as in Record to tab. */
+  instrument: RecordInstrument;
+  /** The note finder, as in Record to tab. Default: the built-in one. */
+  engine?: RecordEngine;
+  /** The MuScriptor size (with `engine: "muscriptor"`). Default: medium. */
+  modelSize?: MuscriptorSize;
+}
+
+/**
+ * The notes found in a lane. `start` and `end` of each note are seconds on the AUDIO TIMELINE (not
+ * relative to the range), so the page maps them to bars with the song's sync points.
+ * `startMs`/`endMs` is the span that was heard, `clipIds` the (unmuted) clips in it.
+ */
+export interface LaneTranscription {
+  notes: RecordedNote[];
+  startMs: number;
+  endMs: number;
+  clipIds: string[];
+}
+
+/** The lane run that {@link cancelLaneTranscription} stops. */
+let laneOperation: string | null = null;
+
+/**
+ * Renders the lane, clip or range the way the lanes play it (without the lane's volume, pan,
+ * filter, effects and mute) and turns it into notes, on this computer. `onProgress` gets the
+ * fraction done (0…1). Rejects with an error {@link isRecordingStopped} recognises after
+ * {@link cancelLaneTranscription}, and with a `{ kind, message }` for an empty, muted, missing or
+ * over-long lane.
+ */
+export async function transcribeLane(
+  request: LaneTranscribeRequest,
+  onProgress?: (fraction: number) => void,
+): Promise<LaneTranscription> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const operationId = crypto.randomUUID();
+  const stopListening = onProgress
+    ? await listen<{ operationId: string; fraction: number }>(LANE_PROGRESS_EVENT, (event) => {
+        if (event.payload.operationId === operationId) onProgress(event.payload.fraction);
+      })
+    : () => {};
+  laneOperation = operationId;
+  try {
+    const { laneId, clipId, startMs, endMs, instrument, engine, modelSize } = request;
+    return await invoke<LaneTranscription>("transcribe_lane", {
+      operationId,
+      laneId,
+      clipId,
+      startMs,
+      endMs,
+      instrument,
+      // Only the piano has the high-accuracy model (Transkun), as in Record to tab.
+      engine:
+        engine === "muscriptor"
+          ? "muscriptor"
+          : instrument === "piano" && engine === "accurate"
+            ? "transkun"
+            : undefined,
+      modelSize: engine === "muscriptor" ? (modelSize ?? "medium") : undefined,
+    });
+  } finally {
+    if (laneOperation === operationId) laneOperation = null;
+    stopListening();
+  }
+}
+
+/** Stops the running {@link transcribeLane}, which then rejects. Nothing running: nothing happens. */
+export async function cancelLaneTranscription(): Promise<void> {
+  if (!isTauri() || laneOperation === null) return;
+  await invoke<void>("cancel_transcription", { operationId: laneOperation });
 }
 
 // --- Third-party plugins: VST3 and CLAP (#80) -------------------------------
