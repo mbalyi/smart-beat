@@ -2,7 +2,7 @@
 
 Issue: [#99](https://github.com/mbalyi/smart-beat/issues/99)
 
-This page is about the counters. Technical crash reports are a separate, opt-in setting with their own rules: [`crash-reports.md`](crash-reports.md).
+This page is about the counters. Technical crash reports are a separate setting (on by default, with its own switch) and their own rules: [`crash-reports.md`](crash-reports.md).
 
 Smart Beat counts how often its features are used, so we can see which ones matter and which installers people use. It is built so that it **cannot** tell users apart: there is no identifier of any kind.
 

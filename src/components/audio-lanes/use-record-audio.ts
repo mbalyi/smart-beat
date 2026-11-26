@@ -57,9 +57,13 @@ export function useRecordAudio(env: {
   /** The practice speed (1 = as written). */
   speed: () => number;
   ensureEngine: () => boolean;
+  /** Called right before the song starts (a lane's clips go quiet under the take, #249). */
+  onBeforePlay?: (setup: RecordAudioSetup) => void;
 }) {
   const [phase, setPhase] = useState<RecordPhase>({ kind: "idle" });
   const [level, setLevel] = useState(0);
+  /** The lane the take in progress goes on (null: none yet, or a new lane). */
+  const [laneId, setLaneId] = useState<string | null>(null);
   const session = useRef<{
     recorder: Recorder;
     setup: RecordAudioSetup;
@@ -141,6 +145,7 @@ export function useRecordAudio(env: {
     const punchBar = setup.mode === "playhead" || !selected ? startBar() : selected.start;
     const playBar = Math.max(0, punchBar - setup.preRollBars);
     const beat = beatAt(playBar);
+    envRef.current.onBeforePlay?.(setup);
     player.pause();
     player.setLoop(setup.mode === "loop" ? selected : null);
     player.setCountIn(setup.countIn);
@@ -156,6 +161,7 @@ export function useRecordAudio(env: {
       playStartedAt,
       countIn: setup.countIn ? countInSeconds(beat.beats, beat.seconds, speed()) : 0,
     };
+    setLaneId(setup.laneId);
     setPhase({ kind: "recording", mode: "free", countingIn: setup.countIn, elapsed: 0 });
   };
 
@@ -170,6 +176,7 @@ export function useRecordAudio(env: {
     player?.setLoop(null);
     setPhase({ kind: "idle" });
     setLevel(0);
+    setLaneId(null);
     const take = await s.recorder.stop();
     if (take.capped) toast.info("The take reached the limit of 10 minutes and was stopped.");
     if (take.samples.length < MIN_TAKE_SECONDS * take.sampleRate) {
@@ -260,11 +267,14 @@ export function useRecordAudio(env: {
     envRef.current.transport()?.setLoop(null);
     setPhase({ kind: "idle" });
     setLevel(0);
+    setLaneId(null);
   };
 
   return {
     phase,
     level,
+    /** The lane the take in progress goes on (null when idle, or for a new lane). */
+    laneId,
     start: (setup: RecordAudioSetup) => void start(setup),
     stop: () => void stop(),
     discard,

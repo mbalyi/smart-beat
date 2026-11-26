@@ -26,6 +26,21 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "crash-reports-default",
+    title: "Crash reports are on by default",
+    summary:
+      "When Smart Beat fails with an unexpected error, it now sends one small report so the problem can be fixed: only the kind of error, the program's own stack trace, the app version and your operating system. Never your songs, file names, folders, messages or anything that identifies you, and never a screen recording. Turn it off any time in Help › Settings › Send crash reports; a choice you already made is kept.",
+    since: "1.4.0",
+  },
+  {
+    id: "lane-record",
+    title: "Record on an audio lane",
+    summary:
+      "Every audio lane has a record icon. Press it to arm the lane: you hear your input through that lane's own effects (amp, pedals, plugins) while the song plays, press it again to record a take straight onto the lane, and press it once more to keep it. Escape throws a take away, and one undo removes it.",
+    since: "1.4.0",
+    tour: "audio-lanes",
+  },
+  {
     id: "lane-band-parity",
     title: "Audio lanes under the tabs work like the lane editor",
     summary:

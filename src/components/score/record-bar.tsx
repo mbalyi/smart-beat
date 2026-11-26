@@ -14,10 +14,13 @@ export function RecordBar({
   level,
   onStop,
   onCancel,
+  discardOnEscape = false,
 }: {
   phase: RecordPhase;
   level: number;
   onStop: () => void;
+  /** An audio take: Space keeps it, Escape throws it away (#249). */
+  discardOnEscape?: boolean;
   /** Stops the transcription. */
   onCancel: () => void;
 }) {
@@ -45,9 +48,11 @@ export function RecordBar({
             Stop
           </Button>
           <p className="basis-full text-xs text-muted-foreground">
-            {phase.countingIn
-              ? "Press Escape to throw this take away, or Space to stop."
-              : "Press Space or Escape to stop."}
+            {discardOnEscape
+              ? "Press Space to keep the take, or Escape to throw it away."
+              : phase.countingIn
+                ? "Press Escape to throw this take away, or Space to stop."
+                : "Press Space or Escape to stop."}
           </p>
         </>
       ) : (

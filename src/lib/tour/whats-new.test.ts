@@ -94,6 +94,20 @@ describe("the editing features in the registry (#228)", () => {
   });
 });
 
+describe("recording on a lane in the registry (#249)", () => {
+  it("is announced in 1.4.0 and shown with the audio lanes tour", () => {
+    const entry = FEATURE_REGISTRY.find((x) => x.id === "lane-record");
+    expect(entry).toMatchObject({ since: "1.4.0", tour: "audio-lanes" });
+    expect(entry?.summary).toMatch(/own effects/);
+    expect(latestFeatures(FEATURE_REGISTRY).version).toBe("1.4.0");
+    expect(pendingFeatures("1.3.1", "1.4.0", FEATURE_REGISTRY).map((x) => x.id)).toContain(
+      "lane-record",
+    );
+    // Not shown by a build that is older than the release it ships in.
+    expect(pendingFeatures("1.3.0", "1.3.1", FEATURE_REGISTRY)).toEqual([]);
+  });
+});
+
 describe("stem export in the registry (#223)", () => {
   it("is announced in 1.3.0 and shown with the audio lanes tour", () => {
     const entry = FEATURE_REGISTRY.find((x) => x.id === "stem-export");

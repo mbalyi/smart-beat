@@ -1,6 +1,7 @@
 import { FilePlusIcon } from "lucide-react";
 import type { CSSProperties } from "react";
 
+import { LaneRecordButton } from "@/components/audio-lanes/lane-record-controls";
 import type { AudioLanesController } from "@/components/audio-lanes/use-audio-lanes";
 import { LabeledSlider } from "@/components/labeled-slider";
 import { Button } from "@/components/ui/button";
@@ -149,6 +150,7 @@ export function LaneHeader({
         >
           S
         </Toggle>
+        <LaneRecordButton lane={lane} />
         {quick && (
           <>
             <Button

@@ -342,7 +342,7 @@ Smart Beat counts anonymously how often features are used (Loop, Metronome, Expo
 
 ### Crash reports
 
-Smart Beat can send a crash report when it fails with an unexpected error. It is **off by default**: nothing is sent until you turn on **Help › Settings › Send crash reports**, and turning it off stops sending at once. A report holds only the kind of error, the program's own stack trace (function names and its own file and line numbers), the app version and your operating system family. It never holds your songs, file names, folder names, user name, IP address, a message or any address or token. **Session Replay, video or screen capture, screenshots, performance tracing and logs are never enabled**, and the setting is separate from the usage counters above. Details, an example report and how to check it yourself: [`docs/crash-reports.md`](docs/crash-reports.md).
+Smart Beat can send a crash report when it fails with an unexpected error. It is **on by default** in the released app (a build without the report addresses never sends anything): you can turn it off at any time in **Help › Settings › Send crash reports**, which stops sending at once, and your choice is kept after updates. A report holds only the kind of error, the program's own stack trace (function names and its own file and line numbers), the app version and your operating system family. It never holds your songs, file names, folder names, user name, IP address, a message or any address or token. **Session Replay, video or screen capture, screenshots, performance tracing and logs are never enabled**, and the setting is separate from the usage counters above. Details, an example report and how to check it yourself: [`docs/crash-reports.md`](docs/crash-reports.md).
 
 ## Licensing
 

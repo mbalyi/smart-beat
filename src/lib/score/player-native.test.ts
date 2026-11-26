@@ -5,7 +5,9 @@
  */
 import { midi, PlayerMode } from "@coderline/alphatab";
 
+import { EMPTY_AUDIO, newLane } from "@/lib/audio-lanes/model";
 import { defaultEffect } from "@/lib/audio/effects";
+import { DEFAULT_MONITOR } from "@/lib/audio/monitor";
 import { mixerReducer, mixFromScore } from "@/lib/score/mixer";
 import type { NativeEngine } from "@/lib/audio/native-engine";
 import { ScorePlayer } from "@/lib/score/player";
@@ -30,6 +32,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
     engineState: vi.fn(() => Promise.resolve({ durationMs: 5_000, positionMs: 0, playing: false })),
     engineTransport: vi.fn(() => Promise.resolve()),
     setEngineMix: vi.fn(() => Promise.resolve()),
+    setEngineLanes: vi.fn(() => Promise.resolve()),
     setEngineMonitor: vi.fn(() => Promise.resolve(null)),
     setEngineMonitorChain: vi.fn(() => Promise.resolve([])),
     setEngineChain: vi.fn(() =>
@@ -194,6 +197,47 @@ describe("ScorePlayer with the native engine", () => {
       sound: "woodblock",
     });
     expect(api.metronomeVolume).toBe(0);
+  });
+
+  it("plays an armed lane's input through its effects, then gives the song's monitor back (#249)", async () => {
+    const { player, api, mix } = await setup();
+    const file = new midi.MidiFile();
+    file.division = 960;
+    file.addEvent(new midi.NoteOnEvent(0, 0, 0, 40, 100));
+    (api as unknown as { tickCache: unknown }).tickCache = null;
+    api.midiLoad.trigger(file);
+    await vi.waitFor(() => expect(mocked.loadEngineSong).toHaveBeenCalled());
+    api.player.ready.trigger();
+    api.player.readyForPlayback.trigger();
+    await vi.waitFor(() => expect(mocked.startEngine).toHaveBeenCalled());
+    await flush();
+    const own = { ...DEFAULT_MONITOR, volume: 0.3, effects: [defaultEffect("delay")] };
+    const lane = {
+      ...newLane("Guitar", "guitar"),
+      volume: 0.7,
+      effects: [defaultEffect("reverb")],
+    };
+    player.setMix({ ...mix, monitor: own, audio: { ...EMPTY_AUDIO, lanes: [lane] } });
+    await vi.waitFor(() =>
+      expect(mocked.setEngineMonitorChain).toHaveBeenCalledWith([defaultEffect("delay")]),
+    );
+    vi.clearAllMocks();
+
+    player.setLiveInput({ hearLane: "guitar", silentLane: null });
+    await vi.waitFor(() =>
+      expect(mocked.setEngineMonitorChain).toHaveBeenCalledWith([defaultEffect("reverb")]),
+    );
+    expect(mocked.setEngineMonitor).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ enabled: true, volume: 0.7 }) }),
+    );
+
+    player.setLiveInput(null);
+    await vi.waitFor(() =>
+      expect(mocked.setEngineMonitorChain).toHaveBeenLastCalledWith([defaultEffect("delay")]),
+    );
+    expect(mocked.setEngineMonitor).toHaveBeenLastCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ volume: 0.3 }) }),
+    );
   });
 
   it("exports audio rendered by the engine (with the effects)", async () => {

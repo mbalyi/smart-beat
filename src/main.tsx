@@ -35,7 +35,7 @@ function hideSplash() {
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root element");
 
-// Opt-in crash reports: does nothing unless the user switched them on (Settings).
+// Crash reports: on unless the user switched them off (Settings); nothing without a build address.
 void initCrashReports();
 
 createRoot(root).render(

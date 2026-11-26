@@ -105,8 +105,8 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                     &version,
                 )));
             }
-            // Opt-in crash reports (docs/crash-reports.md): nothing starts unless the user
-            // switched them on and this build has an address.
+            // Crash reports (docs/crash-reports.md): on unless the user switched them off, and
+            // nothing starts unless this build has an address.
             if app
                 .try_state::<std::sync::Arc<crash_reports::CrashReports>>()
                 .is_none()

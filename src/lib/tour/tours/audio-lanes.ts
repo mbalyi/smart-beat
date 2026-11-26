@@ -90,5 +90,14 @@ export const audioLanesTour: TourDefinition = {
       show: MIXER,
       placement: "top",
     },
+    {
+      id: "lane-record",
+      target: "lane-record",
+      title: "Arm a lane and record",
+      body: "Press the record icon on a lane to arm it: the input is heard through that lane's effects, so you can play with your amp and pedals. Press it again to start the take (the song plays along, the lane's own clips stay quiet), and once more to keep it. Escape throws the take away. Use headphones with the computer's own microphone.",
+      needsSong: true,
+      show: MIXER,
+      placement: "top",
+    },
   ],
 };

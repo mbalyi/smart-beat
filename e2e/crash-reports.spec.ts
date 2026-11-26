@@ -3,7 +3,8 @@ import type { Page } from "@playwright/test";
 import { expect, expectNoA11yViolations, test } from "./fixtures";
 
 /**
- * Opt-in crash reports (docs/crash-reports.md). Nothing here reaches the network: every request
+ * Crash reports, on by default and off when the user switches them off (docs/crash-reports.md).
+ * Nothing here reaches the network: every request
  * to a Sentry host is answered by the test, which also records it. The DSN is a stand-in that only
  * development builds read (`window.__sentryTestDsn`).
  */
@@ -106,7 +107,7 @@ async function openSettings(app: Page) {
   return app.getByRole("dialog", { name: "Settings" });
 }
 
-test.describe("opt-in crash reports", () => {
+test.describe("crash reports", () => {
   test.beforeEach(async ({ app }) => {
     await app.evaluate((dsn) => {
       window.__sentryTestDsn = dsn;
@@ -114,7 +115,9 @@ test.describe("opt-in crash reports", () => {
     }, TEST_DSN);
   });
 
-  test("while the switch is off, an error sends nothing to any Sentry host", async ({ app }) => {
+  test("once the user switched it off, an error sends nothing to any Sentry host", async ({
+    app,
+  }) => {
     const requests = await captureSentry(app);
     const dialog = await openSettings(app);
     await expect(dialog.getByRole("switch", { name: "Send crash reports" })).not.toBeChecked();
@@ -126,7 +129,7 @@ test.describe("opt-in crash reports", () => {
     expect(requests).toEqual([]);
   });
 
-  test("switching on sends scrubbed error events only, switching off stops them", async ({
+  test("switching back on sends scrubbed error events only, switching off stops them", async ({
     app,
   }) => {
     const requests = await captureSentry(app);
@@ -176,7 +179,7 @@ test.describe("opt-in crash reports", () => {
     expect(eventsOf(requests)).toHaveLength(before);
   });
 
-  test("an app that starts with the setting on sends the error", async ({ app }) => {
+  test("an app that starts with the default (on) sends the error", async ({ app }) => {
     const requests = await captureSentry(app);
     await app.addInitScript((dsn) => {
       window.__sentryTestDsn = dsn;

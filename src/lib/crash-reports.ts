@@ -1,5 +1,6 @@
 /**
- * Opt-in crash reports for the UI (docs/crash-reports.md). Errors only: the Sentry client is
+ * Crash reports for the UI (docs/crash-reports.md), on unless the user switched them off. Errors
+ * only: the Sentry client is
  * configured with no default integrations except the global error and unhandled-rejection
  * handlers, and no replay, screenshots, tracing, logs, profiling, breadcrumbs or feedback widget.
  * Every event goes through the allow-list in `crash-scrub.ts` before it can leave.

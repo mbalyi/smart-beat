@@ -82,14 +82,14 @@ describe("SettingsDialog", () => {
     expect(toggle).toBeChecked();
   });
 
-  it("offers the crash reports switch, off by default, when the build can send them", async () => {
+  it("offers the crash reports switch, on by default, when the build can send them", async () => {
     mockTauri();
-    backend.crashReports = { enabled: false, available: true };
+    backend.crashReports = { enabled: true, available: true };
     renderSettings();
 
     const toggle = await screen.findByRole("switch", { name: "Send crash reports" });
-    expect(toggle).not.toBeChecked();
-    expect(toggle).toHaveAccessibleDescription(/Off until you switch it on/);
+    expect(toggle).toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(/On by default; switch it off whenever you like/);
     expect(toggle).toHaveAccessibleDescription(/never records your screen/);
     expect(toggle).toHaveAccessibleDescription(/never makes screenshots/);
     expect(toggle).toHaveAccessibleDescription(/never records sessions/);

@@ -198,7 +198,7 @@ jobs:
           # Practice together over the internet (#158, docs/practice-together.md): the address of the
           # signaling Worker. Without it the app only offers the same-network option.
           SMART_BEAT_SIGNALING_URL: ${{ github.event_name != 'pull_request' && vars.SIGNALING_URL || '' }}
-          # Opt-in crash reports (docs/crash-reports.md): the DSNs of the two Sentry projects, UI and
+          # Crash reports, on by default (docs/crash-reports.md): the DSNs of the two Sentry projects, UI and
           # core. Without a value, in a pull request or in a fork, that side is built as a no-op.
           SMART_BEAT_SENTRY_DSN_FRONTEND: ${{ github.event_name != 'pull_request' && secrets.SMART_BEAT_SENTRY_DSN_FRONTEND || '' }}
           SMART_BEAT_SENTRY_DSN_CORE: ${{ github.event_name != 'pull_request' && secrets.SMART_BEAT_SENTRY_DSN_CORE || '' }}
