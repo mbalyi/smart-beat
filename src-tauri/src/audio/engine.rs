@@ -494,6 +494,8 @@ pub struct Engine {
     lanes: Option<LaneMixer>,
     /// The MIDI lane played live (ADR 0006): heard while the song is stopped.
     live_midi: Option<String>,
+    /// Where the timeline is, for stamping live MIDI notes (shared with the MIDI input).
+    clock: Option<Arc<crate::audio::lanes::TimelineClock>>,
     /// The live input with its own chain (none: no monitor track).
     monitor: Option<Monitor>,
     /// Song time in seconds.
@@ -556,6 +558,7 @@ impl Engine {
             master_gains: (1.0, 1.0),
             lanes: None,
             live_midi: None,
+            clock: None,
             monitor: None,
             position: 0.0,
             next_event: 0,
@@ -999,6 +1002,11 @@ impl Engine {
 
     /// Installs, replaces or removes (`None`) the audio lanes; returns what to drop off the
     /// audio thread.
+    /// Shares where the timeline is with the MIDI input (ADR 0006).
+    pub fn set_clock(&mut self, clock: Arc<crate::audio::lanes::TimelineClock>) {
+        self.clock = Some(clock);
+    }
+
     /// Which MIDI lane is played live (armed or monitored; none: no lane).
     pub fn set_live_midi(&mut self, lane: Option<String>) {
         self.live_midi = lane.clone();
@@ -1229,6 +1237,9 @@ impl Engine {
                 others_solo,
                 (&mut *out_l, &mut *out_r),
             );
+            if let Some(clock) = &self.clock {
+                clock.mark(lanes.last_time().map(|t| (t, self.rate)));
+            }
         }
 
         if let Some(monitor) = &mut self.monitor {

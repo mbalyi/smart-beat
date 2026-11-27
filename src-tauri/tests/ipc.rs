@@ -293,8 +293,14 @@ fn mixer_settings_round_trip_over_ipc() {
         json!({ "fileKey": FILE_KEY, "settings": settings }),
     )
     .expect("save_mixer_settings failed");
-    assert_eq!(load(), settings);
-    assert!(dir.path().join(format!("{FILE_KEY}.json")).is_file());
+    // Read back as the current version; written as version 3, which earlier releases open,
+    // because the song has no MIDI lane (ADR 0006).
+    let mut current = settings.clone();
+    current["version"] = json!(smart_beat_lib::mixer::VERSION);
+    assert_eq!(load(), current);
+    let file = dir.path().join(format!("{FILE_KEY}.json"));
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(written["version"], 3);
 }
 
 #[test]
@@ -914,7 +920,7 @@ fn project_settings_and_lane_audio_travel_inside_gp_files() {
 
     write(project_settings(&id)).unwrap();
     let back = read(&song);
-    assert_eq!(back["version"], 3);
+    assert_eq!(back["version"], smart_beat_lib::mixer::VERSION);
     assert_eq!(back["masterPan"], 0.25);
     assert_eq!(back["audio"]["lanes"][0]["semitones"], 2);
     assert_eq!(back["audio"]["lanes"][0]["filter"], "midBoost");

@@ -252,6 +252,35 @@ fn end_of(lanes: &[LaneBus], sync: &SyncMap) -> f64 {
     hi.max(0.0)
 }
 
+/// Where the audio timeline is now, for stamping live MIDI notes with their place in the song
+/// (ADR 0006): the timeline second the last block started at, when it was rendered, and how
+/// fast the timeline runs. Written by the audio thread with `try_lock` (it never waits), read
+/// by the MIDI input.
+#[derive(Default)]
+pub struct TimelineClock {
+    last: std::sync::Mutex<Option<(f64, std::time::Instant, f64)>>,
+}
+
+impl TimelineClock {
+    /// The audio thread: a block starting at `timeline_s` was just rendered (none: stopped).
+    pub fn mark(&self, at: Option<(f64, f64)>) {
+        if let Ok(mut last) = self.last.try_lock() {
+            *last = at.map(|(t, rate)| (t, std::time::Instant::now(), rate));
+        }
+    }
+
+    /// The timeline ms heard at `instant`, given the output's latency (none: not playing).
+    pub fn timeline_ms(&self, instant: std::time::Instant, latency_ms: f64) -> Option<f64> {
+        let (t, at, rate) = (*self.last.lock().ok()?)?;
+        let since = if instant >= at {
+            instant.duration_since(at).as_secs_f64()
+        } else {
+            -at.duration_since(instant).as_secs_f64()
+        };
+        Some((t + (since - latency_ms / 1_000.0) * rate) * 1_000.0)
+    }
+}
+
 /// All lanes and buses of a song, as the engine plays them.
 pub struct LaneMixer {
     lanes: Vec<LaneBus>,
@@ -263,6 +292,8 @@ pub struct LaneMixer {
     end: f64,
     /// The MIDI lane played live (armed or monitored): heard while the song is stopped.
     live: Option<String>,
+    /// Timeline seconds at the start of the last block rendered while playing.
+    last_time: Option<f64>,
 }
 
 impl LaneMixer {
@@ -276,7 +307,13 @@ impl LaneMixer {
             output_rate,
             end,
             live: None,
+            last_time: None,
         }
+    }
+
+    /// Timeline seconds the last block started at, while playing (none: stopped).
+    pub fn last_time(&self) -> Option<f64> {
+        self.last_time
     }
 
     /// The MIDI lane whose live notes are heard while the song is stopped (none: no lane).
@@ -385,6 +422,7 @@ impl LaneMixer {
         for (i, t) in self.times[..n].iter_mut().enumerate() {
             *t = self.sync.audio_at(song_pos + i as f64 * per_sample);
         }
+        self.last_time = playing.then_some(self.times[0]);
         let any_solo = others_solo || self.any_solo();
         for bus in &mut self.buses {
             bus.left[..n].fill(0.0);

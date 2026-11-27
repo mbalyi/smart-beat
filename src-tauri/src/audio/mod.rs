@@ -220,6 +220,8 @@ struct MonitorState {
 
 #[derive(Default)]
 struct Inner {
+    /// Where the timeline is, shared with every engine and the MIDI input (ADR 0006).
+    clock: Arc<lanes::TimelineClock>,
     /// The MIDI lane armed or monitored (ADR 0006): its live notes are heard, with a small
     /// output buffer.
     midi_live: Option<String>,
@@ -461,6 +463,16 @@ impl AudioState {
             plugins: plugin::PluginPool::default(),
             live_midi: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Where the timeline is (for stamping live MIDI notes).
+    pub fn timeline_clock(&self) -> Arc<lanes::TimelineClock> {
+        self.inner.lock().unwrap().clock.clone()
+    }
+
+    /// The lane armed for live MIDI (none: no lane).
+    pub fn live_lane(&self) -> Option<String> {
+        self.inner.lock().unwrap().midi_live.clone()
     }
 
     /// Every MIDI lane stops every note (all sound off on every channel).
@@ -802,6 +814,7 @@ fn install(
 ) -> Vec<Box<dyn std::any::Any + Send>> {
     let mut old: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     engine.set_live_midi(inner.midi_live.clone());
+    engine.set_clock(inner.clock.clone());
     for (track, mix) in inner.mixes.iter().enumerate() {
         engine.set_mix(track, *mix);
     }

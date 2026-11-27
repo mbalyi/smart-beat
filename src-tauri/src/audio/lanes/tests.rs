@@ -385,3 +385,17 @@ fn an_edit_keeps_the_running_voice_of_an_unchanged_clip() {
     assert!(!mixer.lanes[0].voices[0].is_active());
     assert!(before.iter().any(|s| s.abs() > 0.1));
 }
+
+#[test]
+fn the_timeline_clock_places_a_live_note_where_it_was_heard() {
+    use std::time::{Duration, Instant};
+    let clock = super::TimelineClock::default();
+    assert_eq!(clock.timeline_ms(Instant::now(), 0.0), None, "stopped");
+    clock.mark(Some((10.0, 0.5)));
+    let later = Instant::now() + Duration::from_millis(200);
+    // 200 ms later at half speed, heard 100 ms after it was rendered: 10 s + (0.2 - 0.1) × 0.5.
+    let ms = clock.timeline_ms(later, 100.0).unwrap();
+    assert!((ms - 10_050.0).abs() < 5.0, "{ms}");
+    clock.mark(None);
+    assert_eq!(clock.timeline_ms(later, 0.0), None);
+}
