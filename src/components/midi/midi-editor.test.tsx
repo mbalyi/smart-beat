@@ -174,3 +174,126 @@ describe("MidiEditor", () => {
     expect(latest.lanes!.audio.lanes[0]!.clips).toHaveLength(1);
   });
 });
+
+describe("MidiEditor tools and keys", () => {
+  it("erases, selects with a box, and edits with the keys", async () => {
+    const { user } = renderEditor({ type: "soundfont", program: 0, bank: 0 }, [
+      note("a", 0, 60),
+      note("b", 250, 60),
+      note("c", 1000, 64),
+    ]);
+    const editor = screen.getByRole("region", { name: "MIDI editor: Keys" });
+    const roll = screen.getByRole("application", { name: "Note grid" });
+    // Notes a and b sit on row 67 (pitch 60): x = ms × 0.15.
+    await user.click(screen.getByRole("radio", { name: "Select" }));
+    // From an empty spot one row above (pitch 61) across both notes (x 0 to 75).
+    fireEvent.pointerDown(roll, { button: 0, clientX: 1, clientY: 66 * 14 + 2, pointerId: 1 });
+    fireEvent.pointerMove(roll, { clientX: 80, clientY: 68 * 14, pointerId: 1 });
+    fireEvent.pointerUp(roll, { clientX: 80, clientY: 68 * 14, pointerId: 1 });
+    expect(screen.getByTestId("midi-note-a")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("midi-note-b")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("midi-note-c")).not.toHaveAttribute("data-selected");
+    fireEvent.keyDown(editor, { key: "j" });
+    expect(notesNow().map((n) => n.id)).toEqual(["a", "c"]);
+    expect(notesNow()[0]!.lenMs).toBe(500);
+    fireEvent.keyDown(editor, { key: "ArrowRight" });
+    expect(notesNow()[0]!.startMs).toBe(125);
+    fireEvent.keyDown(editor, { key: "ArrowDown" });
+    expect(notesNow().find((n) => n.id === "a")!.pitch).toBe(59);
+    fireEvent.keyDown(editor, { key: "Escape" });
+    fireEvent.keyDown(editor, { key: "l" });
+    expect(notesNow().find((n) => n.id === "a")!.lenMs).toBe(875);
+    act(() => latest.lanes!.setEditCursorMs(1100));
+    fireEvent.keyDown(editor, { key: "s" });
+    expect(notesNow()).toHaveLength(3);
+    fireEvent.keyDown(editor, { key: "i" });
+    expect(notesNow()).toHaveLength(4);
+    fireEvent.keyDown(editor, { key: "q" });
+    fireEvent.keyDown(editor, { key: "+" });
+    fireEvent.keyDown(editor, { key: "-" });
+    await user.click(screen.getByRole("radio", { name: "Erase" }));
+    const count = notesNow().length;
+    const c = notesNow().find((n) => n.id === "c")!;
+    fireEvent.pointerDown(roll, {
+      button: 0,
+      clientX: c.startMs * 0.15 + 2,
+      clientY: (127 - c.pitch) * 14 + 5,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(roll, { pointerId: 1 });
+    expect(notesNow()).toHaveLength(count - 1);
+  });
+
+  it("drags a note, resizes it and changes its velocity", () => {
+    renderEditor({ type: "soundfont", program: 0, bank: 0 }, [note("a", 0, 60)]);
+    const roll = screen.getByRole("application", { name: "Note grid" });
+    const y = 67 * 14 + 7;
+    // The body: a move one row up and one 1/16 later.
+    fireEvent.pointerDown(roll, { button: 0, clientX: 10, clientY: y, pointerId: 1 });
+    fireEvent.pointerMove(roll, { clientX: 10 + 125 * 0.15, clientY: y - 14, pointerId: 1 });
+    fireEvent.pointerUp(roll, { pointerId: 1 });
+    expect(notesNow()[0]).toMatchObject({ startMs: 125, pitch: 61 });
+    // The right edge: longer.
+    const right = (125 + 250) * 0.15 - 1;
+    fireEvent.pointerDown(roll, { button: 0, clientX: right, clientY: y - 10, pointerId: 1 });
+    fireEvent.pointerMove(roll, { clientX: right + 250 * 0.15, clientY: y - 10, pointerId: 1 });
+    fireEvent.pointerUp(roll, { pointerId: 1 });
+    expect(notesNow()[0]!.lenMs).toBe(500);
+    // The top edge: louder.
+    fireEvent.pointerDown(roll, { button: 0, clientX: 30, clientY: 66 * 14 + 1, pointerId: 1 });
+    fireEvent.pointerMove(roll, { clientX: 30, clientY: 66 * 14 - 40, pointerId: 1 });
+    fireEvent.pointerUp(roll, { pointerId: 1 });
+    expect(notesNow()[0]!.vel).toBe(127);
+    // A double-click deletes it.
+    fireEvent.doubleClick(roll, { clientX: 30, clientY: 66 * 14 + 7 });
+    expect(notesNow()).toEqual([]);
+  });
+
+  it("adds, changes and removes controller lanes and uses step input", async () => {
+    const { user } = renderEditor({ type: "soundfont", program: 0, bank: 0 }, []);
+    const editor = screen.getByRole("region", { name: "MIDI editor: Keys" });
+    await user.click(screen.getByRole("button", { name: "Controller lane" }));
+    const pickers = screen.getAllByRole("combobox", { name: "Controller lane" });
+    expect(pickers).toHaveLength(2);
+    await user.selectOptions(pickers[1]!, "bend");
+    expect(screen.getByRole("application", { name: "Pitch bend lane" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove the Pitch bend lane" }));
+    expect(screen.getAllByRole("combobox", { name: "Controller lane" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Step input" }));
+    fireEvent.keyDown(editor, { key: "F1" });
+    fireEvent.keyDown(editor, { key: "F5" });
+    expect(notesNow().map((n) => [n.startMs, n.pitch])).toEqual([
+      [0, 60],
+      [125, 64],
+    ]);
+    await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    await user.click(screen.getByRole("button", { name: "Zoom out" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Note length" }), "last");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Channel for new notes" }), "3");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Note shape" }), "diamond");
+    await user.click(screen.getByRole("button", { name: "Snap" }));
+  });
+
+  it("humanizes, freezes the timing and changes note properties", async () => {
+    const { user } = renderEditor({ type: "soundfont", program: 0, bank: 0 }, [
+      note("a", 130, 60, { rawStartMs: 140 }),
+    ]);
+    const editor = screen.getByRole("region", { name: "MIDI editor: Keys" });
+    await user.click(screen.getByRole("button", { name: "Freeze" }));
+    expect(notesNow()[0]).not.toHaveProperty("rawStartMs");
+    await user.click(screen.getByRole("button", { name: "Humanize…" }));
+    await user.click(
+      within(await screen.findByRole("dialog", { name: "Humanize" })).getByRole("button", {
+        name: "Humanize",
+      }),
+    );
+    fireEvent.keyDown(editor, { key: "a", metaKey: true });
+    await user.click(screen.getByRole("button", { name: "Properties…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Note properties" });
+    const channel = within(dialog).getByRole("textbox", { name: /Channel/ });
+    await user.clear(channel);
+    await user.type(channel, "10");
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(notesNow()[0]!.chan).toBe(9);
+  });
+});
