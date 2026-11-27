@@ -570,12 +570,45 @@
       }
       // Practice together (#158): the link to the other app is simulated. Tests drive the guest
       // through `window.__practiceTogether` (see below) and read what the app sent.
+      // One network by default; a test lists more in `window.__practiceNetwork.addresses` (#258).
       case "practice_host":
         return {
           code: "ABCD-EFGH-JKMN-PQRS-TVWX",
           link: "smartbeat://join/ABCD-EFGH-JKMN-PQRS-TVWX",
           address: "192.168.1.5:50123",
+          addresses: window.__practiceNetwork?.addresses ?? [
+            {
+              name: "en0",
+              kind: "wifi",
+              address: "192.168.1.5:50123",
+              code: "ABCD-EFGH-JKMN-PQRS-TVWX",
+            },
+          ],
         };
+      // "Host a network" (#258): off by default (as on macOS). A test sets
+      // `window.__practiceNetwork = { support, startError }` and reads `started`/`stopped`.
+      case "practice_network_support":
+        return (
+          window.__practiceNetwork?.support ?? {
+            canHost: false,
+            reason: "This computer cannot host a network from Smart Beat.",
+          }
+        );
+      case "practice_network_start": {
+        const net = window.__practiceNetwork ?? {};
+        net.started = (net.started ?? 0) + 1;
+        if (net.startError) throw { kind: "network", message: net.startError };
+        return {
+          ssid: "SmartBeat-K7QD",
+          passphrase: "abcd2345efgh",
+          wifiQr: "WIFI:T:WPA;S:SmartBeat-K7QD;P:abcd2345efgh;;",
+        };
+      }
+      case "practice_network_stop": {
+        const net = window.__practiceNetwork ?? {};
+        net.stopped = (net.stopped ?? 0) + 1;
+        return null;
+      }
       case "practice_join":
         return null;
       case "practice_send": {

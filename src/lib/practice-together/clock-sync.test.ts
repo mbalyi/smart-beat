@@ -115,6 +115,27 @@ describe("ClockEstimator", () => {
     expect(clock.bestRtt).toBe(Infinity);
   });
 
+  it("lets a quick refresh after a long quiet stretch win over the older trips (#258)", () => {
+    const clock = new ClockEstimator();
+    // Before the song: many fast trips at one offset.
+    for (let i = 0; i < 20; i += 1) clock.add(trip(i * 1000, { offset: 10, up: 1, down: 1 }));
+    // Nothing for five minutes (the song played), then four quick pings before the next Play.
+    // They are a little slower, but they are what the clocks say now.
+    const after = 20_000 + 300_000;
+    for (let i = 0; i < 4; i += 1) clock.add(trip(after + i * 40, { offset: 25, up: 3, down: 3 }));
+    expect(clock.offsetAt(after + 200)).toBeCloseTo(25, 0);
+  });
+
+  it("falls back to the latest trips when too few are recent", () => {
+    const clock = new ClockEstimator();
+    for (let i = 0; i < 20; i += 1) clock.add(trip(i * 1000, { offset: 10, up: 1, down: 1 }));
+    // A refresh that got only two answers: the latest ten trips count, old and new.
+    const after = 320_000;
+    for (let i = 0; i < 2; i += 1)
+      clock.add(trip(after + i * 40, { offset: 10.5, up: 3, down: 3 }));
+    expect(clock.offsetAt(after + 100)).toBeCloseTo(10, 0);
+  });
+
   it("keeps only the recent window", () => {
     const clock = new ClockEstimator({ window: 5 });
     for (let i = 0; i < 20; i += 1) clock.add(trip(i * 1000, { offset: 3 }));

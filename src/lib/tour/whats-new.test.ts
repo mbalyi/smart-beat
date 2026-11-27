@@ -173,3 +173,18 @@ describe("the sample browser in the registry (#232)", () => {
     );
   });
 });
+
+describe("practice together sync in the registry (#258)", () => {
+  it("is announced in 1.4.0, without a tour, and not before", () => {
+    const entry = FEATURE_REGISTRY.find((x) => x.id === "practice-together-sync");
+    expect(entry).toMatchObject({ since: "1.4.0" });
+    expect(entry?.tour).toBeUndefined();
+    expect(entry?.summary).toMatch(/stops both/);
+    expect(pendingFeatures("1.3.1", "1.4.0", FEATURE_REGISTRY).map((x) => x.id)).toContain(
+      "practice-together-sync",
+    );
+    expect(pendingFeatures("1.3.0", "1.3.1", FEATURE_REGISTRY).map((x) => x.id)).not.toContain(
+      "practice-together-sync",
+    );
+  });
+});

@@ -17,6 +17,8 @@ export const CAPABILITIES = [
   "tab",
   "edit",
   "lanes",
+  /** Pause and Stop act at once on the guest, without a lead time or an answer (#258). */
+  "halt",
 ] as const;
 
 /** One piece of a shared tab is this many bytes (about 11 K characters as base64, under a frame). */

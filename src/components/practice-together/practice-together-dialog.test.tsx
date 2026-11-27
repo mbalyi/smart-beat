@@ -214,6 +214,77 @@ describe("PracticeTogetherDialog: connecting", () => {
     expect(screen.getByText(/Waiting for the other players…/)).toBeInTheDocument();
   });
 
+  it("lists the codes for the host's other networks, each with its own copy button", async () => {
+    const cable = {
+      name: "en5",
+      kind: "link-local" as const,
+      address: "169.254.3.4:5000",
+      code: "1111-2222-3333-4444-5555",
+    };
+    const vpn = {
+      name: "utun3",
+      kind: "other" as const,
+      address: "100.64.0.7:5000",
+      code: "6666-7777-8888-9999-AAAA",
+    };
+    const { user } = renderDialog(
+      hosting({
+        hostCode: {
+          kind: "lan",
+          code: "ABCD-EFGH-JKMN-PQRS-TVWX",
+          address: "192.168.1.5:5000",
+          others: [cable, vpn],
+        },
+      }),
+    );
+    const list = screen.getByRole("region", { name: "Other networks" });
+    const rows = within(list).getAllByTestId("other-network");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Direct link · en5 · 169.254.3.4:5000");
+    expect(rows[0]).toHaveTextContent(cable.code);
+    expect(rows[1]).toHaveTextContent("Network · utun3");
+    await user.click(within(rows[0]!).getByRole("button", { name: "Copy the en5 code" }));
+    expect(await navigator.clipboard.readText()).toBe(cable.code);
+    expect(
+      await within(rows[0]!).findByRole("button", { name: "Copied the en5 code" }),
+    ).toBeInTheDocument();
+    // The main code's own button is untouched.
+    expect(
+      within(screen.getByTestId("room-code-row")).getByRole("button", { name: "Copy" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no other networks for a host on one network", () => {
+    const first = renderDialog(
+      hosting({ hostCode: { kind: "lan", code: "C", address: "a", others: [] } }),
+    );
+    expect(screen.queryByTestId("other-networks")).not.toBeInTheDocument();
+    first.unmount();
+    renderDialog(hosting());
+    expect(screen.queryByTestId("other-networks")).not.toBeInTheDocument();
+  });
+
+  it("has no accessibility violations with other networks listed", async () => {
+    renderDialog(
+      hosting({
+        hostCode: {
+          kind: "lan",
+          code: "ABCD-EFGH-JKMN-PQRS-TVWX",
+          address: "192.168.1.5:5000",
+          others: [
+            {
+              name: "Ethernet",
+              kind: "cable",
+              address: "10.0.0.2:5000",
+              code: "1111-2222-3333-4444-5555",
+            },
+          ],
+        },
+      }),
+    );
+    await expectNoA11yViolations(screen.getByRole("dialog"));
+  });
+
   it("puts the copy button on the same row as the code, as an icon with a name", async () => {
     const { user } = renderDialog(hosting());
     const row = screen.getByTestId("room-code-row");

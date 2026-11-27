@@ -67,6 +67,10 @@ sevenz-rust2 = { version = "0.25", default-features = false }
 # platform stores (apple-native, windows-native, zbus Secret Service).
 getrandom = "0.4"
 keyring = { version = "4", default-features = false, features = ["v1"] }
+# Practice together (#258): every IPv4 address of this computer, so a room code can be made for
+# each network (Wi-Fi, a cable, a link-local 169.254.x.x link). "link-local" keeps the
+# 169.254.x.x addresses, which the crate drops on Windows otherwise. MIT OR BSD-3-Clause.
+if-addrs = { version = "0.15", features = ["link-local"] }
 
 # macOS: the system's AAC encoder (AVFoundation) writes `.m4a` exports (src/m4a.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -81,7 +85,23 @@ tauri-plugin-single-instance = "2"
 
 # Windows: Media Foundation's AAC encoder writes `.m4a` exports (src/m4a.rs).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_MediaFoundation", "Win32_System_Com"] }
+# Practice together (#258): "Host a network" uses Wi-Fi Direct's legacy access point
+# (Devices_WiFiDirect, the passphrase as a PasswordCredential) and checks for a Wi-Fi radio first.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Foundation",
+    "Foundation_Collections",
+    "Devices_Radios",
+    "Devices_WiFiDirect",
+    "Security_Credentials",
+] }
+
+# Linux: "Host a network" (#258) asks NetworkManager over D-Bus for a Wi-Fi hotspot. The same zbus
+# the keychain (keyring) already pulls in, so there is no second copy.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5.19"
 
 [dev-dependencies]
 # ABI types for the original synthetic CLAP fixture, built by rustc in tests.

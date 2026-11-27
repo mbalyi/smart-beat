@@ -33,6 +33,7 @@ import {
   type LastSession,
 } from "@/lib/practice-together/identity";
 import { hostOnLan, joinOnLan } from "@/lib/practice-together/lan";
+import { othersField } from "@/lib/practice-together/other-networks";
 import {
   liveAbortClaim,
   liveBeginClaim,
@@ -158,6 +159,11 @@ export interface PracticeTogether {
    * for both, a guest asks the host, and a move of the position while the song plays is refused.
    */
   intercept(request: TogetherRequest): boolean;
+  /**
+   * The player of this tab started or stopped (the song ending and a local Stop included): the
+   * session measures nothing while a song plays (#258).
+   */
+  setPlaying?(on: boolean): void;
 }
 
 interface Options {
@@ -241,6 +247,11 @@ const TOAST_KINDS = new Set([
 
 /** A Play that went out counts as about to play for this long (the start is a moment ahead). */
 const PLAY_PENDING_MS = 4000;
+
+/** Stop, or Pause of a song that plays: in a session they act at once (#258). */
+function halts(request: TogetherRequest, player: TransportPlayer): boolean {
+  return request.kind === "stop" || (request.kind === "playPause" && player.isPlaying());
+}
 
 /** A burst of edits is fingerprinted once, this long after the last one. */
 const FINGERPRINT_DEBOUNCE_MS = 200;
@@ -372,6 +383,13 @@ export function usePracticeTogether({
   /** Counts the sessions started and ended: a host or join still connecting when it changes is stale. */
   const attemptRef = useRef(0);
 
+  /** Whether this tab's player plays (the session measures nothing meanwhile, #258). */
+  const playingRef = useRef(false);
+  const setPlaying = useCallback((on: boolean) => {
+    playingRef.current = on;
+    sessionRef.current?.setPlaying(on);
+  }, []);
+
   /** The host's last command to the guests, while it is still going out. */
   const inFlight = useRef<Promise<unknown> | null>(null);
   /** The host's last command and when it went out (a Play is "about to play" for a moment). */
@@ -417,11 +435,10 @@ export function usePracticeTogether({
         const last = lastCommand.current;
         const startingSoon = last?.action === "play" && Date.now() - last.at < PLAY_PENDING_MS;
         if (!player.isPlaying() && !startingSoon) return;
-        if (session?.role === "host" && session.snapshot.phase === "synchronized") {
+        // Pause goes out at once and needs no answer (#258).
+        if (session instanceof HostRoom) {
           lastCommand.current = { action: "pause", at: Date.now() };
-          await session
-            .command(commandOf("pause", player.getTick(), practiceRef.current))
-            .catch(() => {});
+          session.halt(commandOf("pause", player.getTick(), practiceRef.current));
         }
         if (player.isPlaying()) player.pause();
       },
@@ -494,11 +511,16 @@ export function usePracticeTogether({
     detachRef.current = detach;
   }, [detach]);
 
-  /** The host: starts `action` on both computers at the same moment. */
+  /** The host: starts `action` on both computers at the same moment (Pause and Stop: now). */
   const startFor = useCallback(
     (action: RequestAction, tick: number) => {
       const session = sessionRef.current;
-      if (session?.role !== "host") return;
+      if (!(session instanceof HostRoom)) return;
+      if (action === "pause" || action === "stop") {
+        lastCommand.current = { action, at: Date.now() };
+        session.halt(commandOf(action, tick, practiceRef.current));
+        return;
+      }
       // Nobody starts until everyone has every audio file of the lanes.
       if (action === "play" && !sourcesRef.current?.complete()) {
         toastFilesMissing(sourcesRef.current);
@@ -578,6 +600,7 @@ export function usePracticeTogether({
       detachSubs.current?.();
       sessionRef.current = session;
       sharedRef.current = shared;
+      session.setPlaying(playingRef.current);
       const stops = [session.subscribe(setState)];
       if (session.role === "guest") stops.push(session.subscribe(keepLast));
       // The session finished on its own (the host ended it, a kick, a ban): the tabs of it are
@@ -755,7 +778,7 @@ export function usePracticeTogether({
       session.setScore(fingerprint);
       // The tab that played was closed and could not stop the guests: they stop now.
       if (carry.stopGuests && session instanceof HostRoom) {
-        session.stopAll(commandOf("pause", playerRef.current?.getTick() ?? 0, practiceRef.current));
+        session.halt(commandOf("pause", playerRef.current?.getTick() ?? 0, practiceRef.current));
       }
       claimFailed.current = false;
       void playerRef.current?.warmUpAudio().catch(() => {});
@@ -838,7 +861,7 @@ export function usePracticeTogether({
           const { acceptor, info } = await hostOnLan();
           // The song was closed (or another session started) while connecting: let go of it.
           if (attemptRef.current !== attempt) return void acceptor.close();
-          setHostCode({ kind, code: info.code, address: info.address });
+          setHostCode({ kind, code: info.code, address: info.address, ...othersField(info) });
           await open({ role: "host", acceptor });
           hosted(kind);
         } else {
@@ -1042,6 +1065,30 @@ export function usePracticeTogether({
     if (problem && TOAST_KINDS.has(problem.kind)) toast.warning(problem.message);
   }, [problem]);
 
+  /**
+   * Pause and Stop in a session act at once, in any phase (#258): the host stops everybody now; a
+   * guest stops here (and a Play on its way is called off) and asks the host to stop the others.
+   * False when there is no session to stop with (the app stops on its own).
+   */
+  const haltHere = useCallback(
+    (session: Session | HostRoom, player: TogetherPlayer, request: TogetherRequest): boolean => {
+      const phase = session.snapshot.phase;
+      if (phase === "closed" || phase === "failed" || phase === "waiting") return false;
+      const action = request.kind === "stop" ? "stop" : "pause";
+      const tick = action === "stop" ? 0 : player.getTick();
+      if (session instanceof HostRoom) {
+        startFor(action, tick);
+        return true;
+      }
+      session.cancelStarts();
+      if (action === "stop") player.stop();
+      else player.pause();
+      session.request(action, action === "stop" ? tick : undefined);
+      return true;
+    },
+    [startFor],
+  );
+
   const intercept = useCallback(
     (request: TogetherRequest): boolean => {
       // The session is on its way to this tab: nothing plays on its own meanwhile.
@@ -1068,8 +1115,11 @@ export function usePracticeTogether({
       }
       const session = sessionRef.current;
       const current = session?.snapshot.phase;
-      if (!session || (current !== "syncing" && current !== "synchronized")) return false;
       const player = playerRef.current;
+      if (session && player && halts(request, player) && haltHere(session, player, request)) {
+        return true;
+      }
+      if (!session || (current !== "syncing" && current !== "synchronized")) return false;
       if (!player) return false;
       const isHost = session.role === "host";
       // A host that is still waiting for the clocks plays on its own.
@@ -1119,7 +1169,7 @@ export function usePracticeTogether({
       }
       return true;
     },
-    [playerRef, startFor, id],
+    [playerRef, startFor, id, haltHere],
   );
 
   const elsewhere = useMemo(
@@ -1184,6 +1234,7 @@ export function usePracticeTogether({
       kick,
       ban,
       intercept,
+      setPlaying,
     }),
     [
       state,
@@ -1204,6 +1255,7 @@ export function usePracticeTogether({
       kick,
       ban,
       intercept,
+      setPlaying,
       live.live,
       live.ids.length,
       elsewhere,

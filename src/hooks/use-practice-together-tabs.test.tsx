@@ -102,7 +102,11 @@ function guestOf(transport: PeerTransport, key = "score-A", log: Command[] = [])
       log.push(cmd);
       return true;
     },
-    schedule: () => () => {},
+    // Pause and Stop are made at once, without preparing (#258): they are logged here.
+    schedule: (cmd) => {
+      if (!log.some((c) => c.id === cmd.id)) log.push(cmd);
+      return () => {};
+    },
   };
   const session = new Session({
     role: "guest",

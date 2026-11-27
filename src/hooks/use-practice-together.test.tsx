@@ -9,6 +9,7 @@ import type { Command } from "@/lib/practice-together/protocol";
 import { Session, type SessionHooks } from "@/lib/practice-together/session";
 import {
   memoryAcceptor,
+  dropPair,
   memoryPair,
   openPair,
   type GuestLink,
@@ -151,7 +152,9 @@ async function hosting(): Promise<Setup & { guest: ReturnType<typeof peer> }> {
 }
 
 /** The app joins a host (a real session on the far end); both are synchronized when this returns. */
-async function joining(): Promise<Setup & { host: ReturnType<typeof peer> }> {
+async function joining(): Promise<
+  Setup & { host: ReturnType<typeof peer>; pair: [PeerTransport, PeerTransport] }
+> {
   const pair = memoryPair({ up: 1, down: 1 });
   const host = peer("host", pair[0], "Drummer");
   vi.mocked(joinOnLan).mockResolvedValue(pair[1]);
@@ -166,7 +169,7 @@ async function joining(): Promise<Setup & { host: ReturnType<typeof peer> }> {
   await waitFor(() => expect(host.session.snapshot.phase).toBe("synchronized"), {
     timeout: 4000,
   });
-  return { ...context, host };
+  return { ...context, host, pair };
 }
 
 beforeEach(() => {
@@ -575,18 +578,23 @@ describe("usePracticeTogether: the host's transport", () => {
 });
 
 describe("usePracticeTogether: the guest", () => {
-  it("asks the host for Play, Pause and Stop, and does not start on its own", async () => {
+  it("asks the host for Play, Pause and Stop; it does not start on its own, but stops at once (#258)", async () => {
     const { result, player, host } = await joining();
     let handled = false;
     act(() => {
       handled = result.current.intercept({ kind: "playPause" });
     });
     expect(handled).toBe(true);
+    // Play goes after a few quick pings (#258).
+    await waitFor(() => expect(host.log.requested).toHaveLength(1), { timeout: 3000 });
     player.isPlaying.mockReturnValue(true);
     act(() => {
       result.current.intercept({ kind: "playPause" });
       result.current.intercept({ kind: "stop" });
     });
+    // Pause and Stop act here right away, and are sent at once.
+    expect(player.pause).toHaveBeenCalledOnce();
+    expect(player.stop).toHaveBeenCalledOnce();
     await waitFor(() => expect(host.log.requested).toHaveLength(3), { timeout: 3000 });
     expect(host.log.requested).toEqual([
       ["play", undefined],
@@ -594,7 +602,35 @@ describe("usePracticeTogether: the guest", () => {
       ["stop", 0],
     ]);
     expect(player.playPause).not.toHaveBeenCalled();
-    expect(player.stop).not.toHaveBeenCalled();
+  });
+
+  it("stops at once while the clocks are synced again after a drop, and asks the host too (#258)", async () => {
+    const { result, player, host, pair } = await joining();
+    player.isPlaying.mockReturnValue(true);
+    dropPair(pair);
+    await waitFor(() => expect(result.current.state?.phase).toBe("reconnecting"));
+    // Stop while the line is down: it stops here; there is nobody to ask.
+    let handled = false;
+    act(() => {
+      handled = result.current.intercept({ kind: "stop" });
+    });
+    expect(handled).toBe(true);
+    expect(player.stop).toHaveBeenCalledTimes(1);
+    // Back, and syncing the clocks again: Stop is not refused with "wait a moment".
+    openPair(pair);
+    await waitFor(() => expect(result.current.state?.phase).toBe("syncing"));
+    act(() => {
+      result.current.intercept({ kind: "stop" });
+    });
+    expect(player.stop).toHaveBeenCalledTimes(2);
+    expect(toast.info).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.state?.phase).toBe("synchronized"), {
+      timeout: 4000,
+    });
+    act(() => {
+      result.current.intercept({ kind: "stop" });
+    });
+    await waitFor(() => expect(host.log.requested).toEqual([["stop", 0]]));
   });
 
   it("asks the host to move to a bar while stopped, and to play from it", async () => {
@@ -638,6 +674,10 @@ describe("usePracticeTogether: the guest", () => {
     player.isPlaying.mockReturnValue(false);
     act(() => {
       result.current.intercept({ kind: "playPause" });
+    });
+    // Play is asked for after a few quick pings (#258).
+    await waitFor(() => expect(host.log.requested).toHaveLength(1), { timeout: 3000 });
+    act(() => {
       result.current.intercept({ kind: "stop" });
       result.current.intercept({ kind: "seekBar", bar: 1 });
     });

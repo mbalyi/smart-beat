@@ -308,7 +308,26 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
             code: "ABCD-EFGH-JKMN-PQRS-TVWX",
             link: "smartbeat://join/ABCD-EFGH-JKMN-PQRS-TVWX",
             address: "192.168.1.5:50123",
+            addresses: [
+              {
+                name: "en0",
+                kind: "wifi",
+                address: "192.168.1.5:50123",
+                code: "ABCD-EFGH-JKMN-PQRS-TVWX",
+              },
+            ],
           };
+        // "Host a network" (#258): not offered in unit tests unless a test mocks the wrapper.
+        case "practice_network_support":
+          return { canHost: false, reason: "This computer cannot host a network from Smart Beat." };
+        case "practice_network_start":
+          return {
+            ssid: "SmartBeat-K7QD",
+            passphrase: "abcd2345efgh",
+            wifiQr: "WIFI:T:WPA;S:SmartBeat-K7QD;P:abcd2345efgh;;",
+          };
+        case "practice_network_stop":
+          return null;
         case "practice_join":
         case "practice_kick":
         case "practice_leave":

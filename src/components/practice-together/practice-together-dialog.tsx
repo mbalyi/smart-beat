@@ -15,6 +15,7 @@ import {
 import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from "react";
 
 import { DirectConnectionHelp } from "@/components/practice-together/direct-connection-help";
+import { OtherNetworks } from "@/components/practice-together/other-networks";
 import {
   CARD,
   CHOICE,
@@ -362,6 +363,7 @@ function ConnectStep({ together, onClose }: { together: PracticeTogether; onClos
                     check that a firewall is not blocking Smart Beat.
                   </p>
                 )}
+                <OtherNetworks networks={together.hostCode?.others ?? []} />
                 {state.phase === "waiting" && (
                   <p role="status" className="text-sm">
                     Waiting for the other players… Up to {MAX_PLAYERS - 1} can join, one by one.

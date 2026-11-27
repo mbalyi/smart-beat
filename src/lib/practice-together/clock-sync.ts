@@ -64,12 +64,20 @@ const spread = (values: number[]): number => {
 const MAX_SKEW = 5e-4;
 /** The span of samples (ms) needed before a skew is fitted. */
 const SKEW_SPAN_MS = 10_000;
+/**
+ * The estimate is built from the round trips of this last stretch (ms) when there are enough of
+ * them. Nothing is measured while a song plays, so the few quick pings sent before the next Play
+ * (or after Stop) must count more than the trips from before the song.
+ */
+export const RECENT_MS = 30_000;
 
 export interface ClockEstimatorOptions {
   /** How many recent round trips are remembered. */
   window?: number;
   /** How many of the lowest-RTT trips the estimate is built from. */
   best?: number;
+  /** Only the trips of this last stretch (ms) count, when there are enough of them. */
+  recentMs?: number;
 }
 
 /**
@@ -80,12 +88,14 @@ export interface ClockEstimatorOptions {
 export class ClockEstimator {
   private readonly window: number;
   private readonly best: number;
+  private readonly recentMs: number;
   private samples: Exchange[] = [];
   private rejected = 0;
 
-  constructor({ window = 40, best = 10 }: ClockEstimatorOptions = {}) {
+  constructor({ window = 40, best = 10, recentMs = RECENT_MS }: ClockEstimatorOptions = {}) {
     this.window = window;
     this.best = best;
+    this.recentMs = recentMs;
   }
 
   /** Adds a round trip. Returns false when it was unusable (a negative RTT, a clock jump). */
@@ -115,9 +125,21 @@ export class ClockEstimator {
     return this.rejected;
   }
 
-  /** The round trips the estimate uses: the fastest ones, without the outliers. */
+  /**
+   * The trips to choose from: those of the last {@link RECENT_MS}, or the latest few when fewer
+   * than {@link MIN_SAMPLES} are that recent (a quick refresh that lost some answers).
+   */
+  private recent(): Exchange[] {
+    const newest = this.samples[this.samples.length - 1]?.at ?? 0;
+    const recent = this.samples.filter((s) => s.at >= newest - this.recentMs);
+    return recent.length >= MIN_SAMPLES ? recent : this.samples.slice(-this.best);
+  }
+
+  /** The round trips the estimate uses: the fastest recent ones, without the outliers. */
   private trusted(): Exchange[] {
-    const fastest = [...this.samples].sort((a, b) => a.rtt - b.rtt).slice(0, this.best);
+    const fastest = this.recent()
+      .sort((a, b) => a.rtt - b.rtt)
+      .slice(0, this.best);
     if (fastest.length < 3) return fastest;
     const offsets = fastest.map((s) => s.offset);
     const mid = median(offsets);

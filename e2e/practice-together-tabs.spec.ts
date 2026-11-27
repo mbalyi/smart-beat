@@ -87,7 +87,7 @@ async function hostWithGuestInTabOne(app: Page) {
       type: "hello",
       name: "Bass laptop",
       role: "guest",
-      caps: ["transport", "tab"],
+      caps: ["transport", "tab", "halt"],
       score: s,
     });
   }, score);
@@ -281,11 +281,13 @@ test.describe("Practice together: several tabs in one session (host)", () => {
     await expect.poll(() => sentCount(app, "cmd")).toBeGreaterThan(before);
     const last = await app.evaluate(() => {
       const cmds = window.__practiceTogether.sentOf("cmd") as unknown as {
-        cmd: { action: string };
+        cmd: { action: string; at: number };
       }[];
-      return cmds[cmds.length - 1]!.cmd.action;
+      return { ...cmds[cmds.length - 1]!.cmd, now: performance.now() };
     });
-    expect(["pause", "stop"]).toContain(last);
+    expect(["pause", "stop"]).toContain(last.action);
+    // It goes out at once, with no lead time: the guest acts on it when it arrives (#258).
+    expect(last.at).toBeLessThanOrEqual(last.now);
     await expect(app.getByRole("button", { name: "Play" })).toBeVisible();
     await expect(app.getByRole("button", { name: "Pause" })).toHaveCount(0);
   });

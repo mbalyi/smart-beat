@@ -4,12 +4,14 @@ import {
   DIRECT_CONNECTION_EXPECT,
   directConnectionGuide,
 } from "@/lib/practice-together/direct-connection";
+import { HostNetworkCard } from "@/components/practice-together/host-network-card";
 import { CARD } from "@/components/practice-together/together-frame";
 import { cn } from "@/lib/utils";
 
 /**
  * Steps for getting two computers onto one network without a router. It shows the steps of
- * the system the app runs on and no other system's (`os` is for tests).
+ * the system the app runs on and no other system's (`os` is for tests). On Windows and Linux it
+ * starts with "Host a network" when this computer can make one (#258).
  */
 export function DirectConnectionHelp({ os = detectDesktopOs() }: { os?: DesktopOs }) {
   const guide = directConnectionGuide(os);
@@ -29,6 +31,7 @@ export function DirectConnectionHelp({ os = detectDesktopOs() }: { os?: DesktopO
         </h3>
         <p className="text-sm text-muted-foreground">{guide.intro}</p>
       </div>
+      {guide.hostsNetwork && <HostNetworkCard />}
       {guide.options.map((option) => (
         <div key={option.id} className={cn(CARD, "flex flex-col gap-2")}>
           <h4 className="text-sm font-semibold">{option.title}</h4>
@@ -49,6 +52,11 @@ export function DirectConnectionHelp({ os = detectDesktopOs() }: { os?: DesktopO
           )}
         </div>
       ))}
+      {guide.note && (
+        <p className="text-sm text-muted-foreground" data-testid="direct-connection-note">
+          {guide.note}
+        </p>
+      )}
       <div className={cn(CARD, "flex flex-col gap-2")}>
         <h4 className="text-sm font-semibold">What to expect</h4>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-muted-foreground">

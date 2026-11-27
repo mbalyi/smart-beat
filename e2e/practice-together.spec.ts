@@ -62,6 +62,45 @@ async function letIn(app: Page) {
 
 const chip = (app: Page) => app.getByTestId("together-chip");
 
+/** Joins the simulated host with a typed code; resolves once the two are in sync. */
+async function joinAsGuest(app: Page) {
+  const dialog = await openDialog(app);
+  await dialog.getByRole("radio", { name: "Join an existing session" }).click();
+  await dialog.getByLabel("Room code").fill("ABCD-EFGH-JKMN-PQRS-TVWX");
+  await dialog.getByRole("button", { name: "Join the session" }).click();
+  await expect
+    .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("hello").length))
+    .toBe(1);
+  await app.evaluate(() =>
+    window.__practiceTogether.frame({ type: "welcome", session: "s1", version: 1, name: "Host" }),
+  );
+  await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+  return dialog;
+}
+
+/**
+ * The simulated host starts the song a moment from now. Its answers to the guest's pings carry
+ * this page's own clock, so the session's clock is the page's here.
+ */
+async function hostStarts(app: Page) {
+  await app.evaluate(() =>
+    window.__practiceTogether.frame({
+      type: "cmd",
+      cmd: {
+        id: 1,
+        action: "play",
+        tick: 0,
+        at: performance.now() + 800,
+        speed: 100,
+        loop: null,
+        metronome: false,
+        countIn: false,
+        countInBeats: 4,
+      },
+    }),
+  );
+}
+
 test.describe("Practice together", () => {
   test("opens from the menu with the host choice ready, and the internet is not in this build", async ({
     app,
@@ -223,28 +262,17 @@ test.describe("Practice together", () => {
   test("a guest's Play and Stop are asked of the host, and nothing starts on its own", async ({
     app,
   }) => {
-    const dialog = await openDialog(app);
-    await dialog.getByRole("radio", { name: "Join an existing session" }).click();
-    await dialog.getByLabel("Room code").fill("ABCD-EFGH-JKMN-PQRS-TVWX");
-    await dialog.getByRole("button", { name: "Join the session" }).click();
-    await expect
-      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("hello").length))
-      .toBe(1);
-    await app.evaluate(() =>
-      window.__practiceTogether.frame({
-        type: "welcome",
-        session: "s1",
-        version: 1,
-        name: "Host",
-      }),
-    );
-    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized", { timeout: 15_000 });
+    const dialog = await joinAsGuest(app);
     await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
 
     // The buttons are not locked: the guest may start and stop, through the host.
     await expect(app.getByRole("button", { name: "Play" })).toBeEnabled();
     await expect(app.getByRole("button", { name: "Stop" })).toBeEnabled();
     await app.getByRole("button", { name: "Play" }).click();
+    // Play is asked for after a few quick pings that bring the clocks up to date (#258).
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("request")))
+      .toEqual([{ type: "request", action: "play" }]);
     await app.getByRole("button", { name: "Stop" }).click();
     await expect
       .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("request")))
@@ -256,6 +284,54 @@ test.describe("Practice together", () => {
     // (a guest that played by itself would show Pause).
     await expect(app.getByRole("button", { name: "Play" })).toBeVisible();
     await expect(app.getByRole("button", { name: "Pause" })).toHaveCount(0);
+  });
+
+  test("a guest's Stop stops it here at once and asks the host to stop everybody (#258)", async ({
+    app,
+  }) => {
+    const dialog = await joinAsGuest(app);
+    await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+    await hostStarts(app);
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible({ timeout: 10_000 });
+
+    await app.getByRole("button", { name: "Stop" }).click();
+    // It stops here without waiting for the host.
+    await expect(app.getByRole("button", { name: "Play" })).toBeVisible();
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("request")))
+      .toEqual([{ type: "request", action: "stop", tick: 0 }]);
+  });
+
+  test("a guest whose connection comes back while the song plays stays in sync, and Stop works (#258)", async ({
+    app,
+  }) => {
+    const dialog = await joinAsGuest(app);
+    await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+    await hostStarts(app);
+    await expect(app.getByRole("button", { name: "Pause" })).toBeVisible({ timeout: 10_000 });
+
+    // The line drops and comes back while the song plays.
+    await app.evaluate(() => window.__practiceTogether.state("reconnecting", "connection lost"));
+    await expect(chip(app)).toHaveAttribute("data-phase", "reconnecting");
+    const pings = await app.evaluate(() => window.__practiceTogether.sentOf("ping").length);
+    await app.evaluate(() => window.__practiceTogether.state("open"));
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("hello").length))
+      .toBe(2);
+    await app.evaluate(() =>
+      window.__practiceTogether.frame({ type: "welcome", session: "s1", version: 1, name: "Host" }),
+    );
+    // The clock estimate is kept: in sync at once, and nothing is measured while it plays.
+    await expect(chip(app)).toHaveAttribute("data-phase", "synchronized");
+    await app.waitForTimeout(1_500);
+    expect(await app.evaluate(() => window.__practiceTogether.sentOf("ping").length)).toBe(pings);
+
+    // Stop works right away.
+    await app.getByRole("button", { name: "Stop" }).click();
+    await expect(app.getByRole("button", { name: "Play" })).toBeVisible();
+    await expect
+      .poll(() => app.evaluate(() => window.__practiceTogether.sentOf("request")))
+      .toEqual([{ type: "request", action: "stop", tick: 0 }]);
   });
 
   test("shows that the connection dropped and leaves cleanly", async ({ app }) => {

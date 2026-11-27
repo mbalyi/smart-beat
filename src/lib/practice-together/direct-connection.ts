@@ -15,7 +15,11 @@ export interface DirectConnectionGuide {
   /** The system's name as people say it. */
   system: string;
   intro: string;
+  /** The app can make a Wi-Fi network on this system ("Host a network", #258). */
+  hostsNetwork: boolean;
   options: ConnectionOption[];
+  /** A short note under the steps, when the system needs one. */
+  note?: string;
 }
 
 const CABLE: ConnectionOption = {
@@ -36,18 +40,29 @@ const PHONE: ConnectionOption = {
   ],
 };
 
+/** Two Macs and a cable: no router, no settings, the steadiest of all. */
+const MAC_CABLE: ConnectionOption = {
+  id: "mac-cable",
+  title: "Best: connect the two Macs with a cable",
+  steps: [
+    "Connect the two Macs with a USB-C or Thunderbolt cable; they link up on 169.254.x.x by themselves. No router and no settings are needed.",
+    "Start a session on one Mac. The other Mac uses the code listed for the cable (under Other networks when the Macs are also on Wi-Fi).",
+  ],
+};
+
 const GUIDES: Record<DesktopOs, DirectConnectionGuide> = {
   macos: {
     os: "macos",
     system: "macOS",
-    intro:
-      "Smart Beat cannot switch a Mac's Wi-Fi sharing on for you, but these ways work without a router.",
+    intro: "A cable between the two Macs is the quickest way without a router.",
+    hostsNetwork: false,
     options: [
-      CABLE,
+      MAC_CABLE,
       PHONE,
+      CABLE,
       {
         id: "internet-sharing",
-        title: "Make a network on the host Mac (Internet Sharing)",
+        title: "If nothing else works: Internet Sharing on the host Mac",
         steps: [
           "Open System Settings (or System Preferences on an older macOS) › General › Sharing.",
           "Turn on Internet Sharing: share the connection you have (for example Ethernet) to computers using Wi-Fi.",
@@ -58,11 +73,13 @@ const GUIDES: Record<DesktopOs, DirectConnectionGuide> = {
         ],
       },
     ],
+    note: "A Mac cannot host a network from Smart Beat, but it can join one that Smart Beat makes on a Windows or Linux laptop.",
   },
   windows: {
     os: "windows",
     system: "Windows",
     intro: "Windows can make a network for the other player (a Mobile hotspot).",
+    hostsNetwork: true,
     options: [
       {
         id: "mobile-hotspot",
@@ -82,6 +99,7 @@ const GUIDES: Record<DesktopOs, DirectConnectionGuide> = {
     os: "linux",
     system: "Linux",
     intro: "Most Linux desktops can make a network for the other player.",
+    hostsNetwork: true,
     options: [
       {
         id: "wifi-hotspot",
@@ -102,6 +120,7 @@ const GUIDES: Record<DesktopOs, DirectConnectionGuide> = {
     system: "your computer",
     intro:
       "Put both computers on the same network. Smart Beat does not recognise this system, so here are the two ways that work everywhere.",
+    hostsNetwork: false,
     options: [CABLE, PHONE],
   },
 };

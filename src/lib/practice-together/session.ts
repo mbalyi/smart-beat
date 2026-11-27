@@ -155,6 +155,8 @@ export interface SessionHooks {
    * answer, so the question can be taken back.
    */
   approve?(name: string, signal?: AbortSignal): Promise<boolean>;
+  /** The host only: the guest came back after a drop and was welcomed again. */
+  rewelcomed?(): void;
   /** The host only: the guest asks for Play, Pause, Stop or a position (the host decides). */
   request?(action: RequestAction, tick: number | undefined): void;
   /** Sharing the host's tab (#158). Without it the session works only on one shared file. */
@@ -231,6 +233,14 @@ export const SLEEP_LATE_MS = 10_000;
 /** The pings sent at the start, to get a first estimate quickly. */
 export const BURST_PINGS = 8;
 export const BURST_GAP_MS = 120;
+/**
+ * Nothing is measured while a song plays (#258). Before the next Play, and when the song
+ * stops, this many quick pings bring the clock estimate up to date.
+ */
+export const REFRESH_PINGS = 4;
+export const REFRESH_GAP_MS = 40;
+/** A refresh before Play waits at most this long for its answers (ms). */
+export const REFRESH_TIMEOUT_MS = 400;
 /** How often the host reports where playback is, so the guest can follow. */
 export const STATE_MS = 1_000;
 /** A start is called off when the other app is not ready this long before it. */
@@ -319,6 +329,54 @@ export function problem(kind: ProblemKind): Problem {
   return { kind, message: describe(kind), fatal: fatalKinds.includes(kind) };
 }
 
+/** Pause and Stop: they act at once, without a lead time or a "ready" (#258). */
+export function isHalt(action: Command["action"]): boolean {
+  return action === "pause" || action === "stop";
+}
+
+/** Rounded the way the dialog shows it: changes below that are not worth drawing again. */
+const shown = (value: number, places = 0): number => {
+  const scale = 10 ** places;
+  return Math.round(value * scale) / scale;
+};
+
+/** Whether two measurements of the same kind show the same (`quality`, `latency`, `peer`). */
+function sameShown(key: keyof SessionState, a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  switch (key) {
+    case "quality": {
+      const [x, y] = [a as SyncQuality, b as SyncQuality];
+      return x.bucket === y.bucket && shown(x.errorMs, 1) === shown(y.errorMs, 1);
+    }
+    case "latency": {
+      const [x, y] = [a as LatencyStats, b as LatencyStats];
+      return (
+        shown(x.p50) === shown(y.p50) &&
+        shown(x.p95) === shown(y.p95) &&
+        shown(x.jitter) === shown(y.jitter)
+      );
+    }
+    case "peer": {
+      const [x, y] = [a as PeerReport, b as PeerReport];
+      return (
+        shown(x.errorMs, 1) === shown(y.errorMs, 1) &&
+        shown(x.rtt) === shown(y.rtt) &&
+        shown(x.driftMs) === shown(y.driftMs)
+      );
+    }
+    default:
+      return false;
+  }
+}
+
+/** Whether `change` would show anything new on top of `state`. */
+export function changesState(state: SessionState, change: Partial<SessionState>): boolean {
+  return (Object.keys(change) as (keyof SessionState)[]).some(
+    (key) => !sameShown(key, state[key], change[key]),
+  );
+}
+
 /**
  * Whether two tabs of the same song are the same tab: a tab that does not say which of the host's
  * tabs it is (one the guest opened itself, or an older app) matches any.
@@ -377,6 +435,18 @@ export class Session {
   private readonly guestId: string | undefined;
   private peerGuest: string | undefined;
   private readonly reconnectMs: number;
+  /** A song plays here: no pings and no position reports go out (#258). */
+  private playing = false;
+  /** The guest: the Play command that made it quiet before its own player said it plays. */
+  private quietFor: number | null = null;
+  /** The connection came back while a song played: the clocks are synced again after it. */
+  private resyncPending = false;
+  /** Called with every answer to a ping (see `refresh`). */
+  private readonly pongWaiters = new Set<() => void>();
+  /** Commands being prepared (the guest), so a Stop meanwhile can call them off. */
+  private readonly preparing = new Set<number>();
+  /** Counts halts: a start that was being prepared when one came is not made. */
+  private haltEpoch = 0;
 
   constructor(options: SessionOptions) {
     this.role = options.role;
@@ -521,8 +591,134 @@ export class Session {
    */
   request(action: RequestAction, tick?: number): boolean {
     if (this.role !== "guest" || this.state.phase !== "synchronized") return false;
-    this.send({ type: "request", action, ...(tick === undefined ? {} : { tick }) });
+    const halts = this.haltEpoch;
+    const send = () => {
+      if (this.state.phase === "closed" || this.state.phase === "failed") return;
+      this.send({ type: "request", action, ...(tick === undefined ? {} : { tick }) });
+    };
+    // Play: this app's clock estimate is brought up to date first (nothing was measured while
+    // the last song played). A Pause or Stop asked for meanwhile calls it off.
+    if (action === "play") {
+      void this.refresh().then(() => {
+        if (halts === this.haltEpoch) send();
+      });
+    } else {
+      if (isHalt(action)) this.haltEpoch += 1;
+      send();
+    }
     return true;
+  }
+
+  /**
+   * Whether a song plays on this computer (the player says so when it starts and stops; the song
+   * ending and a local Stop included). While it plays, nothing is measured or reported, and a
+   * reconnect does not start the clocks over (#258). When it stops, a few quick pings bring the
+   * estimate up to date, or the clocks are synced from scratch if the connection came back
+   * meanwhile.
+   */
+  setPlaying(on: boolean): void {
+    this.quietFor = null;
+    this.quiet(on);
+  }
+
+  private quiet(on: boolean) {
+    if (on === this.playing) return;
+    this.playing = on;
+    if (on) return;
+    const { phase } = this.state;
+    if (!this.wasWelcomed || (phase !== "syncing" && phase !== "synchronized")) return;
+    if (this.resyncPending) {
+      this.resyncPending = false;
+      this.patch({ phase: "syncing" });
+      return this.beginSync();
+    }
+    this.runPings(REFRESH_PINGS, REFRESH_GAP_MS);
+  }
+
+  /** No measuring while a song plays, once there is an estimate to play with. */
+  private get silent(): boolean {
+    return this.playing && this.clock.ready;
+  }
+
+  /**
+   * Sends `n` quick pings and resolves when `n` answers came back, or after `timeoutMs`. Used just
+   * before a Play, so its start is timed with a fresh clock estimate.
+   */
+  refresh(
+    n = REFRESH_PINGS,
+    gapMs = REFRESH_GAP_MS,
+    timeoutMs = REFRESH_TIMEOUT_MS,
+  ): Promise<void> {
+    const { phase } = this.state;
+    if (!this.wasWelcomed || (phase !== "syncing" && phase !== "synchronized")) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      let answers = 0;
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      const done = () => {
+        this.pongWaiters.delete(onPong);
+        for (const timer of timers) clearTimeout(timer);
+        resolve();
+      };
+      const onPong = () => {
+        answers += 1;
+        if (answers >= n) done();
+      };
+      this.pongWaiters.add(onPong);
+      this.ping();
+      for (let i = 1; i < n; i += 1) timers.push(setTimeout(() => this.ping(), i * gapMs));
+      timers.push(setTimeout(done, timeoutMs));
+    });
+  }
+
+  /**
+   * The host stops or pauses this guest now (a halt carries `at` = now): no lead time and no
+   * answer is waited for, and a guest acts on it whatever its clock (#258). An older guest that
+   * does not know halts gets the command a lead time ahead, as before.
+   */
+  halt(cmd: Command): void {
+    const { phase } = this.state;
+    if (this.role !== "host" || !this.wasWelcomed || phase === "closed" || phase === "failed") {
+      return;
+    }
+    const at = this.now();
+    this.send({
+      type: "cmd",
+      cmd: { ...cmd, at: this.peerHalts ? at : at + this.state.leadMs },
+    });
+    // A host on its own (not in a room, whose seats do nothing here) stops at once too.
+    this.cancelStarts();
+    this.hooks.schedule({ ...cmd, at }, at);
+  }
+
+  /** Whether the other app acts on Pause and Stop at once (see `halt`). */
+  get peerHalts(): boolean {
+    return this.peerCaps.includes("halt");
+  }
+
+  /**
+   * Calls off every start this app has waiting or being prepared (a start already made is taken
+   * back): a Stop or Pause here must not be followed by a Play that was on its way.
+   */
+  cancelStarts(): void {
+    this.haltEpoch += 1;
+    for (const [id, cancel] of this.cancels) {
+      cancel(true);
+      this.forget(id);
+    }
+    this.cancels.clear();
+    for (const id of this.preparing) this.forget(id);
+    if (this.quietFor !== null) {
+      this.quietFor = null;
+      this.quiet(false);
+    }
+  }
+
+  /** Remembers that command `id` was called off, so one still being prepared is not started. */
+  private forget(id: number) {
+    this.aborted.add(id);
+    if (this.aborted.size > 32) this.aborted.delete(this.aborted.values().next().value as number);
   }
 
   /**
@@ -538,13 +734,19 @@ export class Session {
       this.setProblem(problem("not-synchronized"));
       return "not-synchronized";
     }
-    const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() + this.state.leadMs };
+    const halts = this.haltEpoch;
     const epoch = this.hookEpoch;
+    // Play: the clock estimate is brought up to date first (nothing is measured during a song).
+    if (partial.action === "play") await this.refresh();
+    if (this.state.phase !== "synchronized") return "not-synchronized";
+    if (halts !== this.haltEpoch || epoch !== this.hookEpoch) return "late";
+    const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() + this.state.leadMs };
     const peer = this.dispatch(cmd);
     const mine = this.hooks.prepare(cmd).catch(() => false);
     const [mineOk, peerOk] = await Promise.all([mine, peer]);
-    // The app moved to another tab while this was getting ready: it does not start there.
-    if (epoch !== this.hookEpoch) {
+    // The app moved to another tab while this was getting ready, or a Stop came meanwhile: it
+    // does not start.
+    if (epoch !== this.hookEpoch || halts !== this.haltEpoch) {
       this.callOff(cmd.id, "host-late");
       return "late";
     }
@@ -700,9 +902,12 @@ export class Session {
       case "abort":
         this.cancels.get(msg.id)?.(true);
         this.cancels.delete(msg.id);
-        this.aborted.add(msg.id);
-        if (this.aborted.size > 32)
-          this.aborted.delete(this.aborted.values().next().value as number);
+        this.forget(msg.id);
+        // The Play that made this guest quiet will not happen: measure again.
+        if (this.quietFor === msg.id) {
+          this.quietFor = null;
+          this.quiet(false);
+        }
         return this.setProblem(problem("late"));
       case "report":
         return this.onReport(msg);
@@ -740,7 +945,7 @@ export class Session {
           problem(msg.reason === "kicked" || msg.reason === "banned" ? msg.reason : "peer-left"),
         );
       case "state":
-        if (this.role === "guest" && this.clock.ready) {
+        if (this.role === "guest" && this.clock.ready && !this.playing) {
           this.hooks.hostState?.(msg.pos, this.localTimeOf(msg.at), msg.playing);
         }
         return;
@@ -791,6 +996,7 @@ export class Session {
   }
 
   private welcome(name: string) {
+    const again = this.wasWelcomed;
     this.wasWelcomed = true;
     this.send({
       type: "welcome",
@@ -799,11 +1005,28 @@ export class Session {
       name: this.name,
       caps: [...CAPABILITIES],
     });
-    this.patch({ peerName: name, phase: "syncing", peer: null, problem: null });
+    if (this.keepClock()) {
+      this.patch({ peerName: name, phase: "synchronized", problem: null });
+    } else {
+      this.patch({ peerName: name, phase: "syncing", peer: null, problem: null });
+    }
     this.checkScore(0);
-    this.beginSync();
+    if (!this.resyncPending) this.beginSync();
     this.hooks.edit?.welcomed?.();
     this.hooks.source?.welcomed?.();
+    if (again) this.hooks.rewelcomed?.();
+  }
+
+  /**
+   * The connection came back while a song plays here (#258): the clock estimate from before is
+   * kept and the session stays in sync, so a Stop still works; the clocks are synced again once
+   * the song stops (see `setPlaying`).
+   */
+  private keepClock(): boolean {
+    const keep = this.playing && this.clock.ready;
+    this.resyncPending = keep;
+    if (keep) this.startState();
+    return keep;
   }
 
   private refuse(reason: RefuseReason) {
@@ -815,14 +1038,23 @@ export class Session {
     this.wasWelcomed = true;
     this.version = negotiate(PROTOCOL_VERSION, msg.version);
     this.peerCaps = msg.caps ?? [];
-    this.patch({
-      session: msg.session,
-      peerName: msg.name,
-      phase: "syncing",
-      peer: null,
-      problem: null,
-    });
-    this.beginSync();
+    if (this.keepClock()) {
+      this.patch({
+        session: msg.session,
+        peerName: msg.name,
+        phase: "synchronized",
+        problem: null,
+      });
+    } else {
+      this.patch({
+        session: msg.session,
+        peerName: msg.name,
+        phase: "syncing",
+        peer: null,
+        problem: null,
+      });
+      this.beginSync();
+    }
     this.hooks.source?.welcomed?.();
   }
 
@@ -838,12 +1070,16 @@ export class Session {
 
   private async onCommand(cmd: Command) {
     if (this.role !== "guest") return;
+    // Pause and Stop from a host that halts: at once, whatever the clock (#258).
+    if (isHalt(cmd.action) && this.peerHalts) return this.haltHere(cmd);
     const localAt = this.localTimeOf(cmd.at);
     if (!this.clock.ready || localAt - this.now() < MIN_PREPARE_MS) {
       return this.send({ type: "ready", id: cmd.id, ok: false, reason: "late" });
     }
     const epoch = this.hookEpoch;
+    this.preparing.add(cmd.id);
     const ok = await this.hooks.prepare(cmd).catch(() => false);
+    this.preparing.delete(cmd.id);
     // "Ready" must still reach the host before its deadline: it takes one way and a margin.
     const oneWay = this.latency.stats().p50 / 2;
     if (
@@ -855,15 +1091,38 @@ export class Session {
       return this.send({ type: "ready", id: cmd.id, ok: false, reason: "late" });
     }
     this.send({ type: "ready", id: cmd.id, ok: true });
+    // The song starts in a moment: nothing is measured from now on (the player says when it
+    // stops, or the start is called off).
+    if (cmd.action === "play" && !this.playing) {
+      this.quiet(true);
+      this.quietFor = cmd.id;
+    }
     this.cancels.set(cmd.id, this.hooks.schedule(cmd, this.localTimeOf(cmd.at)));
+  }
+
+  /** The host halted: a Play on its way is called off and the pause or stop is made now. */
+  private haltHere(cmd: Command) {
+    this.cancelStarts();
+    this.hooks.schedule(cmd, this.now());
   }
 
   // ----- clock -----------------------------------------------------------------------------
 
   private beginSync() {
+    this.resyncPending = false;
     this.clock.reset();
     this.latency.reset();
     this.stopPings();
+    this.runPings(BURST_PINGS, BURST_GAP_MS);
+  }
+
+  /**
+   * Sends `count` pings `gap` ms apart, then one every preset interval while nothing plays. The
+   * timers are set afresh, so the first steady one is not taken for a late one.
+   */
+  private runPings(count: number, gap: number) {
+    clearTimeout(this.pingTimer);
+    this.pingTimer = undefined;
     let sent = 0;
     /** Sets the next timer, noting when it is due so that a late one shows. */
     const later = (action: () => void, delay: number) => {
@@ -874,12 +1133,15 @@ export class Session {
     const burst = () => {
       this.ping();
       sent += 1;
-      later(
-        sent < BURST_PINGS ? burst : steady,
-        sent < BURST_PINGS ? BURST_GAP_MS : this.preset().pingMs,
-      );
+      later(sent < count ? burst : steady, sent < count ? gap : this.preset().pingMs);
     };
     const steady = () => {
+      // A song plays: nothing is measured (it starts again when the song stops), and a timer
+      // that a busy page held up is not a sleep.
+      if (this.silent) {
+        this.pingTimer = undefined;
+        return;
+      }
       // The page's own clock stops while some computers sleep, the wall clock does not: either one
       // running far past the due time means a sleep (a busy page is late by a second or two).
       const late = Math.max(this.now() - this.due, Date.now() - this.dueWall);
@@ -905,7 +1167,8 @@ export class Session {
   private startState() {
     if (this.role !== "host" || this.stateTimer !== undefined) return;
     this.stateTimer = setInterval(() => {
-      if (this.state.phase !== "synchronized") return;
+      // Not while a song plays: nothing is corrected then, and every report costs the page.
+      if (this.state.phase !== "synchronized" || this.playing) return;
       const position = this.hooks.position?.();
       if (position) {
         this.send({ type: "state", pos: position.pos, at: this.now(), playing: position.playing });
@@ -925,6 +1188,7 @@ export class Session {
     this.recompute();
     if (this.state.phase !== "closed") this.sendReport();
     this.promote();
+    for (const waiter of [...this.pongWaiters]) waiter();
   }
 
   private sendReport() {
@@ -1253,6 +1517,8 @@ export class Session {
   }
 
   private patch(change: Partial<SessionState>) {
+    // Nothing the dialog would show differently: no new state, so nothing is drawn again.
+    if (!changesState(this.state, change)) return;
     this.state = { ...this.state, ...change };
     for (const listener of [...this.listeners]) listener(this.state);
   }
