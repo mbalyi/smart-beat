@@ -128,6 +128,8 @@ fn render(audio: &AudioLanes, source: DecodedAudio, seconds: f64) -> Vec<f32> {
         max_block: BLOCK,
         build_chain: &build,
         seconds_at: &seconds_at,
+        sound: &|_| None,
+        live_queue: &|_| super::midi::live_queue(),
     };
     let mut mixer = LaneMixer::new(prepare(&inputs), RATE);
     let total = (seconds * RATE as f64) as usize;
@@ -357,6 +359,8 @@ fn an_edit_keeps_the_running_voice_of_an_unchanged_clip() {
             max_block: BLOCK,
             build_chain: &build,
             seconds_at: &seconds_at,
+            sound: &|_| None,
+            live_queue: &|_| super::midi::live_queue(),
         })
     };
     let mut mixer = LaneMixer::new(prepare_with(&audio), RATE);

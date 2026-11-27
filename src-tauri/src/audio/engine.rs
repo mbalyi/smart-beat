@@ -492,6 +492,8 @@ pub struct Engine {
     master_pan: f32,
     master_gains: (f32, f32),
     lanes: Option<LaneMixer>,
+    /// The MIDI lane played live (ADR 0006): heard while the song is stopped.
+    live_midi: Option<String>,
     /// The live input with its own chain (none: no monitor track).
     monitor: Option<Monitor>,
     /// Song time in seconds.
@@ -553,6 +555,7 @@ impl Engine {
             master_pan: 0.0,
             master_gains: (1.0, 1.0),
             lanes: None,
+            live_midi: None,
             monitor: None,
             position: 0.0,
             next_event: 0,
@@ -996,6 +999,14 @@ impl Engine {
 
     /// Installs, replaces or removes (`None`) the audio lanes; returns what to drop off the
     /// audio thread.
+    /// Which MIDI lane is played live (armed or monitored; none: no lane).
+    pub fn set_live_midi(&mut self, lane: Option<String>) {
+        self.live_midi = lane.clone();
+        if let Some(lanes) = &mut self.lanes {
+            lanes.set_live(lane);
+        }
+    }
+
     pub fn set_lanes(
         &mut self,
         prepared: Option<PreparedLanes>,
@@ -1005,6 +1016,7 @@ impl Engine {
             (Some(prepared), None) => {
                 let mut lanes = LaneMixer::new(prepared, self.sample_rate);
                 lanes.reset();
+                lanes.set_live(self.live_midi.clone());
                 self.lanes = Some(lanes);
                 Vec::new()
             }

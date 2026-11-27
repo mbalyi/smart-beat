@@ -946,6 +946,16 @@
         return null;
       case "audio_forget_sources":
         return null;
+      // MIDI lanes (ADR 0006): live notes, the armed lane and panic are recorded for tests.
+      case "audio_midi_live":
+        (window.__midiLive ??= []).push({ lane: args.lane, messages: args.messages });
+        return null;
+      case "audio_midi_arm":
+        window.__midiArmed = args.lane;
+        return null;
+      case "audio_midi_panic":
+        window.__midiPanics = (window.__midiPanics ?? 0) + 1;
+        return null;
       // Practice together sends the audio files of the lanes (src-tauri/src/audio/transfer.rs).
       // Tests put the bytes of a file this computer has in `__sourceBytes` (by id).
       case "audio_source_size": {

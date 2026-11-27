@@ -4657,6 +4657,7 @@ dependencies = [
  "clap-sys",
  "cmake",
  "cpal",
+ "crossbeam-queue",
  "flacenc",
  "getrandom 0.4.3",
  "hound",

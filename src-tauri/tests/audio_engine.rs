@@ -685,6 +685,8 @@ fn lane_prepared(solo: bool, clip_ms: f64) -> smart_beat_lib::audio::lanes::Prep
         max_block: BLOCK,
         build_chain: &build,
         seconds_at: &seconds_at,
+        sound: &|_| None,
+        live_queue: &|_| smart_beat_lib::audio::lanes::midi::live_queue(),
     })
 }
 

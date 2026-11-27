@@ -1447,6 +1447,19 @@ export interface EngineLanes {
 export const setEngineLanes = (lanes: EngineLanes | null) =>
   call<void>("audio_set_lanes", { lanes });
 
+/** A MIDI message: status, data 1, data 2. */
+export type MidiMessage = [number, number, number];
+
+/** Plays MIDI messages on a MIDI lane now (the on-screen pads, the computer keyboard). */
+export const playLaneMidi = (lane: string, messages: MidiMessage[]) =>
+  call<void>("audio_midi_live", { lane, messages });
+
+/** Arms a MIDI lane for live playing (null: none): heard while the song is stopped. */
+export const armMidiLane = (lane: string | null) => call<void>("audio_midi_arm", { lane });
+
+/** Stops every note of every MIDI lane (panic). */
+export const midiPanic = () => call<void>("audio_midi_panic");
+
 /** The nearest zero crossing to `ms` in a loaded file (within 10 ms). */
 export const audioZeroCrossing = (source: string, ms: number) =>
   call<number>("audio_zero_crossing", { source, ms });
