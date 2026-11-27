@@ -2577,6 +2577,18 @@ export function ScoreWorkspace({
   // Recording on a MIDI lane (ADR 0006): the same record icon, keys and armed lane.
   const isMidiLaneId = (id: string | null) =>
     !!id && lanesAudioRef.current.lanes.some((l) => l.id === id && l.kind === "midi");
+  // A MIDI lane hears its own notes, not the audio input. Stable: the lane record hook calls it
+  // from an effect that runs again whenever it changes.
+  const setLaneLiveInput = useCallback(
+    (live: LiveInput | null) => {
+      const midi = (id: string | null) =>
+        !!id && lanesAudioRef.current.lanes.some((l) => l.id === id && l.kind === "midi");
+      setLiveInput(
+        live && midi(live.hearLane) ? (live.silentLane ? { ...live, hearLane: null } : null) : live,
+      );
+    },
+    [setLiveInput],
+  );
   const writeMidiToTab = (laneId: string, clipId: string) =>
     writeMidiClipToTab({
       audio: lanesAudioRef.current,
@@ -2605,15 +2617,7 @@ export function ScoreWorkspace({
         : recordAudio.start(setup)),
     stop: () => void (midiRecord.recording ? midiRecord.stop() : recordAudio.stop()),
     discard: () => void (midiRecord.recording ? midiRecord.discard() : recordAudio.discard()),
-    // A MIDI lane hears its own notes, not the audio input.
-    setLiveInput: (live) =>
-      setLiveInput(
-        live && isMidiLaneId(live.hearLane)
-          ? live.silentLane
-            ? { ...live, hearLane: null }
-            : null
-          : live,
-      ),
+    setLiveInput: setLaneLiveInput,
     engineOn,
     ensureEngine: ensureRecordingEngine,
     inputName: audioInput?.label ?? null,

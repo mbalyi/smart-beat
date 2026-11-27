@@ -102,6 +102,10 @@ pub struct DeviceSettings {
     pub fixed_velocity: Option<u8>,
     #[serde(default)]
     pub pad_layout: PadLayout,
+    /// The note each pad of the controller sends, by pad (learned on the pad board; banks follow
+    /// one another). 255, or no entry: not learned (the board's default).
+    #[serde(default)]
+    pub pad_notes: Vec<u8>,
     #[serde(default)]
     pub pads: Vec<PadRoute>,
     #[serde(default)]
@@ -124,6 +128,7 @@ impl DeviceSettings {
             transpose: 0,
             fixed_velocity: None,
             pad_layout: PadLayout::Grid16,
+            pad_notes: Vec::new(),
             pads: Vec::new(),
             controls: Vec::new(),
         }
@@ -146,6 +151,8 @@ impl DeviceSettings {
             return Err("MIDI device setting out of range".into());
         }
         if self.pads.len() > MAX_PAD_MAP
+            || self.pad_notes.len() > MAX_PAD_MAP
+            || self.pad_notes.iter().any(|n| *n > 127 && *n != 255)
             || self.pads.iter().any(|p| p.from > 127 || p.to > 127)
             || self.controls.len() > MAX_CONTROLS
             || self.controls.iter().any(|c| c.chan > 15 || c.number > 127)

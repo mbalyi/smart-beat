@@ -35,6 +35,7 @@ const settings = (name: string, patch: Partial<MidiDeviceSettings> = {}): MidiDe
   transpose: 0,
   fixedVelocity: null,
   padLayout: "grid16",
+  padNotes: [],
   pads: [],
   controls: [],
   ...patch,
@@ -79,15 +80,15 @@ describe("PadBoardDialog", () => {
     const grid = await screen.findByRole("group", { name: "Pads" });
     expect(within(grid).getAllByRole("button")).toHaveLength(16);
     // The bottom-left cell is pad 1.
-    expect(within(grid).getAllByRole("button")[12]).toHaveAccessibleName(/^Pad 1:/);
+    expect(within(grid).getAllByRole("button")[12]).toHaveAccessibleName(/^Pad 1 /);
     await screen.findByRole("option", { name: "Pad Controller" });
 
     await hit(37);
     expect(
-      within(screen.getByRole("button", { name: /^Pad 2:/ })).getByTestId("midi-activity-light"),
+      within(screen.getByRole("button", { name: /^Pad 2 / })).getByTestId("midi-activity-light"),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^Pad 2:/ }));
+    await user.click(screen.getByRole("button", { name: /^Pad 2 / }));
     await user.click(screen.getByRole("button", { name: "Learn: hit the pad" }));
     await hit(48);
     expect(screen.getByText("It sends note 48.")).toBeInTheDocument();

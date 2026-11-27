@@ -2785,6 +2785,8 @@ export interface MidiDeviceSettings {
   transpose: number;
   fixedVelocity: number | null;
   padLayout: "grid16" | "grid8";
+  /** The note each pad sends, by pad (learned on the pad board; 255: not learned). */
+  padNotes: number[];
   pads: PadRoute[];
   controls: MidiControlMap[];
 }

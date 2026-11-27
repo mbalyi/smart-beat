@@ -8,7 +8,7 @@ import { ChoiceGroup, MidiCard, MidiDialog } from "@/components/midi/midi-dialog
 import { deviceLabel, useMidiDevices } from "@/components/midi/use-midi-devices";
 import { Button } from "@/components/ui/button";
 import { newPad } from "@/lib/audio-lanes/midi";
-import { padCells, padsToRoutes, type PadCell } from "@/lib/midi/pad-board";
+import { padCells, padsToRoutes, withPadNote, type PadCell } from "@/lib/midi/pad-board";
 import { DRUM_MIDI_MAP, MAIN_KIT } from "@/lib/score/drum-map";
 import { errorText } from "@/lib/errors";
 import {
@@ -79,7 +79,13 @@ export function PadBoardDialog({
     setSeen(activity.at);
     if (learning && activity.kind === "note" && (!device || activity.device === device.name)) {
       setLearning(false);
-      update({ device: settings && { ...settings, pads: route(settings, cell, activity.number) } });
+      update({
+        device: settings && {
+          ...settings,
+          padNotes: withPadNote(settings.padNotes ?? [], cell.pad, activity.number),
+          pads: route(settings, cell, activity.number),
+        },
+      });
     }
   }
 
@@ -255,7 +261,6 @@ export function PadBoardDialog({
               key={i}
               type="button"
               aria-pressed={selected === i}
-              aria-label={`Pad ${i + 1}: sends note ${c.sends}, plays ${c.label}`}
               onClick={() => setSelected(i)}
               className={cn(
                 "relative flex h-20 flex-col items-start justify-between rounded-xl border-2 bg-card p-2 text-left transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
@@ -265,8 +270,8 @@ export function PadBoardDialog({
               <span className="flex w-full items-center justify-between text-xs text-muted-foreground">
                 Pad {i + 1}
                 {hit && <ActivityLight at={activity.at} />}
-              </span>
-              <span className="w-full truncate text-sm font-semibold">{c.label}</span>
+              </span>{" "}
+              <span className="w-full truncate text-sm font-semibold">{c.label}</span>{" "}
               <span className="text-[10px] text-muted-foreground">note {c.sends}</span>
             </button>
           );

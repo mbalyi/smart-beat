@@ -165,7 +165,14 @@ declare global {
           semitones: number;
           /** Shown under the tabs in the continuous view (off by default). */
           shownInScore?: boolean;
-          clips: { startMs: number }[];
+          /** A MIDI lane (ADR 0006) and its sound. */
+          kind?: "midi";
+          instrument?: unknown;
+          clips: {
+            startMs: number;
+            take: number;
+            midi?: { takes: { notes: unknown[] }[] };
+          }[];
         }[];
         sources: { id: string; name: string; embedded: boolean }[];
         sync: { bar: number; ms: number }[];
@@ -173,6 +180,14 @@ declare global {
       sync: { tick: number; ms: number }[];
     } | null;
     __engineSources: Record<string, { type: string; path?: string; entry?: string }>;
+    /** MIDI input fakes (e2e/tauri-mock.js): devices, what a recording returns, what was sent. */
+    __midiDevices?: { name: string; connected: boolean; settings: { pads: unknown[] } }[];
+    __midiRecorded?: { ms: number; status: number; d1: number; d2: number }[];
+    __midiRecording?: boolean;
+    __midiArmed?: string | null;
+    __midiPanics?: number;
+    __midiInjected?: number[][];
+    __midiLive?: { lane: string; messages: number[][] }[];
     /** The commands the audio engine was sent (`audio_transport`). */
     __engineTransport?: { type: string; [key: string]: unknown }[];
     /** Practice together sends audio files: the bytes this computer has (by id) and what arrived. */
