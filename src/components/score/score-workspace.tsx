@@ -39,11 +39,11 @@ import { ArmedLaneBar } from "@/components/audio-lanes/armed-lane-bar";
 import { LaneRecordContext } from "@/components/audio-lanes/lane-record-context";
 import { useLaneRecord } from "@/components/audio-lanes/use-lane-record";
 import { encodeWav } from "@/lib/export/wav";
-import { addSource, updateClip, updateLane } from "@/lib/audio-lanes/edits";
+import { addClip, addLane, addSource, updateClip, updateLane } from "@/lib/audio-lanes/edits";
 import { knobValue } from "@/lib/midi/controls";
 import { hasBandRows } from "@/lib/audio-lanes/band-rows";
 import { laneDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
-import { EMPTY_AUDIO, MAX_LANES, lanesOf } from "@/lib/audio-lanes/model";
+import { EMPTY_AUDIO, MAX_LANES, lanesOf, newClip, newLane } from "@/lib/audio-lanes/model";
 import { registerStemLaneTarget, type StemLaneHandler } from "@/lib/stems/lane-targets";
 import { addStemLanes, freeLanes } from "@/lib/stems/stem-lanes";
 import type { FileDragState } from "@/lib/file-drag-store";
@@ -322,6 +322,7 @@ import {
   loadAudioSource,
   MIXER_SETTINGS_VERSION,
   pickAudioFile,
+  addAudioTake,
   pickSavePath,
   writeScoreFile,
   readDroppedAudio,
@@ -2499,6 +2500,55 @@ export function ScoreWorkspace({
     }
   };
 
+  /**
+   * Renders a MIDI lane (its instrument and effects) to audio on a new audio lane at the same
+   * place, and mutes the MIDI lane: one Undo step (ADR 0006).
+   */
+  const renderMidiLane = async (laneId: string) => {
+    const player = playerRef.current;
+    const lane = lanes.audio.lanes.find((l) => l.id === laneId);
+    if (!lane || lane.kind !== "midi") return;
+    if (!player?.usesNativeEngine) {
+      toast.info("Rendering needs the built-in audio engine", {
+        description: "Switch it on in the player's sound menu, then try again.",
+      });
+      return;
+    }
+    const clips = lane.clips.filter((c) => !c.mute);
+    if (clips.length === 0) return;
+    const startMs = Math.min(...clips.map((c) => c.startMs));
+    const endMs = Math.max(...clips.map((c) => c.startMs + c.lengthMs));
+    const toastId = toast.loading(`Rendering “${lane.name}”…`);
+    try {
+      player.setMix(soloLaneMix(lane.id));
+      const audio = await player.renderAudio();
+      const frame = (ms: number) =>
+        Math.round((songMsAtTimeline(ms) / 1000) * audio.sampleRate) * audio.channels;
+      const samples = audio.samples.slice(
+        Math.max(0, frame(startMs)),
+        Math.min(audio.samples.length, frame(endMs)),
+      );
+      const name = `${lane.name} (audio).wav`;
+      const info = await addAudioTake(name, encodeWav({ ...audio, samples }));
+      lanes.apply((a) => {
+        const rendered = newLane(`${lane.name} (audio)`);
+        const source = { id: info.id, name, ext: info.ext, embedded: true };
+        const withLane = addLane(addSource(a, source), rendered);
+        const placed = addClip(
+          withLane,
+          rendered.id,
+          newClip(info.id, name, startMs, info.durationMs),
+        );
+        return updateLane(placed, lane.id, { mute: true });
+      });
+      toast.success(`Rendered “${lane.name}” to an audio lane`, { id: toastId });
+    } catch (error) {
+      toast.error("Couldn't render the lane", { id: toastId, description: errorText(error) });
+    } finally {
+      player.setMix(mixRef.current);
+    }
+  };
+
   /** Quiets a lane's clips before its take starts (set once the lane recording is set up). */
   const beforeTake = useRef<(laneId: string | null) => void>(() => {});
   const recordAudio = useRecordAudio({
@@ -4034,6 +4084,7 @@ export function ScoreWorkspace({
             onEffects={(laneIndex) => openPedalboard({ lane: laneIndex })}
             onEditPads={() => setPadBoardLaneId(editorLane.id)}
             onWriteTab={(clipId) => writeMidiToTab(editorLane.id, clipId)}
+            onRender={() => void renderMidiLane(editorLane.id)}
           />
         )}
         {editorLane && !studioOpen && editorLane.kind !== "midi" && (

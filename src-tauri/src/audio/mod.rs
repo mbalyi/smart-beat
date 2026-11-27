@@ -17,6 +17,7 @@ pub mod mixing;
 pub mod monitor;
 pub mod output;
 pub mod plugin;
+pub mod plugin_instrument;
 mod plugin_process;
 pub mod plugin_wire;
 pub mod sf3;
@@ -445,6 +446,8 @@ pub struct AudioState {
     pub plugins: plugin::PluginPool,
     /// Live MIDI notes for each MIDI lane, by lane id (ADR 0006).
     live_midi: Mutex<HashMap<String, lanes::midi::LiveQueue>>,
+    /// The instrument plugin of each MIDI lane (what it was built from, and its helper).
+    instruments: Mutex<HashMap<String, (String, Arc<plugin::PluginWorker>)>>,
 }
 
 impl AudioState {
@@ -462,6 +465,7 @@ impl AudioState {
             soundfonts: Arc::new(soundfonts::SoundFontLibrary::new(soundfonts_dir)),
             plugins: plugin::PluginPool::default(),
             live_midi: Mutex::new(HashMap::new()),
+            instruments: Mutex::new(HashMap::new()),
         }
     }
 
@@ -495,13 +499,62 @@ impl AudioState {
             .clone()
     }
 
-    /// A VST3 or CLAP instrument for a MIDI lane (none until the plugin can be loaded).
+    /// A VST3 or CLAP instrument for a MIDI lane, in its own helper process (none when plugins
+    /// are switched off or it cannot be loaded; the reason is reported like an effect's).
     fn plugin_instrument(
         &self,
-        _lane: &crate::audio_lanes::AudioLane,
-        _rate: f32,
+        lane: &crate::audio_lanes::AudioLane,
+        rate: f32,
     ) -> Option<lanes::midi::LaneSound> {
-        None
+        use crate::midi_lanes::{InstrumentFormat, LaneInstrument};
+        let Some(LaneInstrument::Plugin {
+            format,
+            path,
+            state,
+            ..
+        }) = &lane.instrument
+        else {
+            return None;
+        };
+        let state = chain::decode_plugin_state(state.as_deref().unwrap_or(""))
+            .map_err(|e| eprintln!("instrument plugin: {e}"))
+            .ok()?;
+        let spec = plugin::PluginSpec {
+            format: match format {
+                InstrumentFormat::Vst3 => plugin::PluginFormat::Vst3,
+                InstrumentFormat::Clap => plugin::PluginFormat::Clap,
+            },
+            path: path.clone(),
+            state,
+        };
+        // An unchanged instrument keeps its helper (every lane edit rebuilds the lanes).
+        let key = format!("{format:?}:{path}:{}", spec.state.len());
+        let cached = self
+            .instruments
+            .lock()
+            .unwrap()
+            .get(&lane.id)
+            .filter(|(k, w)| *k == key && w.alive())
+            .map(|(_, w)| w.clone());
+        let worker = match cached {
+            Some(worker) => worker,
+            None => {
+                let worker = self
+                    .plugins
+                    .load(None, &spec, rate)
+                    .map_err(|e| eprintln!("instrument plugin: {e}"))
+                    .ok()?;
+                self.instruments
+                    .lock()
+                    .unwrap()
+                    .insert(lane.id.clone(), (key, worker.clone()));
+                worker
+            }
+        };
+        Some(lanes::midi::LaneSound::Synth {
+            instrument: Box::new(plugin_instrument::PluginInstrument::new(worker)),
+            channel: None,
+        })
     }
 
     /// The loaded recording's file name and encoded bytes (for embedding).
@@ -1733,6 +1786,46 @@ pub fn audio_midi_arm(
     }
     let monitor_open = inner.monitor.as_ref().is_some_and(|m| m.input.is_some());
     set_low_latency(&mut inner, monitor_open)
+}
+
+/// Opens (or closes) the editor window of a MIDI lane's instrument plugin.
+#[tauri::command(async)]
+pub fn audio_instrument_editor(
+    lane: String,
+    open: bool,
+    state: State<'_, AudioState>,
+) -> Result<(), CommandError> {
+    let worker = state
+        .instruments
+        .lock()
+        .unwrap()
+        .get(&lane)
+        .map(|(_, w)| w.clone())
+        .ok_or_else(|| audio_error("The instrument is not loaded"))?;
+    if open {
+        worker.open_editor().map(|_| ()).map_err(audio_error)
+    } else {
+        worker.close_editor();
+        Ok(())
+    }
+}
+
+/// The current settings of a MIDI lane's instrument plugin (base64), to save with the song.
+#[tauri::command(async)]
+pub fn audio_instrument_state(
+    lane: String,
+    state: State<'_, AudioState>,
+) -> Result<String, CommandError> {
+    use base64::Engine;
+    let worker = state
+        .instruments
+        .lock()
+        .unwrap()
+        .get(&lane)
+        .map(|(_, w)| w.clone())
+        .ok_or_else(|| audio_error("The instrument is not loaded"))?;
+    let bytes = worker.save_state().map_err(audio_error)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 /// Stops every note of every MIDI lane at once (panic).

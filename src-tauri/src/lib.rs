@@ -293,6 +293,8 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::audio_midi_live,
             audio::audio_midi_arm,
             audio::audio_midi_panic,
+            audio::audio_instrument_editor,
+            audio::audio_instrument_state,
             midi::midi_devices,
             midi::midi_device_update,
             midi::midi_device_forget,

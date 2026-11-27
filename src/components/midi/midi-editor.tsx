@@ -64,7 +64,17 @@ import { controllerLabel, isDrumLane, type ControllerKind } from "@/lib/midi-edi
 import { gridLines } from "@/lib/midi-editor/grid-lines";
 import { usePlayheadBar, type PlayheadStore } from "@/lib/score/playhead";
 import { laneColor } from "@/lib/score/track-colors";
-import { midiPanic, playLaneMidi, type AudioLane, type MidiCc, type MidiNote } from "@/lib/tauri";
+import {
+  instrumentEditor,
+  instrumentState,
+  midiPanic,
+  playLaneMidi,
+  type AudioLane,
+  type MidiCc,
+  type MidiNote,
+} from "@/lib/tauri";
+import { errorText } from "@/lib/errors";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 /** What the editor shows. */
@@ -97,6 +107,7 @@ export function MidiEditor({
   onEffects,
   onEditPads,
   onWriteTab,
+  onRender,
 }: {
   lanes: AudioLanesController;
   lane: AudioLane;
@@ -109,6 +120,8 @@ export function MidiEditor({
   onEditPads?: () => void;
   /** Writes a clip's notes into the tab. */
   onWriteTab?: (clipId: string) => void;
+  /** Renders the lane to audio on a new audio lane. */
+  onRender?: () => void;
 }) {
   const { audio } = lanes;
   const clips = lane.clips.filter((c) => c.midi);
@@ -427,6 +440,28 @@ export function MidiEditor({
           onChange={(instrument) => lanes.commands.setInstrument(lane.id, instrument)}
           onEditPads={onEditPads}
         />
+        {lane.instrument?.type === "plugin" && (
+          <PluginInstrumentButtons
+            onOpen={() =>
+              void instrumentEditor(lane.id, true).catch((e: unknown) =>
+                toast.error("Couldn't open the plugin window", { description: errorText(e) }),
+              )
+            }
+            onSave={() =>
+              void instrumentState(lane.id)
+                .then((state) => {
+                  if (lane.instrument?.type === "plugin")
+                    lanes.commands.setInstrument(lane.id, { ...lane.instrument, state });
+                  toast.success("The instrument's sound is saved with the song.");
+                })
+                .catch((e: unknown) =>
+                  toast.error("Couldn't save the instrument's sound", {
+                    description: errorText(e),
+                  }),
+                )
+            }
+          />
+        )}
         {clips.length > 1 && (
           <select
             aria-label="Clip"
@@ -613,6 +648,11 @@ export function MidiEditor({
         >
           Export MIDI…
         </Button>
+        {onRender && (
+          <Button variant="ghost" size="sm" className="h-8" onClick={onRender}>
+            Render to audio
+          </Button>
+        )}
         {onWriteTab && (
           <Button variant="ghost" size="sm" className="h-8" onClick={() => onWriteTab(clip.id)}>
             Write into the tab
@@ -1040,5 +1080,25 @@ function ControllerPicker({
         </option>
       ))}
     </select>
+  );
+}
+
+/** The window and the saved sound of a VST3 or CLAP instrument. */
+function PluginInstrumentButtons({ onOpen, onSave }: { onOpen: () => void; onSave: () => void }) {
+  return (
+    <>
+      <Button variant="outline" size="sm" className="h-8" onClick={onOpen}>
+        Plugin window
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8"
+        onClick={onSave}
+        title="Keep the plugin's current sound with the song"
+      >
+        Save sound
+      </Button>
+    </>
   );
 }

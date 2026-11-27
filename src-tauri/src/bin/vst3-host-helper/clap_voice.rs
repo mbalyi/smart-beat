@@ -346,6 +346,37 @@ pub fn reconfigure(sample_rate: f64) -> Result<(), String> {
     result
 }
 
+thread_local! {
+    /// MIDI events for the next block, from the shared mapping (ADR 0006). The worker thread
+    /// queues and processes them, so they never cross threads.
+    static QUEUED: RefCell<Vec<(u32, [u8; 3])>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Queues an instrument's notes for the next `process` call.
+pub fn queue_events(events: &[(u32, [u8; 3])]) {
+    QUEUED.with(|q| q.borrow_mut().extend_from_slice(events));
+}
+
+/// The queued notes as CLAP events: notes as note events (what every CLAP instrument takes),
+/// everything else as raw MIDI.
+fn take_events(frames: usize) -> clack_host::events::io::EventBuffer {
+    use clack_host::events::Pckn;
+    use clack_host::events::event_types::{MidiEvent, NoteOffEvent, NoteOnEvent};
+    let mut buffer = clack_host::events::io::EventBuffer::new();
+    let events = QUEUED.with(|q| std::mem::take(&mut *q.borrow_mut()));
+    for (offset, [status, d1, d2]) in events {
+        let time = offset.min(frames.saturating_sub(1) as u32);
+        let chan = (status & 0x0f) as u16;
+        let pckn = Pckn::new(0u16, chan, d1 as u16, clack_host::events::Match::All);
+        match status & 0xf0 {
+            0x90 if d2 > 0 => buffer.push(&NoteOnEvent::new(time, pckn, d2 as f64 / 127.0)),
+            0x80 | 0x90 => buffer.push(&NoteOffEvent::new(time, pckn, 0.0)),
+            _ => buffer.push(&MidiEvent::new(time, 0, [status, d1, d2])),
+        }
+    }
+    buffer
+}
+
 /// Runs one stereo block through the plugin. Called on the worker thread:
 /// never touches [`MAIN`], never blocks beyond the mutex. A stopped plugin
 /// passes audio through, so a half-loaded chain stays silent-free.
@@ -401,7 +432,8 @@ pub fn process(inputs: Vec<Vec<f32>>, frames: u32) -> Result<Vec<Vec<f32>>, Stri
                 out_bufs.iter_mut().map(|b| b.as_mut_slice()),
             ),
         }]);
-        let input_events = InputEvents::empty();
+        let queued = take_events(frames);
+        let input_events = InputEvents::from_buffer(&queued);
         let mut output_events = OutputEvents::void();
         started
             .process(

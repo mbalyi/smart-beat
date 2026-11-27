@@ -984,6 +984,10 @@
       case "midi_record_stop":
         window.__midiRecording = false;
         return window.__midiRecorded ?? [];
+      case "audio_instrument_editor":
+        return null;
+      case "audio_instrument_state":
+        return "c3RhdGU=";
       case "midi_inject":
         (window.__midiInjected ??= []).push(...args.messages);
         return null;

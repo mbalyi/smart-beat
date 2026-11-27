@@ -273,7 +273,10 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
         case "audio_midi_live":
         case "audio_midi_arm":
         case "audio_midi_panic":
+        case "audio_instrument_editor":
           return null;
+        case "audio_instrument_state":
+          return "";
         case "app_info":
           return APP_INFO;
         case "menu_shortcuts":

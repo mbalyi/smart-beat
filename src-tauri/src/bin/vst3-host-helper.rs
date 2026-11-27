@@ -142,6 +142,21 @@ fn process_shared(
         Ok(input) => input,
         Err(error) => return err("ProcessShared", error),
     };
+    // An instrument's notes for this block (ADR 0006), at their frames.
+    let events = audio.read_events();
+    if !events.is_empty() {
+        match plugin.lock().unwrap().as_mut() {
+            Some(Loaded::Vst3(p)) => {
+                for (offset, bytes) in &events {
+                    if let Some(event) = vst3_host::MidiEvent::from_midi_bytes(bytes) {
+                        let _ = p.send_midi_event_at(event, *offset as i32);
+                    }
+                }
+            }
+            Some(Loaded::Clap) => clap_voice::queue_events(&events),
+            None => {}
+        }
+    }
     match handle(
         HostCommand::Process {
             inputs: vec![left, right],

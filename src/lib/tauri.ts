@@ -1472,6 +1472,13 @@ export const armMidiLane = (lane: string | null) => call<void>("audio_midi_arm",
 /** Stops every note of every MIDI lane (panic). */
 export const midiPanic = () => call<void>("audio_midi_panic");
 
+/** Opens or closes the editor window of a MIDI lane's instrument plugin. */
+export const instrumentEditor = (lane: string, open: boolean) =>
+  call<void>("audio_instrument_editor", { lane, open });
+
+/** The current settings of a MIDI lane's instrument plugin (base64), to keep with the song. */
+export const instrumentState = (lane: string) => call<string>("audio_instrument_state", { lane });
+
 /** The nearest zero crossing to `ms` in a loaded file (within 10 ms). */
 export const audioZeroCrossing = (source: string, ms: number) =>
   call<number>("audio_zero_crossing", { source, ms });

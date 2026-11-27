@@ -11,7 +11,8 @@ export type TourId =
   | "effects"
   | "record-to-tab"
   | "audio-lanes"
-  | "sample-browser";
+  | "sample-browser"
+  | "midi";
 
 export interface FeatureEntry {
   id: string;
@@ -25,6 +26,14 @@ export interface FeatureEntry {
 }
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
+  {
+    id: "midi-lanes",
+    title: "MIDI lanes, the MIDI editor and your pad controller",
+    summary:
+      "Add a MIDI lane and draw notes in a piano roll, drum grid or event list, or record them from a pad controller, keyboard, electronic drum kit, the on-screen drums or the computer keyboard while the song plays. Map your pads to drums or to your own samples, learn knobs and buttons for play, record and volume, quantize without losing your timing, and play it all with a General MIDI sound, the drum kit, a pad bank or a VST3 or CLAP instrument.",
+    since: "1.4.0",
+    tour: "midi",
+  },
   {
     id: "crash-reports-default",
     title: "Crash reports are on by default",
