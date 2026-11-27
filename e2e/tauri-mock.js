@@ -853,7 +853,11 @@
       case "read_project_settings":
         return window.__projectSettings[args.path] ?? null;
       case "write_project_settings":
-        window.__projectSettings[args.path] = args.settings;
+        // Like `MixerSettings::for_writing`: version 4 only for a song with a MIDI lane (ADR 0006).
+        window.__projectSettings[args.path] = {
+          ...args.settings,
+          version: args.settings?.audio?.lanes?.some((l) => l.kind === "midi") ? 4 : 3,
+        };
         return null;
       case "audio_set_sounds":
         engine.chains[args.track] = args.sounds[0];
