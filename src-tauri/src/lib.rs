@@ -16,6 +16,7 @@ pub mod lane_transcription;
 pub mod m4a;
 pub mod menu;
 pub mod menu_state;
+pub mod midi_lanes;
 pub mod mixer;
 pub mod open_file;
 pub mod pdf;

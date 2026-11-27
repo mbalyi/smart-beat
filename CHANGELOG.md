@@ -6,6 +6,8 @@ Release notes for every version. The release workflow publishes the section that
 
 ### New
 
+- **MIDI lanes.** Add a MIDI lane next to your audio lanes and play it with a General MIDI sound, the drum kit, an imported kit, a pad bank of your own samples or a VST3/CLAP instrument. MIDI clips move, split, trim, copy and glue like audio clips, play through the lane's effects and sends, and are part of the WAV export. Songs saved with MIDI lanes use settings version 4, which earlier versions of Smart Beat cannot open.
+
 - **Record on an audio lane.** Every audio lane has a record icon next to mute and solo. Press it to arm the lane: you hear your input through that lane's own effects (amp, pedals, plugins) while the song plays, and the bar at the bottom shows the input, its delay and a **Hear myself** switch (off at first for the computer's own microphone or the system default input, with a headphones warning when you turn it on). Press the icon again to record a take straight onto the lane with the last choices of Record audio, and once more to keep it. The lane's own clips stay quiet under the take, the other lanes follow mute and solo, **Space** keeps the take and **Escape** throws it away. One undo takes a kept take away again. Your own Monitor track comes back when you let go of the lane.
 
 ### Changed

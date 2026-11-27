@@ -3,6 +3,7 @@ import {
   diffAudio,
   applyMixChanges,
   isAudioOp,
+  MAX_CLIP_JSON,
   mixChanges,
   PERSONAL_LANE_FIELDS,
   receiveAudioOps,
@@ -13,7 +14,14 @@ import {
   type AudioOp,
 } from "@/lib/audio-lanes/collab";
 import { addClip, addLane, addSource, removeClips, updateLane } from "@/lib/audio-lanes/edits";
-import { EMPTY_AUDIO, MAX_LANES, newClip, newLane } from "@/lib/audio-lanes/model";
+import {
+  EMPTY_AUDIO,
+  MAX_LANES,
+  newClip,
+  newLane,
+  newMidiClip,
+  newMidiLane,
+} from "@/lib/audio-lanes/model";
 import type { AudioLanesSettings, AudioSource } from "@/lib/tauri";
 
 const SRC: AudioSource = { id: "a".repeat(64), name: "drums.wav", ext: "wav", embedded: true };
@@ -399,5 +407,79 @@ describe("audio lane sharing: what the editor can make always passes the check",
     const there = applyAudioOps(EMPTY_AUDIO, ops);
     expect(there.lanes[0]!.clips).toHaveLength(1);
     expect(there.sources).toHaveLength(1);
+  });
+});
+
+describe("MIDI lanes in Practice together", () => {
+  const midiSong = (notes: number) => {
+    const lane = newMidiLane("Keys", { type: "soundfont", program: 4, bank: 0 }, "keys");
+    const clip = newMidiClip(
+      "Riff",
+      0,
+      60_000,
+      {
+        notes: Array.from({ length: notes }, (_, i) => ({
+          id: `n${i}`,
+          startMs: i * 10,
+          lenMs: 10,
+          pitch: 60 + (i % 12),
+          vel: 90,
+          chan: 0,
+        })),
+      },
+      "riff",
+    );
+    return { ...EMPTY_AUDIO, lanes: [{ ...lane, clips: [clip] }] };
+  };
+
+  it("shares a MIDI lane's kind and instrument and a small clip in one operation", () => {
+    const next = midiSong(5);
+    const ops = diffAudio(EMPTY_AUDIO, next);
+    expect(ops.map((o) => o.t)).toEqual(["a-lane-add", "a-clip-set"]);
+    const checked = validAudioOps(JSON.parse(JSON.stringify(ops)) as unknown[]);
+    expect(checked).not.toBeNull();
+    const there = applyAudioOps(EMPTY_AUDIO, checked!);
+    expect(there.lanes[0]!.kind).toBe("midi");
+    expect(there.lanes[0]!.instrument).toEqual({ type: "soundfont", program: 4, bank: 0 });
+    expect(there.lanes[0]!.clips[0]!.midi!.takes[0]!.notes).toHaveLength(5);
+  });
+
+  it("sends a big MIDI clip's events in parts that each fit one message", () => {
+    const next = midiSong(1_000);
+    const ops = diffAudio(EMPTY_AUDIO, next);
+    const parts = ops.filter((o) => o.t === "a-midi-notes");
+    expect(parts.length).toBeGreaterThan(5);
+    for (const op of ops) expect(JSON.stringify(op).length).toBeLessThan(MAX_CLIP_JSON + 200);
+    const checked = validAudioOps(JSON.parse(JSON.stringify(ops)) as unknown[]);
+    const there = applyAudioOps(EMPTY_AUDIO, checked!);
+    expect(there.lanes[0]!.clips[0]!.midi!.takes[0]!.notes.map((n) => n.id)).toEqual(
+      next.lanes[0]!.clips[0]!.midi!.takes[0]!.notes.map((n) => n.id),
+    );
+  });
+
+  it("refuses bad MIDI events and instruments from another player", () => {
+    const [laneAdd, clipSet] = diffAudio(EMPTY_AUDIO, midiSong(2));
+    const badNote = JSON.parse(JSON.stringify(clipSet)) as {
+      clip: { midi: { takes: { notes: { pitch: unknown }[] }[] } };
+    };
+    badNote.clip.midi.takes[0]!.notes[0]!.pitch = "x";
+    expect(validAudioOps([laneAdd, badNote])).toBeNull();
+    const badInstrument = JSON.parse(JSON.stringify(laneAdd)) as { lane: { instrument: unknown } };
+    badInstrument.lane.instrument = { type: "rootkit" };
+    expect(validAudioOps([badInstrument])).toBeNull();
+    const extra = JSON.parse(JSON.stringify(clipSet)) as {
+      clip: { midi: { takes: { notes: Record<string, unknown>[] }[] } };
+    };
+    extra.clip.midi.takes[0]!.notes[0]!.evil = 1;
+    expect(JSON.stringify(validAudioOps([laneAdd, extra]))).not.toContain("evil");
+  });
+
+  it("turns a lane back into audio when the kind is cleared", () => {
+    const here = applyAudioOps(EMPTY_AUDIO, diffAudio(EMPTY_AUDIO, midiSong(0)));
+    const back = applyAudioOps(here, [
+      { t: "a-lane-set", id: "keys", set: { kind: null, instrument: null } as never },
+    ]);
+    expect(back.lanes[0]!.kind).toBeUndefined();
+    expect(back.lanes[0]!.instrument).toBeUndefined();
   });
 });

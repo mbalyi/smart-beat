@@ -231,7 +231,7 @@ export interface TrackMix {
 }
 
 /** Mirrors `mixer::VERSION` in `src-tauri/src/mixer.rs`. */
-export const MIXER_SETTINGS_VERSION = 3;
+export const MIXER_SETTINGS_VERSION = 4;
 /** Mirrors `mixer::MIN_VERSION`: older settings files that still load. */
 export const MIXER_SETTINGS_MIN_VERSION = 1;
 
@@ -390,7 +390,97 @@ export interface AudioClip {
   stretch: StretchMarker[];
   /** Clips with the same group id move, nudge, delete and select together. */
   groupId?: string;
+  /**
+   * A MIDI clip's events (ADR 0006). Set only on clips of a MIDI lane; their `takes` keep only
+   * the take names (an empty `sourceId`), and `midi.takes[i]` holds the events of `takes[i]`.
+   */
+  midi?: MidiClipData;
 }
+
+/** Mirrors `MidiNote`: one note of a MIDI clip, in ms from the clip start. */
+export interface MidiNote {
+  id: string;
+  startMs: number;
+  lenMs: number;
+  /** MIDI key 0 … 127. */
+  pitch: number;
+  /** 1 … 127. */
+  vel: number;
+  /** MIDI channel 0 … 15. */
+  chan: number;
+  /** Where the note was played before quantize (un-quantize returns here). */
+  rawStartMs?: number;
+  rawLenMs?: number;
+  muted?: boolean;
+}
+
+/** What a MIDI controller event changes. */
+export type MidiCcKind = "cc" | "bend" | "pressure" | "program";
+
+/** Mirrors `MidiCc`: a controller, pitch bend, channel pressure or program change. */
+export interface MidiCc {
+  atMs: number;
+  kind: MidiCcKind;
+  /** The controller number for `cc` (0 … 127). */
+  cc?: number;
+  /** 0 … 127, or -8192 … 8191 for a pitch bend. */
+  value: number;
+  chan: number;
+}
+
+/** One take of a MIDI clip. */
+export interface MidiTake {
+  notes: MidiNote[];
+  cc: MidiCc[];
+}
+
+/** Mirrors `MidiClipData`. */
+export interface MidiClipData {
+  takes: MidiTake[];
+}
+
+/** What a pad plays when it is hit. */
+export type PadPlayback = "oneShot" | "gate" | "loop";
+
+/** Mirrors `PadSlot`: one pad of a pad bank (a sample, or a drum of the kit). */
+export interface PadSlot {
+  /** The MIDI key that triggers the pad (after the device's pad map). */
+  key: number;
+  name: string;
+  /** A sample from the sample browser. */
+  sample?: { folderId: string; rel: string };
+  /** The sample in the song's pool (filled when the song embeds it). */
+  sourceId?: string;
+  /** A drum of the lane's kit instead of a sample (a GM drum key). */
+  drum?: number;
+  playback: PadPlayback;
+  trimStartMs: number;
+  /** 0: to the end of the sample. */
+  trimEndMs: number;
+  semitones: number;
+  cents: number;
+  /** 0 … 1. */
+  volume: number;
+  /** -1 … 1. */
+  pan: number;
+  /** How much velocity changes the volume, 0 … 1. */
+  velDepth: number;
+  /** Pads in one choke group (1 … 16) silence each other; 0: none. */
+  choke: number;
+  /** The most voices of this pad at once (1 … 32). */
+  voices: number;
+  /** Send levels to the song's first two buses, 0 … 1. */
+  sendA: number;
+  sendB: number;
+}
+
+/** Mirrors `LaneInstrument`: what a MIDI lane sounds with. */
+export type LaneInstrument =
+  | { type: "soundfont"; program: number; bank: number }
+  | { type: "drums" }
+  | { type: "kit"; kitId: string }
+  | { type: "pads"; pads: PadSlot[] }
+  | { type: "plugin"; format: "vst3" | "clap"; path: string; name: string; state?: string };
 
 /** Mirrors `AudioSource`: an audio file that clips play. */
 export interface AudioSource {
@@ -447,6 +537,10 @@ export interface AudioLane extends BackingParams {
   clips: AudioClip[];
   /** Shown under the tabs in the continuous view (off by default; the track list shows every lane). */
   shownInScore?: boolean;
+  /** A MIDI lane (ADR 0006); absent: an audio lane. */
+  kind?: "midi";
+  /** A MIDI lane's sound (unset: General MIDI piano). */
+  instrument?: LaneInstrument;
 }
 
 /** Mirrors `AudioBus`: a bus that lane sends feed (a reverb or delay return). */
@@ -476,7 +570,7 @@ export interface AudioRegion {
   name: string;
 }
 
-/** The audio side of a song (settings version 3). */
+/** The audio side of a song (settings version 4: MIDI lanes added). */
 export interface AudioLanesSettings {
   lanes: AudioLane[];
   sources: AudioSource[];

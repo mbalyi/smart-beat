@@ -22,9 +22,11 @@ use crate::error::{CommandError, ErrorKind};
 
 /// Current settings format. Version 1 files (before sounds, EQ, automation,
 /// the drum mixer and the audio track) still load; other versions are ignored.
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 /// Oldest version still read.
 pub const MIN_VERSION: u32 = 1;
+/// The version a song without MIDI lanes is written as, so earlier releases still open it.
+pub const AUDIO_ONLY_VERSION: u32 = 3;
 /// Upper bounds that keep a damaged file from exhausting memory.
 pub const MAX_AUTOMATION_POINTS: usize = 4_096;
 pub const MAX_PRESETS: usize = 200;
@@ -314,6 +316,17 @@ impl MixerSettings {
         self
     }
 
+    /// The settings as written: version 4 only when a MIDI lane needs it (ADR 0006), otherwise
+    /// version 3, which earlier releases read.
+    pub fn for_writing(mut self) -> Self {
+        let midi = self
+            .audio
+            .as_ref()
+            .is_some_and(|a| a.lanes.iter().any(|l| l.is_midi()));
+        self.version = if midi { VERSION } else { AUDIO_ONLY_VERSION };
+        self
+    }
+
     /// Checks the version and that every value is in range.
     pub fn validate(&self) -> Result<(), String> {
         if !(MIN_VERSION..=VERSION).contains(&self.version) {
@@ -580,7 +593,7 @@ impl MixerStore {
 
         fs::create_dir_all(&self.dir).map_err(|error| io_error(&error))?;
         let mut file = tempfile::NamedTempFile::new_in(&self.dir).map_err(|e| io_error(&e))?;
-        serde_json::to_writer_pretty(&mut file, settings)
+        serde_json::to_writer_pretty(&mut file, &settings.clone().for_writing())
             .map_err(io::Error::from)
             .and_then(|()| file.flush())
             .map_err(|error| io_error(&error))?;

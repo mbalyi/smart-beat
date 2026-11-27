@@ -1,4 +1,5 @@
-//! Audio lanes: clips of audio files next to the tab tracks (settings version 3).
+//! Audio lanes: clips of audio files next to the tab tracks (settings version 3), and MIDI lanes
+//! (version 4, `crate::midi_lanes`).
 //!
 //! Mirrored by `AudioLanesSettings` and its parts in `src/lib/tauri.ts`; the pure edits live in
 //! `src/lib/audio-lanes/`. Clips sit on an audio timeline in milliseconds, which the song's sync
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::audio::backing::BackingParams;
 use crate::audio::chain::{EffectSlot, MAX_TRACK_EFFECTS};
+use crate::midi_lanes::{LaneInstrument, LaneKind, MAX_MIDI_EVENTS, MidiClipData};
 use crate::mixer::{AudioTrack, SyncPoint};
 
 /// The most lanes a song can have.
@@ -128,6 +130,9 @@ pub struct AudioClip {
     /// Clips with the same group id move, nudge, delete and select together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
+    /// A MIDI clip's events (ADR 0006); its takes keep only their names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi: Option<MidiClipData>,
 }
 
 fn one() -> f64 {
@@ -238,6 +243,19 @@ pub struct AudioLane {
     /// Shown under the tabs in the continuous view. Off by default; the track list shows every lane.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shown_in_score: bool,
+    /// A MIDI lane (ADR 0006); absent: an audio lane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<LaneKind>,
+    /// A MIDI lane's sound (none: General MIDI piano).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument: Option<LaneInstrument>,
+}
+
+impl AudioLane {
+    /// A lane of MIDI clips.
+    pub fn is_midi(&self) -> bool {
+        self.kind == Some(LaneKind::Midi)
+    }
 }
 
 /// A bus that lane sends feed.
@@ -380,7 +398,12 @@ impl AudioClip {
         if self.takes.is_empty() || self.takes.len() > MAX_TAKES || self.take >= self.takes.len() {
             return Err("a clip needs one to 64 takes".into());
         }
-        if self.takes.iter().any(|t| {
+        if let Some(midi) = &self.midi {
+            if self.takes.iter().any(|t| !t.source_id.is_empty()) {
+                return Err("a MIDI clip plays no source".into());
+            }
+            midi.validate(self.takes.len(), MAX_MS)?;
+        } else if self.takes.iter().any(|t| {
             !sources.iter().any(|s| s.id == t.source_id) || !finite_in(t.offset_ms, 0.0, MAX_MS)
         }) {
             return Err("a clip plays an unknown source".into());
@@ -460,6 +483,12 @@ impl AudioLane {
         {
             return Err("invalid lane send".into());
         }
+        if self.is_midi() != self.clips.iter().all(|c| c.midi.is_some()) && !self.clips.is_empty() {
+            return Err("a lane mixes audio and MIDI clips".into());
+        }
+        if let Some(instrument) = &self.instrument {
+            instrument.validate(&|id| sources.iter().any(|s| s.id == id))?;
+        }
         self.clips.iter().try_for_each(|c| c.validate(sources))
     }
 }
@@ -497,6 +526,16 @@ impl AudioLanes {
                 return Err("invalid bus".into());
             }
         }
+        let midi_events: usize = self
+            .lanes
+            .iter()
+            .flat_map(|l| &l.clips)
+            .filter_map(|c| c.midi.as_ref())
+            .map(MidiClipData::event_count)
+            .sum();
+        if midi_events > MAX_MIDI_EVENTS {
+            return Err("too many MIDI events in the song".into());
+        }
         for lane in &self.lanes {
             lane.validate(&self.sources, &self.buses)?;
             if let Some(parent) = &lane.parent
@@ -519,6 +558,12 @@ impl AudioLanes {
                 .flat_map(|l| &l.clips)
                 .flat_map(|c| &c.takes)
                 .any(|t| t.source_id == s.id)
+                || self
+                    .lanes
+                    .iter()
+                    .filter_map(|l| l.instrument.as_ref())
+                    .flat_map(LaneInstrument::source_ids)
+                    .any(|id| id == s.id)
         })
     }
 }
@@ -565,6 +610,7 @@ pub fn migrate_audio_track(track: &AudioTrack) -> AudioLanes {
         envelope: Vec::new(),
         stretch: Vec::new(),
         group_id: None,
+        midi: None,
     };
     let lane = AudioLane {
         id: lane_id,
@@ -583,6 +629,8 @@ pub fn migrate_audio_track(track: &AudioTrack) -> AudioLanes {
         height: None,
         clips: vec![clip],
         shown_in_score: false,
+        kind: None,
+        instrument: None,
     };
     let mut sync = track.sync.clone();
     sync.sort_by_key(|p| p.bar);
@@ -673,6 +721,22 @@ mod tests {
     }
 
     #[test]
+    fn only_songs_with_midi_lanes_are_written_as_version_four() {
+        use crate::mixer::{AUDIO_ONLY_VERSION, MixerSettings, VERSION};
+        let mut settings: MixerSettings =
+            serde_json::from_str(r#"{"version":3,"master":1,"tracks":[]}"#).unwrap();
+        let mut audio = migrate_audio_track(&track());
+        settings.audio = Some(audio.clone());
+        assert_eq!(
+            settings.clone().migrate().for_writing().version,
+            AUDIO_ONLY_VERSION
+        );
+        audio.lanes.push(midi_lane(&audio));
+        settings.audio = Some(audio);
+        assert_eq!(settings.for_writing().version, VERSION);
+    }
+
+    #[test]
     fn a_song_without_audio_gets_no_lanes() {
         let settings: crate::mixer::MixerSettings =
             serde_json::from_str(r#"{"version":1,"master":1,"tracks":[]}"#).unwrap();
@@ -735,6 +799,84 @@ mod tests {
         unused.id = "a".repeat(64);
         audio.sources.push(unused);
         assert_eq!(audio.used_sources().count(), 1);
+    }
+
+    fn midi_lane(audio: &AudioLanes) -> AudioLane {
+        use crate::midi_lanes::{MidiNote, MidiTake};
+        let mut lane = audio.lanes[0].clone();
+        lane.id = "midi-lane".into();
+        lane.kind = Some(LaneKind::Midi);
+        let mut clip = lane.clips[0].clone();
+        clip.id = "midi-clip".into();
+        clip.length_ms = 4_000.0;
+        clip.takes[0].source_id = String::new();
+        clip.midi = Some(MidiClipData {
+            takes: vec![MidiTake {
+                notes: vec![MidiNote {
+                    id: "n".into(),
+                    start_ms: 0.0,
+                    len_ms: 250.0,
+                    pitch: 38,
+                    vel: 90,
+                    chan: 9,
+                    raw_start_ms: Some(12.0),
+                    raw_len_ms: None,
+                    muted: false,
+                }],
+                cc: vec![],
+            }],
+        });
+        lane.clips = vec![clip];
+        lane
+    }
+
+    #[test]
+    fn midi_lanes_round_trip_and_validate() {
+        let mut audio = migrate_audio_track(&track());
+        audio.lanes.push(midi_lane(&audio));
+        assert_eq!(audio.validate(), Ok(()));
+        let json = serde_json::to_string(&audio).unwrap();
+        assert!(json.contains(r#""kind":"midi""#));
+        assert!(json.contains(r#""rawStartMs":12.0"#));
+        let read: AudioLanes = serde_json::from_str(&json).unwrap();
+        assert_eq!(read, audio);
+        assert!(read.lanes[1].is_midi() && !read.lanes[0].is_midi());
+        // An audio lane in an older file reads as audio with no MIDI fields written back.
+        let written = serde_json::to_value(&audio).unwrap();
+        assert!(written["lanes"][0].get("kind").is_none());
+        assert!(written["lanes"][0]["clips"][0].get("midi").is_none());
+    }
+
+    #[test]
+    fn rejects_midi_clips_with_sources_or_mixed_lanes() {
+        let base = migrate_audio_track(&track());
+        let mut audio = base.clone();
+        let mut lane = midi_lane(&audio);
+        lane.clips[0].takes[0].source_id = audio.sources[0].id.clone();
+        audio.lanes.push(lane);
+        assert!(audio.validate().is_err(), "a MIDI clip plays no source");
+        let mut audio = base.clone();
+        let mut lane = midi_lane(&audio);
+        lane.clips.push(base.lanes[0].clips[0].clone());
+        audio.lanes.push(lane);
+        assert!(audio.validate().is_err(), "one kind of clip per lane");
+    }
+
+    #[test]
+    fn pad_samples_count_as_used_sources() {
+        use crate::midi_lanes::PadSlot;
+        let mut audio = migrate_audio_track(&track());
+        let mut pad_source = audio.sources[0].clone();
+        pad_source.id = "b".repeat(64);
+        audio.sources.push(pad_source);
+        let mut lane = midi_lane(&audio);
+        let pad: PadSlot =
+            serde_json::from_str(&format!(r#"{{"key":36,"sourceId":"{}"}}"#, "b".repeat(64)))
+                .unwrap();
+        lane.instrument = Some(LaneInstrument::Pads { pads: vec![pad] });
+        audio.lanes.push(lane);
+        assert_eq!(audio.validate(), Ok(()));
+        assert_eq!(audio.used_sources().count(), 2);
     }
 
     fn marker(id: &str, ms: f64) -> AudioMarker {

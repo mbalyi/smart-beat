@@ -373,6 +373,7 @@ mod tests {
             envelope: vec![],
             stretch: vec![],
             group_id: None,
+            midi: None,
         }
     }
 
@@ -394,6 +395,8 @@ mod tests {
             height: None,
             clips,
             shown_in_score: false,
+            kind: None,
+            instrument: None,
         }
     }
 

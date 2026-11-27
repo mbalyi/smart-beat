@@ -167,7 +167,7 @@ pub fn write_settings(
             "Settings can only be stored in .gp files.",
         ));
     }
-    let settings = settings.clone().migrate();
+    let settings = settings.clone().migrate().for_writing();
     settings
         .validate()
         .map_err(|reason| CommandError::new(ErrorKind::InvalidSettings, reason))?;

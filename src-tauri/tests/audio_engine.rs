@@ -641,6 +641,8 @@ fn lane_prepared(solo: bool, clip_ms: f64) -> smart_beat_lib::audio::lanes::Prep
             group: 0,
             height: None,
             shown_in_score: false,
+            kind: None,
+            instrument: None,
             clips: vec![AudioClip {
                 id: "clip".into(),
                 takes: vec![AudioTake {
@@ -664,6 +666,7 @@ fn lane_prepared(solo: bool, clip_ms: f64) -> smart_beat_lib::audio::lanes::Prep
                 envelope: vec![],
                 stretch: vec![],
                 group_id: None,
+                midi: None,
             }],
         }],
         ..Default::default()

@@ -782,7 +782,7 @@ describe("ScoreWorkspace: settings and the audio lanes in the song file", () => 
     const call = calls.find((c) => c.cmd === "write_project_settings")!;
     expect(call.args).toMatchObject({
       path: "/songs/practice-song.gp",
-      settings: expect.objectContaining({ version: 3 }),
+      settings: expect.objectContaining({ version: 4 }),
     });
   });
 

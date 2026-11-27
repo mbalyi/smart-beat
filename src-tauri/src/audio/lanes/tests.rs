@@ -66,6 +66,7 @@ fn clip(id: &str, start_ms: f64, offset_ms: f64, length_ms: f64) -> AudioClip {
         envelope: vec![],
         stretch: vec![],
         group_id: None,
+        midi: None,
     }
 }
 
@@ -90,6 +91,8 @@ fn lane(id: &str, clips: Vec<AudioClip>) -> AudioLane {
         height: None,
         clips,
         shown_in_score: false,
+        kind: None,
+        instrument: None,
     }
 }
 
